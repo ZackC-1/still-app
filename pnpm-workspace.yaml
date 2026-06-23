@@ -1,0 +1,10 @@
+packages:
+  - "packages/*"
+
+# esbuild needs its postinstall to fetch the platform binary (used by Vite/WXT/Vitest).
+# spawn-sync is a transitive build helper; harmless to allow.
+allowBuilds:
+  esbuild: true
+  spawn-sync: true
+
+# ext-firefox is scaffold-only (deferred); it has no package.json yet, so pnpm skips it.
