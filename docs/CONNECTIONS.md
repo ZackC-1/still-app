@@ -59,4 +59,4 @@ All secrets live in `.env` (gitignored); `.env.example` lists every key by name.
 
 ## Autonomy / loop posture
 
-`.claude/settings.json` sets `permissions.defaultMode: bypassPermissions` (no prompts). Blast radius is contained by convention: run `/loop` only on a dedicated `build/*` branch with `main` protected. A runaway loop can still rewrite the repo — keep the build branch separate from other work.
+`.claude/settings.json` sets `permissions.defaultMode: bypassPermissions` (no prompts). The enforceable guardrail is server-side, not convention: enable **GitHub branch protection on `main`** (require PR + green CI, block force-push and direct push) so a bypass-mode loop cannot reach `main` even with all local prompts off. Run `/loop` only on a dedicated `build/*` branch.

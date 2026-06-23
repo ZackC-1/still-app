@@ -20,7 +20,7 @@ The product surface is large (extension × 2 engines + native app + backend + pa
 
 ## Autonomy boundary (read first)
 
-**Phase A — fully autonomous, CI-green, no Apple credentials.** Monorepo, shared core + rule engine, content script, Chromium extension, the entire Supabase backend including the RevenueCat webhook bridge (verified with a *faked* payload), and the full test harness. An agent can build, test, and iterate this unattended via `/loop`.
+**Phase A — fully autonomous, CI-green, no Apple credentials.** Monorepo, shared core + rule engine, content script, Chromium extension, the entire Supabase backend including the RevenueCat webhook bridge (verified with a *faked* payload sourced from RevenueCat's published samples — this proves projection logic, not wire-format, which is first confirmed at the U19 checkpoint), and the full test harness. The Chromium extension is runtime-verified via Playwright; the **Safari extension compiles but its runtime is verified only in Phase B** (needs macOS/Xcode). An agent can build, test, and iterate the rest unattended via `/loop`.
 
 **Phase B — human-gated, batched.** The agent writes 100% of the Swift / StoreKit / RevenueCat integration code and a local `.storekit` test config, but a human on a Mac with Apple credentials must: create the App Store Connect IAP product, generate the In-App Purchase Key (.p8) and ASC API key, create sandbox testers, configure RevenueCat, run the Safari `safari-web-extension-packager` + Xcode build/sign, and run the real purchase test. These are the only steps an agent cannot complete; they are checkpoints, not loop work.
 
@@ -32,7 +32,7 @@ The agent must never claim to have performed a Phase B human step (origin: docs/
 
 ### Blocking core
 R1. Short-form surfaces and their navigation entry points are removed across YouTube, Instagram, Facebook, and TikTok on both desktop and mobile web, flash-free for static page chrome, with no broken layouts.
-R2. A Shorts URL with a video id redirects to the standard watch page with no Shorts player paint; a Shorts URL with no id shows the Still placeholder.
+R2. A Shorts URL with a video id redirects to the standard watch page; on a hard navigation no Shorts player paints (network-layer redirect on Chromium), and on an in-app SPA navigation the Shorts surface is removed under the accepted-flash ceiling (KTD2). A Shorts URL with no id shows the Still placeholder.
 R3. Direct Instagram/Facebook Reels URLs and every `tiktok.com` page show the Still placeholder.
 R4. The content script re-applies rules on SPA route changes (History API + popstate) and via MutationObserver for lazily injected content; every client ships both desktop and mobile selector sets regardless of platform.
 R5. Blocking is driven by a versioned JSON rule set; the user-facing control is one master toggle per service; a rules update adds new surfaces under an enabled service immediately and defaults a brand-new service off until enabled.
@@ -45,6 +45,8 @@ R7. Free (sync-off) users transmit nothing — local is the only copy; paid (syn
 R8. Email magic link is the universal cross-platform sign-in; Sign in with Apple is offered only on Apple devices.
 R9. "Still Sync" is a single non-consumable StoreKit 2 IAP via RevenueCat; the entitlement is tied to the Still account, and any device signed into that account reads it to enable sync.
 R10. In-app account deletion and data export are available (App Store Guideline 5.1.1).
+R18. Entitlement state self-heals: a dropped webhook is recovered by a login/restore reconcile, and a pre-login anonymous purchase is aliased to the account.
+R19. On hosts with no purchase path (non-Apple desktop), the paywall shows an explanatory state, never a purchasable CTA.
 
 ### Rules hosting & ops
 R11. The backend hosts the canonical rule set; clients fetch it at runtime, cache it, and fall back to the cached-then-bundled set offline; rule updates reach clients without an app-store resubmission.
@@ -63,21 +65,21 @@ R17. The repo is connected to GitHub with a CI workflow, a hands-off `/loop` per
 
 ## Key Technical Decisions
 
-KTD1. **One redirect mechanism, not two.** Shorts→watch is a `document_start` content-script `location.replace`, plus a History-API / `webNavigation.onHistoryStateUpdated` hook for in-app SPA navigations. Chrome *may* additionally ship a static `declarativeNetRequestWithHostAccess` redirect rule for the clean hard-navigation case, but the content script is the cross-platform source of truth — Safari does not reliably support `regexSubstitution` redirects (research: Apple forums 700769/721258/763505; MDN BCD).
+KTD1. **Redirect: DNR-primary on Chromium, content-script fallback on Safari.** On Chromium the Shorts→watch redirect is a static `declarativeNetRequestWithHostAccess` rule (network-layer, zero paint — this matches origin D7). On Safari, which does not reliably support `regexSubstitution` redirects, the redirect is a `document_start` content-script `location.replace`. Both engines hook in-app SPA navigations via the History API, `popstate`, AND the Navigation API (`navigation` event), with the MutationObserver owning same-URL cases (e.g. an Instagram Reel opening in a same-URL modal the History hook never sees). The "no paint" guarantee (R2/AE1) holds for hard navigations; an in-app SPA navigation into a Short falls under the accepted-flash ceiling (KTD2), not the no-paint guarantee (research: Apple forums 700769/721258/763505; MDN BCD).
 
 KTD2. **Flash-free is a CSS guarantee, not a JS one.** Static chrome is hidden via the manifest `content_scripts[].css` array at `document_start` (applies before first paint). Dynamically injected feed items are hidden by a pre-emptive *container* CSS rule plus a MutationObserver as best-effort; a transient sub-frame flash on infinite-scroll injection is the accepted ceiling (origin R1; research: Chrome content_scripts manifest docs).
 
 KTD3. **WXT for the build.** One Vite-based config emits Chromium MV3 and Safari resources with per-browser manifests and Svelte support; pass `--mv3` for the Safari build (WXT defaults Safari to MV2). Always build the `dist/` and load that, never source.
 
-KTD4. **One UI, per-host storage adapter.** The shared Svelte UI persists through an injected adapter: `chrome.storage` in the Chromium/Safari extension contexts; `WKScriptMessageHandler` → native Swift → a shared App Group container in the Apple app's WKWebView. "Build once" holds for markup/logic; storage is explicitly abstracted (origin D8).
+KTD4. **One UI, per-host storage adapter — including the Safari bridge.** The shared Svelte UI persists through an injected adapter: `chrome.storage` in the Chromium/Safari extension contexts; `WKScriptMessageHandler` → native Swift → a shared App Group container in the Apple app's WKWebView. On Safari the content script reads `browser.storage`, so app-set settings must reach it: the Safari app-extension target bridges the App Group container to `browser.storage` (the App Group is source of truth on Apple; `browser.storage` mirrors it). "Build once" holds for markup/logic; storage — and this Safari bridge — is the riskiest seam (origin D8).
 
-KTD5. **Entitlement bridge.** `app_user_id` = the Supabase `auth.users` UUID, set at `Purchases.configure(appUserID:)` after magic-link sign-in. RevenueCat → webhook → Supabase Edge Function with `verify_jwt = false`, a constant-time compare of a static `Authorization` token, a service-role idempotent upsert keyed on the event id, resolution of `app_user_id` + `original_app_user_id` + `aliases[]`, and handling of `NON_RENEWING_PURCHASE` / `TRANSFER` / `CANCELLATION`. Credentials use an **In-App Purchase Key (.p8)** — the app-specific shared secret is deprecated for StoreKit 2 (research: RevenueCat docs).
+KTD5. **Entitlement bridge — webhook + reconcile, not webhook-only.** `app_user_id` = the Supabase `auth.users` UUID, set at `Purchases.configure(appUserID:)` after sign-in; a pre-login anonymous purchase is aliased via `Purchases.logIn(uuid)` on first sign-in. RevenueCat → webhook → Supabase Edge Function with `verify_jwt = false`, a **RevenueCat source-IP allowlist gate** followed by a constant-time compare of a static `Authorization` token, an idempotent upsert keyed on the event id (via a **narrow insert/update-only Postgres role**, not the full service-role key; token never logged), resolution of `app_user_id` + `original_app_user_id` + `aliases[]`, and handling of `NON_RENEWING_PURCHASE` / `TRANSFER` / `CANCELLATION`/refund. Because at-least-once delivery can drop, the table is NOT the sole writer: a **reconcile path** (the app posts `customerInfo`, or a reconcile Edge Function queries the RevenueCat REST API by `app_user_id`) writes entitlement on login/restore so a missed webhook self-heals. Credentials use an **In-App Purchase Key (.p8)** — the shared secret is deprecated for StoreKit 2 (research: RevenueCat docs).
 
 KTD6. **Single settings set.** No `scope` enum; one `profiles` row per user; last-write-wins, timestamped (origin D4).
 
 KTD7. **Per-service toggles; surfaces internal.** Four user toggles; surfaces are authoring/QA units grouped under a service; the safety model is per-service, not per-surface (origin D2/D3).
 
-KTD8. **Supabase RLS, explicit.** RLS enabled on every table; `rule_sets` public read (`to anon, authenticated using (true)`), no write policy; `entitlements` user-read / service-role-write only; `profiles` user read+write own row; wrap `auth.uid()` in `(select auth.uid())` and index `user_id` (research: Supabase RLS perf docs; CVE-2025-48757).
+KTD8. **Supabase RLS, explicit; rule sets are signed.** RLS enabled on every table; `rule_sets` public read (`to anon, authenticated using (true)`), no write policy; `entitlements` user-read / service-role-write only; `profiles` user read+write own row; wrap `auth.uid()` in `(select auth.uid())` and index `user_id` (research: Supabase RLS perf docs; CVE-2025-48757). Because clients execute fetched rules against the DOM, each `rule_sets` row carries an **HMAC-SHA256 signature** (signing key never shipped to clients / never readable by the public role); clients verify the signature before swapping a rule set in, so a leaked service-role key alone cannot push a malicious rule set. Aliases resolved in the webhook are never stored in user-readable columns.
 
 KTD9. **Custom SMTP is a launch blocker.** Supabase's built-in auth email is capped at ~2/hour; magic link in production needs Resend (or SMTP) with a verified sending domain (research: Supabase rate-limit docs).
 
@@ -85,7 +87,7 @@ KTD10. **Test strategy.** Pure-TS rule-engine unit tests + Playwright-against-lo
 
 KTD11. **Apple project shape.** Native iOS + native macOS targets sharing SwiftUI and a *referenced* (not copied) web-extension Resources folder produced by `safari-web-extension-packager` (not Mac Catalyst). The build/archive/upload loop is `xcodebuild`-scriptable with an ASC API key; first-run provisioning and store metadata are GUI/human-gated (research: Apple converter docs).
 
-KTD12. **Autonomy posture.** Project-scoped `bypassPermissions` for hands-off `/loop`, with loops run on a dedicated per-task branch so a runaway loop cannot affect other work or escape the repo (origin: distinct-branch practice).
+KTD12. **Autonomy posture.** Project-scoped `bypassPermissions` for hands-off `/loop`, with loops run on a dedicated per-task branch. Because a bypass-mode agent can override any *convention*, the real guardrail is server-side: GitHub **branch protection on `main`** (require PR + green CI, no force-push, no direct push) enabled as a Phase 0 checkpoint, so a runaway loop cannot reach `main` or rewrite history even with all local prompts disabled (origin: distinct-branch practice).
 
 ---
 
@@ -213,7 +215,7 @@ The tree is a scope declaration; the per-unit Files lists are authoritative.
 **Requirements:** R17.
 **Dependencies:** none.
 **Files:** `.github/workflows/ci.yml`, `.gitignore`, `README.md`, `docs/CONNECTIONS.md` (CI section).
-**Approach:** Create a private GitHub repo (human provides auth/`gh login`; agent runs `gh repo create` once authed) and push `main`. Branch model: `main` protected; all `/loop` work on a dedicated `build/<task>` branch, PR to `main`. CI runs lint + typecheck + rule-engine unit tests + Playwright-on-fixtures on every push; it must be green before merge. No deploy steps in CI yet (Supabase/Apple deploys are human-gated).
+**Approach:** Create a private GitHub repo (human provides auth/`gh login`; agent runs `gh repo create` once authed) and push `main`. Branch model: all `/loop` work on a dedicated `build/<task>` branch, PR to `main`. **Enable GitHub branch protection on `main`** (require PR + green CI, block force-push and direct push) via the GitHub API as a Phase 0 checkpoint — this is the enforceable guardrail behind the bypass posture (KTD12). CI runs lint + typecheck + rule-engine unit tests + Playwright-on-fixtures on every push; it must be green before merge. No deploy steps in CI yet (Supabase/Apple deploys are human-gated).
 **Patterns to follow:** standard pnpm + Playwright GitHub Actions matrix.
 **Test scenarios:** Test expectation: none — CI config; validated by the first green run on a throwaway commit.
 **Verification:** `gh repo view` resolves; a pushed branch triggers a CI run that passes on the scaffold.
@@ -277,9 +279,9 @@ The tree is a scope declaration; the per-unit Files lists are authoritative.
 **Requirements:** R1, R2, R4.
 **Dependencies:** U6.
 **Files:** `packages/core/src/content/index.ts`, `packages/core/src/content/redirect.ts`, `packages/core/src/content/observer.ts`, `packages/core/src/content/__tests__/redirect.test.ts`, `packages/core/src/content/__tests__/observer.test.ts`.
-**Approach:** Static-chrome CSS is shipped via the manifest `content_scripts[].css` (assembled from U6) so it applies pre-paint (KTD2). The script reads settings from the local cache synchronously (U8). Redirect: at `document_start`, if URL matches a Shorts pattern with an id, `location.replace(watchUrl)` before the SPA boots; hook History API (`pushState`/`replaceState`/`popstate`) to re-run on in-app navigations (KTD1). MutationObserver (rAF-coalesced) catches lazily injected feed items; pre-emptive container CSS minimizes flash.
+**Approach:** Static-chrome CSS is shipped via the manifest `content_scripts[].css` (assembled from U6) so it applies pre-paint (KTD2). The script reads settings from a **synchronous in-memory snapshot** hydrated from the storage adapter (U8) — it never awaits the adapter on the injection path. Redirect (KTD1): Chromium relies on the static DNR rule (U10) for hard-nav; Safari uses a `document_start` `location.replace`. Both hook in-app navigations via History API (`pushState`/`replaceState`/`popstate`) AND the Navigation API (`navigation` event); the MutationObserver (rAF-coalesced) owns same-URL cases (e.g. a Reel opening in a same-URL modal) plus lazily injected feed items, with pre-emptive container CSS to minimize flash.
 **Execution note:** Start with a failing test for the redirect URL transform and the History-hook re-fire.
-**Test scenarios:** redirect fires on hard-nav Shorts URL with id; History pushState into a Short re-fires the redirect; popstate back out does not loop; observer removes a feed item injected after load; observer disconnects on teardown; no redirect when id absent (→ placeholder path). Covers AE1, AE2.
+**Test scenarios:** Chromium hard-nav Shorts URL with id → DNR redirect, no paint; Safari hard-nav → `location.replace` redirect; History pushState into a Short re-fires; Navigation-API route change re-fires; popstate back out does not loop; same-URL Reel modal is caught by the observer (no URL change); observer removes a feed item injected after load and disconnects on teardown; no redirect when id absent (→ placeholder path); content script never awaits the adapter at document_start (reads the snapshot). Covers AE1, AE2.
 **Verification:** jsdom + fake-DOM tests green; Playwright fixture test (U16) confirms flash-free static hide.
 
 ### U8. Settings model + per-host storage adapter
@@ -287,7 +289,7 @@ The tree is a scope declaration; the per-unit Files lists are authoritative.
 **Requirements:** R6, R7.
 **Dependencies:** U4.
 **Files:** `packages/core/src/storage/adapter.ts`, `packages/core/src/storage/chrome-adapter.ts`, `packages/core/src/storage/cache.ts`, `packages/core/src/storage/__tests__/cache.test.ts`.
-**Approach:** Adapter interface: `get()/set()/subscribe()`. `chrome-adapter` uses `chrome.storage.local`. Settings shape: `{ globalOn, services: {yt,ig,tt,fb: boolean}, pauses: string[], updatedAt }` — one set, no scope (KTD6). Local cache is the synchronous read path (R6); writes update cache immediately, then (when sync on) push to Supabase. The WKWebView/App-Group adapter is U17 (Phase B).
+**Approach:** Adapter interface: `get()/set()/subscribe()` (all async). `chrome-adapter` uses `chrome.storage.local`. The content script never reads the adapter directly on the injection path — it reads a **synchronous in-memory snapshot** hydrated from the adapter at startup, with the bundled defaults applied for the pre-hydration window. Settings shape: `{ globalOn, services: {yt,ig,tt,fb: boolean}, pauses: string[], updatedAt }` — one set, no scope (KTD6). Per-site pause key is the eTLD+1 (e.g. `youtube.com`). Writes update the snapshot + adapter immediately, then (when sync on) push to Supabase. The WKWebView/App-Group adapter is U17 (Phase B).
 **Patterns to follow:** storage-abstraction so the same UI runs in three hosts (KTD4).
 **Test scenarios:** write-then-read round-trips; subscribe fires on change; per-site pause add/remove; LWW resolves a stale write by `updatedAt`; free-user write never calls the network (Covers AE6); paused site short-circuits engine application (Covers AE5).
 **Verification:** Unit tests green; chrome-adapter validated in the Playwright harness.
@@ -297,7 +299,7 @@ The tree is a scope declaration; the per-unit Files lists are authoritative.
 **Requirements:** R6, R8, R9, R14 (UI strings), R1 (placeholder).
 **Dependencies:** U8.
 **Files:** `packages/core/src/ui/App.svelte`, `packages/core/src/ui/components/*.svelte` (Toggle, SettingsRow, ServiceCard, PaywallSheet, Placeholder), `packages/core/src/ui/tokens.css`, `packages/core/src/ui/strings.ts`, `packages/core/src/ui/__tests__/App.test.ts`.
-**Approach:** Tokens from spec Section 3.3 (Still Blue `#2A47E8` working value — see Open Questions). Sentence case, outcome-phrased copy from the brainstorm's drafted-copy section. The UI talks only to the injected storage adapter + an auth/sync client (U13); it is host-agnostic. Paywall reads entitlement state and renders the $2.99 unlock or signed-in state.
+**Approach:** Tokens from spec Section 3.3 (Still Blue `#2A47E8` working value — see Open Questions). Sentence case, outcome-phrased copy from the brainstorm's drafted-copy section. The UI talks only to the injected storage adapter + an auth/sync client (U13); it is host-agnostic. The UI specifies behavior per state (a **UI state matrix**), not just the component inventory: popup (signed-out / signed-in-not-entitled / entitled-syncing / cloud-unreachable); magic-link sign-in (idle → sending → check-your-email → error, with a resend cooldown); paywall (dismiss leaves a persistent "Get Still Sync" row; the full sheet only re-opens on tap); settings signed-out empty state; per-site pause (button toggles Pause/Resume by current-site state); a one-time "your settings now match your other devices" notice on first cloud sync; and the Still placeholder (one string across the Shorts-no-id / Reels / TikTok contexts). **On non-Apple hosts the paywall renders an explanatory state** ("buy once on iPhone, iPad, or Mac — sync turns on here when you sign in"), never a purchasable CTA (R19). Full light/dark, keyboard-reachable controls, and a focus-trapped paywall sheet.
 **Patterns to follow:** brainstorm drafted copy; design tokens in spec Section 3.
 **Test scenarios:** toggling a service card writes the right settings key; global off disables all; paywall shows unlock when not entitled, account state when entitled; light/dark follows `prefers-color-scheme`; placeholder renders glyph + one calm line, no buttons.
 **Verification:** Component tests green; visual check in the Chromium options page (U10).
@@ -307,19 +309,19 @@ The tree is a scope declaration; the per-unit Files lists are authoritative.
 **Requirements:** R13, R14, R1, R2.
 **Dependencies:** U7, U9.
 **Files:** `packages/ext-chromium/entrypoints/popup/*`, `packages/ext-chromium/entrypoints/options/*`, `packages/ext-chromium/entrypoints/content.ts`, `packages/ext-chromium/entrypoints/background.ts`, `packages/ext-chromium/wxt.config.ts`, `packages/ext-chromium/rules/dnr-youtube.json`.
-**Approach:** Popup = global on/off + pause-here + open options + state-at-a-glance. Options = the full shared UI. Content entrypoint imports core's content script; manifest `css` assembled from the rule set; `matches`/`host_permissions` = the four domains (R14). Add `declarativeNetRequestWithHostAccess` + a static Chrome-only DNR redirect rule for the clean Shorts hard-nav case (KTD1) — content script remains the source of truth.
+**Approach:** Popup = global on/off + pause-here + open options + state-at-a-glance, rendering the popup state matrix from U9 (signed-out / not-entitled / entitled / offline; pause button reads Pause vs Resume by current-site state). Options = the full shared UI. Content entrypoint imports core's content script; manifest `css` assembled from the rule set; `matches`/`host_permissions` = the four domains (R14). The static `declarativeNetRequestWithHostAccess` Shorts redirect rule is the **primary** redirect path on Chromium (KTD1); the content-script redirect is the Safari path.
 **Patterns to follow:** WXT entrypoints; manifest content_scripts CSS at document_start.
 **Test scenarios:** extension loads unpacked in Playwright; service worker registers; options page renders the UI; popup pause toggles per-site state; host permissions exactly the four domains; no `<all_urls>`.
 **Verification:** Playwright loads `dist/`, derives the extension id from the SW URL, asserts UI + permissions (U16).
 
 ### U11. Supabase schema + RLS migrations
-**Goal:** Create `profiles`, `entitlements`, `rule_sets`, `devices` with correct RLS and indexes.
+**Goal:** Create `profiles`, `entitlements`, `rule_sets` with correct RLS and indexes. (`devices` is dropped from v1 — no consumer under the single-settings model; defer to a future migration if per-device tracking is ever needed.)
 **Requirements:** R6, R7, R9, R11, R14.
 **Dependencies:** U3, U5.
 **Files:** `supabase/migrations/0001_init.sql`, `supabase/migrations/0002_rls.sql`, `supabase/migrations/0003_indexes.sql`.
 **Approach:** `profiles(id uuid pk→auth.users, settings jsonb, updated_at)` — one row per user, no scope (KTD6). `entitlements(user_id uuid pk→auth.users, still_sync bool, source text, updated_at)`. `rule_sets(version text pk, payload jsonb, is_current bool, published_at)`. RLS per KTD8: enable on all; `rule_sets` public read, no write; `entitlements` user read-only / service-role write; `profiles` user read+write own; `(select auth.uid())` wrapping; index `entitlements.user_id`, `profiles.id`. `on delete cascade` FKs to `auth.users` for U15.
 **Patterns to follow:** Supabase RLS perf best practices (research).
-**Test scenarios:** anon can select `rule_sets`, cannot insert; user A cannot read user B's profile/entitlement; user cannot write own entitlement; service role can; cascade delete removes profile + entitlement rows.
+**Test scenarios:** anon can select `rule_sets`, cannot insert; user A `SELECT ... WHERE user_id = <B>` returns zero rows (no cross-user read, no UUID enumeration); resolved aliases are not stored in any user-readable column; user cannot write own entitlement; service role can; cascade delete removes profile + entitlement rows.
 **Verification:** Migrations apply on local Supabase (CLI/Docker); RLS asserted via the local test suite against anon + two user JWTs.
 
 ### U12. Rule-set hosting + runtime fetch with bundled fallback
@@ -345,9 +347,9 @@ The tree is a scope declaration; the per-unit Files lists are authoritative.
 **Requirements:** R9, R15.
 **Dependencies:** U11.
 **Files:** `supabase/functions/revenuecat-webhook/index.ts`, `supabase/functions/revenuecat-webhook/__tests__/webhook.test.ts`.
-**Approach:** Per KTD5: `verify_jwt=false`; constant-time compare incoming `Authorization` vs `REVENUECAT_WEBHOOK_TOKEN`; resolve `app_user_id`/`original_app_user_id`/`aliases[]` to the Supabase UUID; service-role idempotent upsert keyed on event id; map `NON_RENEWING_PURCHASE`→grant, `TRANSFER`→move, `CANCELLATION`/refund→revoke; 401 on bad token, 200 on duplicate.
+**Approach:** Per KTD5: RevenueCat source-IP allowlist gate, then `verify_jwt=false` + constant-time compare incoming `Authorization` vs `REVENUECAT_WEBHOOK_TOKEN` (via a narrow insert/update-only Postgres role, not full service-role; token never logged); resolve `app_user_id`/`original_app_user_id`/`aliases[]` to the Supabase UUID; idempotent upsert keyed on event id; map `NON_RENEWING_PURCHASE`→grant, `TRANSFER`→move, `CANCELLATION`/refund→revoke; 401 on bad token, 403 on non-allowlisted IP, 200 on duplicate. Also expose a **reconcile** path (`reconcile-entitlement` queries the RevenueCat REST API by `app_user_id`) so a dropped webhook self-heals on next login/restore.
 **Execution note:** Test-first against faked RevenueCat payloads — this path must be provable with zero Apple involvement (R15).
-**Test scenarios:** valid grant payload → entitlement true; bad token → 401, no write; duplicate event id → single row (idempotent); `TRANSFER` moves entitlement between UUIDs; `CANCELLATION` revokes; alias-only `app_user_id` resolves to the canonical UUID; malformed body → 4xx.
+**Test scenarios:** valid grant payload → entitlement true; bad token → 401, no write; request from a non-allowlisted IP → 403, no write; duplicate event id → single row (idempotent); `TRANSFER` moves entitlement between UUIDs; `CANCELLATION` revokes; alias-only `app_user_id` resolves to the canonical UUID; webhook dropped then login → reconcile path writes entitlement true; malformed body → 4xx.
 **Verification:** Local function test POSTs faked payloads with the right/wrong token and asserts `entitlements` state end to end.
 
 ### U15. Account deletion + data export Edge Functions
@@ -368,6 +370,15 @@ The tree is a scope declaration; the per-unit Files lists are authoritative.
 **Test scenarios:** each service fixture: target surfaces removed, page otherwise intact; Shorts fixture: redirect attempted; static chrome hidden before first paint (no flash); smoke job runs but never gates merge.
 **Verification:** CI green on fixtures; smoke job reports separately.
 
+### U21. Selector-health canary Edge Function
+**Goal:** The scheduled canary that fetches each service and flags when live markup no longer matches the current selectors — the operational early-warning for selector rot (origin D10: a requirement, not optional).
+**Requirements:** R12.
+**Dependencies:** U5, U11, U12.
+**Files:** `supabase/functions/selector-canary/index.ts`, `supabase/functions/selector-canary/__tests__/canary.test.ts`.
+**Approach:** A scheduled function (Supabase cron) fetches each service's representative page, runs the current rule set's selectors against the fetched HTML, and counts matches per surface. Zero matches for a previously-matching surface → flag. Emit one outbound notification (a webhook/email URL stored as an env secret) naming the broken service + surface. Elaborate routing/dashboards are follow-up, but a minimal alert ships in v1.
+**Test scenarios:** a fixture whose markup matches → no flag; a fixture with a renamed selector → flag naming the surface; notification fires once per newly-broken surface; missing notify secret → logs and no-ops without crashing.
+**Verification:** Local function test flags a deliberately-broken fixture and fires a mock notification.
+
 ---
 
 ### Phase B — Human-gated Apple/store (agent writes code; human runs Apple gates)
@@ -375,7 +386,7 @@ The tree is a scope declaration; the per-unit Files lists are authoritative.
 ### U17. Apple Xcode project — iOS + macOS, Safari ext host, WKWebView + storage bridge
 **Goal:** Generate the single Xcode project with native iOS + macOS targets that host the Safari Web Extension and the shared UI, including the App-Group storage adapter.
 **Requirements:** R13, R6, R10 (delete entry).
-**Dependencies:** U9, U10 (ext-safari build).
+**Dependencies:** U4 (produces the ext-safari `dist/`), U9.
 **Files:** `apps/apple/Still.xcodeproj`, `apps/apple/Shared/*.swift`, `apps/apple/iOS/*.swift`, `apps/apple/macOS/*.swift`, `apps/apple/Shared/StorageBridge.swift`, `docs/CONNECTIONS.md` (Apple build section).
 **Approach:** Run `xcrun safari-web-extension-packager` against `packages/ext-safari` `dist/` to scaffold native iOS + macOS targets sharing a *referenced* Resources folder (KTD11). WKWebView hosts the shared UI; `WKScriptMessageHandler` ↔ native ↔ App Group container implements the storage adapter (KTD4) and exposes account-deletion. **Human checkpoint:** first-run signing/provisioning in Xcode.
 **Test scenarios:** Test expectation: limited — Swift unit test for the storage bridge encode/decode; full validation is the human Xcode build (checkpoint).
@@ -395,7 +406,7 @@ The tree is a scope declaration; the per-unit Files lists are authoritative.
 **Requirements:** R8, R9.
 **Dependencies:** U13, U14, U17.
 **Files:** `apps/apple/Shared/Purchases/*.swift`, `apps/apple/Still.storekit`, `apps/apple/Shared/Auth/SignInWithApple.swift`.
-**Approach:** RevenueCat via SPM (`purchases-ios-spm`); `Purchases.configure(appUserID: supabaseUUID)` after magic-link/SIWA sign-in (KTD5); gate sync on `customerInfo.entitlements["still_sync"].isActive`; visible restore button; a local `.storekit` config lets purchase flows be exercised without App Store Connect. **Human checkpoints:** ASC product creation, .p8 key, sandbox testers, RevenueCat dashboard, real purchase test.
+**Approach:** RevenueCat via SPM (`purchases-ios-spm`); `Purchases.configure(appUserID: supabaseUUID)` after sign-in, and `Purchases.logIn(supabaseUUID)` to alias any pre-login anonymous purchase (KTD5); the paywall buy action is gated on an active session (no anonymous purchase in the shipped UI); after purchase/restore the app posts `customerInfo` to the reconcile path (U14) so the entitlement lands even if the webhook drops; gate sync on `customerInfo.entitlements["still_sync"].isActive`; visible restore button; a local `.storekit` config lets purchase flows be exercised without App Store Connect. **Human checkpoints:** ASC product creation, .p8 key, sandbox testers, RevenueCat dashboard, real purchase test.
 **Test scenarios:** Test expectation: limited — purchase/entitlement logic exercised against the local `.storekit` config (human runs in Xcode); restore re-links to the current UUID. The webhook→entitlement projection is already proven in U14 without Apple.
 **Verification:** Sandbox purchase unlocks sync on the device and, via the webhook, on a desktop Chromium install signed into the same account (human checkpoint).
 
@@ -416,7 +427,7 @@ The tree is a scope declaration; the per-unit Files lists are authoritative.
 
 **Outside this product's identity:** whole-site blocking of anything except TikTok; timers / streaks / locks / willpower mechanics; ad-blocking; parental controls; de-infinite-ing the regular (non-short-form) feeds; short-form on Google Search/Video results and third-party TikTok/Reel embeds (Still runs only on the four service domains).
 
-**Deferred to follow-up work (this build, separate sequencing):** Sentry beyond DSN wiring; a marketing site / privacy-policy hosting; CDN caching in front of `rule_sets`; the selector-canary alerting destination (U-level canary exists via R12; where it pages is follow-up).
+**Deferred to follow-up work (this build, separate sequencing):** Sentry beyond DSN wiring; a marketing site / privacy-policy hosting; CDN caching in front of `rule_sets`; elaborate selector-canary routing/dashboards (a minimal alert ships in U21; richer alerting is follow-up).
 
 ---
 
@@ -460,7 +471,10 @@ Local development needs: Node + pnpm, the Supabase CLI + Docker (local Postgres/
 
 **Deferred to implementation:**
 - Exact per-service selectors and locale-subdomain match list (authored in U5, refreshed against live markup; verified by U16 fixtures).
-- Whether to ship the optional Chrome-only static DNR redirect rule in addition to the content-script redirect, or content-script only (KTD1 leaves it optional; default: include for the clean hard-nav case).
+- The Safari content-script redirect timing vs YouTube's own `document_start` boot (KTD1 fallback path) — verify the race on-device in Phase B.
+
+**Product sequencing (from review — decide before committing Phase B):**
+- Ship the Chromium extension to the Chrome Web Store as a standalone free launch at the end of Phase A to validate desktop demand before the perpetual Apple/Safari + selector-maintenance investment? The full free desktop product exists at the Phase A boundary; the plan currently builds both halves before any user contact.
 
 ---
 
