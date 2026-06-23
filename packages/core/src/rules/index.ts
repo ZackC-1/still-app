@@ -16,3 +16,21 @@ export {
   PRODUCTION_RULE_SET_KEYS,
   DEV_RULE_SET_KEYS,
 } from "./trusted-keys.js";
+export {
+  urlMatchesPattern,
+  resolveService,
+  etldPlusOne,
+  applyRedirectTemplate,
+} from "./match.js";
+export {
+  evaluate,
+  applyDom,
+  generateHideCss,
+  renderPlaceholder,
+  isServiceActive,
+  isPaused,
+  ROOT_ACTIVE_CLASS,
+  STILL_PLACEHOLDER_LINE,
+  type Decision,
+  type ApplyResult,
+} from "./engine.js";
