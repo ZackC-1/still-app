@@ -1,0 +1,34 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# Build output
+dist/
+.output/
+.wxt/
+build/
+coverage/
+
+# Tests
+test-results/
+playwright-report/
+.playwright/
+
+# Supabase
+supabase/.branches/
+supabase/.temp/
+
+# Xcode / Apple
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.xcworkspace/xcuserdata/
+
+# OS / editor
+.DS_Store
+*.log
