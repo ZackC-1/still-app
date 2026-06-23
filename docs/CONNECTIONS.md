@@ -22,7 +22,7 @@ After Tier 0, the loop can build and CI-test all of Phase A locally.
 
 | # | Connection | Who | Provides | Blocks |
 |---|---|---|---|---|
-| 4 | **Supabase project** (create at supabase.com) | 🧑 creates · 🤖 runs migrations/functions | `SUPABASE_URL`, anon key, **service-role key** | ⏳ hosted rule set, auth, sync, entitlement webhook |
+| 4 | **Supabase project** (create at supabase.com) | 🧑 creates · 🤖 runs migrations/functions | `SUPABASE_URL`, anon key, migration-only service-role/DB credentials, narrow function write credentials | ⏳ hosted rule set, auth, sync, entitlement webhook |
 | 5 | **Resend** (or SMTP) + verified sending domain | 🧑 (needs DNS) | `RESEND_API_KEY`, sender domain | ⏳ magic-link sign-in (built-in caps at ~2/hr → launch blocker) |
 | 6 | Sentry (optional) | 🧑 | `SENTRY_DSN` | crash reporting only |
 
@@ -59,4 +59,4 @@ All secrets live in `.env` (gitignored); `.env.example` lists every key by name.
 
 ## Autonomy / loop posture
 
-`.claude/settings.json` sets `permissions.defaultMode: bypassPermissions` (no prompts). The enforceable guardrail is server-side, not convention: enable **GitHub branch protection on `main`** (require PR + green CI, block force-push and direct push) so a bypass-mode loop cannot reach `main` even with all local prompts off. Run `/loop` only on a dedicated `build/*` branch.
+`.claude/settings.json` sets `permissions.defaultMode: bypassPermissions` (no prompts). The enforceable guardrails are server-side and environment-side, not convention: enable **GitHub branch protection on `main`** (require PR + green CI + human review, block force-push and direct push), enable secret scanning, keep production secrets out of the loop environment, and run `/loop` only on a dedicated `build/*` branch/worktree. Branch protection prevents direct damage to `main`; it does not protect any secret or external account credential available to the loop.

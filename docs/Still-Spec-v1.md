@@ -8,8 +8,8 @@ authority_note: |
   supersessions: per-surface toggles → per-service master toggles only;
   two-profile desktop/mobile sync → single synced settings set (no scope enum);
   "videos hidden today" counter → cut from v1; Shorts redirect mechanism →
-  single content-script location.replace at document_start (Safari cannot do a
-  declarativeNetRequest regexSubstitution redirect). Read the second-pass doc and
+  declarativeNetRequest network-layer redirect on Chromium, content-script
+  location.replace fallback on Safari (per D7 / plan KTD1). Read the second-pass doc and
   the plan before implementing anything in Sections 4, 5, and 6 below.
 ---
 
@@ -162,7 +162,7 @@ Remove so it appears never to have existed:
 - The "Shorts" tab on channel pages.
 - Shorts entries surfaced in related/up-next and in chips/pivot bars.
 
-Direct navigation to a Shorts URL (`youtube.com/shorts/<id>`): redirect to the standard watch page for the same video (`youtube.com/watch?v=<id>`) when an id is present. If no id is present, show the Still placeholder. (Per second-pass + research: implement as a single content-script `location.replace` at document_start plus a History-API hook for in-app SPA navigations — NOT a declarativeNetRequest redirect, which Safari does not reliably support.)
+Direct navigation to a Shorts URL (`youtube.com/shorts/<id>`): redirect to the standard watch page for the same video (`youtube.com/watch?v=<id>`) when an id is present. If no id is present, show the Still placeholder. (Per second-pass + research + plan KTD1: on Chromium use a `declarativeNetRequestWithHostAccess` network-layer redirect — zero paint; on Safari, which does not reliably support `regexSubstitution` redirects, use the earliest-possible `document_start` content-script `location.replace` with a measured flash budget, plus a History-API/Navigation-API hook for in-app SPA navigations.)
 
 ### 4.2 Instagram (short-form = Reels)
 
@@ -231,6 +231,7 @@ Safety model (per second-pass): a rules update that adds a new surface under an 
 
 - Apple in-app purchase only, via StoreKit 2, on the iOS and Mac apps. There is no web/Stripe checkout in v1.
 - Use RevenueCat to validate the purchase and manage the entitlement, and to write the entitlement to the user's Still account in the backend. (Per research: use an In-App Purchase Key (.p8) — NOT the deprecated app-specific shared secret. Set RevenueCat `app_user_id` = the Supabase auth user UUID.)
+- The shipped purchase UI requires account sign-in before purchase. A dropped webhook or restore is reconciled by a server-side backend call to RevenueCat; the client may request reconcile, but client-supplied purchase state is never trusted to grant the Supabase entitlement.
 
 ### 6.3 Entitlement bridge
 
@@ -279,11 +280,12 @@ Safety model (per second-pass): a rules update that adds a new surface under an 
 ## 9. Data model (Supabase)
 
 - `profiles` — `id` uuid pk fk -> auth.users, `settings` jsonb (global on/off, per-service master toggles, per-site pauses), `updated_at` timestamptz. (Per second-pass: no `scope` enum — one row per user.)
-- `entitlements` — `user_id` uuid pk fk -> auth.users, `still_sync` boolean default false, `source` text, `updated_at` timestamptz. User-readable, service-role-writable only.
-- `rule_sets` — `version` text pk, `payload` jsonb, `is_current` boolean, `published_at` timestamptz. Public read.
+- `entitlements` — `user_id` uuid pk fk -> auth.users, `still_sync` boolean default false, `source` text, `revenuecat_subscriber_id` text, `updated_at` timestamptz. User-readable, writable only through a narrow backend RPC/function after server-side RevenueCat verification.
+- `revenuecat_events` — `event_id` text pk, `app_user_id` text, `processed_at` timestamptz, `payload` jsonb. Backend-only idempotency/audit table; never user-readable.
+- `rule_sets` — `version` text pk, `payload` jsonb, `signature` text, `is_current` boolean, `published_at` timestamptz. Raw table is backend-writable/private; clients read only the current published rule set through a view/RPC. Published rule sets are signed with an asymmetric signature whose public key is baked into clients.
 - `devices` (optional, future analytics/diagnostics).
 
-Row Level Security: `profiles`, `entitlements`, `devices` — a user can read only rows where `user_id = auth.uid()`; entitlements are written only by the service role. `rule_sets` — public read of the current set; writes restricted to service role.
+Row Level Security: `profiles`, `entitlements`, `devices` — a user can read only rows where `user_id = auth.uid()`; entitlements are written only by backend code that has verified current RevenueCat state. `rule_sets` — public read of the current signed set only; draft/history rows and writes are restricted to backend/deploy credentials.
 
 ---
 

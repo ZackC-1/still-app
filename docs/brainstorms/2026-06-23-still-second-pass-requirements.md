@@ -32,7 +32,7 @@ D5. **$2.99 one-time for Still Sync, as specified.** Single non-consumable unloc
 
 D6. **No usage counter in v1.** The optional "short videos hidden today" counter is cut — it cuts against the calm, no-measurement ethos and adds build/QA cost for no clear value.
 
-D7. **Shorts redirect happens at the network layer.** `youtube.com/shorts/<id>` → `youtube.com/watch?v=<id>` via a declarative network redirect (e.g. `declarativeNetRequest`), so the Shorts player never paints. A content-script `window.location` redirect is rejected — it fires after the Shorts UI has begun rendering and produces exactly the flash the product promises to avoid.
+D7. **Shorts redirect is network-layer where the engine supports it.** On Chromium, `youtube.com/shorts/<id>` → `youtube.com/watch?v=<id>` via a declarative network redirect (e.g. `declarativeNetRequest`), so the Shorts player never paints. Safari support must be proven on device; if Safari cannot perform an equivalent network-layer rewrite, it uses the earliest possible `document_start location.replace` fallback with an explicit measured flash budget.
 
 D8. **One settings UI, host-specific storage adapter.** The shared web UI is built once, but persistence is abstracted behind an adapter with three implementations: (a) Chromium extension → `chrome.storage` directly; (b) Safari content script → extension storage; (c) the app's WKWebView → `WKScriptMessageHandler` → native Swift → a shared App Group container that the Safari content script also reads. "Build the UI once" is true for markup and logic; storage is not free and must be designed up front.
 
@@ -51,7 +51,7 @@ R3. A rules update that adds a new *surface* under an already-enabled service ap
 **Blocking behavior**
 
 R4. Static navigation chrome (sidebar items, tabs, pivot rows) is hidden via CSS injected at `document_start` and must never paint. Dynamically injected feed items are removed on the same frame they are observed; a transient sub-frame flash on infinite-scroll injection is the defined acceptable ceiling, not a defect.
-R5. A Shorts URL containing a video id redirects at the network layer to the standard watch page with no Shorts UI paint.
+R5. A Shorts URL containing a video id redirects to the standard watch page. Chromium uses a network-layer redirect with no Shorts UI paint; Safari must either prove an equivalent network-layer redirect in Phase B or use the documented early content-script fallback.
 R6. A Shorts URL with no extractable video id (e.g. a `/shorts` feed root) shows the Still placeholder.
 R7. Every client ships both the desktop and the mobile selector sets regardless of its platform, because which layout loads (e.g. `m.youtube.com`) is independent of the device. (See D4.)
 R8. Direct Reels URLs (Instagram, Facebook) and any `tiktok.com` page show the Still placeholder.
@@ -82,7 +82,7 @@ AE6. **Covers R2.** A free (sync-off) user toggles a service off → the change 
 - The shared settings UI depends on the storage adapter in D8 existing before the UI can persist anywhere but the Chromium extension.
 - Email magic link requires a production email sender (Supabase's built-in is rate-limited; production needs SMTP/Resend) — config/human task.
 - Apple price tier maps $2.99 to the nearest point; Apple Small Business Program enrollment assumed for the 15% rate — human task.
-- The network-layer Shorts redirect (D7) assumes Safari's declarative network redirect support is sufficient for a single `main_frame` path rewrite. **Verify in Safari**; if unsupported, a Safari-specific fallback is needed (early content-script redirect accepting a minor flash, scoped to Safari only).
+- The network-layer Shorts redirect (D7) is guaranteed only on Chromium until Safari is verified on device. If unsupported, the Safari-specific fallback is early content-script redirect with a measured flash budget, scoped to Safari only.
 - Rule sets are fetched over HTTPS from the project's own origin, schema-validated, and size-capped before being swapped in; a malformed or oversized set is rejected and the last-good set is kept.
 
 ## Outstanding questions
