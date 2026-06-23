@@ -55,25 +55,43 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # The Playwright harness (config + fixtures) is added in U16. Until then this job is a
+      # green no-op; it activates automatically the moment playwright.config.ts lands.
+      - name: Detect Playwright harness
+        id: detect
+        run: |
+          if [ -f playwright.config.ts ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Playwright harness not present yet (added in U16) — skipping e2e."
+          fi
+
       - uses: pnpm/action-setup@v4
+        if: steps.detect.outputs.present == 'true'
         with:
           version: 9
 
       - uses: actions/setup-node@v4
+        if: steps.detect.outputs.present == 'true'
         with:
           node-version: 22
           cache: pnpm
 
       - name: Install dependencies
+        if: steps.detect.outputs.present == 'true'
         run: pnpm install --frozen-lockfile
 
       - name: Build extensions
+        if: steps.detect.outputs.present == 'true'
         run: pnpm -r --if-present build
 
       - name: Install Playwright Chromium
+        if: steps.detect.outputs.present == 'true'
         run: pnpm exec playwright install --with-deps chromium
 
       - name: Run Playwright fixture tests (gating)
+        if: steps.detect.outputs.present == 'true'
         run: pnpm exec playwright test --project=fixtures
 
       # The real-site smoke layer is intentionally NOT run here — it is non-gating
