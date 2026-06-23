@@ -27,4 +27,11 @@ export default tseslint.config(
       "no-undef": "off", // TS handles this; avoids false positives on browser/chrome globals
     },
   },
+  {
+    // Tests deliberately construct malformed inputs to exercise validators/guards.
+    files: ["**/__tests__/**", "**/*.test.ts", "**/*.spec.ts"],
+    rules: {
+      "@typescript-eslint/no-explicit-any": "off",
+    },
+  },
 );

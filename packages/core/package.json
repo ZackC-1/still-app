@@ -15,6 +15,7 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
+    "sign-seed": "node scripts/sign-seed.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
