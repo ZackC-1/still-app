@@ -371,6 +371,31 @@ authorization_url_path = "/oauth/consent"
 # Allow dynamic client registration
 allow_dynamic_registration = false
 
+# --- Still Edge Functions (KTD5 / U14 / U15 / U21) ---
+# Per-function JWT verification. The webhook MUST be public (RevenueCat has no Supabase JWT);
+# it is gated instead by a constant-time static-token compare inside the function (KTD5).
+# Everything else that a signed-in user calls verifies the JWT so the subject UUID comes from
+# auth.uid(), never the request body (reconcile IDOR defense).
+
+[functions.revenuecat-webhook]
+# verify_jwt=false is deliberate: gated by REVENUECAT_WEBHOOK_TOKEN constant-time compare, not JWT.
+verify_jwt = false
+
+[functions.reconcile-entitlement]
+# verify_jwt=true: subject UUID is taken ONLY from the verified JWT (auth.uid()), never the body.
+verify_jwt = true
+
+[functions.delete-user]
+verify_jwt = true
+
+[functions.export-user-data]
+verify_jwt = true
+
+[functions.selector-canary]
+# Invoked by Supabase cron / scheduled trigger, not by an end user. No user JWT involved;
+# protected by the platform schedule + its own outbound-notify secret.
+verify_jwt = false
+
 [edge_runtime]
 enabled = true
 # Supported request policies: `oneshot`, `per_worker`.
