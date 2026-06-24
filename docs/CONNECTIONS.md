@@ -53,6 +53,15 @@ Everything else — the monorepo, core, Chromium extension, the entire Supabase 
 
 ---
 
+## Selector canary (U21)
+
+The `selector-canary` Edge Function flags selector rot. It is invoked on a schedule (not by users).
+Deploy steps: set `SELECTOR_CANARY_NOTIFY_URL` (a Slack/webhook/email-relay URL) via
+`supabase secrets set`, then schedule the function — e.g. a `pg_cron` job that `net.http_post`s the
+function URL daily, or the Supabase dashboard scheduler. Without the notify URL it logs and no-ops.
+Login-walled services (e.g. Instagram) report as *indeterminate*; a persistent-indeterminate streak
+fires its own "needs manual check" alert so they can't rot silently.
+
 ## Secrets
 
 All secrets live in `.env` (gitignored); `.env.example` lists every key by name. Supabase Edge Function secrets are set via `supabase secrets set`. Never commit a real key.
