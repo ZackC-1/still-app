@@ -41,3 +41,6 @@ xcuserdata/
 
 # Playwright MCP scratch snapshots
 .playwright-mcp/
+
+# Local build secrets (real API keys) — see Config/Secrets.xcconfig
+apps/apple/Still/Config/Secrets.local.xcconfig

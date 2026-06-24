@@ -29,6 +29,7 @@
 		14DE45AF2FEC760B0056BB36 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14DE456F2FEC760B0056BB36 /* Assets.xcassets */; };
 		14DE45B02FEC760B0056BB36 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DE45712FEC760B0056BB36 /* SafariWebExtensionHandler.swift */; };
 		14DE45B12FEC760B0056BB36 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DE45712FEC760B0056BB36 /* SafariWebExtensionHandler.swift */; };
+		529725C2C304893394BF4C31 /* PurchaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67CDB89E135D61905E659535 /* PurchaseManager.swift */; };
 		55AC5C918F8A7B45BE5405D6 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 3592688C450F87C68035FDE2 /* RevenueCat */; };
 		674D1F5BA26ED716E55E19D1 /* StillKit in Frameworks */ = {isa = PBXBuildFile; productRef = 16CA36003B07053246F8E1E3 /* StillKit */; };
 		8F6D5C9BFF89BC9946BB6064 /* StillKit in Frameworks */ = {isa = PBXBuildFile; productRef = E9741E2A0A942EE850FFBF0E /* StillKit */; };
@@ -38,6 +39,7 @@
 		AF2FB730BC77B9DFD19003BB /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A6C60BC10977A15EE498382 /* OnboardingView.swift */; };
 		B5FD8FA85F83B5008536D174 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = F24F85AEECBFB0E886E4D577 /* RevenueCat */; };
 		CBEB7D1DA1DEC3929A80B97C /* OnboardingPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D9264E5ACACFF91459C50B7 /* OnboardingPresenter.swift */; };
+		CD04021613687B1E7E5D4A26 /* PurchaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67CDB89E135D61905E659535 /* PurchaseManager.swift */; };
 		DBF78C86E10C335C5314A6BC /* OnboardingPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D9264E5ACACFF91459C50B7 /* OnboardingPresenter.swift */; };
 		F7FD10534955382B93EEDC71 /* SafariExtensionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E6E888C8B18227CC92E297C /* SafariExtensionBridge.swift */; };
 		FE0459E29447C5C924A4D5FD /* StillKit in Frameworks */ = {isa = PBXBuildFile; productRef = 35445F289A3F16B1F1114377 /* StillKit */; };
@@ -109,9 +111,11 @@
 		14DE459E2FEC760B0056BB36 /* Still Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Still Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		14DE45A32FEC760B0056BB36 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		38A772B6682863706C45FB5D /* StillExtension.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = StillExtension.entitlements; sourceTree = "<group>"; };
+		67CDB89E135D61905E659535 /* PurchaseManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PurchaseManager.swift; sourceTree = "<group>"; };
 		8D9264E5ACACFF91459C50B7 /* OnboardingPresenter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnboardingPresenter.swift; sourceTree = "<group>"; };
 		9E6E888C8B18227CC92E297C /* SafariExtensionBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SafariExtensionBridge.swift; sourceTree = "<group>"; };
 		A84E021F3B9FE3FABAD24050 /* Still.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = Still.entitlements; sourceTree = "<group>"; };
+		C2A8A9E27FBD6A951955EFD0 /* Secrets.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -152,6 +156,15 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		0B52F67C943D6D4E1F1BA6B4 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				C2A8A9E27FBD6A951955EFD0 /* Secrets.xcconfig */,
+			);
+			name = Config;
+			path = Config;
+			sourceTree = "<group>";
+		};
 		14DE45622FEC760A0056BB36 = {
 			isa = PBXGroup;
 			children = (
@@ -162,6 +175,7 @@
 				14DE45982FEC760B0056BB36 /* iOS (Extension) */,
 				14DE45A22FEC760B0056BB36 /* macOS (Extension) */,
 				14DE45772FEC760B0056BB36 /* Products */,
+				0B52F67C943D6D4E1F1BA6B4 /* Config */,
 			);
 			sourceTree = "<group>";
 		};
@@ -173,6 +187,7 @@
 				14DE45682FEC760A0056BB36 /* Resources */,
 				A84E021F3B9FE3FABAD24050 /* Still.entitlements */,
 				38E983C5E8EFC965C0F8D1EC /* Onboarding */,
+				FEA91D3A64E66EDB46B044CD /* Purchases */,
 			);
 			path = "Shared (App)";
 			sourceTree = "<group>";
@@ -264,6 +279,15 @@
 			);
 			name = Onboarding;
 			path = Onboarding;
+			sourceTree = "<group>";
+		};
+		FEA91D3A64E66EDB46B044CD /* Purchases */ = {
+			isa = PBXGroup;
+			children = (
+				67CDB89E135D61905E659535 /* PurchaseManager.swift */,
+			);
+			name = Purchases;
+			path = Purchases;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -543,6 +567,7 @@
 				A0BCAE75C1F91CA616E0840A /* OnboardingView.swift in Sources */,
 				AC800BF416F8103526D2CBA7 /* SafariExtensionBridge.swift in Sources */,
 				CBEB7D1DA1DEC3929A80B97C /* OnboardingPresenter.swift in Sources */,
+				529725C2C304893394BF4C31 /* PurchaseManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -555,6 +580,7 @@
 				AF2FB730BC77B9DFD19003BB /* OnboardingView.swift in Sources */,
 				F7FD10534955382B93EEDC71 /* SafariExtensionBridge.swift in Sources */,
 				DBF78C86E10C335C5314A6BC /* OnboardingPresenter.swift in Sources */,
+				CD04021613687B1E7E5D4A26 /* PurchaseManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -814,6 +840,7 @@
 		};
 		14DE45B92FEC760B0056BB36 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = C2A8A9E27FBD6A951955EFD0 /* Secrets.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -857,6 +884,7 @@
 		};
 		14DE45BA2FEC760B0056BB36 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = C2A8A9E27FBD6A951955EFD0 /* Secrets.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -977,6 +1005,7 @@
 		};
 		14DE45C02FEC760B0056BB36 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = C2A8A9E27FBD6A951955EFD0 /* Secrets.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -1021,6 +1050,7 @@
 		};
 		14DE45C12FEC760B0056BB36 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = C2A8A9E27FBD6A951955EFD0 /* Secrets.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
