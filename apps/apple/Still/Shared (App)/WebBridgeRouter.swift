@@ -1,0 +1,117 @@
+//
+//  WebBridgeRouter.swift
+//  Shared (App)
+//
+//  Routes the WKWebView `still` messages to the right native subsystem and replies with a JSON string
+//  the web side parses. Two generations of messages share the one handler:
+//
+//    • U17 settings (unchanged reply shape — a StillSettings JSON string):
+//        { kind:"get" }                       → "<settings json>" | ""
+//        { kind:"set", settings:"<json>" }    → "<resolved settings json>"
+//
+//    • U19 auth + purchase (reply a small JSON object):
+//        { kind:"signInWithApple" }           → { identityToken, nonce, email?, fullName? } | { error }
+//        { kind:"configurePurchases", appUserID } → { ok:true }   (KTD5 — RC keyed to the Supabase UUID)
+//        { kind:"purchase" }                  → { outcome, entitled }
+//        { kind:"restore" }                   → { entitled }
+//        { kind:"purchaseStatus" }            → { entitled }
+//
+//  The web layer drives sign-in: native returns the Apple credential, the web client calls Supabase
+//  `signInWithIdToken`, then hands the resulting UUID back via `configurePurchases` so RevenueCat is
+//  keyed to the same account the webhook (U14) projects the entitlement onto. The buy CTA only ever
+//  shows after a session exists (KTD5), so this router does not gate that itself.
+//
+
+import WebKit
+import StillKit
+
+@MainActor
+final class WebBridgeRouter {
+  private let settings: SettingsBridge
+  private let purchases = PurchaseManager.shared
+  private let siwa = SignInWithAppleCoordinator()
+
+  init(settings: SettingsBridge) {
+    self.settings = settings
+  }
+
+  func handle(_ body: Any, reply: @escaping (Any?, String?) -> Void) {
+    guard let dict = body as? [String: Any], let kind = dict["kind"] as? String else {
+      reply(nil, "still: malformed message")
+      return
+    }
+
+    switch kind {
+    case "get", "set":
+      // U17 settings bridge — synchronous; reply is the resolved settings JSON string (or "").
+      if let json = settings.handle(rawBody: body) {
+        reply(json, nil)
+      } else {
+        reply(nil, "still: unrecognized settings message")
+      }
+
+    case "signInWithApple":
+      Task { await self.handleSignIn(reply: reply) }
+
+    case "configurePurchases":
+      guard let appUserID = dict["appUserID"] as? String, !appUserID.isEmpty else {
+        reply(nil, "still: configurePurchases missing appUserID")
+        return
+      }
+      purchases.configure(appUserID: appUserID)
+      reply(Self.json(["ok": true]), nil)
+
+    case "purchase":
+      Task {
+        let outcome = await self.purchases.purchaseStillSync()
+        reply(Self.json(Self.outcomePayload(outcome)), nil)
+      }
+
+    case "restore":
+      Task {
+        let entitled = await self.purchases.restore()
+        reply(Self.json(["entitled": entitled]), nil)
+      }
+
+    case "purchaseStatus":
+      Task {
+        let entitled = await self.purchases.hasStillSync()
+        reply(Self.json(["entitled": entitled]), nil)
+      }
+
+    default:
+      reply(nil, "still: unknown kind \(kind)")
+    }
+  }
+
+  private func handleSignIn(reply: @escaping (Any?, String?) -> Void) async {
+    do {
+      let credential = try await siwa.signIn()
+      var payload: [String: Any] = [
+        "identityToken": credential.identityToken,
+        "nonce": credential.rawNonce,
+      ]
+      if let email = credential.email { payload["email"] = email }
+      if let fullName = credential.fullName { payload["fullName"] = fullName }
+      reply(Self.json(payload), nil)
+    } catch {
+      reply(Self.json(["error": error.localizedDescription]), nil)
+    }
+  }
+
+  private static func outcomePayload(_ outcome: PurchaseManager.Outcome) -> [String: Any] {
+    switch outcome {
+    case .purchased: return ["outcome": "purchased", "entitled": true]
+    case .cancelled: return ["outcome": "cancelled", "entitled": false]
+    case .pending: return ["outcome": "pending", "entitled": false]
+    case .failed(let message): return ["outcome": "failed", "error": message, "entitled": false]
+    }
+  }
+
+  private static func json(_ object: [String: Any]) -> String {
+    guard let data = try? JSONSerialization.data(withJSONObject: object),
+          let string = String(data: data, encoding: .utf8)
+    else { return "{}" }
+    return string
+  }
+}

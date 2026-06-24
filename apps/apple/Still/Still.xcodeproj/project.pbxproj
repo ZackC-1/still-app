@@ -43,6 +43,8 @@
 		CBEB7D1DA1DEC3929A80B97C /* OnboardingPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D9264E5ACACFF91459C50B7 /* OnboardingPresenter.swift */; };
 		CD04021613687B1E7E5D4A26 /* PurchaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67CDB89E135D61905E659535 /* PurchaseManager.swift */; };
 		DBF78C86E10C335C5314A6BC /* OnboardingPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D9264E5ACACFF91459C50B7 /* OnboardingPresenter.swift */; };
+		E6B292C152FDCFC6E068A81D /* WebBridgeRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27467FC2A004926ED26C3C69 /* WebBridgeRouter.swift */; };
+		EF90A77143253D4C0DD9BB99 /* WebBridgeRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27467FC2A004926ED26C3C69 /* WebBridgeRouter.swift */; };
 		F7FD10534955382B93EEDC71 /* SafariExtensionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E6E888C8B18227CC92E297C /* SafariExtensionBridge.swift */; };
 		FE0459E29447C5C924A4D5FD /* StillKit in Frameworks */ = {isa = PBXBuildFile; productRef = 35445F289A3F16B1F1114377 /* StillKit */; };
 /* End PBXBuildFile section */
@@ -112,6 +114,7 @@
 		14DE45992FEC760B0056BB36 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		14DE459E2FEC760B0056BB36 /* Still Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Still Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		14DE45A32FEC760B0056BB36 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		27467FC2A004926ED26C3C69 /* WebBridgeRouter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WebBridgeRouter.swift; sourceTree = "<group>"; };
 		38A772B6682863706C45FB5D /* StillExtension.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = StillExtension.entitlements; sourceTree = "<group>"; };
 		513D6A39176BF7BAAB473EB1 /* SignInWithApple.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SignInWithApple.swift; sourceTree = "<group>"; };
 		67CDB89E135D61905E659535 /* PurchaseManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PurchaseManager.swift; sourceTree = "<group>"; };
@@ -192,6 +195,7 @@
 				38E983C5E8EFC965C0F8D1EC /* Onboarding */,
 				FEA91D3A64E66EDB46B044CD /* Purchases */,
 				E413FDE090B14BC4E0986A46 /* Auth */,
+				27467FC2A004926ED26C3C69 /* WebBridgeRouter.swift */,
 			);
 			path = "Shared (App)";
 			sourceTree = "<group>";
@@ -582,6 +586,7 @@
 				CBEB7D1DA1DEC3929A80B97C /* OnboardingPresenter.swift in Sources */,
 				529725C2C304893394BF4C31 /* PurchaseManager.swift in Sources */,
 				6E9A1E93A1E73116294C0B9C /* SignInWithApple.swift in Sources */,
+				EF90A77143253D4C0DD9BB99 /* WebBridgeRouter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -596,6 +601,7 @@
 				DBF78C86E10C335C5314A6BC /* OnboardingPresenter.swift in Sources */,
 				CD04021613687B1E7E5D4A26 /* PurchaseManager.swift in Sources */,
 				61EC96E55C1AFB022252F377 /* SignInWithApple.swift in Sources */,
+				E6B292C152FDCFC6E068A81D /* WebBridgeRouter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
