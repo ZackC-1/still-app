@@ -13,6 +13,9 @@ export default tseslint.config(
       "**/coverage/**",
       "**/*.config.js",
       "**/*.config.ts",
+      // Supabase Edge Functions are Deno (jsr:/npm: imports, .ts extensions, Deno globals) —
+      // linted by `deno lint`, not the Node ESLint flat config.
+      "supabase/**",
     ],
   },
   js.configs.recommended,

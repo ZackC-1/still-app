@@ -53,6 +53,27 @@ jobs:
       - name: Build (produces both extension dist/ folders)
         run: pnpm -r --if-present build
 
+  functions:
+    name: Supabase Edge Functions (Deno)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Install function deps
+        working-directory: supabase/functions
+        run: deno install
+      - name: Lint
+        working-directory: supabase/functions
+        run: deno lint
+      - name: Typecheck entrypoints
+        working-directory: supabase/functions
+        run: deno check revenuecat-webhook/index.ts reconcile-entitlement/index.ts
+      - name: Test handlers (faked RevenueCat payloads — no Apple, no DB)
+        working-directory: supabase/functions
+        run: deno test revenuecat-webhook/handler.test.ts reconcile-entitlement/handler.test.ts
+
   e2e:
     name: Playwright on fixtures
     runs-on: ubuntu-latest
