@@ -31,7 +31,13 @@
 		14DE45B12FEC760B0056BB36 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DE45712FEC760B0056BB36 /* SafariWebExtensionHandler.swift */; };
 		674D1F5BA26ED716E55E19D1 /* StillKit in Frameworks */ = {isa = PBXBuildFile; productRef = 16CA36003B07053246F8E1E3 /* StillKit */; };
 		8F6D5C9BFF89BC9946BB6064 /* StillKit in Frameworks */ = {isa = PBXBuildFile; productRef = E9741E2A0A942EE850FFBF0E /* StillKit */; };
+		A0BCAE75C1F91CA616E0840A /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A6C60BC10977A15EE498382 /* OnboardingView.swift */; };
 		A378F004F77F80258425DCF1 /* StillKit in Frameworks */ = {isa = PBXBuildFile; productRef = 2188F2F6DC29F8399B9E1524 /* StillKit */; };
+		AC800BF416F8103526D2CBA7 /* SafariExtensionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E6E888C8B18227CC92E297C /* SafariExtensionBridge.swift */; };
+		AF2FB730BC77B9DFD19003BB /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A6C60BC10977A15EE498382 /* OnboardingView.swift */; };
+		CBEB7D1DA1DEC3929A80B97C /* OnboardingPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D9264E5ACACFF91459C50B7 /* OnboardingPresenter.swift */; };
+		DBF78C86E10C335C5314A6BC /* OnboardingPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D9264E5ACACFF91459C50B7 /* OnboardingPresenter.swift */; };
+		F7FD10534955382B93EEDC71 /* SafariExtensionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E6E888C8B18227CC92E297C /* SafariExtensionBridge.swift */; };
 		FE0459E29447C5C924A4D5FD /* StillKit in Frameworks */ = {isa = PBXBuildFile; productRef = 35445F289A3F16B1F1114377 /* StillKit */; };
 /* End PBXBuildFile section */
 
@@ -78,6 +84,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		0A6C60BC10977A15EE498382 /* OnboardingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		14DE456A2FEC760A0056BB36 /* Base */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = Base; path = Base.lproj/Main.html; sourceTree = "<group>"; };
 		14DE456B2FEC760A0056BB36 /* Icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Icon.png; sourceTree = "<group>"; };
 		14DE456C2FEC760A0056BB36 /* Style.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = Style.css; sourceTree = "<group>"; };
@@ -100,6 +107,8 @@
 		14DE459E2FEC760B0056BB36 /* Still Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Still Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		14DE45A32FEC760B0056BB36 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		38A772B6682863706C45FB5D /* StillExtension.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = StillExtension.entitlements; sourceTree = "<group>"; };
+		8D9264E5ACACFF91459C50B7 /* OnboardingPresenter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnboardingPresenter.swift; sourceTree = "<group>"; };
+		9E6E888C8B18227CC92E297C /* SafariExtensionBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SafariExtensionBridge.swift; sourceTree = "<group>"; };
 		A84E021F3B9FE3FABAD24050 /* Still.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = Still.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -159,6 +168,7 @@
 				14DE456F2FEC760B0056BB36 /* Assets.xcassets */,
 				14DE45682FEC760A0056BB36 /* Resources */,
 				A84E021F3B9FE3FABAD24050 /* Still.entitlements */,
+				38E983C5E8EFC965C0F8D1EC /* Onboarding */,
 			);
 			path = "Shared (App)";
 			sourceTree = "<group>";
@@ -240,6 +250,17 @@
 			name = Resources;
 			path = "Shared (Extension)";
 			sourceTree = SOURCE_ROOT;
+		};
+		38E983C5E8EFC965C0F8D1EC /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				0A6C60BC10977A15EE498382 /* OnboardingView.swift */,
+				9E6E888C8B18227CC92E297C /* SafariExtensionBridge.swift */,
+				8D9264E5ACACFF91459C50B7 /* OnboardingPresenter.swift */,
+			);
+			name = Onboarding;
+			path = Onboarding;
+			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
 
@@ -512,6 +533,9 @@
 				14DE45AC2FEC760B0056BB36 /* ViewController.swift in Sources */,
 				14DE457A2FEC760B0056BB36 /* AppDelegate.swift in Sources */,
 				14DE457C2FEC760B0056BB36 /* SceneDelegate.swift in Sources */,
+				A0BCAE75C1F91CA616E0840A /* OnboardingView.swift in Sources */,
+				AC800BF416F8103526D2CBA7 /* SafariExtensionBridge.swift in Sources */,
+				CBEB7D1DA1DEC3929A80B97C /* OnboardingPresenter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -521,6 +545,9 @@
 			files = (
 				14DE45AD2FEC760B0056BB36 /* ViewController.swift in Sources */,
 				14DE458B2FEC760B0056BB36 /* AppDelegate.swift in Sources */,
+				AF2FB730BC77B9DFD19003BB /* OnboardingView.swift in Sources */,
+				F7FD10534955382B93EEDC71 /* SafariExtensionBridge.swift in Sources */,
+				DBF78C86E10C335C5314A6BC /* OnboardingPresenter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -49,6 +49,20 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
         }
     }
 
+    // Present the first-launch onboarding (U18) over the Settings WebView, once. The presenter gates
+    // on OnboardingGate, so this no-ops on every launch after the user finishes the flow.
+#if os(iOS)
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        OnboardingPresenter.presentIfNeeded(from: self)
+    }
+#elseif os(macOS)
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        OnboardingPresenter.presentIfNeeded(from: self)
+    }
+#endif
+
     // WKScriptMessageHandlerWithReply: bridge web → App Group and reply with the resolved settings.
     func userContentController(
         _ userContentController: WKUserContentController,
