@@ -29,12 +29,14 @@
 		14DE45AF2FEC760B0056BB36 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14DE456F2FEC760B0056BB36 /* Assets.xcassets */; };
 		14DE45B02FEC760B0056BB36 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DE45712FEC760B0056BB36 /* SafariWebExtensionHandler.swift */; };
 		14DE45B12FEC760B0056BB36 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DE45712FEC760B0056BB36 /* SafariWebExtensionHandler.swift */; };
+		55AC5C918F8A7B45BE5405D6 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 3592688C450F87C68035FDE2 /* RevenueCat */; };
 		674D1F5BA26ED716E55E19D1 /* StillKit in Frameworks */ = {isa = PBXBuildFile; productRef = 16CA36003B07053246F8E1E3 /* StillKit */; };
 		8F6D5C9BFF89BC9946BB6064 /* StillKit in Frameworks */ = {isa = PBXBuildFile; productRef = E9741E2A0A942EE850FFBF0E /* StillKit */; };
 		A0BCAE75C1F91CA616E0840A /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A6C60BC10977A15EE498382 /* OnboardingView.swift */; };
 		A378F004F77F80258425DCF1 /* StillKit in Frameworks */ = {isa = PBXBuildFile; productRef = 2188F2F6DC29F8399B9E1524 /* StillKit */; };
 		AC800BF416F8103526D2CBA7 /* SafariExtensionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E6E888C8B18227CC92E297C /* SafariExtensionBridge.swift */; };
 		AF2FB730BC77B9DFD19003BB /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A6C60BC10977A15EE498382 /* OnboardingView.swift */; };
+		B5FD8FA85F83B5008536D174 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = F24F85AEECBFB0E886E4D577 /* RevenueCat */; };
 		CBEB7D1DA1DEC3929A80B97C /* OnboardingPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D9264E5ACACFF91459C50B7 /* OnboardingPresenter.swift */; };
 		DBF78C86E10C335C5314A6BC /* OnboardingPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D9264E5ACACFF91459C50B7 /* OnboardingPresenter.swift */; };
 		F7FD10534955382B93EEDC71 /* SafariExtensionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E6E888C8B18227CC92E297C /* SafariExtensionBridge.swift */; };
@@ -118,6 +120,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				8F6D5C9BFF89BC9946BB6064 /* StillKit in Frameworks */,
+				55AC5C918F8A7B45BE5405D6 /* RevenueCat in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -126,6 +129,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				FE0459E29447C5C924A4D5FD /* StillKit in Frameworks */,
+				B5FD8FA85F83B5008536D174 /* RevenueCat in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -283,6 +287,7 @@
 			name = "Still (iOS)";
 			packageProductDependencies = (
 				E9741E2A0A942EE850FFBF0E /* StillKit */,
+				3592688C450F87C68035FDE2 /* RevenueCat */,
 			);
 			productName = "Still (iOS)";
 			productReference = 14DE45762FEC760B0056BB36 /* Still.app */;
@@ -306,6 +311,7 @@
 			name = "Still (macOS)";
 			packageProductDependencies = (
 				35445F289A3F16B1F1114377 /* StillKit */,
+				F24F85AEECBFB0E886E4D577 /* RevenueCat */,
 			);
 			productName = "Still (macOS)";
 			productReference = 14DE45882FEC760B0056BB36 /* Still.app */;
@@ -388,6 +394,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				FCCDEDA02C7411CC8E347832 /* XCLocalSwiftPackageReference "StillKit" */,
+				B7EEFE0DC010A5FC8171309E /* XCRemoteSwiftPackageReference "purchases-ios-spm" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 14DE45772FEC760B0056BB36 /* Products */;
@@ -1113,6 +1120,17 @@
 		};
 /* End XCLocalSwiftPackageReference section */
 
+/* Begin XCRemoteSwiftPackageReference section */
+		B7EEFE0DC010A5FC8171309E /* XCRemoteSwiftPackageReference "purchases-ios-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/RevenueCat/purchases-ios-spm.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
 /* Begin XCSwiftPackageProductDependency section */
 		16CA36003B07053246F8E1E3 /* StillKit */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -1129,10 +1147,20 @@
 			package = FCCDEDA02C7411CC8E347832 /* XCLocalSwiftPackageReference "StillKit" */;
 			productName = StillKit;
 		};
+		3592688C450F87C68035FDE2 /* RevenueCat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B7EEFE0DC010A5FC8171309E /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
+			productName = RevenueCat;
+		};
 		E9741E2A0A942EE850FFBF0E /* StillKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = FCCDEDA02C7411CC8E347832 /* XCLocalSwiftPackageReference "StillKit" */;
 			productName = StillKit;
+		};
+		F24F85AEECBFB0E886E4D577 /* RevenueCat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B7EEFE0DC010A5FC8171309E /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
+			productName = RevenueCat;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
