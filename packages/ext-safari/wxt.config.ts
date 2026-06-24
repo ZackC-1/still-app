@@ -14,7 +14,9 @@ export default defineConfig({
   manifest: {
     name: "Still",
     description: "Removes short-form video — Shorts, Reels, and all of TikTok.",
-    permissions: ["storage"],
+    // `activeTab` powers the popup's pause-on-this-site without broad access; `nativeMessaging` lets
+    // the background bridge talk to the app's SafariWebExtensionHandler / App-Group container (KTD4).
+    permissions: ["storage", "activeTab", "nativeMessaging"],
     host_permissions: [
       "*://*.youtube.com/*",
       "*://*.instagram.com/*",

@@ -32,3 +32,6 @@ xcuserdata/
 # OS / editor
 .DS_Store
 *.log
+
+# Playwright MCP scratch snapshots
+.playwright-mcp/
