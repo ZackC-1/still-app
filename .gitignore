@@ -44,3 +44,6 @@ xcuserdata/
 
 # Local build secrets (real API keys) — see Config/Secrets.xcconfig
 apps/apple/Still/Config/Secrets.local.xcconfig
+
+# Apple build/archive output (U20 scripts)
+apps/apple/build/
