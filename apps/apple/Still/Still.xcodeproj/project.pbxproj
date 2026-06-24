@@ -1,0 +1,1168 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		14DE457A2FEC760B0056BB36 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DE45792FEC760B0056BB36 /* AppDelegate.swift */; };
+		14DE457C2FEC760B0056BB36 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DE457B2FEC760B0056BB36 /* SceneDelegate.swift */; };
+		14DE457F2FEC760B0056BB36 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 14DE457D2FEC760B0056BB36 /* LaunchScreen.storyboard */; };
+		14DE45822FEC760B0056BB36 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 14DE45802FEC760B0056BB36 /* Main.storyboard */; };
+		14DE458B2FEC760B0056BB36 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DE458A2FEC760B0056BB36 /* AppDelegate.swift */; };
+		14DE458E2FEC760B0056BB36 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 14DE458C2FEC760B0056BB36 /* Main.storyboard */; };
+		14DE45952FEC760B0056BB36 /* Still Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 14DE45942FEC760B0056BB36 /* Still Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		14DE459F2FEC760B0056BB36 /* Still Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 14DE459E2FEC760B0056BB36 /* Still Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		14DE45A42FEC760B0056BB36 /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = 14DE45692FEC760A0056BB36 /* Main.html */; };
+		14DE45A52FEC760B0056BB36 /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = 14DE45692FEC760A0056BB36 /* Main.html */; };
+		14DE45A62FEC760B0056BB36 /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 14DE456B2FEC760A0056BB36 /* Icon.png */; };
+		14DE45A72FEC760B0056BB36 /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 14DE456B2FEC760A0056BB36 /* Icon.png */; };
+		14DE45A82FEC760B0056BB36 /* Style.css in Resources */ = {isa = PBXBuildFile; fileRef = 14DE456C2FEC760A0056BB36 /* Style.css */; };
+		14DE45A92FEC760B0056BB36 /* Style.css in Resources */ = {isa = PBXBuildFile; fileRef = 14DE456C2FEC760A0056BB36 /* Style.css */; };
+		14DE45AA2FEC760B0056BB36 /* Script.js in Resources */ = {isa = PBXBuildFile; fileRef = 14DE456D2FEC760A0056BB36 /* Script.js */; };
+		14DE45AB2FEC760B0056BB36 /* Script.js in Resources */ = {isa = PBXBuildFile; fileRef = 14DE456D2FEC760A0056BB36 /* Script.js */; };
+		14DE45AC2FEC760B0056BB36 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DE456E2FEC760A0056BB36 /* ViewController.swift */; };
+		14DE45AD2FEC760B0056BB36 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DE456E2FEC760A0056BB36 /* ViewController.swift */; };
+		14DE45AE2FEC760B0056BB36 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14DE456F2FEC760B0056BB36 /* Assets.xcassets */; };
+		14DE45AF2FEC760B0056BB36 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14DE456F2FEC760B0056BB36 /* Assets.xcassets */; };
+		14DE45B02FEC760B0056BB36 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DE45712FEC760B0056BB36 /* SafariWebExtensionHandler.swift */; };
+		14DE45B12FEC760B0056BB36 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DE45712FEC760B0056BB36 /* SafariWebExtensionHandler.swift */; };
+		55AC5C918F8A7B45BE5405D6 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 3592688C450F87C68035FDE2 /* RevenueCat */; };
+		674D1F5BA26ED716E55E19D1 /* StillKit in Frameworks */ = {isa = PBXBuildFile; productRef = 16CA36003B07053246F8E1E3 /* StillKit */; };
+		8F6D5C9BFF89BC9946BB6064 /* StillKit in Frameworks */ = {isa = PBXBuildFile; productRef = E9741E2A0A942EE850FFBF0E /* StillKit */; };
+		A0BCAE75C1F91CA616E0840A /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A6C60BC10977A15EE498382 /* OnboardingView.swift */; };
+		A378F004F77F80258425DCF1 /* StillKit in Frameworks */ = {isa = PBXBuildFile; productRef = 2188F2F6DC29F8399B9E1524 /* StillKit */; };
+		AC800BF416F8103526D2CBA7 /* SafariExtensionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E6E888C8B18227CC92E297C /* SafariExtensionBridge.swift */; };
+		AF2FB730BC77B9DFD19003BB /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A6C60BC10977A15EE498382 /* OnboardingView.swift */; };
+		B5FD8FA85F83B5008536D174 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = F24F85AEECBFB0E886E4D577 /* RevenueCat */; };
+		CBEB7D1DA1DEC3929A80B97C /* OnboardingPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D9264E5ACACFF91459C50B7 /* OnboardingPresenter.swift */; };
+		DBF78C86E10C335C5314A6BC /* OnboardingPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D9264E5ACACFF91459C50B7 /* OnboardingPresenter.swift */; };
+		F7FD10534955382B93EEDC71 /* SafariExtensionBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E6E888C8B18227CC92E297C /* SafariExtensionBridge.swift */; };
+		FE0459E29447C5C924A4D5FD /* StillKit in Frameworks */ = {isa = PBXBuildFile; productRef = 35445F289A3F16B1F1114377 /* StillKit */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		14DE45962FEC760B0056BB36 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 14DE45632FEC760A0056BB36 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 14DE45932FEC760B0056BB36;
+			remoteInfo = "Still Extension (iOS)";
+		};
+		14DE45A02FEC760B0056BB36 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 14DE45632FEC760A0056BB36 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 14DE459D2FEC760B0056BB36;
+			remoteInfo = "Still Extension (macOS)";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		14DE45B72FEC760B0056BB36 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				14DE45952FEC760B0056BB36 /* Still Extension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		14DE45BE2FEC760B0056BB36 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				14DE459F2FEC760B0056BB36 /* Still Extension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		0A6C60BC10977A15EE498382 /* OnboardingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
+		14DE456A2FEC760A0056BB36 /* Base */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = Base; path = Base.lproj/Main.html; sourceTree = "<group>"; };
+		14DE456B2FEC760A0056BB36 /* Icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Icon.png; sourceTree = "<group>"; };
+		14DE456C2FEC760A0056BB36 /* Style.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = Style.css; sourceTree = "<group>"; };
+		14DE456D2FEC760A0056BB36 /* Script.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = Script.js; sourceTree = "<group>"; };
+		14DE456E2FEC760A0056BB36 /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
+		14DE456F2FEC760B0056BB36 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		14DE45712FEC760B0056BB36 /* SafariWebExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariWebExtensionHandler.swift; sourceTree = "<group>"; };
+		14DE45762FEC760B0056BB36 /* Still.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Still.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		14DE45792FEC760B0056BB36 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		14DE457B2FEC760B0056BB36 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
+		14DE457E2FEC760B0056BB36 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
+		14DE45812FEC760B0056BB36 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
+		14DE45832FEC760B0056BB36 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		14DE45882FEC760B0056BB36 /* Still.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Still.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		14DE458A2FEC760B0056BB36 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		14DE458D2FEC760B0056BB36 /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/Main.storyboard; sourceTree = "<group>"; };
+		14DE458F2FEC760B0056BB36 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		14DE45942FEC760B0056BB36 /* Still Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Still Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		14DE45992FEC760B0056BB36 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		14DE459E2FEC760B0056BB36 /* Still Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Still Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
+		14DE45A32FEC760B0056BB36 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		38A772B6682863706C45FB5D /* StillExtension.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = StillExtension.entitlements; sourceTree = "<group>"; };
+		8D9264E5ACACFF91459C50B7 /* OnboardingPresenter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnboardingPresenter.swift; sourceTree = "<group>"; };
+		9E6E888C8B18227CC92E297C /* SafariExtensionBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SafariExtensionBridge.swift; sourceTree = "<group>"; };
+		A84E021F3B9FE3FABAD24050 /* Still.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = Still.entitlements; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		14DE45732FEC760B0056BB36 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8F6D5C9BFF89BC9946BB6064 /* StillKit in Frameworks */,
+				55AC5C918F8A7B45BE5405D6 /* RevenueCat in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		14DE45852FEC760B0056BB36 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				FE0459E29447C5C924A4D5FD /* StillKit in Frameworks */,
+				B5FD8FA85F83B5008536D174 /* RevenueCat in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		14DE45912FEC760B0056BB36 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				674D1F5BA26ED716E55E19D1 /* StillKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		14DE459B2FEC760B0056BB36 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A378F004F77F80258425DCF1 /* StillKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		14DE45622FEC760A0056BB36 = {
+			isa = PBXGroup;
+			children = (
+				14DE45672FEC760A0056BB36 /* Shared (App) */,
+				14DE45702FEC760B0056BB36 /* Shared (Extension) */,
+				14DE45782FEC760B0056BB36 /* iOS (App) */,
+				14DE45892FEC760B0056BB36 /* macOS (App) */,
+				14DE45982FEC760B0056BB36 /* iOS (Extension) */,
+				14DE45A22FEC760B0056BB36 /* macOS (Extension) */,
+				14DE45772FEC760B0056BB36 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		14DE45672FEC760A0056BB36 /* Shared (App) */ = {
+			isa = PBXGroup;
+			children = (
+				14DE456E2FEC760A0056BB36 /* ViewController.swift */,
+				14DE456F2FEC760B0056BB36 /* Assets.xcassets */,
+				14DE45682FEC760A0056BB36 /* Resources */,
+				A84E021F3B9FE3FABAD24050 /* Still.entitlements */,
+				38E983C5E8EFC965C0F8D1EC /* Onboarding */,
+			);
+			path = "Shared (App)";
+			sourceTree = "<group>";
+		};
+		14DE45682FEC760A0056BB36 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				14DE45692FEC760A0056BB36 /* Main.html */,
+				14DE456B2FEC760A0056BB36 /* Icon.png */,
+				14DE456C2FEC760A0056BB36 /* Style.css */,
+				14DE456D2FEC760A0056BB36 /* Script.js */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		14DE45702FEC760B0056BB36 /* Shared (Extension) */ = {
+			isa = PBXGroup;
+			children = (
+				14DE45C22FEC760B0056BB36 /* Resources */,
+				14DE45712FEC760B0056BB36 /* SafariWebExtensionHandler.swift */,
+				38A772B6682863706C45FB5D /* StillExtension.entitlements */,
+			);
+			path = "Shared (Extension)";
+			sourceTree = "<group>";
+		};
+		14DE45772FEC760B0056BB36 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				14DE45762FEC760B0056BB36 /* Still.app */,
+				14DE45882FEC760B0056BB36 /* Still.app */,
+				14DE45942FEC760B0056BB36 /* Still Extension.appex */,
+				14DE459E2FEC760B0056BB36 /* Still Extension.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		14DE45782FEC760B0056BB36 /* iOS (App) */ = {
+			isa = PBXGroup;
+			children = (
+				14DE45792FEC760B0056BB36 /* AppDelegate.swift */,
+				14DE457B2FEC760B0056BB36 /* SceneDelegate.swift */,
+				14DE457D2FEC760B0056BB36 /* LaunchScreen.storyboard */,
+				14DE45802FEC760B0056BB36 /* Main.storyboard */,
+				14DE45832FEC760B0056BB36 /* Info.plist */,
+			);
+			path = "iOS (App)";
+			sourceTree = "<group>";
+		};
+		14DE45892FEC760B0056BB36 /* macOS (App) */ = {
+			isa = PBXGroup;
+			children = (
+				14DE458A2FEC760B0056BB36 /* AppDelegate.swift */,
+				14DE458C2FEC760B0056BB36 /* Main.storyboard */,
+				14DE458F2FEC760B0056BB36 /* Info.plist */,
+			);
+			path = "macOS (App)";
+			sourceTree = "<group>";
+		};
+		14DE45982FEC760B0056BB36 /* iOS (Extension) */ = {
+			isa = PBXGroup;
+			children = (
+				14DE45992FEC760B0056BB36 /* Info.plist */,
+			);
+			path = "iOS (Extension)";
+			sourceTree = "<group>";
+		};
+		14DE45A22FEC760B0056BB36 /* macOS (Extension) */ = {
+			isa = PBXGroup;
+			children = (
+				14DE45A32FEC760B0056BB36 /* Info.plist */,
+			);
+			path = "macOS (Extension)";
+			sourceTree = "<group>";
+		};
+		14DE45C22FEC760B0056BB36 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Resources;
+			path = "Shared (Extension)";
+			sourceTree = SOURCE_ROOT;
+		};
+		38E983C5E8EFC965C0F8D1EC /* Onboarding */ = {
+			isa = PBXGroup;
+			children = (
+				0A6C60BC10977A15EE498382 /* OnboardingView.swift */,
+				9E6E888C8B18227CC92E297C /* SafariExtensionBridge.swift */,
+				8D9264E5ACACFF91459C50B7 /* OnboardingPresenter.swift */,
+			);
+			name = Onboarding;
+			path = Onboarding;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		14DE45752FEC760B0056BB36 /* Still (iOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 14DE45B82FEC760B0056BB36 /* Build configuration list for PBXNativeTarget "Still (iOS)" */;
+			buildPhases = (
+				14DE45722FEC760B0056BB36 /* Sources */,
+				14DE45732FEC760B0056BB36 /* Frameworks */,
+				14DE45742FEC760B0056BB36 /* Resources */,
+				14DE45B72FEC760B0056BB36 /* Embed Foundation Extensions */,
+				7032E4A88B4C9FA11815A4E5 /* Copy Still Web UI */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				14DE45972FEC760B0056BB36 /* PBXTargetDependency */,
+			);
+			name = "Still (iOS)";
+			packageProductDependencies = (
+				E9741E2A0A942EE850FFBF0E /* StillKit */,
+				3592688C450F87C68035FDE2 /* RevenueCat */,
+			);
+			productName = "Still (iOS)";
+			productReference = 14DE45762FEC760B0056BB36 /* Still.app */;
+			productType = "com.apple.product-type.application";
+		};
+		14DE45872FEC760B0056BB36 /* Still (macOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 14DE45BF2FEC760B0056BB36 /* Build configuration list for PBXNativeTarget "Still (macOS)" */;
+			buildPhases = (
+				14DE45842FEC760B0056BB36 /* Sources */,
+				14DE45852FEC760B0056BB36 /* Frameworks */,
+				14DE45862FEC760B0056BB36 /* Resources */,
+				14DE45BE2FEC760B0056BB36 /* Embed Foundation Extensions */,
+				363E50207F4EF8662ACF74FC /* Copy Still Web UI */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				14DE45A12FEC760B0056BB36 /* PBXTargetDependency */,
+			);
+			name = "Still (macOS)";
+			packageProductDependencies = (
+				35445F289A3F16B1F1114377 /* StillKit */,
+				F24F85AEECBFB0E886E4D577 /* RevenueCat */,
+			);
+			productName = "Still (macOS)";
+			productReference = 14DE45882FEC760B0056BB36 /* Still.app */;
+			productType = "com.apple.product-type.application";
+		};
+		14DE45932FEC760B0056BB36 /* Still Extension (iOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 14DE45B42FEC760B0056BB36 /* Build configuration list for PBXNativeTarget "Still Extension (iOS)" */;
+			buildPhases = (
+				14DE45902FEC760B0056BB36 /* Sources */,
+				14DE45912FEC760B0056BB36 /* Frameworks */,
+				14DE45922FEC760B0056BB36 /* Resources */,
+				06235718ECC1BE32D902827C /* Copy Safari Web Extension Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Still Extension (iOS)";
+			packageProductDependencies = (
+				16CA36003B07053246F8E1E3 /* StillKit */,
+			);
+			productName = "Still Extension (iOS)";
+			productReference = 14DE45942FEC760B0056BB36 /* Still Extension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		14DE459D2FEC760B0056BB36 /* Still Extension (macOS) */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 14DE45BB2FEC760B0056BB36 /* Build configuration list for PBXNativeTarget "Still Extension (macOS)" */;
+			buildPhases = (
+				14DE459A2FEC760B0056BB36 /* Sources */,
+				14DE459B2FEC760B0056BB36 /* Frameworks */,
+				14DE459C2FEC760B0056BB36 /* Resources */,
+				DC102694116D440915AA842D /* Copy Safari Web Extension Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Still Extension (macOS)";
+			packageProductDependencies = (
+				2188F2F6DC29F8399B9E1524 /* StillKit */,
+			);
+			productName = "Still Extension (macOS)";
+			productReference = 14DE459E2FEC760B0056BB36 /* Still Extension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		14DE45632FEC760A0056BB36 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2650;
+				LastUpgradeCheck = 2650;
+				TargetAttributes = {
+					14DE45752FEC760B0056BB36 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					14DE45872FEC760B0056BB36 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					14DE45932FEC760B0056BB36 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+					14DE459D2FEC760B0056BB36 = {
+						CreatedOnToolsVersion = 26.5;
+					};
+				};
+			};
+			buildConfigurationList = 14DE45662FEC760A0056BB36 /* Build configuration list for PBXProject "Still" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 14DE45622FEC760A0056BB36;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				FCCDEDA02C7411CC8E347832 /* XCLocalSwiftPackageReference "StillKit" */,
+				B7EEFE0DC010A5FC8171309E /* XCRemoteSwiftPackageReference "purchases-ios-spm" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 14DE45772FEC760B0056BB36 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				14DE45752FEC760B0056BB36 /* Still (iOS) */,
+				14DE45872FEC760B0056BB36 /* Still (macOS) */,
+				14DE45932FEC760B0056BB36 /* Still Extension (iOS) */,
+				14DE459D2FEC760B0056BB36 /* Still Extension (macOS) */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		14DE45742FEC760B0056BB36 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				14DE45A62FEC760B0056BB36 /* Icon.png in Resources */,
+				14DE457F2FEC760B0056BB36 /* LaunchScreen.storyboard in Resources */,
+				14DE45A42FEC760B0056BB36 /* Main.html in Resources */,
+				14DE45AA2FEC760B0056BB36 /* Script.js in Resources */,
+				14DE45AE2FEC760B0056BB36 /* Assets.xcassets in Resources */,
+				14DE45822FEC760B0056BB36 /* Main.storyboard in Resources */,
+				14DE45A82FEC760B0056BB36 /* Style.css in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		14DE45862FEC760B0056BB36 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				14DE45A72FEC760B0056BB36 /* Icon.png in Resources */,
+				14DE45A92FEC760B0056BB36 /* Style.css in Resources */,
+				14DE458E2FEC760B0056BB36 /* Main.storyboard in Resources */,
+				14DE45AB2FEC760B0056BB36 /* Script.js in Resources */,
+				14DE45AF2FEC760B0056BB36 /* Assets.xcassets in Resources */,
+				14DE45A52FEC760B0056BB36 /* Main.html in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		14DE45922FEC760B0056BB36 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		14DE459C2FEC760B0056BB36 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		06235718ECC1BE32D902827C /* Copy Safari Web Extension Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy Safari Web Extension Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nSRC=\"${SRCROOT}/../../../packages/ext-safari/dist/safari-mv3\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nif [ ! -f \"${SRC}/manifest.json\" ]; then\n  echo \"error: Safari extension build missing at ${SRC} — run: pnpm --filter @still/ext-safari build\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --exclude='.DS_Store' \"${SRC}/\" \"${DEST}/\"\n";
+		};
+		363E50207F4EF8662ACF74FC /* Copy Still Web UI */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy Still Web UI";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nSRC=\"${SRCROOT}/../../../packages/app-webview/dist\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebUI\"\nif [ ! -f \"${SRC}/index.html\" ]; then\n  echo \"error: Still web UI build missing at ${SRC} — run: pnpm --filter @still/app-webview build\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --delete --exclude='.DS_Store' \"${SRC}/\" \"${DEST}/\"\n";
+		};
+		7032E4A88B4C9FA11815A4E5 /* Copy Still Web UI */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy Still Web UI";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nSRC=\"${SRCROOT}/../../../packages/app-webview/dist\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebUI\"\nif [ ! -f \"${SRC}/index.html\" ]; then\n  echo \"error: Still web UI build missing at ${SRC} — run: pnpm --filter @still/app-webview build\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --delete --exclude='.DS_Store' \"${SRC}/\" \"${DEST}/\"\n";
+		};
+		DC102694116D440915AA842D /* Copy Safari Web Extension Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy Safari Web Extension Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nSRC=\"${SRCROOT}/../../../packages/ext-safari/dist/safari-mv3\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nif [ ! -f \"${SRC}/manifest.json\" ]; then\n  echo \"error: Safari extension build missing at ${SRC} — run: pnpm --filter @still/ext-safari build\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --exclude='.DS_Store' \"${SRC}/\" \"${DEST}/\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		14DE45722FEC760B0056BB36 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				14DE45AC2FEC760B0056BB36 /* ViewController.swift in Sources */,
+				14DE457A2FEC760B0056BB36 /* AppDelegate.swift in Sources */,
+				14DE457C2FEC760B0056BB36 /* SceneDelegate.swift in Sources */,
+				A0BCAE75C1F91CA616E0840A /* OnboardingView.swift in Sources */,
+				AC800BF416F8103526D2CBA7 /* SafariExtensionBridge.swift in Sources */,
+				CBEB7D1DA1DEC3929A80B97C /* OnboardingPresenter.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		14DE45842FEC760B0056BB36 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				14DE45AD2FEC760B0056BB36 /* ViewController.swift in Sources */,
+				14DE458B2FEC760B0056BB36 /* AppDelegate.swift in Sources */,
+				AF2FB730BC77B9DFD19003BB /* OnboardingView.swift in Sources */,
+				F7FD10534955382B93EEDC71 /* SafariExtensionBridge.swift in Sources */,
+				DBF78C86E10C335C5314A6BC /* OnboardingPresenter.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		14DE45902FEC760B0056BB36 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				14DE45B02FEC760B0056BB36 /* SafariWebExtensionHandler.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		14DE459A2FEC760B0056BB36 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				14DE45B12FEC760B0056BB36 /* SafariWebExtensionHandler.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		14DE45972FEC760B0056BB36 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 14DE45932FEC760B0056BB36 /* Still Extension (iOS) */;
+			targetProxy = 14DE45962FEC760B0056BB36 /* PBXContainerItemProxy */;
+		};
+		14DE45A12FEC760B0056BB36 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 14DE459D2FEC760B0056BB36 /* Still Extension (macOS) */;
+			targetProxy = 14DE45A02FEC760B0056BB36 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin PBXVariantGroup section */
+		14DE45692FEC760A0056BB36 /* Main.html */ = {
+			isa = PBXVariantGroup;
+			children = (
+				14DE456A2FEC760A0056BB36 /* Base */,
+			);
+			name = Main.html;
+			sourceTree = "<group>";
+		};
+		14DE457D2FEC760B0056BB36 /* LaunchScreen.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				14DE457E2FEC760B0056BB36 /* Base */,
+			);
+			name = LaunchScreen.storyboard;
+			sourceTree = "<group>";
+		};
+		14DE45802FEC760B0056BB36 /* Main.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				14DE45812FEC760B0056BB36 /* Base */,
+			);
+			name = Main.storyboard;
+			sourceTree = "<group>";
+		};
+		14DE458C2FEC760B0056BB36 /* Main.storyboard */ = {
+			isa = PBXVariantGroup;
+			children = (
+				14DE458D2FEC760B0056BB36 /* Base */,
+			);
+			name = Main.storyboard;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
+
+/* Begin XCBuildConfiguration section */
+		14DE45B22FEC760B0056BB36 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		14DE45B32FEC760B0056BB36 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		14DE45B52FEC760B0056BB36 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "Shared (Extension)/StillExtension.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UM9HVDH3P3;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Still Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still.Extension;
+				PRODUCT_NAME = "Still Extension";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		14DE45B62FEC760B0056BB36 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "Shared (Extension)/StillExtension.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UM9HVDH3P3;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Still Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still.Extension;
+				PRODUCT_NAME = "Still Extension";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		14DE45B92FEC760B0056BB36 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Shared (App)/Still.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UM9HVDH3P3;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Still;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still;
+				PRODUCT_NAME = Still;
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		14DE45BA2FEC760B0056BB36 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Shared (App)/Still.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UM9HVDH3P3;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "iOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Still;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
+				INFOPLIST_KEY_UIMainStoryboardFile = Main;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still;
+				PRODUCT_NAME = Still;
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		14DE45BC2FEC760B0056BB36 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "Shared (Extension)/StillExtension.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UM9HVDH3P3;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Still Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 11.0;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still.Extension;
+				PRODUCT_NAME = "Still Extension";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		14DE45BD2FEC760B0056BB36 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "Shared (Extension)/StillExtension.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UM9HVDH3P3;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (Extension)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = "Still Extension";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 11.0;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still.Extension;
+				PRODUCT_NAME = "Still Extension";
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		14DE45C02FEC760B0056BB36 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Shared (App)/Still.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UM9HVDH3P3;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Still;
+				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 11.0;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still;
+				PRODUCT_NAME = Still;
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		14DE45C12FEC760B0056BB36 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Shared (App)/Still.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UM9HVDH3P3;
+				ENABLE_APP_SANDBOX = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				ENABLE_USER_SELECTED_FILES = readonly;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "macOS (App)/Info.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = Still;
+				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 11.0;
+				MARKETING_VERSION = 1.0;
+				OTHER_LDFLAGS = (
+					"-framework",
+					SafariServices,
+					"-framework",
+					WebKit,
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still;
+				PRODUCT_NAME = Still;
+				REGISTER_APP_GROUPS = YES;
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		14DE45662FEC760A0056BB36 /* Build configuration list for PBXProject "Still" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				14DE45B22FEC760B0056BB36 /* Debug */,
+				14DE45B32FEC760B0056BB36 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		14DE45B42FEC760B0056BB36 /* Build configuration list for PBXNativeTarget "Still Extension (iOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				14DE45B52FEC760B0056BB36 /* Debug */,
+				14DE45B62FEC760B0056BB36 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		14DE45B82FEC760B0056BB36 /* Build configuration list for PBXNativeTarget "Still (iOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				14DE45B92FEC760B0056BB36 /* Debug */,
+				14DE45BA2FEC760B0056BB36 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		14DE45BB2FEC760B0056BB36 /* Build configuration list for PBXNativeTarget "Still Extension (macOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				14DE45BC2FEC760B0056BB36 /* Debug */,
+				14DE45BD2FEC760B0056BB36 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		14DE45BF2FEC760B0056BB36 /* Build configuration list for PBXNativeTarget "Still (macOS)" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				14DE45C02FEC760B0056BB36 /* Debug */,
+				14DE45C12FEC760B0056BB36 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		FCCDEDA02C7411CC8E347832 /* XCLocalSwiftPackageReference "StillKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../StillKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		B7EEFE0DC010A5FC8171309E /* XCRemoteSwiftPackageReference "purchases-ios-spm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/RevenueCat/purchases-ios-spm.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.0.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		16CA36003B07053246F8E1E3 /* StillKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FCCDEDA02C7411CC8E347832 /* XCLocalSwiftPackageReference "StillKit" */;
+			productName = StillKit;
+		};
+		2188F2F6DC29F8399B9E1524 /* StillKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FCCDEDA02C7411CC8E347832 /* XCLocalSwiftPackageReference "StillKit" */;
+			productName = StillKit;
+		};
+		35445F289A3F16B1F1114377 /* StillKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FCCDEDA02C7411CC8E347832 /* XCLocalSwiftPackageReference "StillKit" */;
+			productName = StillKit;
+		};
+		3592688C450F87C68035FDE2 /* RevenueCat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B7EEFE0DC010A5FC8171309E /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
+			productName = RevenueCat;
+		};
+		E9741E2A0A942EE850FFBF0E /* StillKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FCCDEDA02C7411CC8E347832 /* XCLocalSwiftPackageReference "StillKit" */;
+			productName = StillKit;
+		};
+		F24F85AEECBFB0E886E4D577 /* RevenueCat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B7EEFE0DC010A5FC8171309E /* XCRemoteSwiftPackageReference "purchases-ios-spm" */;
+			productName = RevenueCat;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 14DE45632FEC760A0056BB36 /* Project object */;
+}

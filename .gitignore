@@ -28,7 +28,16 @@ DerivedData/
 *.xcuserstate
 xcuserdata/
 *.xcworkspace/xcuserdata/
+.build/
+.swiftpm/
 
 # OS / editor
 .DS_Store
 *.log
+
+# CodeGraph index (generated; regenerate with `codegraph init -i`) + its Cursor rule
+.codegraph/
+.cursor/
+
+# Playwright MCP scratch snapshots
+.playwright-mcp/

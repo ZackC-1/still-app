@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "wxt -b safari",
-    "build": "wxt build -b safari",
+    "gen-css": "node scripts/gen-content-css.mjs",
+    "build": "node scripts/gen-content-css.mjs && wxt build -b safari",
     "typecheck": "wxt prepare && tsc --noEmit",
     "postinstall": "wxt prepare"
   },
@@ -14,6 +15,7 @@
     "@still/shared-types": "workspace:*"
   },
   "devDependencies": {
+    "@types/chrome": "^0.2.0",
     "@wxt-dev/module-svelte": "^2.0.5",
     "svelte": "^5.56.4",
     "typescript": "^5.9.3",
