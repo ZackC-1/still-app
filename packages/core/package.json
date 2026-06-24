@@ -9,6 +9,7 @@
     "./content": "./src/content/index.ts",
     "./storage": "./src/storage/index.ts",
     "./sync": "./src/sync/index.ts",
+    "./native": "./src/native/index.ts",
     "./ui": "./src/ui/index.ts",
     "./ui/tokens.css": "./src/ui/tokens.css",
     "./seed": "./rules/seed.json"
