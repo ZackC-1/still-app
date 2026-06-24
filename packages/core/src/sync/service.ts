@@ -1,0 +1,87 @@
+import type { StillSettings } from "@still/shared-types";
+import type { SettingsCache } from "../storage/cache.js";
+import type { AuthPort, BackendPort } from "./ports.js";
+
+// Coordinates auth + entitlement + settings sync (R6/R7/R8). The hard rules:
+//   - On EVERY sign-in (all hosts, incl. desktop): reconcile entitlement BEFORE reading it, so a
+//     dropped webhook self-heals without Apple involvement (U14).
+//   - Sync is gated on entitlement: only an entitled, signed-in user mirrors settings to the cloud.
+//     A free / signed-out user stays entirely local (the cache never touches the network).
+//   - Cloud is source of truth when entitled; local edits write through; conflicts resolve by LWW.
+
+export interface SyncState {
+  readonly userId: string | null;
+  readonly entitled: boolean;
+  readonly syncing: boolean;
+}
+
+const SIGNED_OUT: SyncState = { userId: null, entitled: false, syncing: false };
+
+export class SyncService {
+  private state: SyncState = SIGNED_OUT;
+  private unsubCache: (() => void) | null = null;
+
+  constructor(
+    private readonly cache: SettingsCache,
+    private readonly auth: AuthPort,
+    private readonly backend: BackendPort,
+    private readonly onState?: (state: SyncState) => void,
+  ) {}
+
+  getState(): SyncState {
+    return this.state;
+  }
+
+  signIn(email: string): Promise<{ error?: string }> {
+    return this.auth.signInWithMagicLink(email);
+  }
+
+  /**
+   * Run after a session is established (magic-link redirect, app launch, or restore). Reconciles
+   * the entitlement first, then reads it, then mirrors the cloud profile and starts write-through
+   * — but only when entitled.
+   */
+  async onSignedIn(userId: string): Promise<void> {
+    this.setState({ userId, entitled: false, syncing: false });
+
+    // Reconcile BEFORE reading — the desktop self-heal path the bridge targets (U13/U14).
+    await this.backend.reconcileEntitlement();
+    const entitled = await this.backend.readEntitlement();
+    this.setState({ ...this.state, entitled });
+    if (!entitled) return; // un-entitled signed-in user does NOT sync (R7 gating)
+
+    const cloud = await this.backend.readProfile();
+    if (cloud) {
+      // LWW: a newer cloud wins (cloud is source of truth); a newer local is pushed up to converge.
+      const applied = this.cache.applyRemote(cloud);
+      if (!applied) await this.backend.writeProfile(this.cache.current());
+    } else {
+      await this.backend.writeProfile(this.cache.current()); // seed an empty cloud from local
+    }
+    this.startWriteThrough();
+  }
+
+  async signOut(): Promise<void> {
+    this.stopWriteThrough();
+    await this.auth.signOut();
+    this.setState(SIGNED_OUT);
+  }
+
+  /** After this, every local settings edit is mirrored to the cloud while entitled + signed in. */
+  private startWriteThrough(): void {
+    this.setState({ ...this.state, syncing: true });
+    this.unsubCache ??= this.cache.subscribe((settings: StillSettings) => {
+      if (this.state.entitled && this.state.userId) void this.backend.writeProfile(settings);
+    });
+  }
+
+  private stopWriteThrough(): void {
+    this.unsubCache?.();
+    this.unsubCache = null;
+  }
+
+  private setState(next: SyncState): void {
+    this.state = next;
+    this.onState?.(next);
+  }
+}

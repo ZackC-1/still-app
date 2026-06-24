@@ -53,10 +53,26 @@ Everything else — the monorepo, core, Chromium extension, the entire Supabase 
 
 ---
 
+## Selector canary (U21)
+
+The `selector-canary` Edge Function flags selector rot. It is invoked on a schedule (not by users).
+Deploy steps: set `SELECTOR_CANARY_NOTIFY_URL` (a Slack/webhook/email-relay URL) via
+`supabase secrets set`, then schedule the function — e.g. a `pg_cron` job that `net.http_post`s the
+function URL daily, or the Supabase dashboard scheduler. Without the notify URL it logs and no-ops.
+Login-walled services (e.g. Instagram) report as *indeterminate*; a persistent-indeterminate streak
+fires its own "needs manual check" alert so they can't rot silently.
+
 ## Secrets
 
 All secrets live in `.env` (gitignored); `.env.example` lists every key by name. Supabase Edge Function secrets are set via `supabase secrets set`. Never commit a real key.
 
 ## Autonomy / loop posture
 
-`.claude/settings.json` sets `permissions.defaultMode: bypassPermissions` (no prompts). The enforceable guardrails are server-side and environment-side, not convention: enable **GitHub branch protection on `main`** (require PR + green CI + human review, block force-push and direct push), enable secret scanning, keep production secrets out of the loop environment, and run `/loop` only on a dedicated `build/*` branch/worktree. Branch protection prevents direct damage to `main`; it does not protect any secret or external account credential available to the loop.
+`.claude/settings.json` sets `permissions.defaultMode: bypassPermissions` (no prompts). The enforceable guardrails are server-side and environment-side, not convention: **GitHub branch protection on `main`**, secret scanning, keeping production secrets out of the loop environment, and running `/loop` only on a dedicated `build/*` branch/worktree. Branch protection prevents direct damage to `main`; it does not protect any secret or external account credential available to the loop.
+
+### Status (U1)
+
+- **Repo:** `ZackC-1/still-app` — **public** (switched from private on 2026-06-23). Branch protection on a *private* repo needs GitHub Pro; making the repo public unblocked free protection. The extension content-script code ships to users and is inspectable regardless; the genuine secrets live only in `.env.local` / Supabase function secrets, never in the repo.
+- **Branch protection:** active via repository ruleset `protect-main` (require PR before merge, require green CI status checks `lint · typecheck · unit · build` + `Playwright on fixtures` with strict up-to-date policy, block force-push (`non_fast_forward`) and branch deletion). `required_approving_review_count = 0` because a solo maintainer cannot self-approve; the PR + green-CI gate is the enforceable checkpoint. Raise the review count once there's a second maintainer.
+- **CI:** `.github/workflows/ci.yml` — green on the scaffold. The Playwright `e2e` job self-skips until U16 lands `playwright.config.ts`.
+- **Supply-chain note:** the release-age cooldown (`minimumReleaseAge`) is disabled in `pnpm-workspace.yaml` + the CI env, so the autonomous loop's CI doesn't fail when a dependency published a same-day patch. Lockfile integrity hashes remain the real tamper protection. Revisit if a stricter posture is wanted.

@@ -1,0 +1,39 @@
+{
+  "name": "@still/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./rules": "./src/rules/index.ts",
+    "./content": "./src/content/index.ts",
+    "./storage": "./src/storage/index.ts",
+    "./sync": "./src/sync/index.ts",
+    "./ui": "./src/ui/index.ts",
+    "./ui/tokens.css": "./src/ui/tokens.css",
+    "./seed": "./rules/seed.json"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "sign-seed": "node scripts/sign-seed.mjs",
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json"
+  },
+  "dependencies": {
+    "@still/shared-types": "workspace:*",
+    "@noble/ed25519": "^3.1.0",
+    "@noble/hashes": "^2.2.0",
+    "@supabase/supabase-js": "^2.108.2"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^7.1.2",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/svelte": "^5.4.2",
+    "@types/chrome": "^0.2.0",
+    "jsdom": "^29.1.1",
+    "svelte": "^5.56.4",
+    "svelte-check": "^4.7.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.9"
+  }
+}

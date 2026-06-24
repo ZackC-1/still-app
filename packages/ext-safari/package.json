@@ -1,0 +1,22 @@
+{
+  "name": "@still/ext-safari",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wxt -b safari",
+    "build": "wxt build -b safari",
+    "typecheck": "wxt prepare && tsc --noEmit",
+    "postinstall": "wxt prepare"
+  },
+  "dependencies": {
+    "@still/core": "workspace:*",
+    "@still/shared-types": "workspace:*"
+  },
+  "devDependencies": {
+    "@wxt-dev/module-svelte": "^2.0.5",
+    "svelte": "^5.56.4",
+    "typescript": "^5.9.3",
+    "wxt": "^0.20.27"
+  }
+}
