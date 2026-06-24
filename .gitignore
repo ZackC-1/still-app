@@ -28,6 +28,8 @@ DerivedData/
 *.xcuserstate
 xcuserdata/
 *.xcworkspace/xcuserdata/
+.build/
+.swiftpm/
 
 # OS / editor
 .DS_Store
