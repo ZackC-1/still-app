@@ -1,0 +1,3 @@
+module StillKitPackageTests {
+    header "/Users/zack/Projects/still-app/apps/apple/StillKit/.build/arm64-apple-macosx/debug/StillKitPackageTests.build/include/StillKitPackageTests-Swift.h"
+}

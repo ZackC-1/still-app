@@ -1,0 +1,12 @@
+{
+  "": {
+    "swift-dependencies": "/Users/zack/Projects/still-app/apps/apple/StillKit/.build/arm64-apple-macosx/debug/StillKitPackageTests.build/primary.swiftdeps"
+  },
+  "/Users/zack/Projects/still-app/apps/apple/StillKit/.build/arm64-apple-macosx/debug/StillKitPackageTests.derived/runner.swift": {
+    "dependencies": "/Users/zack/Projects/still-app/apps/apple/StillKit/.build/arm64-apple-macosx/debug/StillKitPackageTests.build/runner.d",
+    "object": "/Users/zack/Projects/still-app/apps/apple/StillKit/.build/arm64-apple-macosx/debug/StillKitPackageTests.build/runner.swift.o",
+    "swiftmodule": "/Users/zack/Projects/still-app/apps/apple/StillKit/.build/arm64-apple-macosx/debug/StillKitPackageTests.build/runner~partial.swiftmodule",
+    "swift-dependencies": "/Users/zack/Projects/still-app/apps/apple/StillKit/.build/arm64-apple-macosx/debug/StillKitPackageTests.build/runner.swiftdeps",
+    "diagnostics": "/Users/zack/Projects/still-app/apps/apple/StillKit/.build/arm64-apple-macosx/debug/StillKitPackageTests.build/runner.dia"
+  }
+}
