@@ -31,7 +31,9 @@
 		14DE45B12FEC760B0056BB36 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DE45712FEC760B0056BB36 /* SafariWebExtensionHandler.swift */; };
 		529725C2C304893394BF4C31 /* PurchaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67CDB89E135D61905E659535 /* PurchaseManager.swift */; };
 		55AC5C918F8A7B45BE5405D6 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 3592688C450F87C68035FDE2 /* RevenueCat */; };
+		61EC96E55C1AFB022252F377 /* SignInWithApple.swift in Sources */ = {isa = PBXBuildFile; fileRef = 513D6A39176BF7BAAB473EB1 /* SignInWithApple.swift */; };
 		674D1F5BA26ED716E55E19D1 /* StillKit in Frameworks */ = {isa = PBXBuildFile; productRef = 16CA36003B07053246F8E1E3 /* StillKit */; };
+		6E9A1E93A1E73116294C0B9C /* SignInWithApple.swift in Sources */ = {isa = PBXBuildFile; fileRef = 513D6A39176BF7BAAB473EB1 /* SignInWithApple.swift */; };
 		8F6D5C9BFF89BC9946BB6064 /* StillKit in Frameworks */ = {isa = PBXBuildFile; productRef = E9741E2A0A942EE850FFBF0E /* StillKit */; };
 		A0BCAE75C1F91CA616E0840A /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A6C60BC10977A15EE498382 /* OnboardingView.swift */; };
 		A378F004F77F80258425DCF1 /* StillKit in Frameworks */ = {isa = PBXBuildFile; productRef = 2188F2F6DC29F8399B9E1524 /* StillKit */; };
@@ -111,6 +113,7 @@
 		14DE459E2FEC760B0056BB36 /* Still Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Still Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		14DE45A32FEC760B0056BB36 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		38A772B6682863706C45FB5D /* StillExtension.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = StillExtension.entitlements; sourceTree = "<group>"; };
+		513D6A39176BF7BAAB473EB1 /* SignInWithApple.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SignInWithApple.swift; sourceTree = "<group>"; };
 		67CDB89E135D61905E659535 /* PurchaseManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PurchaseManager.swift; sourceTree = "<group>"; };
 		8D9264E5ACACFF91459C50B7 /* OnboardingPresenter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnboardingPresenter.swift; sourceTree = "<group>"; };
 		9E6E888C8B18227CC92E297C /* SafariExtensionBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SafariExtensionBridge.swift; sourceTree = "<group>"; };
@@ -188,6 +191,7 @@
 				A84E021F3B9FE3FABAD24050 /* Still.entitlements */,
 				38E983C5E8EFC965C0F8D1EC /* Onboarding */,
 				FEA91D3A64E66EDB46B044CD /* Purchases */,
+				E413FDE090B14BC4E0986A46 /* Auth */,
 			);
 			path = "Shared (App)";
 			sourceTree = "<group>";
@@ -279,6 +283,15 @@
 			);
 			name = Onboarding;
 			path = Onboarding;
+			sourceTree = "<group>";
+		};
+		E413FDE090B14BC4E0986A46 /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				513D6A39176BF7BAAB473EB1 /* SignInWithApple.swift */,
+			);
+			name = Auth;
+			path = Auth;
 			sourceTree = "<group>";
 		};
 		FEA91D3A64E66EDB46B044CD /* Purchases */ = {
@@ -568,6 +581,7 @@
 				AC800BF416F8103526D2CBA7 /* SafariExtensionBridge.swift in Sources */,
 				CBEB7D1DA1DEC3929A80B97C /* OnboardingPresenter.swift in Sources */,
 				529725C2C304893394BF4C31 /* PurchaseManager.swift in Sources */,
+				6E9A1E93A1E73116294C0B9C /* SignInWithApple.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -581,6 +595,7 @@
 				F7FD10534955382B93EEDC71 /* SafariExtensionBridge.swift in Sources */,
 				DBF78C86E10C335C5314A6BC /* OnboardingPresenter.swift in Sources */,
 				CD04021613687B1E7E5D4A26 /* PurchaseManager.swift in Sources */,
+				61EC96E55C1AFB022252F377 /* SignInWithApple.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
