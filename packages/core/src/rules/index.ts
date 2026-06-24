@@ -34,3 +34,11 @@ export {
   type Decision,
   type ApplyResult,
 } from "./engine.js";
+export {
+  fetchCurrentRuleSet,
+  resolveRuleSet,
+  type FetchConfig,
+  type RuleSetEndpoint,
+  type ResolvedRuleSet,
+  type RuleSetSource,
+} from "./fetch.js";
