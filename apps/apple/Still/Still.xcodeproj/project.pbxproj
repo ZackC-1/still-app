@@ -635,7 +635,7 @@
 					"-framework",
 					SafariServices,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.still.app.Extension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still.Extension;
 				PRODUCT_NAME = "Still Extension";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -668,7 +668,7 @@
 					"-framework",
 					SafariServices,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.still.app.Extension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still.Extension;
 				PRODUCT_NAME = "Still Extension";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -689,6 +689,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UM9HVDH3P3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "iOS (App)/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Still;
@@ -709,7 +710,7 @@
 					"-framework",
 					WebKit,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.still.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still;
 				PRODUCT_NAME = Still;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -729,6 +730,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UM9HVDH3P3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "iOS (App)/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Still;
@@ -749,7 +751,7 @@
 					"-framework",
 					WebKit,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.still.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still;
 				PRODUCT_NAME = Still;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -786,7 +788,7 @@
 					"-framework",
 					SafariServices,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.still.app.Extension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still.Extension;
 				PRODUCT_NAME = "Still Extension";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
@@ -821,7 +823,7 @@
 					"-framework",
 					SafariServices,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.still.app.Extension;
+				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still.Extension;
 				PRODUCT_NAME = "Still Extension";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
@@ -861,7 +863,7 @@
 					"-framework",
 					WebKit,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.still.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still;
 				PRODUCT_NAME = Still;
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
@@ -902,7 +904,7 @@
 					"-framework",
 					WebKit,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.still.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still;
 				PRODUCT_NAME = Still;
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
