@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Instagram — fixture</title>
+  </head>
+  <body>
+    <!-- Sidebar nav: a Reels item (ig-nav, hide) + a normal item (must survive) -->
+    <nav id="sidebar">
+      <a href="/" id="home-link">Home</a>
+      <a href="/reels/" id="reels-link"><svg aria-label="Reels"></svg> Reels</a>
+    </nav>
+
+    <!-- Home feed: an inline Reel (ig-inline, remove) + a normal post (must survive) -->
+    <main>
+      <article id="reel-post"><a href="/reel/xyz">a reel</a></article>
+      <article id="keep-post">A normal photo post</article>
+    </main>
+  </body>
+</html>

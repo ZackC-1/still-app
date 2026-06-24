@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Facebook — fixture</title>
+  </head>
+  <body>
+    <!-- Left menu: a Reels shortcut (fb-left-menu, hide) + a normal item (must survive) -->
+    <nav id="left-menu">
+      <a href="/" id="home-link">Home</a>
+      <a href="/reel/" id="reels-shortcut" aria-label="Reels">Reels</a>
+    </nav>
+
+    <!-- Feed: a Reel article (fb-feed, remove) + a normal post (must survive) -->
+    <main>
+      <div role="article" id="reel-article"><a href="/reel/123">a reel</a></div>
+      <div role="article" id="keep-article">A normal status update</div>
+    </main>
+  </body>
+</html>
