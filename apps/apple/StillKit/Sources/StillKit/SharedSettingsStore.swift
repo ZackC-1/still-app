@@ -49,6 +49,21 @@ public final class SharedSettingsStore {
   }
 }
 
+/// The shared App Group identifier — the single source of truth for the app, the Safari extension,
+/// and the WKWebView UI. Must match the App Groups capability set on every target's entitlements.
+public enum StillAppGroup {
+  public static let identifier = "group.com.chartash.still"
+}
+
+extension SharedSettingsStore {
+  /// The production store backed by the shared App Group container, falling back to an in-memory
+  /// backing if the App Group is unavailable (e.g. the entitlement isn't provisioned on this build)
+  /// so the WKWebView UI still launches and renders — it just won't persist across processes.
+  public static func appGroup(_ identifier: String = StillAppGroup.identifier) -> SharedSettingsStore {
+    SharedSettingsStore(backing: AppGroupBacking(appGroupId: identifier) ?? InMemoryBacking())
+  }
+}
+
 /// App Group backing — the real cross-process store shared by the app + Safari extension.
 public struct AppGroupBacking: SettingsBacking {
   private let defaults: UserDefaults

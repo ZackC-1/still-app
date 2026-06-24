@@ -29,10 +29,10 @@
 		14DE45AF2FEC760B0056BB36 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14DE456F2FEC760B0056BB36 /* Assets.xcassets */; };
 		14DE45B02FEC760B0056BB36 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DE45712FEC760B0056BB36 /* SafariWebExtensionHandler.swift */; };
 		14DE45B12FEC760B0056BB36 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DE45712FEC760B0056BB36 /* SafariWebExtensionHandler.swift */; };
-		14DE45C52FEC760B0056BB36 /* background.js in Resources */ = {isa = PBXBuildFile; fileRef = 14DE45C32FEC760B0056BB36 /* background.js */; };
-		14DE45C62FEC760B0056BB36 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 14DE45C42FEC760B0056BB36 /* manifest.json */; };
-		14DE45C72FEC760B0056BB36 /* background.js in Resources */ = {isa = PBXBuildFile; fileRef = 14DE45C32FEC760B0056BB36 /* background.js */; };
-		14DE45C82FEC760B0056BB36 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = 14DE45C42FEC760B0056BB36 /* manifest.json */; };
+		674D1F5BA26ED716E55E19D1 /* StillKit in Frameworks */ = {isa = PBXBuildFile; productRef = 16CA36003B07053246F8E1E3 /* StillKit */; };
+		8F6D5C9BFF89BC9946BB6064 /* StillKit in Frameworks */ = {isa = PBXBuildFile; productRef = E9741E2A0A942EE850FFBF0E /* StillKit */; };
+		A378F004F77F80258425DCF1 /* StillKit in Frameworks */ = {isa = PBXBuildFile; productRef = 2188F2F6DC29F8399B9E1524 /* StillKit */; };
+		FE0459E29447C5C924A4D5FD /* StillKit in Frameworks */ = {isa = PBXBuildFile; productRef = 35445F289A3F16B1F1114377 /* StillKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -99,8 +99,8 @@
 		14DE45992FEC760B0056BB36 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		14DE459E2FEC760B0056BB36 /* Still Extension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = "Still Extension.appex"; sourceTree = BUILT_PRODUCTS_DIR; };
 		14DE45A32FEC760B0056BB36 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		14DE45C32FEC760B0056BB36 /* background.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; name = background.js; path = "../../../../packages/ext-safari/dist/safari-mv3/background.js"; sourceTree = "<group>"; };
-		14DE45C42FEC760B0056BB36 /* manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = manifest.json; path = "../../../../packages/ext-safari/dist/safari-mv3/manifest.json"; sourceTree = "<group>"; };
+		38A772B6682863706C45FB5D /* StillExtension.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = StillExtension.entitlements; sourceTree = "<group>"; };
+		A84E021F3B9FE3FABAD24050 /* Still.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = Still.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -108,6 +108,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				8F6D5C9BFF89BC9946BB6064 /* StillKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -115,6 +116,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				FE0459E29447C5C924A4D5FD /* StillKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -122,6 +124,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				674D1F5BA26ED716E55E19D1 /* StillKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -129,6 +132,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A378F004F77F80258425DCF1 /* StillKit in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -154,6 +158,7 @@
 				14DE456E2FEC760A0056BB36 /* ViewController.swift */,
 				14DE456F2FEC760B0056BB36 /* Assets.xcassets */,
 				14DE45682FEC760A0056BB36 /* Resources */,
+				A84E021F3B9FE3FABAD24050 /* Still.entitlements */,
 			);
 			path = "Shared (App)";
 			sourceTree = "<group>";
@@ -174,6 +179,7 @@
 			children = (
 				14DE45C22FEC760B0056BB36 /* Resources */,
 				14DE45712FEC760B0056BB36 /* SafariWebExtensionHandler.swift */,
+				38A772B6682863706C45FB5D /* StillExtension.entitlements */,
 			);
 			path = "Shared (Extension)";
 			sourceTree = "<group>";
@@ -230,8 +236,6 @@
 		14DE45C22FEC760B0056BB36 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				14DE45C32FEC760B0056BB36 /* background.js */,
-				14DE45C42FEC760B0056BB36 /* manifest.json */,
 			);
 			name = Resources;
 			path = "Shared (Extension)";
@@ -248,6 +252,7 @@
 				14DE45732FEC760B0056BB36 /* Frameworks */,
 				14DE45742FEC760B0056BB36 /* Resources */,
 				14DE45B72FEC760B0056BB36 /* Embed Foundation Extensions */,
+				7032E4A88B4C9FA11815A4E5 /* Copy Still Web UI */,
 			);
 			buildRules = (
 			);
@@ -256,6 +261,7 @@
 			);
 			name = "Still (iOS)";
 			packageProductDependencies = (
+				E9741E2A0A942EE850FFBF0E /* StillKit */,
 			);
 			productName = "Still (iOS)";
 			productReference = 14DE45762FEC760B0056BB36 /* Still.app */;
@@ -269,6 +275,7 @@
 				14DE45852FEC760B0056BB36 /* Frameworks */,
 				14DE45862FEC760B0056BB36 /* Resources */,
 				14DE45BE2FEC760B0056BB36 /* Embed Foundation Extensions */,
+				363E50207F4EF8662ACF74FC /* Copy Still Web UI */,
 			);
 			buildRules = (
 			);
@@ -277,6 +284,7 @@
 			);
 			name = "Still (macOS)";
 			packageProductDependencies = (
+				35445F289A3F16B1F1114377 /* StillKit */,
 			);
 			productName = "Still (macOS)";
 			productReference = 14DE45882FEC760B0056BB36 /* Still.app */;
@@ -289,6 +297,7 @@
 				14DE45902FEC760B0056BB36 /* Sources */,
 				14DE45912FEC760B0056BB36 /* Frameworks */,
 				14DE45922FEC760B0056BB36 /* Resources */,
+				06235718ECC1BE32D902827C /* Copy Safari Web Extension Resources */,
 			);
 			buildRules = (
 			);
@@ -296,6 +305,7 @@
 			);
 			name = "Still Extension (iOS)";
 			packageProductDependencies = (
+				16CA36003B07053246F8E1E3 /* StillKit */,
 			);
 			productName = "Still Extension (iOS)";
 			productReference = 14DE45942FEC760B0056BB36 /* Still Extension.appex */;
@@ -308,6 +318,7 @@
 				14DE459A2FEC760B0056BB36 /* Sources */,
 				14DE459B2FEC760B0056BB36 /* Frameworks */,
 				14DE459C2FEC760B0056BB36 /* Resources */,
+				DC102694116D440915AA842D /* Copy Safari Web Extension Resources */,
 			);
 			buildRules = (
 			);
@@ -315,6 +326,7 @@
 			);
 			name = "Still Extension (macOS)";
 			packageProductDependencies = (
+				2188F2F6DC29F8399B9E1524 /* StillKit */,
 			);
 			productName = "Still Extension (macOS)";
 			productReference = 14DE459E2FEC760B0056BB36 /* Still Extension.appex */;
@@ -353,6 +365,9 @@
 			);
 			mainGroup = 14DE45622FEC760A0056BB36;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				FCCDEDA02C7411CC8E347832 /* XCLocalSwiftPackageReference "StillKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 14DE45772FEC760B0056BB36 /* Products */;
 			projectDirPath = "";
@@ -398,8 +413,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				14DE45C82FEC760B0056BB36 /* manifest.json in Resources */,
-				14DE45C72FEC760B0056BB36 /* background.js in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -407,12 +420,89 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				14DE45C62FEC760B0056BB36 /* manifest.json in Resources */,
-				14DE45C52FEC760B0056BB36 /* background.js in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		06235718ECC1BE32D902827C /* Copy Safari Web Extension Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy Safari Web Extension Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nSRC=\"${SRCROOT}/../../../packages/ext-safari/dist/safari-mv3\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nif [ ! -f \"${SRC}/manifest.json\" ]; then\n  echo \"error: Safari extension build missing at ${SRC} — run: pnpm --filter @still/ext-safari build\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --exclude='.DS_Store' \"${SRC}/\" \"${DEST}/\"\n";
+		};
+		363E50207F4EF8662ACF74FC /* Copy Still Web UI */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy Still Web UI";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nSRC=\"${SRCROOT}/../../../packages/app-webview/dist\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebUI\"\nif [ ! -f \"${SRC}/index.html\" ]; then\n  echo \"error: Still web UI build missing at ${SRC} — run: pnpm --filter @still/app-webview build\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --delete --exclude='.DS_Store' \"${SRC}/\" \"${DEST}/\"\n";
+		};
+		7032E4A88B4C9FA11815A4E5 /* Copy Still Web UI */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy Still Web UI";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nSRC=\"${SRCROOT}/../../../packages/app-webview/dist\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebUI\"\nif [ ! -f \"${SRC}/index.html\" ]; then\n  echo \"error: Still web UI build missing at ${SRC} — run: pnpm --filter @still/app-webview build\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --delete --exclude='.DS_Store' \"${SRC}/\" \"${DEST}/\"\n";
+		};
+		DC102694116D440915AA842D /* Copy Safari Web Extension Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Copy Safari Web Extension Resources";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -euo pipefail\nSRC=\"${SRCROOT}/../../../packages/ext-safari/dist/safari-mv3\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nif [ ! -f \"${SRC}/manifest.json\" ]; then\n  echo \"error: Safari extension build missing at ${SRC} — run: pnpm --filter @still/ext-safari build\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --exclude='.DS_Store' \"${SRC}/\" \"${DEST}/\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		14DE45722FEC760B0056BB36 /* Sources */ = {
@@ -618,8 +708,11 @@
 		14DE45B52FEC760B0056BB36 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "Shared (Extension)/StillExtension.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UM9HVDH3P3;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Still Extension";
@@ -636,7 +729,6 @@
 					SafariServices,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still.Extension;
-				DEVELOPMENT_TEAM = UM9HVDH3P3;
 				PRODUCT_NAME = "Still Extension";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -652,8 +744,11 @@
 		14DE45B62FEC760B0056BB36 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "Shared (Extension)/StillExtension.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UM9HVDH3P3;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "iOS (Extension)/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Still Extension";
@@ -670,7 +765,6 @@
 					SafariServices,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still.Extension;
-				DEVELOPMENT_TEAM = UM9HVDH3P3;
 				PRODUCT_NAME = "Still Extension";
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
@@ -689,8 +783,11 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Shared (App)/Still.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UM9HVDH3P3;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "iOS (App)/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Still;
@@ -712,7 +809,6 @@
 					WebKit,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still;
-				DEVELOPMENT_TEAM = UM9HVDH3P3;
 				PRODUCT_NAME = Still;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -730,8 +826,11 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Shared (App)/Still.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UM9HVDH3P3;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "iOS (App)/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = Still;
@@ -753,7 +852,6 @@
 					WebKit,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still;
-				DEVELOPMENT_TEAM = UM9HVDH3P3;
 				PRODUCT_NAME = Still;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -770,10 +868,13 @@
 		14DE45BC2FEC760B0056BB36 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "Shared (Extension)/StillExtension.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UM9HVDH3P3;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "macOS (Extension)/Info.plist";
@@ -791,7 +892,6 @@
 					SafariServices,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still.Extension;
-				DEVELOPMENT_TEAM = UM9HVDH3P3;
 				PRODUCT_NAME = "Still Extension";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
@@ -806,10 +906,13 @@
 		14DE45BD2FEC760B0056BB36 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = "Shared (Extension)/StillExtension.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UM9HVDH3P3;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "macOS (Extension)/Info.plist";
@@ -827,7 +930,6 @@
 					SafariServices,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still.Extension;
-				DEVELOPMENT_TEAM = UM9HVDH3P3;
 				PRODUCT_NAME = "Still Extension";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
@@ -844,11 +946,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Shared (App)/Still.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UM9HVDH3P3;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "macOS (App)/Info.plist";
@@ -868,7 +973,6 @@
 					WebKit,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still;
-				DEVELOPMENT_TEAM = UM9HVDH3P3;
 				PRODUCT_NAME = Still;
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
@@ -886,11 +990,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "Shared (App)/Still.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = UM9HVDH3P3;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = "macOS (App)/Info.plist";
@@ -910,7 +1017,6 @@
 					WebKit,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.chartash.still;
-				DEVELOPMENT_TEAM = UM9HVDH3P3;
 				PRODUCT_NAME = Still;
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = macosx;
@@ -972,6 +1078,36 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		FCCDEDA02C7411CC8E347832 /* XCLocalSwiftPackageReference "StillKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../StillKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		16CA36003B07053246F8E1E3 /* StillKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FCCDEDA02C7411CC8E347832 /* XCLocalSwiftPackageReference "StillKit" */;
+			productName = StillKit;
+		};
+		2188F2F6DC29F8399B9E1524 /* StillKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FCCDEDA02C7411CC8E347832 /* XCLocalSwiftPackageReference "StillKit" */;
+			productName = StillKit;
+		};
+		35445F289A3F16B1F1114377 /* StillKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FCCDEDA02C7411CC8E347832 /* XCLocalSwiftPackageReference "StillKit" */;
+			productName = StillKit;
+		};
+		E9741E2A0A942EE850FFBF0E /* StillKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FCCDEDA02C7411CC8E347832 /* XCLocalSwiftPackageReference "StillKit" */;
+			productName = StillKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 14DE45632FEC760A0056BB36 /* Project object */;
 }

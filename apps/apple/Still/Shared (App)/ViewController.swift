@@ -2,25 +2,31 @@
 //  ViewController.swift
 //  Shared (App)
 //
-//  Created by Zack Chartash on 6/24/26.
+//  The native shell for the one shared Still UI (U17): a WKWebView loads the bundled web build
+//  (packages/app-webview) and persists settings through the App-Group bridge (KTD4). The web side's
+//  WKWebViewStorageAdapter posts {kind:"get"} / {kind:"set",settings} to the "still" message handler;
+//  we route each through StillKit's SettingsBridge against the shared App-Group container, so the
+//  app, the Safari extension, and the WKWebView all read/write the same settings.
 //
 
 import WebKit
+import StillKit
 
 #if os(iOS)
 import UIKit
 typealias PlatformViewController = UIViewController
 #elseif os(macOS)
 import Cocoa
-import SafariServices
 typealias PlatformViewController = NSViewController
 #endif
 
-let extensionBundleIdentifier = "com.chartash.still.Extension"
-
-class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMessageHandler {
+class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMessageHandlerWithReply {
 
     @IBOutlet var webView: WKWebView!
+
+    // The App-Group-backed settings bridge (falls back to in-memory if the App Group isn't
+    // provisioned, so the UI still launches). Built lazily on the main actor in viewDidLoad.
+    private let bridge = SettingsBridge(store: .appGroup())
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -28,54 +34,35 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
         self.webView.navigationDelegate = self
 
 #if os(iOS)
-        self.webView.scrollView.isScrollEnabled = false
+        self.webView.scrollView.isScrollEnabled = true
 #endif
 
-        self.webView.configuration.userContentController.add(self, name: "controller")
+        // Register the request/reply bridge the WKWebViewStorageAdapter posts to. Reply-style so the
+        // web `await postMessage(...)` resolves with the resolved settings JSON.
+        self.webView.configuration.userContentController.addScriptMessageHandler(
+            self, contentWorld: .page, name: "still")
 
-        self.webView.loadFileURL(Bundle.main.url(forResource: "Main", withExtension: "html")!, allowingReadAccessTo: Bundle.main.resourceURL!)
-    }
-
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-#if os(iOS)
-        webView.evaluateJavaScript("show('ios')")
-#elseif os(macOS)
-        webView.evaluateJavaScript("show('mac')")
-
-        SFSafariExtensionManager.getStateOfSafariExtension(withIdentifier: extensionBundleIdentifier) { (state, error) in
-            guard let state = state, error == nil else {
-                // Insert code to inform the user that something went wrong.
-                return
-            }
-
-            DispatchQueue.main.async {
-                if #available(macOS 13, *) {
-                    webView.evaluateJavaScript("show('mac', \(state.isEnabled), true)")
-                } else {
-                    webView.evaluateJavaScript("show('mac', \(state.isEnabled), false)")
-                }
-            }
+        if let indexURL = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "WebUI") {
+            self.webView.loadFileURL(indexURL, allowingReadAccessTo: indexURL.deletingLastPathComponent())
+        } else {
+            assertionFailure("WebUI/index.html missing from the app bundle — build the web bundle first")
         }
-#endif
     }
 
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-#if os(macOS)
-        if (message.body as! String != "open-preferences") {
+    // WKScriptMessageHandlerWithReply: bridge web → App Group and reply with the resolved settings.
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage,
+        replyHandler: @escaping (Any?, String?) -> Void
+    ) {
+        guard message.name == "still" else {
+            replyHandler(nil, "still: unexpected handler \(message.name)")
             return
         }
-
-        SFSafariApplication.showPreferencesForExtension(withIdentifier: extensionBundleIdentifier) { error in
-            guard error == nil else {
-                // Insert code to inform the user that something went wrong.
-                return
-            }
-
-            DispatchQueue.main.async {
-                NSApp.terminate(self)
-            }
+        guard let settingsJSON = bridge.handle(rawBody: message.body) else {
+            replyHandler(nil, "still: unrecognized message")
+            return
         }
-#endif
+        replyHandler(settingsJSON, nil)
     }
-
 }
