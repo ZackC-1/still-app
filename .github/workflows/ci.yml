@@ -69,10 +69,10 @@ jobs:
         run: deno lint
       - name: Typecheck entrypoints
         working-directory: supabase/functions
-        run: deno check revenuecat-webhook/index.ts reconcile-entitlement/index.ts
-      - name: Test handlers (faked RevenueCat payloads — no Apple, no DB)
+        run: deno check */index.ts
+      - name: Test handlers (faked payloads + mocked stores — no Apple, no live DB)
         working-directory: supabase/functions
-        run: deno test revenuecat-webhook/handler.test.ts reconcile-entitlement/handler.test.ts
+        run: deno test
 
   e2e:
     name: Playwright on fixtures

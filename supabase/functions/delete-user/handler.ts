@@ -1,0 +1,23 @@
+import { verifyHs256 } from "../_shared/jwt.ts";
+import { jsonResponse } from "../_shared/store.ts";
+import { isUuid } from "../_shared/types.ts";
+import type { UserStore } from "../_shared/user-store.ts";
+
+// In-app account deletion (App Store Guideline 5.1.1 / GDPR). The subject is the verified JWT's
+// user — never the body. Deleting the auth user cascades to profile + entitlement (U11).
+
+export interface AccountDeps {
+  readonly jwtSecret: string;
+  readonly store: UserStore;
+}
+
+export async function handleDeleteUser(req: Request, deps: AccountDeps): Promise<Response> {
+  if (req.method !== "POST") return jsonResponse(405, { error: "method_not_allowed" });
+  const match = /^Bearer (.+)$/.exec(req.headers.get("Authorization") ?? "");
+  if (!match) return jsonResponse(401, { error: "unauthorized" });
+  const claims = await verifyHs256(match[1]!, deps.jwtSecret);
+  if (!claims || !isUuid(claims.sub)) return jsonResponse(401, { error: "unauthorized" });
+
+  await deps.store.deleteUser(claims.sub); // idempotent
+  return jsonResponse(200, { deleted: true });
+}
