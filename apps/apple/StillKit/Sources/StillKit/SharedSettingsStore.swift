@@ -20,8 +20,16 @@ public final class SharedSettingsStore {
 
   /// The current settings, or the defaults if nothing has been written / the data is unreadable.
   public func current() -> StillSettings {
+    peek() ?? .default
+  }
+
+  /// The stored settings, or nil if nothing has ever been written (unlike `current()`, which folds a
+  /// missing/unreadable value into the defaults). The bridge uses this to answer a web `get` with an
+  /// empty reply on a fresh install, so the WKWebView UI shows bundled defaults rather than a
+  /// spurious `updatedAt: 0` write that could mask a newer value on the other side.
+  public func peek() -> StillSettings? {
     guard let data = backing.read(), let settings = try? decoder.decode(StillSettings.self, from: data) else {
-      return .default
+      return nil
     }
     return settings
   }

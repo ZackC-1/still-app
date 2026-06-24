@@ -2,6 +2,13 @@
   "": {
     "swift-dependencies": "/Users/zack/Projects/still-app/apps/apple/StillKit/.build/arm64-apple-macosx/debug/StillKitTests.build/primary.swiftdeps"
   },
+  "/Users/zack/Projects/still-app/apps/apple/StillKit/Tests/StillKitTests/BridgeTests.swift": {
+    "dependencies": "/Users/zack/Projects/still-app/apps/apple/StillKit/.build/arm64-apple-macosx/debug/StillKitTests.build/BridgeTests.d",
+    "object": "/Users/zack/Projects/still-app/apps/apple/StillKit/.build/arm64-apple-macosx/debug/StillKitTests.build/BridgeTests.swift.o",
+    "swiftmodule": "/Users/zack/Projects/still-app/apps/apple/StillKit/.build/arm64-apple-macosx/debug/StillKitTests.build/BridgeTests~partial.swiftmodule",
+    "swift-dependencies": "/Users/zack/Projects/still-app/apps/apple/StillKit/.build/arm64-apple-macosx/debug/StillKitTests.build/BridgeTests.swiftdeps",
+    "diagnostics": "/Users/zack/Projects/still-app/apps/apple/StillKit/.build/arm64-apple-macosx/debug/StillKitTests.build/BridgeTests.dia"
+  },
   "/Users/zack/Projects/still-app/apps/apple/StillKit/Tests/StillKitTests/SettingsTests.swift": {
     "dependencies": "/Users/zack/Projects/still-app/apps/apple/StillKit/.build/arm64-apple-macosx/debug/StillKitTests.build/SettingsTests.d",
     "object": "/Users/zack/Projects/still-app/apps/apple/StillKit/.build/arm64-apple-macosx/debug/StillKitTests.build/SettingsTests.swift.o",
