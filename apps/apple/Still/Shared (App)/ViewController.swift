@@ -24,9 +24,10 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
 
     @IBOutlet var webView: WKWebView!
 
-    // The App-Group-backed settings bridge (falls back to in-memory if the App Group isn't
-    // provisioned, so the UI still launches). Built lazily on the main actor in viewDidLoad.
-    private let bridge = SettingsBridge(store: .appGroup())
+    // Routes web messages to native: the App-Group settings bridge (U17) plus the U19 auth/purchase
+    // actions. The settings store falls back to in-memory if the App Group isn't provisioned, so the
+    // UI still launches.
+    private let router = WebBridgeRouter(settings: SettingsBridge(store: .appGroup()))
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -73,10 +74,6 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
             replyHandler(nil, "still: unexpected handler \(message.name)")
             return
         }
-        guard let settingsJSON = bridge.handle(rawBody: message.body) else {
-            replyHandler(nil, "still: unrecognized message")
-            return
-        }
-        replyHandler(settingsJSON, nil)
+        router.handle(message.body, reply: replyHandler)
     }
 }
