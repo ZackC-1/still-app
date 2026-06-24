@@ -58,7 +58,7 @@ export default defineConfig({
     cssCodeSplit: false,
     modulePreload: { polyfill: false },
     rollupOptions: {
-      output: { inlineDynamicImports: true }, // one JS chunk → nothing left to fetch over file://
+      output: { codeSplitting: false }, // one JS chunk → nothing left to fetch over file:// (Vite 8 replaces inlineDynamicImports)
     },
   },
 });
