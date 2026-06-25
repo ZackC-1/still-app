@@ -11,10 +11,16 @@ export const ROOT_ACTIVE_CLASS = "still-active";
 /** Default on-page placeholder copy. U9 passes the canonical string; this is the fallback. */
 export const STILL_PLACEHOLDER_LINE = "Still cleared this away.";
 
-/** What the content script should do for the current URL. Mutually exclusive per navigation. */
+/** Placeholder copy for a whole-site block (e.g. TikTok): tells the user the page is blocked, under
+ * the "Still" brand mark so it's clear Still did it. */
+export const STILL_BLOCKED_LINE = "This site is blocked.";
+
+/** What the content script should do for the current URL. Mutually exclusive per navigation.
+ *  `blocked` marks a whole-site block (vs. content that was merely cleared away), so the placeholder
+ *  can tell the user the page is blocked rather than show the generic cleared-content copy. */
 export type Decision =
   | { readonly kind: "redirect"; readonly url: string }
-  | { readonly kind: "placeholder" }
+  | { readonly kind: "placeholder"; readonly blocked?: boolean }
   | { readonly kind: "apply" }
   | { readonly kind: "noop" };
 
@@ -65,8 +71,8 @@ export function evaluate(ruleSet: SignedRuleSet, settings: StillSettings, url: U
   const surfaces = service.surfaces.filter((s) => s.enabledByDefault);
   const path = url.pathname;
 
-  // 1. Whole-site block (TikTok).
-  if (surfaces.some((s) => s.action === "blockSite")) return { kind: "placeholder" };
+  // 1. Whole-site block (TikTok) — the page is blocked outright, not just cleared.
+  if (surfaces.some((s) => s.action === "blockSite")) return { kind: "placeholder", blocked: true };
 
   // 2. Direct URL → placeholder (Instagram /reel(s), Facebook /reel).
   for (const s of surfaces) {

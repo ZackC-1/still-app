@@ -52,13 +52,18 @@ describe("evaluate — navigation decisions", () => {
     expect(evaluate(ruleSet, allOn, new URL("https://www.youtube.com/feed/subscriptions")).kind).toBe("apply");
   });
 
-  it("blocks the whole site on TikTok", () => {
-    expect(evaluate(ruleSet, allOn, new URL("https://www.tiktok.com/foryou")).kind).toBe("placeholder");
-    expect(evaluate(ruleSet, allOn, new URL("https://www.tiktok.com/@someone")).kind).toBe("placeholder");
+  it("blocks the whole site on TikTok — marked as blocked (not merely cleared)", () => {
+    const a = evaluate(ruleSet, allOn, new URL("https://www.tiktok.com/foryou"));
+    const b = evaluate(ruleSet, allOn, new URL("https://www.tiktok.com/@someone"));
+    expect(a).toEqual({ kind: "placeholder", blocked: true });
+    expect(b.kind).toBe("placeholder");
+    expect(b).toMatchObject({ blocked: true });
   });
 
-  it("placeholders direct Instagram Reels URLs", () => {
-    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reel/XYZ/")).kind).toBe("placeholder");
+  it("placeholders direct Instagram Reels URLs (cleared, not a whole-site block)", () => {
+    const d = evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reel/XYZ/"));
+    expect(d.kind).toBe("placeholder");
+    expect(d).not.toMatchObject({ blocked: true }); // a cleared URL, not a site block
     expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reels/")).kind).toBe("placeholder");
   });
 
