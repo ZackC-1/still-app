@@ -31,12 +31,14 @@ final class SignInWithAppleCoordinator: NSObject {
   enum SIWAError: LocalizedError {
     case cancelled
     case noIdentityToken
+    case inProgress
     case failed(String)
 
     var errorDescription: String? {
       switch self {
       case .cancelled: return "Sign in was cancelled."
       case .noIdentityToken: return "Apple did not return an identity token."
+      case .inProgress: return "A sign-in is already in progress."
       case .failed(let message): return message
       }
     }
@@ -45,8 +47,12 @@ final class SignInWithAppleCoordinator: NSObject {
   private var continuation: CheckedContinuation<AppleCredential, Error>?
   private var currentNonce: String?
 
-  /// Present the Apple sheet and await the credential. One in-flight request at a time.
+  /// Present the Apple sheet and await the credential. One in-flight request at a time: a concurrent
+  /// call (double-tap, re-entrant bridge call) is rejected with `.inProgress` BEFORE it can overwrite
+  /// the live nonce/continuation — which would otherwise leak the first continuation and mismatch the
+  /// nonce sent to Apple (P2 #7).
   func signIn() async throws -> AppleCredential {
+    guard continuation == nil else { throw SIWAError.inProgress }
     let nonce = Self.randomNonceString()
     currentNonce = nonce
 
