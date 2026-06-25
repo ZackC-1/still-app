@@ -12,6 +12,7 @@
 
 import SwiftUI
 import StillKit
+import Combine
 
 struct OnboardingView: View {
   /// Probe the live Safari-extension state — real on macOS, `.unknown` on iOS.
@@ -29,6 +30,10 @@ struct OnboardingView: View {
 
   private static let stillBlue = Color(red: 0.23, green: 0.31, blue: 1.0)
   private let lastStep = 3
+  /// Polls the live extension state while screen 3 is on-screen, so the badge flips to "You're all
+  /// set" on its own the moment the user enables Still — no "Check again" tap needed. Real on macOS;
+  /// a no-op on iOS (status stays `.unknown`, no API to read it).
+  private let statusPoll = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
   var body: some View {
     VStack(spacing: 0) {
@@ -115,6 +120,12 @@ struct OnboardingView: View {
       .padding(16)
       .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.05)))
 
+      Text("Still only reads those four sites to hide short-form — nothing else you browse.")
+        .font(.caption)
+        .foregroundColor(.secondary)
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+
       Button(action: openEnableLocation) {
         Text(openButtonTitle).fontWeight(.semibold)
       }
@@ -123,6 +134,10 @@ struct OnboardingView: View {
     }
     // .onAppear + Task rather than .task (which is macOS 12+; the app targets macOS 11 / iOS 15).
     .onAppear { Task { await refreshStatus() } }
+    .onReceive(statusPoll) { _ in
+      // Live-confirm: flip to "You're all set" on its own once enabled. Stop probing once confirmed.
+      if !status.isConfirmedEnabled { Task { await refreshStatus() } }
+    }
   }
 
   private var done: some View {
@@ -157,13 +172,13 @@ struct OnboardingView: View {
     return [
       "Open Settings → Apps → Safari → Extensions",
       "Turn on Still",
-      "Tap Still and allow it on the four sites",
+      "Allow Still on YouTube, Instagram, TikTok, and Facebook",
     ]
     #else
     return [
       "Click “Open Safari Settings” below",
-      "In Extensions, check the box next to Still",
-      "Allow Still on the four sites when Safari asks",
+      "In Extensions, switch on Still",
+      "Allow Still on YouTube, Instagram, TikTok, and Facebook",
     ]
     #endif
   }
