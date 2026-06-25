@@ -25,6 +25,13 @@ describe("NativeBridge", () => {
     expect(await bridge.restore()).toBe(false);
     expect(await bridge.purchaseStatus()).toBe(false);
     expect((await bridge.purchaseStillSync()).outcome).toBe("failed");
+    await expect(bridge.signOut()).resolves.toBeUndefined(); // no-op without a host, never throws
+  });
+
+  it("posts signOut to reset the native RevenueCat identity", async () => {
+    const host = makeHost({ signOut: { ok: true } });
+    await new NativeBridge(host.win).signOut();
+    expect(host.posted).toContainEqual({ kind: "signOut" });
   });
 
   it("is available inside the WKWebView host", () => {

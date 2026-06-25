@@ -30,6 +30,11 @@ final class PurchaseManager {
 
   private(set) var isConfigured = false
 
+  /// The Supabase UUID RevenueCat is currently keyed to (KTD5), or nil when signed out / never
+  /// configured. Privileged purchase/restore/status calls reject when this is nil, so a stale or
+  /// malicious bridge caller can't act against a previous account after sign-out.
+  private(set) var currentAppUserID: String?
+
   private init() {}
 
   /// The RevenueCat public SDK key, injected from Config/Secrets.xcconfig via Info.plist. Empty on a
@@ -46,6 +51,7 @@ final class PurchaseManager {
       NSLog("PurchaseManager: RevenueCat key unset (Config/Secrets.local.xcconfig) — purchase disabled")
       return
     }
+    currentAppUserID = appUserID
     if isConfigured {
       Purchases.shared.logIn(appUserID) { _, _, _ in } // account-switch / restore recovery path
       return
@@ -55,16 +61,26 @@ final class PurchaseManager {
     isConfigured = true
   }
 
-  /// Whether Still Sync is active per RevenueCat — the immediate LOCAL-UI gate only.
+  /// Reset the RevenueCat identity on sign-out: log out of the current app_user_id and clear it, so
+  /// nothing here can act against the previous account until a new session reconfigures. Safe to call
+  /// when unconfigured (just clears the id). Pairs with the web sign-out (NativeBridge `signOut`).
+  func reset() {
+    currentAppUserID = nil
+    guard isConfigured else { return }
+    Purchases.shared.logOut { _, _ in } // back to an anonymous RevenueCat id; no entitlements
+  }
+
+  /// Whether Still Sync is active per RevenueCat — the immediate LOCAL-UI gate only. Rejects when no
+  /// user is configured (signed out), so a stale bridge caller can't probe a previous account.
   func hasStillSync() async -> Bool {
-    guard isConfigured else { return false }
+    guard isConfigured, currentAppUserID != nil else { return false }
     let info = try? await Purchases.shared.customerInfo()
     return info?.entitlements[Self.entitlementID]?.isActive == true
   }
 
   /// The current offering's package for still_sync (falling back to the first available package).
   private func stillSyncPackage() async -> Package? {
-    guard isConfigured else { return nil }
+    guard isConfigured, currentAppUserID != nil else { return nil }
     let offerings = try? await Purchases.shared.offerings()
     let packages = offerings?.current?.availablePackages ?? []
     return packages.first { $0.storeProduct.productIdentifier == Self.productID } ?? packages.first
@@ -80,7 +96,7 @@ final class PurchaseManager {
   /// Buy Still Sync. The returned `.purchased` unlocks the LOCAL UI immediately; cross-device sync
   /// follows when the webhook writes the Supabase entitlement and the WebView reconciles.
   func purchaseStillSync() async -> Outcome {
-    guard isConfigured else { return .failed("not configured") }
+    guard isConfigured, currentAppUserID != nil else { return .failed("not configured") }
     guard let package = await stillSyncPackage() else { return .failed("no offering available") }
     do {
       let result = try await Purchases.shared.purchase(package: package)
@@ -93,7 +109,7 @@ final class PurchaseManager {
 
   /// Restore purchases (the visible restore affordance, R8). Returns whether Still Sync is now active.
   func restore() async -> Bool {
-    guard isConfigured else { return false }
+    guard isConfigured, currentAppUserID != nil else { return false }
     let info = try? await Purchases.shared.restorePurchases()
     return info?.entitlements[Self.entitlementID]?.isActive == true
   }

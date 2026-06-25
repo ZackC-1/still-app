@@ -33,7 +33,8 @@ export type NativeMessage =
   | { readonly kind: "configurePurchases"; readonly appUserID: string }
   | { readonly kind: "purchase" }
   | { readonly kind: "restore" }
-  | { readonly kind: "purchaseStatus" };
+  | { readonly kind: "purchaseStatus" }
+  | { readonly kind: "signOut" };
 
 export class NativeBridge {
   constructor(
@@ -91,6 +92,13 @@ export class NativeBridge {
   /** Current RevenueCat entitlement (the immediate local-UI gate only). */
   async purchaseStatus(): Promise<boolean> {
     return asObject(await this.post({ kind: "purchaseStatus" }))?.entitled === true;
+  }
+
+  /** Reset the native RevenueCat identity on sign-out (RevenueCat logOut + clear the configured user).
+   * After this, purchase/restore/status reject until a new session reconfigures (KTD5). No-op on a
+   * host with no native port. */
+  async signOut(): Promise<void> {
+    await this.post({ kind: "signOut" });
   }
 
   private async post(message: NativeMessage): Promise<unknown> {

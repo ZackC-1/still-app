@@ -45,12 +45,19 @@ if (supabaseUrl && supabaseAnonKey) {
     controller.cloudReachable = state.cloudReachable;
   });
 
+  // Sign-out resets the native RevenueCat identity (when in the WKWebView host) before clearing the
+  // Supabase session, so the native layer holds no configured user after sign-out (KTD5).
+  const signOutEverywhere = async (): Promise<void> => {
+    if (bridge.available) await bridge.signOut();
+    await sync.signOut();
+  };
+
   controller = new UiController({
     cache,
     host: { canPurchase: true },
     auth: {
       signIn: (email) => authPort.signInWithMagicLink(email),
-      signOut: () => sync.signOut(),
+      signOut: signOutEverywhere,
     },
   });
 

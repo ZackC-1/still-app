@@ -79,6 +79,12 @@ final class WebBridgeRouter {
         reply(Self.json(["entitled": entitled]), nil)
       }
 
+    case "signOut":
+      // Reset the native RevenueCat identity (logOut + clear the configured user) so nothing here
+      // can act against the previous account after sign-out. Pairs with the web SyncService sign-out.
+      purchases.reset()
+      reply(Self.json(["ok": true]), nil)
+
     default:
       reply(nil, "still: unknown kind \(kind)")
     }
