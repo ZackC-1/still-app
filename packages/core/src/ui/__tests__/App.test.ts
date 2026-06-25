@@ -47,6 +47,18 @@ describe("App", () => {
     expect(screen.queryByText("Get Still Sync")).toBeNull();
     expect(screen.getByText(/Buy once on iPhone/)).toBeTruthy();
   });
+
+  it("Apple host (onSignInWithApple) shows the Apple button, not the email field (U19)", () => {
+    render(App, { props: { controller: controller(), onSignInWithApple: () => {} } });
+    expect(screen.getByText("Sign in with Apple")).toBeTruthy();
+    expect(document.querySelector("input.email")).toBeNull();
+  });
+
+  it("non-Apple host keeps the email magic-link sign-in", () => {
+    render(App, { props: { controller: controller() } });
+    expect(document.querySelector("input.email")).toBeTruthy();
+    expect(screen.queryByText("Sign in with Apple")).toBeNull();
+  });
 });
 
 describe("Placeholder", () => {

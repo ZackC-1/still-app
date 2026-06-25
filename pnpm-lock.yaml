@@ -47,6 +47,9 @@ importers:
       '@still/shared-types':
         specifier: workspace:*
         version: link:../shared-types
+      '@supabase/supabase-js':
+        specifier: ^2.108.2
+        version: 2.108.2
       svelte:
         specifier: ^5.56.4
         version: 5.56.4(@typescript-eslint/types@8.62.0)

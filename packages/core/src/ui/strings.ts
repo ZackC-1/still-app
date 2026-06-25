@@ -49,6 +49,8 @@ export const STRINGS = {
     error: "Couldn't send the link. Try again.",
     resend: "Resend link",
     signOut: "Sign out",
+    apple: "Sign in with Apple",
+    signingIn: "Signing in…",
   },
 
   sync: {

@@ -11,8 +11,11 @@
     controller: UiController;
     onGet?: () => void;
     onRestore?: () => void;
+    /** Apple host only: run native Sign in with Apple. When set, the signed-out state shows the
+     * Apple button instead of the email magic-link field (the Chromium extension keeps email). */
+    onSignInWithApple?: () => void;
   }
-  let { controller: c, onGet, onRestore }: Props = $props();
+  let { controller: c, onGet, onRestore, onSignInWithApple }: Props = $props();
 
   let email = $state("");
 </script>
@@ -58,7 +61,16 @@
   <section class="sync card" data-state={c.popupState}>
     {#if c.popupState === "signed-out"}
       <p class="muted">{STRINGS.auth.prompt}</p>
-      {#if c.authFlow === "sent"}
+      {#if onSignInWithApple}
+        <button
+          class="primary"
+          disabled={c.authFlow === "sending"}
+          onclick={onSignInWithApple}
+        >
+          {c.authFlow === "sending" ? STRINGS.auth.signingIn : STRINGS.auth.apple}
+        </button>
+        {#if c.authFlow === "error"}<p class="error">{c.authError ?? STRINGS.auth.error}</p>{/if}
+      {:else if c.authFlow === "sent"}
         <p class="sent">{STRINGS.auth.sent}</p>
         <button class="link" onclick={() => c.signIn(email)}>{STRINGS.auth.resend}</button>
       {:else}

@@ -1,22 +1,143 @@
 import { mount } from "svelte";
+import { createClient, type SupabaseClient, type SupportedStorage } from "@supabase/supabase-js";
 import "@still/core/ui/tokens.css";
 import { App, UiController } from "@still/core/ui";
 import { SettingsCache, WKWebViewStorageAdapter } from "@still/core/storage";
+import { NativeBridge } from "@still/core/native";
+import { SupabaseAuthPort, SupabaseBackendPort, SyncService } from "@still/core/sync";
 
-// Entry for the Apple app's WKWebView-hosted settings screen (U17). It mounts the exact same shared
-// Svelte UI the Chromium extension renders, but persists through the native App-Group bridge
-// (WKWebViewStorageAdapter → Swift → UserDefaults(suiteName:) shared with the Safari extension).
-//
-// Like the extension's options page, this screen has no single "active site", so currentHost is
-// omitted → the per-site pause control hides. canPurchase is true (Apple has a real purchase path,
-// R19); the StoreKit/RevenueCat buy + Sign in with Apple actions are wired natively in U19.
+// Entry for the Apple app's WKWebView settings screen. Settings persist through the native App-Group
+// bridge (U17). U19 wires native auth + purchase on top:
+//   • Sign in with Apple runs natively (NativeBridge → AuthenticationServices) and the identity token
+//     is exchanged for a Supabase session via signInWithIdToken — the existing, tested web SyncService
+//     then owns reconcile + entitlement-gated sync (no sync logic is duplicated in Swift).
+//   • The paywall buy/restore run natively (NativeBridge → StoreKit/RevenueCat), keyed to the Supabase
+//     UUID (KTD5 — configured only after sign-in, never anonymously).
+// The LOCAL UI gates on the Supabase entitlement (written by the RevenueCat→Supabase webhook, U14),
+// surfaced through SyncService — not the client RevenueCat CustomerInfo, which only gives immediate
+// buy feedback.
+
 const cache = new SettingsCache(new WKWebViewStorageAdapter());
 cache.watch();
 void cache.hydrate();
 
-const controller = new UiController({ cache, host: { canPurchase: true } });
+const bridge = new NativeBridge();
+
+// Supabase is configured at build time (gitignored packages/app-webview/.env). Absent in CI/dev
+// builds → the screen stays local-only (the U17 behavior), so the build never needs secrets.
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+
+let controller: UiController;
+let onSignInWithApple: (() => void) | undefined;
+let onGet: (() => void) | undefined;
+let onRestore: (() => void) | undefined;
+
+if (supabaseUrl && supabaseAnonKey) {
+  const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
+    auth: { persistSession: true, autoRefreshToken: true, storage: safeStorage() },
+  });
+  const authPort = new SupabaseAuthPort(supabase);
+  const backend = new SupabaseBackendPort(supabase);
+  const sync = new SyncService(cache, authPort, backend, (state) => {
+    controller.userId = state.userId;
+    controller.entitled = state.entitled;
+  });
+
+  controller = new UiController({
+    cache,
+    host: { canPurchase: true },
+    auth: {
+      signIn: (email) => authPort.signInWithMagicLink(email),
+      signOut: () => sync.signOut(),
+    },
+  });
+
+  // Establish a session: configure RevenueCat for the UUID (KTD5), then reconcile + mirror via
+  // SyncService, showing the entitlement-pending state while reconcile is in flight.
+  const enterSession = async (userId: string): Promise<void> => {
+    controller.reconciling = true;
+    try {
+      if (bridge.available) await bridge.configurePurchases(userId);
+      await sync.onSignedIn(userId);
+    } finally {
+      controller.reconciling = false;
+    }
+  };
+
+  // Resume an existing Supabase session on launch.
+  void supabase.auth.getUser().then(({ data }) => {
+    if (data.user) void enterSession(data.user.id);
+  });
+
+  // Native actions only exist inside the WKWebView host.
+  if (bridge.available) {
+    onSignInWithApple = () =>
+      void (async () => {
+        controller.authFlow = "sending";
+        controller.authError = null;
+        try {
+          const cred = await bridge.signInWithApple();
+          const { data, error } = await supabase.auth.signInWithIdToken({
+            provider: "apple",
+            token: cred.identityToken,
+            nonce: cred.nonce,
+          });
+          if (error || !data.user) {
+            controller.authFlow = "error";
+            controller.authError = error?.message ?? "Sign in failed";
+            return;
+          }
+          controller.authFlow = "idle";
+          await enterSession(data.user.id);
+        } catch (e) {
+          controller.authFlow = "error";
+          controller.authError = e instanceof Error ? e.message : String(e);
+        }
+      })();
+
+    onGet = () =>
+      void (async () => {
+        const result = await bridge.purchaseStillSync();
+        // The webhook writes the Supabase entitlement; re-reconcile so the local UI unlocks once it lands.
+        if (result.entitled && controller.userId) await enterSession(controller.userId);
+      })();
+
+    onRestore = () =>
+      void (async () => {
+        const restored = await bridge.restore();
+        if (restored && controller.userId) await enterSession(controller.userId);
+      })();
+  }
+} else {
+  controller = new UiController({ cache, host: { canPurchase: true } });
+}
 
 mount(App, {
   target: document.getElementById("app")!,
-  props: { controller },
+  props: { controller, onSignInWithApple, onGet, onRestore },
 });
+
+/** localStorage with an in-memory fallback — WKWebView's file:// origin can refuse persistent storage,
+ * and Supabase auth must not throw on construction. The session then lives for the launch only. */
+function safeStorage(): SupportedStorage {
+  const mem = new Map<string, string>();
+  const ls = (): Storage | null => {
+    try {
+      const s = globalThis.localStorage;
+      const probe = "__still_probe__";
+      s.setItem(probe, "1");
+      s.removeItem(probe);
+      return s;
+    } catch {
+      return null;
+    }
+  };
+  const store = ls();
+  if (store) return store;
+  return {
+    getItem: (k) => mem.get(k) ?? null,
+    setItem: (k, v) => void mem.set(k, v),
+    removeItem: (k) => void mem.delete(k),
+  };
+}
