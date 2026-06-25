@@ -94,7 +94,23 @@ describe("content script — redirect + SPA navigation (U7)", () => {
     const cs = createContentScript({ win, doc: document, ruleSet, cache: cacheWith(null), redirectPort, schedule: sync });
     await cs.start();
     expect(redirectPort.replace).not.toHaveBeenCalled();
-    expect(document.querySelector("#still-placeholder")).not.toBeNull();
+    const ph = document.querySelector("#still-placeholder");
+    expect(ph).not.toBeNull();
+    expect(ph?.textContent).toContain("cleared this away"); // cleared content, not a whole-site block
+    cs.stop();
+  });
+
+  it("the TikTok whole-site block shows the 'blocked' copy, not the cleared copy", async () => {
+    const win = makeWin("https://www.tiktok.com/foryou");
+    const cs = createContentScript({
+      win, doc: document, ruleSet, cache: cacheWith(null), redirectPort: { replace: vi.fn() }, schedule: sync,
+    });
+    await cs.start();
+    const ph = document.querySelector("#still-placeholder");
+    expect(ph).not.toBeNull();
+    expect(ph?.textContent).toContain("Still"); // the brand mark attributes it to Still
+    expect(ph?.textContent).toContain("This site is blocked.");
+    expect(ph?.textContent).not.toContain("cleared this away");
     cs.stop();
   });
 

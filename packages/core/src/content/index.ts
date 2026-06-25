@@ -5,6 +5,7 @@ import {
   renderPlaceholder,
   ROOT_ACTIVE_CLASS,
   STILL_PLACEHOLDER_LINE,
+  STILL_BLOCKED_LINE,
 } from "../rules/engine.js";
 import type { SettingsCache } from "../storage/cache.js";
 import {
@@ -33,6 +34,8 @@ export interface ContentScriptDeps {
   readonly redirectPort?: RedirectPort;
   /** Canonical placeholder copy from U9 strings; falls back to the engine default. */
   readonly placeholderLine?: string;
+  /** Copy for a whole-site block (TikTok); falls back to the engine default. */
+  readonly blockedLine?: string;
   /** Override the observer's coalescing scheduler (tests pass a synchronous one). */
   readonly schedule?: Scheduler;
 }
@@ -47,6 +50,7 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   const { win, doc, ruleSet, cache } = deps;
   const redirectPort = deps.redirectPort ?? locationRedirectPort(win);
   const placeholderLine = deps.placeholderLine ?? STILL_PLACEHOLDER_LINE;
+  const blockedLine = deps.blockedLine ?? STILL_BLOCKED_LINE;
 
   let hydrated = false;
   let lastRedirect: string | null = null;
@@ -71,7 +75,7 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
         return;
       case "placeholder":
         setRootActive(false);
-        renderPlaceholder(doc, placeholderLine);
+        renderPlaceholder(doc, decision.blocked ? blockedLine : placeholderLine);
         return;
       case "apply":
         setRootActive(true);
