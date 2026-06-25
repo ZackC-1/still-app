@@ -58,6 +58,7 @@ if (supabaseUrl && supabaseAnonKey) {
     auth: {
       signIn: (email) => authPort.signInWithMagicLink(email),
       signOut: signOutEverywhere,
+      deleteAccount: () => sync.deleteAccount(),
     },
   });
 

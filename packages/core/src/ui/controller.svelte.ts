@@ -16,6 +16,10 @@ export type PopupState =
 
 export type AuthFlow = "idle" | "sending" | "sent" | "error";
 
+/** Account-deletion flow (App Store 5.1.1): idle → confirming (destructive confirm shown) → deleting
+ * → idle (signed out) | error. */
+export type DeleteFlow = "idle" | "confirming" | "deleting" | "error";
+
 export interface UiHost {
   /** false on hosts with no purchase path (non-Apple desktop): explanatory paywall, no CTA (R19). */
   readonly canPurchase: boolean;
@@ -26,6 +30,9 @@ export interface UiHost {
 export interface UiAuth {
   signIn(email: string): Promise<{ error?: string }>;
   signOut(): Promise<void>;
+  /** Delete the account (App Store 5.1.1 / GDPR). Optional: only wired on hosts with an account.
+   * Throws on failure so the UI can surface it and keep the session. */
+  deleteAccount?(): Promise<void>;
 }
 
 export interface UiControllerDeps {
@@ -47,6 +54,8 @@ export class UiController {
   authFlow = $state<AuthFlow>("idle");
   authError = $state<string | null>(null);
   paywallOpen = $state(false);
+  deleteFlow = $state<DeleteFlow>("idle");
+  deleteError = $state<string | null>(null);
 
   readonly host: UiHost;
   private readonly cache: SettingsCache;
@@ -74,6 +83,11 @@ export class UiController {
     return this.host.currentHost
       ? this.settings.pauses.includes(etldPlusOne(this.host.currentHost))
       : false;
+  }
+
+  /** Whether the host wired account deletion (so the UI shows the Delete account affordance, R/5.1.1). */
+  get canDeleteAccount(): boolean {
+    return typeof this.auth?.deleteAccount === "function";
   }
 
   toggleGlobal(): void {
@@ -118,5 +132,39 @@ export class UiController {
     this.entitled = false;
     this.authFlow = "idle";
     this.paywallOpen = false;
+  }
+
+  // ── Account deletion (App Store 5.1.1) ──────────────────────────────────────────────────────────
+
+  /** Open the destructive-delete confirmation. */
+  requestDeleteAccount(): void {
+    this.deleteFlow = "confirming";
+    this.deleteError = null;
+  }
+
+  /** Back out of the confirmation without deleting. */
+  cancelDeleteAccount(): void {
+    this.deleteFlow = "idle";
+    this.deleteError = null;
+  }
+
+  /** Confirm: delete the account, then return to the signed-out state. On failure, surface the error
+   * and keep the session (the account still exists). */
+  async confirmDeleteAccount(): Promise<void> {
+    if (!this.auth?.deleteAccount || this.deleteFlow === "deleting") return;
+    this.deleteFlow = "deleting";
+    this.deleteError = null;
+    try {
+      await this.auth.deleteAccount();
+      // Account gone → mirror the signed-out reset.
+      this.userId = null;
+      this.entitled = false;
+      this.authFlow = "idle";
+      this.paywallOpen = false;
+      this.deleteFlow = "idle";
+    } catch (e) {
+      this.deleteFlow = "error";
+      this.deleteError = e instanceof Error ? e.message : String(e);
+    }
   }
 }

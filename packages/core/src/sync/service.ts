@@ -73,6 +73,16 @@ export class SyncService {
     this.setState(SIGNED_OUT);
   }
 
+  /**
+   * Delete the signed-in user's account (App Store 5.1.1 / GDPR), then sign out locally. The delete
+   * runs first: if it fails, the error propagates and the session is left intact (the UI surfaces it),
+   * so we never appear signed-out while the account still exists.
+   */
+  async deleteAccount(): Promise<void> {
+    await this.backend.deleteAccount();
+    await this.signOut();
+  }
+
   /** After this, every local settings edit is mirrored to the cloud (coalesced) while entitled. */
   private startWriteThrough(): void {
     this.setState({ ...this.state, syncing: true });

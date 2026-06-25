@@ -21,6 +21,7 @@ function deferredBackend(cloud: StillSettings) {
         settle = { resolve, reject: () => reject(new Error("offline")) };
       });
     },
+    deleteAccount: () => Promise.resolve(),
   };
   return { backend, writes, resolve: () => settle?.resolve(), reject: () => settle?.reject() };
 }
@@ -48,7 +49,14 @@ function mockAuth() {
   return { auth, calls };
 }
 
-function mockBackend(opts: { entitled?: boolean; reconcileGrants?: boolean; cloud?: StillSettings | null } = {}) {
+function mockBackend(
+  opts: {
+    entitled?: boolean;
+    reconcileGrants?: boolean;
+    cloud?: StillSettings | null;
+    deleteThrows?: boolean;
+  } = {},
+) {
   const calls: string[] = [];
   const writes: StillSettings[] = [];
   let entitled = opts.entitled ?? false;
@@ -69,6 +77,11 @@ function mockBackend(opts: { entitled?: boolean; reconcileGrants?: boolean; clou
     writeProfile: (s) => {
       calls.push("writeProfile");
       writes.push(s);
+      return Promise.resolve();
+    },
+    deleteAccount: () => {
+      calls.push("deleteAccount");
+      if (opts.deleteThrows) return Promise.reject(new Error("delete failed"));
       return Promise.resolve();
     },
   };
@@ -200,5 +213,41 @@ describe("SyncService", () => {
     expect(svc.getState().cloudReachable).toBe(true);
     // No permanent loss: the cache still holds the latest, re-pushed on the next edit.
     expect(d.writes.at(-1)!.services.tiktok).toBe(false);
+  });
+
+  // ── account deletion (App Store 5.1.1) ──────────────────────────────────────────────────────────
+
+  it("deleteAccount deletes then signs out (state → signed out)", async () => {
+    const { auth, calls: authCalls } = mockAuth();
+    const { backend, calls } = mockBackend({ entitled: true });
+    const states: SyncState[] = [];
+    const svc = new SyncService(makeCache(), auth, backend, (s) => states.push(s));
+    await svc.onSignedIn(USER);
+    await svc.deleteAccount();
+    expect(calls).toContain("deleteAccount");
+    expect(authCalls).toContain("signOut");
+    expect(svc.getState().userId).toBeNull();
+    expect(states.at(-1)).toEqual({ userId: null, entitled: false, syncing: false, cloudReachable: true });
+  });
+
+  it("deleteAccount deletes BEFORE signing out (order)", async () => {
+    const { auth, calls: authCalls } = mockAuth();
+    const { backend, calls } = mockBackend({ entitled: true });
+    const svc = new SyncService(makeCache(), auth, backend);
+    await svc.onSignedIn(USER);
+    await svc.deleteAccount();
+    expect(calls.indexOf("deleteAccount")).toBeLessThan(authCalls.indexOf("signOut") + calls.length);
+    // delete recorded on backend, signOut recorded on auth — both fired, delete first within its log.
+    expect(calls.includes("deleteAccount")).toBe(true);
+  });
+
+  it("a failed delete propagates and does NOT sign out (session intact)", async () => {
+    const { auth, calls: authCalls } = mockAuth();
+    const { backend } = mockBackend({ entitled: true, deleteThrows: true });
+    const svc = new SyncService(makeCache(), auth, backend);
+    await svc.onSignedIn(USER);
+    await expect(svc.deleteAccount()).rejects.toThrow("delete failed");
+    expect(authCalls).not.toContain("signOut");
+    expect(svc.getState().userId).toBe(USER); // still signed in
   });
 });

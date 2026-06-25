@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/svelte";
+import { render, screen, fireEvent } from "@testing-library/svelte";
 import { DEFAULT_SETTINGS } from "@still/shared-types";
 import App from "../App.svelte";
 import Placeholder from "../components/Placeholder.svelte";
@@ -7,10 +7,16 @@ import { UiController, type UiHost } from "../controller.svelte.js";
 import { SettingsCache } from "../../storage/cache.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
 
-function controller(opts: { host?: Partial<UiHost>; globalOn?: boolean } = {}) {
+function controller(opts: { host?: Partial<UiHost>; globalOn?: boolean; deletable?: boolean } = {}) {
   const initial = { ...DEFAULT_SETTINGS, globalOn: opts.globalOn ?? true, updatedAt: 1 };
   const cache = new SettingsCache(new InMemoryStorageAdapter(initial), { initial, now: () => Date.now() });
-  return new UiController({ cache, host: { canPurchase: true, currentHost: "youtube.com", ...opts.host } });
+  return new UiController({
+    cache,
+    host: { canPurchase: true, currentHost: "youtube.com", ...opts.host },
+    auth: opts.deletable
+      ? { signIn: () => Promise.resolve({}), signOut: () => Promise.resolve(), deleteAccount: () => Promise.resolve() }
+      : undefined,
+  });
 }
 
 describe("App", () => {
@@ -58,6 +64,49 @@ describe("App", () => {
     render(App, { props: { controller: controller() } });
     expect(document.querySelector("input.email")).toBeTruthy();
     expect(screen.queryByText("Sign in with Apple")).toBeNull();
+  });
+
+  // ── account management (App Store 5.1.1) ──────────────────────────────────────────────────────
+
+  it("signed-in (not-entitled) shows the privacy policy link and a Delete account button", () => {
+    const c = controller({ deletable: true });
+    c.userId = "u";
+    render(App, { props: { controller: c } });
+    const privacy = screen.getByText("Privacy policy") as HTMLAnchorElement;
+    expect(privacy.getAttribute("href")).toBe("https://still.app/privacy");
+    expect(screen.getByText("Delete account")).toBeTruthy();
+  });
+
+  it("signed-in + entitled also shows account management", () => {
+    const c = controller({ deletable: true });
+    c.userId = "u";
+    c.entitled = true;
+    render(App, { props: { controller: c } });
+    expect(screen.getByText("Privacy policy")).toBeTruthy();
+    expect(screen.getByText("Delete account")).toBeTruthy();
+  });
+
+  it("signed-out shows neither Delete account nor the privacy link", () => {
+    render(App, { props: { controller: controller({ deletable: true }) } });
+    expect(screen.queryByText("Delete account")).toBeNull();
+    expect(screen.queryByText("Privacy policy")).toBeNull();
+  });
+
+  it("Delete account opens a destructive confirm with confirm + cancel", async () => {
+    const c = controller({ deletable: true });
+    c.userId = "u";
+    render(App, { props: { controller: c } });
+    await fireEvent.click(screen.getByText("Delete account"));
+    expect(screen.getByText(/permanently deletes your account/)).toBeTruthy();
+    expect(screen.getByText("Cancel")).toBeTruthy();
+  });
+
+  it("host without deleteAccount shows privacy link but no Delete button", () => {
+    const c = controller({ deletable: false });
+    c.userId = "u";
+    render(App, { props: { controller: c } });
+    expect(screen.getByText("Privacy policy")).toBeTruthy();
+    expect(screen.queryByText("Delete account")).toBeNull();
   });
 });
 

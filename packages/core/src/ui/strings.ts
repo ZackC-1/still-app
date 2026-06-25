@@ -59,4 +59,16 @@ export const STRINGS = {
     unreachable: "Sync paused — no connection.",
     firstSync: "Your settings now match your other devices.",
   },
+
+  // Account management (App Store Guideline 5.1.1): in-app deletion + a reachable privacy policy.
+  account: {
+    privacyPolicy: "Privacy policy",
+    delete: "Delete account",
+    deleteConfirmTitle: "Delete your account?",
+    deleteConfirmBody: "This permanently deletes your account, settings, and purchase record from sync. This can't be undone.",
+    deleteConfirm: "Delete account",
+    deleteCancel: "Cancel",
+    deleting: "Deleting…",
+    deleteError: "Couldn't delete your account. Try again.",
+  },
 } as const;

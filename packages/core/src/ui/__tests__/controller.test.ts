@@ -67,4 +67,51 @@ describe("UiController", () => {
     expect(c.authFlow).toBe("error");
     expect(c.authError).toBe("rate limited");
   });
+
+  // ── account deletion (App Store 5.1.1) ──────────────────────────────────────────────────────────
+
+  const deletableAuth = (deleteAccount: () => Promise<void>): UiAuth => ({
+    signIn: () => Promise.resolve({}),
+    signOut: vi.fn(() => Promise.resolve()),
+    deleteAccount,
+  });
+
+  it("canDeleteAccount reflects whether the host wired deletion", () => {
+    const without = makeController({ auth: { signIn: () => Promise.resolve({}), signOut: vi.fn() } });
+    expect(without.c.canDeleteAccount).toBe(false);
+    const withDel = makeController({ auth: deletableAuth(vi.fn(() => Promise.resolve())) });
+    expect(withDel.c.canDeleteAccount).toBe(true);
+  });
+
+  it("delete flow: request → confirming, cancel → idle", () => {
+    const { c } = makeController({ auth: deletableAuth(vi.fn(() => Promise.resolve())) });
+    c.requestDeleteAccount();
+    expect(c.deleteFlow).toBe("confirming");
+    c.cancelDeleteAccount();
+    expect(c.deleteFlow).toBe("idle");
+  });
+
+  it("confirmDeleteAccount deletes then returns to signed-out", async () => {
+    const del = vi.fn(() => Promise.resolve());
+    const { c } = makeController({ auth: deletableAuth(del) });
+    c.userId = "u";
+    c.entitled = true;
+    c.requestDeleteAccount();
+    await c.confirmDeleteAccount();
+    expect(del).toHaveBeenCalledOnce();
+    expect(c.userId).toBeNull();
+    expect(c.entitled).toBe(false);
+    expect(c.deleteFlow).toBe("idle");
+    expect(c.popupState).toBe("signed-out");
+  });
+
+  it("a failed delete surfaces an error and keeps the user signed in", async () => {
+    const del = vi.fn(() => Promise.reject(new Error("boom")));
+    const { c } = makeController({ auth: deletableAuth(del) });
+    c.userId = "u";
+    await c.confirmDeleteAccount();
+    expect(c.deleteFlow).toBe("error");
+    expect(c.deleteError).toBe("boom");
+    expect(c.userId).toBe("u"); // still signed in
+  });
 });
