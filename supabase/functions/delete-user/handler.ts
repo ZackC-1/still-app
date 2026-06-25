@@ -1,4 +1,4 @@
-import { verifyJwt } from "../_shared/jwt.ts";
+import { type ExpectedClaims, verifyJwt } from "../_shared/jwt.ts";
 import { jsonResponse } from "../_shared/store.ts";
 import { isUuid } from "../_shared/types.ts";
 import type { UserStore } from "../_shared/user-store.ts";
@@ -11,6 +11,8 @@ export interface AccountDeps {
   readonly jwtSecret: string;
   /** JWKS endpoint for ES256 verification on the hosted project. */
   readonly jwksUrl?: string;
+  /** Expected iss/aud/role for the authenticated user token (defense in depth). */
+  readonly expected?: ExpectedClaims;
   readonly store: UserStore;
 }
 
@@ -18,7 +20,11 @@ export async function handleDeleteUser(req: Request, deps: AccountDeps): Promise
   if (req.method !== "POST") return jsonResponse(405, { error: "method_not_allowed" });
   const match = /^Bearer (.+)$/.exec(req.headers.get("Authorization") ?? "");
   if (!match) return jsonResponse(401, { error: "unauthorized" });
-  const claims = await verifyJwt(match[1]!, { hs256Secret: deps.jwtSecret, jwksUrl: deps.jwksUrl });
+  const claims = await verifyJwt(match[1]!, {
+    hs256Secret: deps.jwtSecret,
+    jwksUrl: deps.jwksUrl,
+    expected: deps.expected,
+  });
   if (!claims || !isUuid(claims.sub)) return jsonResponse(401, { error: "unauthorized" });
 
   await deps.store.deleteUser(claims.sub); // idempotent

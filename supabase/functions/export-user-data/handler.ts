@@ -10,7 +10,11 @@ export async function handleExport(req: Request, deps: AccountDeps): Promise<Res
   if (req.method !== "POST") return jsonResponse(405, { error: "method_not_allowed" });
   const match = /^Bearer (.+)$/.exec(req.headers.get("Authorization") ?? "");
   if (!match) return jsonResponse(401, { error: "unauthorized" });
-  const claims = await verifyJwt(match[1]!, { hs256Secret: deps.jwtSecret, jwksUrl: deps.jwksUrl });
+  const claims = await verifyJwt(match[1]!, {
+    hs256Secret: deps.jwtSecret,
+    jwksUrl: deps.jwksUrl,
+    expected: deps.expected,
+  });
   if (!claims || !isUuid(claims.sub)) return jsonResponse(401, { error: "unauthorized" });
 
   const [profile, entitlement] = await Promise.all([

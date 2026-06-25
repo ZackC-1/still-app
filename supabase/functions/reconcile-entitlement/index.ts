@@ -1,4 +1,5 @@
 import { handleReconcile } from "./handler.ts";
+import { authenticatedClaims } from "../_shared/jwt.ts";
 import { HttpRevenueCatClient } from "../_shared/revenuecat.ts";
 import { PgEntitlementStore } from "../_shared/pg-store.ts";
 
@@ -11,5 +12,6 @@ const rc = new HttpRevenueCatClient(Deno.env.get("REVENUECAT_SECRET_API_KEY") ??
 const jwtSecret = Deno.env.get("SUPABASE_JWT_SECRET") ?? "";
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const jwksUrl = supabaseUrl ? `${supabaseUrl}/auth/v1/.well-known/jwks.json` : undefined;
+const expected = authenticatedClaims(supabaseUrl || undefined);
 
-Deno.serve((req) => handleReconcile(req, { jwtSecret, jwksUrl, store, rc }));
+Deno.serve((req) => handleReconcile(req, { jwtSecret, jwksUrl, expected, store, rc }));

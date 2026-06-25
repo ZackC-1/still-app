@@ -2,9 +2,11 @@ import { assertEquals } from "@std/assert";
 import { handleDeleteUser } from "../delete-user/handler.ts";
 import { handleExport } from "../export-user-data/handler.ts";
 import { signHs256 } from "../_shared/jwt.ts";
+import { mintHs256, TEST_EXPECTED_CLAIMS } from "../_shared/test-helpers.ts";
 import type { UserStore } from "../_shared/user-store.ts";
 
 const SECRET = "test-jwt-secret-at-least-32-characters-long!!";
+const EXPECTED = TEST_EXPECTED_CLAIMS;
 const A = "11111111-1111-1111-1111-111111111111";
 const B = "22222222-2222-2222-2222-222222222222";
 
@@ -33,8 +35,8 @@ function req(jwt: string | null, body: unknown = {}): Request {
 
 Deno.test("delete removes the caller's account (cascades profile + entitlement)", async () => {
   const { store, deleted, profiles, entitlements } = mockStore();
-  const jwt = await signHs256({ sub: A }, SECRET);
-  const res = await handleDeleteUser(req(jwt), { jwtSecret: SECRET, store });
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  const res = await handleDeleteUser(req(jwt), { jwtSecret: SECRET, expected: EXPECTED, store });
   assertEquals(res.status, 200);
   assertEquals(deleted, [A]);
   assertEquals(profiles[A], undefined);
@@ -43,29 +45,50 @@ Deno.test("delete removes the caller's account (cascades profile + entitlement)"
 
 Deno.test("delete is idempotent", async () => {
   const { store } = mockStore();
-  const jwt = await signHs256({ sub: A }, SECRET);
-  const deps = { jwtSecret: SECRET, store };
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  const deps = { jwtSecret: SECRET, expected: EXPECTED, store };
   assertEquals((await handleDeleteUser(req(jwt), deps)).status, 200);
   assertEquals((await handleDeleteUser(req(jwt), deps)).status, 200);
 });
 
 Deno.test("delete: subject from JWT, body user_id ignored", async () => {
   const { store, deleted } = mockStore();
-  const jwt = await signHs256({ sub: A }, SECRET);
-  await handleDeleteUser(req(jwt, { user_id: B }), { jwtSecret: SECRET, store });
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  await handleDeleteUser(req(jwt, { user_id: B }), { jwtSecret: SECRET, expected: EXPECTED, store });
   assertEquals(deleted, [A]); // not B
 });
 
 Deno.test("delete: unauthenticated → 401, nothing deleted", async () => {
   const { store, deleted } = mockStore();
-  assertEquals((await handleDeleteUser(req(null), { jwtSecret: SECRET, store })).status, 401);
+  const deps = { jwtSecret: SECRET, expected: EXPECTED, store };
+  assertEquals((await handleDeleteUser(req(null), deps)).status, 401);
+  assertEquals(deleted.length, 0);
+});
+
+Deno.test("delete: wrong-issuer token → 401, nothing deleted", async () => {
+  const { store, deleted } = mockStore();
+  // Signature-valid, but from the wrong issuer — must be rejected (defense in depth).
+  const jwt = await signHs256(
+    { sub: A, iss: "https://evil.example/auth/v1", aud: "authenticated", role: "authenticated" },
+    SECRET,
+  );
+  const res = await handleDeleteUser(req(jwt), { jwtSecret: SECRET, expected: EXPECTED, store });
+  assertEquals(res.status, 401);
+  assertEquals(deleted.length, 0);
+});
+
+Deno.test("delete: role=anon token → 401, nothing deleted", async () => {
+  const { store, deleted } = mockStore();
+  const jwt = await mintHs256({ sub: A, role: "anon" }, SECRET);
+  const res = await handleDeleteUser(req(jwt), { jwtSecret: SECRET, expected: EXPECTED, store });
+  assertEquals(res.status, 401);
   assertEquals(deleted.length, 0);
 });
 
 Deno.test("export returns only the caller's data", async () => {
   const { store } = mockStore();
-  const jwt = await signHs256({ sub: A }, SECRET);
-  const res = await handleExport(req(jwt, { user_id: B }), { jwtSecret: SECRET, store });
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  const res = await handleExport(req(jwt, { user_id: B }), { jwtSecret: SECRET, expected: EXPECTED, store });
   assertEquals(res.status, 200);
   const body = (await res.json()) as { user_id: string; entitlement: unknown };
   assertEquals(body.user_id, A);
@@ -74,5 +97,14 @@ Deno.test("export returns only the caller's data", async () => {
 
 Deno.test("export: unauthenticated → 401", async () => {
   const { store } = mockStore();
-  assertEquals((await handleExport(req(null), { jwtSecret: SECRET, store })).status, 401);
+  assertEquals((await handleExport(req(null), { jwtSecret: SECRET, expected: EXPECTED, store })).status, 401);
+});
+
+Deno.test("export: wrong-audience token → 401", async () => {
+  const { store } = mockStore();
+  const jwt = await mintHs256({ sub: A, aud: "anon" }, SECRET);
+  assertEquals(
+    (await handleExport(req(jwt), { jwtSecret: SECRET, expected: EXPECTED, store })).status,
+    401,
+  );
 });

@@ -1,10 +1,12 @@
 import { assertEquals } from "@std/assert";
 import { handleReconcile } from "./handler.ts";
-import { signEs256, signHs256 } from "../_shared/jwt.ts";
+import { signHs256 } from "../_shared/jwt.ts";
+import { mintEs256, mintHs256, TEST_EXPECTED_CLAIMS } from "../_shared/test-helpers.ts";
 import type { EntitlementStore } from "../_shared/store.ts";
 import type { RevenueCatClient, RcSubscriber } from "../_shared/revenuecat.ts";
 
 const SECRET = "test-jwt-secret-at-least-32-characters-long!!";
+const EXPECTED = TEST_EXPECTED_CLAIMS;
 const A = "11111111-1111-1111-1111-111111111111";
 const B = "22222222-2222-2222-2222-222222222222";
 
@@ -36,18 +38,24 @@ function req(jwt: string | null, body: unknown = {}): Request {
 
 Deno.test("valid JWT + active subscriber → writes the JWT subject true", async () => {
   const { store, writes } = mockStore();
-  const jwt = await signHs256({ sub: A }, SECRET);
-  const res = await handleReconcile(req(jwt), { jwtSecret: SECRET, store, rc: mockRc({ [A]: activeSub }) });
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  const res = await handleReconcile(req(jwt), {
+    jwtSecret: SECRET,
+    expected: EXPECTED,
+    store,
+    rc: mockRc({ [A]: activeSub }),
+  });
   assertEquals(res.status, 200);
   assertEquals(writes, [{ userId: A, stillSync: true, source: "reconcile" }]);
 });
 
 Deno.test("subject is taken from the JWT, NOT the request body (IDOR defense)", async () => {
   const { store, writes } = mockStore();
-  const jwt = await signHs256({ sub: A }, SECRET);
+  const jwt = await mintHs256({ sub: A }, SECRET);
   // Body tries to target B; it must be ignored.
   await handleReconcile(req(jwt, { user_id: B }), {
     jwtSecret: SECRET,
+    expected: EXPECTED,
     store,
     rc: mockRc({ [A]: activeSub, [B]: activeSub }),
   });
@@ -56,23 +64,50 @@ Deno.test("subject is taken from the JWT, NOT the request body (IDOR defense)", 
 
 Deno.test("missing JWT → 401, no write", async () => {
   const { store, writes } = mockStore();
-  const res = await handleReconcile(req(null), { jwtSecret: SECRET, store, rc: mockRc({}) });
+  const res = await handleReconcile(req(null), { jwtSecret: SECRET, expected: EXPECTED, store, rc: mockRc({}) });
   assertEquals(res.status, 401);
   assertEquals(writes.length, 0);
 });
 
 Deno.test("JWT signed with the wrong secret → 401, no write", async () => {
   const { store, writes } = mockStore();
-  const jwt = await signHs256({ sub: A }, "a-totally-different-secret-value-here!!");
-  const res = await handleReconcile(req(jwt), { jwtSecret: SECRET, store, rc: mockRc({ [A]: activeSub }) });
+  const jwt = await mintHs256({ sub: A }, "a-totally-different-secret-value-here!!");
+  const res = await handleReconcile(req(jwt), {
+    jwtSecret: SECRET,
+    expected: EXPECTED,
+    store,
+    rc: mockRc({ [A]: activeSub }),
+  });
+  assertEquals(res.status, 401);
+  assertEquals(writes.length, 0);
+});
+
+Deno.test("JWT with wrong issuer → 401, no write (defense in depth)", async () => {
+  const { store, writes } = mockStore();
+  // Signature-valid but wrong issuer.
+  const jwt = await signHs256(
+    { sub: A, iss: "https://evil.example/auth/v1", aud: "authenticated", role: "authenticated" },
+    SECRET,
+  );
+  const res = await handleReconcile(req(jwt), {
+    jwtSecret: SECRET,
+    expected: EXPECTED,
+    store,
+    rc: mockRc({ [A]: activeSub }),
+  });
   assertEquals(res.status, 401);
   assertEquals(writes.length, 0);
 });
 
 Deno.test("webhook dropped → login reconcile establishes entitlement true", async () => {
   const { store, writes } = mockStore();
-  const jwt = await signHs256({ sub: A }, SECRET);
-  await handleReconcile(req(jwt), { jwtSecret: SECRET, store, rc: mockRc({ [A]: activeSub }) });
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  await handleReconcile(req(jwt), {
+    jwtSecret: SECRET,
+    expected: EXPECTED,
+    store,
+    rc: mockRc({ [A]: activeSub }),
+  });
   assertEquals(writes[0]?.stillSync, true);
 });
 
@@ -92,10 +127,11 @@ Deno.test("hosted ES256 token verified via JWKS → writes the JWT subject", asy
     )) as typeof fetch;
   try {
     const { store, writes } = mockStore();
-    const jwt = await signEs256({ sub: A }, pair.privateKey, "k");
+    const jwt = await mintEs256({ sub: A }, pair.privateKey, "k");
     const res = await handleReconcile(req(jwt), {
       jwtSecret: "",
       jwksUrl,
+      expected: EXPECTED,
       store,
       rc: mockRc({ [A]: activeSub }),
     });

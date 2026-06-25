@@ -1,8 +1,17 @@
 import { assertEquals } from "@std/assert";
-import { signEs256, signHs256, verifyEs256, verifyJwt } from "./jwt.ts";
+import { authenticatedClaims, signEs256, signHs256, verifyEs256, verifyJwt } from "./jwt.ts";
 
 const A = "11111111-1111-1111-1111-111111111111";
 const HS_SECRET = "test-jwt-secret-at-least-32-characters-long!!";
+const ISS = "https://proj.supabase.co/auth/v1";
+const EXPECTED = { iss: ISS, aud: "authenticated", role: "authenticated" } as const;
+const full = (over: Record<string, unknown> = {}) => ({
+  sub: A,
+  iss: ISS,
+  aud: "authenticated",
+  role: "authenticated",
+  ...over,
+});
 
 // Each fixture gets a unique JWKS URL so the module-level JWKS cache can't bleed between tests.
 let urlSeq = 0;
@@ -77,4 +86,67 @@ Deno.test("unsupported alg (none) → null", async () => {
     btoa(JSON.stringify(o)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   const token = `${b64url({ alg: "none", typ: "JWT" })}.${b64url({ sub: A })}.`;
   assertEquals(await verifyJwt(token, { hs256Secret: HS_SECRET, jwksUrl: "https://x/jwks" }), null);
+});
+
+// ── iss / aud / role claim validation (defense in depth) ──────────────────────────────────────────
+
+Deno.test("expected claims: correct iss/aud/role → verified", async () => {
+  const token = await signHs256(full(), HS_SECRET);
+  assertEquals((await verifyJwt(token, { hs256Secret: HS_SECRET, expected: EXPECTED }))?.sub, A);
+});
+
+Deno.test("expected claims: wrong iss → null", async () => {
+  const token = await signHs256(full({ iss: "https://evil.example/auth/v1" }), HS_SECRET);
+  assertEquals(await verifyJwt(token, { hs256Secret: HS_SECRET, expected: EXPECTED }), null);
+});
+
+Deno.test("expected claims: wrong aud → null", async () => {
+  const token = await signHs256(full({ aud: "anon" }), HS_SECRET);
+  assertEquals(await verifyJwt(token, { hs256Secret: HS_SECRET, expected: EXPECTED }), null);
+});
+
+Deno.test("expected claims: role=anon → null", async () => {
+  const token = await signHs256(full({ role: "anon" }), HS_SECRET);
+  assertEquals(await verifyJwt(token, { hs256Secret: HS_SECRET, expected: EXPECTED }), null);
+});
+
+Deno.test("expected claims: missing iss while expected → null (fail closed)", async () => {
+  const token = await signHs256({ sub: A, aud: "authenticated", role: "authenticated" }, HS_SECRET);
+  assertEquals(await verifyJwt(token, { hs256Secret: HS_SECRET, expected: EXPECTED }), null);
+});
+
+Deno.test("expected claims: aud as array containing 'authenticated' → verified", async () => {
+  const token = await signHs256(full({ aud: ["authenticated", "other"] }), HS_SECRET);
+  assertEquals((await verifyJwt(token, { hs256Secret: HS_SECRET, expected: EXPECTED }))?.sub, A);
+});
+
+Deno.test("expected claims: aud array WITHOUT 'authenticated' → null", async () => {
+  const token = await signHs256(full({ aud: ["anon", "other"] }), HS_SECRET);
+  assertEquals(await verifyJwt(token, { hs256Secret: HS_SECRET, expected: EXPECTED }), null);
+});
+
+Deno.test("expected undefined (legacy call) → signature+exp behavior unchanged", async () => {
+  const token = await signHs256({ sub: A }, HS_SECRET); // bare token, no iss/aud/role
+  assertEquals((await verifyJwt(token, { hs256Secret: HS_SECRET }))?.sub, A);
+});
+
+Deno.test("ES256 token with correct claims + expected → verified (hosted path)", async () => {
+  const fx = await es256Fixture();
+  try {
+    const token = await signEs256(full(), fx.priv, "kid-test");
+    assertEquals((await verifyJwt(token, { jwksUrl: fx.url, expected: EXPECTED }))?.sub, A);
+  } finally {
+    fx.restore();
+  }
+});
+
+Deno.test("authenticatedClaims derives iss from the project URL, enforces aud/role", () => {
+  assertEquals(authenticatedClaims("https://proj.supabase.co"), {
+    iss: "https://proj.supabase.co/auth/v1",
+    aud: "authenticated",
+    role: "authenticated",
+  });
+  // No project URL → iss not enforced, aud/role still enforced.
+  assertEquals(authenticatedClaims(undefined).iss, undefined);
+  assertEquals(authenticatedClaims(undefined).aud, "authenticated");
 });

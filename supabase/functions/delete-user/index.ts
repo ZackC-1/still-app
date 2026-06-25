@@ -1,4 +1,5 @@
 import { handleDeleteUser } from "./handler.ts";
+import { authenticatedClaims } from "../_shared/jwt.ts";
 import { SupabaseUserStore } from "../_shared/supabase-store.ts";
 
 // Entrypoint (config.toml: verify_jwt=true). delete-user needs admin to remove the auth user.
@@ -9,5 +10,6 @@ const store = new SupabaseUserStore(
 const jwtSecret = Deno.env.get("SUPABASE_JWT_SECRET") ?? "";
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const jwksUrl = supabaseUrl ? `${supabaseUrl}/auth/v1/.well-known/jwks.json` : undefined;
+const expected = authenticatedClaims(supabaseUrl || undefined);
 
-Deno.serve((req) => handleDeleteUser(req, { jwtSecret, jwksUrl, store }));
+Deno.serve((req) => handleDeleteUser(req, { jwtSecret, jwksUrl, expected, store }));
