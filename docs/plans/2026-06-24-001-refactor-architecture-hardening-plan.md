@@ -1,5 +1,5 @@
 ---
-status: active
+status: completed
 type: refactor
 created: 2026-06-24
 reviewed: 2026-06-24
