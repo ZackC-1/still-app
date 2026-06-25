@@ -66,6 +66,8 @@ export class UiController {
   // UI-local state.
   authFlow = $state<AuthFlow>("idle");
   authError = $state<string | null>(null);
+  /** The sign-in sheet overlays the rest of the UI when the signed-out CTA is tapped. */
+  signInOpen = $state(false);
   paywallOpen = $state(false);
   /** Localized store price for the buy CTA (e.g. "$2.99"), set by the host from StoreKit/RevenueCat.
    * Null until loaded / on hosts without a price — the CTA then shows no price rather than a guess. */
@@ -121,6 +123,16 @@ export class UiController {
     if (!host) return;
     if (this.currentPaused) void this.cache.resumeHost(host);
     else void this.cache.pauseHost(host);
+  }
+
+  openSignIn(): void {
+    this.signInOpen = true;
+  }
+
+  dismissSignIn(): void {
+    this.signInOpen = false;
+    if (this.authFlow === "error") this.authFlow = "idle";
+    this.authError = null;
   }
 
   openPaywall(): void {

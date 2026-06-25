@@ -82,6 +82,18 @@ describe("UiController", () => {
     expect(c.popupState).toBe("signed-out");
   });
 
+  it("sign-in sheet opens and dismisses, clearing a stale auth error", () => {
+    const { c } = makeController();
+    c.openSignIn();
+    expect(c.signInOpen).toBe(true);
+    c.authFlow = "error";
+    c.authError = "nope";
+    c.dismissSignIn();
+    expect(c.signInOpen).toBe(false);
+    expect(c.authFlow).toBe("idle");
+    expect(c.authError).toBeNull();
+  });
+
   // ── account deletion (App Store 5.1.1) ──────────────────────────────────────────────────────────
 
   const deletableAuth = (deleteAccount: () => Promise<void>): UiAuth => ({

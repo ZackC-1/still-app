@@ -1,5 +1,5 @@
-/* Still design tokens (spec §3.3–3.5). Light by default; dark via prefers-color-scheme.
-   Still Blue working value #2A47E8 (pin from the founder's source asset before launch). */
+/* Still design tokens (spec §3.3–3.5). Light only — one look across the iOS/macOS app and the
+   Chrome / Firefox / Safari extension popups. Still Blue pinned from the brand assets (#2A47E8). */
 
 :root {
   --still-blue: #2a47e8;
@@ -24,19 +24,6 @@
   --radius-sheet: 16px;
 
   --font-ui: "Inter", system-ui, -apple-system, sans-serif;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --still-blue: #5a74ff;
-    --still-blue-pressed: #4259e6;
-    --ink: #eef1fa;
-    --ink-secondary: #a7aec8;
-    --surface: #0b0f1a;
-    --surface-raised: #141a2b;
-    --border: #232a40;
-    --on-blue: #0b0f1a;
-  }
 }
 
 .still-ui {
