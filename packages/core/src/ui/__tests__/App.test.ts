@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS } from "@still/shared-types";
 import App from "../App.svelte";
 import Placeholder from "../components/Placeholder.svelte";
 import { UiController, type UiHost } from "../controller.svelte.js";
+import { PRIVACY_POLICY_URL } from "../config.js";
 import { SettingsCache } from "../../storage/cache.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
 
@@ -73,7 +74,7 @@ describe("App", () => {
     c.userId = "u";
     render(App, { props: { controller: c } });
     const privacy = screen.getByText("Privacy policy") as HTMLAnchorElement;
-    expect(privacy.getAttribute("href")).toBe("https://still.app/privacy");
+    expect(privacy.getAttribute("href")).toBe(PRIVACY_POLICY_URL);
     expect(screen.getByText("Delete account")).toBeTruthy();
   });
 
