@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import seed from "../../../rules/seed.json";
 import type { RuleSetPayload, SignedRuleSet } from "@still/shared-types";
 import { signRuleSet, verifyRuleSet, publicKeyHexFor } from "../signature.js";
-import { DEV_RULE_SET_KEYS, RULE_SET_MIN_VERSION } from "../trusted-keys.js";
+import { DEV_RULE_SET_KEYS, PRODUCTION_RULE_SET_KEYS, RULE_SET_MIN_VERSION } from "../trusted-keys.js";
 
 const devOpts = { allowedKeys: DEV_RULE_SET_KEYS, minVersion: RULE_SET_MIN_VERSION };
 
@@ -49,5 +51,25 @@ describe("verifyRuleSet", () => {
     const wrongPub = DEV_RULE_SET_KEYS[0]!.publicKeyHex;
     const bad = await verifyRuleSet(signed, { allowedKeys: [{ kid, publicKeyHex: wrongPub }], minVersion: "1.0.0" });
     expect(bad.ok).toBe(false);
+  });
+
+  // Guards production signing drift: the prod-signed set published in the migration must verify
+  // against the prod public key shipped in PRODUCTION_RULE_SET_KEYS. If someone re-signs without
+  // updating the key (or vice versa), or canonicalization drifts, this fails CI before it ships.
+  it("the published production rule set verifies against PRODUCTION_RULE_SET_KEYS", async () => {
+    expect(PRODUCTION_RULE_SET_KEYS.length).toBeGreaterThan(0);
+    // Tests run with cwd = packages/core (pnpm --filter / pnpm -r), so the repo root is two up.
+    const migPath = resolve(process.cwd(), "../../supabase/migrations/0006_prod_rule_set.sql");
+    const sql = readFileSync(migPath, "utf8");
+    const blobs = [...sql.matchAll(/^\s*'(.*)'::jsonb,?\s*$/gm)].map((m) => m[1]!.replace(/''/g, "'"));
+    expect(blobs.length).toBe(2); // payload, then signature
+    const payload = JSON.parse(blobs[0]!) as RuleSetPayload;
+    const signature = JSON.parse(blobs[1]!) as SignedRuleSet["signature"];
+    const set = { ...payload, signature } as SignedRuleSet;
+    const result = await verifyRuleSet(set, {
+      allowedKeys: PRODUCTION_RULE_SET_KEYS,
+      minVersion: RULE_SET_MIN_VERSION,
+    });
+    expect(result.ok).toBe(true);
   });
 });

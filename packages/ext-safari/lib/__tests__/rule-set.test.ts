@@ -49,26 +49,40 @@ const cfgWith = (fetchImpl: typeof fetch): FetchConfig => ({
 });
 
 describe("rule-set build gating", () => {
-  it("a dev build trusts the dev key; a prod build trusts only the (empty) prod keys", () => {
+  const DEV_KIDS = DEV_RULE_SET_KEYS.map((k) => k.kid);
+
+  it("a dev build trusts the dev key", () => {
     expect(ruleSetTrustedKeys(false)).toBe(DEV_RULE_SET_KEYS);
     expect(ruleSetTrustedKeys(false).length).toBeGreaterThan(0);
+  });
+
+  it("a prod build trusts the production keys and NEVER the dev key", () => {
     expect(ruleSetTrustedKeys(true)).toBe(PRODUCTION_RULE_SET_KEYS);
-    expect(ruleSetTrustedKeys(true).length).toBe(0); // dev key NEVER trusted in prod
+    // The security invariant: the dev signing key must never be accepted in a production build,
+    // regardless of whether production keys have been published yet.
+    for (const kid of DEV_KIDS) {
+      expect(ruleSetTrustedKeys(true).some((k) => k.kid === kid)).toBe(false);
+    }
   });
 
   it("no fetch config without an endpoint (CI/dev with no .env)", () => {
     expect(ruleSetFetchConfig({ prod: false, endpoint: null })).toBeNull();
   });
 
-  it("a prod build with no prod keys yields no fetch config (bundled seed only)", () => {
-    expect(ruleSetFetchConfig({ prod: true, endpoint })).toBeNull();
-  });
-
-  it("a dev build with an endpoint yields a usable fetch config", () => {
+  it("a dev build with an endpoint yields a usable fetch config (dev keys)", () => {
     const cfg = ruleSetFetchConfig({ prod: false, endpoint });
     expect(cfg).not.toBeNull();
     expect(cfg!.allowedKeys).toBe(DEV_RULE_SET_KEYS);
     expect(cfg!.minVersion).toBe("1.0.0");
+  });
+
+  it("a prod build with an endpoint fetches against the production keys", () => {
+    // Production keys are published (PRODUCTION_RULE_SET_KEYS non-empty), so a prod build builds a
+    // fetch config trusting only those. (When prod keys were empty, this returned null — the bundled
+    // seed fail-safe, still enforced by the length===0 guard in ruleSetFetchConfig.)
+    const cfg = ruleSetFetchConfig({ prod: true, endpoint });
+    expect(cfg).not.toBeNull();
+    expect(cfg!.allowedKeys).toBe(PRODUCTION_RULE_SET_KEYS);
   });
 });
 
