@@ -3,7 +3,7 @@
 -- reads. Asserts cross-user isolation, event/rule-set opacity, and write-path narrowness.
 
 begin;
-select plan(13);
+select plan(15);
 
 -- ── seed (as the test superuser) ────────────────────────────────────────────────
 insert into auth.users (id, email) values
@@ -17,8 +17,11 @@ insert into public.profiles (id, settings) values
 select public.set_entitlement('11111111-1111-1111-1111-111111111111', true, 'test', 'sub_A');
 select public.set_entitlement('22222222-2222-2222-2222-222222222222', true, 'test', 'sub_B');
 
+-- Migrations already seed a current rule set (0004/0006); keep this idempotent so re-running against a
+-- migrated DB doesn't collide on the version PK or create a second is_current row.
 insert into public.rule_sets (version, payload, signature, is_current)
-  values ('1.0.0', '{"version":"1.0.0"}'::jsonb, '{"kid":"still-dev-1"}'::jsonb, true);
+  values ('1.0.0', '{"version":"1.0.0"}'::jsonb, '{"kid":"still-dev-1"}'::jsonb, true)
+  on conflict (version) do nothing;
 
 -- ── as user A ────────────────────────────────────────────────────────────────────
 set local role authenticated;
@@ -38,6 +41,15 @@ select is((select count(*)::int from public.rule_sets),
           0, 'raw rule_sets is not directly readable');
 select is((select count(*)::int from public.get_current_rule_set()),
           1, 'the current rule set is readable via the RPC');
+
+-- Column-level grant (0007): A reads its own still_sync, but the internal revenuecat_subscriber_id
+-- column is denied even on its own row.
+select is((select still_sync from public.entitlements where user_id = '11111111-1111-1111-1111-111111111111'),
+          true, 'A reads its own still_sync column');
+select throws_ok(
+  $$ select revenuecat_subscriber_id from public.entitlements where user_id = '11111111-1111-1111-1111-111111111111' $$,
+  '42501', NULL, 'A cannot read the internal revenuecat_subscriber_id column (column-level grant)'
+);
 
 -- A cannot write its own entitlement: no UPDATE grant → denied outright.
 select throws_ok(

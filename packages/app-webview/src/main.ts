@@ -89,6 +89,9 @@ if (supabaseUrl && supabaseAnonKey) {
     try {
       if (bridge.available) await bridge.configurePurchases(userId);
       await sync.onSignedIn(userId);
+      // Load the localized store price for the paywall CTA (fire-and-forget — RevenueCat is configured
+      // now, so the offering price is available; the CTA shows it instead of a hardcoded value).
+      if (bridge.available) void bridge.price().then((p) => (controller.paywallPrice = p));
     } finally {
       controller.reconciling = false;
     }

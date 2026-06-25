@@ -10,6 +10,9 @@
     /** Purchase/restore flow state — drives the in-flight/outcome UI (P1 #5). */
     purchaseFlow?: PurchaseFlow;
     purchaseError?: string | null;
+    /** Localized store price (e.g. "$2.99" / "£2.99"), fetched from StoreKit via RevenueCat. Null
+     * until loaded or unavailable — the CTA then shows without a price suffix rather than a guess. */
+    price?: string | null;
   }
   let {
     canPurchase,
@@ -18,6 +21,7 @@
     onDismiss,
     purchaseFlow = "idle",
     purchaseError = null,
+    price = null,
   }: Props = $props();
   let sheet = $state<HTMLDivElement>();
 
@@ -80,9 +84,13 @@
   {#if canPurchase}
     <p>{STRINGS.paywall.body}</p>
     <button class="primary" onclick={onGet} disabled={busy}>
-      {purchaseFlow === "purchasing"
-        ? STRINGS.paywall.purchasing
-        : `${STRINGS.paywall.cta} · ${STRINGS.paywall.price}`}
+      {#if purchaseFlow === "purchasing"}
+        {STRINGS.paywall.purchasing}
+      {:else if price}
+        {STRINGS.paywall.cta} · {price}
+      {:else}
+        {STRINGS.paywall.cta}
+      {/if}
     </button>
     <button class="secondary" onclick={onRestore} disabled={busy}>
       {purchaseFlow === "restoring" ? STRINGS.paywall.restoring : STRINGS.paywall.restore}

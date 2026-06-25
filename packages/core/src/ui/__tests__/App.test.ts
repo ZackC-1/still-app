@@ -122,11 +122,29 @@ describe("App", () => {
     expect(screen.getByText("Purchase cancelled.")).toBeTruthy();
   });
 
+  it("the buy CTA shows the localized store price when loaded, and no price otherwise", () => {
+    const withPrice = controller();
+    withPrice.userId = "u";
+    withPrice.openPaywall();
+    withPrice.paywallPrice = "£2.99";
+    const { unmount } = render(App, { props: { controller: withPrice, onGet: () => {} } });
+    expect(within(screen.getByRole("dialog")).getByText(/Get Still Sync · £2\.99/)).toBeTruthy();
+    unmount();
+
+    const noPrice = controller();
+    noPrice.userId = "u";
+    noPrice.openPaywall(); // paywallPrice stays null (price not loaded / non-Apple)
+    render(App, { props: { controller: noPrice, onGet: () => {} } });
+    const cta = within(screen.getByRole("dialog")).getByText("Get Still Sync");
+    expect(cta.textContent).not.toContain("·"); // no hardcoded/guessed price
+  });
+
   it("the Get button is disabled while a purchase is in flight (duplicate-tap guard)", async () => {
     const onGet = vi.fn();
     const c = controller();
     c.userId = "u";
     c.openPaywall();
+    c.paywallPrice = "$2.99";
     render(App, { props: { controller: c, onGet } });
     const dialog = within(screen.getByRole("dialog"));
     await fireEvent.click(dialog.getByText(/Get Still Sync ·/)); // the paywall CTA (has the price)

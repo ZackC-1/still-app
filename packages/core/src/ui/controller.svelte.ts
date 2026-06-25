@@ -67,6 +67,9 @@ export class UiController {
   authFlow = $state<AuthFlow>("idle");
   authError = $state<string | null>(null);
   paywallOpen = $state(false);
+  /** Localized store price for the buy CTA (e.g. "$2.99"), set by the host from StoreKit/RevenueCat.
+   * Null until loaded / on hosts without a price — the CTA then shows no price rather than a guess. */
+  paywallPrice = $state<string | null>(null);
   deleteFlow = $state<DeleteFlow>("idle");
   deleteError = $state<string | null>(null);
   purchaseFlow = $state<PurchaseFlow>("idle");

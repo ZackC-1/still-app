@@ -139,6 +139,7 @@
   {#if c.paywallOpen && c.host.canPurchase}
     <PaywallSheet
       canPurchase={c.host.canPurchase}
+      price={c.paywallPrice}
       purchaseFlow={c.purchaseFlow}
       purchaseError={c.purchaseError}
       onGet={() => {

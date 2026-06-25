@@ -83,4 +83,11 @@ describe("NativeBridge", () => {
     expect(await bridge.restore()).toBe(true);
     expect(await bridge.purchaseStatus()).toBe(false);
   });
+
+  it("reads the localized store price, or null when unavailable", async () => {
+    expect(await new NativeBridge(makeHost({ price: { price: "$2.99" } }).win).price()).toBe("$2.99");
+    // Empty / missing price → null (offering not loaded), so the CTA shows no price rather than a guess.
+    expect(await new NativeBridge(makeHost({ price: {} }).win).price()).toBeNull();
+    expect(await new NativeBridge(makeHost({ price: { price: "" } }).win).price()).toBeNull();
+  });
 });
