@@ -34,6 +34,7 @@ export type NativeMessage =
   | { readonly kind: "purchase" }
   | { readonly kind: "restore" }
   | { readonly kind: "purchaseStatus" }
+  | { readonly kind: "price" }
   | { readonly kind: "signOut" };
 
 export class NativeBridge {
@@ -92,6 +93,14 @@ export class NativeBridge {
   /** Current RevenueCat entitlement (the immediate local-UI gate only). */
   async purchaseStatus(): Promise<boolean> {
     return asObject(await this.post({ kind: "purchaseStatus" }))?.entitled === true;
+  }
+
+  /** The localized store price string for Still Sync (e.g. "$2.99"), from StoreKit via RevenueCat, or
+   * null when unavailable (offering not loaded, not configured). The paywall shows the real price
+   * instead of a hardcoded one. */
+  async price(): Promise<string | null> {
+    const price = asObject(await this.post({ kind: "price" }))?.price;
+    return typeof price === "string" && price.length > 0 ? price : null;
   }
 
   /** Reset the native RevenueCat identity on sign-out (RevenueCat logOut + clear the configured user).

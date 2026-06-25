@@ -15,6 +15,7 @@
 //        { kind:"purchase" }                  → { outcome, entitled }
 //        { kind:"restore" }                   → { entitled }
 //        { kind:"purchaseStatus" }            → { entitled }
+//        { kind:"price" }                     → { price } | {}   (localized store price for the CTA)
 //        { kind:"signOut" }                   → { ok:true }   (KTD5 — reset RC identity on sign-out)
 //
 //  The web layer drives sign-in: native returns the Apple credential, the web client calls Supabase
@@ -78,6 +79,12 @@ final class WebBridgeRouter {
       Task {
         let entitled = await self.purchases.hasStillSync()
         reply(Self.json(["entitled": entitled]), nil)
+      }
+
+    case "price":
+      Task {
+        let price = await self.purchases.priceString()
+        reply(Self.json(price.map { ["price": $0] } ?? [:]), nil)
       }
 
     case "signOut":

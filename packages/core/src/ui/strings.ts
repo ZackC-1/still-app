@@ -31,7 +31,6 @@ export const STRINGS = {
   paywall: {
     title: "Still Sync",
     body: "Your settings, on every device. Buy once.",
-    price: "$2.99",
     cta: "Get Still Sync",
     restore: "Restore purchase",
     // Non-Apple desktop: no purchase path, explanatory only (R19).
