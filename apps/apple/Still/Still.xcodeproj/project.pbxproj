@@ -27,6 +27,10 @@
 		14DE45AD2FEC760B0056BB36 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DE456E2FEC760A0056BB36 /* ViewController.swift */; };
 		14DE45AE2FEC760B0056BB36 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14DE456F2FEC760B0056BB36 /* Assets.xcassets */; };
 		14DE45AF2FEC760B0056BB36 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14DE456F2FEC760B0056BB36 /* Assets.xcassets */; };
+		D1B0B001000000000000B001 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D1A0A001000000000000A001 /* PrivacyInfo.xcprivacy */; };
+		D1B0B002000000000000B002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D1A0A001000000000000A001 /* PrivacyInfo.xcprivacy */; };
+		D1B0B003000000000000B003 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D1A0A002000000000000A002 /* PrivacyInfo.xcprivacy */; };
+		D1B0B004000000000000B004 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D1A0A002000000000000A002 /* PrivacyInfo.xcprivacy */; };
 		14DE45B02FEC760B0056BB36 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DE45712FEC760B0056BB36 /* SafariWebExtensionHandler.swift */; };
 		14DE45B12FEC760B0056BB36 /* SafariWebExtensionHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DE45712FEC760B0056BB36 /* SafariWebExtensionHandler.swift */; };
 		529725C2C304893394BF4C31 /* PurchaseManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 67CDB89E135D61905E659535 /* PurchaseManager.swift */; };
@@ -99,6 +103,8 @@
 		14DE456D2FEC760A0056BB36 /* Script.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = Script.js; sourceTree = "<group>"; };
 		14DE456E2FEC760A0056BB36 /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
 		14DE456F2FEC760B0056BB36 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		D1A0A001000000000000A001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		D1A0A002000000000000A002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		14DE45712FEC760B0056BB36 /* SafariWebExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariWebExtensionHandler.swift; sourceTree = "<group>"; };
 		14DE45762FEC760B0056BB36 /* Still.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Still.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		14DE45792FEC760B0056BB36 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -190,6 +196,7 @@
 			children = (
 				14DE456E2FEC760A0056BB36 /* ViewController.swift */,
 				14DE456F2FEC760B0056BB36 /* Assets.xcassets */,
+				D1A0A001000000000000A001 /* PrivacyInfo.xcprivacy */,
 				14DE45682FEC760A0056BB36 /* Resources */,
 				A84E021F3B9FE3FABAD24050 /* Still.entitlements */,
 				38E983C5E8EFC965C0F8D1EC /* Onboarding */,
@@ -216,6 +223,7 @@
 			children = (
 				14DE45C22FEC760B0056BB36 /* Resources */,
 				14DE45712FEC760B0056BB36 /* SafariWebExtensionHandler.swift */,
+				D1A0A002000000000000A002 /* PrivacyInfo.xcprivacy */,
 				38A772B6682863706C45FB5D /* StillExtension.entitlements */,
 			);
 			path = "Shared (Extension)";
@@ -460,6 +468,7 @@
 				14DE45A42FEC760B0056BB36 /* Main.html in Resources */,
 				14DE45AA2FEC760B0056BB36 /* Script.js in Resources */,
 				14DE45AE2FEC760B0056BB36 /* Assets.xcassets in Resources */,
+				D1B0B001000000000000B001 /* PrivacyInfo.xcprivacy in Resources */,
 				14DE45822FEC760B0056BB36 /* Main.storyboard in Resources */,
 				14DE45A82FEC760B0056BB36 /* Style.css in Resources */,
 			);
@@ -474,6 +483,7 @@
 				14DE458E2FEC760B0056BB36 /* Main.storyboard in Resources */,
 				14DE45AB2FEC760B0056BB36 /* Script.js in Resources */,
 				14DE45AF2FEC760B0056BB36 /* Assets.xcassets in Resources */,
+				D1B0B002000000000000B002 /* PrivacyInfo.xcprivacy in Resources */,
 				14DE45A52FEC760B0056BB36 /* Main.html in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -482,6 +492,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D1B0B003000000000000B003 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -489,6 +500,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				D1B0B004000000000000B004 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
