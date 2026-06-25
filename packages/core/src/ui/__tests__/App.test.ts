@@ -55,16 +55,39 @@ describe("App", () => {
     expect(screen.getByText(/Buy once on iPhone/)).toBeTruthy();
   });
 
-  it("Apple host (onSignInWithApple) shows the Apple button, not the email field (U19)", () => {
+  it("Apple host shows the Sign in with Apple CTA, not the email field (U19)", () => {
     render(App, { props: { controller: controller(), onSignInWithApple: () => {} } });
     expect(screen.getByText("Sign in with Apple")).toBeTruthy();
     expect(document.querySelector("input.email")).toBeNull();
   });
 
-  it("non-Apple host keeps the email magic-link sign-in", () => {
-    render(App, { props: { controller: controller() } });
-    expect(document.querySelector("input.email")).toBeTruthy();
+  it("Apple host: the sign-in CTA opens the modal; the modal's Apple button fires native sign-in", async () => {
+    const onSignInWithApple = vi.fn();
+    const c = controller();
+    render(App, { props: { controller: c, onSignInWithApple } });
+    await fireEvent.click(screen.getByText("Sign in with Apple")); // main CTA → opens the modal
+    expect(c.signInOpen).toBe(true);
+    const appleButtons = screen.getAllByText("Sign in with Apple"); // main CTA + modal button
+    await fireEvent.click(appleButtons[appleButtons.length - 1]!); // the modal's button
+    expect(onSignInWithApple).toHaveBeenCalled();
+  });
+
+  it("email host: the Sign in CTA opens a modal with the email field (not inline)", async () => {
+    const c = controller();
+    render(App, { props: { controller: c } });
+    expect(document.querySelector("input.email")).toBeNull(); // not inline in the main UI
     expect(screen.queryByText("Sign in with Apple")).toBeNull();
+    await fireEvent.click(screen.getByText("Sign in to sync"));
+    expect(c.signInOpen).toBe(true);
+    expect(document.querySelector("input.email")).toBeTruthy(); // now in the modal
+  });
+
+  it("the sign-in sheet does not render once the user is signed in (even if signInOpen lingers)", () => {
+    const c = controller();
+    c.openSignIn();
+    c.userId = "u"; // signed in → popupState leaves "signed-out", so the sheet is gated off
+    render(App, { props: { controller: c, onSignInWithApple: () => {} } });
+    expect(screen.queryByText("Sync your settings")).toBeNull(); // the modal title is absent
   });
 
   // ── account management (App Store 5.1.1) ──────────────────────────────────────────────────────
@@ -87,10 +110,10 @@ describe("App", () => {
     expect(screen.getByText("Delete account")).toBeTruthy();
   });
 
-  it("signed-out shows neither Delete account nor the privacy link", () => {
+  it("signed-out shows the privacy link but no Delete account (no account yet)", () => {
     render(App, { props: { controller: controller({ deletable: true }) } });
     expect(screen.queryByText("Delete account")).toBeNull();
-    expect(screen.queryByText("Privacy policy")).toBeNull();
+    expect(screen.getByText("Privacy policy")).toBeTruthy();
   });
 
   it("Delete account opens a destructive confirm with confirm + cancel", async () => {

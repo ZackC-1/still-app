@@ -47,7 +47,9 @@ export const STRINGS = {
   },
 
   auth: {
-    prompt: "Sign in to sync your settings.",
+    title: "Sync your settings",
+    prompt: "Keep your Still settings in sync across iPhone, iPad, and Mac.",
+    notNow: "Not now",
     emailLabel: "Email",
     emailPlaceholder: "you@email.com",
     send: "Email me a link",
@@ -57,6 +59,7 @@ export const STRINGS = {
     resend: "Resend link",
     signOut: "Sign out",
     apple: "Sign in with Apple",
+    signInCta: "Sign in to sync",
     signingIn: "Signing in…",
   },
 
