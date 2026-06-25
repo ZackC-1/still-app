@@ -120,17 +120,23 @@ struct OnboardingView: View {
       .padding(16)
       .background(RoundedRectangle(cornerRadius: 14).fill(Color.primary.opacity(0.05)))
 
+      Button(action: openEnableLocation) {
+        HStack(spacing: 8) {
+          Image(systemName: "arrow.up.forward.app.fill")
+          Text(openButtonTitle).fontWeight(.semibold)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 13)
+        .background(RoundedRectangle(cornerRadius: 12).stroke(Self.stillBlue, lineWidth: 1.5))
+      }
+      .buttonStyle(.plain)
+      .foregroundColor(Self.stillBlue)
+
       Text("Still only reads those four sites to hide short-form — nothing else you browse.")
         .font(.caption)
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
         .fixedSize(horizontal: false, vertical: true)
-
-      Button(action: openEnableLocation) {
-        Text(openButtonTitle).fontWeight(.semibold)
-      }
-      .buttonStyle(.plain)
-      .foregroundColor(Self.stillBlue)
     }
     // .onAppear + Task rather than .task (which is macOS 12+; the app targets macOS 11 / iOS 15).
     .onAppear { Task { await refreshStatus() } }
@@ -173,12 +179,14 @@ struct OnboardingView: View {
       "Open Settings → Apps → Safari → Extensions",
       "Turn on Still",
       "Allow Still on YouTube, Instagram, TikTok, and Facebook",
+      "Close Safari, then reopen it",
     ]
     #else
     return [
       "Click “Open Safari Settings” below",
       "In Extensions, switch on Still",
       "Allow Still on YouTube, Instagram, TikTok, and Facebook",
+      "Quit Safari (⌘Q) and reopen it",
     ]
     #endif
   }
