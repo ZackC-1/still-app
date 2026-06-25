@@ -1,4 +1,4 @@
-import { verifyHs256 } from "../_shared/jwt.ts";
+import { verifyJwt } from "../_shared/jwt.ts";
 import { type RevenueCatClient, stillSyncActive } from "../_shared/revenuecat.ts";
 import { type EntitlementStore, jsonResponse } from "../_shared/store.ts";
 import { isUuid } from "../_shared/types.ts";
@@ -8,7 +8,10 @@ import { isUuid } from "../_shared/types.ts";
 // Triggered on every sign-in/restore (all hosts) so a dropped webhook self-heals.
 
 export interface ReconcileDeps {
+  /** HS256 symmetric secret (local Supabase). Empty on hosted, where tokens are ES256. */
   readonly jwtSecret: string;
+  /** JWKS endpoint for ES256 verification on the hosted project. */
+  readonly jwksUrl?: string;
   readonly store: EntitlementStore;
   readonly rc: RevenueCatClient;
 }
@@ -19,7 +22,7 @@ export async function handleReconcile(req: Request, deps: ReconcileDeps): Promis
   const match = /^Bearer (.+)$/.exec(req.headers.get("Authorization") ?? "");
   if (!match) return jsonResponse(401, { error: "unauthorized" });
 
-  const claims = await verifyHs256(match[1]!, deps.jwtSecret);
+  const claims = await verifyJwt(match[1]!, { hs256Secret: deps.jwtSecret, jwksUrl: deps.jwksUrl });
   if (!claims || !isUuid(claims.sub)) return jsonResponse(401, { error: "unauthorized" });
 
   // The subject is the verified token's sub. Any user_id in the request body is ignored.

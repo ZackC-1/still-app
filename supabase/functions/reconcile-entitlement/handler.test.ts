@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { handleReconcile } from "./handler.ts";
-import { signHs256 } from "../_shared/jwt.ts";
+import { signEs256, signHs256 } from "../_shared/jwt.ts";
 import type { EntitlementStore } from "../_shared/store.ts";
 import type { RevenueCatClient, RcSubscriber } from "../_shared/revenuecat.ts";
 
@@ -74,4 +74,34 @@ Deno.test("webhook dropped → login reconcile establishes entitlement true", as
   const jwt = await signHs256({ sub: A }, SECRET);
   await handleReconcile(req(jwt), { jwtSecret: SECRET, store, rc: mockRc({ [A]: activeSub }) });
   assertEquals(writes[0]?.stillSync, true);
+});
+
+// Hosted Supabase issues ES256 tokens (no symmetric secret available to the function); the handler
+// verifies them against the project JWKS. jwtSecret is "" here, exactly as on the hosted project.
+Deno.test("hosted ES256 token verified via JWKS → writes the JWT subject", async () => {
+  const pair = (await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, [
+    "sign",
+    "verify",
+  ])) as CryptoKeyPair;
+  const jwk = await crypto.subtle.exportKey("jwk", pair.publicKey);
+  const jwksUrl = "https://example.test/reconcile-jwks";
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = (() =>
+    Promise.resolve(
+      new Response(JSON.stringify({ keys: [{ ...jwk, kid: "k" }] }), { status: 200 }),
+    )) as typeof fetch;
+  try {
+    const { store, writes } = mockStore();
+    const jwt = await signEs256({ sub: A }, pair.privateKey, "k");
+    const res = await handleReconcile(req(jwt), {
+      jwtSecret: "",
+      jwksUrl,
+      store,
+      rc: mockRc({ [A]: activeSub }),
+    });
+    assertEquals(res.status, 200);
+    assertEquals(writes, [{ userId: A, stillSync: true, source: "reconcile" }]);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
 });

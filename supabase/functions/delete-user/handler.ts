@@ -1,4 +1,4 @@
-import { verifyHs256 } from "../_shared/jwt.ts";
+import { verifyJwt } from "../_shared/jwt.ts";
 import { jsonResponse } from "../_shared/store.ts";
 import { isUuid } from "../_shared/types.ts";
 import type { UserStore } from "../_shared/user-store.ts";
@@ -7,7 +7,10 @@ import type { UserStore } from "../_shared/user-store.ts";
 // user — never the body. Deleting the auth user cascades to profile + entitlement (U11).
 
 export interface AccountDeps {
+  /** HS256 symmetric secret (local Supabase). Empty on hosted, where tokens are ES256. */
   readonly jwtSecret: string;
+  /** JWKS endpoint for ES256 verification on the hosted project. */
+  readonly jwksUrl?: string;
   readonly store: UserStore;
 }
 
@@ -15,7 +18,7 @@ export async function handleDeleteUser(req: Request, deps: AccountDeps): Promise
   if (req.method !== "POST") return jsonResponse(405, { error: "method_not_allowed" });
   const match = /^Bearer (.+)$/.exec(req.headers.get("Authorization") ?? "");
   if (!match) return jsonResponse(401, { error: "unauthorized" });
-  const claims = await verifyHs256(match[1]!, deps.jwtSecret);
+  const claims = await verifyJwt(match[1]!, { hs256Secret: deps.jwtSecret, jwksUrl: deps.jwksUrl });
   if (!claims || !isUuid(claims.sub)) return jsonResponse(401, { error: "unauthorized" });
 
   await deps.store.deleteUser(claims.sub); // idempotent
