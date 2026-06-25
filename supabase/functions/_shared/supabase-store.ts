@@ -13,7 +13,11 @@ export class SupabaseUserStore implements UserStore {
   }
 
   async deleteUser(userId: string): Promise<void> {
-    await this.admin.auth.admin.deleteUser(userId);
+    // GoTrue admin methods resolve with an `error` object rather than throwing — an unchecked call
+    // would report a *failed* deletion as success, signing the user out while their account still
+    // exists (a real GDPR/5.1.1 hole). Surface failures; tolerate "already gone" (404) for idempotency.
+    const { error } = await this.admin.auth.admin.deleteUser(userId);
+    if (error && error.status !== 404) throw error;
   }
 
   async getProfile(userId: string): Promise<unknown | null> {

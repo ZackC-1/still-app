@@ -84,12 +84,14 @@ final class PurchaseManager {
     await stillSyncPackage()?.storeProduct.localizedPriceString
   }
 
-  /// The current offering's package for still_sync (falling back to the first available package).
+  /// The current offering's still_sync package, or nil. Deliberately NO fallback to "the first
+  /// package": if the offering is misconfigured, an arbitrary package could charge the user for the
+  /// wrong product. nil flows to the `.unavailable` outcome instead.
   private func stillSyncPackage() async -> Package? {
     guard isConfigured, currentAppUserID != nil else { return nil }
     let offerings = try? await Purchases.shared.offerings()
     let packages = offerings?.current?.availablePackages ?? []
-    return packages.first { $0.storeProduct.productIdentifier == Self.productID } ?? packages.first
+    return packages.first { $0.storeProduct.productIdentifier == Self.productID }
   }
 
   enum Outcome: Equatable {
