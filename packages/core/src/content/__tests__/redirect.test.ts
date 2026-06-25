@@ -3,7 +3,7 @@ import seed from "../../../rules/seed.json";
 import type { SignedRuleSet, StillSettings } from "@still/shared-types";
 import { DEFAULT_SETTINGS } from "@still/shared-types";
 import { SettingsCache } from "../../storage/cache.js";
-import { InMemoryStorageAdapter } from "../../storage/adapter.js";
+import { InMemoryStorageAdapter, type StorageAdapter } from "../../storage/adapter.js";
 import { createContentScript } from "../index.js";
 import { ROOT_ACTIVE_CLASS } from "../../rules/engine.js";
 
@@ -55,6 +55,22 @@ function makeWin(href: string) {
 function cacheWith(settings: StillSettings | null) {
   const adapter = new InMemoryStorageAdapter(settings);
   return new SettingsCache(adapter, { now: () => Date.now() });
+}
+
+/** A cache whose hydrate() blocks until release() is called — to drive the pre/post-hydration window. */
+function gatedCache(settings: StillSettings | null) {
+  const inner = new InMemoryStorageAdapter(settings);
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  const adapter: StorageAdapter = {
+    get: async () => {
+      await gate;
+      return inner.get();
+    },
+    set: (s) => inner.set(s),
+    subscribe: (l) => inner.subscribe(l),
+  };
+  return { cache: new SettingsCache(adapter, { now: () => Date.now() }), release };
 }
 
 beforeEach(() => {
@@ -143,6 +159,45 @@ describe("content script — redirect + SPA navigation (U7)", () => {
     const cs = createContentScript({ win, doc: document, ruleSet, cache: cacheWith(null), schedule: sync });
     await cs.start();
     expect(document.documentElement.classList.contains(ROOT_ACTIVE_CLASS)).toBe(true);
+    cs.stop();
+  });
+});
+
+// U3: the redirect must NOT silently no-op when a navigation fires before hydration — the unconditional
+// post-hydration reapply has to pick it up. These lock that boundary behavior with a controllable hydrate.
+describe("content script — hydration boundary (U3)", () => {
+  it("an early navigation is redirected after hydration, not during the pre-hydration window", async () => {
+    const win = makeWin("https://www.youtube.com/feed/subscriptions");
+    const redirectPort = { replace: vi.fn() };
+    const { cache, release } = gatedCache(null);
+    const cs = createContentScript({ win, doc: document, ruleSet, cache, redirectPort, schedule: sync });
+    const pending = cs.start();
+
+    // Navigate into a Short BEFORE hydration resolves → reapply runs but is a no-op (not yet hydrated).
+    win.history.pushState({}, "", "https://www.youtube.com/shorts/early");
+    expect(redirectPort.replace).not.toHaveBeenCalled();
+
+    release(); // hydration completes
+    await pending;
+    expect(redirectPort.replace).toHaveBeenCalledTimes(1);
+    expect(redirectPort.replace).toHaveBeenCalledWith("https://www.youtube.com/watch?v=early");
+    cs.stop();
+  });
+
+  it("multiple pre-hydration triggers collapse to a single post-hydration redirect", async () => {
+    const win = makeWin("https://www.youtube.com/feed/subscriptions");
+    const redirectPort = { replace: vi.fn() };
+    const { cache, release } = gatedCache(null);
+    const cs = createContentScript({ win, doc: document, ruleSet, cache, redirectPort, schedule: sync });
+    const pending = cs.start();
+
+    win.history.pushState({}, "", "https://www.youtube.com/shorts/early"); // trigger 1
+    win.dispatch("popstate"); // trigger 2 (still pre-hydration)
+    expect(redirectPort.replace).not.toHaveBeenCalled();
+
+    release();
+    await pending;
+    expect(redirectPort.replace).toHaveBeenCalledTimes(1); // one redirect, no storm
     cs.stop();
   });
 });
