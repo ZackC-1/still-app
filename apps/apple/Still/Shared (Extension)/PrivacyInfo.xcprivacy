@@ -17,7 +17,9 @@
 			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
-				<string>CA92.1</string>
+				<!-- 1C8F.1: UserDefaults shared across the app + extension in the same App Group
+				     (CA92.1 is for app-only UserDefaults, which is not how Still uses it). -->
+				<string>1C8F.1</string>
 			</array>
 		</dict>
 	</array>
