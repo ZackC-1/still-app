@@ -29,6 +29,43 @@ const DEFAULT_TIMEOUT_MS = 4000;
 const DEFAULT_MAX_BYTES = 256 * 1024;
 
 /**
+ * Read a response body as text while BOUNDING memory by `maxBytes` (a true cap, not a post-hoc
+ * assertion). Rejects (returns null) up front on a `Content-Length` over the cap and on any
+ * `Content-Encoding` (a small compressed body could decompress past the cap — the first-party rule-set
+ * RPC needn't compress a ≤256 KB JSON payload). Otherwise streams the body, decoding with
+ * `TextDecoder({ stream: true })` so multibyte characters split across chunk boundaries reassemble
+ * correctly, and aborts once accumulated bytes exceed the cap. There is intentionally no `res.text()`
+ * fallback — that would re-buffer the whole body and reopen the OOM/DoS path this guards.
+ */
+async function readCappedBody(
+  res: Response,
+  maxBytes: number,
+  controller: AbortController,
+): Promise<string | null> {
+  if (res.headers.get("content-encoding")) return null;
+  const declared = res.headers.get("content-length");
+  if (declared && Number(declared) > maxBytes) return null;
+  if (!res.body) return null;
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let bytes = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytes += value.byteLength;
+    if (bytes > maxBytes) {
+      controller.abort();
+      return null;
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+  text += decoder.decode(); // flush any trailing multibyte state
+  return text;
+}
+
+/**
  * Fetch + fully validate + verify the current rule set. Returns the verified set, or null on any
  * failure (offline, timeout, oversized, malformed, bad/unknown signature, below floor) — callers
  * fall back to cache/bundled.
@@ -50,8 +87,8 @@ export async function fetchCurrentRuleSet(cfg: FetchConfig): Promise<SignedRuleS
       signal: controller.signal,
     });
     if (!res.ok) return null;
-    const text = await res.text();
-    if (text.length > (cfg.maxBytes ?? DEFAULT_MAX_BYTES)) return null; // size cap
+    const text = await readCappedBody(res, cfg.maxBytes ?? DEFAULT_MAX_BYTES, controller);
+    if (text === null) return null; // oversized / compressed / no readable body
     const parsed: unknown = JSON.parse(text);
     const row = Array.isArray(parsed) ? parsed[0] : parsed;
     if (!row || typeof row !== "object") return null;

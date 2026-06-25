@@ -42,6 +42,7 @@ if (supabaseUrl && supabaseAnonKey) {
   const sync = new SyncService(cache, authPort, backend, (state) => {
     controller.userId = state.userId;
     controller.entitled = state.entitled;
+    controller.cloudReachable = state.cloudReachable;
   });
 
   controller = new UiController({

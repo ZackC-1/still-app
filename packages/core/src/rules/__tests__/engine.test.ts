@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import seed from "../../../rules/seed.json";
 import type { SignedRuleSet, StillSettings, ServiceId } from "@still/shared-types";
 import { DEFAULT_SETTINGS, SERVICE_IDS } from "@still/shared-types";
-import { evaluate, applyDom, generateHideCss, ROOT_ACTIVE_CLASS } from "../engine.js";
+import { evaluate, applyDom, generateHideCss, ROOT_ACTIVE_CLASS, resolveActiveService } from "../engine.js";
 
 const ruleSet = seed as unknown as SignedRuleSet;
 const allOn: StillSettings = DEFAULT_SETTINGS;
@@ -15,6 +15,26 @@ function servicesWith(off: ServiceId): StillSettings["services"] {
   s[off] = false;
   return s;
 }
+
+describe("resolveActiveService — one contract for evaluate + applyDom (U6)", () => {
+  const yt = new URL("https://www.youtube.com/feed/subscriptions");
+
+  it("returns the service when active, null for off/paused/unknown", () => {
+    expect(resolveActiveService(ruleSet, allOn, yt)).not.toBeNull();
+    expect(resolveActiveService(ruleSet, settings({ globalOn: false }), yt)).toBeNull();
+    expect(resolveActiveService(ruleSet, settings({ services: servicesWith("youtube") }), yt)).toBeNull();
+    expect(resolveActiveService(ruleSet, allOn, new URL("https://example.com/"))).toBeNull();
+  });
+
+  it("evaluate and applyDom agree on validity for the same inputs", () => {
+    // Active → evaluate decides (not noop); applyDom is free to act.
+    expect(evaluate(ruleSet, allOn, yt).kind).not.toBe("noop");
+    // Inactive (service off) → both early-return their own empty shape.
+    const off = settings({ services: servicesWith("youtube") });
+    expect(evaluate(ruleSet, off, yt).kind).toBe("noop");
+    expect(applyDom(ruleSet, off, yt, document)).toEqual({ hidden: 0, removed: 0 });
+  });
+});
 
 describe("evaluate — navigation decisions", () => {
   it("redirects a Shorts URL with an id to the watch page (AE1)", () => {

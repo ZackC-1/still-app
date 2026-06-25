@@ -1,4 +1,5 @@
 import type { StillBridgeWindow, StillMessagePort } from "../storage/wkwebview-adapter.js";
+import { safeParse } from "../storage/settings-validation.js";
 
 // The native action client (U19): the web→native calls beyond settings get/set, posted through the
 // same `window.webkit.messageHandlers.still` port the storage adapter uses (WebBridgeRouter.swift
@@ -108,12 +109,4 @@ function asObject(value: unknown): Record<string, unknown> | null {
 
 function isOutcome(value: unknown): value is PurchaseOutcome {
   return value === "purchased" || value === "cancelled" || value === "pending" || value === "failed";
-}
-
-function safeParse(json: string): unknown {
-  try {
-    return JSON.parse(json);
-  } catch {
-    return null;
-  }
 }
