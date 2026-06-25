@@ -35,15 +35,31 @@ export function isPaused(settings: StillSettings, url: URL): boolean {
   return settings.pauses.includes(etldPlusOne(url.hostname));
 }
 
+type ServiceRules = NonNullable<SignedRuleSet["services"][ServiceId]>;
+
+/**
+ * Resolve the URL's service and confirm it is active and present in the rule set — the single place
+ * `evaluate()` and `applyDom()` agree on "a valid active service". Returns the service's rules, or
+ * null (unknown host / service off / paused / missing entry), which each caller maps to its own
+ * early-return shape.
+ */
+export function resolveActiveService(
+  ruleSet: SignedRuleSet,
+  settings: StillSettings,
+  url: URL,
+): ServiceRules | null {
+  const serviceId = resolveService(ruleSet, url);
+  if (!serviceId) return null;
+  if (!isServiceActive(settings, serviceId, url)) return null;
+  return ruleSet.services[serviceId] ?? null;
+}
+
 /**
  * Decide what to do for a URL: redirect (Shorts→watch), placeholder (whole-site block, direct
  * Reels/Shorts-no-id), apply (hide/remove in-page surfaces), or noop (service off / unmatched).
  */
 export function evaluate(ruleSet: SignedRuleSet, settings: StillSettings, url: URL): Decision {
-  const serviceId = resolveService(ruleSet, url);
-  if (!serviceId) return { kind: "noop" };
-  if (!isServiceActive(settings, serviceId, url)) return { kind: "noop" };
-  const service = ruleSet.services[serviceId];
+  const service = resolveActiveService(ruleSet, settings, url);
   if (!service) return { kind: "noop" };
 
   const surfaces = service.surfaces.filter((s) => s.enabledByDefault);
@@ -86,9 +102,7 @@ export function applyDom(
 ): ApplyResult {
   let hidden = 0;
   let removed = 0;
-  const serviceId = resolveService(ruleSet, url);
-  if (!serviceId || !isServiceActive(settings, serviceId, url)) return { hidden, removed };
-  const service = ruleSet.services[serviceId];
+  const service = resolveActiveService(ruleSet, settings, url);
   if (!service) return { hidden, removed };
 
   for (const s of service.surfaces) {
