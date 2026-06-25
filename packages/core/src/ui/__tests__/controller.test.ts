@@ -114,4 +114,51 @@ describe("UiController", () => {
     expect(c.deleteError).toBe("boom");
     expect(c.userId).toBe("u"); // still signed in
   });
+
+  // ── purchase flow (P1 #5) ───────────────────────────────────────────────────────────────────────
+
+  it("beginPurchase enters the purchasing state and guards duplicate taps", () => {
+    const { c } = makeController();
+    expect(c.beginPurchase()).toBe(true);
+    expect(c.purchaseFlow).toBe("purchasing");
+    expect(c.purchaseBusy).toBe(true);
+    expect(c.beginPurchase()).toBe(false); // already busy → no-op
+  });
+
+  it("maps each purchase outcome to a visible state", () => {
+    const { c } = makeController();
+    c.setPurchaseOutcome({ outcome: "purchased", entitled: true });
+    expect(c.purchaseFlow).toBe("idle");
+    c.setPurchaseOutcome({ outcome: "pending", entitled: false });
+    expect(c.purchaseFlow).toBe("pending");
+    c.setPurchaseOutcome({ outcome: "cancelled", entitled: false });
+    expect(c.purchaseFlow).toBe("cancelled");
+    c.setPurchaseOutcome({ outcome: "failed", entitled: false, error: "network down" });
+    expect(c.purchaseFlow).toBe("failed");
+    expect(c.purchaseError).toBe("network down");
+    c.setPurchaseOutcome({ outcome: "failed", entitled: false, error: "no offering available" });
+    expect(c.purchaseFlow).toBe("unavailable");
+  });
+
+  it("restore reports restored vs nothing-to-restore", () => {
+    const { c } = makeController();
+    expect(c.beginRestore()).toBe(true);
+    expect(c.purchaseFlow).toBe("restoring");
+    c.setRestoreOutcome(false);
+    expect(c.purchaseFlow).toBe("restored-none");
+    c.beginRestore();
+    c.setRestoreOutcome(true);
+    expect(c.purchaseFlow).toBe("idle");
+  });
+
+  it("opening / dismissing the paywall resets the purchase flow", () => {
+    const { c } = makeController();
+    c.setPurchaseOutcome({ outcome: "failed", entitled: false, error: "x" });
+    c.openPaywall();
+    expect(c.purchaseFlow).toBe("idle");
+    expect(c.purchaseError).toBeNull();
+    c.setPurchaseOutcome({ outcome: "cancelled", entitled: false });
+    c.dismissPaywall();
+    expect(c.purchaseFlow).toBe("idle");
+  });
 });

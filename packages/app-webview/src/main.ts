@@ -108,14 +108,23 @@ if (supabaseUrl && supabaseAnonKey) {
     onGet = () =>
       void (async () => {
         const result = await bridge.purchaseStillSync();
+        // Surface every outcome (cancelled/pending/failed/no-offering) in the still-open paywall.
+        controller.setPurchaseOutcome(result);
         // The webhook writes the Supabase entitlement; re-reconcile so the local UI unlocks once it lands.
-        if (result.entitled && controller.userId) await enterSession(controller.userId);
+        if (result.entitled && controller.userId) {
+          controller.dismissPaywall();
+          await enterSession(controller.userId);
+        }
       })();
 
     onRestore = () =>
       void (async () => {
         const restored = await bridge.restore();
-        if (restored && controller.userId) await enterSession(controller.userId);
+        controller.setRestoreOutcome(restored);
+        if (restored && controller.userId) {
+          controller.dismissPaywall();
+          await enterSession(controller.userId);
+        }
       })();
   }
 } else {

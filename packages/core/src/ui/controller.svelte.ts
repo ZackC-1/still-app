@@ -1,6 +1,7 @@
 import type { ServiceId, StillSettings } from "@still/shared-types";
 import { DEFAULT_SETTINGS } from "@still/shared-types";
 import type { SettingsCache } from "../storage/cache.js";
+import type { PurchaseResult } from "../native/bridge.js";
 import { etldPlusOne } from "../rules/match.js";
 
 // The host-agnostic view-model for the shared UI (KTD4). It reads/writes settings through the
@@ -19,6 +20,18 @@ export type AuthFlow = "idle" | "sending" | "sent" | "error";
 /** Account-deletion flow (App Store 5.1.1): idle → confirming (destructive confirm shown) → deleting
  * → idle (signed out) | error. */
 export type DeleteFlow = "idle" | "confirming" | "deleting" | "error";
+
+/** Purchase/restore flow surfaced in the paywall (P1 #5). The sheet stays open through every state
+ * except a confirmed purchase (which the host dismisses + re-enters session). */
+export type PurchaseFlow =
+  | "idle"
+  | "purchasing"
+  | "pending" // store accepted, entitlement not yet active (e.g. Ask-to-Buy)
+  | "cancelled"
+  | "failed"
+  | "unavailable" // no offering / product not available right now
+  | "restoring"
+  | "restored-none"; // restore completed but nothing to restore
 
 export interface UiHost {
   /** false on hosts with no purchase path (non-Apple desktop): explanatory paywall, no CTA (R19). */
@@ -56,6 +69,8 @@ export class UiController {
   paywallOpen = $state(false);
   deleteFlow = $state<DeleteFlow>("idle");
   deleteError = $state<string | null>(null);
+  purchaseFlow = $state<PurchaseFlow>("idle");
+  purchaseError = $state<string | null>(null);
 
   readonly host: UiHost;
   private readonly cache: SettingsCache;
@@ -107,10 +122,69 @@ export class UiController {
 
   openPaywall(): void {
     this.paywallOpen = true;
+    this.purchaseFlow = "idle";
+    this.purchaseError = null;
   }
 
   dismissPaywall(): void {
     this.paywallOpen = false;
+    this.purchaseFlow = "idle";
+    this.purchaseError = null;
+  }
+
+  // ── Purchase / restore flow (P1 #5) ─────────────────────────────────────────────────────────────
+
+  /** Whether a purchase or restore is in flight — used to disable duplicate taps. */
+  get purchaseBusy(): boolean {
+    return this.purchaseFlow === "purchasing" || this.purchaseFlow === "restoring";
+  }
+
+  /** Mark a purchase as started (disables the CTA). The host then drives the native purchase and
+   * reports back via setPurchaseOutcome. No-op while already busy (duplicate-tap guard). */
+  beginPurchase(): boolean {
+    if (this.purchaseBusy) return false;
+    this.purchaseFlow = "purchasing";
+    this.purchaseError = null;
+    return true;
+  }
+
+  /** Map the native purchase result to a visible flow state. `purchased` resets to idle (the host
+   * dismisses the sheet + re-enters session); everything else keeps the sheet open with a message. */
+  setPurchaseOutcome(result: PurchaseResult): void {
+    switch (result.outcome) {
+      case "purchased":
+        this.purchaseFlow = "idle";
+        this.purchaseError = null;
+        break;
+      case "pending":
+        this.purchaseFlow = "pending";
+        break;
+      case "cancelled":
+        this.purchaseFlow = "cancelled";
+        break;
+      case "failed":
+        // The native layer reports a missing offering as failed("no offering available").
+        if (result.error && /no offering/i.test(result.error)) {
+          this.purchaseFlow = "unavailable";
+        } else {
+          this.purchaseFlow = "failed";
+          this.purchaseError = result.error ?? null;
+        }
+        break;
+    }
+  }
+
+  /** Mark a restore as started (disables the CTA). No-op while already busy. */
+  beginRestore(): boolean {
+    if (this.purchaseBusy) return false;
+    this.purchaseFlow = "restoring";
+    this.purchaseError = null;
+    return true;
+  }
+
+  /** Report the restore result. Restored → idle (host dismisses + re-enters); nothing → a note. */
+  setRestoreOutcome(restored: boolean): void {
+    this.purchaseFlow = restored ? "idle" : "restored-none";
   }
 
   async signIn(email: string): Promise<void> {

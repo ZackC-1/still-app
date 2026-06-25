@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/svelte";
+import { describe, it, expect, vi } from "vitest";
+import { render, screen, fireEvent, within } from "@testing-library/svelte";
 import { DEFAULT_SETTINGS } from "@still/shared-types";
 import App from "../App.svelte";
 import Placeholder from "../components/Placeholder.svelte";
@@ -107,6 +107,42 @@ describe("App", () => {
     render(App, { props: { controller: c } });
     expect(screen.getByText("Privacy policy")).toBeTruthy();
     expect(screen.queryByText("Delete account")).toBeNull();
+  });
+
+  // ── paywall purchase outcomes (P1 #5) ──────────────────────────────────────────────────────────
+
+  it("a non-purchased outcome keeps the sheet open with a message", () => {
+    const c = controller();
+    c.userId = "u";
+    c.openPaywall();
+    c.setPurchaseOutcome({ outcome: "cancelled", entitled: false });
+    render(App, { props: { controller: c, onGet: () => {} } });
+    expect(screen.getByRole("dialog")).toBeTruthy(); // still open
+    expect(screen.getByText("Purchase cancelled.")).toBeTruthy();
+  });
+
+  it("the Get button is disabled while a purchase is in flight (duplicate-tap guard)", async () => {
+    const onGet = vi.fn();
+    const c = controller();
+    c.userId = "u";
+    c.openPaywall();
+    render(App, { props: { controller: c, onGet } });
+    const dialog = within(screen.getByRole("dialog"));
+    await fireEvent.click(dialog.getByText(/Get Still Sync ·/)); // the paywall CTA (has the price)
+    expect(onGet).toHaveBeenCalledOnce();
+    const inFlight = dialog.getByText(/Completing your purchase/) as HTMLButtonElement;
+    expect(inFlight.disabled).toBe(true);
+    await fireEvent.click(inFlight);
+    expect(onGet).toHaveBeenCalledOnce(); // second tap ignored (button disabled)
+  });
+
+  it("pending purchase keeps the sheet open with the Ask-to-Buy note", () => {
+    const c = controller();
+    c.userId = "u";
+    c.openPaywall();
+    c.setPurchaseOutcome({ outcome: "pending", entitled: false });
+    render(App, { props: { controller: c, onGet: () => {} } });
+    expect(screen.getByText(/Waiting for approval/)).toBeTruthy();
   });
 });
 

@@ -37,6 +37,14 @@ export const STRINGS = {
     // Non-Apple desktop: no purchase path, explanatory only (R19).
     nonApple: "Buy once on iPhone, iPad, or Mac — sync turns on here when you sign in.",
     dismiss: "Not now",
+    // Purchase/restore outcome feedback (P1 #5). The sheet stays open through these.
+    purchasing: "Completing your purchase…",
+    pending: "Waiting for approval — we'll unlock sync as soon as it's confirmed.",
+    cancelled: "Purchase cancelled.",
+    failed: "Something went wrong. Please try again.",
+    unavailable: "Still Sync isn't available right now. Try again in a moment.",
+    restoring: "Restoring…",
+    restoredNone: "No purchase to restore on this account.",
   },
 
   auth: {

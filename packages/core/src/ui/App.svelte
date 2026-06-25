@@ -139,11 +139,15 @@
   {#if c.paywallOpen && c.host.canPurchase}
     <PaywallSheet
       canPurchase={c.host.canPurchase}
+      purchaseFlow={c.purchaseFlow}
+      purchaseError={c.purchaseError}
       onGet={() => {
-        onGet?.();
-        c.dismissPaywall();
+        // Stay open through the purchase; the host reports the outcome and dismisses only on success.
+        if (c.beginPurchase()) onGet?.();
       }}
-      onRestore={() => onRestore?.()}
+      onRestore={() => {
+        if (c.beginRestore()) onRestore?.();
+      }}
       onDismiss={() => c.dismissPaywall()}
     />
   {/if}
