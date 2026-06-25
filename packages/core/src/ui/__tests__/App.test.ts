@@ -82,6 +82,14 @@ describe("App", () => {
     expect(document.querySelector("input.email")).toBeTruthy(); // now in the modal
   });
 
+  it("the sign-in sheet does not render once the user is signed in (even if signInOpen lingers)", () => {
+    const c = controller();
+    c.openSignIn();
+    c.userId = "u"; // signed in → popupState leaves "signed-out", so the sheet is gated off
+    render(App, { props: { controller: c, onSignInWithApple: () => {} } });
+    expect(screen.queryByText("Sync your settings")).toBeNull(); // the modal title is absent
+  });
+
   // ── account management (App Store 5.1.1) ──────────────────────────────────────────────────────
 
   it("signed-in (not-entitled) shows the privacy policy link and a Delete account button", () => {

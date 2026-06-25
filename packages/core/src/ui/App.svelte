@@ -121,7 +121,7 @@
     {/if}
   </section>
 
-  {#if c.signInOpen}
+  {#if c.signInOpen && c.popupState === "signed-out"}
     <SignInSheet controller={c} {onSignInWithApple} onDismiss={() => c.dismissSignIn()} />
   {/if}
 

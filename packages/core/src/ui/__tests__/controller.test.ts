@@ -82,7 +82,7 @@ describe("UiController", () => {
     expect(c.popupState).toBe("signed-out");
   });
 
-  it("sign-in sheet opens and dismisses, clearing a stale auth error", () => {
+  it("sign-in sheet opens and dismisses, resetting a terminal auth state (error or sent)", () => {
     const { c } = makeController();
     c.openSignIn();
     expect(c.signInOpen).toBe(true);
@@ -92,6 +92,12 @@ describe("UiController", () => {
     expect(c.signInOpen).toBe(false);
     expect(c.authFlow).toBe("idle");
     expect(c.authError).toBeNull();
+
+    // A lingering "sent" must also reset, else reopening lands on a Resend with an empty email.
+    c.openSignIn();
+    c.authFlow = "sent";
+    c.dismissSignIn();
+    expect(c.authFlow).toBe("idle");
   });
 
   // ── account deletion (App Store 5.1.1) ──────────────────────────────────────────────────────────

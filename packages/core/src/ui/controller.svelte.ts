@@ -131,7 +131,10 @@ export class UiController {
 
   dismissSignIn(): void {
     this.signInOpen = false;
-    if (this.authFlow === "error") this.authFlow = "idle";
+    // Reset terminal auth states so reopening the sheet starts fresh at the email field — otherwise a
+    // lingering "sent" lands on a Resend that fires with an empty email (the sheet's local input is
+    // unmounted on close), and a lingering "error" shows a stale message.
+    if (this.authFlow === "error" || this.authFlow === "sent") this.authFlow = "idle";
     this.authError = null;
   }
 
