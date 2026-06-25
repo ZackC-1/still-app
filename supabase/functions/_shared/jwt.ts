@@ -9,6 +9,9 @@
 export interface JwtPayload {
   sub?: string;
   exp?: number;
+  iss?: string;
+  aud?: string | string[];
+  role?: string;
   [key: string]: unknown;
 }
 
@@ -74,6 +77,53 @@ export interface JwtVerifyConfig {
   readonly hs256Secret?: string;
   /** JWKS endpoint — hosted Supabase signs ES256 access tokens with rotating EC P-256 keys. */
   readonly jwksUrl?: string;
+  /** Standard claims to additionally enforce (iss/aud/role) — defense in depth over signature+exp+sub.
+   *  Omit to skip claim checks (legacy callers / direct verifyHs256/verifyEs256 tests). */
+  readonly expected?: ExpectedClaims;
+}
+
+// ── Standard-claim validation (iss / aud / role) ─────────────────────────────────────────────────
+// A signature-valid token from the wrong issuer/audience, or with a non-authenticated role (e.g.
+// `anon`), must not be accepted on the privileged account/entitlement paths. We validate these in
+// the shared verifier so every consumer is covered uniformly.
+
+export const SUPABASE_AUTHENTICATED_AUD = "authenticated";
+export const SUPABASE_AUTHENTICATED_ROLE = "authenticated";
+
+export interface ExpectedClaims {
+  /** Expected issuer, e.g. `${SUPABASE_URL}/auth/v1`. Omitted when the project URL is unknown. */
+  readonly iss?: string;
+  /** Expected audience — string equality, or membership when the token's `aud` is an array. */
+  readonly aud?: string;
+  /** Expected `role` claim (Supabase sets `authenticated` for signed-in users). */
+  readonly role?: string;
+}
+
+/**
+ * The expected claims for a Supabase *authenticated* user token. `iss` is enforced only when the
+ * project URL is known (always set on hosted); `aud`/`role` are always enforced. Centralizes the
+ * policy so all three edge functions agree.
+ */
+export function authenticatedClaims(supabaseUrl: string | undefined): ExpectedClaims {
+  return {
+    iss: supabaseUrl ? `${supabaseUrl}/auth/v1` : undefined,
+    aud: SUPABASE_AUTHENTICATED_AUD,
+    role: SUPABASE_AUTHENTICATED_ROLE,
+  };
+}
+
+/** True when every *configured* expected claim matches the token. A configured claim absent from the
+ *  token fails closed. */
+function claimsMatch(claims: JwtPayload, expected: ExpectedClaims): boolean {
+  if (expected.iss !== undefined && claims.iss !== expected.iss) return false;
+  if (expected.aud !== undefined) {
+    const aud = claims.aud;
+    const ok =
+      typeof aud === "string" ? aud === expected.aud : Array.isArray(aud) && aud.includes(expected.aud);
+    if (!ok) return false;
+  }
+  if (expected.role !== undefined && claims.role !== expected.role) return false;
+  return true;
 }
 
 interface JwtHeader {
@@ -101,20 +151,25 @@ function parseHeader(token: string): JwtHeader | null {
  * project JWKS public key). Returns the claims only for a cryptographically valid, unexpired token,
  * else null. An unsupported alg, or a missing key for the alg, fails closed.
  */
-export function verifyJwt(
+export async function verifyJwt(
   token: string,
   config: JwtVerifyConfig,
   now: number = Date.now(),
 ): Promise<JwtPayload | null> {
   const header = parseHeader(token);
-  if (!header) return Promise.resolve(null);
+  if (!header) return null;
+  let claims: JwtPayload | null;
   if (header.alg === "HS256") {
-    return config.hs256Secret ? verifyHs256(token, config.hs256Secret, now) : Promise.resolve(null);
+    claims = config.hs256Secret ? await verifyHs256(token, config.hs256Secret, now) : null;
+  } else if (header.alg === "ES256") {
+    claims = config.jwksUrl ? await verifyEs256(token, config.jwksUrl, header.kid, now) : null;
+  } else {
+    claims = null; // unsupported/absent alg fails closed
   }
-  if (header.alg === "ES256") {
-    return config.jwksUrl ? verifyEs256(token, config.jwksUrl, header.kid, now) : Promise.resolve(null);
-  }
-  return Promise.resolve(null);
+  if (!claims) return null;
+  // Defense in depth: a cryptographically valid token from the wrong issuer/audience/role is rejected.
+  if (config.expected && !claimsMatch(claims, config.expected)) return null;
+  return claims;
 }
 
 interface Jwk {

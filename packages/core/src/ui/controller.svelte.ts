@@ -1,6 +1,7 @@
 import type { ServiceId, StillSettings } from "@still/shared-types";
 import { DEFAULT_SETTINGS } from "@still/shared-types";
 import type { SettingsCache } from "../storage/cache.js";
+import type { PurchaseResult } from "../native/bridge.js";
 import { etldPlusOne } from "../rules/match.js";
 
 // The host-agnostic view-model for the shared UI (KTD4). It reads/writes settings through the
@@ -16,6 +17,22 @@ export type PopupState =
 
 export type AuthFlow = "idle" | "sending" | "sent" | "error";
 
+/** Account-deletion flow (App Store 5.1.1): idle → confirming (destructive confirm shown) → deleting
+ * → idle (signed out) | error. */
+export type DeleteFlow = "idle" | "confirming" | "deleting" | "error";
+
+/** Purchase/restore flow surfaced in the paywall (P1 #5). The sheet stays open through every state
+ * except a confirmed purchase (which the host dismisses + re-enters session). */
+export type PurchaseFlow =
+  | "idle"
+  | "purchasing"
+  | "pending" // store accepted, entitlement not yet active (e.g. Ask-to-Buy)
+  | "cancelled"
+  | "failed"
+  | "unavailable" // no offering / product not available right now
+  | "restoring"
+  | "restored-none"; // restore completed but nothing to restore
+
 export interface UiHost {
   /** false on hosts with no purchase path (non-Apple desktop): explanatory paywall, no CTA (R19). */
   readonly canPurchase: boolean;
@@ -26,6 +43,9 @@ export interface UiHost {
 export interface UiAuth {
   signIn(email: string): Promise<{ error?: string }>;
   signOut(): Promise<void>;
+  /** Delete the account (App Store 5.1.1 / GDPR). Optional: only wired on hosts with an account.
+   * Throws on failure so the UI can surface it and keep the session. */
+  deleteAccount?(): Promise<void>;
 }
 
 export interface UiControllerDeps {
@@ -47,6 +67,10 @@ export class UiController {
   authFlow = $state<AuthFlow>("idle");
   authError = $state<string | null>(null);
   paywallOpen = $state(false);
+  deleteFlow = $state<DeleteFlow>("idle");
+  deleteError = $state<string | null>(null);
+  purchaseFlow = $state<PurchaseFlow>("idle");
+  purchaseError = $state<string | null>(null);
 
   readonly host: UiHost;
   private readonly cache: SettingsCache;
@@ -76,6 +100,11 @@ export class UiController {
       : false;
   }
 
+  /** Whether the host wired account deletion (so the UI shows the Delete account affordance, R/5.1.1). */
+  get canDeleteAccount(): boolean {
+    return typeof this.auth?.deleteAccount === "function";
+  }
+
   toggleGlobal(): void {
     void this.cache.setGlobalOn(!this.settings.globalOn);
   }
@@ -93,10 +122,67 @@ export class UiController {
 
   openPaywall(): void {
     this.paywallOpen = true;
+    this.purchaseFlow = "idle";
+    this.purchaseError = null;
   }
 
   dismissPaywall(): void {
     this.paywallOpen = false;
+    this.purchaseFlow = "idle";
+    this.purchaseError = null;
+  }
+
+  // ── Purchase / restore flow (P1 #5) ─────────────────────────────────────────────────────────────
+
+  /** Whether a purchase or restore is in flight — used to disable duplicate taps. */
+  get purchaseBusy(): boolean {
+    return this.purchaseFlow === "purchasing" || this.purchaseFlow === "restoring";
+  }
+
+  /** Mark a purchase as started (disables the CTA). The host then drives the native purchase and
+   * reports back via setPurchaseOutcome. No-op while already busy (duplicate-tap guard). */
+  beginPurchase(): boolean {
+    if (this.purchaseBusy) return false;
+    this.purchaseFlow = "purchasing";
+    this.purchaseError = null;
+    return true;
+  }
+
+  /** Map the native purchase result to a visible flow state. `purchased` resets to idle (the host
+   * dismisses the sheet + re-enters session); everything else keeps the sheet open with a message. */
+  setPurchaseOutcome(result: PurchaseResult): void {
+    switch (result.outcome) {
+      case "purchased":
+        this.purchaseFlow = "idle";
+        this.purchaseError = null;
+        break;
+      case "pending":
+        this.purchaseFlow = "pending";
+        break;
+      case "cancelled":
+        this.purchaseFlow = "cancelled";
+        break;
+      case "unavailable":
+        this.purchaseFlow = "unavailable";
+        break;
+      case "failed":
+        this.purchaseFlow = "failed";
+        this.purchaseError = result.error ?? null;
+        break;
+    }
+  }
+
+  /** Mark a restore as started (disables the CTA). No-op while already busy. */
+  beginRestore(): boolean {
+    if (this.purchaseBusy) return false;
+    this.purchaseFlow = "restoring";
+    this.purchaseError = null;
+    return true;
+  }
+
+  /** Report the restore result. Restored → idle (host dismisses + re-enters); nothing → a note. */
+  setRestoreOutcome(restored: boolean): void {
+    this.purchaseFlow = restored ? "idle" : "restored-none";
   }
 
   async signIn(email: string): Promise<void> {
@@ -112,11 +198,56 @@ export class UiController {
     }
   }
 
-  async signOut(): Promise<void> {
-    await this.auth?.signOut();
+  /** Clear all signed-in UI state back to the signed-out baseline. Shared by signOut + delete so a
+   * new field added here can't be forgotten in one path. */
+  private resetToSignedOut(): void {
     this.userId = null;
     this.entitled = false;
     this.authFlow = "idle";
     this.paywallOpen = false;
+    this.purchaseFlow = "idle";
+    this.purchaseError = null;
+  }
+
+  async signOut(): Promise<void> {
+    // Best-effort backend sign-out, but always clear local state and never throw — a failed
+    // auth.signOut() must not leave the UI stuck in a signed-in state.
+    try {
+      await this.auth?.signOut();
+    } catch {
+      /* swallow: the user asked to sign out; clear local state regardless */
+    }
+    this.resetToSignedOut();
+  }
+
+  // ── Account deletion (App Store 5.1.1) ──────────────────────────────────────────────────────────
+
+  /** Open the destructive-delete confirmation. */
+  requestDeleteAccount(): void {
+    this.deleteFlow = "confirming";
+    this.deleteError = null;
+  }
+
+  /** Back out of the confirmation without deleting. */
+  cancelDeleteAccount(): void {
+    this.deleteFlow = "idle";
+    this.deleteError = null;
+  }
+
+  /** Confirm: delete the account, then return to the signed-out state. On failure, surface the error
+   * and keep the session (the account still exists). */
+  async confirmDeleteAccount(): Promise<void> {
+    if (!this.auth?.deleteAccount || this.deleteFlow === "deleting") return;
+    this.deleteFlow = "deleting";
+    this.deleteError = null;
+    try {
+      await this.auth.deleteAccount();
+      // Account gone → mirror the signed-out reset.
+      this.resetToSignedOut();
+      this.deleteFlow = "idle";
+    } catch (e) {
+      this.deleteFlow = "error";
+      this.deleteError = e instanceof Error ? e.message : String(e);
+    }
   }
 }

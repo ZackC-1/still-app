@@ -45,12 +45,40 @@ if (supabaseUrl && supabaseAnonKey) {
     controller.cloudReachable = state.cloudReachable;
   });
 
+  // Sign-out resets the native RevenueCat identity (when in the WKWebView host), but the Supabase
+  // session must clear regardless — the native reset is best-effort so a rejected bridge call can't
+  // strand a live session (KTD5).
+  const signOutEverywhere = async (): Promise<void> => {
+    if (bridge.available) {
+      try {
+        await bridge.signOut();
+      } catch {
+        /* native reset failed — still clear the Supabase session below */
+      }
+    }
+    await sync.signOut();
+  };
+
+  // Account deletion deletes server-side + clears the Supabase session (sync.deleteAccount), then
+  // resets the native RevenueCat identity so the deleted user's app_user_id isn't left configured.
+  const deleteAccountEverywhere = async (): Promise<void> => {
+    await sync.deleteAccount(); // throws on backend failure → UI surfaces it, session intact
+    if (bridge.available) {
+      try {
+        await bridge.signOut();
+      } catch {
+        /* account already deleted + session cleared; native reset is best-effort */
+      }
+    }
+  };
+
   controller = new UiController({
     cache,
     host: { canPurchase: true },
     auth: {
       signIn: (email) => authPort.signInWithMagicLink(email),
-      signOut: () => sync.signOut(),
+      signOut: signOutEverywhere,
+      deleteAccount: deleteAccountEverywhere,
     },
   });
 
@@ -99,16 +127,56 @@ if (supabaseUrl && supabaseAnonKey) {
 
     onGet = () =>
       void (async () => {
-        const result = await bridge.purchaseStillSync();
-        // The webhook writes the Supabase entitlement; re-reconcile so the local UI unlocks once it lands.
-        if (result.entitled && controller.userId) await enterSession(controller.userId);
+        try {
+          const result = await bridge.purchaseStillSync();
+          // Surface every outcome (cancelled/pending/failed/no-offering) in the still-open paywall.
+          controller.setPurchaseOutcome(result);
+          // The webhook writes the Supabase entitlement; re-reconcile so the local UI unlocks once it lands.
+          if (result.entitled && controller.userId) {
+            controller.dismissPaywall();
+            await enterSession(controller.userId);
+          }
+        } catch (e) {
+          // A rejected native call must resolve the flow to a visible failed state — never leave the
+          // CTA stuck disabled in "purchasing".
+          controller.setPurchaseOutcome({
+            outcome: "failed",
+            entitled: false,
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
       })();
 
     onRestore = () =>
       void (async () => {
-        const restored = await bridge.restore();
-        if (restored && controller.userId) await enterSession(controller.userId);
+        try {
+          const restored = await bridge.restore();
+          controller.setRestoreOutcome(restored);
+          if (restored && controller.userId) {
+            controller.dismissPaywall();
+            await enterSession(controller.userId);
+          }
+        } catch {
+          controller.setRestoreOutcome(false); // a rejected restore unsticks the CTA
+        }
       })();
+
+    // Ask-to-Buy: a "pending" purchase is approved out-of-band (e.g. by a parent). Re-reconcile when
+    // the app returns to the foreground so the entitlement lands in-session, not only on relaunch.
+    document.addEventListener("visibilitychange", () => {
+      if (
+        document.visibilityState === "visible" &&
+        controller.purchaseFlow === "pending" &&
+        controller.userId &&
+        !controller.reconciling
+      ) {
+        const userId = controller.userId;
+        void (async () => {
+          await enterSession(userId);
+          if (controller.entitled) controller.dismissPaywall();
+        })();
+      }
+    });
   }
 } else {
   controller = new UiController({ cache, host: { canPurchase: true } });

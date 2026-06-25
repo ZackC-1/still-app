@@ -6,6 +6,7 @@
   import ServiceCard from "./components/ServiceCard.svelte";
   import PaywallSheet from "./components/PaywallSheet.svelte";
   import { STRINGS } from "./strings.js";
+  import { PRIVACY_POLICY_URL } from "./config.js";
 
   interface Props {
     controller: UiController;
@@ -57,6 +58,32 @@
     </section>
   {/if}
 
+  <!-- Account management (App Store 5.1.1): privacy policy link + in-app account deletion. Shown in
+       every signed-in state. Delete is gated on a wired deleteAccount dep (canDeleteAccount). -->
+  {#snippet accountManagement()}
+    <div class="account">
+      <a class="link" href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer">
+        {STRINGS.account.privacyPolicy}
+      </a>
+      {#if c.canDeleteAccount}
+        {#if c.deleteFlow === "confirming"}
+          <div class="confirm" role="group" aria-label={STRINGS.account.deleteConfirmTitle}>
+            <p class="danger-note">{STRINGS.account.deleteConfirmBody}</p>
+            <button class="danger-solid" onclick={() => c.confirmDeleteAccount()}>
+              {STRINGS.account.deleteConfirm}
+            </button>
+            <button class="link" onclick={() => c.cancelDeleteAccount()}>{STRINGS.account.deleteCancel}</button>
+          </div>
+        {:else if c.deleteFlow === "deleting"}
+          <button class="link" disabled>{STRINGS.account.deleting}</button>
+        {:else}
+          <button class="link danger" onclick={() => c.requestDeleteAccount()}>{STRINGS.account.delete}</button>
+          {#if c.deleteFlow === "error"}<p class="error">{c.deleteError ?? STRINGS.account.deleteError}</p>{/if}
+        {/if}
+      {/if}
+    </div>
+  {/snippet}
+
   <!-- Sync / account section: renders the popup state matrix -->
   <section class="sync card" data-state={c.popupState}>
     {#if c.popupState === "signed-out"}
@@ -97,11 +124,13 @@
         <p class="muted">{STRINGS.paywall.nonApple}</p>
       {/if}
       <button class="link" onclick={() => c.signOut()}>{STRINGS.auth.signOut}</button>
+      {@render accountManagement()}
     {:else if c.popupState === "entitlement-pending"}
       <p class="muted">{STRINGS.sync.pending}</p>
     {:else if c.popupState === "entitled-syncing"}
       <p class="synced">{STRINGS.sync.syncing}</p>
       <button class="link" onclick={() => c.signOut()}>{STRINGS.auth.signOut}</button>
+      {@render accountManagement()}
     {:else if c.popupState === "cloud-unreachable"}
       <p class="muted">{STRINGS.sync.unreachable}</p>
     {/if}
@@ -110,11 +139,15 @@
   {#if c.paywallOpen && c.host.canPurchase}
     <PaywallSheet
       canPurchase={c.host.canPurchase}
+      purchaseFlow={c.purchaseFlow}
+      purchaseError={c.purchaseError}
       onGet={() => {
-        onGet?.();
-        c.dismissPaywall();
+        // Stay open through the purchase; the host reports the outcome and dismisses only on success.
+        if (c.beginPurchase()) onGet?.();
       }}
-      onRestore={() => onRestore?.()}
+      onRestore={() => {
+        if (c.beginRestore()) onRestore?.();
+      }}
       onDismiss={() => c.dismissPaywall()}
     />
   {/if}
@@ -181,6 +214,41 @@
     font: inherit;
     cursor: pointer;
     padding: 0;
+    align-self: flex-start;
+  }
+  .link:disabled {
+    color: var(--ink-secondary);
+    cursor: default;
+  }
+  .account {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    margin-block-start: var(--space-2);
+    padding-block-start: var(--space-2);
+    border-block-start: 1px solid var(--border);
+  }
+  .link.danger {
+    color: #c2261e;
+  }
+  .confirm {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .danger-note {
+    color: var(--ink-secondary);
+    margin: 0;
+  }
+  .danger-solid {
+    background: #c2261e;
+    color: #fff;
+    border: none;
+    border-radius: var(--radius-control);
+    padding: var(--space-3) var(--space-4);
+    font: inherit;
+    font-weight: 500;
+    cursor: pointer;
     align-self: flex-start;
   }
 </style>

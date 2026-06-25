@@ -39,4 +39,12 @@ export class SupabaseBackendPort implements BackendPort {
       updated_at: new Date(settings.updatedAt).toISOString(),
     });
   }
+
+  async deleteAccount(): Promise<void> {
+    // The session JWT is attached automatically; the function derives the subject from it and deletes
+    // the auth user (cascades profile + entitlement, U11/U15). Surface the failure so the UI can show
+    // it rather than appearing to delete when it didn't.
+    const { error } = await this.client.functions.invoke("delete-user", { body: {} });
+    if (error) throw error;
+  }
 }

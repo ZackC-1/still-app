@@ -1,14 +1,45 @@
 <script lang="ts">
   import { STRINGS } from "../strings.js";
+  import type { PurchaseFlow } from "../controller.svelte.js";
 
   interface Props {
     canPurchase: boolean;
     onGet?: () => void;
     onRestore?: () => void;
     onDismiss: () => void;
+    /** Purchase/restore flow state — drives the in-flight/outcome UI (P1 #5). */
+    purchaseFlow?: PurchaseFlow;
+    purchaseError?: string | null;
   }
-  let { canPurchase, onGet, onRestore, onDismiss }: Props = $props();
+  let {
+    canPurchase,
+    onGet,
+    onRestore,
+    onDismiss,
+    purchaseFlow = "idle",
+    purchaseError = null,
+  }: Props = $props();
   let sheet = $state<HTMLDivElement>();
+
+  const busy = $derived(purchaseFlow === "purchasing" || purchaseFlow === "restoring");
+
+  // The outcome line shown beneath the buttons (kept open through every non-purchased state).
+  const status = $derived.by(() => {
+    switch (purchaseFlow) {
+      case "pending":
+        return STRINGS.paywall.pending;
+      case "cancelled":
+        return STRINGS.paywall.cancelled;
+      case "failed":
+        return purchaseError ?? STRINGS.paywall.failed;
+      case "unavailable":
+        return STRINGS.paywall.unavailable;
+      case "restored-none":
+        return STRINGS.paywall.restoredNone;
+      default:
+        return null;
+    }
+  });
 
   $effect(() => {
     sheet?.querySelector<HTMLElement>("button")?.focus();
@@ -48,8 +79,17 @@
   <h2>{STRINGS.paywall.title}</h2>
   {#if canPurchase}
     <p>{STRINGS.paywall.body}</p>
-    <button class="primary" onclick={onGet}>{STRINGS.paywall.cta} · {STRINGS.paywall.price}</button>
-    <button class="secondary" onclick={onRestore}>{STRINGS.paywall.restore}</button>
+    <button class="primary" onclick={onGet} disabled={busy}>
+      {purchaseFlow === "purchasing"
+        ? STRINGS.paywall.purchasing
+        : `${STRINGS.paywall.cta} · ${STRINGS.paywall.price}`}
+    </button>
+    <button class="secondary" onclick={onRestore} disabled={busy}>
+      {purchaseFlow === "restoring" ? STRINGS.paywall.restoring : STRINGS.paywall.restore}
+    </button>
+    {#if status}
+      <p class="status" class:error={purchaseFlow === "failed"} role="status">{status}</p>
+    {/if}
   {:else}
     <p>{STRINGS.paywall.nonApple}</p>
   {/if}
@@ -101,6 +141,17 @@
     background: transparent;
     color: var(--ink);
     border: 1px solid var(--border);
+  }
+  button:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+  .status {
+    color: var(--ink-secondary);
+    font-size: 14px;
+  }
+  .status.error {
+    color: #c2261e;
   }
   .dismiss {
     background: transparent;

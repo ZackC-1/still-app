@@ -21,4 +21,7 @@ export interface BackendPort {
   readProfile(): Promise<StillSettings | null>;
   /** Upsert the signed-in user's cloud settings. */
   writeProfile(settings: StillSettings): Promise<void>;
+  /** Delete the signed-in user's account (App Store Guideline 5.1.1 / GDPR). The subject is derived
+   * from the verified session JWT server-side; cascades profile + entitlement. Throws on failure. */
+  deleteAccount(): Promise<void>;
 }

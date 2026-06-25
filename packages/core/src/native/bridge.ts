@@ -20,7 +20,7 @@ export interface AppleCredential {
   readonly fullName?: string;
 }
 
-export type PurchaseOutcome = "purchased" | "cancelled" | "pending" | "failed";
+export type PurchaseOutcome = "purchased" | "cancelled" | "pending" | "unavailable" | "failed";
 
 export interface PurchaseResult {
   readonly outcome: PurchaseOutcome;
@@ -33,7 +33,8 @@ export type NativeMessage =
   | { readonly kind: "configurePurchases"; readonly appUserID: string }
   | { readonly kind: "purchase" }
   | { readonly kind: "restore" }
-  | { readonly kind: "purchaseStatus" };
+  | { readonly kind: "purchaseStatus" }
+  | { readonly kind: "signOut" };
 
 export class NativeBridge {
   constructor(
@@ -93,6 +94,13 @@ export class NativeBridge {
     return asObject(await this.post({ kind: "purchaseStatus" }))?.entitled === true;
   }
 
+  /** Reset the native RevenueCat identity on sign-out (RevenueCat logOut + clear the configured user).
+   * After this, purchase/restore/status reject until a new session reconfigures (KTD5). No-op on a
+   * host with no native port. */
+  async signOut(): Promise<void> {
+    await this.post({ kind: "signOut" });
+  }
+
   private async post(message: NativeMessage): Promise<unknown> {
     // No native host (e.g. the bundle opened in a plain browser) → null, so callers degrade rather
     // than throw.
@@ -108,5 +116,11 @@ function asObject(value: unknown): Record<string, unknown> | null {
 }
 
 function isOutcome(value: unknown): value is PurchaseOutcome {
-  return value === "purchased" || value === "cancelled" || value === "pending" || value === "failed";
+  return (
+    value === "purchased" ||
+    value === "cancelled" ||
+    value === "pending" ||
+    value === "unavailable" ||
+    value === "failed"
+  );
 }

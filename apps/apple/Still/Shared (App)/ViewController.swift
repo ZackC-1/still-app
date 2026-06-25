@@ -29,6 +29,10 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
     // UI still launches.
     private let router = WebBridgeRouter(settings: SettingsBridge(store: .appGroup()))
 
+    // The bundled web build's index URL — the only origin trusted to drive privileged native actions
+    // and the only navigation we allow (P0 #1). Set once the bundle is located in viewDidLoad.
+    private var bundledIndexURL: URL?
+
     override func viewDidLoad() {
         super.viewDidLoad()
 
@@ -44,10 +48,36 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
             self, contentWorld: .page, name: "still")
 
         if let indexURL = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "WebUI") {
+            self.bundledIndexURL = indexURL
             self.webView.loadFileURL(indexURL, allowingReadAccessTo: indexURL.deletingLastPathComponent())
         } else {
             assertionFailure("WebUI/index.html missing from the app bundle — build the web bundle first")
         }
+    }
+
+    // Navigation lockdown (P0 #1): only the bundled web build may load in the web view. A remote
+    // navigation (e.g. an injected/compromised page trying to reach an attacker origin) is cancelled;
+    // a user-tapped external http(s) link (e.g. the in-app privacy policy) is handed to the system
+    // browser instead of loading in-app.
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        guard let bundled = bundledIndexURL else { decisionHandler(.allow); return } // pre-load safety
+        let url = navigationAction.request.url
+        if BridgeTrust.allowsNavigation(to: url, bundledURL: bundled) {
+            decisionHandler(.allow)
+            return
+        }
+        if navigationAction.navigationType == .linkActivated, BridgeTrust.opensExternally(url), let url {
+            #if os(iOS)
+            UIApplication.shared.open(url)
+            #elseif os(macOS)
+            NSWorkspace.shared.open(url)
+            #endif
+        }
+        decisionHandler(.cancel)
     }
 
     // Present the first-launch onboarding (U18) over the Settings WebView, once. The presenter gates
@@ -72,6 +102,18 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
     ) {
         guard message.name == "still" else {
             replyHandler(nil, "still: unexpected handler \(message.name)")
+            return
+        }
+        // Trust boundary (P0 #1): only the bundled main frame may drive native actions. An iframe or
+        // an injected/remote origin posting `still` messages is refused before the router sees it.
+        guard let bundled = bundledIndexURL,
+              BridgeTrust.isTrusted(
+                  isMainFrame: message.frameInfo.isMainFrame,
+                  url: message.frameInfo.request.url,
+                  bundledURL: bundled
+              )
+        else {
+            replyHandler(nil, "still: untrusted frame")
             return
         }
         router.handle(message.body, reply: replyHandler)

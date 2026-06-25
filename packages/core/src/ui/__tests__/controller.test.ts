@@ -67,4 +67,112 @@ describe("UiController", () => {
     expect(c.authFlow).toBe("error");
     expect(c.authError).toBe("rate limited");
   });
+
+  it("signOut clears local state and resets the purchase flow even when auth.signOut throws", async () => {
+    const { c } = makeController({
+      auth: { signIn: () => Promise.resolve({}), signOut: () => Promise.reject(new Error("network")) },
+    });
+    c.userId = "u";
+    c.entitled = true;
+    c.purchaseFlow = "pending";
+    await c.signOut(); // must not throw
+    expect(c.userId).toBeNull();
+    expect(c.entitled).toBe(false);
+    expect(c.purchaseFlow).toBe("idle");
+    expect(c.popupState).toBe("signed-out");
+  });
+
+  // ── account deletion (App Store 5.1.1) ──────────────────────────────────────────────────────────
+
+  const deletableAuth = (deleteAccount: () => Promise<void>): UiAuth => ({
+    signIn: () => Promise.resolve({}),
+    signOut: vi.fn(() => Promise.resolve()),
+    deleteAccount,
+  });
+
+  it("canDeleteAccount reflects whether the host wired deletion", () => {
+    const without = makeController({ auth: { signIn: () => Promise.resolve({}), signOut: vi.fn() } });
+    expect(without.c.canDeleteAccount).toBe(false);
+    const withDel = makeController({ auth: deletableAuth(vi.fn(() => Promise.resolve())) });
+    expect(withDel.c.canDeleteAccount).toBe(true);
+  });
+
+  it("delete flow: request → confirming, cancel → idle", () => {
+    const { c } = makeController({ auth: deletableAuth(vi.fn(() => Promise.resolve())) });
+    c.requestDeleteAccount();
+    expect(c.deleteFlow).toBe("confirming");
+    c.cancelDeleteAccount();
+    expect(c.deleteFlow).toBe("idle");
+  });
+
+  it("confirmDeleteAccount deletes then returns to signed-out", async () => {
+    const del = vi.fn(() => Promise.resolve());
+    const { c } = makeController({ auth: deletableAuth(del) });
+    c.userId = "u";
+    c.entitled = true;
+    c.requestDeleteAccount();
+    await c.confirmDeleteAccount();
+    expect(del).toHaveBeenCalledOnce();
+    expect(c.userId).toBeNull();
+    expect(c.entitled).toBe(false);
+    expect(c.deleteFlow).toBe("idle");
+    expect(c.popupState).toBe("signed-out");
+  });
+
+  it("a failed delete surfaces an error and keeps the user signed in", async () => {
+    const del = vi.fn(() => Promise.reject(new Error("boom")));
+    const { c } = makeController({ auth: deletableAuth(del) });
+    c.userId = "u";
+    await c.confirmDeleteAccount();
+    expect(c.deleteFlow).toBe("error");
+    expect(c.deleteError).toBe("boom");
+    expect(c.userId).toBe("u"); // still signed in
+  });
+
+  // ── purchase flow (P1 #5) ───────────────────────────────────────────────────────────────────────
+
+  it("beginPurchase enters the purchasing state and guards duplicate taps", () => {
+    const { c } = makeController();
+    expect(c.beginPurchase()).toBe(true);
+    expect(c.purchaseFlow).toBe("purchasing");
+    expect(c.purchaseBusy).toBe(true);
+    expect(c.beginPurchase()).toBe(false); // already busy → no-op
+  });
+
+  it("maps each purchase outcome to a visible state", () => {
+    const { c } = makeController();
+    c.setPurchaseOutcome({ outcome: "purchased", entitled: true });
+    expect(c.purchaseFlow).toBe("idle");
+    c.setPurchaseOutcome({ outcome: "pending", entitled: false });
+    expect(c.purchaseFlow).toBe("pending");
+    c.setPurchaseOutcome({ outcome: "cancelled", entitled: false });
+    expect(c.purchaseFlow).toBe("cancelled");
+    c.setPurchaseOutcome({ outcome: "failed", entitled: false, error: "network down" });
+    expect(c.purchaseFlow).toBe("failed");
+    expect(c.purchaseError).toBe("network down");
+    c.setPurchaseOutcome({ outcome: "unavailable", entitled: false });
+    expect(c.purchaseFlow).toBe("unavailable");
+  });
+
+  it("restore reports restored vs nothing-to-restore", () => {
+    const { c } = makeController();
+    expect(c.beginRestore()).toBe(true);
+    expect(c.purchaseFlow).toBe("restoring");
+    c.setRestoreOutcome(false);
+    expect(c.purchaseFlow).toBe("restored-none");
+    c.beginRestore();
+    c.setRestoreOutcome(true);
+    expect(c.purchaseFlow).toBe("idle");
+  });
+
+  it("opening / dismissing the paywall resets the purchase flow", () => {
+    const { c } = makeController();
+    c.setPurchaseOutcome({ outcome: "failed", entitled: false, error: "x" });
+    c.openPaywall();
+    expect(c.purchaseFlow).toBe("idle");
+    expect(c.purchaseError).toBeNull();
+    c.setPurchaseOutcome({ outcome: "cancelled", entitled: false });
+    c.dismissPaywall();
+    expect(c.purchaseFlow).toBe("idle");
+  });
 });
