@@ -1,5 +1,6 @@
 import { ChromeStorageAdapter, parseSettings } from "@still/core/storage";
 import type { StillSettings } from "@still/shared-types";
+import { createAppGroupReconciler } from "../lib/app-group-reconcile.js";
 
 // Safari background — the native App-Group bridge (KTD4). The content/popup/options surfaces read &
 // write settings through browser.storage.local, but the *app's* WKWebView writes them into the
@@ -28,9 +29,6 @@ function parseNativeSettings(reply: unknown): StillSettings | null {
 
 export default defineBackground(() => {
   const adapter = new ChromeStorageAdapter();
-  // Guards the echo: when we write the App's value into browser.storage we must not immediately push
-  // it straight back to the App Group as if it were a local edit.
-  let applyingFromApp = false;
 
   async function pullFromApp(): Promise<StillSettings | null> {
     try {
@@ -52,37 +50,19 @@ export default defineBackground(() => {
     }
   }
 
-  async function reconcile(): Promise<void> {
-    const app = await pullFromApp();
-    const local = await adapter.get();
-    const appAt = app?.updatedAt ?? -1;
-    const localAt = local?.updatedAt ?? -1;
-    if (app && appAt > localAt) {
-      applyingFromApp = true;
-      try {
-        await adapter.set(app); // app edited more recently → the content script must see it
-      } finally {
-        applyingFromApp = false;
-      }
-    } else if (local && localAt > appAt) {
-      await pushToApp(local); // extension edited more recently → the app must see it
-    }
-  }
-
-  // Mirror in-extension edits (popup/options/content) out to the App Group, skipping our own
-  // app-originated writes (LWW makes a redundant round-trip harmless, but the guard avoids churn).
-  adapter.subscribe((settings) => {
-    if (!applyingFromApp) void pushToApp(settings);
-  });
+  // The reconcile + value-based echo guard live in a tested module (lib/app-group-reconcile); it owns
+  // the storage subscription that mirrors in-extension edits out to the App Group, suppressing the
+  // echo of its own app→local writes by `updatedAt`.
+  const reconciler = createAppGroupReconciler({ pullFromApp, pushToApp, local: adapter });
 
   // Reconcile on a content-script nudge (fired at document_start when a page loads).
   browser.runtime.onMessage.addListener((message: unknown) => {
     if (message && typeof message === "object" && (message as { kind?: string }).kind === "reconcile") {
-      void reconcile();
+      void reconciler.reconcile();
     }
     return false;
   });
 
   // Reconcile on cold start / activation.
-  void reconcile();
+  void reconciler.reconcile();
 });
