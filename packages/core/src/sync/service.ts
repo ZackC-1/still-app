@@ -13,13 +13,19 @@ export interface SyncState {
   readonly userId: string | null;
   readonly entitled: boolean;
   readonly syncing: boolean;
+  /** False after a cloud write fails (offline/error); the UI shows the cached-settings note (U9). */
+  readonly cloudReachable: boolean;
 }
 
-const SIGNED_OUT: SyncState = { userId: null, entitled: false, syncing: false };
+const SIGNED_OUT: SyncState = { userId: null, entitled: false, syncing: false, cloudReachable: true };
 
 export class SyncService {
   private state: SyncState = SIGNED_OUT;
   private unsubCache: (() => void) | null = null;
+  // Write coalescing: at most one in-flight writeProfile; a newer edit during a write replaces the
+  // single pending value (latest-wins, matching updatedAt-LWW) and flushes when the in-flight settles.
+  private writing = false;
+  private pendingWrite: StillSettings | null = null;
 
   constructor(
     private readonly cache: SettingsCache,
@@ -42,7 +48,7 @@ export class SyncService {
    * — but only when entitled.
    */
   async onSignedIn(userId: string): Promise<void> {
-    this.setState({ userId, entitled: false, syncing: false });
+    this.setState({ userId, entitled: false, syncing: false, cloudReachable: true });
 
     // Reconcile BEFORE reading — the desktop self-heal path the bridge targets (U13/U14).
     await this.backend.reconcileEntitlement();
@@ -67,17 +73,52 @@ export class SyncService {
     this.setState(SIGNED_OUT);
   }
 
-  /** After this, every local settings edit is mirrored to the cloud while entitled + signed in. */
+  /** After this, every local settings edit is mirrored to the cloud (coalesced) while entitled. */
   private startWriteThrough(): void {
     this.setState({ ...this.state, syncing: true });
     this.unsubCache ??= this.cache.subscribe((settings: StillSettings) => {
-      if (this.state.entitled && this.state.userId) void this.backend.writeProfile(settings);
+      if (this.state.entitled && this.state.userId) this.enqueueWrite(settings);
     });
+  }
+
+  /**
+   * Coalesce cloud writes: at most one in-flight; edits during a write keep only the latest as
+   * pending (LWW). A rejected write flips `cloudReachable` false and drops the pending value — the
+   * SettingsCache still holds the latest, so the next edit / sign-in reconcile re-pushes it (no
+   * permanent loss). A later success flips `cloudReachable` back to true.
+   */
+  private enqueueWrite(settings: StillSettings): void {
+    if (this.writing) {
+      this.pendingWrite = settings;
+      return;
+    }
+    this.writing = true;
+    void this.flushWrite(settings);
+  }
+
+  private async flushWrite(settings: StillSettings): Promise<void> {
+    try {
+      await this.backend.writeProfile(settings);
+      if (!this.state.cloudReachable) this.setState({ ...this.state, cloudReachable: true });
+    } catch {
+      this.pendingWrite = null;
+      if (this.state.cloudReachable) this.setState({ ...this.state, cloudReachable: false });
+    } finally {
+      const next = this.pendingWrite;
+      this.pendingWrite = null;
+      if (next && this.state.entitled && this.state.userId) {
+        void this.flushWrite(next);
+      } else {
+        this.writing = false;
+      }
+    }
   }
 
   private stopWriteThrough(): void {
     this.unsubCache?.();
     this.unsubCache = null;
+    this.writing = false;
+    this.pendingWrite = null;
   }
 
   private setState(next: SyncState): void {
