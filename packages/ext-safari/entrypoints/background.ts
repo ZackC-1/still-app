@@ -1,4 +1,4 @@
-import { ChromeStorageAdapter } from "@still/core/storage";
+import { ChromeStorageAdapter, parseSettings } from "@still/core/storage";
 import type { StillSettings } from "@still/shared-types";
 
 // Safari background — the native App-Group bridge (KTD4). The content/popup/options surfaces read &
@@ -19,20 +19,11 @@ import type { StillSettings } from "@still/shared-types";
 // but browser.runtime.sendNativeMessage requires the argument.
 const NATIVE_APP = "com.chartash.still";
 
-/** Coerce a native `{ settings: "<json>" }` reply into StillSettings, or null. */
+/** Coerce a native `{ settings: "<json>" }` reply into StillSettings, or null. Unwraps the envelope,
+ * then delegates the JSON parse + shape guard to the shared validator (the single hardening point). */
 function parseNativeSettings(reply: unknown): StillSettings | null {
   if (!reply || typeof reply !== "object") return null;
-  const raw = (reply as { settings?: unknown }).settings;
-  if (typeof raw !== "string" || raw === "") return null;
-  try {
-    const obj = JSON.parse(raw) as Partial<StillSettings>;
-    if (typeof obj.globalOn !== "boolean" || typeof obj.updatedAt !== "number" || !obj.services) {
-      return null;
-    }
-    return obj as StillSettings;
-  } catch {
-    return null;
-  }
+  return parseSettings((reply as { settings?: unknown }).settings ?? null);
 }
 
 export default defineBackground(() => {

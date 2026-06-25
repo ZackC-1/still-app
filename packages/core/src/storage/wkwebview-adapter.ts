@@ -1,5 +1,6 @@
 import type { StillSettings } from "@still/shared-types";
 import type { StorageAdapter } from "./adapter.js";
+import { parseSettings } from "./settings-validation.js";
 
 // WKWebView ↔ native bridge (KTD4). The Apple app hosts the one shared Svelte UI in a WKWebView;
 // this is the third StorageAdapter implementation, alongside chrome.storage (the extension) and the
@@ -76,20 +77,3 @@ export class WKWebViewStorageAdapter implements StorageAdapter {
   }
 }
 
-/** Coerce a bridge value (JSON string, parsed object, null, "") into StillSettings or null. */
-function parseSettings(value: unknown): StillSettings | null {
-  if (value == null || value === "") return null;
-  const obj: unknown = typeof value === "string" ? safeParse(value) : value;
-  if (!obj || typeof obj !== "object") return null;
-  const s = obj as Partial<StillSettings>;
-  if (typeof s.globalOn !== "boolean" || typeof s.updatedAt !== "number" || !s.services) return null;
-  return obj as StillSettings;
-}
-
-function safeParse(json: string): unknown {
-  try {
-    return JSON.parse(json);
-  } catch {
-    return null;
-  }
-}
