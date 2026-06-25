@@ -20,7 +20,7 @@ export interface AppleCredential {
   readonly fullName?: string;
 }
 
-export type PurchaseOutcome = "purchased" | "cancelled" | "pending" | "failed";
+export type PurchaseOutcome = "purchased" | "cancelled" | "pending" | "unavailable" | "failed";
 
 export interface PurchaseResult {
   readonly outcome: PurchaseOutcome;
@@ -116,5 +116,11 @@ function asObject(value: unknown): Record<string, unknown> | null {
 }
 
 function isOutcome(value: unknown): value is PurchaseOutcome {
-  return value === "purchased" || value === "cancelled" || value === "pending" || value === "failed";
+  return (
+    value === "purchased" ||
+    value === "cancelled" ||
+    value === "pending" ||
+    value === "unavailable" ||
+    value === "failed"
+  );
 }

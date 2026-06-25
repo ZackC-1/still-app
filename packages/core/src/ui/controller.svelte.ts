@@ -162,14 +162,12 @@ export class UiController {
       case "cancelled":
         this.purchaseFlow = "cancelled";
         break;
+      case "unavailable":
+        this.purchaseFlow = "unavailable";
+        break;
       case "failed":
-        // The native layer reports a missing offering as failed("no offering available").
-        if (result.error && /no offering/i.test(result.error)) {
-          this.purchaseFlow = "unavailable";
-        } else {
-          this.purchaseFlow = "failed";
-          this.purchaseError = result.error ?? null;
-        }
+        this.purchaseFlow = "failed";
+        this.purchaseError = result.error ?? null;
         break;
     }
   }
@@ -200,12 +198,26 @@ export class UiController {
     }
   }
 
-  async signOut(): Promise<void> {
-    await this.auth?.signOut();
+  /** Clear all signed-in UI state back to the signed-out baseline. Shared by signOut + delete so a
+   * new field added here can't be forgotten in one path. */
+  private resetToSignedOut(): void {
     this.userId = null;
     this.entitled = false;
     this.authFlow = "idle";
     this.paywallOpen = false;
+    this.purchaseFlow = "idle";
+    this.purchaseError = null;
+  }
+
+  async signOut(): Promise<void> {
+    // Best-effort backend sign-out, but always clear local state and never throw — a failed
+    // auth.signOut() must not leave the UI stuck in a signed-in state.
+    try {
+      await this.auth?.signOut();
+    } catch {
+      /* swallow: the user asked to sign out; clear local state regardless */
+    }
+    this.resetToSignedOut();
   }
 
   // ── Account deletion (App Store 5.1.1) ──────────────────────────────────────────────────────────
@@ -231,10 +243,7 @@ export class UiController {
     try {
       await this.auth.deleteAccount();
       // Account gone → mirror the signed-out reset.
-      this.userId = null;
-      this.entitled = false;
-      this.authFlow = "idle";
-      this.paywallOpen = false;
+      this.resetToSignedOut();
       this.deleteFlow = "idle";
     } catch (e) {
       this.deleteFlow = "error";

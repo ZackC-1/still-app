@@ -68,6 +68,20 @@ describe("UiController", () => {
     expect(c.authError).toBe("rate limited");
   });
 
+  it("signOut clears local state and resets the purchase flow even when auth.signOut throws", async () => {
+    const { c } = makeController({
+      auth: { signIn: () => Promise.resolve({}), signOut: () => Promise.reject(new Error("network")) },
+    });
+    c.userId = "u";
+    c.entitled = true;
+    c.purchaseFlow = "pending";
+    await c.signOut(); // must not throw
+    expect(c.userId).toBeNull();
+    expect(c.entitled).toBe(false);
+    expect(c.purchaseFlow).toBe("idle");
+    expect(c.popupState).toBe("signed-out");
+  });
+
   // ── account deletion (App Store 5.1.1) ──────────────────────────────────────────────────────────
 
   const deletableAuth = (deleteAccount: () => Promise<void>): UiAuth => ({
@@ -136,7 +150,7 @@ describe("UiController", () => {
     c.setPurchaseOutcome({ outcome: "failed", entitled: false, error: "network down" });
     expect(c.purchaseFlow).toBe("failed");
     expect(c.purchaseError).toBe("network down");
-    c.setPurchaseOutcome({ outcome: "failed", entitled: false, error: "no offering available" });
+    c.setPurchaseOutcome({ outcome: "unavailable", entitled: false });
     expect(c.purchaseFlow).toBe("unavailable");
   });
 

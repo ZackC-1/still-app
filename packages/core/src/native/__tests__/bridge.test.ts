@@ -70,6 +70,9 @@ describe("NativeBridge", () => {
     const cancelled = makeHost({ purchase: { outcome: "cancelled", entitled: false } });
     expect((await new NativeBridge(cancelled.win).purchaseStillSync()).outcome).toBe("cancelled");
 
+    const unavailable = makeHost({ purchase: { outcome: "unavailable", entitled: false } });
+    expect((await new NativeBridge(unavailable.win).purchaseStillSync()).outcome).toBe("unavailable");
+
     const bad = makeHost({ purchase: { outcome: "nonsense", entitled: false } });
     expect((await new NativeBridge(bad.win).purchaseStillSync()).outcome).toBe("failed");
   });

@@ -15,6 +15,7 @@
 //        { kind:"purchase" }                  → { outcome, entitled }
 //        { kind:"restore" }                   → { entitled }
 //        { kind:"purchaseStatus" }            → { entitled }
+//        { kind:"signOut" }                   → { ok:true }   (KTD5 — reset RC identity on sign-out)
 //
 //  The web layer drives sign-in: native returns the Apple credential, the web client calls Supabase
 //  `signInWithIdToken`, then hands the resulting UUID back via `configurePurchases` so RevenueCat is
@@ -110,6 +111,7 @@ final class WebBridgeRouter {
     case .purchased: return ["outcome": "purchased", "entitled": true]
     case .cancelled: return ["outcome": "cancelled", "entitled": false]
     case .pending: return ["outcome": "pending", "entitled": false]
+    case .unavailable: return ["outcome": "unavailable", "entitled": false]
     case .failed(let message): return ["outcome": "failed", "error": message, "entitled": false]
     }
   }

@@ -90,6 +90,7 @@ final class PurchaseManager {
     case purchased
     case cancelled
     case pending // store accepted but entitlement not yet active (e.g. ask-to-buy)
+    case unavailable // no offering / product not available right now
     case failed(String)
   }
 
@@ -97,7 +98,7 @@ final class PurchaseManager {
   /// follows when the webhook writes the Supabase entitlement and the WebView reconciles.
   func purchaseStillSync() async -> Outcome {
     guard isConfigured, currentAppUserID != nil else { return .failed("not configured") }
-    guard let package = await stillSyncPackage() else { return .failed("no offering available") }
+    guard let package = await stillSyncPackage() else { return .unavailable }
     do {
       let result = try await Purchases.shared.purchase(package: package)
       if result.userCancelled { return .cancelled }

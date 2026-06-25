@@ -250,4 +250,19 @@ describe("SyncService", () => {
     expect(authCalls).not.toContain("signOut");
     expect(svc.getState().userId).toBe(USER); // still signed in
   });
+
+  it("delete succeeds but auth.signOut fails → still forced signed-out (account is gone)", async () => {
+    // The backend delete succeeded; a failing local sign-out must not strand the UI signed-in.
+    const auth: AuthPort = {
+      signInWithMagicLink: () => Promise.resolve({}),
+      signOut: () => Promise.reject(new Error("offline")),
+      currentUserId: () => Promise.resolve(null),
+    };
+    const { backend } = mockBackend({ entitled: true }); // delete resolves
+    const svc = new SyncService(makeCache(), auth, backend);
+    await svc.onSignedIn(USER);
+    await svc.deleteAccount(); // must not throw — the delete is what matters
+    expect(svc.getState().userId).toBeNull();
+    expect(svc.getState()).toEqual({ userId: null, entitled: false, syncing: false, cloudReachable: true });
+  });
 });

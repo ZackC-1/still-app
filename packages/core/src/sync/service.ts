@@ -79,8 +79,18 @@ export class SyncService {
    * so we never appear signed-out while the account still exists.
    */
   async deleteAccount(): Promise<void> {
+    // The delete is the critical step: if it fails, propagate so the UI surfaces it and the session
+    // stays intact (we never appear signed-out while the account still exists).
     await this.backend.deleteAccount();
-    await this.signOut();
+    // Account is gone server-side. Local sign-out is now best-effort — force SIGNED_OUT regardless, so
+    // a failing auth.signOut() can't strand the UI signed-in against a deleted account.
+    this.stopWriteThrough();
+    try {
+      await this.auth.signOut();
+    } catch {
+      /* ignore: the account no longer exists; the signed-out state is forced below */
+    }
+    this.setState(SIGNED_OUT);
   }
 
   /** After this, every local settings edit is mirrored to the cloud (coalesced) while entitled. */
