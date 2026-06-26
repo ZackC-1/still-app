@@ -34,8 +34,12 @@ export class HttpRevenueCatClient implements RevenueCatClient {
   ) {}
 
   async getSubscriber(appUserId: string): Promise<RcSubscriber | null> {
+    // Deno's fetch has no default timeout. This path runs both inside the webhook reconcile loop and
+    // synchronously during sign-in (reconcile-entitlement); a hung RevenueCat response would stall the
+    // invocation to its wall-clock limit and leave the sign-in UI indeterminate. Fail fast.
     const res = await fetch(`${this.base}/subscribers/${encodeURIComponent(appUserId)}`, {
       headers: { Authorization: `Bearer ${this.secretKey}` },
+      signal: AbortSignal.timeout(8_000),
     });
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`RevenueCat lookup failed: ${res.status}`);

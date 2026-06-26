@@ -36,9 +36,9 @@ export async function handleCreateWebCheckout(
     const checkout = await deps.billing.createCheckout(claims.sub);
     return jsonResponse(200, checkout);
   } catch (error) {
-    return jsonResponse(502, {
-      error: "checkout_unavailable",
-      message: error instanceof Error ? error.message : String(error),
-    });
+    // Don't leak internal billing/config detail (e.g. "RevenueCat Web Billing is not configured") to
+    // the authenticated caller — log it server-side, return only a generic status the client acts on.
+    console.error("create-web-checkout failed:", error);
+    return jsonResponse(502, { error: "checkout_unavailable" });
   }
 }

@@ -36,6 +36,20 @@ describe("parseSettings", () => {
     expect(parsed).not.toHaveProperty("entitlement");
     expect(parsed?.services).not.toHaveProperty("entitlement");
   });
+
+  it("back-compat: absent pauses defaults to [], absent service defaults off (no settings wipe)", () => {
+    // A blob that predates the `pauses` field must NOT be discarded — dropping it makes readProfile()
+    // return null and silently wipes the user's synced settings on upgrade.
+    const noPauses = { globalOn: valid.globalOn, services: valid.services, updatedAt: valid.updatedAt };
+    expect(parseSettings(noPauses)).toEqual({ ...valid, pauses: [] });
+
+    // A blob written before a newer service id existed: the missing service defaults OFF, the rest of
+    // the user's choices are preserved (vs. the whole object being rejected).
+    const partialServices = { ...valid.services } as Record<string, boolean>;
+    delete partialServices.facebook;
+    const parsed = parseSettings({ ...valid, services: partialServices });
+    expect(parsed).toEqual({ ...valid, services: { ...valid.services, facebook: false } });
+  });
 });
 
 describe("safeParse", () => {

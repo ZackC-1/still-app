@@ -28,6 +28,10 @@ export class HttpRevenueCatWebBillingClient implements WebBillingClient {
         app_user_id: appUserId,
         product_id: this.productId,
       }),
+      // Deno's fetch has no default timeout; without this a hung RevenueCat response holds the edge
+      // function open to its wall-clock limit (~150s) on the critical checkout path, stacking
+      // invocations. Fail fast so the client can surface a retry.
+      signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) throw new Error(`RevenueCat Web Billing checkout failed: ${res.status}`);
 

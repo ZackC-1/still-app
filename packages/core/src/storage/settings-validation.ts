@@ -19,11 +19,22 @@ export function parseSettings(value: unknown): StillSettings | null {
   }
   const services = parseServices(s.services);
   if (!services) return null;
-  if (!Array.isArray(s.pauses) || !s.pauses.every((p) => typeof p === "string")) return null;
+  // `pauses` is optional for back-compat: a blob that predates the field (or omits it) must default
+  // to [] rather than be discarded — dropping the whole object makes readProfile() return null and
+  // silently wipes the user's synced settings on upgrade. A present-but-malformed pauses is still
+  // rejected, preserving the whitelist guarantee (unknown/forged fields never ride along).
+  let pauses: string[];
+  if (s.pauses === undefined) {
+    pauses = [];
+  } else if (Array.isArray(s.pauses) && s.pauses.every((p) => typeof p === "string")) {
+    pauses = [...s.pauses];
+  } else {
+    return null;
+  }
   return {
     globalOn: s.globalOn,
     services,
-    pauses: [...s.pauses],
+    pauses,
     updatedAt: s.updatedAt,
   };
 }
@@ -43,8 +54,16 @@ function parseServices(value: unknown): Readonly<Record<ServiceId, boolean>> | n
   const services = {} as Record<ServiceId, boolean>;
   for (const id of SERVICE_IDS) {
     const on = incoming[id];
-    if (typeof on !== "boolean") return null;
-    services[id] = on;
+    // A service absent from the blob defaults OFF (back-compat: a settings object written before a
+    // newer service id existed must not be discarded). A present-but-non-boolean value is still
+    // rejected as corruption/injection.
+    if (on === undefined) {
+      services[id] = false;
+    } else if (typeof on === "boolean") {
+      services[id] = on;
+    } else {
+      return null;
+    }
   }
   return services;
 }

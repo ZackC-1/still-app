@@ -158,13 +158,15 @@ export function applyDom(
 
 function surfaceEnabledForTier(s: ServiceRules["surfaces"][number], opts: EngineOptions): boolean {
   if (!s.enabledByDefault) return false;
-  if (ALWAYS_FREE_SURFACE_IDS.has(s.id)) return true;
+  // Free surfaces are always enabled, in BOTH gating modes. Checking `tier` here (not only in the
+  // pro-flag branch below) keeps the rule data's `tier: "free"` authoritative even under capability
+  // gating, so a free surface that isn't in the ALWAYS_FREE_SURFACE_IDS safety-net is never gated off.
+  if (ALWAYS_FREE_SURFACE_IDS.has(s.id) || s.tier === "free") return true;
   const capabilities = capabilitySet(opts.capabilities);
   if (capabilities) {
     return s.requiredCapability ? capabilities.has(s.requiredCapability) : false;
   }
-  if (opts.pro !== false) return true;
-  return s.tier === "free";
+  return opts.pro !== false;
 }
 
 function capabilitySet(
