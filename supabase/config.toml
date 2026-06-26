@@ -385,6 +385,10 @@ verify_jwt = false
 # verify_jwt=true: subject UUID is taken ONLY from the verified JWT (auth.uid()), never the body.
 verify_jwt = true
 
+[functions.create-web-checkout]
+# verify_jwt=true: RevenueCat Web Billing app_user_id is derived ONLY from auth.uid(), never the body.
+verify_jwt = true
+
 [functions.delete-user]
 verify_jwt = true
 

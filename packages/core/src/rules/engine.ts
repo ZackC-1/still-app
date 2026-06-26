@@ -1,4 +1,4 @@
-import type { ServiceId, SignedRuleSet, StillSettings } from "@still/shared-types";
+import type { ServiceId, SignedRuleSet, StillSettings, SurfaceCapability } from "@still/shared-types";
 import { resolveService, etldPlusOne, applyRedirectTemplate } from "./match.js";
 
 // The framework-agnostic rule engine. Pure functions over a rule set + settings + a DOM, so the
@@ -7,6 +7,7 @@ import { resolveService, etldPlusOne, applyRedirectTemplate } from "./match.js";
 
 /** Root class the content script toggles on <html>; manifest CSS scopes hide rules under it (KTD2). */
 export const ROOT_ACTIVE_CLASS = "still-active";
+export const ROOT_PRO_ACTIVE_CLASS = "still-pro-active";
 
 /** Default on-page placeholder copy. U9 passes the canonical string; this is the fallback. */
 export const STILL_PLACEHOLDER_LINE = "Still cleared this away.";
@@ -43,6 +44,26 @@ export function isPaused(settings: StillSettings, url: URL): boolean {
 
 type ServiceRules = NonNullable<SignedRuleSet["services"][ServiceId]>;
 
+export interface EngineOptions {
+  /**
+   * Whether Pro-gated surfaces should apply. Omitted preserves the pre-monetization all-on behavior.
+   * @deprecated Prefer `capabilities`; when both are supplied, capabilities are authoritative.
+   */
+  readonly pro?: boolean;
+  /** Forward-compatible entitlement set. When supplied, requiredCapability gates premium surfaces. */
+  readonly capabilities?: ReadonlySet<SurfaceCapability> | readonly SurfaceCapability[];
+}
+
+export const ALWAYS_FREE_SURFACE_IDS = new Set([
+  "yt-shorts-redirect",
+  "yt-sidebar",
+  "yt-home-shelf",
+  "yt-search",
+  "yt-subscriptions",
+  "yt-channel-tab",
+  "yt-chips",
+]);
+
 /**
  * Resolve the URL's service and confirm it is active and present in the rule set — the single place
  * `evaluate()` and `applyDom()` agree on "a valid active service". Returns the service's rules, or
@@ -64,11 +85,17 @@ export function resolveActiveService(
  * Decide what to do for a URL: redirect (Shorts→watch), placeholder (whole-site block, direct
  * Reels/Shorts-no-id), apply (hide/remove in-page surfaces), or noop (service off / unmatched).
  */
-export function evaluate(ruleSet: SignedRuleSet, settings: StillSettings, url: URL): Decision {
+export function evaluate(
+  ruleSet: SignedRuleSet,
+  settings: StillSettings,
+  url: URL,
+  opts: EngineOptions = {},
+): Decision {
   const service = resolveActiveService(ruleSet, settings, url);
   if (!service) return { kind: "noop" };
 
-  const surfaces = service.surfaces.filter((s) => s.enabledByDefault);
+  const surfaces = service.surfaces.filter((s) => surfaceEnabledForTier(s, opts));
+  if (surfaces.length === 0) return { kind: "noop" };
   const path = url.pathname;
 
   // 1. Whole-site block (TikTok) — the page is blocked outright, not just cleared.
@@ -105,6 +132,7 @@ export function applyDom(
   settings: StillSettings,
   url: URL,
   doc: Document,
+  opts: EngineOptions = {},
 ): ApplyResult {
   let hidden = 0;
   let removed = 0;
@@ -112,7 +140,7 @@ export function applyDom(
   if (!service) return { hidden, removed };
 
   for (const s of service.surfaces) {
-    if (!s.enabledByDefault || !s.selectors) continue;
+    if (!surfaceEnabledForTier(s, opts) || !s.selectors) continue;
     if (s.action === "hide") {
       for (const sel of s.selectors) {
         for (const el of safeQueryAll(doc, sel)) {
@@ -132,19 +160,43 @@ export function applyDom(
   return { hidden, removed };
 }
 
+function surfaceEnabledForTier(s: ServiceRules["surfaces"][number], opts: EngineOptions): boolean {
+  if (!s.enabledByDefault) return false;
+  // Free surfaces are always enabled, in BOTH gating modes. Checking `tier` here (not only in the
+  // pro-flag branch below) keeps the rule data's `tier: "free"` authoritative even under capability
+  // gating, so a free surface that isn't in the ALWAYS_FREE_SURFACE_IDS safety-net is never gated off.
+  if (ALWAYS_FREE_SURFACE_IDS.has(s.id) || s.tier === "free") return true;
+  const capabilities = capabilitySet(opts.capabilities);
+  if (capabilities) {
+    return s.requiredCapability ? capabilities.has(s.requiredCapability) : false;
+  }
+  return opts.pro !== false;
+}
+
+function capabilitySet(
+  capabilities: EngineOptions["capabilities"],
+): ReadonlySet<SurfaceCapability> | null {
+  if (!capabilities) return null;
+  return capabilities instanceof Set ? capabilities : new Set(capabilities);
+}
+
 /**
  * The CSS injected at document_start (manifest css for packaged selectors, runtime-injected for
  * fetched ones). Scoped under `html.still-active` so an off/paused user never has content hidden:
  * the content script adds the root class only when the service is on (KTD2).
  */
-export function generateHideCss(ruleSet: SignedRuleSet): string {
+export function generateHideCss(
+  ruleSet: SignedRuleSet,
+  opts: EngineOptions = {},
+  rootClass: string = ROOT_ACTIVE_CLASS,
+): string {
   const rules: string[] = [];
   for (const service of Object.values(ruleSet.services)) {
     if (!service) continue;
     for (const s of service.surfaces) {
-      if (s.action === "hide" && s.enabledByDefault && s.selectors) {
+      if (s.action === "hide" && surfaceEnabledForTier(s, opts) && s.selectors) {
         for (const sel of s.selectors) {
-          rules.push(`html.${ROOT_ACTIVE_CLASS} ${sel}{display:none!important}`);
+          rules.push(`html.${rootClass} ${sel}{display:none!important}`);
         }
       }
     }

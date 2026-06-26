@@ -4,6 +4,7 @@ import type { SignedRuleSet } from "@still/shared-types";
 import { SettingsCache } from "../../storage/cache.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
 import { createContentScript, createReapplyObserver } from "../index.js";
+import { EntitlementCache, InMemoryEntitlementAdapter } from "../../entitlement/index.js";
 
 const ruleSet = seed as unknown as SignedRuleSet;
 const sync = (cb: () => void) => cb();
@@ -50,11 +51,13 @@ describe("content script — MutationObserver re-application (U7)", () => {
   });
 
   it("catches a same-URL Instagram Reel modal the History hook never sees", async () => {
+    // Instagram inline-Reel removal is a Pro surface — pass an entitled cache so the gate is open.
     const cs = createContentScript({
       win: makeWin("https://www.instagram.com/someuser/"),
       doc: document,
       ruleSet,
       cache: freshCache(),
+      entitlement: new EntitlementCache(new InMemoryEntitlementAdapter(true)),
       redirectPort: { replace: vi.fn() },
       schedule: sync,
     });

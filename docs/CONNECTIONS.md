@@ -33,8 +33,8 @@ After Tier 0, the loop can build and CI-test all of Phase A locally.
 | # | Connection | Who | Provides | Blocks |
 |---|---|---|---|---|
 | 7 | **Apple Developer Program** ($99/yr) | 🧑 | team, certs, entitlements (SIWA, IAP) | ⏳ Phase B |
-| 8 | **App Store Connect**: create non-consumable `still_sync` ($2.99); generate **In-App Purchase Key (.p8)** + ASC API key; create sandbox testers | 🧑 | product + `.p8` + API key + testers | ⏳ real purchase |
-| 9 | **RevenueCat**: project, product, entitlement, offering, webhook + static auth token; upload the `.p8` | 🧑 (dashboard) | `RC_PUBLIC_KEY`, `RC_SECRET_KEY`, `REVENUECAT_WEBHOOK_TOKEN` | ⏳ Phase B purchase. NOTE: the webhook→entitlement path is fully testable in Phase A with a **faked** payload — no Apple needed to prove the bridge. |
+| 8 | **App Store Connect**: create non-consumable `still_sync` ($1.99); generate **In-App Purchase Key (.p8)** + ASC API key; create sandbox testers | 🧑 | product + `.p8` + API key + testers | ⏳ real purchase |
+| 9 | **RevenueCat**: project, product, entitlement, offering, webhook + static auth token; upload the `.p8`; for non-Apple platforms set up **Web Billing** (product + hosted checkout) | 🧑 (dashboard) | `RC_PUBLIC_KEY`, `RC_SECRET_KEY`, `REVENUECAT_WEBHOOK_TOKEN`, `REVENUECAT_WEB_BILLING_CHECKOUT_URL`, `REVENUECAT_WEB_PRODUCT_ID` | ⏳ Phase B purchase. NOTE: the webhook→entitlement path is fully testable in Phase A with a **faked** payload — no Apple needed to prove the bridge. `REVENUECAT_WEB_BILLING_CHECKOUT_URL` has **no fallback** — if unset, `create-web-checkout` returns a 502 `checkout_unavailable`; `REVENUECAT_WEB_PRODUCT_ID` defaults to `still_sync_web`. |
 | 10 | **Mac + Xcode + Apple device(s)** | 🧑 | Safari build/sign, sandbox purchase test | ⏳ Phase B |
 | 11 | **Chrome Web Store** developer account ($5 one-time) | 🧑 | publish the Chromium extension | Chromium store launch |
 | 12 | Domain (optional v1) | 🧑 | rule-endpoint alias, privacy policy, marketing | optional |

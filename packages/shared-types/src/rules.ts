@@ -8,6 +8,15 @@
 /** The finite, packaged set of action semantics. Remote sets may only reference these. */
 export const RULE_ACTIONS = ["hide", "remove", "redirect", "placeholder", "blockSite"] as const;
 export type RuleAction = (typeof RULE_ACTIONS)[number];
+export const SURFACE_TIERS = ["free", "pro"] as const;
+export type SurfaceTier = (typeof SURFACE_TIERS)[number];
+export const SURFACE_CAPABILITIES = [
+  "surface.youtube.shorts",
+  "surface.instagram.reels",
+  "surface.tiktok.block",
+  "surface.facebook.reels",
+] as const;
+export type SurfaceCapability = (typeof SURFACE_CAPABILITIES)[number];
 
 /** The four launch services. A brand-new service id defaults OFF until the user enables it. */
 export const SERVICE_IDS = ["youtube", "instagram", "tiktok", "facebook"] as const;
@@ -32,6 +41,10 @@ export interface Surface {
   readonly id: string;
   /** Human-readable label for QA / canary reporting. */
   readonly label: string;
+  /** Monetization gate. Missing defaults to Pro unless the engine allowlists the surface as free. */
+  readonly tier?: SurfaceTier;
+  /** Capability required to apply this surface. Prefer this over tier for new monetization work. */
+  readonly requiredCapability?: SurfaceCapability;
   readonly action: RuleAction;
   /**
    * Surface-level default. A rules update that adds a new surface under an already-enabled

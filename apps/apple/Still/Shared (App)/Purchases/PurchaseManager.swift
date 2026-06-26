@@ -9,10 +9,10 @@
 //  and refuses to configure without a UUID.
 //
 //  Two distinct entitlement gates (do not conflate):
-//    • LOCAL UI feedback gates on RevenueCat `CustomerInfo` (immediate, this file).
+//    • LOCAL purchase feedback gates on RevenueCat `CustomerInfo` (immediate, this file).
 //    • CROSS-DEVICE SYNC gates on the Supabase entitlement written by the webhook — owned by the web
-//      SyncService, never by client `CustomerInfo`. So a purchase here unlocks the local UI at once,
-//      and sync follows once the webhook lands and the WebView reconciles.
+//      SyncService, never by client `CustomerInfo`. So a purchase here can acknowledge success at once,
+//      while Pro UI/engine authority follows once the webhook lands and the WebView reconciles.
 //
 
 import Foundation
@@ -70,7 +70,7 @@ final class PurchaseManager {
     Purchases.shared.logOut { _, _ in } // back to an anonymous RevenueCat id; no entitlements
   }
 
-  /// Whether Still Sync is active per RevenueCat — the immediate LOCAL-UI gate only. Rejects when no
+  /// Whether Still Sync is active per RevenueCat — the immediate purchase-feedback gate only. Rejects when no
   /// user is configured (signed out), so a stale bridge caller can't probe a previous account.
   func hasStillSync() async -> Bool {
     guard isConfigured, currentAppUserID != nil else { return false }
@@ -78,7 +78,7 @@ final class PurchaseManager {
     return info?.entitlements[Self.entitlementID]?.isActive == true
   }
 
-  /// The localized store price for still_sync (e.g. "$2.99" / "£2.99"), or nil if the offering isn't
+  /// The localized store price for still_sync (e.g. "$1.99" / "£1.99"), or nil if the offering isn't
   /// available. The paywall shows this instead of a hardcoded price (App Store / StoreKit guidance).
   func priceString() async -> String? {
     await stillSyncPackage()?.storeProduct.localizedPriceString
@@ -102,11 +102,29 @@ final class PurchaseManager {
     case failed(String)
   }
 
-  /// Buy Still Sync. The returned `.purchased` unlocks the LOCAL UI immediately; cross-device sync
-  /// follows when the webhook writes the Supabase entitlement and the WebView reconciles.
+  /// Buy Still Sync. The returned `.purchased` acknowledges local StoreKit/RevenueCat success;
+  /// Pro UI/engine authority follows when the webhook writes the Supabase entitlement and the WebView
+  /// reconciles.
   func purchaseStillSync() async -> Outcome {
-    guard isConfigured, currentAppUserID != nil else { return .failed("not configured") }
-    guard let package = await stillSyncPackage() else { return .unavailable }
+    let startingUserID = currentAppUserID
+    if await hasStillSync() { return .purchased } // already unlocked elsewhere; do not charge again
+    let package = await stillSyncPackage()
+    switch PurchaseDecision.readiness(
+      isConfigured: isConfigured,
+      startingAppUserID: startingUserID,
+      currentAppUserID: currentAppUserID,
+      packageAvailable: package != nil
+    ) {
+    case .proceed:
+      break
+    case .unavailable:
+      return .unavailable
+    case .notConfigured:
+      return .failed("not configured")
+    case .identityChanged:
+      return .failed("identity changed")
+    }
+    guard let package else { return .unavailable }
     do {
       let result = try await Purchases.shared.purchase(package: package)
       if result.userCancelled { return .cancelled }
@@ -118,7 +136,14 @@ final class PurchaseManager {
 
   /// Restore purchases (the visible restore affordance, R8). Returns whether Still Sync is now active.
   func restore() async -> Bool {
-    guard isConfigured, currentAppUserID != nil else { return false }
+    let startingUserID = currentAppUserID
+    if await hasStillSync() { return true }
+    guard PurchaseDecision.readiness(
+      isConfigured: isConfigured,
+      startingAppUserID: startingUserID,
+      currentAppUserID: currentAppUserID,
+      packageAvailable: true
+    ) == .proceed else { return false }
     let info = try? await Purchases.shared.restorePurchases()
     return info?.entitlements[Self.entitlementID]?.isActive == true
   }

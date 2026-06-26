@@ -2,6 +2,10 @@ import {
   RULE_ACTIONS,
   type RuleAction,
   type SignedRuleSet,
+  SURFACE_TIERS,
+  SURFACE_CAPABILITIES,
+  type SurfaceCapability,
+  type SurfaceTier,
 } from "@still/shared-types";
 import { VERSION_RE } from "./version.js";
 
@@ -17,7 +21,17 @@ export type ValidationResult =
 const MAX_SELECTOR_LEN = 512;
 const MAX_PATTERN_LEN = 256;
 
-const SURFACE_KEYS = new Set(["id", "label", "action", "enabledByDefault", "selectors", "redirect", "urlMatch"]);
+const SURFACE_KEYS = new Set([
+  "id",
+  "label",
+  "tier",
+  "requiredCapability",
+  "action",
+  "enabledByDefault",
+  "selectors",
+  "redirect",
+  "urlMatch",
+]);
 const REDIRECT_KEYS = new Set(["urlMatch", "to", "fallbackToPlaceholder"]);
 const SERVICE_KEYS = new Set(["matches", "surfaces"]);
 const SIGNATURE_KEYS = new Set(["kid", "alg", "value"]);
@@ -154,6 +168,15 @@ function validateSurface(serviceId: string, surface: unknown, errors: string[]):
   const action = surface.action;
   if (typeof id !== "string" || id.length === 0) errors.push(`${where} missing id`);
   if (typeof label !== "string" || label.length === 0) errors.push(`surface '${String(id)}' missing label`);
+  if (surface.tier !== undefined && !SURFACE_TIERS.includes(surface.tier as SurfaceTier)) {
+    errors.push(`surface '${String(id)}' has unknown tier '${String(surface.tier)}'`);
+  }
+  if (
+    surface.requiredCapability !== undefined &&
+    !SURFACE_CAPABILITIES.includes(surface.requiredCapability as SurfaceCapability)
+  ) {
+    errors.push(`surface '${String(id)}' has unknown requiredCapability '${String(surface.requiredCapability)}'`);
+  }
   if (typeof surface.enabledByDefault !== "boolean") errors.push(`surface '${String(id)}' enabledByDefault must be boolean`);
   if (typeof action !== "string" || !RULE_ACTIONS.includes(action as RuleAction)) {
     errors.push(`surface '${String(id)}' has unknown action '${String(action)}'`);

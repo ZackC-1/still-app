@@ -30,7 +30,7 @@ Detail + who-does-what is in [`docs/CONNECTIONS.md`](../../../docs/CONNECTIONS.m
 
 1. **Apple Developer Program** active (team `UM9HVDH3P3`). Enable on the App ID `com.chartash.still`:
    **App Groups** (`group.com.chartash.still`), **Sign in with Apple**, **In-App Purchase**.
-2. **App Store Connect:** create the non-consumable **`still_sync`** ($2.99); generate an **In-App
+2. **App Store Connect:** create the non-consumable **`still_sync`** ($1.99); generate an **In-App
    Purchase Key (.p8)** and an **App Store Connect API key (.p8)**; add **sandbox testers**.
 3. **RevenueCat dashboard:** project + the `still_sync` product + an **entitlement named `still_sync`**
    + an offering containing it; add the webhook (+ static auth token) and upload the IAP `.p8`. The

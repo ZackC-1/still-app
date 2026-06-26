@@ -12,11 +12,13 @@ export interface AuthPort {
   currentUserId(): Promise<string | null>;
 }
 
+export type EntitlementRead = "entitled" | "not-entitled" | "unknown";
+
 export interface BackendPort {
   /** Invoke the reconcile-entitlement Edge Function for the signed-in user (self-heals webhooks). */
   reconcileEntitlement(): Promise<void>;
-  /** Read the signed-in user's still_sync entitlement. */
-  readEntitlement(): Promise<boolean>;
+  /** Read the signed-in user's still_sync entitlement. Offline/error returns unknown. */
+  readEntitlement(): Promise<EntitlementRead>;
   /** Read the signed-in user's cloud settings, or null if none stored yet. */
   readProfile(): Promise<StillSettings | null>;
   /** Upsert the signed-in user's cloud settings. */

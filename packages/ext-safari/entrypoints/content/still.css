@@ -6,9 +6,3 @@ html.still-active ytm-pivot-bar-item-renderer:has(a[href="/shorts"]){display:non
 html.still-active yt-tab-shape[tab-title="Shorts"]{display:none!important}
 html.still-active tp-yt-paper-tab:has([href$="/shorts"]){display:none!important}
 html.still-active yt-chip-cloud-chip-renderer:has([title="Shorts"]){display:none!important}
-html.still-active a[href="/reels/"]{display:none!important}
-html.still-active a:has(svg[aria-label="Reels"]){display:none!important}
-html.still-active [role="tablist"] a[href*="/reels"]{display:none!important}
-html.still-active a[href$="/reels/"]{display:none!important}
-html.still-active a[aria-label="Reels"]{display:none!important}
-html.still-active li:has(> a[href*="/reel"]){display:none!important}

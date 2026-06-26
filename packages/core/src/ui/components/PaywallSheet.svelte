@@ -10,7 +10,7 @@
     /** Purchase/restore flow state — drives the in-flight/outcome UI (P1 #5). */
     purchaseFlow?: PurchaseFlow;
     purchaseError?: string | null;
-    /** Localized store price (e.g. "$2.99" / "£2.99"), fetched from StoreKit via RevenueCat. Null
+    /** Localized store price (e.g. "$1.99"), fetched from StoreKit via RevenueCat. Null
      * until loaded or unavailable — the CTA then shows without a price suffix rather than a guess. */
     price?: string | null;
   }

@@ -13,9 +13,8 @@ import { SupabaseAuthPort, SupabaseBackendPort, SyncService } from "@still/core/
 //     then owns reconcile + entitlement-gated sync (no sync logic is duplicated in Swift).
 //   • The paywall buy/restore run natively (NativeBridge → StoreKit/RevenueCat), keyed to the Supabase
 //     UUID (KTD5 — configured only after sign-in, never anonymously).
-// The LOCAL UI gates on the Supabase entitlement (written by the RevenueCat→Supabase webhook, U14),
-// surfaced through SyncService — not the client RevenueCat CustomerInfo, which only gives immediate
-// buy feedback.
+// The UI gates on the Supabase entitlement (written by the RevenueCat→Supabase webhook, U14), surfaced
+// through SyncService — not the client RevenueCat CustomerInfo, which only gives immediate buy feedback.
 
 const cache = new SettingsCache(new WKWebViewStorageAdapter());
 cache.watch();
@@ -131,13 +130,33 @@ if (supabaseUrl && supabaseAnonKey) {
     onGet = () =>
       void (async () => {
         try {
+          if (controller.userId) {
+            await enterSession(controller.userId);
+            if (controller.entitled) {
+              controller.dismissPaywall();
+              return;
+            }
+            if (!controller.cloudReachable) {
+              controller.setPurchaseOutcome({
+                outcome: "failed",
+                entitled: false,
+                error: "Couldn't check your account online. Try again when connected.",
+              });
+              return;
+            }
+          }
           const result = await bridge.purchaseStillSync();
           // Surface every outcome (cancelled/pending/failed/no-offering) in the still-open paywall.
           controller.setPurchaseOutcome(result);
-          // The webhook writes the Supabase entitlement; re-reconcile so the local UI unlocks once it lands.
+          // The webhook writes the Supabase entitlement; re-reconcile before dismissing into Pro. Local
+          // RevenueCat CustomerInfo is immediate feedback, not authority for Pro UI/engine gating.
           if (result.entitled && controller.userId) {
-            controller.dismissPaywall();
             await enterSession(controller.userId);
+            if (controller.entitled) {
+              controller.dismissPaywall();
+            } else {
+              controller.setPurchaseOutcome({ outcome: "pending", entitled: false });
+            }
           }
         } catch (e) {
           // A rejected native call must resolve the flow to a visible failed state — never leave the
@@ -156,8 +175,12 @@ if (supabaseUrl && supabaseAnonKey) {
           const restored = await bridge.restore();
           controller.setRestoreOutcome(restored);
           if (restored && controller.userId) {
-            controller.dismissPaywall();
             await enterSession(controller.userId);
+            if (controller.entitled) {
+              controller.dismissPaywall();
+            } else {
+              controller.setPurchaseOutcome({ outcome: "pending", entitled: false });
+            }
           }
         } catch {
           controller.setRestoreOutcome(false); // a rejected restore unsticks the CTA

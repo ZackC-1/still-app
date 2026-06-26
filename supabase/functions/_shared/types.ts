@@ -8,6 +8,10 @@ export interface RcWebhookEvent {
   readonly app_user_id?: string;
   readonly original_app_user_id?: string;
   readonly aliases?: string[];
+  readonly environment?: string;
+  readonly product_identifier?: string;
+  readonly expiration_at_ms?: number | null;
+  readonly expiration_date?: string | null;
   // TRANSFER events move an entitlement between ids; both sides must reconcile.
   readonly transferred_from?: string[];
   readonly transferred_to?: string[];

@@ -10,6 +10,8 @@
         {
           "id": "yt-shorts-redirect",
           "label": "Shorts URL → watch page",
+          "tier": "free",
+          "requiredCapability": "surface.youtube.shorts",
           "action": "redirect",
           "enabledByDefault": true,
           "redirect": {
@@ -21,6 +23,8 @@
         {
           "id": "yt-sidebar",
           "label": "Shorts in left guide + mini-guide",
+          "tier": "free",
+          "requiredCapability": "surface.youtube.shorts",
           "action": "hide",
           "enabledByDefault": true,
           "selectors": [
@@ -33,6 +37,8 @@
         {
           "id": "yt-home-shelf",
           "label": "Shorts shelf on Home",
+          "tier": "free",
+          "requiredCapability": "surface.youtube.shorts",
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
@@ -44,6 +50,8 @@
         {
           "id": "yt-search",
           "label": "Shorts shelf + results in Search",
+          "tier": "free",
+          "requiredCapability": "surface.youtube.shorts",
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
@@ -54,6 +62,8 @@
         {
           "id": "yt-subscriptions",
           "label": "Shorts row in Subscriptions",
+          "tier": "free",
+          "requiredCapability": "surface.youtube.shorts",
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
@@ -63,6 +73,8 @@
         {
           "id": "yt-channel-tab",
           "label": "Shorts tab on channel pages",
+          "tier": "free",
+          "requiredCapability": "surface.youtube.shorts",
           "action": "hide",
           "enabledByDefault": true,
           "selectors": [
@@ -73,6 +85,8 @@
         {
           "id": "yt-chips",
           "label": "Shorts chip in pivot/chip bars",
+          "tier": "free",
+          "requiredCapability": "surface.youtube.shorts",
           "action": "hide",
           "enabledByDefault": true,
           "selectors": [
@@ -89,6 +103,8 @@
         {
           "id": "ig-reels-url",
           "label": "Direct Reels URL → placeholder",
+          "tier": "pro",
+          "requiredCapability": "surface.instagram.reels",
           "action": "placeholder",
           "enabledByDefault": true,
           "urlMatch": "^/reels?(/|$)"
@@ -96,6 +112,8 @@
         {
           "id": "ig-nav",
           "label": "Reels nav (sidebar + bottom tab)",
+          "tier": "pro",
+          "requiredCapability": "surface.instagram.reels",
           "action": "hide",
           "enabledByDefault": true,
           "selectors": [
@@ -107,6 +125,8 @@
         {
           "id": "ig-inline",
           "label": "Reels embedded in Home feed",
+          "tier": "pro",
+          "requiredCapability": "surface.instagram.reels",
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
@@ -116,6 +136,8 @@
         {
           "id": "ig-explore-search",
           "label": "Reel tiles in Explore + Search",
+          "tier": "pro",
+          "requiredCapability": "surface.instagram.reels",
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
@@ -126,6 +148,8 @@
         {
           "id": "ig-suggested",
           "label": "Suggested Reels",
+          "tier": "pro",
+          "requiredCapability": "surface.instagram.reels",
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
@@ -135,6 +159,8 @@
         {
           "id": "ig-profile-tab",
           "label": "Reels tab on profile grids",
+          "tier": "pro",
+          "requiredCapability": "surface.instagram.reels",
           "action": "hide",
           "enabledByDefault": true,
           "selectors": [
@@ -151,6 +177,8 @@
         {
           "id": "tt-blocksite",
           "label": "All of tiktok.com → placeholder",
+          "tier": "pro",
+          "requiredCapability": "surface.tiktok.block",
           "action": "blockSite",
           "enabledByDefault": true
         }
@@ -165,6 +193,8 @@
         {
           "id": "fb-reel-url",
           "label": "Direct Reel URL → placeholder",
+          "tier": "pro",
+          "requiredCapability": "surface.facebook.reels",
           "action": "placeholder",
           "enabledByDefault": true,
           "urlMatch": "^/reel/"
@@ -172,6 +202,8 @@
         {
           "id": "fb-feed",
           "label": "Reels in Home feed",
+          "tier": "pro",
+          "requiredCapability": "surface.facebook.reels",
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
@@ -181,6 +213,8 @@
         {
           "id": "fb-left-menu",
           "label": "Reels shortcut in left menu",
+          "tier": "pro",
+          "requiredCapability": "surface.facebook.reels",
           "action": "hide",
           "enabledByDefault": true,
           "selectors": [
@@ -191,6 +225,8 @@
         {
           "id": "fb-watch",
           "label": "Reels inside Watch",
+          "tier": "pro",
+          "requiredCapability": "surface.facebook.reels",
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
@@ -200,6 +236,8 @@
         {
           "id": "fb-search-groups",
           "label": "Reels in Search + Groups",
+          "tier": "pro",
+          "requiredCapability": "surface.facebook.reels",
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
@@ -209,6 +247,8 @@
         {
           "id": "fb-suggested",
           "label": "Suggested + related Reels",
+          "tier": "pro",
+          "requiredCapability": "surface.facebook.reels",
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
@@ -221,6 +261,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "5eaa539051b2ea079a72ac3ec7d93a15347b7329d13dd3291b389a26ddd02721d45fc1cb11abc8fecfaa527a3a282f62b08824434757bf06c8aa0784ad67370a"
+    "value": "49de32dbac6d415810d819f7b10d3b1d06fb982fb618e7e03b2eefffb148e81b149c0a5c91f08254dc7929809cc32e6ef66c0848325e250da5f50800fd51c00d"
   }
 }

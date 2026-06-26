@@ -18,10 +18,12 @@ type Write = { userId: string; stillSync: boolean; source: string };
 function mockStore() {
   const events = new Set<string>();
   const writes: Write[] = [];
+  const payloads: unknown[] = [];
   const store: EntitlementStore = {
-    recordEvent(eventId) {
+    recordEvent(eventId, _appUserId, payload) {
       if (events.has(eventId)) return Promise.resolve(false);
       events.add(eventId);
+      payloads.push(payload);
       return Promise.resolve(true);
     },
     setEntitlement(userId, stillSync, source) {
@@ -29,7 +31,7 @@ function mockStore() {
       return Promise.resolve();
     },
   };
-  return { store, writes };
+  return { store, writes, payloads };
 }
 
 function mockRc(subs: Record<string, RcSubscriber | null>): RevenueCatClient {
@@ -79,7 +81,9 @@ Deno.test("duplicate event id → processed once (idempotent)", async () => {
   const deps = { token: TOKEN, store, rc: mockRc({ [A]: activeSub }) };
   await handleWebhook(req(body), deps);
   const res2 = await handleWebhook(req(body), deps);
-  assertEquals(writes.length, 1);
+  // The event is recorded after successful reconcile, so duplicates may harmlessly re-run the
+  // idempotent reconcile before the duplicate commit is noticed.
+  assertEquals(writes.length, 2);
   assertEquals(((await res2.json()) as { status: string }).status, "duplicate");
 });
 
@@ -123,6 +127,78 @@ Deno.test("forged client customerInfo cannot grant (server lookup wins)", async 
     { token: TOKEN, store, rc: mockRc({ [A]: inactiveSub }) },
   );
   assertEquals(writes[0]?.stillSync, false);
+});
+
+Deno.test("webhook audit log stores a minimized payload, not raw billing/customerInfo fields", async () => {
+  const { store, payloads } = mockStore();
+  await handleWebhook(
+    req({
+      event: {
+        id: "min",
+        type: "INITIAL_PURCHASE",
+        app_user_id: "$RCAnonymousID:abc",
+        aliases: [A, "$RCAnonymousID:def"],
+        environment: "SANDBOX",
+        product_identifier: "still_sync_web",
+        expiration_date: null,
+      },
+      customerInfo: { entitlements: { still_sync: { active: true } } },
+      subscriber_attributes: { email: { value: "buyer@example.com" } },
+    }),
+    { token: TOKEN, store, rc: mockRc({ [A]: activeSub }) },
+  );
+  assertEquals(payloads[0], {
+    event: {
+      id: "min",
+      type: "INITIAL_PURCHASE",
+      app_user_id: null,
+      original_app_user_id: null,
+      aliases: [A],
+      transferred_from: [],
+      transferred_to: [],
+      environment: "SANDBOX",
+      product_identifier: "still_sync_web",
+      expiration_at_ms: null,
+      expiration_date: null,
+    },
+  });
+});
+
+Deno.test("reconcile failure returns 5xx and does not commit the duplicate guard", async () => {
+  const { store, payloads } = mockStore();
+  const rc: RevenueCatClient = {
+    getSubscriber: () => Promise.reject(new Error("RevenueCat timeout")),
+  };
+  const res = await handleWebhook(
+    req({ event: { id: "retry-me", type: "INITIAL_PURCHASE", app_user_id: A } }),
+    { token: TOKEN, store, rc },
+  );
+  assertEquals(res.status, 500);
+  assertEquals((await res.json()).error, "reconcile_failed");
+  assertEquals(payloads.length, 0);
+});
+
+Deno.test("entitlement DB write failure returns 500 and does not commit the duplicate guard", async () => {
+  // getSubscriber succeeds, but the DB write (setEntitlement) throws — the event must stay retriable,
+  // so no audit row is committed and RevenueCat receives a 5xx to retry.
+  const events = new Set<string>();
+  const payloads: unknown[] = [];
+  const store: EntitlementStore = {
+    recordEvent(eventId, _appUserId, payload) {
+      if (events.has(eventId)) return Promise.resolve(false);
+      events.add(eventId);
+      payloads.push(payload);
+      return Promise.resolve(true);
+    },
+    setEntitlement: () => Promise.reject(new Error("db write failed")),
+  };
+  const res = await handleWebhook(
+    req({ event: { id: "db-fail", type: "INITIAL_PURCHASE", app_user_id: A } }),
+    { token: TOKEN, store, rc: mockRc({ [A]: activeSub }) },
+  );
+  assertEquals(res.status, 500);
+  assertEquals((await res.json()).error, "reconcile_failed");
+  assertEquals(payloads.length, 0);
 });
 
 Deno.test("malformed JSON body → 400", async () => {

@@ -149,9 +149,9 @@ describe("App", () => {
     const withPrice = controller();
     withPrice.userId = "u";
     withPrice.openPaywall();
-    withPrice.paywallPrice = "£2.99";
+    withPrice.paywallPrice = "£1.99";
     const { unmount } = render(App, { props: { controller: withPrice, onGet: () => {} } });
-    expect(within(screen.getByRole("dialog")).getByText(/Get Still Sync · £2\.99/)).toBeTruthy();
+    expect(within(screen.getByRole("dialog")).getByText(/Get Still Sync · £1\.99/)).toBeTruthy();
     unmount();
 
     const noPrice = controller();
@@ -167,7 +167,7 @@ describe("App", () => {
     const c = controller();
     c.userId = "u";
     c.openPaywall();
-    c.paywallPrice = "$2.99";
+    c.paywallPrice = "$1.99";
     render(App, { props: { controller: c, onGet } });
     const dialog = within(screen.getByRole("dialog"));
     await fireEvent.click(dialog.getByText(/Get Still Sync ·/)); // the paywall CTA (has the price)

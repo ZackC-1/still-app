@@ -7,6 +7,7 @@
     ".": "./src/index.ts",
     "./rules": "./src/rules/index.ts",
     "./content": "./src/content/index.ts",
+    "./entitlement": "./src/entitlement/index.ts",
     "./storage": "./src/storage/index.ts",
     "./sync": "./src/sync/index.ts",
     "./native": "./src/native/index.ts",

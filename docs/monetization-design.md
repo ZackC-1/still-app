@@ -62,8 +62,9 @@ carries new value, or commit to positioning that frames it.
 
 ## 2. Feature-gating map (free vs Pro, exists vs to-build)
 
-Rows 1–7 are rule-engine **surfaces** (`SignedRuleSet.services[].surfaces`, gated by a `tier:"free"|"pro"`
-tag). Row 8 is a **UI feature** (not an engine surface — owned by U4/U5, not U1).
+Rows 1–7 are rule-engine **surfaces** (`SignedRuleSet.services[].surfaces`, gated canonically by
+`requiredCapability`, with `tier:"free"|"pro"` retained as a v1 authoring/UI shorthand). Row 8 is a
+**UI feature** (not an engine surface — owned by U4/U5, not U1).
 
 | Service | Surface / feature | Action | Tier | Status |
 |---|---|---|---|---|
@@ -83,17 +84,20 @@ tag). Row 8 is a **UI feature** (not an engine surface — owned by U4/U5, not U
 Today `evaluate()`/`applyDom()` apply every enabled surface (blocking is free). New behavior gates by
 entitlement in **two** places — miss either and gating is incomplete:
 
-1. **Dynamic path:** thread `pro` into `evaluate(ruleSet, settings, url, { pro })`; skip `tier:"pro"`
-   surfaces when `pro===false`.
+1. **Dynamic path:** thread capabilities into `evaluate(ruleSet, settings, url, { capabilities })`.
+   V1 may bridge `pro=true` to the full Pro capability set, but the engine surface model should be
+   capability-based so future subscriptions, bundles, and granular launches do not require another
+   schema rewrite. Missing `requiredCapability` defaults conservatively to Pro-only unless the surface
+   is explicitly always-free.
 2. **Static manifest-CSS path** *(do not forget):* hide-action surfaces are also applied via the packaged
    `still.css` injected at `document_start` (`cssInjectionMode:"manifest"`), scoped under
    `html.still-active` and generated **tier-unaware** by `generateHideCss`. The new pro hide-surfaces
    (recs/comments) would hide for **free** users once added to that CSS. Fix: scope pro hide-rules under
    a **second root class `html.still-pro-active`** that the content script adds *only when entitled*, and
    split `generateHideCss` / packaged CSS into **free** and **pro** stylesheets.
-3. **`tier` defaults to `"pro"`** for unlabeled surfaces (safe for revenue) — **except** the YouTube-Shorts
-   surface, which the engine treats as **always-free regardless of the tag** (principle 13), so a
-   missing/stale tag can never break the free promise.
+3. **Missing capability/tier defaults to Pro-only** (safe for revenue) — **except** the current
+   YouTube-Shorts surfaces, which the engine treats as **always-free regardless of the tag** (principle
+   13), so a missing/stale tag can never break the free promise.
 
 `pro` is read synchronously from the **server-only entitlement store** (§6), not the settings blob.
 
@@ -106,7 +110,8 @@ A rule-set with the YT-Shorts surface untagged still blocks Shorts for free. Uni
 
 - **Providers:** Sign in with Apple (Apple platforms; required by 4.8 once Google is offered), **Google**
   (web/Chrome — *new*), email **magic link** (universal key + fallback). All passwordless.
-- **Canonical key = email.**
+- **Canonical account key = Supabase `auth.users.id` UUID.** Verified email is a login/contact/linking
+  attribute only; it is not the entitlement subject and must not be used for silent merges.
 - **Account-linking [DECIDED]:** link a second provider only via `supabase.auth.linkIdentity` **while the
   user is already authenticated**, with email verified on both — **never** silent server-side merge on
   email collision (that would let an attacker who registers `victim@gmail` via Google inherit the
@@ -142,23 +147,25 @@ A rule-set with the YT-Shorts surface untagged still blocks Shorts for free. Uni
   |---|---|---|---|
   | App Store (iOS+macOS via **Universal Purchase**) | `still_sync` | non-consumable | **$1.99** |
   | RevenueCat **Web Billing** (Stripe) | `still_sync_web` | one-time | **$1.99** |
-- **Price reconciliation [must fix — factual mismatch]:** `Still.storekit` (`displayPrice "2.99"`) and
-  `PurchaseManager`'s docstring currently say **$2.99**, not the decided $1.99. Tasks: set `$1.99` in
-  `Still.storekit`, update the `PurchaseManager` docstring, change the **ASC price tier**, and **audit
-  drafted metadata/screenshots for any "$2.99."**
+- **Price reconciliation:** code-side StoreKit/config docs are $1.99; the remaining human tasks are to
+  change the **ASC price tier** and **audit drafted metadata/screenshots for any "$2.99."**
 - **Offering:** one offering marked **Current** with the $1.99 package(s). The paywall reads
   `offerings.current`.
 - **Webhook (exists — narrow change):** `revenuecat-webhook` already re-derives entitlement from canonical
-  subscriber state for *every* event (it does not switch per event type), so the real work is **`TRANSFER`
-  handling** (entitlement moving between `app_user_id`s on link/merge — see §9 residual) and the
-  entitlement *write target* (the server-only store, §6). **Family Sharing = disabled for v1 [DECIDED]**,
-  so no family-grant event handler is needed.
+  subscriber state for *every* event (it does not switch per event type), and current code already
+  reconciles `TRANSFER` events across `transferred_from` and `transferred_to` UUIDs. Preserve and extend
+  those tests when adding signed entitlement-token issuance / the server-only read path (§6). **Family
+  Sharing = disabled for v1 [DECIDED]**, so no family-grant event handler is needed.
 - **Webhook auth gotcha:** the handler compares the raw `Authorization` header against the secret with a
   constant-time check — the RC dashboard token must match **exactly** (a stray `Bearer ` prefix → 401 →
   silent entitlement stall). Document the expected header format for the implementer.
+- **Webhook PII minimization:** `revenuecat_events` is an idempotency/audit log, not a billing-data
+  archive. Store only event id/type plus UUID candidates needed for support/debugging; do not persist
+  raw `customerInfo`, subscriber attributes, email, or Stripe/billing metadata from webhook bodies.
 - **Web Billing [DECIDED]:** enable RC Web Billing → Stripe → `still_sync_web` $1.99 + tax; use the hosted
-  checkout, passing `app_user_id` (see §7 — it must be the verified Supabase UUID, established *before*
-  checkout).
+  checkout via the authenticated `create-web-checkout` Edge Function. The function derives
+  `app_user_id` from the verified Supabase JWT subject and ignores any client-supplied user id/product
+  id/price. The client never assembles a checkout URL or passes `app_user_id` directly to RevenueCat.
 - **Restore:** the existing button (3.1.1) covers Apple; cross-platform restore = sign in → backend.
 - **No trial [DECIDED].** Sandbox-test before submit (buy → unlock → restore → cross-platform).
 
@@ -167,12 +174,27 @@ A rule-set with the YT-Shorts surface untagged still blocks Shorts for free. Uni
 ## 6. Entitlement store + read path (the security + offline spine)
 
 **The store (principle 12) — server-only, not the settings blob:**
-- Persist entitlement in a **separate, read-only store the client cannot forge**: in the extension, the
-  **service-worker memory** + `chrome.storage.session` (cleared on browser close, not exposed in the
-  DevTools Extension-Storage tab); for cross-restart persistence, a **server-issued HMAC token** over
-  `(userId, expiresAt)` signed with the JWT secret, so any client edit invalidates it. **Written only by
-  the reconcile path; never by `SettingsCache.commit` or `writeProfile`.** `parseSettings()` must
-  **whitelist-strip** any `entitlement` field so a forged settings value can't inject it.
+- Persist entitlement in a **separate, read-only store the settings layer cannot forge**: in the
+  extension, hold the latest verified entitlement in service-worker memory plus the best available
+  extension-local cache (`chrome.storage.session` where supported; otherwise local extension storage
+  containing only a signed token). **Do not treat extension storage itself as a security boundary.** For
+  cross-restart persistence, use a **server-issued asymmetric signed entitlement token** (for example
+  compact JWS / Ed25519) over `{ userId, capabilities, issuedAt, expiresAt, tokenVersion }`, signed by
+  a dedicated backend entitlement-signing key and verified by clients with a bundled public key. A
+  production build must select the trusted issuer/public key set by explicit build mode, not by
+  key-presence probing: missing production keys fail closed and must never fall through to development
+  keys. Client edits invalidate the signature without shipping any signing secret in the app. **Written only
+  by the authenticated reconcile/checkout paths; never by `SettingsCache.commit` or `writeProfile`.**
+  `parseSettings()` must **whitelist-strip** any `entitlement` field so a forged settings value can't
+  inject it.
+- **Threat model clarity:** this protects the paid trust boundary from synced-settings self-grants,
+  profile writes, and extension-storage edits. It does **not** cryptographically stop a user from
+  patching their own local extension/app binary; server-side account state, cross-device sync, and any
+  backend-facing Pro features remain authoritative.
+- **Browser storage compatibility:** Chrome should prefer service-worker memory +
+  `chrome.storage.session`; Safari/Firefox may need local extension storage. That fallback is acceptable
+  only because the persisted artifact is a server-signed token with TTL/subject verification, never an
+  unsigned `pro:true` boolean.
 - *Why:* the natural "put `pro` in the synced `StillSettings`" lands it in `chrome.storage.local`, which
   `applyRemote()` accepts from `onChanged` on any newer `updatedAt` — a user could set `pro:true` via
   DevTools and even sync it to the cloud. That breaks principle 10 trivially.
@@ -184,11 +206,16 @@ downgrade a paid user offline (forbidden by principle 11).
 
 **TTL [DECIDED = 30 days]:** named constant `ENTITLEMENT_CACHE_TTL_DAYS`. **On TTL expiry while still
 offline → downgrade to free** (free works fully, so failing closed costs nothing paid-for); this bounds
-revocation latency for refunds/abuse.
+revocation latency for refunds/abuse. A cached token is usable only when its `userId` matches the
+currently signed-in Supabase session; sign-out, account deletion, and identity switch must clear memory
+and persistent token caches.
 
-**Fast-path unlock:** on a successful purchase, unlock **immediately from RevenueCat's local
-`customerInfo`/receipt** — do *not* wait for the webhook→Supabase→reconcile round-trip — then reconcile
-with the server write. (Avoids a "paid but still locked" window.)
+**Fast-path feedback, not authority:** on a successful purchase, show immediate success/pending feedback
+from RevenueCat's local `customerInfo`/receipt, but do **not** persist Pro engine gating or sync from
+local receipt state alone. Pro blocking/sync requires a successful backend reconcile or valid
+server-signed entitlement token. If the webhook→Supabase→reconcile round-trip has not landed yet, keep
+the paywall in a calm "checking your purchase…" / pending state rather than treating local
+`customerInfo` as server-authoritative.
 
 ---
 
@@ -203,13 +230,14 @@ Mac is covered by the same purchase (Universal Purchase — assumes Mac App Stor
 > second $1.99 with no Apple record of the first.
 
 **Chrome / Firefox / web:** install free → *Shorts vanish (free)* → tap "Unlock everywhere" →
-**establish a Supabase session first** (magic-link or 1-tap Google) → obtain `auth.getSession().user.id`
-→ open the **RC Web Billing** checkout passing **that UUID** as `app_user_id` (from the verified session,
-never local state) → pay → `pro`.
+**establish a Supabase session first** (magic-link or 1-tap Google) → call authenticated
+`create-web-checkout` → open the returned **RC Web Billing** checkout URL → pay → `pro`.
 > **Why session-first [required]:** `reconcile-entitlement` looks up entitlement by the Supabase UUID
 > (`getSubscriber(claims.sub)`). A checkout under a RC-minted anonymous id would never be found — the user
-> pays and never gets Pro. **Handoff UX:** "Unlock everywhere" opens checkout in a new tab; on return, the
-> extension reconciles on next popup open (brief "checking your purchase…" state), then unlocks.
+> pays and never gets Pro. The checkout function uses the verified JWT subject as the RevenueCat
+> `app_user_id`; body-supplied ids are ignored. **Handoff UX:** "Unlock everywhere" opens checkout in a
+> new tab; on return, the extension reconciles on next popup open (brief "checking your purchase…"
+> state), then unlocks.
 
 ---
 
@@ -244,9 +272,10 @@ the popup *is* the surface; render it as an overlay, not a content swap.
 - **Sign-in intercept:** tapping **[Unlock Pro]** while unauthenticated shows the passwordless options
   (SIWA / Google / magic-link) **inline in the sheet** (or `SignInSheet` stacked with back-nav), then
   proceeds to purchase. (Principle 8 — sign in before pay.)
-- **Purchase states:** **in-flight** → button spinner + disabled; **success** → brief "Unlocked" → sheet
-  dismisses ~1s → popup re-renders Pro (fast-path local receipt); **error** → button returns to default
-  + a calm inline line ("Couldn't complete — try again"), no dismiss; **user-cancelled** → silent.
+- **Purchase states:** **in-flight** → button spinner + disabled; **local purchase success while backend
+  pending** → "checking your purchase…" state, no Pro render yet; **server-confirmed success** → brief
+  "Unlocked" → sheet dismisses ~1s → popup re-renders Pro; **error** → button returns to default + a
+  calm inline line ("Couldn't complete — try again"), no dismiss; **user-cancelled** → silent.
 - **Restore states:** loading → **found** (same as success) | **none** ("No prior purchase — try signing
   in", sheet stays) | **error** ("Couldn't check — try again").
 - **Anti-steering enforcement:** the **Web Billing CTA is compiled OUT on the iOS/Safari-app target**
@@ -262,9 +291,9 @@ the popup *is* the surface; render it as an overlay, not a content swap.
   check is the actual guard against the double charge.
 - **Refund / revocation:** webhook clears the entitlement → reverts to free on next reconcile; **offline
   ceiling = the 30-day TTL** (then downgrade to free).
-- **TRANSFER events** can move the entitlement between `app_user_id`s on link/merge, briefly flipping a
-  paid user to unpaid mid-session — handle in the webhook + reconcile; surface nothing jarring (keep Pro
-  from cache until a definitive false).
+- **TRANSFER events** can move the entitlement between `app_user_id`s on link/merge. Current webhook code
+  already reconciles both sides; the signed-token/cache work must preserve that behavior and avoid
+  jarring mid-session UI changes (keep Pro from cache until a definitive false).
 - **Account deletion:** existing flow removes the account + entitlement.
 - **Apple 3.1.3(b):** offer the IAP in-app; *may* honor web-bought `pro`; never advertise the web price
   on iOS (enforced by the §8 compile-out).
@@ -273,8 +302,8 @@ the popup *is* the surface; render it as an overlay, not a content swap.
 
 ## 10. Implementation units (revised; each agent-testable)
 
-- **U1 — Surface `tier` + dynamic engine gating** (+ YT-Shorts always-free regardless of tag). `shared-types`,
-  `engine.ts`, seed tags, `engine.test.ts`.
+- **U1 — Surface capability metadata + dynamic engine gating** (+ YT-Shorts always-free regardless of
+  tag). `shared-types`, `engine.ts`, seed tags/capabilities, `engine.test.ts`.
 - **U2 — Static-CSS gating.** `still-pro-active` root class + split free/pro stylesheets + `generateHideCss`.
 - **U3 — Server-only entitlement store + tri-state read + content-script read.** The security-critical
   store (§6); `parseSettings` strips `entitlement`; never written by `commit`/`writeProfile`.
@@ -287,10 +316,11 @@ the popup *is* the surface; render it as an overlay, not a content swap.
 - **U7a (code) — Price + offering.** `Still.storekit` $1.99, `PurchaseManager` docstring, keep `still_sync`
   ids. **U7b (human)** — RC dashboard offering/entitlement; **ASC price change to $1.99 + Universal
   Purchase + metadata/$2.99 audit**; Web Billing + Stripe setup.
-- **U8 — Web checkout + guards.** RC Web Billing from the non-Apple paywall, `app_user_id` from the verified
-  session (session-first); web→extension handoff; **iOS online-check-before-IAP** double-charge guard.
-- **U9 — Backend entitlement.** Webhook `TRANSFER` + write to the server-only store; reconcile writes
-  tri-state; TTL constant; deno tests.
+- **U8 — Web checkout + guards.** RC Web Billing from the non-Apple paywall via authenticated
+  `create-web-checkout`; `app_user_id` is derived server-side from the verified JWT subject
+  (session-first); web→extension handoff; **iOS online-check-before-IAP** double-charge guard.
+- **U9 — Backend entitlement.** Preserve webhook `TRANSFER` coverage + write to the server-only store;
+  reconcile writes tri-state; TTL constant; deno tests.
 - **U10 — Extension auth+sync+entitlement spine.** *Net-new, not a small add* — the Chrome/Safari popup's
   `createUiController` has **no auth/sync/entitlement** today (`canPurchase:false`); build Supabase
   auth (magic-link/Google) + reconcile + entitlement read in the popup/background worker.

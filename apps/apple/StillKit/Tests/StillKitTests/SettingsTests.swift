@@ -61,4 +61,45 @@ final class SettingsTests: XCTestCase {
     XCTAssertEqual(settings.pauses, ["instagram.com"])
     XCTAssertEqual(settings.updatedAt, 1782264630248)
   }
+
+  func testDecodesBackCompatBlobWithAbsentFields() throws {
+    let json = """
+    { "globalOn": true, "services": { "youtube": true }, "updatedAt": 1782264630248 }
+    """
+    let settings = try JSONDecoder().decode(StillSettings.self, from: Data(json.utf8))
+    XCTAssertTrue(settings.globalOn)
+    XCTAssertTrue(settings.services.youtube)
+    XCTAssertFalse(settings.services.instagram)
+    XCTAssertFalse(settings.services.tiktok)
+    XCTAssertFalse(settings.services.facebook)
+    XCTAssertEqual(settings.pauses, [])
+  }
+
+  func testBridgeAcceptsBackCompatBlobWithAbsentFields() throws {
+    let store = SharedSettingsStore(backing: InMemoryBacking())
+    let bridge = SettingsBridge(store: store)
+    let json = """
+    { "globalOn": true, "services": { "youtube": true }, "updatedAt": 10 }
+    """
+
+    let reply = try XCTUnwrap(bridge.handle(rawBody: ["kind": "set", "settings": json]))
+    let echoed = try JSONDecoder().decode(StillSettings.self, from: Data(reply.utf8))
+    XCTAssertTrue(echoed.services.youtube)
+    XCTAssertFalse(echoed.services.instagram)
+    XCTAssertEqual(echoed.pauses, [])
+  }
+
+  func testBridgeDropsUnknownEntitlementFields() throws {
+    let store = SharedSettingsStore(backing: InMemoryBacking())
+    let bridge = SettingsBridge(store: store)
+    let json = """
+    { "globalOn": true, "services": { "youtube": true, "instagram": true, "tiktok": true, "facebook": true, "entitlement": true }, "pauses": [], "updatedAt": 10, "entitlement": { "pro": true } }
+    """
+
+    let reply = try XCTUnwrap(bridge.handle(rawBody: ["kind": "set", "settings": json]))
+    let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any])
+    XCTAssertNil(object["entitlement"])
+    let services = try XCTUnwrap(object["services"] as? [String: Any])
+    XCTAssertNil(services["entitlement"])
+  }
 }

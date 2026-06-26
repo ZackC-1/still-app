@@ -2,7 +2,14 @@ import { describe, it, expect, beforeEach } from "vitest";
 import seed from "../../../rules/seed.json";
 import type { SignedRuleSet, StillSettings, ServiceId } from "@still/shared-types";
 import { DEFAULT_SETTINGS, SERVICE_IDS } from "@still/shared-types";
-import { evaluate, applyDom, generateHideCss, ROOT_ACTIVE_CLASS, resolveActiveService } from "../engine.js";
+import {
+  evaluate,
+  applyDom,
+  generateHideCss,
+  ROOT_ACTIVE_CLASS,
+  resolveActiveService,
+  ALWAYS_FREE_SURFACE_IDS,
+} from "../engine.js";
 
 const ruleSet = seed as unknown as SignedRuleSet;
 const allOn: StillSettings = DEFAULT_SETTINGS;
@@ -122,6 +129,84 @@ describe("evaluate — safety model (AE4)", () => {
     applyDom(extended as SignedRuleSet, allOn, new URL("https://www.youtube.com/"), document);
     expect(document.querySelector("#n")).toBeNull();
   });
+
+  it("defaults a newly-added unlabeled surface to Pro for free users", () => {
+    const extended = JSON.parse(JSON.stringify(ruleSet));
+    extended.services.youtube.surfaces.push({
+      id: "yt-new-premium",
+      label: "new premium shelf",
+      action: "remove",
+      enabledByDefault: true,
+      selectors: ["div.new-premium"],
+    });
+    document.body.innerHTML = `<div class="new-premium" id="n"></div>`;
+    applyDom(extended as SignedRuleSet, allOn, new URL("https://www.youtube.com/"), document, { pro: false });
+    expect(document.querySelector("#n")).not.toBeNull();
+    applyDom(extended as SignedRuleSet, allOn, new URL("https://www.youtube.com/"), document, { pro: true });
+    expect(document.querySelector("#n")).toBeNull();
+  });
+});
+
+describe("evaluate/applyDom — monetization gating", () => {
+  it("keeps every current YouTube Shorts surface free", () => {
+    const yt = ruleSet.services.youtube!.surfaces;
+    // Containment, not exact set-equality: every always-free safety-net id must exist in the seed
+    // tagged tier:"free". Exact equality would falsely fail the day a *Pro* YouTube surface ships —
+    // and a new Pro YouTube surface must NOT be added to ALWAYS_FREE_SURFACE_IDS.
+    for (const id of ALWAYS_FREE_SURFACE_IDS) {
+      const surface = yt.find((s) => s.id === id);
+      expect(surface, `${id} should be a seed YouTube surface`).toBeDefined();
+      expect(surface!.tier).toBe("free");
+    }
+  });
+
+  it("keeps YouTube Shorts redirect free even when Pro is false", () => {
+    const d = evaluate(ruleSet, allOn, new URL("https://www.youtube.com/shorts/abc123"), { pro: false });
+    expect(d.kind).toBe("redirect");
+  });
+
+  it("keeps YouTube Shorts DOM removal free even when Pro is false", () => {
+    document.body.innerHTML = `<ytd-reel-shelf-renderer id="shelf"></ytd-reel-shelf-renderer>`;
+    applyDom(ruleSet, allOn, new URL("https://www.youtube.com/"), document, { pro: false });
+    expect(document.querySelector("#shelf")).toBeNull();
+  });
+
+  it("does not apply Pro services for free users", () => {
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reel/XYZ/"), { pro: false }).kind).toBe("noop");
+    expect(evaluate(ruleSet, allOn, new URL("https://www.tiktok.com/foryou"), { pro: false }).kind).toBe("noop");
+    expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reel/123"), { pro: false }).kind).toBe("noop");
+  });
+
+  it("applies real seed Pro surfaces when pro=true", () => {
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reel/XYZ/"), { pro: true }).kind).toBe("placeholder");
+    expect(evaluate(ruleSet, allOn, new URL("https://www.tiktok.com/foryou"), { pro: true })).toMatchObject({
+      kind: "placeholder",
+      blocked: true,
+    });
+    expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reel/123"), { pro: true }).kind).toBe("placeholder");
+  });
+
+  it("can gate premium surfaces by capability set instead of a single Pro boolean", () => {
+    expect(
+      evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reel/XYZ/"), {
+        capabilities: ["surface.instagram.reels"],
+      }).kind,
+    ).toBe("placeholder");
+    expect(
+      evaluate(ruleSet, allOn, new URL("https://www.tiktok.com/foryou"), {
+        capabilities: ["surface.instagram.reels"],
+      }).kind,
+    ).toBe("noop");
+  });
+
+  it("treats current YouTube Shorts surfaces as free even if tags are missing", () => {
+    const untagged = JSON.parse(JSON.stringify(ruleSet));
+    for (const surface of untagged.services.youtube.surfaces) delete surface.tier;
+    document.body.innerHTML = `<a id="endpoint" title="Shorts">Shorts</a>`;
+    applyDom(untagged as SignedRuleSet, allOn, new URL("https://www.youtube.com/"), document, { pro: false });
+    expect((document.querySelector("#endpoint") as HTMLElement).style.display).toBe("none");
+    expect(evaluate(untagged as SignedRuleSet, allOn, new URL("https://www.youtube.com/shorts/abc"), { pro: false }).kind).toBe("redirect");
+  });
 });
 
 describe("applyDom", () => {
@@ -157,6 +242,7 @@ describe("applyDom", () => {
 
 describe("generateHideCss (KTD2)", () => {
   const css = generateHideCss(ruleSet);
+  const freeCss = generateHideCss(ruleSet, { pro: false });
 
   it("scopes every rule under the root active class", () => {
     expect(css).toContain(`html.${ROOT_ACTIVE_CLASS}`);
@@ -166,5 +252,11 @@ describe("generateHideCss (KTD2)", () => {
   it("includes hide-surface selectors but not remove/redirect/placeholder ones", () => {
     expect(css).toContain("ytd-guide-entry-renderer"); // yt-sidebar (hide)
     expect(css).not.toContain("ytd-reel-shelf-renderer"); // remove-only surface
+  });
+
+  it("can generate a free-only stylesheet with no Pro selectors", () => {
+    expect(freeCss).toContain("ytd-guide-entry-renderer");
+    expect(freeCss).not.toContain('a[href="/reels/"]');
+    expect(freeCss).not.toContain('li:has(> a[href*="/reel"])');
   });
 });
