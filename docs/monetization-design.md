@@ -1,286 +1,333 @@
 # Still — Monetization Design (Free + $1.99 Pro, cross-platform)
 
-> **Status:** design spec, not yet implemented. Intended as the input to a future `ce-plan` / `ce-work`
-> run. Decisions ratified by the founder 2026-06-25 are marked **[DECIDED]**; remaining choices are in
-> **§11 Open Decisions**.
+> **Status:** design spec, not yet implemented. Input to a future `ce-plan` / `ce-work` run.
+> **Revised 2026-06-25** after a 7-persona `ce-doc-review` — hardened for: the entitlement-store
+> security model, paywall UX states, identity/relay handling, the `still_sync` rename trap, the
+> $1.99-vs-$2.99 config mismatch, anti-steering, and offline grace. Founder-ratified choices are
+> **[DECIDED]**; the remaining strategic call is in **§11**.
 >
 > **Model in one line:** Free = *YouTube Shorts, gone*. Pro ($1.99 one-time, flat, cross-platform) =
-> *everywhere + everything*. One purchase on any platform unlocks Pro on all of them, tied to an account.
+> *everywhere + everything*. One purchase on any platform unlocks Pro on all, tied to an account.
 
 ---
 
-## 0. Monetization principles (the constitution — obey these in every future change)
+## 0. Monetization principles (the constitution)
 
-1. **Never paywall before the first "aha."** The user must install, enable the extension, and *watch
-   YouTube Shorts vanish for free* before Pro is ever mentioned. Paywalling the first run is the #1
-   cause of 1-star reviews and of users feeling accosted.
-2. **The free tier is a complete win, not a crippled demo.** Free YouTube-Shorts blocking must work
-   fully and forever, no nags inside it.
-3. **Contextual, not interruptive.** Show the upsell at the *moment of desire* — when the user reaches
-   for a locked feature — never on launch, never as a full-screen takeover.
-4. **Show locked features, gently.** Premium toggles are visible in the list, muted with a small 🔒.
-   Discovery and paywall are the same surface. Don't hide what Pro offers.
-5. **Lead with "once."** Always say "$1.99 · one-time, not a subscription." Removing recurring-charge
-   anxiety is most of what makes a paywall feel calm.
-6. **Calm, on-brand copy. Surface once. No nagging.** Match Still's voice ("Less feed. More life."). A
-   single quiet "✦ Pro" affordance is always available; it never pops itself.
-7. **No account until it's needed.** Free use requires no account. An account is only required to pay
-   or to go cross-device.
-8. **Sign in *before* purchase (no anonymous purchase — KTD5).** The entitlement must be account-bound
-   from the first tap, or cross-platform breaks. The passwordless sign-in *is* the only added step.
-9. **One price everywhere ($1.99 flat).** [DECIDED] Absorb Apple's commission rather than charging
-   Apple users more. Honest "one price" beats margin optimization here.
-10. **Entitlement is server-authoritative and account-based.** The backend (Supabase) is the source of
-    truth for "is this account Pro," fed by RevenueCat. The client never self-grants; it asks.
-11. **Fail gracefully, lean generous.** If the entitlement check is offline/unknown for a user who has
-    been Pro, keep Pro working from cache (see §9). Never yank a paid feature over a flaky network.
+1. **Never paywall before the first "aha."** User installs → enables the extension → *sees Shorts
+   vanish free* before Pro is mentioned. Paywalling first-run is the #1 cause of 1-star reviews.
+2. **The free tier is a complete win, not a demo.** Free YouTube-Shorts blocking works fully, forever.
+3. **Contextual, not interruptive.** Upsell appears at the moment of desire (tapping a locked feature).
+4. **Show locked features, gently** (visible + muted + 🔒). Discovery and paywall are one surface.
+5. **Lead with "once."** "$1.99 · one-time, not a subscription."
+6. **Calm, on-brand copy. Surface once. No nagging.**
+7. **No account until needed.** Free use needs none; an account is only for paying / cross-device.
+8. **Sign in *before* purchase (no anonymous purchase — KTD5).** Entitlement is account-bound from tap one.
+9. **One price everywhere ($1.99 flat).** [DECIDED] Absorb Apple's cut; don't charge Apple users more.
+10. **Entitlement is server-authoritative.** The backend decides "is this account Pro." The client asks.
+11. **Fail generous.** A previously-Pro user keeps Pro from cache when offline; only a *definitive*
+    server `false` downgrades (within the TTL ceiling, §6).
+12. **Entitlement lives in a server-only, read-only store the client cannot write or sync** — NEVER in
+    the LWW `StillSettings` blob. (This is the security spine — see §6. Violating it = trivial self-grant.)
+13. **The free YouTube-Shorts surface blocks regardless of its `tier` tag.** A missing/stale/rolled-back
+    tag must never disable free blocking (fail toward the free promise, §3).
 
 ---
 
-## 1. The model [DECIDED]
+## 1. The model [DECIDED for the mechanics; the *line* is OPEN — see §11]
 
 | | **Free** | **Pro — $1.99 one-time, flat, cross-platform** |
 |---|---|---|
 | Account | none | required (sign in before purchase) |
 | YouTube Shorts | ✅ | ✅ |
-| YouTube recommendations / comments / sponsored | — | ✅ *(new surfaces, see §2)* |
+| YT recommendations / comments / sponsored | — | ✅ *(new surfaces — to build; see launch-value note)* |
 | Instagram Reels · TikTok · Facebook Reels | — | ✅ *(exists today; moves behind Pro)* |
 | Granular per-surface controls | — | ✅ *(new UI)* |
 | Cross-device sync (iPhone · Mac · Chrome) | — | ✅ *(today's `still_sync` feature, folded into Pro)* |
-| Global on/off · pause-on-this-site | ✅ (applies to free scope) | ✅ |
+| Global on/off · pause-on-site | ✅ (free scope) | ✅ |
 
-**Important migration note:** today blocking is *free on all four platforms* and only sync is paid.
-Option A **narrows the free tier to YouTube Shorts only** and moves IG/TikTok/FB + the YT extras behind
-Pro. This is the single biggest behavioral change (see §3 — the engine must gate surfaces by
-entitlement). There are no production users yet, so no grandfathering is required.
+**Migration / grandfathering [OPEN — verify before build]:** the doc previously claimed "no production
+users → no grandfathering." That conflates *App Store release* with *distribution* — the repo is at
+submission stage (PR #19) with a registered test device, so **TestFlight/dev-build testers may have
+installed when blocking was free on all four platforms.** Before relying on no-grandfather: **(a)**
+confirm zero pre-monetization builds were distributed, or **(b)** add a `legacyInstall` flag that keeps
+pre-monetization installs on the old free-all-platforms scope.
+
+**Launch-value note [decide in §11]:** at launch, Pro's genuinely-*new* capabilities (YT
+recs/comments/sponsored, granular controls) are deferred to a separate feature task — so day-one Pro =
+IG/TikTok/FB blocking (free today) + sync (already paid). That risks the launch reading as "they charged
+for the free features." Either **sequence the new YT surfaces into the monetization launch** so Pro
+carries new value, or commit to positioning that frames it.
 
 ---
 
-## 2. Feature-gating map (precise — free vs Pro, exists vs to-build)
+## 2. Feature-gating map (free vs Pro, exists vs to-build)
 
-Each blockable thing is a rule-engine `surface` (see `packages/core/src/rules/engine.ts` +
-`SignedRuleSet.services[].surfaces`). Gate by a per-surface `tier: "free" | "pro"` tag.
+Rows 1–7 are rule-engine **surfaces** (`SignedRuleSet.services[].surfaces`, gated by a `tier:"free"|"pro"`
+tag). Row 8 is a **UI feature** (not an engine surface — owned by U4/U5, not U1).
 
-| Service | Surface | Action | Tier | Status |
+| Service | Surface / feature | Action | Tier | Status |
 |---|---|---|---|---|
 | youtube | Shorts (shelf/sidebar/feed/redirect) | hide/remove/redirect | **free** | exists |
-| youtube | Recommendations / suggested | hide/remove | **pro** | **to build** (new selectors) |
+| youtube | Recommendations / suggested | hide/remove | **pro** | **to build** |
 | youtube | Comments | hide/remove | **pro** | **to build** |
 | youtube | Sponsored / promoted | hide/remove | **pro** | **to build** |
 | instagram | Reels | placeholder/remove | **pro** | exists |
 | tiktok | whole-site block | blockSite | **pro** | exists |
 | facebook | Reels | remove | **pro** | exists |
-| (all) | per-surface granular toggles | UI | **pro** | **to build** |
-
-> The **new YouTube surfaces** (recs/comments/sponsored) are a *separate feature effort* — this doc
-> specifies the **monetization framework** that gates them, not their selectors. A future feature task
-> adds the surfaces to the seed rule-set with `tier: "pro"`; they then "just work" under this gating.
+| (all) | per-surface granular toggles — **UI, not a surface** | — | **pro** | **to build** |
 
 ---
 
-## 3. Entitlement gating in the engine (the core change)
+## 3. Entitlement gating in the engine
 
-Today `evaluate()` / `applyDom()` apply every enabled surface regardless of payment (blocking is free).
-New behavior: **filter surfaces by entitlement.**
+Today `evaluate()`/`applyDom()` apply every enabled surface (blocking is free). New behavior gates by
+entitlement in **two** places — miss either and gating is incomplete:
 
-- Add `tier` to the surface type in `@still/shared-types` (`SignedRuleSet` surfaces) — default `"pro"`
-  so anything unlabeled is safely gated; only the YouTube-Shorts surfaces are `"free"`.
-- Thread the user's entitlement into the engine. `evaluate(ruleSet, settings, url, { pro: boolean })`
-  — surfaces with `tier === "pro"` are skipped when `pro === false`.
-- The `pro` flag comes from the **same settings/cache the content script already reads** — add a
-  server-authoritative `entitlement: { pro: boolean }` to the synced settings/cache (written by the
-  entitlement reconcile path, §6), so the content script reads it synchronously like the toggles.
-- Free users: only the YouTube-Shorts surface evaluates → only Shorts are removed. TikTok/IG/FB and the
-  YT extras are no-ops until Pro.
+1. **Dynamic path:** thread `pro` into `evaluate(ruleSet, settings, url, { pro })`; skip `tier:"pro"`
+   surfaces when `pro===false`.
+2. **Static manifest-CSS path** *(do not forget):* hide-action surfaces are also applied via the packaged
+   `still.css` injected at `document_start` (`cssInjectionMode:"manifest"`), scoped under
+   `html.still-active` and generated **tier-unaware** by `generateHideCss`. The new pro hide-surfaces
+   (recs/comments) would hide for **free** users once added to that CSS. Fix: scope pro hide-rules under
+   a **second root class `html.still-pro-active`** that the content script adds *only when entitled*, and
+   split `generateHideCss` / packaged CSS into **free** and **pro** stylesheets.
+3. **`tier` defaults to `"pro"`** for unlabeled surfaces (safe for revenue) — **except** the YouTube-Shorts
+   surface, which the engine treats as **always-free regardless of the tag** (principle 13), so a
+   missing/stale tag can never break the free promise.
 
-**Acceptance:** with `pro=false`, only YouTube Shorts is blocked on a live page; with `pro=true`, all
-surfaces apply. Unit-tested in `engine.test.ts` (new cases) with no network.
+`pro` is read synchronously from the **server-only entitlement store** (§6), not the settings blob.
+
+**Acceptance:** `pro=false` → only YT Shorts blocked, live, via *both* paths; `pro=true` → all surfaces.
+A rule-set with the YT-Shorts surface untagged still blocks Shorts for free. Unit-tested in `engine.test.ts`.
 
 ---
 
 ## 4. Identity & accounts
 
-- **Providers:** Sign in with Apple (Apple platforms — also *required* by Guideline 4.8 once Google is
-  offered), **Google** (web/Chrome one-tap — **new**, add to Supabase), email **magic link**
-  (universal, the canonical key + fallback). All passwordless.
-- **Canonical key = email.** Auto-link identities that share a *verified* email in Supabase.
-- **Free = no account. Pro = account, signed in before purchase** (principle 7–8; KTD5 already enforces
-  "no anonymous purchase").
-- **The Apple private-relay wrinkle:** SIWA may return `…@privaterelay.appleid.com`, which won't match a
-  user's real Gmail → looks like two accounts. Strategy: (a) nudge "you bought with Apple — sign in with
-  Apple here too" (SIWA works on web); (b) auto-link on matching verified email where possible;
-  (c) a **"Find my purchase"** link flow in settings (`supabase.auth.linkIdentity` / a support path) for
-  the genuine-mismatch minority.
-- **RevenueCat identity:** on sign-in, set `Purchases.configure(appUserID: <Supabase UUID>)` — already
-  wired (KTD5, `app-webview/src/main.ts` + `PurchaseManager`). Web Billing uses the same `app_user_id`.
+- **Providers:** Sign in with Apple (Apple platforms; required by 4.8 once Google is offered), **Google**
+  (web/Chrome — *new*), email **magic link** (universal key + fallback). All passwordless.
+- **Canonical key = email.**
+- **Account-linking [DECIDED]:** link a second provider only via `supabase.auth.linkIdentity` **while the
+  user is already authenticated**, with email verified on both — **never** silent server-side merge on
+  email collision (that would let an attacker who registers `victim@gmail` via Google inherit the
+  victim's Pro). Test: Google sign-in on an email already owned by a magic-link Pro account must *link
+  (if authenticated)* or *cleanly error* — never silently transfer entitlement.
+- **The Apple private-relay reality (don't oversell auto-link):** SIWA may return a
+  `…@privaterelay.appleid.com` alias that will **not** match the user's Gmail — so "auto-link on matching
+  email" **structurally cannot** cover the web-Google-vs-iOS-Apple case it's meant to. Mitigations:
+  (a) **proactively detect** a freshly-signed-in account with no `pro` and surface **"Find my purchase"
+  as a first-class prompt** (not buried in settings); (b) capture the Apple relay *forwarding* email to
+  link on where possible; (c) **"Find my purchase" = a support link (mailto) for v1** [DECIDED] — not a
+  programmatic merge screen.
+- **RevenueCat reset on sign-out [DECIDED]:** the sign-out sequence must call `Purchases.logOut()` (iOS)
+  / the RC web anonymous-reset **first**, before clearing the Supabase session — otherwise the SDK stays
+  scoped to the prior user. Call sites: `SyncService.signOut()` + `deleteAccount()`.
+- **RevenueCat identity on sign-in:** `Purchases.configure(appUserID:<Supabase UUID>)` (KTD5, exists).
 
 ---
 
-## 5. RevenueCat setup (precise — this is the part to get exactly right)
+## 5. RevenueCat setup (precise)
 
-**One entitlement, many products, one offering.**
+**One entitlement, many products, one offering. Keep the existing ids — do NOT rename.**
 
-- **Entitlement:** `pro` (rename intent: the current code uses `still_sync`; see §11). Everything maps
-  to this single entitlement. The app/extension ask: *"does this user have `pro`?"*
-- **Products attached to `pro`:**
+- **Entitlement key = `still_sync` (KEEP) [DECIDED].** The earlier "rename to `pro`" is a **trap**: the
+  key is hardcoded as `STILL_SYNC_ENTITLEMENT` in `supabase/functions/_shared/revenuecat.ts` and mirrored
+  in the DB column, the `set_entitlement` RPC, shared-types, `.storekit`, and the **App Store Connect
+  product id — which is immutable once created** (and may already exist from PR #19). Renaming risks
+  *bricking every entitlement* (constant mismatch → all users derive `pro=false`) and *blocking purchases*
+  (`stillSyncPackage()` strict-matches the product id with no fallback — a mismatch returns `.unavailable`).
+  **Keep `still_sync` everywhere server/StoreKit-side; only relabel the user-facing string to "Pro."**
+- **Products → entitlement `still_sync`:**
   | Store | Product ID | Type | Price |
   |---|---|---|---|
-  | App Store (iOS + macOS via **Universal Purchase**) | `still_pro` | **non-consumable** | $1.99 |
-  | RevenueCat **Web Billing** (Stripe) | `still_pro_web` | one-time | $1.99 |
-  - **Universal Purchase** [must enable]: one App Store purchase covers iPhone + iPad + Mac App Store
-    automatically. Enable in App Store Connect (shared bundle family) so an iOS buy lights up the Mac app
-    with no second charge.
-  - Update `Still.storekit` + `PurchaseManager.productID/entitlementID` to the chosen id (§11).
-- **Offering:** mark one offering **Current** containing the $1.99 package(s). The paywall reads
-  `offerings.current` (the code already does — `PurchaseManager.stillSyncPackage()` now strictly matches
-  the product id, no fallback, per PR #21).
-- **Web Billing** [DECIDED]:
-  1. In RevenueCat, enable **Web Billing**, connect **Stripe**, create the `still_pro_web` product at
-     $1.99, enable tax handling.
-  2. Use RevenueCat's **hosted checkout / web paywall**, passing `app_user_id = <Supabase UUID>` so the
-     web purchase attaches to the same account as mobile.
-  3. The Chrome/Firefox/web non-Apple paywall (today "buy on iPhone", explanatory only) links to this
-     checkout. After purchase, the entitlement flows to the account → the extension unlocks.
-- **Webhook → Supabase (exists, extend):** `supabase/functions/revenuecat-webhook` already receives
-  events into the `entitlements` table. Extend it to set/clear the `pro` entitlement for the
-  `app_user_id` on `INITIAL_PURCHASE` / `NON_RENEWING_PURCHASE` / `TRANSFER` / refund/expiration events.
-  This makes the backend the source of truth (principle 10).
-- **Restore:** the existing **Restore Purchases** button (`PaywallSheet.svelte` → `controller.beginRestore`
-  → `PurchaseManager.restore`) covers Apple restore; cross-platform "restore" is just *sign in* → backend
-  says `pro`. Keep the button (Guideline 3.1.1 requires it).
-- **Pricing:** flat $1.99 [DECIDED]. Apple Tier ≈ $1.99; Web $1.99. Net differs (~$1.39–1.69 Apple vs
-  ~$1.90 web) — accepted.
-- **No trial** [DECIDED]: the free tier is the trial. No StoreKit intro offer, no backend trial state.
-- **Family Sharing:** see §11 (one ASC toggle on the non-consumable).
-- **Sandbox test before submit:** buy `still_pro` with a sandbox Apple ID → `pro` unlocks → confirm
-  Restore re-unlocks on a clean install → confirm the same account is `pro` on web/extension.
+  | App Store (iOS+macOS via **Universal Purchase**) | `still_sync` | non-consumable | **$1.99** |
+  | RevenueCat **Web Billing** (Stripe) | `still_sync_web` | one-time | **$1.99** |
+- **Price reconciliation [must fix — factual mismatch]:** `Still.storekit` (`displayPrice "2.99"`) and
+  `PurchaseManager`'s docstring currently say **$2.99**, not the decided $1.99. Tasks: set `$1.99` in
+  `Still.storekit`, update the `PurchaseManager` docstring, change the **ASC price tier**, and **audit
+  drafted metadata/screenshots for any "$2.99."**
+- **Offering:** one offering marked **Current** with the $1.99 package(s). The paywall reads
+  `offerings.current`.
+- **Webhook (exists — narrow change):** `revenuecat-webhook` already re-derives entitlement from canonical
+  subscriber state for *every* event (it does not switch per event type), so the real work is **`TRANSFER`
+  handling** (entitlement moving between `app_user_id`s on link/merge — see §9 residual) and the
+  entitlement *write target* (the server-only store, §6). **Family Sharing = disabled for v1 [DECIDED]**,
+  so no family-grant event handler is needed.
+- **Webhook auth gotcha:** the handler compares the raw `Authorization` header against the secret with a
+  constant-time check — the RC dashboard token must match **exactly** (a stray `Bearer ` prefix → 401 →
+  silent entitlement stall). Document the expected header format for the implementer.
+- **Web Billing [DECIDED]:** enable RC Web Billing → Stripe → `still_sync_web` $1.99 + tax; use the hosted
+  checkout, passing `app_user_id` (see §7 — it must be the verified Supabase UUID, established *before*
+  checkout).
+- **Restore:** the existing button (3.1.1) covers Apple; cross-platform restore = sign in → backend.
+- **No trial [DECIDED].** Sandbox-test before submit (buy → unlock → restore → cross-platform).
 
 ---
 
-## 6. Entitlement read path (server-authoritative → client)
+## 6. Entitlement store + read path (the security + offline spine)
 
-1. Purchase happens (StoreKit IAP **or** Web Billing) → RevenueCat → **webhook** → `entitlements.pro = true`
-   for the account (Supabase).
-2. On sign-in / app open, the existing **`SyncService` / `reconcile-entitlement`** path reads the account's
-   entitlement and writes `entitlement.pro` into the synced settings/cache.
-3. The shared UI controller exposes `pro` (today `entitled`); the content script reads `entitlement.pro`
-   from the cache synchronously and gates surfaces (§3).
-4. **Offline grace (principle 11):** cache the last-known `pro=true` with a generous TTL (see §11) so a
-   paid user keeps Pro offline; only a definitive `pro=false` from the server downgrades.
+**The store (principle 12) — server-only, not the settings blob:**
+- Persist entitlement in a **separate, read-only store the client cannot forge**: in the extension, the
+  **service-worker memory** + `chrome.storage.session` (cleared on browser close, not exposed in the
+  DevTools Extension-Storage tab); for cross-restart persistence, a **server-issued HMAC token** over
+  `(userId, expiresAt)` signed with the JWT secret, so any client edit invalidates it. **Written only by
+  the reconcile path; never by `SettingsCache.commit` or `writeProfile`.** `parseSettings()` must
+  **whitelist-strip** any `entitlement` field so a forged settings value can't inject it.
+- *Why:* the natural "put `pro` in the synced `StillSettings`" lands it in `chrome.storage.local`, which
+  `applyRemote()` accepts from `onChanged` on any newer `updatedAt` — a user could set `pro:true` via
+  DevTools and even sync it to the cloud. That breaks principle 10 trivially.
+
+**Tri-state read (not a boolean):** `entitled | not-entitled | unknown`. Offline/error → `unknown` (keep
+cached `pro` within TTL); only a *successful server response of `false`* downgrades. The read contract
+(`readEntitlement` / BackendPort) returns the tri-state — a boolean collapses offline→false and would
+downgrade a paid user offline (forbidden by principle 11).
+
+**TTL [DECIDED = 30 days]:** named constant `ENTITLEMENT_CACHE_TTL_DAYS`. **On TTL expiry while still
+offline → downgrade to free** (free works fully, so failing closed costs nothing paid-for); this bounds
+revocation latency for refunds/abuse.
+
+**Fast-path unlock:** on a successful purchase, unlock **immediately from RevenueCat's local
+`customerInfo`/receipt** — do *not* wait for the webhook→Supabase→reconcile round-trip — then reconcile
+with the server write. (Avoids a "paid but still locked" window.)
 
 ---
 
-## 7. Per-platform flows (the real UX)
+## 7. Per-platform flows (with the guards)
 
-**iPhone / Mac (App Store):** install free → enable extension → *Shorts vanish (free)* → later taps a
-locked toggle or "✦ Pro" → **Sign in with Apple** (1 tap) → IAP (Face ID) → `pro`. Mac is covered by the
-same purchase (Universal Purchase).
+**iPhone / Mac (App Store):** install free → enable → *Shorts vanish (free)* → tap a 🔒 / "✦ Pro" →
+**Sign in with Apple** (1 tap) → **online entitlement check** → IAP (Face ID) → `pro` (fast-path).
+Mac is covered by the same purchase (Universal Purchase — assumes Mac App Store distribution; see §11).
+> **Cross-store double-charge guard [required]:** before presenting *and* before processing the IAP,
+> do a fresh **online** entitlement check; if `pro` is already true (e.g. bought on web), **suppress the
+> buy button** and show "already unlocked." Otherwise a web-buyer who opens iOS offline gets charged a
+> second $1.99 with no Apple record of the first.
 
-**Chrome / Firefox / web:** install free → *Shorts vanish (free)* → taps "Unlock everywhere" → opens
-**RevenueCat Web Billing** checkout → email (or 1-tap Google) → pay → `pro`. On their iPhone later: sign
-in with the same identity → `pro`, no re-purchase.
+**Chrome / Firefox / web:** install free → *Shorts vanish (free)* → tap "Unlock everywhere" →
+**establish a Supabase session first** (magic-link or 1-tap Google) → obtain `auth.getSession().user.id`
+→ open the **RC Web Billing** checkout passing **that UUID** as `app_user_id` (from the verified session,
+never local state) → pay → `pro`.
+> **Why session-first [required]:** `reconcile-entitlement` looks up entitlement by the Supabase UUID
+> (`getSubscriber(claims.sub)`). A checkout under a RC-minted anonymous id would never be found — the user
+> pays and never gets Pro. **Handoff UX:** "Unlock everywhere" opens checkout in a new tab; on return, the
+> extension reconciles on next popup open (brief "checking your purchase…" state), then unlocks.
 
 ---
 
-## 8. Paywall UX (slim + elegant — fits a 340–400px popup)
+## 8. Paywall UX (slim, elegant, fully specified)
 
-**Pattern: "visible but locked," triggered at the moment of desire.** Reuse + extend the existing
-`PaywallSheet.svelte` (bottom sheet) — never a full-screen wall.
+Reuse + extend `PaywallSheet.svelte`. **Interaction model [specified]:** in a popup, the sheet is a
+**card that slides up over the list within the popup bounds, with a scrim behind** — it does *not*
+replace the whole popup and is not a separate full-screen route. The mock shows it at popup width because
+the popup *is* the surface; render it as an overlay, not a content swap.
 
 ```
-  FREE USER VIEW                       TAP A 🔒  →  SLIM SHEET
-┌──────────────────────────┐         ┌──────────────────────────┐
-│  st·ll             ✦ Pro │         │         Still Pro        │
-│ ┌──────────────────────┐ │         │  Quiet every feed, on    │
-│ │ Still is on       [●] │ │         │  every device.           │
-│ └──────────────────────┘ │         │  ✓ Instagram·TikTok·FB    │
-│  ▶ YouTube               │         │  ✓ Kill YT recs+comments  │
-│     Shorts        [ ●]   │ free    │  ✓ Sync iPhone · Mac      │
-│     Recommendations  🔒  │ ◄─┐     │   $1.99 · one-time        │
-│     Comments         🔒  │   │     │  [     Unlock Pro     ]   │
-│  Instagram           🔒  │   │     │   Restore   ·   Not now   │
-│  TikTok              🔒  │   └──── └──────────────────────────┘
-│  Facebook            🔒  │
-│ ──────────────────────── │
-│  ✦ Quiet everywhere      │  ← one calm, always-available row;
-│    $1.99 once   [Unlock] │     never auto-pops
-└──────────────────────────┘
+  FREE USER VIEW                  PRO USER VIEW              SLIM SHEET (slides up, scrim behind)
+┌────────────────────────┐   ┌────────────────────────┐   ┌──────────────────────────┐
+│  st·ll          ✦ Pro  │   │  st·ll        Pro ✓    │   │         Still Pro        │
+│ │ Still is on     [●] ││   │ │ Still is on     [●] ││   │  Quiet every feed, on    │
+│  ▶ YouTube             │   │  ▶ YouTube             │   │  every device.           │
+│     Shorts       [ ●]  │   │     Shorts       [ ●]  │   │  ✓ Instagram·TikTok·FB    │
+│  Instagram         🔒  │   │  Instagram       [● ]  │   │  ✓ Sync iPhone · Mac      │
+│  TikTok            🔒  │   │  TikTok          [● ]  │   │   $1.99 · one-time        │
+│  Facebook          🔒  │   │  Facebook        [● ]  │   │  [     Unlock Pro     ]   │
+│ ──────────────────────│   │ (no upsell row)        │   │   Restore   ·   Not now   │
+│  ✦ Quiet everywhere    │   └────────────────────────┘   └──────────────────────────┘
+│    $1.99 once  [Unlock]│        ↑ 🔒→toggles,             ↑ value bullets are LAUNCH-REAL
+└────────────────────────┘        pill→status, row hidden    (no "YT recs/comments" until built)
 ```
 
-- Locked rows are visible + muted + 🔒; tapping one opens the sheet (discovery == paywall).
-- The sheet: title, ≤3 value bullets, "$1.99 · one-time", **[Unlock Pro]**, **Restore**, **Not now**.
-- A single "✦ Pro" pill in the header + the bottom row are the only persistent prompts.
-- Copy is calm and on-brand; lead with "once."
-- **Enforce principle 1 in the onboarding sequence:** the paywall/locks appear only *after* the
-  enable-and-see-Shorts-vanish flow completes.
+- **Value bullets are launch-real:** **no "Kill YT recs+comments"** until that feature ships (it's
+  deferred — advertising it is false-advertising). When the YT surfaces land, add the bullet (`TODO` in
+  `strings.ts`).
+- **Pro-user view:** 🔒 rows become normal toggles; "✦ Pro" pill → a quiet status badge; the bottom
+  upsell row is **hidden**.
+- **Sign-in intercept:** tapping **[Unlock Pro]** while unauthenticated shows the passwordless options
+  (SIWA / Google / magic-link) **inline in the sheet** (or `SignInSheet` stacked with back-nav), then
+  proceeds to purchase. (Principle 8 — sign in before pay.)
+- **Purchase states:** **in-flight** → button spinner + disabled; **success** → brief "Unlocked" → sheet
+  dismisses ~1s → popup re-renders Pro (fast-path local receipt); **error** → button returns to default
+  + a calm inline line ("Couldn't complete — try again"), no dismiss; **user-cancelled** → silent.
+- **Restore states:** loading → **found** (same as success) | **none** ("No prior purchase — try signing
+  in", sheet stays) | **error** ("Couldn't check — try again").
+- **Anti-steering enforcement:** the **Web Billing CTA is compiled OUT on the iOS/Safari-app target**
+  (not merely hidden); acceptance test asserts the iOS paywall is **IAP-only**, no external-checkout link
+  or web-price copy. (One shared component + an inline web CTA is a launch-blocking 3.1.1/3.1.3 risk.)
+- **Post-aha gating:** locks/paywall appear only *after* the onboarding "see Shorts vanish" flow.
 
 ---
 
 ## 9. Edge cases & policy
 
-- **Refund / revocation:** webhook clears `pro` → user reverts to free (Shorts still free).
-- **Account deletion:** existing delete-user flow removes the account; entitlement record goes with it.
-- **Offline:** serve last-known `pro` from cache within TTL (§11); never downgrade on a transient failure.
-- **Cross-platform restore:** sign in → backend `pro`. (Not Apple "Restore," which is Apple-only.)
-- **Apple anti-steering / 3.1.3(b):** must offer the IAP in the iOS app; *may* honor web-bought `pro`; do
-  **not** advertise the web price inside the iOS app (region-dependent; safest to stay silent on iOS).
-- **Two purchases by one human (Apple + web):** idempotent — both grant the same `pro` on one account;
-  if truly separate accounts, the "Find my purchase" link merges (§4).
+- **Cross-store re-purchase is NOT "idempotent" on money** — only on the entitlement bit. The §7 online
+  check is the actual guard against the double charge.
+- **Refund / revocation:** webhook clears the entitlement → reverts to free on next reconcile; **offline
+  ceiling = the 30-day TTL** (then downgrade to free).
+- **TRANSFER events** can move the entitlement between `app_user_id`s on link/merge, briefly flipping a
+  paid user to unpaid mid-session — handle in the webhook + reconcile; surface nothing jarring (keep Pro
+  from cache until a definitive false).
+- **Account deletion:** existing flow removes the account + entitlement.
+- **Apple 3.1.3(b):** offer the IAP in-app; *may* honor web-bought `pro`; never advertise the web price
+  on iOS (enforced by the §8 compile-out).
 
 ---
 
-## 10. Implementation units (for the coding agent)
+## 10. Implementation units (revised; each agent-testable)
 
-> Suggested order; each is a unit with a clear acceptance test. Keep the full gate green
-> (lint · typecheck · core+ext-safari+StillKit+deno tests · web/app builds).
-
-- **U1 — Surface `tier` + engine gating.** `@still/shared-types` (add `tier` to surfaces),
-  `engine.ts` (`evaluate`/`applyDom` skip `pro` surfaces when not entitled), seed rule-set tags. Tests:
-  `engine.test.ts` free vs pro. *Acceptance: free blocks only YT Shorts; pro blocks all.*
-- **U2 — `entitlement.pro` in settings/cache + content script read.** Wire the server-authoritative
-  flag into the cache the content script already reads; default `false`.
-- **U3 — Controller + gated toggles.** Expose `pro`; service/surface toggles show locked state when not
-  entitled; tapping a locked toggle calls `openPaywall()` (`controller.svelte.ts`, `App.svelte`,
-  `ServiceCard.svelte`).
-- **U4 — Paywall UX.** Extend `PaywallSheet.svelte` to the value-bullet layout; add the "✦ Pro" header
-  pill + bottom row; wire the contextual trigger; copy in `strings.ts`. Enforce post-aha gating in
-  onboarding. Tests: `App.test.ts`.
-- **U5 — Identity: add Google + email-key + relay handling.** Supabase Google provider; account-linking
-  policy; "Find my purchase". `app-webview/src/main.ts`, the auth port, `SignInSheet.svelte`.
-- **U6 — RevenueCat config + product rename.** `still_pro` non-consumable (Universal Purchase),
-  `Still.storekit`, `PurchaseManager.productID/entitlementID`, offering. (Dashboard work documented for
-  the human; code references updated.)
-- **U7 — Web Billing path.** RevenueCat Web Billing checkout from the non-Apple paywall; pass
-  `app_user_id`. Replace the "buy on iPhone" explanatory copy with a real CTA on web/extension hosts.
-- **U8 — Backend entitlement.** Extend `revenuecat-webhook` to set/clear `pro`; `reconcile-entitlement` /
-  `SyncService` write `entitlement.pro`; offline grace TTL. Tests: deno function tests.
-- **U9 — Full verification.** Sandbox Apple purchase, web purchase, cross-device unlock, restore, refund
-  downgrade, offline grace. (Human-driven where credentials are needed.)
-
----
-
-## 11. Open decisions (ratify before implementing)
-
-1. **Product id:** rename `still_sync` → `still_pro` for clarity (recommended; pre-launch, no migration),
-   or keep `still_sync` to avoid code churn? Entitlement key likewise (`pro` vs `sync`).
-2. **Offline grace TTL:** how long does a paid user keep Pro fully offline before a re-check is required
-   (suggest 7–30 days)?
-3. **Family Sharing:** enable on the non-consumable (one ASC toggle)? Pro = "lifetime, shareable" is a
-   nice story but means one purchase covers a family.
-4. **Free-tier basic controls:** confirm free includes global on/off + pause-on-this-site (recommended),
-   scoped to the YouTube-Shorts surface.
-5. **New YouTube surfaces (recs/comments/sponsored):** built as a *separate feature task* after this
-   framework lands — confirm they're out of scope for the monetization PR(s).
-6. **"Pro" naming/branding:** "Still Pro" vs "Still Everywhere" vs other.
+- **U1 — Surface `tier` + dynamic engine gating** (+ YT-Shorts always-free regardless of tag). `shared-types`,
+  `engine.ts`, seed tags, `engine.test.ts`.
+- **U2 — Static-CSS gating.** `still-pro-active` root class + split free/pro stylesheets + `generateHideCss`.
+- **U3 — Server-only entitlement store + tri-state read + content-script read.** The security-critical
+  store (§6); `parseSettings` strips `entitlement`; never written by `commit`/`writeProfile`.
+- **U4 — Controller `pro` + gated/locked toggles + paywall trigger.** `controller.svelte.ts`, `App.svelte`,
+  `ServiceCard.svelte`.
+- **U5 — Paywall UX (all states).** Interaction model, sign-in intercept, in-flight/success/error/restore,
+  Pro-user view, launch-real bullets, **anti-steering compile-out + test**, copy in `strings.ts`.
+- **U6 — Identity.** Google provider; authenticated-only `linkIdentity`; relay handling + proactive
+  "Find my purchase" (support link); **`Purchases.logOut()` on sign-out**.
+- **U7a (code) — Price + offering.** `Still.storekit` $1.99, `PurchaseManager` docstring, keep `still_sync`
+  ids. **U7b (human)** — RC dashboard offering/entitlement; **ASC price change to $1.99 + Universal
+  Purchase + metadata/$2.99 audit**; Web Billing + Stripe setup.
+- **U8 — Web checkout + guards.** RC Web Billing from the non-Apple paywall, `app_user_id` from the verified
+  session (session-first); web→extension handoff; **iOS online-check-before-IAP** double-charge guard.
+- **U9 — Backend entitlement.** Webhook `TRANSFER` + write to the server-only store; reconcile writes
+  tri-state; TTL constant; deno tests.
+- **U10 — Extension auth+sync+entitlement spine.** *Net-new, not a small add* — the Chrome/Safari popup's
+  `createUiController` has **no auth/sync/entitlement** today (`canPurchase:false`); build Supabase
+  auth (magic-link/Google) + reconcile + entitlement read in the popup/background worker.
+- **U11 — Full verification.** Sandbox Apple buy, web buy, cross-device unlock, restore, refund downgrade,
+  offline grace + TTL expiry, double-charge guard, **and a self-grant attempt that must fail** (forge
+  storage → still locked). Human-driven where credentials are needed.
 
 ---
 
-## 12. What already exists (leverage — you're ~70% there)
+## 11. Open decisions
 
-- Supabase auth (Apple + email magic-link) · RevenueCat keyed to the Supabase UUID (KTD5) ·
-  `entitlements` table + `revenuecat-webhook` · `reconcile-entitlement` + `SyncService` ·
-  `PaywallSheet.svelte` + the controller's purchase/restore flow + `entitled` state · the rules engine's
-  per-surface model · the Safari/Chrome popups already render the shared toggle UI.
-- **Net-new for this design:** surface `tier` gating (U1–U2), locked-toggle paywall UX (U3–U4), the
-  Google provider + relay handling (U5), Web Billing (U7), the `pro` webhook mapping (U8), and the
-  product rename/offering (U6).
+**Ratified in this revision [DECIDED]:** keep `still_sync` ids (relabel UI to "Pro") · TTL = 30 days,
+expiry-while-offline → free · Family Sharing disabled v1 · "Find my purchase" = support link · linking
+= authenticated-only.
+
+**Still open — your call:**
+1. **The free/paid LINE (strategic — the biggest bet):** **Option A** (free = YouTube Shorts only) vs an
+   **add-only alternative** (free = short-form on *all four* platforms — the core brand promise; Pro =
+   sync + the new YT surfaces + granular controls). Option A maximizes the paid surface but **narrows the
+   "short-form everywhere" promise**, competes against free multi-platform blockers, and makes day-one
+   Pro mostly *re-partitioned free features*. Decide the line, **and** whether to **sequence the new YT
+   surfaces into the monetization launch** so Pro carries new value, **and** a **success metric** (target
+   conversion / acceptable adoption cost) to judge it.
+2. **Grandfathering:** verify no TestFlight/dev build shipped the old free-all scope (§1).
+3. **Mac distribution channel:** Mac App Store (enables Universal Purchase) vs direct/notarized (then Mac
+   buyers fall to Web Billing, not Universal Purchase).
+
+---
+
+## 12. What already exists (honest scope)
+
+**Exists (Apple app + server only):** Supabase auth (Apple + email magic-link) · RC keyed to the UUID
+(KTD5) · `entitlements` table + `revenuecat-webhook` · `reconcile-entitlement` + `SyncService`
+(**instantiated only in `app-webview/src/main.ts` — the WKWebView app**) · `PaywallSheet` + purchase/
+restore flow · the rules-engine per-surface model · the shared toggle UI in both popups.
+
+**Net-new — do not under-scope (the "~70% there" is Apple-only):** the **entire Chrome/Safari extension
+auth + sync + entitlement spine** (U10 — the popup has none today) · the **server-only entitlement store
++ tri-state** (U3) · **static-CSS gating** (U2) · the **Google provider** (U6) · **Web Billing** (U8) ·
+the **paywall UX states + anti-steering compile-out** (U5) · the **$2.99→$1.99** change (U7).
