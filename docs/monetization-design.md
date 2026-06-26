@@ -106,7 +106,8 @@ A rule-set with the YT-Shorts surface untagged still blocks Shorts for free. Uni
 
 - **Providers:** Sign in with Apple (Apple platforms; required by 4.8 once Google is offered), **Google**
   (web/Chrome — *new*), email **magic link** (universal key + fallback). All passwordless.
-- **Canonical key = email.**
+- **Canonical account key = Supabase `auth.users.id` UUID.** Verified email is a login/contact/linking
+  attribute only; it is not the entitlement subject and must not be used for silent merges.
 - **Account-linking [DECIDED]:** link a second provider only via `supabase.auth.linkIdentity` **while the
   user is already authenticated**, with email verified on both — **never** silent server-side merge on
   email collision (that would let an attacker who registers `victim@gmail` via Google inherit the
