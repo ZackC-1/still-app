@@ -1,6 +1,6 @@
 import type { StillSettings } from "@still/shared-types";
 import type { SettingsCache } from "../storage/cache.js";
-import type { AuthPort, BackendPort } from "./ports.js";
+import type { AuthPort, BackendPort, EntitlementRead } from "./ports.js";
 
 // Coordinates auth + entitlement + settings sync (R6/R7/R8). The hard rules:
 //   - On EVERY sign-in (all hosts, incl. desktop): reconcile entitlement BEFORE reading it, so a
@@ -48,12 +48,25 @@ export class SyncService {
    * — but only when entitled.
    */
   async onSignedIn(userId: string): Promise<void> {
-    this.setState({ userId, entitled: false, syncing: false, cloudReachable: true });
+    const previousEntitled = this.state.userId === userId ? this.state.entitled : false;
+    this.stopWriteThrough();
+    this.setState({ userId, entitled: previousEntitled, syncing: false, cloudReachable: true });
 
     // Reconcile BEFORE reading — the desktop self-heal path the bridge targets (U13/U14).
-    await this.backend.reconcileEntitlement();
-    const entitled = await this.backend.readEntitlement();
-    this.setState({ ...this.state, entitled });
+    try {
+      await this.backend.reconcileEntitlement();
+    } catch {
+      this.setState({ ...this.state, cloudReachable: false });
+      return;
+    }
+    const entitlement = await this.backend.readEntitlement();
+    if (entitlement === "unknown") {
+      this.setState({ ...this.state, cloudReachable: false });
+      return;
+    }
+
+    const entitled = entitlementToBool(entitlement);
+    this.setState({ ...this.state, entitled, cloudReachable: true });
     if (!entitled) return; // un-entitled signed-in user does NOT sync (R7 gating)
 
     const cloud = await this.backend.readProfile();
@@ -145,4 +158,8 @@ export class SyncService {
     this.state = next;
     this.onState?.(next);
   }
+}
+
+function entitlementToBool(read: Exclude<EntitlementRead, "unknown">): boolean {
+  return read === "entitled";
 }

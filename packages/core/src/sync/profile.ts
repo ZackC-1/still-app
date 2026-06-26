@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StillSettings } from "@still/shared-types";
 import { parseSettings } from "../storage/settings-validation.js";
-import type { BackendPort } from "./ports.js";
+import type { BackendPort, EntitlementRead } from "./ports.js";
 
 // Entitlement + profile-settings access over Supabase. Reads rely on RLS (a user sees only its own
 // rows); the reconcile call self-heals the entitlement on every sign-in (U13/U14).
@@ -11,15 +11,17 @@ export class SupabaseBackendPort implements BackendPort {
 
   async reconcileEntitlement(): Promise<void> {
     // The session JWT is attached automatically; the function derives the subject from it (KTD5).
-    await this.client.functions.invoke("reconcile-entitlement", { body: {} });
+    const { error } = await this.client.functions.invoke("reconcile-entitlement", { body: {} });
+    if (error) throw error;
   }
 
-  async readEntitlement(): Promise<boolean> {
-    const { data } = await this.client
+  async readEntitlement(): Promise<EntitlementRead> {
+    const { data, error } = await this.client
       .from("entitlements")
       .select("still_sync")
       .maybeSingle<{ still_sync: boolean }>();
-    return data?.still_sync ?? false;
+    if (error) return "unknown";
+    return data?.still_sync === true ? "entitled" : "not-entitled";
   }
 
   async readProfile(): Promise<StillSettings | null> {

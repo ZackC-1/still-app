@@ -4,7 +4,7 @@ import { DEFAULT_SETTINGS } from "@still/shared-types";
 import { SettingsCache } from "../../storage/cache.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
 import { SyncService, type SyncState } from "../service.js";
-import type { AuthPort, BackendPort } from "../ports.js";
+import type { AuthPort, BackendPort, EntitlementRead } from "../ports.js";
 
 /** A backend whose writeProfile stays pending until resolve()/reject() is called — to drive coalescing
  * and failure-surfacing while a write is in flight. reconcile/read resolve immediately. */
@@ -13,7 +13,7 @@ function deferredBackend(cloud: StillSettings) {
   let settle: { resolve: () => void; reject: () => void } | null = null;
   const backend: BackendPort = {
     reconcileEntitlement: () => Promise.resolve(),
-    readEntitlement: () => Promise.resolve(true),
+    readEntitlement: () => Promise.resolve("entitled"),
     readProfile: () => Promise.resolve(cloud),
     writeProfile: (s) => {
       writes.push(s);
@@ -52,6 +52,8 @@ function mockAuth() {
 function mockBackend(
   opts: {
     entitled?: boolean;
+    entitlementRead?: EntitlementRead;
+    reconcileThrows?: boolean;
     reconcileGrants?: boolean;
     cloud?: StillSettings | null;
     deleteThrows?: boolean;
@@ -60,15 +62,18 @@ function mockBackend(
   const calls: string[] = [];
   const writes: StillSettings[] = [];
   let entitled = opts.entitled ?? false;
+  let entitlementRead = opts.entitlementRead;
+  let reconcileThrows = opts.reconcileThrows ?? false;
   const backend: BackendPort = {
     reconcileEntitlement: () => {
       calls.push("reconcile");
+      if (reconcileThrows) return Promise.reject(new Error("offline"));
       if (opts.reconcileGrants) entitled = true;
       return Promise.resolve();
     },
     readEntitlement: () => {
       calls.push("readEntitlement");
-      return Promise.resolve(entitled);
+      return Promise.resolve(entitlementRead ?? (entitled ? "entitled" : "not-entitled"));
     },
     readProfile: () => {
       calls.push("readProfile");
@@ -85,7 +90,17 @@ function mockBackend(
       return Promise.resolve();
     },
   };
-  return { backend, calls, writes };
+  return {
+    backend,
+    calls,
+    writes,
+    setEntitlementRead: (next: EntitlementRead) => {
+      entitlementRead = next;
+    },
+    setReconcileThrows: (next: boolean) => {
+      reconcileThrows = next;
+    },
+  };
 }
 
 function makeCache(local?: StillSettings) {
@@ -144,6 +159,32 @@ describe("SyncService", () => {
     await cache.setService("tiktok", false);
     expect(svc.getState().syncing).toBe(false);
     expect(writes.length).toBe(0);
+  });
+
+  it("unknown entitlement read preserves prior entitlement and marks cloud unreachable", async () => {
+    const cache = makeCache();
+    const backend = mockBackend({ entitled: true });
+    const svc = new SyncService(cache, mockAuth().auth, backend.backend);
+    await svc.onSignedIn(USER);
+    expect(svc.getState().entitled).toBe(true);
+
+    backend.setEntitlementRead("unknown");
+    await svc.onSignedIn(USER);
+
+    expect(svc.getState().entitled).toBe(true);
+    expect(svc.getState().cloudReachable).toBe(false);
+    expect(svc.getState().syncing).toBe(false);
+  });
+
+  it("failed reconcile preserves prior entitlement and marks cloud unreachable", async () => {
+    const cache = makeCache();
+    const backend = mockBackend({ entitled: true });
+    const svc = new SyncService(cache, mockAuth().auth, backend.backend);
+    await svc.onSignedIn(USER);
+    backend.setReconcileThrows(true);
+    await svc.onSignedIn(USER);
+    expect(svc.getState().entitled).toBe(true);
+    expect(svc.getState().cloudReachable).toBe(false);
   });
 
   it("sign-out reverts to local-only (later edits don't write through)", async () => {
