@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { StillSettings } from "@still/shared-types";
+import { parseSettings } from "../storage/settings-validation.js";
 import type { BackendPort } from "./ports.js";
 
 // Entitlement + profile-settings access over Supabase. Reads rely on RLS (a user sees only its own
@@ -25,8 +26,8 @@ export class SupabaseBackendPort implements BackendPort {
     const { data } = await this.client
       .from("profiles")
       .select("settings")
-      .maybeSingle<{ settings: StillSettings }>();
-    return data?.settings ?? null;
+      .maybeSingle<{ settings: unknown }>();
+    return parseSettings(data?.settings);
   }
 
   async writeProfile(settings: StillSettings): Promise<void> {

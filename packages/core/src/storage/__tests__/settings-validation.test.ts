@@ -13,7 +13,10 @@ describe("parseSettings", () => {
   it("rejects wrong-shaped objects", () => {
     expect(parseSettings({ ...valid, globalOn: "yes" })).toBeNull();
     expect(parseSettings({ ...valid, updatedAt: "5" })).toBeNull();
+    expect(parseSettings({ ...valid, updatedAt: Number.NaN })).toBeNull();
     expect(parseSettings({ globalOn: true, updatedAt: 5 })).toBeNull(); // no services
+    expect(parseSettings({ ...valid, services: { ...valid.services, youtube: "yes" } })).toBeNull();
+    expect(parseSettings({ ...valid, pauses: ["youtube.com", 7] })).toBeNull();
   });
 
   it("rejects null / empty / non-object / malformed JSON", () => {
@@ -21,6 +24,17 @@ describe("parseSettings", () => {
     expect(parseSettings("")).toBeNull();
     expect(parseSettings(42)).toBeNull();
     expect(parseSettings("{not json")).toBeNull();
+  });
+
+  it("strips unknown fields including forged entitlement state", () => {
+    const parsed = parseSettings({
+      ...valid,
+      entitlement: { pro: true },
+      services: { ...valid.services, entitlement: true },
+    });
+    expect(parsed).toEqual(valid);
+    expect(parsed).not.toHaveProperty("entitlement");
+    expect(parsed?.services).not.toHaveProperty("entitlement");
   });
 });
 
