@@ -6,6 +6,10 @@ import { SettingsCache, ChromeStorageAdapter } from "@still/core/storage";
 const RULESET_ID = "youtube-shorts-redirect";
 
 export default defineBackground(() => {
+  // The Firefox build ships no DNR ruleset (it redirects via the content script), so this gating
+  // wiring has nothing to do there — bail out cleanly when the API isn't present.
+  if (!chrome.declarativeNetRequest?.updateEnabledRulesets) return;
+
   const cache = new SettingsCache(new ChromeStorageAdapter());
 
   const syncRuleset = async (): Promise<void> => {
