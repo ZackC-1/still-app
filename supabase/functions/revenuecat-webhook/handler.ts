@@ -36,21 +36,27 @@ export async function handleWebhook(req: Request, deps: WebhookDeps): Promise<Re
 
   const uuids = affectedUuids(event);
 
-  // Idempotency: a duplicate event id is acknowledged without reprocessing. Store only a minimized
-  // audit payload; raw RevenueCat webhook bodies may contain billing/subscriber metadata we do not
-  // need for entitlement projection.
-  const isNew = await deps.store.recordEvent(event.id, uuids[0] ?? "", redactedWebhookAuditPayload(event));
-  if (!isNew) return jsonResponse(200, { status: "duplicate" });
+  try {
+    // Reconcile every affected UUID from canonical subscriber state (collapses out-of-order races).
+    // The event is recorded only after successful reconciliation, so a transient RevenueCat/DB
+    // failure remains retriable instead of being permanently hidden behind the duplicate guard.
+    for (const uuid of uuids) {
+      const subscriber = await deps.rc.getSubscriber(uuid);
+      await deps.store.setEntitlement(
+        uuid,
+        stillSyncActive(subscriber),
+        "webhook",
+        subscriber?.original_app_user_id ?? null,
+      );
+    }
 
-  // Reconcile every affected UUID from canonical subscriber state (collapses out-of-order races).
-  for (const uuid of uuids) {
-    const subscriber = await deps.rc.getSubscriber(uuid);
-    await deps.store.setEntitlement(
-      uuid,
-      stillSyncActive(subscriber),
-      "webhook",
-      subscriber?.original_app_user_id ?? null,
-    );
+    // Idempotency/audit commit. Store only a minimized payload; raw RevenueCat webhook bodies may
+    // contain billing/subscriber metadata we do not need for entitlement projection.
+    const isNew = await deps.store.recordEvent(event.id, uuids[0] ?? "", redactedWebhookAuditPayload(event));
+    if (!isNew) return jsonResponse(200, { status: "duplicate" });
+  } catch (error) {
+    console.error("revenuecat-webhook reconcile failed:", error);
+    return jsonResponse(500, { error: "reconcile_failed" });
   }
   return jsonResponse(200, { status: "ok", reconciled: uuids.length });
 }
@@ -65,6 +71,10 @@ function redactedWebhookAuditPayload(event: RcWebhookEvent): Record<string, unkn
       aliases: (event.aliases ?? []).filter(isUuid),
       transferred_from: (event.transferred_from ?? []).filter(isUuid),
       transferred_to: (event.transferred_to ?? []).filter(isUuid),
+      environment: typeof event.environment === "string" ? event.environment : null,
+      product_identifier: typeof event.product_identifier === "string" ? event.product_identifier : null,
+      expiration_at_ms: typeof event.expiration_at_ms === "number" ? event.expiration_at_ms : null,
+      expiration_date: typeof event.expiration_date === "string" ? event.expiration_date : null,
     },
   };
   return out;

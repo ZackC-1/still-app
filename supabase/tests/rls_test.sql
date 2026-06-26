@@ -3,12 +3,13 @@
 -- reads. Asserts cross-user isolation, event/rule-set opacity, and write-path narrowness.
 
 begin;
-select plan(15);
+select plan(17);
 
 -- ── seed (as the test superuser) ────────────────────────────────────────────────
 insert into auth.users (id, email) values
   ('11111111-1111-1111-1111-111111111111', 'a@test.com'),
-  ('22222222-2222-2222-2222-222222222222', 'b@test.com');
+  ('22222222-2222-2222-2222-222222222222', 'b@test.com'),
+  ('33333333-3333-3333-3333-333333333333', 'c@test.com');
 
 insert into public.profiles (id, settings) values
   ('11111111-1111-1111-1111-111111111111', '{"globalOn":true}'::jsonb),
@@ -61,6 +62,22 @@ select throws_ok(
 select throws_ok(
   $$ select public.set_entitlement('11111111-1111-1111-1111-111111111111'::uuid, false, 'x', 'y') $$,
   '42501', NULL, 'authenticated cannot execute set_entitlement'
+);
+
+select lives_ok(
+  $$ update public.profiles set settings = '{"globalOn":false}'::jsonb where id = '11111111-1111-1111-1111-111111111111' $$,
+  'entitled A can update its own synced profile'
+);
+
+reset role;
+
+-- ── as un-entitled user C ───────────────────────────────────────────────────────
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"33333333-3333-3333-3333-333333333333"}';
+
+select throws_ok(
+  $$ insert into public.profiles (id, settings) values ('33333333-3333-3333-3333-333333333333', '{"globalOn":true}'::jsonb) $$,
+  '42501', NULL, 'un-entitled user cannot insert a synced profile'
 );
 
 reset role;

@@ -28,6 +28,7 @@ function deferredBackend(cloud: StillSettings) {
 const drain = () => new Promise<void>((r) => setTimeout(r, 0));
 
 const USER = "11111111-1111-1111-1111-111111111111";
+const OTHER_USER = "22222222-2222-2222-2222-222222222222";
 
 function settings(over: Partial<StillSettings> = {}): StillSettings {
   return { ...DEFAULT_SETTINGS, ...over };
@@ -185,6 +186,24 @@ describe("SyncService", () => {
     await svc.onSignedIn(USER);
     expect(svc.getState().entitled).toBe(true);
     expect(svc.getState().cloudReachable).toBe(false);
+  });
+
+  it("failed reconcile on an account switch does not inherit the prior user's entitlement", async () => {
+    const cache = makeCache();
+    const backend = mockBackend({ entitled: true });
+    const svc = new SyncService(cache, mockAuth().auth, backend.backend);
+    await svc.onSignedIn(USER);
+    expect(svc.getState().entitled).toBe(true);
+
+    backend.setReconcileThrows(true);
+    await svc.onSignedIn(OTHER_USER);
+
+    expect(svc.getState()).toEqual({
+      userId: OTHER_USER,
+      entitled: false,
+      syncing: false,
+      cloudReachable: false,
+    });
   });
 
   it("sign-out reverts to local-only (later edits don't write through)", async () => {

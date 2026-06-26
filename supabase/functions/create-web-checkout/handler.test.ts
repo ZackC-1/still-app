@@ -2,12 +2,16 @@ import { assertEquals } from "@std/assert";
 import { handleCreateWebCheckout } from "./handler.ts";
 import { signHs256 } from "../_shared/jwt.ts";
 import { mintEs256, mintHs256, TEST_EXPECTED_CLAIMS } from "../_shared/test-helpers.ts";
+import type { RevenueCatClient, RcSubscriber } from "../_shared/revenuecat.ts";
 import type { WebBillingClient } from "../_shared/web-billing.ts";
 
 const SECRET = "test-jwt-secret-at-least-32-characters-long!!";
 const EXPECTED = TEST_EXPECTED_CLAIMS;
 const A = "11111111-1111-1111-1111-111111111111";
 const B = "22222222-2222-2222-2222-222222222222";
+const activeSub: RcSubscriber = { entitlements: { still_sync: { expires_date: null } } };
+
+const rcInactive: RevenueCatClient = { getSubscriber: () => Promise.resolve(null) };
 
 function mockBilling() {
   const calls: string[] = [];
@@ -20,13 +24,13 @@ function mockBilling() {
   return { billing, calls };
 }
 
-function req(jwt: string | null, body: unknown = {}): Request {
+function req(jwt: string | null, body: unknown = {}, method = "POST"): Request {
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (jwt) headers.Authorization = `Bearer ${jwt}`;
   return new Request("http://x/create-web-checkout", {
-    method: "POST",
+    method,
     headers,
-    body: JSON.stringify(body),
+    body: method === "GET" ? undefined : JSON.stringify(body),
   });
 }
 
@@ -37,6 +41,7 @@ Deno.test("valid JWT creates checkout for the JWT subject", async () => {
     jwtSecret: SECRET,
     expected: EXPECTED,
     billing,
+    rc: rcInactive,
   });
   assertEquals(res.status, 200);
   assertEquals(calls, [A]);
@@ -50,13 +55,14 @@ Deno.test("body-supplied app_user_id is ignored", async () => {
     jwtSecret: SECRET,
     expected: EXPECTED,
     billing,
+    rc: rcInactive,
   });
   assertEquals(calls, [A]);
 });
 
 Deno.test("missing JWT returns 401 and does not create checkout", async () => {
   const { billing, calls } = mockBilling();
-  const res = await handleCreateWebCheckout(req(null), { jwtSecret: SECRET, expected: EXPECTED, billing });
+  const res = await handleCreateWebCheckout(req(null), { jwtSecret: SECRET, expected: EXPECTED, billing, rc: rcInactive });
   assertEquals(res.status, 401);
   assertEquals(calls.length, 0);
 });
@@ -67,8 +73,40 @@ Deno.test("wrong issuer returns 401 and does not create checkout", async () => {
     { sub: A, iss: "https://evil.example/auth/v1", aud: "authenticated", role: "authenticated" },
     SECRET,
   );
-  const res = await handleCreateWebCheckout(req(jwt), { jwtSecret: SECRET, expected: EXPECTED, billing });
+  const res = await handleCreateWebCheckout(req(jwt), { jwtSecret: SECRET, expected: EXPECTED, billing, rc: rcInactive });
   assertEquals(res.status, 401);
+  assertEquals(calls.length, 0);
+});
+
+Deno.test("non-UUID subject returns 401 and does not create checkout", async () => {
+  const { billing, calls } = mockBilling();
+  const jwt = await mintHs256({ sub: "not-a-uuid" }, SECRET);
+  const res = await handleCreateWebCheckout(req(jwt), { jwtSecret: SECRET, expected: EXPECTED, billing, rc: rcInactive });
+  assertEquals(res.status, 401);
+  assertEquals(calls.length, 0);
+});
+
+Deno.test("expired JWT returns 401 and does not create checkout", async () => {
+  const { billing, calls } = mockBilling();
+  const jwt = await signHs256(
+    { sub: A, exp: 1, iss: EXPECTED.iss, aud: EXPECTED.aud, role: EXPECTED.role },
+    SECRET,
+  );
+  const res = await handleCreateWebCheckout(req(jwt), { jwtSecret: SECRET, expected: EXPECTED, billing, rc: rcInactive });
+  assertEquals(res.status, 401);
+  assertEquals(calls.length, 0);
+});
+
+Deno.test("GET returns 405 and does not create checkout", async () => {
+  const { billing, calls } = mockBilling();
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  const res = await handleCreateWebCheckout(req(jwt, {}, "GET"), {
+    jwtSecret: SECRET,
+    expected: EXPECTED,
+    billing,
+    rc: rcInactive,
+  });
+  assertEquals(res.status, 405);
   assertEquals(calls.length, 0);
 });
 
@@ -92,6 +130,7 @@ Deno.test("hosted ES256 token verified via JWKS creates checkout", async () => {
       jwksUrl,
       expected: EXPECTED,
       billing,
+      rc: rcInactive,
     });
     assertEquals(res.status, 200);
     assertEquals(calls, [A]);
@@ -105,7 +144,17 @@ Deno.test("billing failure returns 502", async () => {
     createCheckout: () => Promise.reject(new Error("not configured")),
   };
   const jwt = await mintHs256({ sub: A }, SECRET);
-  const res = await handleCreateWebCheckout(req(jwt), { jwtSecret: SECRET, expected: EXPECTED, billing });
+  const res = await handleCreateWebCheckout(req(jwt), { jwtSecret: SECRET, expected: EXPECTED, billing, rc: rcInactive });
   assertEquals(res.status, 502);
   assertEquals((await res.json()).error, "checkout_unavailable");
+});
+
+Deno.test("already-entitled account returns 409 and does not create checkout", async () => {
+  const { billing, calls } = mockBilling();
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  const rc: RevenueCatClient = { getSubscriber: () => Promise.resolve(activeSub) };
+  const res = await handleCreateWebCheckout(req(jwt), { jwtSecret: SECRET, expected: EXPECTED, billing, rc });
+  assertEquals(res.status, 409);
+  assertEquals(await res.json(), { error: "already_entitled" });
+  assertEquals(calls.length, 0);
 });

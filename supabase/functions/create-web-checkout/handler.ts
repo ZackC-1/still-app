@@ -1,4 +1,5 @@
 import { type ExpectedClaims, verifyJwt } from "../_shared/jwt.ts";
+import { type RevenueCatClient, stillSyncActive } from "../_shared/revenuecat.ts";
 import { jsonResponse } from "../_shared/store.ts";
 import { isUuid } from "../_shared/types.ts";
 import type { WebBillingClient } from "../_shared/web-billing.ts";
@@ -14,6 +15,7 @@ export interface CreateWebCheckoutDeps {
   /** Expected iss/aud/role for the authenticated user token (defense in depth). */
   readonly expected?: ExpectedClaims;
   readonly billing: WebBillingClient;
+  readonly rc: RevenueCatClient;
 }
 
 export async function handleCreateWebCheckout(
@@ -33,6 +35,8 @@ export async function handleCreateWebCheckout(
   if (!claims || !isUuid(claims.sub)) return jsonResponse(401, { error: "unauthorized" });
 
   try {
+    const subscriber = await deps.rc.getSubscriber(claims.sub);
+    if (stillSyncActive(subscriber)) return jsonResponse(409, { error: "already_entitled" });
     const checkout = await deps.billing.createCheckout(claims.sub);
     return jsonResponse(200, checkout);
   } catch (error) {
