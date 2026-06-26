@@ -78,6 +78,15 @@ Deno.test("wrong issuer returns 401 and does not create checkout", async () => {
   assertEquals(calls.length, 0);
 });
 
+Deno.test("JWT signed with the wrong HMAC secret returns 401 and does not create checkout", async () => {
+  const { billing, calls } = mockBilling();
+  // Valid shape/claims, but signed with a secret the handler does not hold → signature must fail.
+  const jwt = await mintHs256({ sub: A }, "a-different-secret-at-least-32-characters!!");
+  const res = await handleCreateWebCheckout(req(jwt), { jwtSecret: SECRET, expected: EXPECTED, billing, rc: rcInactive });
+  assertEquals(res.status, 401);
+  assertEquals(calls.length, 0);
+});
+
 Deno.test("non-UUID subject returns 401 and does not create checkout", async () => {
   const { billing, calls } = mockBilling();
   const jwt = await mintHs256({ sub: "not-a-uuid" }, SECRET);

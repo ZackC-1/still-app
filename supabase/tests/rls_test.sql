@@ -3,13 +3,15 @@
 -- reads. Asserts cross-user isolation, event/rule-set opacity, and write-path narrowness.
 
 begin;
-select plan(17);
+select plan(20);
 
 -- ── seed (as the test superuser) ────────────────────────────────────────────────
+-- A, B: entitled. C: un-entitled (negative write paths). D: entitled (positive INSERT path).
 insert into auth.users (id, email) values
   ('11111111-1111-1111-1111-111111111111', 'a@test.com'),
   ('22222222-2222-2222-2222-222222222222', 'b@test.com'),
-  ('33333333-3333-3333-3333-333333333333', 'c@test.com');
+  ('33333333-3333-3333-3333-333333333333', 'c@test.com'),
+  ('44444444-4444-4444-4444-444444444444', 'd@test.com');
 
 insert into public.profiles (id, settings) values
   ('11111111-1111-1111-1111-111111111111', '{"globalOn":true}'::jsonb),
@@ -17,6 +19,7 @@ insert into public.profiles (id, settings) values
 
 select public.set_entitlement('11111111-1111-1111-1111-111111111111', true, 'test', 'sub_A');
 select public.set_entitlement('22222222-2222-2222-2222-222222222222', true, 'test', 'sub_B');
+select public.set_entitlement('44444444-4444-4444-4444-444444444444', true, 'test', 'sub_D');
 
 -- Migrations already seed a current rule set (0004/0006); keep this idempotent so re-running against a
 -- migrated DB doesn't collide on the version PK or create a second is_current row.
@@ -78,6 +81,41 @@ set local request.jwt.claims to '{"sub":"33333333-3333-3333-3333-333333333333"}'
 select throws_ok(
   $$ insert into public.profiles (id, settings) values ('33333333-3333-3333-3333-333333333333', '{"globalOn":true}'::jsonb) $$,
   '42501', NULL, 'un-entitled user cannot insert a synced profile'
+);
+
+reset role;
+
+-- Seed C a profile row as superuser (bypasses RLS), then prove an un-entitled UPDATE is denied.
+-- The UPDATE policy gates via USING, so a denied update silently affects 0 rows (NOT a 42501) —
+-- assert both the 0-row count and that the stored row is unchanged.
+insert into public.profiles (id, settings)
+  values ('33333333-3333-3333-3333-333333333333', '{"globalOn":true}'::jsonb);
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"33333333-3333-3333-3333-333333333333"}';
+
+-- Data-modifying CTE must sit at the statement top level (can't nest inside the is() argument).
+with upd as (
+  update public.profiles set settings = '{"globalOn":false}'::jsonb
+  where id = '33333333-3333-3333-3333-333333333333'
+  returning 1
+)
+select is((select count(*)::int from upd), 0,
+          'un-entitled user''s profile UPDATE is silently denied (0 rows via the USING gate)');
+
+select is(
+  (select settings->>'globalOn' from public.profiles where id = '33333333-3333-3333-3333-333333333333'),
+  'true', 'the denied UPDATE left the row unchanged');
+
+reset role;
+
+-- ── as entitled user D — positive INSERT path through the new RLS policy ──────────
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"44444444-4444-4444-4444-444444444444"}';
+
+select lives_ok(
+  $$ insert into public.profiles (id, settings) values ('44444444-4444-4444-4444-444444444444', '{"globalOn":true}'::jsonb) $$,
+  'entitled user can insert its own synced profile (INSERT with-check entitlement subquery passes)'
 );
 
 reset role;

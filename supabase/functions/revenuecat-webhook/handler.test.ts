@@ -178,6 +178,29 @@ Deno.test("reconcile failure returns 5xx and does not commit the duplicate guard
   assertEquals(payloads.length, 0);
 });
 
+Deno.test("entitlement DB write failure returns 500 and does not commit the duplicate guard", async () => {
+  // getSubscriber succeeds, but the DB write (setEntitlement) throws — the event must stay retriable,
+  // so no audit row is committed and RevenueCat receives a 5xx to retry.
+  const events = new Set<string>();
+  const payloads: unknown[] = [];
+  const store: EntitlementStore = {
+    recordEvent(eventId, _appUserId, payload) {
+      if (events.has(eventId)) return Promise.resolve(false);
+      events.add(eventId);
+      payloads.push(payload);
+      return Promise.resolve(true);
+    },
+    setEntitlement: () => Promise.reject(new Error("db write failed")),
+  };
+  const res = await handleWebhook(
+    req({ event: { id: "db-fail", type: "INITIAL_PURCHASE", app_user_id: A } }),
+    { token: TOKEN, store, rc: mockRc({ [A]: activeSub }) },
+  );
+  assertEquals(res.status, 500);
+  assertEquals((await res.json()).error, "reconcile_failed");
+  assertEquals(payloads.length, 0);
+});
+
 Deno.test("malformed JSON body → 400", async () => {
   const { store } = mockStore();
   const res = await handleWebhook(req("not json at all"), { token: TOKEN, store, rc: mockRc({}) });
