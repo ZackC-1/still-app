@@ -167,12 +167,21 @@ A rule-set with the YT-Shorts surface untagged still blocks Shorts for free. Uni
 ## 6. Entitlement store + read path (the security + offline spine)
 
 **The store (principle 12) — server-only, not the settings blob:**
-- Persist entitlement in a **separate, read-only store the client cannot forge**: in the extension, the
-  **service-worker memory** + `chrome.storage.session` (cleared on browser close, not exposed in the
-  DevTools Extension-Storage tab); for cross-restart persistence, a **server-issued HMAC token** over
-  `(userId, expiresAt)` signed with the JWT secret, so any client edit invalidates it. **Written only by
-  the reconcile path; never by `SettingsCache.commit` or `writeProfile`.** `parseSettings()` must
-  **whitelist-strip** any `entitlement` field so a forged settings value can't inject it.
+- Persist entitlement in a **separate, read-only store the settings layer cannot forge**: in the
+  extension, hold the latest verified entitlement in service-worker memory plus the best available
+  extension-local cache (`chrome.storage.session` where supported; otherwise local extension storage
+  containing only a signed token). **Do not treat extension storage itself as a security boundary.** For
+  cross-restart persistence, use a **server-issued asymmetric signed entitlement token** (for example
+  compact JWS / Ed25519) over `{ userId, capabilities, issuedAt, expiresAt, tokenVersion }`, signed by
+  a dedicated backend entitlement-signing key and verified by clients with a bundled public key. A
+  client edit invalidates the signature without shipping any signing secret in the app. **Written only
+  by the authenticated reconcile/checkout paths; never by `SettingsCache.commit` or `writeProfile`.**
+  `parseSettings()` must **whitelist-strip** any `entitlement` field so a forged settings value can't
+  inject it.
+- **Threat model clarity:** this protects the paid trust boundary from synced-settings self-grants,
+  profile writes, and extension-storage edits. It does **not** cryptographically stop a user from
+  patching their own local extension/app binary; server-side account state, cross-device sync, and any
+  backend-facing Pro features remain authoritative.
 - *Why:* the natural "put `pro` in the synced `StillSettings`" lands it in `chrome.storage.local`, which
   `applyRemote()` accepts from `onChanged` on any newer `updatedAt` — a user could set `pro:true` via
   DevTools and even sync it to the cloud. That breaks principle 10 trivially.
@@ -184,7 +193,9 @@ downgrade a paid user offline (forbidden by principle 11).
 
 **TTL [DECIDED = 30 days]:** named constant `ENTITLEMENT_CACHE_TTL_DAYS`. **On TTL expiry while still
 offline → downgrade to free** (free works fully, so failing closed costs nothing paid-for); this bounds
-revocation latency for refunds/abuse.
+revocation latency for refunds/abuse. A cached token is usable only when its `userId` matches the
+currently signed-in Supabase session; sign-out, account deletion, and identity switch must clear memory
+and persistent token caches.
 
 **Fast-path unlock:** on a successful purchase, unlock **immediately from RevenueCat's local
 `customerInfo`/receipt** — do *not* wait for the webhook→Supabase→reconcile round-trip — then reconcile
