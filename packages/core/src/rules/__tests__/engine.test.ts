@@ -2,7 +2,14 @@ import { describe, it, expect, beforeEach } from "vitest";
 import seed from "../../../rules/seed.json";
 import type { SignedRuleSet, StillSettings, ServiceId } from "@still/shared-types";
 import { DEFAULT_SETTINGS, SERVICE_IDS } from "@still/shared-types";
-import { evaluate, applyDom, generateHideCss, ROOT_ACTIVE_CLASS, resolveActiveService } from "../engine.js";
+import {
+  evaluate,
+  applyDom,
+  generateHideCss,
+  ROOT_ACTIVE_CLASS,
+  resolveActiveService,
+  ALWAYS_FREE_SURFACE_IDS,
+} from "../engine.js";
 
 const ruleSet = seed as unknown as SignedRuleSet;
 const allOn: StillSettings = DEFAULT_SETTINGS;
@@ -121,6 +128,56 @@ describe("evaluate — safety model (AE4)", () => {
     document.body.innerHTML = `<div class="new-shorts" id="n"></div>`;
     applyDom(extended as SignedRuleSet, allOn, new URL("https://www.youtube.com/"), document);
     expect(document.querySelector("#n")).toBeNull();
+  });
+
+  it("defaults a newly-added unlabeled surface to Pro for free users", () => {
+    const extended = JSON.parse(JSON.stringify(ruleSet));
+    extended.services.youtube.surfaces.push({
+      id: "yt-new-premium",
+      label: "new premium shelf",
+      action: "remove",
+      enabledByDefault: true,
+      selectors: ["div.new-premium"],
+    });
+    document.body.innerHTML = `<div class="new-premium" id="n"></div>`;
+    applyDom(extended as SignedRuleSet, allOn, new URL("https://www.youtube.com/"), document, { pro: false });
+    expect(document.querySelector("#n")).not.toBeNull();
+    applyDom(extended as SignedRuleSet, allOn, new URL("https://www.youtube.com/"), document, { pro: true });
+    expect(document.querySelector("#n")).toBeNull();
+  });
+});
+
+describe("evaluate/applyDom — monetization gating", () => {
+  it("keeps every current YouTube Shorts surface free", () => {
+    const yt = ruleSet.services.youtube!.surfaces;
+    expect(yt.map((s) => s.id).sort()).toEqual([...ALWAYS_FREE_SURFACE_IDS].sort());
+    expect(yt.every((s) => s.tier === "free")).toBe(true);
+  });
+
+  it("keeps YouTube Shorts redirect free even when Pro is false", () => {
+    const d = evaluate(ruleSet, allOn, new URL("https://www.youtube.com/shorts/abc123"), { pro: false });
+    expect(d.kind).toBe("redirect");
+  });
+
+  it("keeps YouTube Shorts DOM removal free even when Pro is false", () => {
+    document.body.innerHTML = `<ytd-reel-shelf-renderer id="shelf"></ytd-reel-shelf-renderer>`;
+    applyDom(ruleSet, allOn, new URL("https://www.youtube.com/"), document, { pro: false });
+    expect(document.querySelector("#shelf")).toBeNull();
+  });
+
+  it("does not apply Pro services for free users", () => {
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reel/XYZ/"), { pro: false }).kind).toBe("noop");
+    expect(evaluate(ruleSet, allOn, new URL("https://www.tiktok.com/foryou"), { pro: false }).kind).toBe("noop");
+    expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reel/123"), { pro: false }).kind).toBe("noop");
+  });
+
+  it("treats current YouTube Shorts surfaces as free even if tags are missing", () => {
+    const untagged = JSON.parse(JSON.stringify(ruleSet));
+    for (const surface of untagged.services.youtube.surfaces) delete surface.tier;
+    document.body.innerHTML = `<a id="endpoint" title="Shorts">Shorts</a>`;
+    applyDom(untagged as SignedRuleSet, allOn, new URL("https://www.youtube.com/"), document, { pro: false });
+    expect((document.querySelector("#endpoint") as HTMLElement).style.display).toBe("none");
+    expect(evaluate(untagged as SignedRuleSet, allOn, new URL("https://www.youtube.com/shorts/abc"), { pro: false }).kind).toBe("redirect");
   });
 });
 

@@ -10,6 +10,7 @@
         {
           "id": "yt-shorts-redirect",
           "label": "Shorts URL → watch page",
+          "tier": "free",
           "action": "redirect",
           "enabledByDefault": true,
           "redirect": {
@@ -21,6 +22,7 @@
         {
           "id": "yt-sidebar",
           "label": "Shorts in left guide + mini-guide",
+          "tier": "free",
           "action": "hide",
           "enabledByDefault": true,
           "selectors": [
@@ -33,6 +35,7 @@
         {
           "id": "yt-home-shelf",
           "label": "Shorts shelf on Home",
+          "tier": "free",
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
@@ -44,6 +47,7 @@
         {
           "id": "yt-search",
           "label": "Shorts shelf + results in Search",
+          "tier": "free",
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
@@ -54,6 +58,7 @@
         {
           "id": "yt-subscriptions",
           "label": "Shorts row in Subscriptions",
+          "tier": "free",
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
@@ -63,6 +68,7 @@
         {
           "id": "yt-channel-tab",
           "label": "Shorts tab on channel pages",
+          "tier": "free",
           "action": "hide",
           "enabledByDefault": true,
           "selectors": [
@@ -73,6 +79,7 @@
         {
           "id": "yt-chips",
           "label": "Shorts chip in pivot/chip bars",
+          "tier": "free",
           "action": "hide",
           "enabledByDefault": true,
           "selectors": [
@@ -89,6 +96,7 @@
         {
           "id": "ig-reels-url",
           "label": "Direct Reels URL → placeholder",
+          "tier": "pro",
           "action": "placeholder",
           "enabledByDefault": true,
           "urlMatch": "^/reels?(/|$)"
@@ -96,6 +104,7 @@
         {
           "id": "ig-nav",
           "label": "Reels nav (sidebar + bottom tab)",
+          "tier": "pro",
           "action": "hide",
           "enabledByDefault": true,
           "selectors": [
@@ -107,6 +116,7 @@
         {
           "id": "ig-inline",
           "label": "Reels embedded in Home feed",
+          "tier": "pro",
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
@@ -116,6 +126,7 @@
         {
           "id": "ig-explore-search",
           "label": "Reel tiles in Explore + Search",
+          "tier": "pro",
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
@@ -126,6 +137,7 @@
         {
           "id": "ig-suggested",
           "label": "Suggested Reels",
+          "tier": "pro",
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
@@ -135,6 +147,7 @@
         {
           "id": "ig-profile-tab",
           "label": "Reels tab on profile grids",
+          "tier": "pro",
           "action": "hide",
           "enabledByDefault": true,
           "selectors": [
@@ -151,6 +164,7 @@
         {
           "id": "tt-blocksite",
           "label": "All of tiktok.com → placeholder",
+          "tier": "pro",
           "action": "blockSite",
           "enabledByDefault": true
         }
@@ -165,6 +179,7 @@
         {
           "id": "fb-reel-url",
           "label": "Direct Reel URL → placeholder",
+          "tier": "pro",
           "action": "placeholder",
           "enabledByDefault": true,
           "urlMatch": "^/reel/"
@@ -172,6 +187,7 @@
         {
           "id": "fb-feed",
           "label": "Reels in Home feed",
+          "tier": "pro",
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
@@ -181,6 +197,7 @@
         {
           "id": "fb-left-menu",
           "label": "Reels shortcut in left menu",
+          "tier": "pro",
           "action": "hide",
           "enabledByDefault": true,
           "selectors": [
@@ -191,6 +208,7 @@
         {
           "id": "fb-watch",
           "label": "Reels inside Watch",
+          "tier": "pro",
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
@@ -200,6 +218,7 @@
         {
           "id": "fb-search-groups",
           "label": "Reels in Search + Groups",
+          "tier": "pro",
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
@@ -209,6 +228,7 @@
         {
           "id": "fb-suggested",
           "label": "Suggested + related Reels",
+          "tier": "pro",
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
@@ -221,6 +241,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "5eaa539051b2ea079a72ac3ec7d93a15347b7329d13dd3291b389a26ddd02721d45fc1cb11abc8fecfaa527a3a282f62b08824434757bf06c8aa0784ad67370a"
+    "value": "921f676dc6abffca9207cb1bc7b34530d0316cf517fad51129e7f9cce3f5659de961f6bdfe7b52f4dba588c4c99e6c65b456aa6a1d08aaf9dd2a7137148e840c"
   }
 }

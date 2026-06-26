@@ -43,6 +43,12 @@ describe("validateRuleSet", () => {
     expect(validateRuleSet(set).ok).toBe(false);
   });
 
+  it("rejects an unknown surface tier", () => {
+    const set = validMinimal();
+    (set.services as any).youtube.surfaces[0].tier = "enterprise";
+    expect(validateRuleSet(set).ok).toBe(false);
+  });
+
   it("rejects a surface carrying an unexpected (expression-like) field", () => {
     const set = validMinimal();
     (set.services as any).youtube.surfaces[0].onMatch = "() => fetch('//evil')";
