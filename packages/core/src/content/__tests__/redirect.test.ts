@@ -4,6 +4,7 @@ import type { SignedRuleSet, StillSettings } from "@still/shared-types";
 import { DEFAULT_SETTINGS } from "@still/shared-types";
 import { SettingsCache } from "../../storage/cache.js";
 import { InMemoryStorageAdapter, type StorageAdapter } from "../../storage/adapter.js";
+import { EntitlementCache, InMemoryEntitlementAdapter } from "../../entitlement/index.js";
 import { createContentScript } from "../index.js";
 import { ROOT_ACTIVE_CLASS } from "../../rules/engine.js";
 
@@ -55,6 +56,10 @@ function makeWin(href: string) {
 function cacheWith(settings: StillSettings | null) {
   const adapter = new InMemoryStorageAdapter(settings);
   return new SettingsCache(adapter, { now: () => Date.now() });
+}
+
+function entitlementWith(entitled: boolean) {
+  return new EntitlementCache(new InMemoryEntitlementAdapter(entitled));
 }
 
 /** A cache whose hydrate() blocks until release() is called — to drive the pre/post-hydration window. */
@@ -175,6 +180,39 @@ describe("content script — redirect + SPA navigation (U7)", () => {
     const cs = createContentScript({ win, doc: document, ruleSet, cache: cacheWith(null), schedule: sync });
     await cs.start();
     expect(document.documentElement.classList.contains(ROOT_ACTIVE_CLASS)).toBe(true);
+    cs.stop();
+  });
+
+  it("free user: production content-script path no-ops on a Pro Instagram Reel URL", async () => {
+    const win = makeWin("https://www.instagram.com/reel/XYZ/");
+    const cs = createContentScript({
+      win,
+      doc: document,
+      ruleSet,
+      cache: cacheWith(null),
+      entitlement: entitlementWith(false),
+      redirectPort: { replace: vi.fn() },
+      schedule: sync,
+    });
+    await cs.start();
+    expect(document.querySelector("#still-placeholder")).toBeNull();
+    expect(document.documentElement.classList.contains(ROOT_ACTIVE_CLASS)).toBe(false);
+    cs.stop();
+  });
+
+  it("Pro user: production content-script path placeholders a Pro Instagram Reel URL", async () => {
+    const win = makeWin("https://www.instagram.com/reel/XYZ/");
+    const cs = createContentScript({
+      win,
+      doc: document,
+      ruleSet,
+      cache: cacheWith(null),
+      entitlement: entitlementWith(true),
+      redirectPort: { replace: vi.fn() },
+      schedule: sync,
+    });
+    await cs.start();
+    expect(document.querySelector("#still-placeholder")).not.toBeNull();
     cs.stop();
   });
 });

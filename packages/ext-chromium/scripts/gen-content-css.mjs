@@ -1,6 +1,6 @@
-// Generates the packaged critical CSS (KTD2) from the bundled seed rule set: the manifest
-// content_scripts CSS that hides static short-form chrome, scoped under `html.still-active` so an
-// off/paused user has nothing hidden (the content script adds the class only when a service is on).
+// Generates the packaged critical CSS (KTD2) from the bundled seed rule set. Free hide rules are
+// scoped under `html.still-active`; Pro hide rules are scoped under `html.still-pro-active`, which
+// the content script only adds when the entitlement cache says Pro is active.
 // Re-run when the seed changes: pnpm --filter @still/ext-chromium gen-css
 
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
@@ -10,14 +10,27 @@ import { dirname, join } from "node:path";
 const here = dirname(fileURLToPath(import.meta.url));
 const seedPath = join(here, "..", "..", "core", "rules", "seed.json");
 const outPath = join(here, "..", "entrypoints", "content", "still.css");
+const proOutPath = join(here, "..", "entrypoints", "content", "still-pro.css");
 
 const seed = JSON.parse(readFileSync(seedPath, "utf8"));
 const rules = [];
+const proRules = [];
+const alwaysFree = new Set([
+  "yt-shorts-redirect",
+  "yt-sidebar",
+  "yt-home-shelf",
+  "yt-search",
+  "yt-subscriptions",
+  "yt-channel-tab",
+  "yt-chips",
+]);
 for (const service of Object.values(seed.services)) {
   for (const surface of service.surfaces) {
     if (surface.action === "hide" && surface.enabledByDefault && surface.selectors) {
       for (const selector of surface.selectors) {
-        rules.push(`html.still-active ${selector}{display:none!important}`);
+        const target = surface.tier === "free" || alwaysFree.has(surface.id) ? rules : proRules;
+        const root = target === rules ? "still-active" : "still-pro-active";
+        target.push(`html.${root} ${selector}{display:none!important}`);
       }
     }
   }
@@ -25,4 +38,6 @@ for (const service of Object.values(seed.services)) {
 
 mkdirSync(dirname(outPath), { recursive: true });
 writeFileSync(outPath, `/* Generated from packages/core/rules/seed.json — do not edit by hand. */\n${rules.join("\n")}\n`);
-console.log(`wrote ${outPath} (${rules.length} hide rules)`);
+writeFileSync(proOutPath, `/* Generated from packages/core/rules/seed.json — do not edit by hand. */\n${proRules.join("\n")}\n`);
+console.log(`wrote ${outPath} (${rules.length} free hide rules)`);
+console.log(`wrote ${proOutPath} (${proRules.length} pro hide rules)`);

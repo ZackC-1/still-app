@@ -171,6 +171,15 @@ describe("evaluate/applyDom — monetization gating", () => {
     expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reel/123"), { pro: false }).kind).toBe("noop");
   });
 
+  it("applies real seed Pro surfaces when pro=true", () => {
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reel/XYZ/"), { pro: true }).kind).toBe("placeholder");
+    expect(evaluate(ruleSet, allOn, new URL("https://www.tiktok.com/foryou"), { pro: true })).toMatchObject({
+      kind: "placeholder",
+      blocked: true,
+    });
+    expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reel/123"), { pro: true }).kind).toBe("placeholder");
+  });
+
   it("can gate premium surfaces by capability set instead of a single Pro boolean", () => {
     expect(
       evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reel/XYZ/"), {
@@ -227,6 +236,7 @@ describe("applyDom", () => {
 
 describe("generateHideCss (KTD2)", () => {
   const css = generateHideCss(ruleSet);
+  const freeCss = generateHideCss(ruleSet, { pro: false });
 
   it("scopes every rule under the root active class", () => {
     expect(css).toContain(`html.${ROOT_ACTIVE_CLASS}`);
@@ -236,5 +246,11 @@ describe("generateHideCss (KTD2)", () => {
   it("includes hide-surface selectors but not remove/redirect/placeholder ones", () => {
     expect(css).toContain("ytd-guide-entry-renderer"); // yt-sidebar (hide)
     expect(css).not.toContain("ytd-reel-shelf-renderer"); // remove-only surface
+  });
+
+  it("can generate a free-only stylesheet with no Pro selectors", () => {
+    expect(freeCss).toContain("ytd-guide-entry-renderer");
+    expect(freeCss).not.toContain('a[href="/reels/"]');
+    expect(freeCss).not.toContain('li:has(> a[href*="/reel"])');
   });
 });

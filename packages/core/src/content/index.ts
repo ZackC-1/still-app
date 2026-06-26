@@ -4,9 +4,11 @@ import {
   applyDom,
   renderPlaceholder,
   ROOT_ACTIVE_CLASS,
+  ROOT_PRO_ACTIVE_CLASS,
   STILL_PLACEHOLDER_LINE,
   STILL_BLOCKED_LINE,
 } from "../rules/engine.js";
+import type { EntitlementCache } from "../entitlement/cache.js";
 import type { SettingsCache } from "../storage/cache.js";
 import {
   installNavigationHooks,
@@ -30,6 +32,7 @@ export interface ContentScriptDeps {
   readonly doc: Document;
   readonly ruleSet: SignedRuleSet;
   readonly cache: SettingsCache;
+  readonly entitlement?: EntitlementCache;
   /** Override the redirect mechanism (tests inject a spy; default is location.replace). */
   readonly redirectPort?: RedirectPort;
   /** Canonical placeholder copy from U9 strings; falls back to the engine default. */
@@ -59,15 +62,21 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   const setRootActive = (active: boolean): void => {
     doc.documentElement?.classList.toggle(ROOT_ACTIVE_CLASS, active);
   };
+  const setRootProActive = (active: boolean): void => {
+    doc.documentElement?.classList.toggle(ROOT_PRO_ACTIVE_CLASS, active);
+  };
 
   const reapply = (): void => {
     // Never act on optimistic defaults: until hydration we don't know the user's real toggles, so
     // we add nothing (off/paused users must not see content hidden-then-revealed).
     if (!hydrated) return;
     const url = new URL(win.location.href);
-    const decision = evaluate(ruleSet, cache.current(), url);
+    const pro = deps.entitlement?.current() ?? true;
+    const opts = { pro };
+    const decision = evaluate(ruleSet, cache.current(), url, opts);
     switch (decision.kind) {
       case "redirect":
+        setRootProActive(pro);
         if (lastRedirect !== decision.url) {
           lastRedirect = decision.url;
           redirectPort.replace(decision.url);
@@ -75,14 +84,17 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
         return;
       case "placeholder":
         setRootActive(false);
+        setRootProActive(false);
         renderPlaceholder(doc, decision.blocked ? blockedLine : placeholderLine);
         return;
       case "apply":
         setRootActive(true);
-        applyDom(ruleSet, cache.current(), url, doc);
+        setRootProActive(pro);
+        applyDom(ruleSet, cache.current(), url, doc, opts);
         return;
       case "noop":
         setRootActive(false);
+        setRootProActive(false);
         return;
     }
   };
@@ -95,11 +107,13 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       observer.start();
       teardowns.push(() => observer.stop());
       teardowns.push(cache.subscribe(() => reapply()));
+      if (deps.entitlement) teardowns.push(deps.entitlement.subscribe(() => reapply()));
 
       // The one and only async step: hydrate the snapshot, then apply with real settings and keep
       // reacting to external (cross-context / cloud) writes.
-      await cache.hydrate();
+      await Promise.all([cache.hydrate(), deps.entitlement?.hydrate()]);
       cache.watch();
+      deps.entitlement?.watch();
       hydrated = true;
       reapply();
     },

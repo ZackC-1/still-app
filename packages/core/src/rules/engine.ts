@@ -7,6 +7,7 @@ import { resolveService, etldPlusOne, applyRedirectTemplate } from "./match.js";
 
 /** Root class the content script toggles on <html>; manifest CSS scopes hide rules under it (KTD2). */
 export const ROOT_ACTIVE_CLASS = "still-active";
+export const ROOT_PRO_ACTIVE_CLASS = "still-pro-active";
 
 /** Default on-page placeholder copy. U9 passes the canonical string; this is the fallback. */
 export const STILL_PLACEHOLDER_LINE = "Still cleared this away.";
@@ -44,7 +45,10 @@ export function isPaused(settings: StillSettings, url: URL): boolean {
 type ServiceRules = NonNullable<SignedRuleSet["services"][ServiceId]>;
 
 export interface EngineOptions {
-  /** Whether Pro-gated surfaces should apply. Omitted preserves the pre-monetization all-on behavior. */
+  /**
+   * Whether Pro-gated surfaces should apply. Omitted preserves the pre-monetization all-on behavior.
+   * @deprecated Prefer `capabilities`; when both are supplied, capabilities are authoritative.
+   */
   readonly pro?: boolean;
   /** Forward-compatible entitlement set. When supplied, requiredCapability gates premium surfaces. */
   readonly capabilities?: ReadonlySet<SurfaceCapability> | readonly SurfaceCapability[];
@@ -181,14 +185,18 @@ function capabilitySet(
  * fetched ones). Scoped under `html.still-active` so an off/paused user never has content hidden:
  * the content script adds the root class only when the service is on (KTD2).
  */
-export function generateHideCss(ruleSet: SignedRuleSet): string {
+export function generateHideCss(
+  ruleSet: SignedRuleSet,
+  opts: EngineOptions = {},
+  rootClass: string = ROOT_ACTIVE_CLASS,
+): string {
   const rules: string[] = [];
   for (const service of Object.values(ruleSet.services)) {
     if (!service) continue;
     for (const s of service.surfaces) {
-      if (s.action === "hide" && s.enabledByDefault && s.selectors) {
+      if (s.action === "hide" && surfaceEnabledForTier(s, opts) && s.selectors) {
         for (const sel of s.selectors) {
-          rules.push(`html.${ROOT_ACTIVE_CLASS} ${sel}{display:none!important}`);
+          rules.push(`html.${rootClass} ${sel}{display:none!important}`);
         }
       }
     }

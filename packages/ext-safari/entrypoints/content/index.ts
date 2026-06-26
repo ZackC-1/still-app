@@ -1,5 +1,7 @@
 import "./still.css"; // packaged critical CSS (manifest content_scripts css, KTD2)
+import "./still-pro.css"; // packaged Pro CSS gated by html.still-pro-active
 import { createContentScript, type StillWindow } from "@still/core/content";
+import { EntitlementCache, ChromeEntitlementAdapter } from "@still/core/entitlement";
 import { SettingsCache, ChromeStorageAdapter } from "@still/core/storage";
 import seed from "@still/core/seed";
 import type { SignedRuleSet } from "@still/shared-types";
@@ -25,6 +27,7 @@ export default defineContentScript({
   cssInjectionMode: "manifest",
   async main() {
     const cache = new SettingsCache(new ChromeStorageAdapter());
+    const entitlement = new EntitlementCache(new ChromeEntitlementAdapter());
 
     // Apply the newest of {cached, bundled}. The cached set was signature-verified by the background
     // before it was stored; the bundled seed is the trusted offline floor packaged with the signed
@@ -39,6 +42,7 @@ export default defineContentScript({
       doc: document,
       ruleSet,
       cache,
+      entitlement,
     });
     void script.start();
 

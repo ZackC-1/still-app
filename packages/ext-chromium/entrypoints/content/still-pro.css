@@ -1,0 +1,7 @@
+/* Generated from packages/core/rules/seed.json — do not edit by hand. */
+html.still-pro-active a[href="/reels/"]{display:none!important}
+html.still-pro-active a:has(svg[aria-label="Reels"]){display:none!important}
+html.still-pro-active [role="tablist"] a[href*="/reels"]{display:none!important}
+html.still-pro-active a[href$="/reels/"]{display:none!important}
+html.still-pro-active a[aria-label="Reels"]{display:none!important}
+html.still-pro-active li:has(> a[href*="/reel"]){display:none!important}
