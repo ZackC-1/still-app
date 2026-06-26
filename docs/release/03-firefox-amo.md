@@ -9,8 +9,12 @@ browser-agnostic content-script path, same as Safari).
 
 ```bash
 pnpm --filter @still/ext-chromium build:firefox   # → packages/ext-chromium/dist/firefox-mv3
-pnpm --filter @still/ext-chromium zip:firefox      # → a store-ready .zip + a sources .zip
+pnpm --filter @still/ext-chromium zip:firefox      # → an extension .zip AND a -sources.zip (WXT makes both)
 ```
+
+> WXT's `zip -b firefox` knows about AMO's source-code rule and emits **two** archives: the extension
+> zip to upload, and a sources zip. **But** see §3 — for this **monorepo** the default sources zip is
+> not enough on its own.
 
 > **Verified already:** `web-ext lint` on the build reports **0 errors** (the lone warning is Svelte 5's
 > internal `innerHTML` template runtime — benign, present in every Svelte extension). The manifest has
@@ -47,30 +51,49 @@ pnpm --filter @still/ext-chromium zip:firefox      # → a store-ready .zip + a 
 1. [ ] Dev Hub → **Submit a New Add-on** → choose **On this site** (listed on AMO).
 2. [ ] Upload the **`.zip`** from `zip:firefox`. Automated validation runs (it's the same engine as
        `web-ext lint` — you've already passed it).
-3. [ ] **Source code submission (required for this build).** WXT/Vite output is **minified/bundled**, so
-       AMO's policy requires you to also upload the **source** plus build instructions so a reviewer can
-       reproduce the artifact. Upload a source archive and provide:
+3. [ ] **Source code submission (required — this is the #1 rejection cause).** WXT/Vite output is
+       minified, so AMO requires the source plus build instructions. A reviewer **rebuilds from your
+       sources and diffs the result against your upload — it must match with zero differences** (their
+       env: Ubuntu 24.04, Node 24, npm 11).
+
+       ⚠️ **Monorepo gotcha:** Still's extension depends on the `@still/core` / `@still/shared-types`
+       **workspace** packages, which live *outside* `packages/ext-chromium`. WXT's default sources zip
+       only captures the extension folder, so a reviewer running `pnpm install` there cannot resolve the
+       workspace deps and the rebuild fails. **Submit the whole repo as the sources archive** (it is
+       already public — [github.com/ZackC-1/still-app](https://github.com/ZackC-1/still-app)) including
+       the root `pnpm-workspace.yaml` and `pnpm-lock.yaml`. Provide these reviewer instructions:
        ```
-       Build: Node 20+, pnpm. From repo root:
+       Source: full monorepo (public: github.com/ZackC-1/still-app).
+       Build (Node 20+, pnpm):
          pnpm install
          pnpm --filter @still/ext-chromium build:firefox
-       Output: packages/ext-chromium/dist/firefox-mv3 (matches the uploaded zip).
-       Bundler: WXT 0.20 + Vite. No obfuscation; minification only.
+       Output: packages/ext-chromium/dist/firefox-mv3  (matches the uploaded zip)
+       Bundler: WXT 0.20 + Vite — minification only, NO obfuscation.
        ```
+       Before submitting, **test the reproduction**: extract your sources zip to a clean dir and run the
+       two commands — the output must equal your uploaded zip. Include the **lockfile**; **strip any
+       `.env`** first (it can change chunk hashes and fail the diff).
        [Source code submission policy](https://extensionworkshop.com/documentation/publish/source-code-submission/)
-4. [ ] **Signing happens automatically** when you submit a listed add-on — AMO signs the reviewed build;
-       you don't run `web-ext sign` yourself for listed distribution.
+4. [ ] **Signing is automatic** for a listed add-on — AMO signs the reviewed build; you do not run
+       `web-ext sign` (that's only for unlisted/self-distributed builds). You can also automate the whole
+       upload with `wxt submit` using an [AMO API key](https://addons.mozilla.org/en-US/developers/addon/api/key/).
 
 ---
 
 ## 4. Listing details
 
-- [ ] **Name:** Still. **Summary** (≤250 chars), **description**.
-- [ ] **Icon** (128×128, in the build), **screenshots**.
-- [ ] **Categories:** e.g. "Privacy & Security" / "Photos, Music & Videos".
-- [ ] **Privacy policy URL** (HTTP 200) + the **data collection** disclosure → "No data collected"
-      (matches the manifest `data_collection_permissions: none`).
-- [ ] **License** for the listing.
+- [ ] **Name:** Still. **Summary** (**≤250 chars** — hard limit), **description** (HTML allowed).
+- [ ] **Listing icons:** 32×32 and 64×64 PNG (AMO's listing sizes; the build also ships 16/48/96/128).
+- [ ] **Screenshots:** at least one at **1280×800**.
+- [ ] **Categories:** up to 2, e.g. "Privacy & Security".
+- [ ] **Privacy:** paste a short policy into the listing form (an external link alone is insufficient) —
+      or, since Still transmits no data, state "No data collected" (matches the manifest
+      `data_collection_permissions: none`). **Data-consent (new Nov 2025):** the `none` declaration
+      covers Firefox 140+; on older Firefox the no-data exemption means no post-install consent screen is
+      needed — note this in reviewer notes.
+- [ ] **"This add-on requires payment"** checkbox — leave unchecked for the free launch; check it when
+      the Pro CTA ships.
+- [ ] **License** for the listing; optional **support email/website**.
 
 ---
 
