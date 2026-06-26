@@ -74,8 +74,8 @@ export class NativeBridge {
     await this.post({ kind: "configurePurchases", appUserID });
   }
 
-  /** Buy Still Sync natively. `.entitled` unlocks the LOCAL UI; cross-device sync still waits on the
-   * RevenueCat→Supabase webhook (U14) and the next reconcile. */
+  /** Buy Still Sync natively. `.entitled` means local StoreKit/RevenueCat purchase feedback succeeded;
+   * Pro authority still waits on the RevenueCat→Supabase webhook (U14) and the next reconcile. */
   async purchaseStillSync(): Promise<PurchaseResult> {
     const obj = asObject(await this.post({ kind: "purchase" })) ?? {};
     return {

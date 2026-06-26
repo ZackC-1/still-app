@@ -9,10 +9,10 @@
 //  and refuses to configure without a UUID.
 //
 //  Two distinct entitlement gates (do not conflate):
-//    • LOCAL UI feedback gates on RevenueCat `CustomerInfo` (immediate, this file).
+//    • LOCAL purchase feedback gates on RevenueCat `CustomerInfo` (immediate, this file).
 //    • CROSS-DEVICE SYNC gates on the Supabase entitlement written by the webhook — owned by the web
-//      SyncService, never by client `CustomerInfo`. So a purchase here unlocks the local UI at once,
-//      and sync follows once the webhook lands and the WebView reconciles.
+//      SyncService, never by client `CustomerInfo`. So a purchase here can acknowledge success at once,
+//      while Pro UI/engine authority follows once the webhook lands and the WebView reconciles.
 //
 
 import Foundation
@@ -70,7 +70,7 @@ final class PurchaseManager {
     Purchases.shared.logOut { _, _ in } // back to an anonymous RevenueCat id; no entitlements
   }
 
-  /// Whether Still Sync is active per RevenueCat — the immediate LOCAL-UI gate only. Rejects when no
+  /// Whether Still Sync is active per RevenueCat — the immediate purchase-feedback gate only. Rejects when no
   /// user is configured (signed out), so a stale bridge caller can't probe a previous account.
   func hasStillSync() async -> Bool {
     guard isConfigured, currentAppUserID != nil else { return false }
@@ -102,8 +102,9 @@ final class PurchaseManager {
     case failed(String)
   }
 
-  /// Buy Still Sync. The returned `.purchased` unlocks the LOCAL UI immediately; cross-device sync
-  /// follows when the webhook writes the Supabase entitlement and the WebView reconciles.
+  /// Buy Still Sync. The returned `.purchased` acknowledges local StoreKit/RevenueCat success;
+  /// Pro UI/engine authority follows when the webhook writes the Supabase entitlement and the WebView
+  /// reconciles.
   func purchaseStillSync() async -> Outcome {
     guard isConfigured, currentAppUserID != nil else { return .failed("not configured") }
     guard let package = await stillSyncPackage() else { return .unavailable }

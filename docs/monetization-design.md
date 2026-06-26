@@ -198,9 +198,12 @@ revocation latency for refunds/abuse. A cached token is usable only when its `us
 currently signed-in Supabase session; sign-out, account deletion, and identity switch must clear memory
 and persistent token caches.
 
-**Fast-path unlock:** on a successful purchase, unlock **immediately from RevenueCat's local
-`customerInfo`/receipt** — do *not* wait for the webhook→Supabase→reconcile round-trip — then reconcile
-with the server write. (Avoids a "paid but still locked" window.)
+**Fast-path feedback, not authority:** on a successful purchase, show immediate success/pending feedback
+from RevenueCat's local `customerInfo`/receipt, but do **not** persist Pro engine gating or sync from
+local receipt state alone. Pro blocking/sync requires a successful backend reconcile or valid
+server-signed entitlement token. If the webhook→Supabase→reconcile round-trip has not landed yet, keep
+the paywall in a calm "checking your purchase…" / pending state rather than treating local
+`customerInfo` as server-authoritative.
 
 ---
 
