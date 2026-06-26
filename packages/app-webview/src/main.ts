@@ -130,6 +130,21 @@ if (supabaseUrl && supabaseAnonKey) {
     onGet = () =>
       void (async () => {
         try {
+          if (controller.userId) {
+            await enterSession(controller.userId);
+            if (controller.entitled) {
+              controller.dismissPaywall();
+              return;
+            }
+            if (!controller.cloudReachable) {
+              controller.setPurchaseOutcome({
+                outcome: "failed",
+                entitled: false,
+                error: "Couldn't check your account online. Try again when connected.",
+              });
+              return;
+            }
+          }
           const result = await bridge.purchaseStillSync();
           // Surface every outcome (cancelled/pending/failed/no-offering) in the still-open paywall.
           controller.setPurchaseOutcome(result);
