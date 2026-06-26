@@ -157,8 +157,9 @@ A rule-set with the YT-Shorts surface untagged still blocks Shorts for free. Uni
   constant-time check — the RC dashboard token must match **exactly** (a stray `Bearer ` prefix → 401 →
   silent entitlement stall). Document the expected header format for the implementer.
 - **Web Billing [DECIDED]:** enable RC Web Billing → Stripe → `still_sync_web` $1.99 + tax; use the hosted
-  checkout, passing `app_user_id` (see §7 — it must be the verified Supabase UUID, established *before*
-  checkout).
+  checkout via the authenticated `create-web-checkout` Edge Function. The function derives
+  `app_user_id` from the verified Supabase JWT subject and ignores any client-supplied user id/product
+  id/price. The client never assembles a checkout URL or passes `app_user_id` directly to RevenueCat.
 - **Restore:** the existing button (3.1.1) covers Apple; cross-platform restore = sign in → backend.
 - **No trial [DECIDED].** Sandbox-test before submit (buy → unlock → restore → cross-platform).
 
@@ -214,13 +215,14 @@ Mac is covered by the same purchase (Universal Purchase — assumes Mac App Stor
 > second $1.99 with no Apple record of the first.
 
 **Chrome / Firefox / web:** install free → *Shorts vanish (free)* → tap "Unlock everywhere" →
-**establish a Supabase session first** (magic-link or 1-tap Google) → obtain `auth.getSession().user.id`
-→ open the **RC Web Billing** checkout passing **that UUID** as `app_user_id` (from the verified session,
-never local state) → pay → `pro`.
+**establish a Supabase session first** (magic-link or 1-tap Google) → call authenticated
+`create-web-checkout` → open the returned **RC Web Billing** checkout URL → pay → `pro`.
 > **Why session-first [required]:** `reconcile-entitlement` looks up entitlement by the Supabase UUID
 > (`getSubscriber(claims.sub)`). A checkout under a RC-minted anonymous id would never be found — the user
-> pays and never gets Pro. **Handoff UX:** "Unlock everywhere" opens checkout in a new tab; on return, the
-> extension reconciles on next popup open (brief "checking your purchase…" state), then unlocks.
+> pays and never gets Pro. The checkout function uses the verified JWT subject as the RevenueCat
+> `app_user_id`; body-supplied ids are ignored. **Handoff UX:** "Unlock everywhere" opens checkout in a
+> new tab; on return, the extension reconciles on next popup open (brief "checking your purchase…"
+> state), then unlocks.
 
 ---
 
@@ -298,8 +300,9 @@ the popup *is* the surface; render it as an overlay, not a content swap.
 - **U7a (code) — Price + offering.** `Still.storekit` $1.99, `PurchaseManager` docstring, keep `still_sync`
   ids. **U7b (human)** — RC dashboard offering/entitlement; **ASC price change to $1.99 + Universal
   Purchase + metadata/$2.99 audit**; Web Billing + Stripe setup.
-- **U8 — Web checkout + guards.** RC Web Billing from the non-Apple paywall, `app_user_id` from the verified
-  session (session-first); web→extension handoff; **iOS online-check-before-IAP** double-charge guard.
+- **U8 — Web checkout + guards.** RC Web Billing from the non-Apple paywall via authenticated
+  `create-web-checkout`; `app_user_id` is derived server-side from the verified JWT subject
+  (session-first); web→extension handoff; **iOS online-check-before-IAP** double-charge guard.
 - **U9 — Backend entitlement.** Webhook `TRANSFER` + write to the server-only store; reconcile writes
   tri-state; TTL constant; deno tests.
 - **U10 — Extension auth+sync+entitlement spine.** *Net-new, not a small add* — the Chrome/Safari popup's

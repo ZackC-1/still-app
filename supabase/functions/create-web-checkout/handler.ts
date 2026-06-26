@@ -1,0 +1,44 @@
+import { type ExpectedClaims, verifyJwt } from "../_shared/jwt.ts";
+import { jsonResponse } from "../_shared/store.ts";
+import { isUuid } from "../_shared/types.ts";
+import type { WebBillingClient } from "../_shared/web-billing.ts";
+
+// Authenticated Web Billing checkout creation. The caller may send arbitrary JSON, but the
+// RevenueCat app_user_id is derived ONLY from the verified Supabase JWT subject.
+
+export interface CreateWebCheckoutDeps {
+  /** HS256 symmetric secret (local Supabase). Empty on hosted, where tokens are ES256. */
+  readonly jwtSecret: string;
+  /** JWKS endpoint for ES256 verification on the hosted project. */
+  readonly jwksUrl?: string;
+  /** Expected iss/aud/role for the authenticated user token (defense in depth). */
+  readonly expected?: ExpectedClaims;
+  readonly billing: WebBillingClient;
+}
+
+export async function handleCreateWebCheckout(
+  req: Request,
+  deps: CreateWebCheckoutDeps,
+): Promise<Response> {
+  if (req.method !== "POST") return jsonResponse(405, { error: "method_not_allowed" });
+
+  const match = /^Bearer (.+)$/.exec(req.headers.get("Authorization") ?? "");
+  if (!match) return jsonResponse(401, { error: "unauthorized" });
+
+  const claims = await verifyJwt(match[1]!, {
+    hs256Secret: deps.jwtSecret,
+    jwksUrl: deps.jwksUrl,
+    expected: deps.expected,
+  });
+  if (!claims || !isUuid(claims.sub)) return jsonResponse(401, { error: "unauthorized" });
+
+  try {
+    const checkout = await deps.billing.createCheckout(claims.sub);
+    return jsonResponse(200, checkout);
+  } catch (error) {
+    return jsonResponse(502, {
+      error: "checkout_unavailable",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
