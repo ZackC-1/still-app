@@ -106,8 +106,28 @@ final class PurchaseManager {
   /// Pro UI/engine authority follows when the webhook writes the Supabase entitlement and the WebView
   /// reconciles.
   func purchaseStillSync() async -> Outcome {
-    guard isConfigured, currentAppUserID != nil else { return .failed("not configured") }
-    guard let package = await stillSyncPackage() else { return .unavailable }
+    let startingUserID = currentAppUserID
+    if await hasStillSync() { return .purchased } // already unlocked elsewhere; do not charge again
+    let package = await stillSyncPackage()
+    switch PurchaseDecision.readiness(
+      isConfigured: isConfigured,
+      startingAppUserID: startingUserID,
+      currentAppUserID: currentAppUserID,
+      alreadyEntitled: false,
+      packageAvailable: package != nil
+    ) {
+    case .proceed:
+      break
+    case .alreadyEntitled:
+      return .purchased
+    case .unavailable:
+      return .unavailable
+    case .notConfigured:
+      return .failed("not configured")
+    case .identityChanged:
+      return .failed("identity changed")
+    }
+    guard let package else { return .unavailable }
     do {
       let result = try await Purchases.shared.purchase(package: package)
       if result.userCancelled { return .cancelled }
@@ -119,7 +139,15 @@ final class PurchaseManager {
 
   /// Restore purchases (the visible restore affordance, R8). Returns whether Still Sync is now active.
   func restore() async -> Bool {
-    guard isConfigured, currentAppUserID != nil else { return false }
+    let startingUserID = currentAppUserID
+    if await hasStillSync() { return true }
+    guard PurchaseDecision.readiness(
+      isConfigured: isConfigured,
+      startingAppUserID: startingUserID,
+      currentAppUserID: currentAppUserID,
+      alreadyEntitled: false,
+      packageAvailable: true
+    ) == .proceed else { return false }
     let info = try? await Purchases.shared.restorePurchases()
     return info?.entitlements[Self.entitlementID]?.isActive == true
   }

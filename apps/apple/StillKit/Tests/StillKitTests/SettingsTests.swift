@@ -62,6 +62,33 @@ final class SettingsTests: XCTestCase {
     XCTAssertEqual(settings.updatedAt, 1782264630248)
   }
 
+  func testDecodesBackCompatBlobWithAbsentFields() throws {
+    let json = """
+    { "globalOn": true, "services": { "youtube": true }, "updatedAt": 1782264630248 }
+    """
+    let settings = try JSONDecoder().decode(StillSettings.self, from: Data(json.utf8))
+    XCTAssertTrue(settings.globalOn)
+    XCTAssertTrue(settings.services.youtube)
+    XCTAssertFalse(settings.services.instagram)
+    XCTAssertFalse(settings.services.tiktok)
+    XCTAssertFalse(settings.services.facebook)
+    XCTAssertEqual(settings.pauses, [])
+  }
+
+  func testBridgeAcceptsBackCompatBlobWithAbsentFields() throws {
+    let store = SharedSettingsStore(backing: InMemoryBacking())
+    let bridge = SettingsBridge(store: store)
+    let json = """
+    { "globalOn": true, "services": { "youtube": true }, "updatedAt": 10 }
+    """
+
+    let reply = try XCTUnwrap(bridge.handle(rawBody: ["kind": "set", "settings": json]))
+    let echoed = try JSONDecoder().decode(StillSettings.self, from: Data(reply.utf8))
+    XCTAssertTrue(echoed.services.youtube)
+    XCTAssertFalse(echoed.services.instagram)
+    XCTAssertEqual(echoed.pauses, [])
+  }
+
   func testBridgeDropsUnknownEntitlementFields() throws {
     let store = SharedSettingsStore(backing: InMemoryBacking())
     let bridge = SettingsBridge(store: store)
