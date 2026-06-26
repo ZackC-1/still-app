@@ -181,7 +181,9 @@ A rule-set with the YT-Shorts surface untagged still blocks Shorts for free. Uni
   cross-restart persistence, use a **server-issued asymmetric signed entitlement token** (for example
   compact JWS / Ed25519) over `{ userId, capabilities, issuedAt, expiresAt, tokenVersion }`, signed by
   a dedicated backend entitlement-signing key and verified by clients with a bundled public key. A
-  client edit invalidates the signature without shipping any signing secret in the app. **Written only
+  production build must select the trusted issuer/public key set by explicit build mode, not by
+  key-presence probing: missing production keys fail closed and must never fall through to development
+  keys. Client edits invalidate the signature without shipping any signing secret in the app. **Written only
   by the authenticated reconcile/checkout paths; never by `SettingsCache.commit` or `writeProfile`.**
   `parseSettings()` must **whitelist-strip** any `entitlement` field so a forged settings value can't
   inject it.

@@ -1,3 +1,10 @@
+---
+title: "Monetization Security Remediation Plan"
+type: security
+status: active
+date: 2026-06-26
+---
+
 # Monetization Security Remediation Plan
 
 Status: active remediation plan for `docs/monetization-design.md`.
