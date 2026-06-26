@@ -65,6 +65,17 @@ test("instagram: Pro user removes an inline Reel + hides the Reels nav, keeps a 
   await expect(page.locator("#reels-link")).toBeHidden();
 });
 
+test("facebook: free user keeps Pro Reels surfaces untouched", async ({ context }) => {
+  const page = await context.newPage();
+  await serve(page, "**://*.facebook.com/**", fixture("facebook.html"));
+  await page.goto("https://www.facebook.com/");
+
+  await expect(page.locator("#reel-article")).toBeVisible();
+  await expect(page.locator("#keep-article")).toBeVisible();
+  await expect(page.locator("#reels-shortcut")).toBeVisible();
+  await expect(page.locator("html")).not.toHaveClass(/still-pro-active/);
+});
+
 test("facebook: Pro user removes a Reel article + hides the Reels shortcut, keeps a normal post", async ({ context, extensionId }) => {
   await setEntitled(context, extensionId, true);
   const page = await context.newPage();

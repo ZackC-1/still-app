@@ -8,23 +8,21 @@ final class PurchaseDecisionTests: XCTestCase {
         isConfigured: false,
         startingAppUserID: nil,
         currentAppUserID: nil,
-        alreadyEntitled: false,
         packageAvailable: true
       ),
       .notConfigured
     )
   }
 
-  func testAlreadyEntitledShortCircuitsPurchase() {
+  func testEmptyAppUserIDIsNotConfigured() {
     XCTAssertEqual(
       PurchaseDecision.readiness(
         isConfigured: true,
-        startingAppUserID: "u",
-        currentAppUserID: "u",
-        alreadyEntitled: true,
+        startingAppUserID: "",
+        currentAppUserID: "",
         packageAvailable: true
       ),
-      .alreadyEntitled
+      .notConfigured
     )
   }
 
@@ -34,20 +32,30 @@ final class PurchaseDecisionTests: XCTestCase {
         isConfigured: true,
         startingAppUserID: "u",
         currentAppUserID: "u",
-        alreadyEntitled: false,
         packageAvailable: false
       ),
       .unavailable
     )
   }
 
-  func testIdentitySwitchDuringAwaitBlocksPurchase() {
+  func testIdentitySwitchToSignedOutBlocksPurchase() {
     XCTAssertEqual(
       PurchaseDecision.readiness(
         isConfigured: true,
         startingAppUserID: "old",
         currentAppUserID: nil,
-        alreadyEntitled: false,
+        packageAvailable: true
+      ),
+      .identityChanged
+    )
+  }
+
+  func testAccountSwitchToDifferentUserBlocksPurchase() {
+    XCTAssertEqual(
+      PurchaseDecision.readiness(
+        isConfigured: true,
+        startingAppUserID: "user-a",
+        currentAppUserID: "user-b",
         packageAvailable: true
       ),
       .identityChanged
@@ -60,11 +68,9 @@ final class PurchaseDecisionTests: XCTestCase {
         isConfigured: true,
         startingAppUserID: "u",
         currentAppUserID: "u",
-        alreadyEntitled: false,
         packageAvailable: true
       ),
       .proceed
     )
   }
 }
-

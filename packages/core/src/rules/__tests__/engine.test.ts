@@ -150,8 +150,14 @@ describe("evaluate — safety model (AE4)", () => {
 describe("evaluate/applyDom — monetization gating", () => {
   it("keeps every current YouTube Shorts surface free", () => {
     const yt = ruleSet.services.youtube!.surfaces;
-    expect(yt.map((s) => s.id).sort()).toEqual([...ALWAYS_FREE_SURFACE_IDS].sort());
-    expect(yt.every((s) => s.tier === "free")).toBe(true);
+    // Containment, not exact set-equality: every always-free safety-net id must exist in the seed
+    // tagged tier:"free". Exact equality would falsely fail the day a *Pro* YouTube surface ships —
+    // and a new Pro YouTube surface must NOT be added to ALWAYS_FREE_SURFACE_IDS.
+    for (const id of ALWAYS_FREE_SURFACE_IDS) {
+      const surface = yt.find((s) => s.id === id);
+      expect(surface, `${id} should be a seed YouTube surface`).toBeDefined();
+      expect(surface!.tier).toBe("free");
+    }
   });
 
   it("keeps YouTube Shorts redirect free even when Pro is false", () => {

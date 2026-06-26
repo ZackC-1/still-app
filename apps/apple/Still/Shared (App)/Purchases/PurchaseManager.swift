@@ -113,13 +113,10 @@ final class PurchaseManager {
       isConfigured: isConfigured,
       startingAppUserID: startingUserID,
       currentAppUserID: currentAppUserID,
-      alreadyEntitled: false,
       packageAvailable: package != nil
     ) {
     case .proceed:
       break
-    case .alreadyEntitled:
-      return .purchased
     case .unavailable:
       return .unavailable
     case .notConfigured:
@@ -145,7 +142,6 @@ final class PurchaseManager {
       isConfigured: isConfigured,
       startingAppUserID: startingUserID,
       currentAppUserID: currentAppUserID,
-      alreadyEntitled: false,
       packageAvailable: true
     ) == .proceed else { return false }
     let info = try? await Purchases.shared.restorePurchases()
