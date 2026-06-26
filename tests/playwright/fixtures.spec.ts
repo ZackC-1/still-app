@@ -1,5 +1,5 @@
 import { test, expect, fixture } from "./_extension.js";
-import type { Page } from "@playwright/test";
+import type { BrowserContext, Page } from "@playwright/test";
 
 // Serve a service's fixture HTML for every request to its domain (no real network); the extension's
 // content script injects because the committed URL matches its host pattern.
@@ -7,6 +7,18 @@ async function serve(page: Page, domainGlob: string, html: string): Promise<void
   await page.route(domainGlob, (route) =>
     route.fulfill({ contentType: "text/html; charset=utf-8", body: html }),
   );
+}
+
+async function setEntitled(context: BrowserContext, extensionId: string, entitled: boolean): Promise<void> {
+  const page = await context.newPage();
+  await page.goto(`chrome-extension://${extensionId}/options.html`);
+  await page.evaluate(async (value) => {
+    const api = (globalThis as unknown as {
+      chrome: { storage: { local: { set(items: Record<string, unknown>): Promise<void> } } };
+    }).chrome;
+    await api.storage.local.set({ "still:entitlement": { entitled: value, updatedAt: Date.now() } });
+  }, entitled);
+  await page.close();
 }
 
 test("youtube: removes the Shorts shelf + hides the sidebar entry, keeps real content", async ({ context }) => {
@@ -31,7 +43,19 @@ test("youtube: a Shorts URL ends up on the watch page (redirect)", async ({ cont
   await expect(page).toHaveURL(/\/watch\?v=abc123/);
 });
 
-test("instagram: removes an inline Reel + hides the Reels nav, keeps a normal post", async ({ context }) => {
+test("instagram: free user keeps Pro Reels surfaces untouched", async ({ context }) => {
+  const page = await context.newPage();
+  await serve(page, "**://*.instagram.com/**", fixture("instagram.html"));
+  await page.goto("https://www.instagram.com/someuser/");
+
+  await expect(page.locator("#reel-post")).toBeVisible();
+  await expect(page.locator("#keep-post")).toBeVisible();
+  await expect(page.locator("#reels-link")).toBeVisible();
+  await expect(page.locator("html")).not.toHaveClass(/still-pro-active/);
+});
+
+test("instagram: Pro user removes an inline Reel + hides the Reels nav, keeps a normal post", async ({ context, extensionId }) => {
+  await setEntitled(context, extensionId, true);
   const page = await context.newPage();
   await serve(page, "**://*.instagram.com/**", fixture("instagram.html"));
   await page.goto("https://www.instagram.com/someuser/");
@@ -41,7 +65,8 @@ test("instagram: removes an inline Reel + hides the Reels nav, keeps a normal po
   await expect(page.locator("#reels-link")).toBeHidden();
 });
 
-test("facebook: removes a Reel article + hides the Reels shortcut, keeps a normal post", async ({ context }) => {
+test("facebook: Pro user removes a Reel article + hides the Reels shortcut, keeps a normal post", async ({ context, extensionId }) => {
+  await setEntitled(context, extensionId, true);
   const page = await context.newPage();
   await serve(page, "**://*.facebook.com/**", fixture("facebook.html"));
   await page.goto("https://www.facebook.com/");
@@ -51,7 +76,17 @@ test("facebook: removes a Reel article + hides the Reels shortcut, keeps a norma
   await expect(page.locator("#reels-shortcut")).toBeHidden();
 });
 
-test("tiktok: the whole site is replaced by the Still placeholder", async ({ context }) => {
+test("tiktok: free user keeps the Pro whole-site block untouched", async ({ context }) => {
+  const page = await context.newPage();
+  await serve(page, "**://*.tiktok.com/**", fixture("tiktok.html"));
+  await page.goto("https://www.tiktok.com/foryou");
+
+  await expect(page.locator("#still-placeholder")).toHaveCount(0);
+  await expect(page.locator("#tiktok-feed")).toBeVisible();
+});
+
+test("tiktok: Pro user gets the Still placeholder", async ({ context, extensionId }) => {
+  await setEntitled(context, extensionId, true);
   const page = await context.newPage();
   await serve(page, "**://*.tiktok.com/**", fixture("tiktok.html"));
   await page.goto("https://www.tiktok.com/foryou");
