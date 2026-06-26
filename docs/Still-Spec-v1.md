@@ -122,7 +122,7 @@ All UI must support full light and dark mode and follow the system setting.
 - Service card: a grouped block per service (YouTube, Instagram, TikTok, Facebook) containing a service master toggle. (Per second-pass: per-service master toggle only; no per-surface user toggles.)
 - Primary button: solid Still Blue, white text, radius 8.
 - Secondary button: bordered, ink text.
-- Paywall sheet: a single calm screen presenting the $2.99 one-time Still Sync unlock.
+- Paywall sheet: a single calm screen presenting the $1.99 one-time Still Sync unlock.
 - Onboarding card: full-screen, one idea per screen, generous whitespace.
 - The Still placeholder: the screen shown when short-form is opened directly or when TikTok is visited. A Still Blue field, the dot-on-a-line glyph, and one calm line of copy. No buttons, no scolding.
 
@@ -131,7 +131,7 @@ All UI must support full light and dark mode and follow the system setting.
 Apple app (iPhone, iPad, Mac):
 1. Onboarding — Screen 1: welcome + tagline. Screen 2: the outcome. Screen 3: enable the Safari extension (guided, illustrated walkthrough; detect and reflect enabled state). Screen 4: done, lands on Settings.
 2. Settings (home): a global on/off at the top, then one service card per service, then an entry to Sync.
-3. Sync / account: explains cross-device sync, shows the $2.99 unlock if not purchased, and the sign-in / account state if purchased. Sign in with Apple and email magic link.
+3. Sync / account: explains cross-device sync, shows the $1.99 unlock if not purchased, and the sign-in / account state if purchased. Sign in with Apple and email magic link.
 4. Per-site pause: a simple control to pause Still on the current site.
 
 Extension toolbar popup (desktop): global on/off; pause on this site; a link that opens the full options page; current state at a glance (on / paused here / off).
@@ -225,7 +225,7 @@ Safety model (per second-pass): a rules update that adds a new surface under an 
 ### 6.1 Tiers
 
 - Free: all blocking, on all services, on all v1 platforms. No account required.
-- Paid: a single non-consumable in-app purchase, "Still Sync," priced at 2.99 USD (map to the nearest Apple price point; the founder is enrolled or will enroll in the Apple Small Business Program for the 15% rate). Still Sync unlocks cross-device settings sync.
+- Paid: a single non-consumable in-app purchase, "Still Sync," priced at 1.99 USD (map to the nearest Apple price point; the founder is enrolled or will enroll in the Apple Small Business Program for the 15% rate). Still Sync unlocks cross-device settings sync.
 
 ### 6.2 Purchase path (v1)
 
@@ -309,7 +309,7 @@ See the implementation plan in `docs/plans/` for the authoritative, research-upd
 
 Claude Code does (all code and config): the shared core, rule engine, content script, shared settings/paywall web UI; the Chromium and Safari Web Extension packaging; the Apple Swift project up to a buildable project + a local StoreKit test config; the Supabase schema, RLS, Edge Functions, and seed rule set; the initial rule selectors for all four services.
 
-Human does (requires a Mac, Apple account, and dashboards): Xcode builds, code signing, provisioning; Apple Developer Program enrollment and entitlement requests; App Store Connect setup, the IAP product ("Still Sync", 2.99 USD non-consumable), the In-App Purchase Key (.p8), sandbox testers, screenshots, submission; Chrome Web Store developer account and submission; RevenueCat dashboard setup; Supabase project creation and production keys; custom SMTP (Resend) domain verification; final privacy policy and terms copy; domain and any marketing site.
+Human does (requires a Mac, Apple account, and dashboards): Xcode builds, code signing, provisioning; Apple Developer Program enrollment and entitlement requests; App Store Connect setup, the IAP product ("Still Sync", 1.99 USD non-consumable), the In-App Purchase Key (.p8), sandbox testers, screenshots, submission; Chrome Web Store developer account and submission; RevenueCat dashboard setup; Supabase project creation and production keys; custom SMTP (Resend) domain verification; final privacy policy and terms copy; domain and any marketing site.
 
 Claude Code must not claim to perform the human tasks. Where a human step is a prerequisite, generate the code/config and clear instructions, then stop and hand off.
 
@@ -329,7 +329,7 @@ Claude Code must not claim to perform the human tasks. Where a human step is a p
 - A user can install the Chromium extension and the Apple app, and on both, YouTube Shorts, Instagram Reels, Facebook Reels, and all of TikTok are reliably removed on the web, including their navigation entry points, with no visible flash on static chrome and no broken layouts.
 - Direct Shorts links redirect to the standard watch page; direct Reels links and TikTok show the Still placeholder.
 - Per-service toggles work and persist locally.
-- A user can buy Still Sync (2.99 USD) via Apple IAP, create/sign in to an account, and have their single settings set sync across devices signed into that account, including the desktop Chromium extension.
+- A user can buy Still Sync (1.99 USD) via Apple IAP, create/sign in to an account, and have their single settings set sync across devices signed into that account, including the desktop Chromium extension.
 - Free users never have anything leave their device.
 - Full light and dark mode, matching the Still design tokens.
 - The rule set can be updated from the backend and clients pick up the change without an app-store resubmission.

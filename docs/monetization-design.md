@@ -147,10 +147,8 @@ A rule-set with the YT-Shorts surface untagged still blocks Shorts for free. Uni
   |---|---|---|---|
   | App Store (iOS+macOS via **Universal Purchase**) | `still_sync` | non-consumable | **$1.99** |
   | RevenueCat **Web Billing** (Stripe) | `still_sync_web` | one-time | **$1.99** |
-- **Price reconciliation [must fix — factual mismatch]:** `Still.storekit` (`displayPrice "2.99"`) and
-  `PurchaseManager`'s docstring currently say **$2.99**, not the decided $1.99. Tasks: set `$1.99` in
-  `Still.storekit`, update the `PurchaseManager` docstring, change the **ASC price tier**, and **audit
-  drafted metadata/screenshots for any "$2.99."**
+- **Price reconciliation:** code-side StoreKit/config docs are $1.99; the remaining human tasks are to
+  change the **ASC price tier** and **audit drafted metadata/screenshots for any "$2.99."**
 - **Offering:** one offering marked **Current** with the $1.99 package(s). The paywall reads
   `offerings.current`.
 - **Webhook (exists — narrow change):** `revenuecat-webhook` already re-derives entitlement from canonical

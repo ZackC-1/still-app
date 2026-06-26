@@ -95,7 +95,7 @@ export class NativeBridge {
     return asObject(await this.post({ kind: "purchaseStatus" }))?.entitled === true;
   }
 
-  /** The localized store price string for Still Sync (e.g. "$2.99"), from StoreKit via RevenueCat, or
+  /** The localized store price string for Still Sync (e.g. "$1.99"), from StoreKit via RevenueCat, or
    * null when unavailable (offering not loaded, not configured). The paywall shows the real price
    * instead of a hardcoded one. */
   async price(): Promise<string | null> {

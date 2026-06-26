@@ -78,7 +78,7 @@ final class PurchaseManager {
     return info?.entitlements[Self.entitlementID]?.isActive == true
   }
 
-  /// The localized store price for still_sync (e.g. "$2.99" / "£2.99"), or nil if the offering isn't
+  /// The localized store price for still_sync (e.g. "$1.99" / "£1.99"), or nil if the offering isn't
   /// available. The paywall shows this instead of a hardcoded price (App Store / StoreKit guidance).
   func priceString() async -> String? {
     await stillSyncPackage()?.storeProduct.localizedPriceString

@@ -33,7 +33,7 @@ After Tier 0, the loop can build and CI-test all of Phase A locally.
 | # | Connection | Who | Provides | Blocks |
 |---|---|---|---|---|
 | 7 | **Apple Developer Program** ($99/yr) | 🧑 | team, certs, entitlements (SIWA, IAP) | ⏳ Phase B |
-| 8 | **App Store Connect**: create non-consumable `still_sync` ($2.99); generate **In-App Purchase Key (.p8)** + ASC API key; create sandbox testers | 🧑 | product + `.p8` + API key + testers | ⏳ real purchase |
+| 8 | **App Store Connect**: create non-consumable `still_sync` ($1.99); generate **In-App Purchase Key (.p8)** + ASC API key; create sandbox testers | 🧑 | product + `.p8` + API key + testers | ⏳ real purchase |
 | 9 | **RevenueCat**: project, product, entitlement, offering, webhook + static auth token; upload the `.p8` | 🧑 (dashboard) | `RC_PUBLIC_KEY`, `RC_SECRET_KEY`, `REVENUECAT_WEBHOOK_TOKEN` | ⏳ Phase B purchase. NOTE: the webhook→entitlement path is fully testable in Phase A with a **faked** payload — no Apple needed to prove the bridge. |
 | 10 | **Mac + Xcode + Apple device(s)** | 🧑 | Safari build/sign, sandbox purchase test | ⏳ Phase B |
 | 11 | **Chrome Web Store** developer account ($5 one-time) | 🧑 | publish the Chromium extension | Chromium store launch |

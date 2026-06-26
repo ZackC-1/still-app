@@ -69,7 +69,7 @@ export class UiController {
   /** The sign-in sheet overlays the rest of the UI when the signed-out CTA is tapped. */
   signInOpen = $state(false);
   paywallOpen = $state(false);
-  /** Localized store price for the buy CTA (e.g. "$2.99"), set by the host from StoreKit/RevenueCat.
+  /** Localized store price for the buy CTA (e.g. "$1.99"), set by the host from StoreKit/RevenueCat.
    * Null until loaded / on hosts without a price — the CTA then shows no price rather than a guess. */
   paywallPrice = $state<string | null>(null);
   deleteFlow = $state<DeleteFlow>("idle");
