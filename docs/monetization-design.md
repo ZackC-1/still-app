@@ -62,8 +62,9 @@ carries new value, or commit to positioning that frames it.
 
 ## 2. Feature-gating map (free vs Pro, exists vs to-build)
 
-Rows 1–7 are rule-engine **surfaces** (`SignedRuleSet.services[].surfaces`, gated by a `tier:"free"|"pro"`
-tag). Row 8 is a **UI feature** (not an engine surface — owned by U4/U5, not U1).
+Rows 1–7 are rule-engine **surfaces** (`SignedRuleSet.services[].surfaces`, gated canonically by
+`requiredCapability`, with `tier:"free"|"pro"` retained as a v1 authoring/UI shorthand). Row 8 is a
+**UI feature** (not an engine surface — owned by U4/U5, not U1).
 
 | Service | Surface / feature | Action | Tier | Status |
 |---|---|---|---|---|
@@ -83,17 +84,20 @@ tag). Row 8 is a **UI feature** (not an engine surface — owned by U4/U5, not U
 Today `evaluate()`/`applyDom()` apply every enabled surface (blocking is free). New behavior gates by
 entitlement in **two** places — miss either and gating is incomplete:
 
-1. **Dynamic path:** thread `pro` into `evaluate(ruleSet, settings, url, { pro })`; skip `tier:"pro"`
-   surfaces when `pro===false`.
+1. **Dynamic path:** thread capabilities into `evaluate(ruleSet, settings, url, { capabilities })`.
+   V1 may bridge `pro=true` to the full Pro capability set, but the engine surface model should be
+   capability-based so future subscriptions, bundles, and granular launches do not require another
+   schema rewrite. Missing `requiredCapability` defaults conservatively to Pro-only unless the surface
+   is explicitly always-free.
 2. **Static manifest-CSS path** *(do not forget):* hide-action surfaces are also applied via the packaged
    `still.css` injected at `document_start` (`cssInjectionMode:"manifest"`), scoped under
    `html.still-active` and generated **tier-unaware** by `generateHideCss`. The new pro hide-surfaces
    (recs/comments) would hide for **free** users once added to that CSS. Fix: scope pro hide-rules under
    a **second root class `html.still-pro-active`** that the content script adds *only when entitled*, and
    split `generateHideCss` / packaged CSS into **free** and **pro** stylesheets.
-3. **`tier` defaults to `"pro"`** for unlabeled surfaces (safe for revenue) — **except** the YouTube-Shorts
-   surface, which the engine treats as **always-free regardless of the tag** (principle 13), so a
-   missing/stale tag can never break the free promise.
+3. **Missing capability/tier defaults to Pro-only** (safe for revenue) — **except** the current
+   YouTube-Shorts surfaces, which the engine treats as **always-free regardless of the tag** (principle
+   13), so a missing/stale tag can never break the free promise.
 
 `pro` is read synchronously from the **server-only entitlement store** (§6), not the settings blob.
 
@@ -293,8 +297,8 @@ the popup *is* the surface; render it as an overlay, not a content swap.
 
 ## 10. Implementation units (revised; each agent-testable)
 
-- **U1 — Surface `tier` + dynamic engine gating** (+ YT-Shorts always-free regardless of tag). `shared-types`,
-  `engine.ts`, seed tags, `engine.test.ts`.
+- **U1 — Surface capability metadata + dynamic engine gating** (+ YT-Shorts always-free regardless of
+  tag). `shared-types`, `engine.ts`, seed tags/capabilities, `engine.test.ts`.
 - **U2 — Static-CSS gating.** `still-pro-active` root class + split free/pro stylesheets + `generateHideCss`.
 - **U3 — Server-only entitlement store + tri-state read + content-script read.** The security-critical
   store (§6); `parseSettings` strips `entitlement`; never written by `commit`/`writeProfile`.

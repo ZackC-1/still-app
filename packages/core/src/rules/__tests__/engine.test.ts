@@ -171,6 +171,19 @@ describe("evaluate/applyDom — monetization gating", () => {
     expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reel/123"), { pro: false }).kind).toBe("noop");
   });
 
+  it("can gate premium surfaces by capability set instead of a single Pro boolean", () => {
+    expect(
+      evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reel/XYZ/"), {
+        capabilities: ["surface.instagram.reels"],
+      }).kind,
+    ).toBe("placeholder");
+    expect(
+      evaluate(ruleSet, allOn, new URL("https://www.tiktok.com/foryou"), {
+        capabilities: ["surface.instagram.reels"],
+      }).kind,
+    ).toBe("noop");
+  });
+
   it("treats current YouTube Shorts surfaces as free even if tags are missing", () => {
     const untagged = JSON.parse(JSON.stringify(ruleSet));
     for (const surface of untagged.services.youtube.surfaces) delete surface.tier;

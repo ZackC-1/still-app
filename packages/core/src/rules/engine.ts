@@ -1,4 +1,4 @@
-import type { ServiceId, SignedRuleSet, StillSettings } from "@still/shared-types";
+import type { ServiceId, SignedRuleSet, StillSettings, SurfaceCapability } from "@still/shared-types";
 import { resolveService, etldPlusOne, applyRedirectTemplate } from "./match.js";
 
 // The framework-agnostic rule engine. Pure functions over a rule set + settings + a DOM, so the
@@ -46,6 +46,8 @@ type ServiceRules = NonNullable<SignedRuleSet["services"][ServiceId]>;
 export interface EngineOptions {
   /** Whether Pro-gated surfaces should apply. Omitted preserves the pre-monetization all-on behavior. */
   readonly pro?: boolean;
+  /** Forward-compatible entitlement set. When supplied, requiredCapability gates premium surfaces. */
+  readonly capabilities?: ReadonlySet<SurfaceCapability> | readonly SurfaceCapability[];
 }
 
 export const ALWAYS_FREE_SURFACE_IDS = new Set([
@@ -156,9 +158,20 @@ export function applyDom(
 
 function surfaceEnabledForTier(s: ServiceRules["surfaces"][number], opts: EngineOptions): boolean {
   if (!s.enabledByDefault) return false;
-  if (opts.pro !== false) return true;
   if (ALWAYS_FREE_SURFACE_IDS.has(s.id)) return true;
+  const capabilities = capabilitySet(opts.capabilities);
+  if (capabilities) {
+    return s.requiredCapability ? capabilities.has(s.requiredCapability) : false;
+  }
+  if (opts.pro !== false) return true;
   return s.tier === "free";
+}
+
+function capabilitySet(
+  capabilities: EngineOptions["capabilities"],
+): ReadonlySet<SurfaceCapability> | null {
+  if (!capabilities) return null;
+  return capabilities instanceof Set ? capabilities : new Set(capabilities);
 }
 
 /**
