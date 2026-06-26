@@ -229,7 +229,8 @@ Safety model (per second-pass): a rules update that adds a new surface under an 
 
 ### 6.2 Purchase path (v1)
 
-- Apple in-app purchase only, via StoreKit 2, on the iOS and Mac apps. There is no web/Stripe checkout in v1.
+- Apple platforms (iOS, Mac apps): Apple in-app purchase via StoreKit 2.
+- Non-Apple platforms (e.g. the desktop Chromium extension): RevenueCat **Web Billing** via the authenticated `create-web-checkout` Edge Function, which derives the checkout `app_user_id` only from the verified Supabase JWT subject (the client never supplies the user id, product, or price). There is no Stripe-direct checkout in v1.
 - Use RevenueCat to validate the purchase and manage the entitlement, and to write the entitlement to the user's Still account in the backend. (Per research: use an In-App Purchase Key (.p8) — NOT the deprecated app-specific shared secret. Set RevenueCat `app_user_id` = the Supabase auth user UUID.)
 - The shipped purchase UI requires account sign-in before purchase. A dropped webhook or restore is reconciled by a server-side backend call to RevenueCat; the client may request reconcile, but client-supplied purchase state is never trusted to grant the Supabase entitlement.
 
