@@ -13,7 +13,6 @@ const rc = new HttpRevenueCatClient(Deno.env.get("REVENUECAT_SECRET_API_KEY") ??
 // JWT-verified app_user_id (see _shared/web-billing.ts) — no secret key or RC API call is needed.
 const billing = new RevenueCatWebPurchaseLink(
   Deno.env.get("REVENUECAT_WEB_BILLING_CHECKOUT_URL") ?? "",
-  Deno.env.get("REVENUECAT_WEB_PRODUCT_ID") ?? "still_sync_web",
 );
 
 Deno.serve((req) => handleCreateWebCheckout(req, { jwtSecret, jwksUrl, expected, billing, rc }));
