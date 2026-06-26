@@ -154,10 +154,10 @@ A rule-set with the YT-Shorts surface untagged still blocks Shorts for free. Uni
 - **Offering:** one offering marked **Current** with the $1.99 package(s). The paywall reads
   `offerings.current`.
 - **Webhook (exists — narrow change):** `revenuecat-webhook` already re-derives entitlement from canonical
-  subscriber state for *every* event (it does not switch per event type), so the real work is **`TRANSFER`
-  handling** (entitlement moving between `app_user_id`s on link/merge — see §9 residual) and the
-  entitlement *write target* (the server-only store, §6). **Family Sharing = disabled for v1 [DECIDED]**,
-  so no family-grant event handler is needed.
+  subscriber state for *every* event (it does not switch per event type), and current code already
+  reconciles `TRANSFER` events across `transferred_from` and `transferred_to` UUIDs. Preserve and extend
+  those tests when adding signed entitlement-token issuance / the server-only read path (§6). **Family
+  Sharing = disabled for v1 [DECIDED]**, so no family-grant event handler is needed.
 - **Webhook auth gotcha:** the handler compares the raw `Authorization` header against the secret with a
   constant-time check — the RC dashboard token must match **exactly** (a stray `Bearer ` prefix → 401 →
   silent entitlement stall). Document the expected header format for the implementer.
@@ -191,6 +191,10 @@ A rule-set with the YT-Shorts surface untagged still blocks Shorts for free. Uni
   profile writes, and extension-storage edits. It does **not** cryptographically stop a user from
   patching their own local extension/app binary; server-side account state, cross-device sync, and any
   backend-facing Pro features remain authoritative.
+- **Browser storage compatibility:** Chrome should prefer service-worker memory +
+  `chrome.storage.session`; Safari/Firefox may need local extension storage. That fallback is acceptable
+  only because the persisted artifact is a server-signed token with TTL/subject verification, never an
+  unsigned `pro:true` boolean.
 - *Why:* the natural "put `pro` in the synced `StillSettings`" lands it in `chrome.storage.local`, which
   `applyRemote()` accepts from `onChanged` on any newer `updatedAt` — a user could set `pro:true` via
   DevTools and even sync it to the cloud. That breaks principle 10 trivially.
@@ -268,9 +272,10 @@ the popup *is* the surface; render it as an overlay, not a content swap.
 - **Sign-in intercept:** tapping **[Unlock Pro]** while unauthenticated shows the passwordless options
   (SIWA / Google / magic-link) **inline in the sheet** (or `SignInSheet` stacked with back-nav), then
   proceeds to purchase. (Principle 8 — sign in before pay.)
-- **Purchase states:** **in-flight** → button spinner + disabled; **success** → brief "Unlocked" → sheet
-  dismisses ~1s → popup re-renders Pro (fast-path local receipt); **error** → button returns to default
-  + a calm inline line ("Couldn't complete — try again"), no dismiss; **user-cancelled** → silent.
+- **Purchase states:** **in-flight** → button spinner + disabled; **local purchase success while backend
+  pending** → "checking your purchase…" state, no Pro render yet; **server-confirmed success** → brief
+  "Unlocked" → sheet dismisses ~1s → popup re-renders Pro; **error** → button returns to default + a
+  calm inline line ("Couldn't complete — try again"), no dismiss; **user-cancelled** → silent.
 - **Restore states:** loading → **found** (same as success) | **none** ("No prior purchase — try signing
   in", sheet stays) | **error** ("Couldn't check — try again").
 - **Anti-steering enforcement:** the **Web Billing CTA is compiled OUT on the iOS/Safari-app target**
@@ -286,9 +291,9 @@ the popup *is* the surface; render it as an overlay, not a content swap.
   check is the actual guard against the double charge.
 - **Refund / revocation:** webhook clears the entitlement → reverts to free on next reconcile; **offline
   ceiling = the 30-day TTL** (then downgrade to free).
-- **TRANSFER events** can move the entitlement between `app_user_id`s on link/merge, briefly flipping a
-  paid user to unpaid mid-session — handle in the webhook + reconcile; surface nothing jarring (keep Pro
-  from cache until a definitive false).
+- **TRANSFER events** can move the entitlement between `app_user_id`s on link/merge. Current webhook code
+  already reconciles both sides; the signed-token/cache work must preserve that behavior and avoid
+  jarring mid-session UI changes (keep Pro from cache until a definitive false).
 - **Account deletion:** existing flow removes the account + entitlement.
 - **Apple 3.1.3(b):** offer the IAP in-app; *may* honor web-bought `pro`; never advertise the web price
   on iOS (enforced by the §8 compile-out).
@@ -314,8 +319,8 @@ the popup *is* the surface; render it as an overlay, not a content swap.
 - **U8 — Web checkout + guards.** RC Web Billing from the non-Apple paywall via authenticated
   `create-web-checkout`; `app_user_id` is derived server-side from the verified JWT subject
   (session-first); web→extension handoff; **iOS online-check-before-IAP** double-charge guard.
-- **U9 — Backend entitlement.** Webhook `TRANSFER` + write to the server-only store; reconcile writes
-  tri-state; TTL constant; deno tests.
+- **U9 — Backend entitlement.** Preserve webhook `TRANSFER` coverage + write to the server-only store;
+  reconcile writes tri-state; TTL constant; deno tests.
 - **U10 — Extension auth+sync+entitlement spine.** *Net-new, not a small add* — the Chrome/Safari popup's
   `createUiController` has **no auth/sync/entitlement** today (`canPurchase:false`); build Supabase
   auth (magic-link/Google) + reconcile + entitlement read in the popup/background worker.
