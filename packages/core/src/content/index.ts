@@ -71,7 +71,11 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     // we add nothing (off/paused users must not see content hidden-then-revealed).
     if (!hydrated) return;
     const url = new URL(win.location.href);
-    const pro = deps.entitlement?.current() ?? true;
+    // Fail CLOSED on the monetization gate: with no entitlement source wired we treat the user as
+    // free (Pro surfaces stay visible) rather than granting Pro by default. Both extensions pass an
+    // EntitlementCache; the app-webview path gates Pro via UiController.entitled, not here. A caller
+    // that genuinely wants all surfaces must pass InMemoryEntitlementAdapter(true) explicitly.
+    const pro = deps.entitlement?.current() ?? false;
     const opts = { pro };
     const decision = evaluate(ruleSet, cache.current(), url, opts);
     switch (decision.kind) {

@@ -107,8 +107,10 @@ describe("content script — redirect + SPA navigation (U7)", () => {
 
   it("the TikTok whole-site block shows the 'blocked' copy, not the cleared copy", async () => {
     const win = makeWin("https://www.tiktok.com/foryou");
+    // TikTok blockSite is a Pro surface — an entitled user is what exercises the whole-site block.
     const cs = createContentScript({
-      win, doc: document, ruleSet, cache: cacheWith(null), redirectPort: { replace: vi.fn() }, schedule: sync,
+      win, doc: document, ruleSet, cache: cacheWith(null), entitlement: entitlementWith(true),
+      redirectPort: { replace: vi.fn() }, schedule: sync,
     });
     await cs.start();
     const ph = document.querySelector("#still-placeholder");
