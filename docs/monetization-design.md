@@ -157,6 +157,9 @@ A rule-set with the YT-Shorts surface untagged still blocks Shorts for free. Uni
 - **Webhook auth gotcha:** the handler compares the raw `Authorization` header against the secret with a
   constant-time check — the RC dashboard token must match **exactly** (a stray `Bearer ` prefix → 401 →
   silent entitlement stall). Document the expected header format for the implementer.
+- **Webhook PII minimization:** `revenuecat_events` is an idempotency/audit log, not a billing-data
+  archive. Store only event id/type plus UUID candidates needed for support/debugging; do not persist
+  raw `customerInfo`, subscriber attributes, email, or Stripe/billing metadata from webhook bodies.
 - **Web Billing [DECIDED]:** enable RC Web Billing → Stripe → `still_sync_web` $1.99 + tax; use the hosted
   checkout via the authenticated `create-web-checkout` Edge Function. The function derives
   `app_user_id` from the verified Supabase JWT subject and ignores any client-supplied user id/product

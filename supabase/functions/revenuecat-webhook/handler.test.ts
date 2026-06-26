@@ -18,10 +18,12 @@ type Write = { userId: string; stillSync: boolean; source: string };
 function mockStore() {
   const events = new Set<string>();
   const writes: Write[] = [];
+  const payloads: unknown[] = [];
   const store: EntitlementStore = {
-    recordEvent(eventId) {
+    recordEvent(eventId, _appUserId, payload) {
       if (events.has(eventId)) return Promise.resolve(false);
       events.add(eventId);
+      payloads.push(payload);
       return Promise.resolve(true);
     },
     setEntitlement(userId, stillSync, source) {
@@ -29,7 +31,7 @@ function mockStore() {
       return Promise.resolve();
     },
   };
-  return { store, writes };
+  return { store, writes, payloads };
 }
 
 function mockRc(subs: Record<string, RcSubscriber | null>): RevenueCatClient {
@@ -123,6 +125,34 @@ Deno.test("forged client customerInfo cannot grant (server lookup wins)", async 
     { token: TOKEN, store, rc: mockRc({ [A]: inactiveSub }) },
   );
   assertEquals(writes[0]?.stillSync, false);
+});
+
+Deno.test("webhook audit log stores a minimized payload, not raw billing/customerInfo fields", async () => {
+  const { store, payloads } = mockStore();
+  await handleWebhook(
+    req({
+      event: {
+        id: "min",
+        type: "INITIAL_PURCHASE",
+        app_user_id: "$RCAnonymousID:abc",
+        aliases: [A, "$RCAnonymousID:def"],
+      },
+      customerInfo: { entitlements: { still_sync: { active: true } } },
+      subscriber_attributes: { email: { value: "buyer@example.com" } },
+    }),
+    { token: TOKEN, store, rc: mockRc({ [A]: activeSub }) },
+  );
+  assertEquals(payloads[0], {
+    event: {
+      id: "min",
+      type: "INITIAL_PURCHASE",
+      app_user_id: null,
+      original_app_user_id: null,
+      aliases: [A],
+      transferred_from: [],
+      transferred_to: [],
+    },
+  });
 });
 
 Deno.test("malformed JSON body → 400", async () => {

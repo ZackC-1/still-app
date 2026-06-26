@@ -1,7 +1,7 @@
 import { constantTimeEqual } from "../_shared/token.ts";
 import { type RevenueCatClient, stillSyncActive } from "../_shared/revenuecat.ts";
 import { type EntitlementStore, jsonResponse } from "../_shared/store.ts";
-import { affectedUuids, type RcWebhookBody } from "../_shared/types.ts";
+import { affectedUuids, isUuid, type RcWebhookBody, type RcWebhookEvent } from "../_shared/types.ts";
 
 // RevenueCat webhook (verify_jwt=false). Gated by a constant-time static-token compare (KTD5),
 // idempotent on the event id, and ALWAYS derives entitlement from a server-side subscriber lookup
@@ -34,12 +34,15 @@ export async function handleWebhook(req: Request, deps: WebhookDeps): Promise<Re
     return jsonResponse(400, { error: "invalid_event" });
   }
 
-  // Idempotency: a duplicate event id is acknowledged without reprocessing.
-  const isNew = await deps.store.recordEvent(event.id, event.app_user_id ?? "", body);
+  const uuids = affectedUuids(event);
+
+  // Idempotency: a duplicate event id is acknowledged without reprocessing. Store only a minimized
+  // audit payload; raw RevenueCat webhook bodies may contain billing/subscriber metadata we do not
+  // need for entitlement projection.
+  const isNew = await deps.store.recordEvent(event.id, uuids[0] ?? "", redactedWebhookAuditPayload(event));
   if (!isNew) return jsonResponse(200, { status: "duplicate" });
 
   // Reconcile every affected UUID from canonical subscriber state (collapses out-of-order races).
-  const uuids = affectedUuids(event);
   for (const uuid of uuids) {
     const subscriber = await deps.rc.getSubscriber(uuid);
     await deps.store.setEntitlement(
@@ -50,4 +53,19 @@ export async function handleWebhook(req: Request, deps: WebhookDeps): Promise<Re
     );
   }
   return jsonResponse(200, { status: "ok", reconciled: uuids.length });
+}
+
+function redactedWebhookAuditPayload(event: RcWebhookEvent): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    event: {
+      id: event.id,
+      type: event.type,
+      app_user_id: isUuid(event.app_user_id) ? event.app_user_id : null,
+      original_app_user_id: isUuid(event.original_app_user_id) ? event.original_app_user_id : null,
+      aliases: (event.aliases ?? []).filter(isUuid),
+      transferred_from: (event.transferred_from ?? []).filter(isUuid),
+      transferred_to: (event.transferred_to ?? []).filter(isUuid),
+    },
+  };
+  return out;
 }
