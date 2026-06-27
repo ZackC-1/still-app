@@ -41,6 +41,11 @@ export interface ContentScriptDeps {
   readonly blockedLine?: string;
   /** Override the observer's coalescing scheduler (tests pass a synchronous one). */
   readonly schedule?: Scheduler;
+  /**
+   * Safari has no network-layer DNR redirect. Let Safari opt into a synchronous, best-effort
+   * YouTube Shorts redirect using the cache's current snapshot before async storage hydration.
+   */
+  readonly redirectBeforeHydration?: boolean;
 }
 
 export interface ContentScriptHandle {
@@ -103,8 +108,20 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     }
   };
 
+  const redirectCurrentShortsUrl = (): void => {
+    const url = new URL(win.location.href);
+    if (!isYouTubeShortsUrl(url)) return;
+    const decision = evaluate(ruleSet, cache.current(), url, { pro: false });
+    if (decision.kind !== "redirect") return;
+    if (lastRedirect === decision.url) return;
+    lastRedirect = decision.url;
+    redirectPort.replace(decision.url);
+  };
+
   return {
     async start(): Promise<void> {
+      if (deps.redirectBeforeHydration) redirectCurrentShortsUrl();
+
       // Install hooks synchronously at document_start; their reapply calls are no-ops until hydrated.
       teardowns.push(installNavigationHooks(win, reapply));
       const observer = createReapplyObserver(win, doc, reapply, deps.schedule);
@@ -126,6 +143,12 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     },
     reapply,
   };
+}
+
+function isYouTubeShortsUrl(url: URL): boolean {
+  return url.hostname === "youtube.com" || url.hostname.endsWith(".youtube.com")
+    ? url.pathname.startsWith("/shorts/")
+    : false;
 }
 
 export {

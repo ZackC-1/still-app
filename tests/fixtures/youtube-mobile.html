@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>YouTube mobile fixture</title>
+  </head>
+  <body>
+    <ytm-pivot-bar-renderer role="tablist">
+      <ytm-pivot-bar-item-renderer id="home-tab">
+        <div class="pivot-bar-item-tab pivot-w2w">Home</div>
+      </ytm-pivot-bar-item-renderer>
+      <ytm-pivot-bar-item-renderer id="shorts-tab">
+        <div class="pivot-bar-item-tab pivot-shorts">Shorts</div>
+      </ytm-pivot-bar-item-renderer>
+    </ytm-pivot-bar-renderer>
+
+    <main>
+      <ytm-rich-section-renderer id="mobile-shorts-section">
+        <div class="rich-section-content">
+          <ytm-shorts-lockup-view-model>
+            <a href="/shorts/abc123">a mobile short</a>
+          </ytm-shorts-lockup-view-model>
+        </div>
+      </ytm-rich-section-renderer>
+      <ytm-video-with-context-renderer id="mobile-shorts-result">
+        <a href="/shorts/def456">a mobile Shorts result</a>
+      </ytm-video-with-context-renderer>
+      <ytm-video-with-context-renderer id="mobile-keep-video">
+        <a href="/watch?v=long123">A real long-form mobile video</a>
+      </ytm-video-with-context-renderer>
+    </main>
+  </body>
+</html>

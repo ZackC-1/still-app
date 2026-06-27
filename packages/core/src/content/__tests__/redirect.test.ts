@@ -222,6 +222,56 @@ describe("content script — redirect + SPA navigation (U7)", () => {
 // U3: the redirect must NOT silently no-op when a navigation fires before hydration — the unconditional
 // post-hydration reapply has to pick it up. These lock that boundary behavior with a controllable hydrate.
 describe("content script — hydration boundary (U3)", () => {
+  it("Safari mode redirects a direct mobile Shorts URL before storage hydration", async () => {
+    const win = makeWin("https://m.youtube.com/shorts/mobile123");
+    const redirectPort = { replace: vi.fn() };
+    const { cache, release } = gatedCache(null);
+    const cs = createContentScript({
+      win,
+      doc: document,
+      ruleSet,
+      cache,
+      redirectPort,
+      schedule: sync,
+      redirectBeforeHydration: true,
+    });
+    const pending = cs.start();
+
+    expect(redirectPort.replace).toHaveBeenCalledTimes(1);
+    expect(redirectPort.replace).toHaveBeenCalledWith("https://m.youtube.com/watch?v=mobile123");
+
+    release();
+    await pending;
+    expect(redirectPort.replace).toHaveBeenCalledTimes(1);
+    cs.stop();
+  });
+
+  it("Safari mode does not pre-hydration redirect when the synchronous snapshot has YouTube off", async () => {
+    const off: StillSettings = {
+      ...DEFAULT_SETTINGS,
+      services: { youtube: false, instagram: true, tiktok: true, facebook: true },
+      updatedAt: 1,
+    };
+    const win = makeWin("https://m.youtube.com/shorts/mobile123");
+    const redirectPort = { replace: vi.fn() };
+    const cache = new SettingsCache(new InMemoryStorageAdapter(null), { now: () => Date.now(), initial: off });
+    const cs = createContentScript({
+      win,
+      doc: document,
+      ruleSet,
+      cache,
+      redirectPort,
+      schedule: sync,
+      redirectBeforeHydration: true,
+    });
+    const pending = cs.start();
+
+    expect(redirectPort.replace).not.toHaveBeenCalled();
+    await pending;
+    expect(redirectPort.replace).not.toHaveBeenCalled();
+    cs.stop();
+  });
+
   it("an early navigation is redirected after hydration, not during the pre-hydration window", async () => {
     const win = makeWin("https://www.youtube.com/feed/subscriptions");
     const redirectPort = { replace: vi.fn() };

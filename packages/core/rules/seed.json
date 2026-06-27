@@ -31,7 +31,8 @@
             "ytd-guide-entry-renderer:has(a[title=\"Shorts\"])",
             "ytd-mini-guide-entry-renderer:has(a[title=\"Shorts\"])",
             "a#endpoint[title=\"Shorts\"]",
-            "ytm-pivot-bar-item-renderer:has(a[href=\"/shorts\"])"
+            "ytm-pivot-bar-item-renderer:has(a[href=\"/shorts\"])",
+            "ytm-pivot-bar-item-renderer:has(.pivot-shorts)"
           ]
         },
         {
@@ -44,7 +45,12 @@
           "selectors": [
             "ytd-reel-shelf-renderer",
             "ytd-rich-section-renderer:has(ytd-rich-shelf-renderer[is-shorts])",
-            "ytm-reel-shelf-renderer"
+            "ytm-reel-shelf-renderer",
+            "ytm-rich-section-renderer:has(a[href^=\"/shorts/\"])",
+            "ytm-rich-section-renderer:has(ytm-shorts-lockup-view-model)",
+            "ytm-shorts-lockup-view-model",
+            "ytm-video-with-context-renderer:has(a[href^=\"/shorts/\"])",
+            "ytm-rich-item-renderer:has(a[href^=\"/shorts/\"])"
           ]
         },
         {
@@ -56,7 +62,10 @@
           "enabledByDefault": true,
           "selectors": [
             "ytd-reel-shelf-renderer",
-            "ytd-video-renderer:has(a[href^=\"/shorts/\"])"
+            "ytd-video-renderer:has(a[href^=\"/shorts/\"])",
+            "ytm-shorts-lockup-view-model",
+            "ytm-video-with-context-renderer:has(a[href^=\"/shorts/\"])",
+            "ytm-rich-item-renderer:has(a[href^=\"/shorts/\"])"
           ]
         },
         {
@@ -261,6 +270,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "49de32dbac6d415810d819f7b10d3b1d06fb982fb618e7e03b2eefffb148e81b149c0a5c91f08254dc7929809cc32e6ef66c0848325e250da5f50800fd51c00d"
+    "value": "5f49e46ae71ee40733affb3d3c3b7d2745368df2e02deccc650871bb0513018a862e82b33d872d593b7f59a57401a8895fb3eb0f7290e12454b382988822ae02"
   }
 }
