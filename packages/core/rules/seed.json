@@ -116,7 +116,7 @@
           "requiredCapability": "surface.instagram.reels",
           "action": "placeholder",
           "enabledByDefault": true,
-          "urlMatch": "^/reels?(/|$)"
+          "urlMatch": "^/(?:reels?|[^/]+/reels)(/|$)"
         },
         {
           "id": "ig-nav",
@@ -127,7 +127,9 @@
           "enabledByDefault": true,
           "selectors": [
             "a[href=\"/reels/\"]",
+            "a[href^=\"/reels/\"]",
             "a:has(svg[aria-label=\"Reels\"])",
+            "a[aria-label*=\"reels\" i]",
             "[role=\"tablist\"] a[href*=\"/reels\"]"
           ]
         },
@@ -151,7 +153,8 @@
           "enabledByDefault": true,
           "selectors": [
             "a[href^=\"/reel/\"]:has(span[aria-label*=\"Clip\"])",
-            "a[href^=\"/reel/\"] > div > svg[aria-label=\"Clip\"]"
+            "a[href^=\"/reel/\"] > div > svg[aria-label=\"Clip\"]",
+            "a[href^=\"/reel/\"]:has(svg[aria-label=\"Clip\"])"
           ]
         },
         {
@@ -206,7 +209,7 @@
           "requiredCapability": "surface.facebook.reels",
           "action": "placeholder",
           "enabledByDefault": true,
-          "urlMatch": "^/reel/"
+          "urlMatch": "^/(?:reels?|watch/reels)(/|$)"
         },
         {
           "id": "fb-feed",
@@ -216,7 +219,9 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "div[role=\"article\"]:has(a[href*=\"/reel/\"])"
+            "div[role=\"article\"]:has(a[href*=\"/reel/\"])",
+            "div[role=\"article\"]:has(a[href*=\"/reels/\"])",
+            "[role=\"feed\"] [role=\"article\"]:has(a[href*=\"/reel\"])"
           ]
         },
         {
@@ -228,6 +233,8 @@
           "enabledByDefault": true,
           "selectors": [
             "a[aria-label=\"Reels\"]",
+            "a[aria-label*=\"Reels\" i]",
+            "a[href*=\"/reels/\"]",
             "li:has(> a[href*=\"/reel\"])"
           ]
         },
@@ -239,7 +246,8 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "div:has(> a[href*=\"/reel/\"])"
+            "div:has(> a[href*=\"/reel/\"])",
+            "div:has(> a[href*=\"/reels/\"])"
           ]
         },
         {
@@ -250,7 +258,8 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "div[role=\"article\"]:has(a[href*=\"/reel/\"])"
+            "div[role=\"article\"]:has(a[href*=\"/reel/\"])",
+            "div[role=\"article\"]:has(a[href*=\"/reels/\"])"
           ]
         },
         {
@@ -261,7 +270,8 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "div[role=\"article\"]:has(a[href*=\"/reel/\"])"
+            "div[role=\"article\"]:has(a[href*=\"/reel/\"])",
+            "div[role=\"article\"]:has(a[href*=\"/reels/\"])"
           ]
         }
       ]
@@ -270,6 +280,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "5f49e46ae71ee40733affb3d3c3b7d2745368df2e02deccc650871bb0513018a862e82b33d872d593b7f59a57401a8895fb3eb0f7290e12454b382988822ae02"
+    "value": "7c58f020f8d8d3664cc82303c86fb657cb53a2f8c33ff858209397916773829714db3605af217682998f00b55468a54f4a08499c0dedc51605b35e50da1a2a02"
   }
 }

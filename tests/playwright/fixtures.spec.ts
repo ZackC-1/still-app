@@ -78,6 +78,20 @@ test("instagram: Pro user removes an inline Reel + hides the Reels nav, keeps a 
   await expect(page.locator("#reels-link")).toBeHidden();
 });
 
+test("instagram mobile: Pro user blocks Reels routes and removes mobile Reels surfaces", async ({ context, extensionId }) => {
+  await setEntitled(context, extensionId, true);
+  const page = await context.newPage();
+  await serve(page, "**://*.instagram.com/**", fixture("instagram-mobile.html"));
+
+  await page.goto("https://www.instagram.com/");
+  await expect(page.locator("#ig-mobile-reel")).toHaveCount(0);
+  await expect(page.locator("#ig-mobile-post")).toBeVisible();
+  await expect(page.locator("#ig-mobile-reels")).toBeHidden();
+
+  await page.goto("https://www.instagram.com/someuser/reels/");
+  await expect(page.locator("#still-placeholder")).toBeVisible();
+});
+
 test("facebook: free user keeps Pro Reels surfaces untouched", async ({ context }) => {
   const page = await context.newPage();
   await serve(page, "**://*.facebook.com/**", fixture("facebook.html"));
@@ -100,6 +114,20 @@ test("facebook: Pro user removes a Reel article + hides the Reels shortcut, keep
   await expect(page.locator("#reels-shortcut")).toBeHidden();
 });
 
+test("facebook mobile: Pro user blocks Reels routes and removes mobile Reels sections", async ({ context, extensionId }) => {
+  await setEntitled(context, extensionId, true);
+  const page = await context.newPage();
+  await serve(page, "**://*.facebook.com/**", fixture("facebook-mobile.html"));
+
+  await page.goto("https://m.facebook.com/");
+  await expect(page.locator("#fb-mobile-reel")).toHaveCount(0);
+  await expect(page.locator("#fb-mobile-post")).toBeVisible();
+  await expect(page.locator("#fb-mobile-reels")).toBeHidden();
+
+  await page.goto("https://m.facebook.com/watch/reels/");
+  await expect(page.locator("#still-placeholder")).toBeVisible();
+});
+
 test("tiktok: free user keeps the Pro whole-site block untouched", async ({ context }) => {
   const page = await context.newPage();
   await serve(page, "**://*.tiktok.com/**", fixture("tiktok.html"));
@@ -114,6 +142,16 @@ test("tiktok: Pro user gets the Still placeholder", async ({ context, extensionI
   const page = await context.newPage();
   await serve(page, "**://*.tiktok.com/**", fixture("tiktok.html"));
   await page.goto("https://www.tiktok.com/foryou");
+
+  await expect(page.locator("#still-placeholder")).toBeVisible();
+  await expect(page.locator("#tiktok-feed")).toHaveCount(0);
+});
+
+test("tiktok mobile: Pro user gets the Still placeholder on m.tiktok.com", async ({ context, extensionId }) => {
+  await setEntitled(context, extensionId, true);
+  const page = await context.newPage();
+  await serve(page, "**://*.tiktok.com/**", fixture("tiktok.html"));
+  await page.goto("https://m.tiktok.com/foryou");
 
   await expect(page.locator("#still-placeholder")).toBeVisible();
   await expect(page.locator("#tiktok-feed")).toHaveCount(0);
