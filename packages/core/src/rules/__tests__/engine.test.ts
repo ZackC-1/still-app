@@ -62,9 +62,11 @@ describe("evaluate — navigation decisions", () => {
   it("blocks the whole site on TikTok — marked as blocked (not merely cleared)", () => {
     const a = evaluate(ruleSet, allOn, new URL("https://www.tiktok.com/foryou"));
     const b = evaluate(ruleSet, allOn, new URL("https://www.tiktok.com/@someone"));
+    const c = evaluate(ruleSet, allOn, new URL("https://m.tiktok.com/"));
     expect(a).toEqual({ kind: "placeholder", blocked: true });
     expect(b.kind).toBe("placeholder");
     expect(b).toMatchObject({ blocked: true });
+    expect(c).toMatchObject({ kind: "placeholder", blocked: true });
   });
 
   it("placeholders direct Instagram Reels URLs (cleared, not a whole-site block)", () => {
@@ -72,10 +74,13 @@ describe("evaluate — navigation decisions", () => {
     expect(d.kind).toBe("placeholder");
     expect(d).not.toMatchObject({ blocked: true }); // a cleared URL, not a site block
     expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reels/")).kind).toBe("placeholder");
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/someuser/reels/")).kind).toBe("placeholder");
   });
 
   it("placeholders a direct Facebook Reel URL", () => {
     expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reel/123")).kind).toBe("placeholder");
+    expect(evaluate(ruleSet, allOn, new URL("https://m.facebook.com/reels/")).kind).toBe("placeholder");
+    expect(evaluate(ruleSet, allOn, new URL("https://m.facebook.com/watch/reels/")).kind).toBe("placeholder");
   });
 
   it("is a no-op on an unknown domain", () => {
@@ -257,6 +262,42 @@ describe("applyDom", () => {
     applyDom(ruleSet, allOn, new URL("https://m.youtube.com/"), document);
     expect((document.querySelector("#shorts-tab") as HTMLElement).style.display).toBe("none");
     expect((document.querySelector("#home-tab") as HTMLElement).style.display).toBe("");
+  });
+
+  it("removes mobile Instagram Reels surfaces while keeping normal mobile posts", () => {
+    document.body.innerHTML = `
+      <nav>
+        <a id="ig-reels-nav" href="/reels/" aria-label="Reels">Reels</a>
+        <a id="ig-home-nav" href="/">Home</a>
+      </nav>
+      <main>
+        <article id="ig-reel"><a href="/reel/abc">a reel</a></article>
+        <article id="ig-post"><a href="/p/photo">a photo</a></article>
+      </main>
+    `;
+    applyDom(ruleSet, allOn, new URL("https://www.instagram.com/"), document, { pro: true });
+    expect(document.querySelector("#ig-reel")).toBeNull();
+    expect(document.querySelector("#ig-post")).not.toBeNull();
+    expect((document.querySelector("#ig-reels-nav") as HTMLElement).style.display).toBe("none");
+    expect((document.querySelector("#ig-home-nav") as HTMLElement).style.display).toBe("");
+  });
+
+  it("removes mobile Facebook Reels surfaces while keeping normal mobile feed posts", () => {
+    document.body.innerHTML = `
+      <nav>
+        <a id="fb-reels-nav" href="/reels/" aria-label="Reels">Reels</a>
+        <a id="fb-home-nav" href="/">Home</a>
+      </nav>
+      <main role="feed">
+        <div role="article" id="fb-reel"><a href="/reels/abc">a reel</a></div>
+        <div role="article" id="fb-post"><a href="/story.php?story_fbid=1">a status</a></div>
+      </main>
+    `;
+    applyDom(ruleSet, allOn, new URL("https://m.facebook.com/"), document, { pro: true });
+    expect(document.querySelector("#fb-reel")).toBeNull();
+    expect(document.querySelector("#fb-post")).not.toBeNull();
+    expect((document.querySelector("#fb-reels-nav") as HTMLElement).style.display).toBe("none");
+    expect((document.querySelector("#fb-home-nav") as HTMLElement).style.display).toBe("");
   });
 
   it("does nothing when the service is off", () => {
