@@ -43,6 +43,19 @@ test("youtube: a Shorts URL ends up on the watch page (redirect)", async ({ cont
   await expect(page).toHaveURL(/\/watch\?v=abc123/);
 });
 
+test("youtube mobile: removes Shorts tab and mobile Shorts cards, keeps normal videos", async ({ context }) => {
+  const page = await context.newPage();
+  await serve(page, "**://*.youtube.com/**", fixture("youtube-mobile.html"));
+  await page.goto("https://m.youtube.com/");
+
+  await expect(page.locator("#shorts-tab")).toBeHidden();
+  await expect(page.locator("#home-tab")).toBeVisible();
+  await expect(page.locator("#mobile-shorts-section")).toHaveCount(0);
+  await expect(page.locator("#mobile-shorts-result")).toHaveCount(0);
+  await expect(page.locator("#mobile-keep-video")).toBeVisible();
+  await expect(page.locator("html")).toHaveClass(/still-active/);
+});
+
 test("instagram: free user keeps Pro Reels surfaces untouched", async ({ context }) => {
   const page = await context.newPage();
   await serve(page, "**://*.instagram.com/**", fixture("instagram.html"));

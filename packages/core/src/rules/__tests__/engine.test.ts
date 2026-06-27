@@ -171,6 +171,22 @@ describe("evaluate/applyDom — monetization gating", () => {
     expect(document.querySelector("#shelf")).toBeNull();
   });
 
+  it("removes mobile YouTube Shorts tiles and sections while keeping normal mobile videos", () => {
+    document.body.innerHTML = `
+      <ytm-rich-section-renderer id="mobile-shelf">
+        <ytm-shorts-lockup-view-model><a href="/shorts/abc">Short</a></ytm-shorts-lockup-view-model>
+      </ytm-rich-section-renderer>
+      <ytm-video-with-context-renderer id="mobile-short"><a href="/shorts/def">Short result</a></ytm-video-with-context-renderer>
+      <ytm-video-with-context-renderer id="mobile-video"><a href="/watch?v=long">Long result</a></ytm-video-with-context-renderer>
+    `;
+
+    applyDom(ruleSet, allOn, new URL("https://m.youtube.com/results?search_query=shorts"), document, { pro: false });
+
+    expect(document.querySelector("#mobile-shelf")).toBeNull();
+    expect(document.querySelector("#mobile-short")).toBeNull();
+    expect(document.querySelector("#mobile-video")).not.toBeNull();
+  });
+
   it("does not apply Pro services for free users", () => {
     expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reel/XYZ/"), { pro: false }).kind).toBe("noop");
     expect(evaluate(ruleSet, allOn, new URL("https://www.tiktok.com/foryou"), { pro: false }).kind).toBe("noop");
@@ -233,6 +249,16 @@ describe("applyDom", () => {
     expect(el!.style.display).toBe("none");
   });
 
+  it("hides the mobile Shorts pivot item by its mobile class", () => {
+    document.body.innerHTML = `
+      <ytm-pivot-bar-item-renderer id="shorts-tab"><div class="pivot-bar-item-tab pivot-shorts">Shorts</div></ytm-pivot-bar-item-renderer>
+      <ytm-pivot-bar-item-renderer id="home-tab"><div class="pivot-bar-item-tab pivot-w2w">Home</div></ytm-pivot-bar-item-renderer>
+    `;
+    applyDom(ruleSet, allOn, new URL("https://m.youtube.com/"), document);
+    expect((document.querySelector("#shorts-tab") as HTMLElement).style.display).toBe("none");
+    expect((document.querySelector("#home-tab") as HTMLElement).style.display).toBe("");
+  });
+
   it("does nothing when the service is off", () => {
     document.body.innerHTML = `<ytd-reel-shelf-renderer id="shelf"></ytd-reel-shelf-renderer>`;
     applyDom(ruleSet, settings({ services: servicesWith("youtube") }), new URL("https://www.youtube.com/"), document);
@@ -251,6 +277,7 @@ describe("generateHideCss (KTD2)", () => {
 
   it("includes hide-surface selectors but not remove/redirect/placeholder ones", () => {
     expect(css).toContain("ytd-guide-entry-renderer"); // yt-sidebar (hide)
+    expect(css).toContain("ytm-pivot-bar-item-renderer:has(.pivot-shorts)");
     expect(css).not.toContain("ytd-reel-shelf-renderer"); // remove-only surface
   });
 

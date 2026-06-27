@@ -3,6 +3,7 @@ html.still-active ytd-guide-entry-renderer:has(a[title="Shorts"]){display:none!i
 html.still-active ytd-mini-guide-entry-renderer:has(a[title="Shorts"]){display:none!important}
 html.still-active a#endpoint[title="Shorts"]{display:none!important}
 html.still-active ytm-pivot-bar-item-renderer:has(a[href="/shorts"]){display:none!important}
+html.still-active ytm-pivot-bar-item-renderer:has(.pivot-shorts){display:none!important}
 html.still-active yt-tab-shape[tab-title="Shorts"]{display:none!important}
 html.still-active tp-yt-paper-tab:has([href$="/shorts"]){display:none!important}
 html.still-active yt-chip-cloud-chip-renderer:has([title="Shorts"]){display:none!important}

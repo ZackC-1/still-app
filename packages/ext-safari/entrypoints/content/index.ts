@@ -43,6 +43,7 @@ export default defineContentScript({
       ruleSet,
       cache,
       entitlement,
+      redirectBeforeHydration: true,
     });
     void script.start();
 
