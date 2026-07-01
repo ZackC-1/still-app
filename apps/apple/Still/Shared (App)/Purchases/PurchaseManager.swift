@@ -2,7 +2,7 @@
 //  PurchaseManager.swift
 //  Shared (App)
 //
-//  The native StoreKit 2 / RevenueCat purchase layer for Still Sync (U19). RevenueCat is configured
+//  The native StoreKit 2 / RevenueCat purchase layer for Still Pro (U19). RevenueCat is configured
 //  ONLY after sign-in, with the Supabase user UUID as the app_user_id (KTD5) — never anonymously —
 //  so a purchase is always tied to the account the RevenueCat→Supabase webhook (U14) projects the
 //  entitlement onto. The shipped UI gates the buy CTA on a signed-in session; this type assumes that
@@ -23,8 +23,10 @@ import StillKit
 final class PurchaseManager {
   static let shared = PurchaseManager()
 
-  /// The single non-consumable product + its RevenueCat entitlement id (match Still.storekit and the
-  /// planned App Store Connect product / RevenueCat entitlement).
+  /// The single non-consumable product + its RevenueCat entitlement id (match Still.storekit, the
+  /// App Store Connect product, and the RevenueCat entitlement). The user-facing name is "Still
+  /// Pro"; these INTERNAL ids stay `still_sync` — the ASC product id is immutable and the deployed
+  /// webhook/DB derive entitlement from this exact key (monetization-design §5: do NOT rename).
   static let productID = "still_sync"
   static let entitlementID = "still_sync"
 
@@ -70,9 +72,9 @@ final class PurchaseManager {
     Purchases.shared.logOut { _, _ in } // back to an anonymous RevenueCat id; no entitlements
   }
 
-  /// Whether Still Sync is active per RevenueCat — the immediate purchase-feedback gate only. Rejects when no
+  /// Whether Still Pro is active per RevenueCat — the immediate purchase-feedback gate only. Rejects when no
   /// user is configured (signed out), so a stale bridge caller can't probe a previous account.
-  func hasStillSync() async -> Bool {
+  func hasStillPro() async -> Bool {
     guard isConfigured, currentAppUserID != nil else { return false }
     let info = try? await Purchases.shared.customerInfo()
     return info?.entitlements[Self.entitlementID]?.isActive == true
@@ -81,13 +83,13 @@ final class PurchaseManager {
   /// The localized store price for still_sync (e.g. "$1.99" / "£1.99"), or nil if the offering isn't
   /// available. The paywall shows this instead of a hardcoded price (App Store / StoreKit guidance).
   func priceString() async -> String? {
-    await stillSyncPackage()?.storeProduct.localizedPriceString
+    await stillProPackage()?.storeProduct.localizedPriceString
   }
 
   /// The current offering's still_sync package, or nil. Deliberately NO fallback to "the first
   /// package": if the offering is misconfigured, an arbitrary package could charge the user for the
   /// wrong product. nil flows to the `.unavailable` outcome instead.
-  private func stillSyncPackage() async -> Package? {
+  private func stillProPackage() async -> Package? {
     guard isConfigured, currentAppUserID != nil else { return nil }
     let offerings = try? await Purchases.shared.offerings()
     let packages = offerings?.current?.availablePackages ?? []
@@ -102,13 +104,13 @@ final class PurchaseManager {
     case failed(String)
   }
 
-  /// Buy Still Sync. The returned `.purchased` acknowledges local StoreKit/RevenueCat success;
+  /// Buy Still Pro. The returned `.purchased` acknowledges local StoreKit/RevenueCat success;
   /// Pro UI/engine authority follows when the webhook writes the Supabase entitlement and the WebView
   /// reconciles.
-  func purchaseStillSync() async -> Outcome {
+  func purchaseStillPro() async -> Outcome {
     let startingUserID = currentAppUserID
-    if await hasStillSync() { return .purchased } // already unlocked elsewhere; do not charge again
-    let package = await stillSyncPackage()
+    if await hasStillPro() { return .purchased } // already unlocked elsewhere; do not charge again
+    let package = await stillProPackage()
     switch PurchaseDecision.readiness(
       isConfigured: isConfigured,
       startingAppUserID: startingUserID,
@@ -134,10 +136,10 @@ final class PurchaseManager {
     }
   }
 
-  /// Restore purchases (the visible restore affordance, R8). Returns whether Still Sync is now active.
+  /// Restore purchases (the visible restore affordance, R8). Returns whether Still Pro is now active.
   func restore() async -> Bool {
     let startingUserID = currentAppUserID
-    if await hasStillSync() { return true }
+    if await hasStillPro() { return true }
     guard PurchaseDecision.readiness(
       isConfigured: isConfigured,
       startingAppUserID: startingUserID,

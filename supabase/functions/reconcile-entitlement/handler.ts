@@ -1,5 +1,5 @@
 import { type ExpectedClaims, verifyJwt } from "../_shared/jwt.ts";
-import { type RevenueCatClient, stillSyncActive } from "../_shared/revenuecat.ts";
+import { type RevenueCatClient, stillProActive } from "../_shared/revenuecat.ts";
 import { type EntitlementStore, jsonResponse } from "../_shared/store.ts";
 import { isUuid } from "../_shared/types.ts";
 
@@ -34,7 +34,7 @@ export async function handleReconcile(req: Request, deps: ReconcileDeps): Promis
   // The subject is the verified token's sub. Any user_id in the request body is ignored.
   const userId = claims.sub;
   const subscriber = await deps.rc.getSubscriber(userId);
-  const active = stillSyncActive(subscriber);
+  const active = stillProActive(subscriber);
   await deps.store.setEntitlement(userId, active, "reconcile", subscriber?.original_app_user_id ?? null);
 
   return jsonResponse(200, { still_sync: active });

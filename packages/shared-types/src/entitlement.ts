@@ -7,7 +7,9 @@ export type EntitlementSource = "webhook" | "reconcile" | null;
 export interface Entitlement {
   /** Supabase auth.users UUID — equals the RevenueCat app_user_id. */
   readonly userId: string;
-  /** The single "Still Sync" non-consumable: unlocks cross-device settings sync. */
+  /** The single "Still Pro" non-consumable: unlocks Pro blocking (Instagram/TikTok/Facebook) +
+   * cross-device settings sync. The field mirrors the deployed DB column / RevenueCat entitlement
+   * id `still_sync` — the immutable internal id behind the "Still Pro" label (do NOT rename). */
   readonly stillSync: boolean;
   readonly source: EntitlementSource;
   /** RevenueCat subscriber id, for server-side reconcile lookups. Not user-readable in raw form. */
@@ -16,7 +18,7 @@ export interface Entitlement {
   readonly updatedAt: number;
 }
 
-/** The default for a signed-in user with no purchase: sync locked. */
+/** The default for a signed-in user with no purchase: Pro locked. */
 export const NO_ENTITLEMENT: Omit<Entitlement, "userId"> = {
   stillSync: false,
   source: null,

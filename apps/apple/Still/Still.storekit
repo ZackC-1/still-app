@@ -10,13 +10,13 @@
       "internalID" : "1D3007CB-E486-47A7-9ED5-7341CAB345C5",
       "localizations" : [
         {
-          "description" : "Carries your settings to every device you sign in on. Buy once, no subscription.",
-          "displayName" : "Still Sync",
+          "description" : "Quiets Instagram Reels, TikTok, and Facebook too — with your settings synced on every device. Buy once, no subscription.",
+          "displayName" : "Still Pro",
           "locale" : "en_US"
         }
       ],
       "productID" : "still_sync",
-      "referenceName" : "Still Sync",
+      "referenceName" : "Still Pro",
       "type" : "NonConsumable"
     }
   ],
