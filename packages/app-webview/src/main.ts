@@ -41,8 +41,10 @@ if (supabaseUrl && supabaseAnonKey) {
   const authPort = new SupabaseAuthPort(supabase);
   const backend = new SupabaseBackendPort(supabase);
 
-  // The orchestrator and SyncService reference each other (session projects sync state into the
-  // controller); `session` is assigned before any SyncService method can fire the callback.
+  // The orchestrator, controller, and SyncService form a construction cycle (the session projects
+  // sync state into the controller; the controller's auth actions call the session). Forward-declare
+  // the session — it is assigned before any callback can fire.
+  // eslint-disable-next-line prefer-const -- assigned once below; must be declared before the closures that capture it
   let session: AppleSession;
   const sync = new SyncService(cache, authPort, backend, (state) => session.onSyncState(state));
 
