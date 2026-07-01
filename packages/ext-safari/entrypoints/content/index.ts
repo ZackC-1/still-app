@@ -32,7 +32,7 @@ export default defineContentScript({
     // Apply the newest of {cached, bundled}. The cached set was signature-verified by the background
     // before it was stored; the bundled seed is the trusted offline floor packaged with the signed
     // extension (P1 #6). A fast local storage read — no network on the apply path.
-    const { ruleSet } = await resolveRuleSetForLoad(
+    const { ruleSet, source } = await resolveRuleSetForLoad(
       seed as unknown as SignedRuleSet,
       browser.storage.local,
     );
@@ -44,6 +44,9 @@ export default defineContentScript({
       cache,
       entitlement,
       redirectBeforeHydration: true,
+      // The packaged manifest CSS is generated from the bundled seed: when that's what applies,
+      // the per-frame reapply can skip hide surfaces entirely (CSS owns them) and only run removes.
+      manifestCssOwnsHides: source === "bundled",
     });
     void script.start();
 

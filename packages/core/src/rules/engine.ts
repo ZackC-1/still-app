@@ -134,6 +134,35 @@ export function applyDom(
   doc: Document,
   opts: EngineOptions = {},
 ): ApplyResult {
+  return applyActions(ruleSet, settings, url, doc, opts, /* includeHide */ true);
+}
+
+/**
+ * Remove-action-only apply — the content script's per-mutation-frame fast path when the packaged
+ * manifest CSS already owns every `hide` surface (i.e. the applied rule set IS the bundled one the
+ * CSS was generated from). The CSS engine then hides new nodes natively, so re-running the
+ * hide-selector querySelectorAll sweep over a growing feed DOM every animation frame is pure waste;
+ * only `remove` genuinely needs JS. When a fetched/cached rule set is applied (selectors the
+ * packaged CSS has never seen), callers must use the full applyDom instead.
+ */
+export function applyRemovals(
+  ruleSet: SignedRuleSet,
+  settings: StillSettings,
+  url: URL,
+  doc: Document,
+  opts: EngineOptions = {},
+): ApplyResult {
+  return applyActions(ruleSet, settings, url, doc, opts, /* includeHide */ false);
+}
+
+function applyActions(
+  ruleSet: SignedRuleSet,
+  settings: StillSettings,
+  url: URL,
+  doc: Document,
+  opts: EngineOptions,
+  includeHide: boolean,
+): ApplyResult {
   let hidden = 0;
   let removed = 0;
   const service = resolveActiveService(ruleSet, settings, url);
@@ -141,7 +170,7 @@ export function applyDom(
 
   for (const s of service.surfaces) {
     if (!surfaceEnabledForTier(s, opts) || !s.selectors) continue;
-    if (s.action === "hide") {
+    if (s.action === "hide" && includeHide) {
       for (const sel of s.selectors) {
         for (const el of safeQueryAll(doc, sel)) {
           (el as HTMLElement).style?.setProperty("display", "none", "important");
