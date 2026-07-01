@@ -49,10 +49,10 @@ Docs: [Add a new app](https://developer.apple.com/help/app-store-connect/create-
 ## 2. The In-App Purchase (`still_sync`, $1.99 non-consumable)
 
 1. [ ] App Store Connect → your app → **Monetization → In-App Purchases** → **(+)**.
-2. [ ] **Type:** Non-Consumable. **Reference Name:** "Still Sync" (internal). **Product ID:**
+2. [ ] **Type:** Non-Consumable. **Reference Name:** "Still Pro" (internal). **Product ID:**
        **`still_sync`** ← must exactly match the app code; cannot change later.
 3. [ ] **Pricing:** choose **$1.99** (select all territories).
-4. [ ] **Display Name** + **Description** (shown at purchase): e.g. "Still Sync" / "Unlock Reels,
+4. [ ] **Display Name** + **Description** (shown at purchase): e.g. "Still Pro" / "Unlock Reels,
        TikTok & Facebook blocking + cross-device sync."
 5. [ ] **Review screenshot:** a shot of the in-app paywall (any 640×920+ image is accepted while testing).
 6. [ ] Add at least the **English (U.S.)** localization. Status should reach **Ready to Submit**.
