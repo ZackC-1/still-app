@@ -43,6 +43,7 @@ export {
   type ResolvedRuleSet,
   type RuleSetSource,
 } from "./fetch.js";
+export { serviceHasFreeSurface, proServiceIds, PRO_SERVICE_IDS } from "./tiers.js";
 export {
   ruleSetTrustedKeys,
   ruleSetFetchConfig,

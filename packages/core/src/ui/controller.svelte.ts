@@ -1,5 +1,6 @@
 import type { ServiceId, StillSettings } from "@still/shared-types";
-import { DEFAULT_SETTINGS, PRO_SERVICE_IDS } from "@still/shared-types";
+import { DEFAULT_SETTINGS } from "@still/shared-types";
+import { PRO_SERVICE_IDS } from "../rules/tiers.js";
 import type { SettingsCache } from "../storage/cache.js";
 import type { PurchaseResult } from "../native/bridge.js";
 import { etldPlusOne } from "../rules/match.js";
