@@ -5,6 +5,7 @@ import { DEFAULT_SETTINGS, SERVICE_IDS } from "@still/shared-types";
 import {
   evaluate,
   applyDom,
+  applyRemovals,
   generateHideCss,
   ROOT_ACTIVE_CLASS,
   resolveActiveService,
@@ -207,17 +208,23 @@ describe("evaluate/applyDom — monetization gating", () => {
     expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reel/123"), { pro: true }).kind).toBe("placeholder");
   });
 
-  it("can gate premium surfaces by capability set instead of a single Pro boolean", () => {
-    expect(
-      evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reel/XYZ/"), {
-        capabilities: ["surface.instagram.reels"],
-      }).kind,
-    ).toBe("placeholder");
-    expect(
-      evaluate(ruleSet, allOn, new URL("https://www.tiktok.com/foryou"), {
-        capabilities: ["surface.instagram.reels"],
-      }).kind,
-    ).toBe("noop");
+  it("gates every non-free surface on the single pro flag (no second gating axis)", () => {
+    // requiredCapability tags in the seed are reserved authored data — the engine must ignore them
+    // and gate purely by tier + pro, so tier and capability data can never silently disagree.
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reel/XYZ/"), { pro: false }).kind).toBe("noop");
+    expect(evaluate(ruleSet, allOn, new URL("https://www.tiktok.com/foryou"), { pro: false }).kind).toBe("noop");
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reel/XYZ/"), { pro: true }).kind).toBe("placeholder");
+  });
+
+  it("applyRemovals runs only remove surfaces — hide is left to the packaged manifest CSS", () => {
+    document.body.innerHTML =
+      `<a id="hideme" title="Shorts">Shorts</a>` + // yt-sidebar/chips style hide target
+      `<ytd-reel-shelf-renderer id="removeme"></ytd-reel-shelf-renderer>`; // remove target (yt-home-shelf)
+    const result = applyRemovals(ruleSet, allOn, new URL("https://www.youtube.com/"), document, { pro: false });
+    expect(result.hidden).toBe(0);
+    expect((document.querySelector("#hideme") as HTMLElement | null)?.style.display).not.toBe("none");
+    expect(document.querySelector("#removeme")).toBeNull(); // ytd-reel-shelf-renderer removed
+    expect(result.removed).toBeGreaterThan(0);
   });
 
   it("treats current YouTube Shorts surfaces as free even if tags are missing", () => {

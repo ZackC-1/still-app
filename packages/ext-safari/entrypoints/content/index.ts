@@ -5,7 +5,7 @@ import { EntitlementCache, ChromeEntitlementAdapter } from "@still/core/entitlem
 import { SettingsCache, ChromeStorageAdapter } from "@still/core/storage";
 import seed from "@still/core/seed";
 import type { SignedRuleSet } from "@still/shared-types";
-import { resolveRuleSetForLoad } from "../../lib/rule-set.js";
+import { resolveRuleSetForLoad } from "@still/core/rules";
 
 // The document_start content script for Safari. Same shared engine as Chromium, but on Safari there
 // is no declarativeNetRequest: the Shorts→watch redirect is the content script's own location.replace
@@ -32,7 +32,7 @@ export default defineContentScript({
     // Apply the newest of {cached, bundled}. The cached set was signature-verified by the background
     // before it was stored; the bundled seed is the trusted offline floor packaged with the signed
     // extension (P1 #6). A fast local storage read — no network on the apply path.
-    const { ruleSet } = await resolveRuleSetForLoad(
+    const { ruleSet, source } = await resolveRuleSetForLoad(
       seed as unknown as SignedRuleSet,
       browser.storage.local,
     );
@@ -44,6 +44,9 @@ export default defineContentScript({
       cache,
       entitlement,
       redirectBeforeHydration: true,
+      // The packaged manifest CSS is generated from the bundled seed: when that's what applies,
+      // the per-frame reapply can skip hide surfaces entirely (CSS owns them) and only run removes.
+      manifestCssOwnsHides: source === "bundled",
     });
     void script.start();
 

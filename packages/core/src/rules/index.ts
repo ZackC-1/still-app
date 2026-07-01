@@ -25,6 +25,7 @@ export {
 export {
   evaluate,
   applyDom,
+  applyRemovals,
   generateHideCss,
   renderPlaceholder,
   isServiceActive,
@@ -42,3 +43,14 @@ export {
   type ResolvedRuleSet,
   type RuleSetSource,
 } from "./fetch.js";
+export { serviceHasFreeSurface, proServiceIds, PRO_SERVICE_IDS } from "./tiers.js";
+export {
+  ruleSetTrustedKeys,
+  ruleSetFetchConfig,
+  readCachedRuleSet,
+  writeCachedRuleSet,
+  refreshRuleSetCache,
+  resolveRuleSetForLoad,
+  type ReadableArea,
+  type WritableArea,
+} from "./loader.js";

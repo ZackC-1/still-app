@@ -1,6 +1,6 @@
 import { mount } from "svelte";
 import "@still/core/ui/tokens.css";
-import { createUiController } from "../../lib/setup";
+import { createExtensionUiController } from "@still/core/ui";
 import PopupApp from "./PopupApp.svelte";
 
 // Resolve the active tab's host (granted by activeTab when the user opens the popup) for the
@@ -13,7 +13,7 @@ async function init(): Promise<void> {
   } catch {
     /* no activeTab access (e.g. chrome:// page) — pause control simply hides */
   }
-  const controller = createUiController(host);
+  const controller = createExtensionUiController(host);
   mount(PopupApp, { target: document.getElementById("app")!, props: { controller } });
 }
 

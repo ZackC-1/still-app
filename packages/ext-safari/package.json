@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "wxt -b safari",
-    "gen-css": "node scripts/gen-content-css.mjs",
-    "build": "node scripts/gen-content-css.mjs && wxt build -b safari",
+    "gen-css": "node ../core/scripts/gen-content-css.mjs entrypoints/content",
+    "build": "node ../core/scripts/gen-content-css.mjs entrypoints/content && wxt build -b safari",
     "typecheck": "wxt prepare && tsc --noEmit",
     "test": "vitest run",
     "postinstall": "wxt prepare"

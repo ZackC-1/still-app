@@ -2,6 +2,7 @@ import type { SignedRuleSet } from "@still/shared-types";
 import {
   evaluate,
   applyDom,
+  applyRemovals,
   renderPlaceholder,
   ROOT_ACTIVE_CLASS,
   ROOT_PRO_ACTIVE_CLASS,
@@ -46,6 +47,13 @@ export interface ContentScriptDeps {
    * YouTube Shorts redirect using the cache's current snapshot before async storage hydration.
    */
   readonly redirectBeforeHydration?: boolean;
+  /**
+   * True when the packaged manifest CSS was generated from THIS rule set (source === "bundled"),
+   * so every `hide` surface is already owned by the CSS engine and the per-frame reapply only
+   * needs `remove` actions (the hot-path win on infinite feeds). Must be false/omitted when a
+   * fetched/cached rule set is applied — its hide selectors aren't in the packaged CSS.
+   */
+  readonly manifestCssOwnsHides?: boolean;
 }
 
 export interface ContentScriptHandle {
@@ -99,7 +107,13 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       case "apply":
         setRootActive(true);
         setRootProActive(pro);
-        applyDom(ruleSet, cache.current(), url, doc, opts);
+        (deps.manifestCssOwnsHides ? applyRemovals : applyDom)(
+          ruleSet,
+          cache.current(),
+          url,
+          doc,
+          opts,
+        );
         return;
       case "noop":
         setRootActive(false);
