@@ -4,3 +4,9 @@ export type { AuthPort, BackendPort, EntitlementRead } from "./ports.js";
 export { SyncService, type SyncState } from "./service.js";
 export { SupabaseAuthPort } from "./auth.js";
 export { SupabaseBackendPort } from "./profile.js";
+export {
+  createAppleSession,
+  type AppleSession,
+  type AppleSessionBridge,
+  type AppleSessionDeps,
+} from "./apple-session.js";
