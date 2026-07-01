@@ -110,6 +110,13 @@ export class UiController {
     return typeof this.auth?.deleteAccount === "function";
   }
 
+  /** Whether this host wired an auth path at all. The browser extensions don't (U10 is deferred),
+   * so the UI must not render a sign-in CTA there — a send button with no auth behind it would
+   * silently do nothing. */
+  get canSignIn(): boolean {
+    return this.auth !== undefined;
+  }
+
   toggleGlobal(): void {
     void this.cache.setGlobalOn(!this.settings.globalOn);
   }

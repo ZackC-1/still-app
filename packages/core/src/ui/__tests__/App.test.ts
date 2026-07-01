@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS } from "@still/shared-types";
 import App from "../App.svelte";
 import Placeholder from "../components/Placeholder.svelte";
 import { UiController, type UiHost } from "../controller.svelte.js";
+import { STRINGS } from "../strings.js";
 import { PRIVACY_POLICY_URL } from "../config.js";
 import { SettingsCache } from "../../storage/cache.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
@@ -73,13 +74,23 @@ describe("App", () => {
   });
 
   it("email host: the Sign in CTA opens a modal with the email field (not inline)", async () => {
-    const c = controller();
+    const c = controller({ deletable: true }); // any wired auth → the sign-in CTA renders
     render(App, { props: { controller: c } });
     expect(document.querySelector("input.email")).toBeNull(); // not inline in the main UI
     expect(screen.queryByText("Sign in with Apple")).toBeNull();
     await fireEvent.click(screen.getByText("Sign in to sync"));
     expect(c.signInOpen).toBe(true);
     expect(document.querySelector("input.email")).toBeTruthy(); // now in the modal
+  });
+
+  it("a host without auth (the extensions, pre-U10) gets no sign-in CTA — only the explanatory note", () => {
+    // A "Sign in to sync" button with no auth wired behind it would silently do nothing.
+    const c = controller({ host: { canPurchase: false } }); // auth: undefined
+    render(App, { props: { controller: c } });
+    expect(screen.queryByText("Sign in to sync")).toBeNull();
+    expect(screen.queryByText("Sign in with Apple")).toBeNull();
+    expect(screen.getByText(STRINGS.paywall.nonApple)).toBeTruthy();
+    expect(screen.getByText("Privacy policy")).toBeTruthy(); // store-required link stays reachable
   });
 
   it("the sign-in sheet does not render once the user is signed in (even if signInOpen lingers)", () => {

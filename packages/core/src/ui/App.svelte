@@ -88,10 +88,16 @@
   <!-- Sync / account section: renders the popup state matrix -->
   <section class="sync card" data-state={c.popupState}>
     {#if c.popupState === "signed-out"}
-      <p class="muted">{STRINGS.auth.prompt}</p>
-      <button class="primary block" onclick={() => c.openSignIn()}>
-        {onSignInWithApple ? STRINGS.auth.apple : STRINGS.auth.signInCta}
-      </button>
+      {#if c.canSignIn || onSignInWithApple}
+        <p class="muted">{STRINGS.auth.prompt}</p>
+        <button class="primary block" onclick={() => c.openSignIn()}>
+          {onSignInWithApple ? STRINGS.auth.apple : STRINGS.auth.signInCta}
+        </button>
+      {:else}
+        <!-- No auth path on this host (the browser extensions, until U10): a sign-in CTA here
+             would silently do nothing, so show the quiet explanatory note instead. -->
+        <p class="muted">{STRINGS.paywall.nonApple}</p>
+      {/if}
       <a class="link center" href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer">
         {STRINGS.account.privacyPolicy}
       </a>
