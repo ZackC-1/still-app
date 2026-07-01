@@ -1,6 +1,8 @@
 export interface EntitlementAdapter {
   get(): Promise<boolean | null>;
-  set(entitled: boolean): Promise<void>;
+  /** Persist the entitlement. `updatedAt` (ms epoch) defaults to now; the Safari App-Group pull
+   * passes the app's last server-confirmed stamp so the TTL measures from real server contact. */
+  set(entitled: boolean, updatedAt?: number): Promise<void>;
   subscribe(listener: (entitled: boolean) => void): () => void;
 }
 

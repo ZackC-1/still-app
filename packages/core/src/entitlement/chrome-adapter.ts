@@ -18,8 +18,9 @@ interface StoredEntitlement {
 // NOTE (U10 follow-on): this cache is still soft client-side enforcement — an unsigned boolean a
 // DevTools user can forge. The committed design replaces it with a server-signed asymmetric token
 // (subject-bound + revocable) verified here against a bundled public key, plus clearing on
-// sign-out / identity-switch / account-deletion. Until that writer ships, nothing writes this key in
-// production, so the cache reads free by default; the TTL below is the first hardening increment.
+// sign-out / identity-switch / account-deletion. On Safari the App-Group pull (ext-safari
+// background) writes this key from the app's server-reconciled record; on Chromium nothing writes
+// it until U10 ships, so the cache reads free by default. The TTL bounds offline replay either way.
 export class ChromeEntitlementAdapter implements EntitlementAdapter {
   /** Clock injection point so tests can exercise TTL expiry deterministically. */
   constructor(private readonly now: () => number = Date.now) {}
@@ -37,8 +38,8 @@ export class ChromeEntitlementAdapter implements EntitlementAdapter {
     return stored.entitled;
   }
 
-  async set(entitled: boolean): Promise<void> {
-    await chrome.storage.local.set({ [STORAGE_KEY]: { entitled, updatedAt: this.now() } });
+  async set(entitled: boolean, updatedAt: number = this.now()): Promise<void> {
+    await chrome.storage.local.set({ [STORAGE_KEY]: { entitled, updatedAt } });
   }
 
   subscribe(listener: (entitled: boolean) => void): () => void {

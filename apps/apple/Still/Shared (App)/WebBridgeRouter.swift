@@ -18,6 +18,12 @@
 //        { kind:"price" }                     → { price } | {}   (localized store price for the CTA)
 //        { kind:"signOut" }                   → { ok:true }   (KTD5 — reset RC identity on sign-out)
 //
+//    • Entitlement mirror (reply the stored record JSON string):
+//        { kind:"setEntitlement", entitled }  → "{\"entitled\":…,\"updatedAt\":…}"
+//        { kind:"getEntitlement" }            → same, or "" when nothing stored
+//      The web SyncService mirrors its server-reconciled entitlement here after every state change;
+//      the Safari extension pulls it from the App Group so paid blocking activates in Safari.
+//
 //  The web layer drives sign-in: native returns the Apple credential, the web client calls Supabase
 //  `signInWithIdToken`, then hands the resulting UUID back via `configurePurchases` so RevenueCat is
 //  keyed to the same account the webhook (U14) projects the entitlement onto. The buy CTA only ever
@@ -30,11 +36,13 @@ import StillKit
 @MainActor
 final class WebBridgeRouter {
   private let settings: SettingsBridge
+  private let entitlement: EntitlementBridge
   private let purchases = PurchaseManager.shared
   private let siwa = SignInWithAppleCoordinator()
 
-  init(settings: SettingsBridge) {
+  init(settings: SettingsBridge, entitlement: EntitlementBridge = EntitlementBridge(store: .appGroup())) {
     self.settings = settings
+    self.entitlement = entitlement
   }
 
   func handle(_ body: Any, reply: @escaping (Any?, String?) -> Void) {
@@ -92,6 +100,16 @@ final class WebBridgeRouter {
       // can act against the previous account after sign-out. Pairs with the web SyncService sign-out.
       purchases.reset()
       reply(Self.json(["ok": true]), nil)
+
+    case "setEntitlement", "getEntitlement":
+      // Entitlement mirror: the web layer writes its server-reconciled value into the App Group so
+      // the Safari extension can read it. Only the bundled web build reaches this handler (the
+      // navigation lockdown in ViewController), the same trust boundary as `purchase` above.
+      if let json = entitlement.handle(rawBody: body) {
+        reply(json, nil)
+      } else {
+        reply(nil, "still: malformed entitlement message")
+      }
 
     default:
       reply(nil, "still: unknown kind \(kind)")

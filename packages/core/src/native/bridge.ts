@@ -35,7 +35,8 @@ export type NativeMessage =
   | { readonly kind: "restore" }
   | { readonly kind: "purchaseStatus" }
   | { readonly kind: "price" }
-  | { readonly kind: "signOut" };
+  | { readonly kind: "signOut" }
+  | { readonly kind: "setEntitlement"; readonly entitled: boolean };
 
 export class NativeBridge {
   constructor(
@@ -108,6 +109,13 @@ export class NativeBridge {
    * host with no native port. */
   async signOut(): Promise<void> {
     await this.post({ kind: "signOut" });
+  }
+
+  /** Mirror the server-reconciled entitlement into the App Group. The Safari extension's background
+   * pulls it from there so paid Pro blocking activates in Safari's content scripts. Call only with
+   * server-confirmed values (a cached offline value must not refresh the App-Group TTL stamp). */
+  async setEntitlement(entitled: boolean): Promise<void> {
+    await this.post({ kind: "setEntitlement", entitled });
   }
 
   private async post(message: NativeMessage): Promise<unknown> {

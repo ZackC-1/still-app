@@ -64,14 +64,16 @@ extension SharedSettingsStore {
   }
 }
 
-/// App Group backing — the real cross-process store shared by the app + Safari extension.
+/// App Group backing — the real cross-process store shared by the app + Safari extension. The key
+/// selects the lane: settings ("still:settings") or the entitlement record ("still:entitlement").
 public struct AppGroupBacking: SettingsBacking {
   private let defaults: UserDefaults
-  private let key = "still:settings"
+  private let key: String
 
-  public init?(appGroupId: String) {
+  public init?(appGroupId: String, key: String = "still:settings") {
     guard let defaults = UserDefaults(suiteName: appGroupId) else { return nil }
     self.defaults = defaults
+    self.key = key
   }
 
   public func read() -> Data? { defaults.data(forKey: key) }

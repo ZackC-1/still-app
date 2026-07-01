@@ -42,6 +42,14 @@ if (supabaseUrl && supabaseAnonKey) {
     controller.userId = state.userId;
     controller.entitled = state.entitled;
     controller.cloudReachable = state.cloudReachable;
+    // Mirror the entitlement into the App Group so the Safari extension's content scripts gate Pro
+    // blocking on it. Only server-confirmed states are mirrored (cloudReachable): an offline cached
+    // value must not refresh the App-Group stamp, or the extension's 30-day offline TTL never runs.
+    if (bridge.available && state.cloudReachable) {
+      void bridge.setEntitlement(state.entitled).catch(() => {
+        /* best-effort — the next sync state change retries */
+      });
+    }
   });
 
   // Sign-out resets the native RevenueCat identity (when in the WKWebView host), but the Supabase

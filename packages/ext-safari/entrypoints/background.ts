@@ -1,7 +1,9 @@
 import { ChromeStorageAdapter, parseSettings } from "@still/core/storage";
+import { ChromeEntitlementAdapter } from "@still/core/entitlement";
 import type { RuleSetEndpoint } from "@still/core/rules";
 import type { StillSettings } from "@still/shared-types";
 import { createAppGroupReconciler } from "../lib/app-group-reconcile.js";
+import { applyNativeEntitlement, parseNativeEntitlement } from "../lib/entitlement-pull.js";
 import { refreshRuleSetCache, ruleSetFetchConfig } from "../lib/rule-set.js";
 
 // Safari background — the native App-Group bridge (KTD4). The content/popup/options surfaces read &
@@ -65,16 +67,31 @@ export default defineBackground(() => {
   // echo of its own app→local writes by `updatedAt`.
   const reconciler = createAppGroupReconciler({ pullFromApp, pushToApp, local: adapter });
 
+  // Entitlement pull: the app mirrors its server-reconciled entitlement into the App Group; we copy
+  // it into browser.storage so the content scripts' EntitlementCache gates Pro blocking on it. A
+  // failed/empty pull leaves storage untouched (the TTL in ChromeEntitlementAdapter bounds staleness).
+  const entitlementSink = new ChromeEntitlementAdapter();
+  async function pullEntitlementFromApp(): Promise<void> {
+    try {
+      const reply = await browser.runtime.sendNativeMessage(NATIVE_APP, { kind: "getEntitlement" });
+      await applyNativeEntitlement(parseNativeEntitlement(reply), entitlementSink);
+    } catch {
+      /* native host unavailable (extension running outside the app container) */
+    }
+  }
+
   // Reconcile on a content-script nudge (fired at document_start when a page loads).
   browser.runtime.onMessage.addListener((message: unknown) => {
     if (message && typeof message === "object" && (message as { kind?: string }).kind === "reconcile") {
       void reconciler.reconcile();
+      void pullEntitlementFromApp();
     }
     return false;
   });
 
   // Reconcile on cold start / activation.
   void reconciler.reconcile();
+  void pullEntitlementFromApp();
 
   // Refresh the signed rule-set cache for the next page load (P1 #6): fetch → verify against this
   // build's trusted keys → cache. Skipped (no-op) when no endpoint is configured, or on a production
