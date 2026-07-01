@@ -25,6 +25,11 @@ export const STRINGS = {
     pausedNote: "Paused here.",
   },
 
+  // Locked (Pro-gated) service rows for un-entitled users.
+  pro: {
+    locked: "Included in Still Pro",
+  },
+
   // One calm line, shown across the Shorts-no-id / Reels / TikTok placeholder contexts.
   placeholder: "Nothing here. That's the point.",
 

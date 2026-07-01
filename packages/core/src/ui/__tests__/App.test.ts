@@ -33,6 +33,29 @@ describe("App", () => {
     expect(services?.getAttribute("aria-disabled")).toBe("true");
   });
 
+  it("un-entitled users see the three Pro rows locked (no silent no-op toggles)", () => {
+    render(App, { props: { controller: controller() } });
+    expect(document.querySelectorAll(".card.locked").length).toBe(3); // instagram/tiktok/facebook
+    expect(document.querySelector('[data-service="youtube"].locked')).toBeNull(); // free stays a toggle
+  });
+
+  it("entitled users get normal toggles on every service", () => {
+    const c = controller();
+    c.entitled = true;
+    render(App, { props: { controller: c } });
+    expect(document.querySelectorAll(".card.locked").length).toBe(0);
+  });
+
+  it("tapping a lock on a no-purchase host opens the explanatory paywall sheet", async () => {
+    const c = controller({ host: { canPurchase: false } });
+    render(App, { props: { controller: c } });
+    await fireEvent.click(document.querySelector(".lock")!);
+    expect(c.paywallOpen).toBe(true);
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByText(STRINGS.paywall.nonApple)).toBeTruthy(); // explanatory, no buy CTA
+    expect(dialog.queryByText(STRINGS.paywall.cta)).toBeNull();
+  });
+
   it("not-entitled + can-purchase shows the Get Still Sync CTA", () => {
     const c = controller();
     c.userId = "u";

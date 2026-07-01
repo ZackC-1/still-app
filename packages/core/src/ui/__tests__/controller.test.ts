@@ -35,6 +35,44 @@ describe("UiController", () => {
     expect(pause).toHaveBeenCalledWith("youtube.com");
   });
 
+  it("locks Pro services for un-entitled users and unlocks them when entitled", () => {
+    const { c } = makeController();
+    expect(c.isLocked("youtube")).toBe(false); // free service is never locked
+    expect(c.isLocked("instagram")).toBe(true);
+    expect(c.isLocked("tiktok")).toBe(true);
+    expect(c.isLocked("facebook")).toBe(true);
+    c.entitled = true;
+    expect(c.isLocked("instagram")).toBe(false);
+    expect(c.isLocked("tiktok")).toBe(false);
+    expect(c.isLocked("facebook")).toBe(false);
+  });
+
+  it("locked tap routes signed-out purchasable users to sign-in first (principle 8)", () => {
+    const { c } = makeController({
+      auth: { signIn: vi.fn(() => Promise.resolve({})), signOut: vi.fn(() => Promise.resolve()) },
+    });
+    c.lockedTap();
+    expect(c.signInOpen).toBe(true);
+    expect(c.paywallOpen).toBe(false);
+  });
+
+  it("locked tap opens the paywall for signed-in users", () => {
+    const { c } = makeController({
+      auth: { signIn: vi.fn(() => Promise.resolve({})), signOut: vi.fn(() => Promise.resolve()) },
+    });
+    c.userId = "u";
+    c.lockedTap();
+    expect(c.paywallOpen).toBe(true);
+    expect(c.signInOpen).toBe(false);
+  });
+
+  it("locked tap opens the (explanatory) paywall on hosts without a purchase path", () => {
+    const { c } = makeController({ host: { canPurchase: false } }); // extension shape: no auth either
+    c.lockedTap();
+    expect(c.paywallOpen).toBe(true);
+    expect(c.signInOpen).toBe(false);
+  });
+
   it("derives the full popup state matrix", () => {
     const { c } = makeController();
     expect(c.popupState).toBe("signed-out");

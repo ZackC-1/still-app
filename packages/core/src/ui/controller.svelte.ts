@@ -1,5 +1,5 @@
 import type { ServiceId, StillSettings } from "@still/shared-types";
-import { DEFAULT_SETTINGS } from "@still/shared-types";
+import { DEFAULT_SETTINGS, PRO_SERVICE_IDS } from "@still/shared-types";
 import type { SettingsCache } from "../storage/cache.js";
 import type { PurchaseResult } from "../native/bridge.js";
 import { etldPlusOne } from "../rules/match.js";
@@ -123,6 +123,23 @@ export class UiController {
 
   toggleService(id: ServiceId): void {
     void this.cache.setService(id, !this.settings.services[id]);
+  }
+
+  /** True when a service's surfaces are Pro-gated and this user isn't entitled — the row renders
+   * locked (🔒 → paywall) instead of a toggle that would flip without blocking anything. */
+  isLocked(id: ServiceId): boolean {
+    return !this.entitled && PRO_SERVICE_IDS.has(id);
+  }
+
+  /** Tap on a locked row: the Pro discovery surface. Signed-out on a purchasable host → sign in
+   * first (sign-in-before-purchase, monetization principle 8); otherwise open the paywall — which
+   * renders its explanatory state on hosts without a purchase path. */
+  lockedTap(): void {
+    if (this.host.canPurchase && this.canSignIn && !this.userId) {
+      this.openSignIn();
+      return;
+    }
+    this.openPaywall();
   }
 
   togglePause(): void {
