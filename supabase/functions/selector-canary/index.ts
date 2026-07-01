@@ -19,6 +19,32 @@ const admin = createClient(
   { auth: { persistSession: false } },
 );
 
+// A representative page must never fill the isolate: bail up front on an oversized Content-Length,
+// then stream with a hard byte cap (mirrors the client's rules/fetch.ts readCappedBody). Selector
+// probing only needs the page's markup head — 4 MB is generous for any of the four services.
+const MAX_PAGE_BYTES = 4 * 1024 * 1024;
+
+async function readCappedText(res: Response, controller: AbortController): Promise<string | null> {
+  const declared = res.headers.get("content-length");
+  if (declared && Number(declared) > MAX_PAGE_BYTES) return null;
+  if (!res.body) return null;
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  let bytes = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    bytes += value.byteLength;
+    if (bytes > MAX_PAGE_BYTES) {
+      controller.abort();
+      return null;
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+  return text + decoder.decode();
+}
+
 const fetcher: PageFetcher = {
   async fetch(url): Promise<CanaryPage | null> {
     const controller = new AbortController();
@@ -28,7 +54,9 @@ const fetcher: PageFetcher = {
         headers: { "user-agent": "Mozilla/5.0 (compatible; StillCanary/1.0)" },
         signal: controller.signal,
       });
-      return { status: res.status, html: await res.text() };
+      const html = await readCappedText(res, controller);
+      if (html === null) return null; // oversized → treated like an unreachable page
+      return { status: res.status, html };
     } catch {
       return null;
     } finally {
