@@ -1,9 +1,9 @@
 <script lang="ts">
   import { App } from "@still/core/ui";
-  import { createUiController } from "../../lib/setup";
+  import { createExtensionUiController } from "@still/core/ui";
 
   // The options page has no single active host, so the per-site pause control is omitted.
-  const controller = createUiController();
+  const controller = createExtensionUiController();
 </script>
 
 <main class="options">
