@@ -1,10 +1,9 @@
 import { ChromeStorageAdapter, parseSettings } from "@still/core/storage";
 import { ChromeEntitlementAdapter } from "@still/core/entitlement";
-import type { RuleSetEndpoint } from "@still/core/rules";
+import { refreshRuleSetCache, ruleSetFetchConfig, type RuleSetEndpoint } from "@still/core/rules";
 import type { StillSettings } from "@still/shared-types";
 import { createAppGroupReconciler } from "../lib/app-group-reconcile.js";
 import { applyNativeEntitlement, parseNativeEntitlement } from "../lib/entitlement-pull.js";
-import { refreshRuleSetCache, ruleSetFetchConfig } from "../lib/rule-set.js";
 
 // Safari background — the native App-Group bridge (KTD4). The content/popup/options surfaces read &
 // write settings through browser.storage.local, but the *app's* WKWebView writes them into the

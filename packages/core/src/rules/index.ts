@@ -42,3 +42,13 @@ export {
   type ResolvedRuleSet,
   type RuleSetSource,
 } from "./fetch.js";
+export {
+  ruleSetTrustedKeys,
+  ruleSetFetchConfig,
+  readCachedRuleSet,
+  writeCachedRuleSet,
+  refreshRuleSetCache,
+  resolveRuleSetForLoad,
+  type ReadableArea,
+  type WritableArea,
+} from "./loader.js";

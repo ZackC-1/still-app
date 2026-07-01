@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { signRuleSet, DEV_RULE_SET_KEYS, PRODUCTION_RULE_SET_KEYS } from "@still/core/rules";
-import type { FetchConfig } from "@still/core/rules";
+import { signRuleSet } from "../signature.js";
+import { DEV_RULE_SET_KEYS, PRODUCTION_RULE_SET_KEYS } from "../trusted-keys.js";
+import type { FetchConfig } from "../fetch.js";
 import type { SignedRuleSet } from "@still/shared-types";
-import seed from "@still/core/seed";
+import seed from "../../../rules/seed.json";
 import {
   ruleSetTrustedKeys,
   ruleSetFetchConfig,
@@ -10,7 +11,7 @@ import {
   writeCachedRuleSet,
   refreshRuleSetCache,
   resolveRuleSetForLoad,
-} from "../rule-set.js";
+} from "../loader.js";
 
 // The fixed throwaway dev private key (scripts/sign-seed.mjs) whose public half is DEV_RULE_SET_KEYS.
 const DEV_PRIVATE_KEY_HEX = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";

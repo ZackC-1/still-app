@@ -5,7 +5,7 @@ import { EntitlementCache, ChromeEntitlementAdapter } from "@still/core/entitlem
 import { SettingsCache, ChromeStorageAdapter } from "@still/core/storage";
 import seed from "@still/core/seed";
 import type { SignedRuleSet } from "@still/shared-types";
-import { resolveRuleSetForLoad } from "../../lib/rule-set.js";
+import { resolveRuleSetForLoad } from "@still/core/rules";
 
 // The document_start content script for Safari. Same shared engine as Chromium, but on Safari there
 // is no declarativeNetRequest: the Shorts→watch redirect is the content script's own location.replace

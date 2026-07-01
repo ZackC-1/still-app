@@ -1,19 +1,18 @@
 import type { SignedRuleSet } from "@still/shared-types";
+import { fetchCurrentRuleSet, resolveRuleSet } from "./fetch.js";
+import type { FetchConfig, ResolvedRuleSet, RuleSetEndpoint } from "./fetch.js";
+import type { TrustedKey } from "./signature.js";
 import {
   DEV_RULE_SET_KEYS,
   PRODUCTION_RULE_SET_KEYS,
   RULE_SET_MIN_VERSION,
-  fetchCurrentRuleSet,
-  resolveRuleSet,
-  type FetchConfig,
-  type ResolvedRuleSet,
-  type RuleSetEndpoint,
-  type TrustedKey,
-} from "@still/core/rules";
+} from "./trusted-keys.js";
 
-// Production signed rule-set wiring for the Safari extension (P1 #6). The content script applies the
-// newest of {cached, bundled}; the background fetches + verifies + caches the current signed set for
-// the next load. Reuses the core U12 fetch/verify/cache machinery verbatim — no new crypto here.
+// The extension rule-set loader — the ONE wiring every extension build shares (Safari, Chromium,
+// Firefox). The content script applies the newest of {cached, bundled}; the background fetches +
+// verifies + caches the current signed set for the next load. Reuses the U12 fetch/verify/cache
+// machinery verbatim — no new crypto here. Living in core (not per-extension) is what makes the
+// over-the-air selector-hotfix capability reach every store, not just Safari.
 //
 // Safety with empty production keys: a PRODUCTION build trusts ONLY PRODUCTION_RULE_SET_KEYS (empty
 // until the human publishes them) — so nothing verifies, fetch returns null, and the bundled seed is
