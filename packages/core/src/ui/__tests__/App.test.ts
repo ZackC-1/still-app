@@ -56,11 +56,11 @@ describe("App", () => {
     expect(dialog.queryByText(STRINGS.paywall.cta)).toBeNull();
   });
 
-  it("not-entitled + can-purchase shows the Get Still Sync CTA", () => {
+  it("not-entitled + can-purchase shows the Unlock Pro CTA", () => {
     const c = controller();
     c.userId = "u";
     render(App, { props: { controller: c } });
-    expect(screen.getByText("Get Still Sync")).toBeTruthy();
+    expect(screen.getByText("Unlock Pro")).toBeTruthy();
   });
 
   it("entitled shows the synced state", () => {
@@ -75,8 +75,8 @@ describe("App", () => {
     const c = controller({ host: { canPurchase: false } });
     c.userId = "u";
     render(App, { props: { controller: c } });
-    expect(screen.queryByText("Get Still Sync")).toBeNull();
-    expect(screen.getByText(/Buy once on iPhone/)).toBeTruthy();
+    expect(screen.queryByText("Unlock Pro")).toBeNull();
+    expect(screen.getByText(/Unlock Pro in the Still app/)).toBeTruthy();
   });
 
   it("Apple host shows the Sign in with Apple CTA, not the email field (U19)", () => {
@@ -121,7 +121,7 @@ describe("App", () => {
     c.openSignIn();
     c.userId = "u"; // signed in → popupState leaves "signed-out", so the sheet is gated off
     render(App, { props: { controller: c, onSignInWithApple: () => {} } });
-    expect(screen.queryByText("Sync your settings")).toBeNull(); // the modal title is absent
+    expect(screen.queryByText(STRINGS.auth.title)).toBeNull(); // the modal title is absent
   });
 
   // ── account management (App Store 5.1.1) ──────────────────────────────────────────────────────
@@ -185,14 +185,14 @@ describe("App", () => {
     withPrice.openPaywall();
     withPrice.paywallPrice = "£1.99";
     const { unmount } = render(App, { props: { controller: withPrice, onGet: () => {} } });
-    expect(within(screen.getByRole("dialog")).getByText(/Get Still Sync · £1\.99/)).toBeTruthy();
+    expect(within(screen.getByRole("dialog")).getByText(/Unlock Pro · £1\.99/)).toBeTruthy();
     unmount();
 
     const noPrice = controller();
     noPrice.userId = "u";
     noPrice.openPaywall(); // paywallPrice stays null (price not loaded / non-Apple)
     render(App, { props: { controller: noPrice, onGet: () => {} } });
-    const cta = within(screen.getByRole("dialog")).getByText("Get Still Sync");
+    const cta = within(screen.getByRole("dialog")).getByText("Unlock Pro");
     expect(cta.textContent).not.toContain("·"); // no hardcoded/guessed price
   });
 
@@ -204,7 +204,7 @@ describe("App", () => {
     c.paywallPrice = "$1.99";
     render(App, { props: { controller: c, onGet } });
     const dialog = within(screen.getByRole("dialog"));
-    await fireEvent.click(dialog.getByText(/Get Still Sync ·/)); // the paywall CTA (has the price)
+    await fireEvent.click(dialog.getByText(/Unlock Pro ·/)); // the paywall CTA (has the price)
     expect(onGet).toHaveBeenCalledOnce();
     const inFlight = dialog.getByText(/Completing your purchase/) as HTMLButtonElement;
     expect(inFlight.disabled).toBe(true);

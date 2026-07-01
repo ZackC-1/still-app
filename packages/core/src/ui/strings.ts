@@ -33,27 +33,32 @@ export const STRINGS = {
   // One calm line, shown across the Shorts-no-id / Reels / TikTok placeholder contexts.
   placeholder: "Nothing here. That's the point.",
 
+  // The user-facing label is "Still Pro"; the internal product/entitlement id stays `still_sync`
+  // everywhere (StoreKit, RevenueCat, DB — see docs/monetization-design.md §5, do NOT rename ids).
+  // Value copy is launch-real: only shipped capabilities (Reels/TikTok/Facebook blocking + sync) —
+  // no YT recs/comments bullets until that feature exists. Never mention web pricing here (3.1.3).
   paywall: {
-    title: "Still Sync",
-    body: "Your settings, on every device. Buy once.",
-    cta: "Get Still Sync",
+    title: "Still Pro",
+    body: "Quiets Instagram Reels, TikTok, and Facebook too — with your settings synced on every device. One purchase, not a subscription.",
+    cta: "Unlock Pro",
     restore: "Restore purchase",
-    // Non-Apple desktop: no purchase path, explanatory only (R19).
-    nonApple: "Buy once on iPhone, iPad, or Mac — sync turns on here when you sign in.",
+    // Hosts without a purchase path (the browser extensions): explanatory only (R19). Safari
+    // genuinely unlocks by itself via the App-Group entitlement pull once the app purchase lands.
+    nonApple: "Unlock Pro in the Still app on iPhone or Mac — Safari unlocks automatically. Chrome and Firefox unlock is on the way.",
     dismiss: "Not now",
     // Purchase/restore outcome feedback (P1 #5). The sheet stays open through these.
     purchasing: "Completing your purchase…",
-    pending: "Waiting for approval — we'll unlock sync as soon as it's confirmed.",
+    pending: "Waiting for approval — we'll unlock Pro as soon as it's confirmed.",
     cancelled: "Purchase cancelled.",
     failed: "Something went wrong. Please try again.",
-    unavailable: "Still Sync isn't available right now. Try again in a moment.",
+    unavailable: "Still Pro isn't available right now. Try again in a moment.",
     restoring: "Restoring…",
     restoredNone: "No purchase to restore on this account.",
   },
 
   auth: {
-    title: "Sync your settings",
-    prompt: "Keep your Still settings in sync across iPhone, iPad, and Mac.",
+    title: "Sign in to Still",
+    prompt: "Your Pro unlock and settings follow your account across iPhone, iPad, and Mac.",
     notNow: "Not now",
     emailLabel: "Email",
     emailPlaceholder: "you@email.com",
