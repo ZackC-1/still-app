@@ -1,5 +1,5 @@
 import { constantTimeEqual } from "../_shared/token.ts";
-import { type RevenueCatClient, stillSyncActive } from "../_shared/revenuecat.ts";
+import { type RevenueCatClient, stillProActive } from "../_shared/revenuecat.ts";
 import { type EntitlementStore, jsonResponse } from "../_shared/store.ts";
 import { affectedUuids, isUuid, type RcWebhookBody, type RcWebhookEvent } from "../_shared/types.ts";
 
@@ -44,7 +44,7 @@ export async function handleWebhook(req: Request, deps: WebhookDeps): Promise<Re
       const subscriber = await deps.rc.getSubscriber(uuid);
       await deps.store.setEntitlement(
         uuid,
-        stillSyncActive(subscriber),
+        stillProActive(subscriber),
         "webhook",
         subscriber?.original_app_user_id ?? null,
       );

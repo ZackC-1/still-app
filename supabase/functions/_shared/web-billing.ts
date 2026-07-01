@@ -14,7 +14,7 @@ export interface WebBillingClient {
 //
 // The link's offering is configured in the RevenueCat dashboard (Funnels → Purchase Links); RevenueCat
 // presents that offering's package(s) for the given app_user_id. A single-package offering goes straight
-// to that product — verified live to render the $1.99 Still Sync product. We deliberately do NOT append
+// to that product — verified live to render the $1.99 Still Pro product. We deliberately do NOT append
 // a `?package_id=` selector: it isn't needed for a single-package offering, and RevenueCat selects by
 // the *package* identifier (e.g. `$rc_lifetime`), not the product id, so a product-id value would be a
 // misleading no-op. If the offering ever gains multiple packages, either the customer picks on the

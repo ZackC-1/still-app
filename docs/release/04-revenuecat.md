@@ -60,7 +60,7 @@ This is what powers Pro on the Chrome/Firefox extensions via `create-web-checkou
        [docs](https://www.revenuecat.com/docs/web/connect-stripe-account)
 2. [ ] RC → **Web** section → create a **Web Billing** config, select your connected Stripe account.
 3. [ ] **Product catalog → Products** → Web Billing tab → **+ New**: identifier **`still_sync_web`**,
-       customer-facing name "Still Sync Pro", type **Non-consumable**, price **$1.99**. *(Price is
+       customer-facing name "Still Pro", type **Non-consumable**, price **$1.99**. *(Price is
        locked after save.)* [product setup](https://www.revenuecat.com/docs/web/web-billing/product-setup)
 4. [ ] **Entitlements → still_sync → Attach** the `still_sync_web` product. Now Apple **and** web both
        feed the one entitlement.

@@ -52,7 +52,7 @@
 			</array>
 		</dict>
 		<dict>
-			<!-- Purchase history (Still Sync entitlement, via StoreKit/RevenueCat). -->
+			<!-- Purchase history (Still Pro entitlement, via StoreKit/RevenueCat). -->
 			<key>NSPrivacyCollectedDataType</key>
 			<string>NSPrivacyCollectedDataTypePurchaseHistory</string>
 			<key>NSPrivacyCollectedDataTypeLinked</key>

@@ -153,7 +153,7 @@ if (supabaseUrl && supabaseAnonKey) {
               return;
             }
           }
-          const result = await bridge.purchaseStillSync();
+          const result = await bridge.purchaseStillPro();
           // Surface every outcome (cancelled/pending/failed/no-offering) in the still-open paywall.
           controller.setPurchaseOutcome(result);
           // The webhook writes the Supabase entitlement; re-reconcile before dismissing into Pro. Local

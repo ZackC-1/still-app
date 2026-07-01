@@ -1,5 +1,5 @@
 import { type ExpectedClaims, verifyJwt } from "../_shared/jwt.ts";
-import { type RevenueCatClient, stillSyncActive } from "../_shared/revenuecat.ts";
+import { type RevenueCatClient, stillProActive } from "../_shared/revenuecat.ts";
 import { jsonResponse } from "../_shared/store.ts";
 import { isUuid } from "../_shared/types.ts";
 import type { WebBillingClient } from "../_shared/web-billing.ts";
@@ -36,7 +36,7 @@ export async function handleCreateWebCheckout(
 
   try {
     const subscriber = await deps.rc.getSubscriber(claims.sub);
-    if (stillSyncActive(subscriber)) return jsonResponse(409, { error: "already_entitled" });
+    if (stillProActive(subscriber)) return jsonResponse(409, { error: "already_entitled" });
     const checkout = await deps.billing.createCheckout(claims.sub);
     return jsonResponse(200, checkout);
   } catch (error) {

@@ -24,7 +24,7 @@ describe("NativeBridge", () => {
     await expect(bridge.signInWithApple()).rejects.toThrow();
     expect(await bridge.restore()).toBe(false);
     expect(await bridge.purchaseStatus()).toBe(false);
-    expect((await bridge.purchaseStillSync()).outcome).toBe("failed");
+    expect((await bridge.purchaseStillPro()).outcome).toBe("failed");
     await expect(bridge.signOut()).resolves.toBeUndefined(); // no-op without a host, never throws
   });
 
@@ -61,20 +61,20 @@ describe("NativeBridge", () => {
 
   it("maps purchase outcomes and entitlement", async () => {
     const ok = makeHost({ purchase: { outcome: "purchased", entitled: true } });
-    expect(await new NativeBridge(ok.win).purchaseStillSync()).toEqual({
+    expect(await new NativeBridge(ok.win).purchaseStillPro()).toEqual({
       outcome: "purchased",
       entitled: true,
       error: undefined,
     });
 
     const cancelled = makeHost({ purchase: { outcome: "cancelled", entitled: false } });
-    expect((await new NativeBridge(cancelled.win).purchaseStillSync()).outcome).toBe("cancelled");
+    expect((await new NativeBridge(cancelled.win).purchaseStillPro()).outcome).toBe("cancelled");
 
     const unavailable = makeHost({ purchase: { outcome: "unavailable", entitled: false } });
-    expect((await new NativeBridge(unavailable.win).purchaseStillSync()).outcome).toBe("unavailable");
+    expect((await new NativeBridge(unavailable.win).purchaseStillPro()).outcome).toBe("unavailable");
 
     const bad = makeHost({ purchase: { outcome: "nonsense", entitled: false } });
-    expect((await new NativeBridge(bad.win).purchaseStillSync()).outcome).toBe("failed");
+    expect((await new NativeBridge(bad.win).purchaseStillPro()).outcome).toBe("failed");
   });
 
   it("reads restore + status entitlement", async () => {

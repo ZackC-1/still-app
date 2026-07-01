@@ -66,7 +66,7 @@ shared web UI:
    "apple", token, nonce })`; on a session, call `NativeBridge.configurePurchases(uuid)` (KTD5) and run
    the existing tested `SyncService.onSignedIn(uuid)` (reconcile → entitlement → mirror). Wire it into
    `UiController` (inject the auth port; reflect `SyncService` state into `userId`/`entitled`/`reconciling`).
-3. **Paywall buy:** on the shared UI's "Get Still Sync" CTA, call `NativeBridge.purchaseStillSync()`;
+3. **Paywall buy:** on the shared UI's "Unlock Pro" CTA, call `NativeBridge.purchaseStillPro()`;
    on `entitled`, refresh state (sync follows once the webhook lands and the WebView reconciles).
 4. **UI:** show a **Sign in with Apple** button instead of the email field when `NativeBridge.available`
    (Apple host only); the Chromium extension keeps the email magic-link path. Gate the buy CTA on a

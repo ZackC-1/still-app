@@ -4,8 +4,8 @@ A follow-along, check-off guide to shipping **Still** to every store. Written fo
 app release — each step says exactly where to click, the exact value to enter for *this* app,
 and the official URL. Work top-to-bottom; check boxes as you go.
 
-> **What Still is.** A short-form-video remover. **Free:** removes YouTube Shorts. **Pro
-> ("Still Sync", $1.99 one-time):** removes Reels/TikTok/Facebook surfaces + cross-device
+> **What Still is.** A short-form-video remover. **Free:** removes YouTube Shorts. **Still Pro
+> ($1.99 one-time):** removes Reels/TikTok/Facebook surfaces + cross-device
 > settings sync. Brand: *Still Blue*, `st·ll` wordmark, by **Cadmus Labs**.
 
 ---

@@ -9,7 +9,7 @@ public enum PurchaseReadiness: Equatable, Sendable {
 
 public enum PurchaseDecision {
   /// Pure pre-flight gate for a StoreKit/RevenueCat purchase or restore. The caller owns the
-  /// already-entitled short-circuit (`PurchaseManager` checks `hasStillSync()` before calling this),
+  /// already-entitled short-circuit (`PurchaseManager` checks `hasStillPro()` before calling this),
   /// so this decides only: configured with a real user id? identity stable across the await? a
   /// product actually available to buy?
   public static func readiness(

@@ -75,9 +75,9 @@ export class NativeBridge {
     await this.post({ kind: "configurePurchases", appUserID });
   }
 
-  /** Buy Still Sync natively. `.entitled` means local StoreKit/RevenueCat purchase feedback succeeded;
+  /** Buy Still Pro natively. `.entitled` means local StoreKit/RevenueCat purchase feedback succeeded;
    * Pro authority still waits on the RevenueCat→Supabase webhook (U14) and the next reconcile. */
-  async purchaseStillSync(): Promise<PurchaseResult> {
+  async purchaseStillPro(): Promise<PurchaseResult> {
     const obj = asObject(await this.post({ kind: "purchase" })) ?? {};
     return {
       outcome: isOutcome(obj.outcome) ? obj.outcome : "failed",
@@ -86,7 +86,7 @@ export class NativeBridge {
     };
   }
 
-  /** Restore purchases; returns whether Still Sync is now active per RevenueCat. */
+  /** Restore purchases; returns whether Still Pro is now active per RevenueCat. */
   async restore(): Promise<boolean> {
     return asObject(await this.post({ kind: "restore" }))?.entitled === true;
   }
@@ -96,7 +96,7 @@ export class NativeBridge {
     return asObject(await this.post({ kind: "purchaseStatus" }))?.entitled === true;
   }
 
-  /** The localized store price string for Still Sync (e.g. "$1.99"), from StoreKit via RevenueCat, or
+  /** The localized store price string for Still Pro (e.g. "$1.99"), from StoreKit via RevenueCat, or
    * null when unavailable (offering not loaded, not configured). The paywall shows the real price
    * instead of a hardcoded one. */
   async price(): Promise<string | null> {

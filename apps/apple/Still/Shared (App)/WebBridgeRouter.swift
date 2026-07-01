@@ -73,7 +73,7 @@ final class WebBridgeRouter {
 
     case "purchase":
       Task {
-        let outcome = await self.purchases.purchaseStillSync()
+        let outcome = await self.purchases.purchaseStillPro()
         reply(Self.json(Self.outcomePayload(outcome)), nil)
       }
 
@@ -85,7 +85,7 @@ final class WebBridgeRouter {
 
     case "purchaseStatus":
       Task {
-        let entitled = await self.purchases.hasStillSync()
+        let entitled = await self.purchases.hasStillPro()
         reply(Self.json(["entitled": entitled]), nil)
       }
 

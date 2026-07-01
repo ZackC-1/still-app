@@ -62,9 +62,9 @@ STEP 3 — VERIFY BLOCKING (in Safari)
 
 OPTIONAL — NOT NEEDED TO EVALUATE THE APP
   • Sign in with Apple is optional, used only to enable settings Sync. Not required for blocking.
-  • One non-consumable IAP: "Still Sync" (still_sync), $1.99 — syncs settings across iPhone/iPad/Mac.
+  • One non-consumable IAP: "Still Pro" (product id still_sync), $1.99 — unlocks Reels/TikTok/Facebook blocking + cross-device settings sync.
     Blocking does NOT require it. To test: Account section → Sign in with Apple (your own sandbox
-    Apple ID is fine) → purchase Still Sync. "Restore Purchases" is on the same screen.
+    Apple ID is fine) → purchase Still Pro. "Restore Purchases" is on the same screen.
 
 ACCOUNT DELETION (5.1.1): Account section → "Delete Account" removes the server-side record.
 
@@ -98,7 +98,7 @@ Legend: **[ONE-TIME]** = account/app setup done once · **[PER-RELEASE]** = repe
 
 ### 3. Create `still_sync` IAP and ATTACH IT TO THE VERSION **[ONE-TIME create / PER-RELEASE attach]**
 > A brand-new app's **first IAP must be submitted *with* the first app version**, or it's stuck at "Missing Metadata" forever and never reviewed.
-- [ ] **Monetization → In-App Purchases → +** → **Non-Consumable**. Reference Name `Still Sync`, **Product ID `still_sync`** (must match the StoreKit code), **Price $1.99**.
+- [ ] **Monetization → In-App Purchases → +** → **Non-Consumable**. Reference Name `Still Pro`, **Product ID `still_sync`** (must match the StoreKit code), **Price $1.99**.
 - [ ] Add an **English localization** (display name + description) — without it, status stays "Missing Metadata".
 - [ ] Add the **IAP App Review screenshot** = a capture of the in-app **paywall** (mandatory; #1 "Missing Metadata" cause), plus IAP review notes (blocking is free; this only unlocks Sync; test via SIWA + sandbox).
 - [ ] On the **version page → In-App Purchases → +** → **attach `still_sync`** so it ships in this submission.

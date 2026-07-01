@@ -1,6 +1,6 @@
 # Still
 
-Surgically removes short-form video — YouTube Shorts, Instagram/Facebook Reels, and all of TikTok — across Chromium and Safari, with a native Apple app for the Safari extension and the one-time "Still Sync" purchase.
+Surgically removes short-form video — YouTube Shorts, Instagram/Facebook Reels, and all of TikTok — across Chromium and Safari, with a native Apple app for the Safari extension and the one-time "Still Pro" purchase.
 
 Still is **not** a willpower app: no timers, streaks, locks, or shaming. It removes the short-form surfaces and their entry points and gets out of the way. Regular feeds are left untouched.
 
@@ -9,7 +9,7 @@ Still is **not** a willpower app: no timers, streaks, locks, or shaming. It remo
 | Piece | What it does |
 |---|---|
 | **WebExtension** | A data-driven content script that hides/removes short-form surfaces and redirects Shorts URLs to the standard watch page. Ships as a Chromium MV3 extension and a Safari Web Extension from one codebase. |
-| **Apple app** | Hosts the Safari Web Extension (iOS + macOS) and runs the StoreKit 2 / RevenueCat purchase for "Still Sync". |
+| **Apple app** | Hosts the Safari Web Extension (iOS + macOS) and runs the StoreKit 2 / RevenueCat purchase for "Still Pro". |
 | **Supabase backend** | Rule-set hosting (selectors update without an app-store resubmission), magic-link auth, per-account settings sync, and the entitlement bridge. |
 
 ## Architecture
