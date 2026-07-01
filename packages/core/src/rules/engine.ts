@@ -1,4 +1,4 @@
-import type { ServiceId, SignedRuleSet, StillSettings, SurfaceCapability } from "@still/shared-types";
+import type { ServiceId, SignedRuleSet, StillSettings } from "@still/shared-types";
 import { resolveService, etldPlusOne, applyRedirectTemplate } from "./match.js";
 
 // The framework-agnostic rule engine. Pure functions over a rule set + settings + a DOM, so the
@@ -46,12 +46,12 @@ type ServiceRules = NonNullable<SignedRuleSet["services"][ServiceId]>;
 
 export interface EngineOptions {
   /**
-   * Whether Pro-gated surfaces should apply. Omitted preserves the pre-monetization all-on behavior.
-   * @deprecated Prefer `capabilities`; when both are supplied, capabilities are authoritative.
+   * Whether Pro-gated surfaces should apply — the ONE monetization gate (tier-based). Omitted
+   * preserves the pre-monetization all-on behavior; production callers always pass it explicitly.
+   * (The seed's per-surface `requiredCapability` tags are reserved authored data for a future
+   * capability-based gate; the engine deliberately does not read them yet — one axis, no drift.)
    */
   readonly pro?: boolean;
-  /** Forward-compatible entitlement set. When supplied, requiredCapability gates premium surfaces. */
-  readonly capabilities?: ReadonlySet<SurfaceCapability> | readonly SurfaceCapability[];
 }
 
 export const ALWAYS_FREE_SURFACE_IDS = new Set([
@@ -162,22 +162,11 @@ export function applyDom(
 
 function surfaceEnabledForTier(s: ServiceRules["surfaces"][number], opts: EngineOptions): boolean {
   if (!s.enabledByDefault) return false;
-  // Free surfaces are always enabled, in BOTH gating modes. Checking `tier` here (not only in the
-  // pro-flag branch below) keeps the rule data's `tier: "free"` authoritative even under capability
-  // gating, so a free surface that isn't in the ALWAYS_FREE_SURFACE_IDS safety-net is never gated off.
+  // Free surfaces always apply: the rule data's `tier: "free"` is authoritative, and the
+  // ALWAYS_FREE_SURFACE_IDS safety-net keeps the free YouTube promise even against a fetched rule
+  // set with missing/stale tags (monetization principle 13). Everything else is Pro-gated.
   if (ALWAYS_FREE_SURFACE_IDS.has(s.id) || s.tier === "free") return true;
-  const capabilities = capabilitySet(opts.capabilities);
-  if (capabilities) {
-    return s.requiredCapability ? capabilities.has(s.requiredCapability) : false;
-  }
   return opts.pro !== false;
-}
-
-function capabilitySet(
-  capabilities: EngineOptions["capabilities"],
-): ReadonlySet<SurfaceCapability> | null {
-  if (!capabilities) return null;
-  return capabilities instanceof Set ? capabilities : new Set(capabilities);
 }
 
 /**

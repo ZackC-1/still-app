@@ -50,7 +50,8 @@ export interface Surface {
   readonly label: string;
   /** Monetization gate. Missing defaults to Pro unless the engine allowlists the surface as free. */
   readonly tier?: SurfaceTier;
-  /** Capability required to apply this surface. Prefer this over tier for new monetization work. */
+  /** Reserved authored data for a future capability-based gate (bundles/granular tiers). The
+   * engine currently gates by `tier` only and deliberately does not read this field. */
   readonly requiredCapability?: SurfaceCapability;
   readonly action: RuleAction;
   /**

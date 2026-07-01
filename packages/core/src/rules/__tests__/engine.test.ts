@@ -207,17 +207,12 @@ describe("evaluate/applyDom — monetization gating", () => {
     expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reel/123"), { pro: true }).kind).toBe("placeholder");
   });
 
-  it("can gate premium surfaces by capability set instead of a single Pro boolean", () => {
-    expect(
-      evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reel/XYZ/"), {
-        capabilities: ["surface.instagram.reels"],
-      }).kind,
-    ).toBe("placeholder");
-    expect(
-      evaluate(ruleSet, allOn, new URL("https://www.tiktok.com/foryou"), {
-        capabilities: ["surface.instagram.reels"],
-      }).kind,
-    ).toBe("noop");
+  it("gates every non-free surface on the single pro flag (no second gating axis)", () => {
+    // requiredCapability tags in the seed are reserved authored data — the engine must ignore them
+    // and gate purely by tier + pro, so tier and capability data can never silently disagree.
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reel/XYZ/"), { pro: false }).kind).toBe("noop");
+    expect(evaluate(ruleSet, allOn, new URL("https://www.tiktok.com/foryou"), { pro: false }).kind).toBe("noop");
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reel/XYZ/"), { pro: true }).kind).toBe("placeholder");
   });
 
   it("treats current YouTube Shorts surfaces as free even if tags are missing", () => {
