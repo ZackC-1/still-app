@@ -68,8 +68,8 @@ OPTIONAL — NOT NEEDED TO EVALUATE THE APP
 
 ACCOUNT DELETION (5.1.1): Account section → "Delete Account" removes the server-side record.
 
-Privacy policy: https://zackc-1.github.io/still-app/privacy.html
-Support: https://zackc-1.github.io/still-app/support.html
+Privacy policy: https://zackc-1.github.io/still-app/privacy/
+Support: https://zackc-1.github.io/still-app/support/
 ```
 
 ---
@@ -81,7 +81,7 @@ Legend: **[ONE-TIME]** = account/app setup done once · **[PER-RELEASE]** = repe
 ### 0. Sanity checks
 - [ ] **[ONE-TIME]** Enrolled in the Apple Developer Program under Cadmus Labs, Team `UM9HVDH3P3`.
 - [ ] **[PER-RELEASE]** Privacy + support URLs open in a **private** browser window (a dead privacy URL is a common auto-rejection):
-  - Privacy `https://zackc-1.github.io/still-app/privacy.html` · Support `https://zackc-1.github.io/still-app/support.html`
+  - Privacy `https://zackc-1.github.io/still-app/privacy/` · Support `https://zackc-1.github.io/still-app/support/`
 - [ ] **[PER-RELEASE]** A **Sandbox** tester Apple ID exists (Users and Access → Sandbox → Test Accounts) for IAP testing.
 
 ### 1. One-time account & signing setup **[ONE-TIME]**

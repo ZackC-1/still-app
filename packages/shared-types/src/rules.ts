@@ -22,6 +22,13 @@ export type SurfaceCapability = (typeof SURFACE_CAPABILITIES)[number];
 export const SERVICE_IDS = ["youtube", "instagram", "tiktok", "facebook"] as const;
 export type ServiceId = (typeof SERVICE_IDS)[number];
 
+/**
+ * Services whose every surface is Pro-gated (mirrors the seed.json tiers: youtube ships the free
+ * Shorts surfaces; the other three are entirely Pro). The UI locks these rows for un-entitled
+ * users so a toggle never flips without the engine actually blocking anything behind it.
+ */
+export const PRO_SERVICE_IDS: ReadonlySet<ServiceId> = new Set(["instagram", "tiktok", "facebook"]);
+
 /** `redirect` action: rewrite a short-form URL to its long-form equivalent. */
 export interface RedirectRule {
   /** Regex tested against `location.pathname`; capture groups feed `to`. */

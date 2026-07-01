@@ -8,18 +8,28 @@
     service: ServiceId;
     on: boolean;
     onchange: () => void;
+    /** Pro-gated service for an un-entitled user: the toggle is replaced by a lock that opens the
+     * paywall — a flippable toggle here would change nothing on the page (the engine gates it). */
+    locked?: boolean;
+    onLockedTap?: () => void;
   }
-  let { service, on, onchange }: Props = $props();
+  let { service, on, onchange, locked = false, onLockedTap }: Props = $props();
   const copy = $derived(STRINGS.services[service]);
 </script>
 
-<section class="card" data-service={service}>
+<section class="card" data-service={service} class:locked>
   <ServiceIcon {service} size={42} />
   <div class="text">
     <span class="name">{copy.name}</span>
-    <span class="status">{on ? copy.on : copy.off}</span>
+    <span class="status">{locked ? STRINGS.pro.locked : on ? copy.on : copy.off}</span>
   </div>
-  <Toggle checked={on} label={`Still on ${copy.name}`} {onchange} />
+  {#if locked}
+    <button class="lock" onclick={onLockedTap} aria-label={`${copy.name} — ${STRINGS.pro.locked}`}>
+      <span aria-hidden="true">🔒</span>
+    </button>
+  {:else}
+    <Toggle checked={on} label={`Still on ${copy.name}`} {onchange} />
+  {/if}
 </section>
 
 <style>
@@ -46,5 +56,20 @@
   .status {
     font-size: 14px;
     color: var(--ink-secondary);
+  }
+  .card.locked .name {
+    color: var(--ink-secondary);
+  }
+  .lock {
+    background: transparent;
+    border: none;
+    font-size: 18px;
+    line-height: 1;
+    padding: var(--space-2);
+    cursor: pointer;
+    opacity: 0.55;
+  }
+  .lock:hover {
+    opacity: 0.85;
   }
 </style>

@@ -39,13 +39,16 @@
     />
   </section>
 
-  <!-- Per-service cards -->
+  <!-- Per-service cards. Pro-gated rows render locked for un-entitled users: tapping the lock is
+       the Pro discovery path (paywall / sign-in first), not a toggle that silently does nothing. -->
   <div class="services" aria-disabled={!c.settings.globalOn}>
     {#each SERVICE_IDS as service (service)}
       <ServiceCard
         {service}
         on={c.settings.globalOn && c.settings.services[service]}
         onchange={() => c.toggleService(service)}
+        locked={c.isLocked(service)}
+        onLockedTap={() => c.lockedTap()}
       />
     {/each}
   </div>
@@ -88,10 +91,16 @@
   <!-- Sync / account section: renders the popup state matrix -->
   <section class="sync card" data-state={c.popupState}>
     {#if c.popupState === "signed-out"}
-      <p class="muted">{STRINGS.auth.prompt}</p>
-      <button class="primary block" onclick={() => c.openSignIn()}>
-        {onSignInWithApple ? STRINGS.auth.apple : STRINGS.auth.signInCta}
-      </button>
+      {#if c.canSignIn || onSignInWithApple}
+        <p class="muted">{STRINGS.auth.prompt}</p>
+        <button class="primary block" onclick={() => c.openSignIn()}>
+          {onSignInWithApple ? STRINGS.auth.apple : STRINGS.auth.signInCta}
+        </button>
+      {:else}
+        <!-- No auth path on this host (the browser extensions, until U10): a sign-in CTA here
+             would silently do nothing, so show the quiet explanatory note instead. -->
+        <p class="muted">{STRINGS.paywall.nonApple}</p>
+      {/if}
       <a class="link center" href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer">
         {STRINGS.account.privacyPolicy}
       </a>
@@ -125,17 +134,19 @@
     <SignInSheet controller={c} {onSignInWithApple} onDismiss={() => c.dismissSignIn()} />
   {/if}
 
-  {#if c.paywallOpen && c.host.canPurchase}
+  <!-- The sheet also opens on hosts without a purchase path (locked-row taps in the extensions):
+       it renders its explanatory state there instead of a buy CTA (R19). -->
+  {#if c.paywallOpen}
     <PaywallSheet
       canPurchase={c.host.canPurchase}
       price={c.paywallPrice}
       purchaseFlow={c.purchaseFlow}
       purchaseError={c.purchaseError}
       onGet={() => {
-        if (c.beginPurchase()) onGet?.();
+        if (onGet && c.beginPurchase()) onGet();
       }}
       onRestore={() => {
-        if (c.beginRestore()) onRestore?.();
+        if (onRestore && c.beginRestore()) onRestore();
       }}
       onDismiss={() => c.dismissPaywall()}
     />
