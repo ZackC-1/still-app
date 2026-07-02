@@ -1,16 +1,49 @@
 import { describe, it, expect, vi } from "vitest";
 import { SettingsCache } from "../../storage/cache.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
-import { UiController, type UiAuth, type UiHost } from "../controller.svelte.js";
+import {
+  UiController,
+  OTP_TTL_MS,
+  type AuthPersistence,
+  type UiAuth,
+  type UiHost,
+} from "../controller.svelte.js";
+import type { RequestCodeOutcome, VerifyCodeOutcome } from "../../sync/ports.js";
+import { STRINGS } from "../strings.js";
 
-function makeController(extra: { host?: Partial<UiHost>; auth?: UiAuth } = {}) {
+function makeController(
+  extra: {
+    host?: Partial<UiHost>;
+    auth?: UiAuth;
+    persistence?: AuthPersistence;
+    clock?: () => number;
+  } = {},
+) {
   const cache = new SettingsCache(new InMemoryStorageAdapter(null), { now: () => Date.now() });
   const c = new UiController({
     cache,
     host: { canPurchase: true, currentHost: "youtube.com", ...extra.host },
     auth: extra.auth,
+    persistence: extra.persistence,
+    clock: extra.clock,
   });
   return { c, cache };
+}
+
+/** An extension-shaped UiAuth: code capability, no magic link (plan U2/R1). */
+function codeAuth(over: Partial<UiAuth> = {}): UiAuth {
+  return {
+    signOut: vi.fn(() => Promise.resolve()),
+    requestCode: vi.fn(() => Promise.resolve<RequestCodeOutcome>({ kind: "sent" })),
+    verifyCode: vi.fn(() =>
+      Promise.resolve<VerifyCodeOutcome>({ kind: "verified", userId: "user-1" }),
+    ),
+    ...over,
+  };
+}
+
+function mockPersistence() {
+  return { setPendingOtp: vi.fn(), setPurchaseIntent: vi.fn() };
 }
 
 describe("UiController", () => {
@@ -230,5 +263,201 @@ describe("UiController", () => {
     c.setPurchaseOutcome({ outcome: "cancelled", entitled: false });
     c.dismissPaywall();
     expect(c.purchaseFlow).toBe("idle");
+  });
+
+  // ── email-OTP code flow (plan U2/R1) ────────────────────────────────────────────────────────────
+
+  it("requestCode success lands on code entry with the email retained and the pending OTP persisted", async () => {
+    const t = 5_000;
+    const persistence = mockPersistence();
+    const auth = codeAuth();
+    const { c } = makeController({ auth, persistence, clock: () => t });
+    expect(c.canUseCode).toBe(true);
+    await c.signIn("a@b.com");
+    expect(auth.requestCode).toHaveBeenCalledWith("a@b.com");
+    expect(c.authFlow).toBe("code-entry");
+    expect(c.codeEmail).toBe("a@b.com");
+    expect(persistence.setPendingOtp).toHaveBeenCalledWith({ email: "a@b.com", requestedAt: t });
+    c.dismissSignIn(); // stop the cooldown ticker
+  });
+
+  it("requestCode failure shows the calm error state with no raw error text", async () => {
+    const auth = codeAuth({
+      requestCode: vi.fn(() => Promise.resolve<RequestCodeOutcome>({ kind: "send-failed" })),
+    });
+    const persistence = mockPersistence();
+    const { c } = makeController({ auth, persistence });
+    await c.signIn("a@b.com");
+    expect(c.authFlow).toBe("error");
+    expect(c.authError).toBeNull(); // the sheet shows its own code-flow copy, never backend text
+    expect(c.codeEmail).toBeNull();
+    expect(persistence.setPendingOtp).not.toHaveBeenCalled(); // nothing was sent → nothing pending
+  });
+
+  it("verifyCode success signs in, closes the sheet, and clears the pending OTP", async () => {
+    const persistence = mockPersistence();
+    const { c } = makeController({ auth: codeAuth(), persistence });
+    c.openSignIn();
+    await c.signIn("a@b.com");
+    await c.verifyCode("123456");
+    expect(c.userId).toBe("user-1");
+    expect(c.authFlow).toBe("idle");
+    expect(c.signInOpen).toBe(false);
+    expect(persistence.setPendingOtp).toHaveBeenLastCalledWith(null);
+    expect(c.paywallOpen).toBe(false); // plain sign-in (no locked-row intent) → no paywall
+  });
+
+  it("a wrong code lands on code-error and a corrected retry still succeeds", async () => {
+    const verifyCode = vi
+      .fn()
+      .mockResolvedValueOnce({ kind: "invalid-code" })
+      .mockResolvedValueOnce({ kind: "verified", userId: "user-1" });
+    const { c } = makeController({ auth: codeAuth({ verifyCode }) });
+    await c.signIn("a@b.com");
+    await c.verifyCode("000000");
+    expect(c.authFlow).toBe("code-error");
+    expect(c.codeErrorKind).toBe("wrong");
+    expect(c.suggestNewCode).toBe(false);
+    await c.verifyCode("123456"); // retry straight from code-error
+    expect(c.userId).toBe("user-1");
+    expect(c.authFlow).toBe("idle");
+  });
+
+  it("repeated invalid codes surface the request-a-new-code affordance", async () => {
+    const verifyCode = vi.fn(() =>
+      Promise.resolve<VerifyCodeOutcome>({ kind: "invalid-code" }),
+    );
+    const { c } = makeController({ auth: codeAuth({ verifyCode }) });
+    await c.signIn("a@b.com");
+    await c.verifyCode("111111");
+    await c.verifyCode("222222");
+    expect(c.suggestNewCode).toBe(false);
+    await c.verifyCode("333333");
+    expect(c.suggestNewCode).toBe(true);
+    c.dismissSignIn();
+  });
+
+  it("a verify network failure is not an attempt — calm retry, no invalidation pressure", async () => {
+    const verifyCode = vi.fn(() =>
+      Promise.resolve<VerifyCodeOutcome>({ kind: "verify-failed" }),
+    );
+    const { c } = makeController({ auth: codeAuth({ verifyCode }) });
+    await c.signIn("a@b.com");
+    await c.verifyCode("123456");
+    expect(c.authFlow).toBe("code-error");
+    expect(c.codeErrorKind).toBe("check-failed");
+    expect(c.codeAttempts).toBe(0); // the code may still be good
+    c.dismissSignIn();
+  });
+
+  it("a failed verify past the OTP TTL reads as expired", async () => {
+    let t = 1_000;
+    const verifyCode = vi.fn(() =>
+      Promise.resolve<VerifyCodeOutcome>({ kind: "invalid-code" }),
+    );
+    const { c } = makeController({ auth: codeAuth({ verifyCode }), clock: () => t });
+    await c.signIn("a@b.com");
+    t += OTP_TTL_MS + 1;
+    await c.verifyCode("123456");
+    expect(c.codeErrorKind).toBe("expired");
+    c.dismissSignIn();
+  });
+
+  it("resend is blocked during the 60s cooldown with a visible countdown, then unblocks", async () => {
+    vi.useFakeTimers();
+    try {
+      let t = 1_000_000;
+      const auth = codeAuth();
+      const { c } = makeController({ auth, clock: () => t });
+      await c.signIn("a@b.com");
+      expect(c.resendCooldown).toBe(60);
+      await c.resendCode(); // blocked mid-cooldown → no network call
+      expect(auth.requestCode).toHaveBeenCalledTimes(1);
+
+      t += 15_000;
+      vi.advanceTimersByTime(15_000);
+      expect(c.resendCooldown).toBe(45); // countdown is visible and live
+
+      t += 45_000;
+      vi.advanceTimersByTime(45_000);
+      expect(c.resendCooldown).toBe(0);
+      await c.resendCode(); // cooldown over → resend goes through
+      expect(auth.requestCode).toHaveBeenCalledTimes(2);
+      expect(c.resendCooldown).toBe(60); // a fresh send restarts the countdown
+      c.dismissSignIn();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("rehydrateCodeEntry lands straight on code entry for the persisted email (AE2)", () => {
+    const t = 100_000;
+    const { c } = makeController({ auth: codeAuth(), clock: () => t });
+    c.rehydrateCodeEntry({ email: "saved@b.com", requestedAt: t - 10_000, purchaseIntent: true });
+    expect(c.authFlow).toBe("code-entry");
+    expect(c.signInOpen).toBe(true);
+    expect(c.codeEmail).toBe("saved@b.com");
+    expect(c.resendCooldown).toBe(50); // countdown restored from the original request time
+    expect(c.purchaseIntent).toBe(true);
+    c.dismissSignIn();
+  });
+
+  it("an Apple-shaped UiAuth (no code capability) keeps the magic-link flow unchanged", async () => {
+    const signIn = vi.fn(() => Promise.resolve({}));
+    const { c } = makeController({ auth: { signIn, signOut: vi.fn(() => Promise.resolve()) } });
+    expect(c.canUseCode).toBe(false);
+    await c.signIn("a@b.com");
+    expect(c.authFlow).toBe("sent"); // not code-entry
+    expect(signIn).toHaveBeenCalledWith("a@b.com");
+  });
+
+  it("locked-row-tap sign-in continues to the paywall after verify (purchase intent, AE1)", async () => {
+    const persistence = mockPersistence();
+    const { c } = makeController({ auth: codeAuth(), persistence });
+    c.lockedTap(); // signed out on a purchasable host → sign-in first, intent recorded
+    expect(c.signInOpen).toBe(true);
+    expect(c.purchaseIntent).toBe(true);
+    expect(persistence.setPurchaseIntent).toHaveBeenCalledWith(true);
+    await c.signIn("a@b.com");
+    await c.verifyCode("123456");
+    expect(c.userId).toBe("user-1");
+    expect(c.paywallOpen).toBe(true); // auto-OPENED — checkout still needs its own tap
+    expect(c.purchaseFlow).toBe("idle"); // never auto-invokes checkout
+    expect(c.purchaseIntent).toBe(false);
+    expect(persistence.setPurchaseIntent).toHaveBeenLastCalledWith(false);
+  });
+
+  it("'Not now' mid-code-entry clears the pending OTP and the purchase intent", async () => {
+    const persistence = mockPersistence();
+    const { c } = makeController({ auth: codeAuth(), persistence });
+    c.lockedTap();
+    await c.signIn("a@b.com");
+    expect(c.authFlow).toBe("code-entry");
+    c.dismissSignIn(); // deliberate exit — unlike popup death, this abandons the flow
+    expect(persistence.setPendingOtp).toHaveBeenLastCalledWith(null);
+    expect(persistence.setPurchaseIntent).toHaveBeenLastCalledWith(false);
+    expect(c.authFlow).toBe("idle");
+    expect(c.codeEmail).toBeNull();
+    expect(c.purchaseIntent).toBe(false);
+  });
+
+  it("'use a different email' returns to the email field but keeps the purchase intent", async () => {
+    const persistence = mockPersistence();
+    const { c } = makeController({ auth: codeAuth(), persistence });
+    c.lockedTap();
+    await c.signIn("typo@b.com");
+    c.useDifferentEmail();
+    expect(c.authFlow).toBe("idle");
+    expect(c.codeEmail).toBeNull();
+    expect(persistence.setPendingOtp).toHaveBeenLastCalledWith(null);
+    expect(c.purchaseIntent).toBe(true); // still mid-unlock — only "Not now" abandons it
+  });
+});
+
+describe("code-flow copy (plan U2/R1)", () => {
+  it("never says 'link' anywhere in the code path strings", () => {
+    for (const [key, value] of Object.entries(STRINGS.codeAuth)) {
+      expect(value.toLowerCase(), `codeAuth.${key}`).not.toContain("link");
+    }
   });
 });

@@ -1,24 +1,39 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/svelte";
+import { tick } from "svelte";
 import { DEFAULT_SETTINGS } from "@still/shared-types";
 import App from "../App.svelte";
 import Placeholder from "../components/Placeholder.svelte";
-import { UiController, type UiHost } from "../controller.svelte.js";
+import { UiController, type UiAuth, type UiHost } from "../controller.svelte.js";
 import { STRINGS } from "../strings.js";
 import { PRIVACY_POLICY_URL } from "../config.js";
 import { SettingsCache } from "../../storage/cache.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
 
-function controller(opts: { host?: Partial<UiHost>; globalOn?: boolean; deletable?: boolean } = {}) {
+function controller(
+  opts: { host?: Partial<UiHost>; globalOn?: boolean; deletable?: boolean; auth?: UiAuth } = {},
+) {
   const initial = { ...DEFAULT_SETTINGS, globalOn: opts.globalOn ?? true, updatedAt: 1 };
   const cache = new SettingsCache(new InMemoryStorageAdapter(initial), { initial, now: () => Date.now() });
   return new UiController({
     cache,
     host: { canPurchase: true, currentHost: "youtube.com", ...opts.host },
-    auth: opts.deletable
-      ? { signIn: () => Promise.resolve({}), signOut: () => Promise.resolve(), deleteAccount: () => Promise.resolve() }
-      : undefined,
+    auth:
+      opts.auth ??
+      (opts.deletable
+        ? { signIn: () => Promise.resolve({}), signOut: () => Promise.resolve(), deleteAccount: () => Promise.resolve() }
+        : undefined),
   });
+}
+
+/** An extension-shaped UiAuth: email-OTP code capability, no magic link (plan U2/R1). */
+function codeCapableAuth(over: Partial<UiAuth> = {}): UiAuth {
+  return {
+    signOut: () => Promise.resolve(),
+    requestCode: () => Promise.resolve({ kind: "sent" } as const),
+    verifyCode: () => Promise.resolve({ kind: "verified", userId: "u" } as const),
+    ...over,
+  };
 }
 
 describe("App", () => {
@@ -122,6 +137,62 @@ describe("App", () => {
     c.userId = "u"; // signed in → popupState leaves "signed-out", so the sheet is gated off
     render(App, { props: { controller: c, onSignInWithApple: () => {} } });
     expect(screen.queryByText(STRINGS.auth.title)).toBeNull(); // the modal title is absent
+  });
+
+  // ── email-OTP code entry (plan U2/R1) ──────────────────────────────────────────────────────────
+
+  it("code host: sending a code lands on ONE plain one-time-code input (no segmented boxes)", async () => {
+    const c = controller({ auth: codeCapableAuth() });
+    render(App, { props: { controller: c } });
+    await fireEvent.click(screen.getByText("Sign in to sync"));
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByText(STRINGS.codeAuth.send)).toBeTruthy(); // "Email me a code", not a link
+    await c.signIn("a@b.com");
+    await tick();
+    const input = document.querySelector("input.code") as HTMLInputElement;
+    expect(input).toBeTruthy();
+    expect(input.getAttribute("type")).toBe("text");
+    expect(input.getAttribute("inputmode")).toBe("numeric");
+    expect(input.getAttribute("pattern")).toBe("[0-9]*");
+    expect(input.getAttribute("autocomplete")).toBe("one-time-code");
+    expect(input.getAttribute("maxlength")).toBe("6");
+    expect(input.getAttribute("aria-label")).toBe(STRINGS.codeAuth.codeLabel);
+    expect(screen.getByRole("dialog").querySelectorAll("input").length).toBe(1); // one field only
+    const resend = dialog.getByText(/Send a new code in \d+s/) as HTMLButtonElement;
+    expect(resend.disabled).toBe(true); // resend blocked during the visible cooldown
+    c.dismissSignIn(); // stop the cooldown ticker
+  });
+
+  it("code host: the verify button only enables at 6 digits", async () => {
+    const c = controller({ auth: codeCapableAuth() });
+    render(App, { props: { controller: c } });
+    await fireEvent.click(screen.getByText("Sign in to sync"));
+    await c.signIn("a@b.com");
+    await tick();
+    const dialog = within(screen.getByRole("dialog"));
+    const verify = dialog.getByText(STRINGS.codeAuth.verify) as HTMLButtonElement;
+    expect(verify.disabled).toBe(true); // empty
+    const input = document.querySelector("input.code") as HTMLInputElement;
+    await fireEvent.input(input, { target: { value: "123 456" } }); // full paste, digits kept
+    expect(input.value).toBe("123456");
+    expect((dialog.getByText(STRINGS.codeAuth.verify) as HTMLButtonElement).disabled).toBe(false);
+    c.dismissSignIn();
+  });
+
+  it("code host: a send failure renders the code-flow error — never the magic-link copy", async () => {
+    const c = controller({
+      auth: codeCapableAuth({
+        requestCode: () => Promise.resolve({ kind: "send-failed" } as const),
+      }),
+    });
+    render(App, { props: { controller: c } });
+    await fireEvent.click(screen.getByText("Sign in to sync"));
+    await c.signIn("a@b.com");
+    await tick();
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByText(STRINGS.codeAuth.sendError)).toBeTruthy();
+    expect(dialog.queryByText(STRINGS.auth.error)).toBeNull();
+    expect(screen.getByRole("dialog").textContent).not.toMatch(/link/i); // no "link" in the code path
   });
 
   // ── account management (App Store 5.1.1) ──────────────────────────────────────────────────────

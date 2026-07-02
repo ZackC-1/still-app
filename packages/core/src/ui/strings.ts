@@ -73,6 +73,28 @@ export const STRINGS = {
     signingIn: "Signing in…",
   },
 
+  // Email-OTP code entry (plan U2/R1) — the extension popup can't receive a magic-link redirect,
+  // so it signs in with an emailed 6-digit code. None of these lines may say "link": the
+  // magic-link strings above (auth.send/sent/error/resend) must never render in the code flow.
+  // The Apple magic-link strings stay untouched.
+  codeAuth: {
+    send: "Email me a code",
+    prompt: "Check your email for a 6-digit code.",
+    sentTo: "Sent to",
+    codeLabel: "6-digit code",
+    verify: "Verify code",
+    verifying: "Checking…",
+    wrongCode: "That code didn't match. Check it and try again.",
+    expiredCode: "That code has expired. Send a new one to continue.",
+    requestNew: "That code isn't working. Send a new one to continue.",
+    verifyError: "Couldn't check the code. Try again.",
+    sendError: "Couldn't send the code. Try again.",
+    resendError: "Couldn't send a new code. The last one may still work.",
+    resend: "Send a new code",
+    resendWait: "Send a new code in", // the sheet appends the live countdown, e.g. "… in 42s"
+    differentEmail: "Use a different email",
+  },
+
   sync: {
     pending: "Checking your account…",
     syncing: "Synced across your devices.",
