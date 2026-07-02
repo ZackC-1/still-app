@@ -11,7 +11,7 @@ import {
   extensionSupabaseConfig,
   type ExtensionSession,
 } from "@still/core/sync";
-import { AUTH_STORAGE_KEY, createAuthStorage } from "../lib/auth-storage.js";
+import { AUTH_STORAGE_KEY, clearExtensionAuthStorage, createAuthStorage } from "../lib/auth-storage.js";
 import { createIdentityStore, createSessionStores } from "../lib/session-stores.js";
 import {
   isSessionRequest,
@@ -72,12 +72,16 @@ export default defineBackground(() => {
 
   // Privileged session router (plan KTD sender validation): getState/requestCode/verifyCode/
   // signOut/deleteAccount/reconcile/restore/createCheckout + the persistence setters dispatch ONLY
-  // for extension-page senders — same extension id and NO sender.tab (content scripts always carry
-  // one). Anything else falls through unanswered (the sender's closures settle to their structured
-  // fail-safe). Async responses use the sendResponse + `return true` shape — the one contract both
-  // Chrome MV3 and Firefox's chrome-namespace listeners honor (the existing listeners here are
-  // synchronous, so this is the first async handler; a promise-returning listener would break on
-  // Chrome, where the return value is only the keep-alive flag).
+  // for extension-page senders — same extension id AND an extension-origin URL. The origin check is
+  // strictly stronger than a `sender.tab === undefined` test: content scripts carry the page's URL
+  // (never the extension origin) so they're still walled off to the nudge, while the EMBEDDED
+  // options page (options_ui.open_in_tab:false) — which carries a sender.tab and would be wrongly
+  // rejected by a tab check — is correctly allowed (F9). Anything else falls through unanswered (the
+  // sender's closures settle to their structured fail-safe). Async responses use the sendResponse +
+  // `return true` shape — the one contract both Chrome MV3 and Firefox's chrome-namespace listeners
+  // honor; a promise-returning listener would break on Chrome, where the return value is only the
+  // keep-alive flag.
+  const extensionOrigin = chrome.runtime.getURL("");
   chrome.runtime.onMessage.addListener(
     (
       message: unknown,
@@ -85,8 +89,18 @@ export default defineBackground(() => {
       sendResponse: (response?: unknown) => void,
     ): boolean => {
       if (!isSessionRequest(message)) return false;
-      if (sender.id !== chrome.runtime.id || sender.tab !== undefined) return false;
-      void dispatchSession(session, message).then(sendResponse);
+      const fromExtensionPage =
+        sender.id === chrome.runtime.id &&
+        typeof sender.url === "string" &&
+        sender.url.startsWith(extensionOrigin);
+      if (!fromExtensionPage) return false;
+      // .catch guards a sendResponse that throws when the requesting popup's port already closed
+      // (the popup dies on focus loss — e.g. right after createCheckout opens a tab, F10).
+      void dispatchSession(session, message)
+        .then(sendResponse)
+        .catch(() => {
+          /* popup port closed before the response landed — nothing to deliver */
+        });
       return true; // keep the channel open for the async sendResponse
     },
   );
@@ -169,6 +183,9 @@ function createSessionSpine(cache: SettingsCache): ExtensionSession | null {
     closeTab: async (tabId: number) => {
       await browser.tabs.remove(tabId);
     },
+    // Offline-proof sign-out (F1): drop the persisted session so a failed remote revoke can't leave
+    // it on disk for the next wake to resurrect.
+    clearAuthStorage: clearExtensionAuthStorage,
   });
 }
 

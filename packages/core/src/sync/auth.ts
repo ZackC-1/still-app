@@ -41,7 +41,14 @@ export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
   }
 
   async signOut(): Promise<void> {
-    await this.client.auth.signOut();
+    // auth-js 2.108.2 returns the error BEFORE removing the local session when the server revoke
+    // fails on network/5xx (only 401/403/404 still clear locally), so a plain signOut() can leave a
+    // live session persisted after an explicit sign-out. Fall back to scope:"local" so the local
+    // session is dropped even when the global revoke couldn't reach the server. The extension teardown
+    // also clears the persisted auth storage key directly (createExtensionSession clearAuthStorage),
+    // which is the offline-proof guarantee; this keeps the shared AuthPort honest for every host.
+    const { error } = await this.client.auth.signOut();
+    if (error) await this.client.auth.signOut({ scope: "local" });
   }
 
   async currentUserId(): Promise<string | null> {

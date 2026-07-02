@@ -37,6 +37,10 @@
   }
 
   $effect(() => {
+    // Track authFlow so focus re-lands when the view swaps (email → code entry): reading only the
+    // stable `sheet` ref would run the effect once and never again, leaving focus on document.body,
+    // which also breaks Escape-to-dismiss via bubbling (F8 — mirrors PaywallSheet's swap tracking).
+    void c.authFlow;
     sheet?.querySelector<HTMLElement>("button, input")?.focus();
   });
 

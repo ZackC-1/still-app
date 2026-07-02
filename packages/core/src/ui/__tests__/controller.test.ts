@@ -422,6 +422,66 @@ describe("UiController", () => {
     }
   });
 
+  it("dismissing mid-verify drops the result — a cancelled verify does not sign in (F6)", async () => {
+    let resolveVerify!: (v: VerifyCodeOutcome) => void;
+    const verifyCode = vi.fn(
+      () => new Promise<VerifyCodeOutcome>((resolve) => (resolveVerify = resolve)),
+    );
+    const persistence = mockPersistence();
+    const { c } = makeController({ auth: codeAuth({ verifyCode }), persistence });
+    await c.signIn("a@b.com");
+    const pending = c.verifyCode("123456"); // in flight
+    c.dismissSignIn(); // user hits "Not now" before the network resolves
+    resolveVerify({ kind: "verified", userId: "user-1" });
+    await pending;
+    expect(c.userId).toBeNull(); // the abandoned verify never signed them in
+    expect(c.signInOpen).toBe(false);
+  });
+
+  it("dismissing mid-send drops the result — no pendingOtp persisted, no code entry (F6)", async () => {
+    let resolveSend!: (v: RequestCodeOutcome) => void;
+    const requestCode = vi.fn(
+      () => new Promise<RequestCodeOutcome>((resolve) => (resolveSend = resolve)),
+    );
+    const persistence = mockPersistence();
+    const { c } = makeController({ auth: codeAuth({ requestCode }), persistence });
+    const pending = c.signIn("a@b.com"); // enters "sending", awaits requestCode
+    c.dismissSignIn();
+    resolveSend({ kind: "sent" });
+    await pending;
+    expect(c.authFlow).not.toBe("code-entry");
+    expect(c.codeEmail).toBeNull();
+    expect(persistence.setPendingOtp).not.toHaveBeenCalledWith(
+      expect.objectContaining({ email: "a@b.com" }),
+    );
+  });
+
+  it("a double-tapped resend fires exactly one request (synchronous in-flight guard, F7)", async () => {
+    vi.useFakeTimers();
+    try {
+      let t = 1_000_000;
+      let resolveResend!: (v: RequestCodeOutcome) => void;
+      const requestCode = vi
+        .fn()
+        .mockResolvedValueOnce({ kind: "sent" }) // the initial signIn
+        .mockImplementationOnce(
+          () => new Promise<RequestCodeOutcome>((resolve) => (resolveResend = resolve)),
+        );
+      const { c } = makeController({ auth: codeAuth({ requestCode }), clock: () => t });
+      await c.signIn("a@b.com");
+      t += 60_000;
+      vi.advanceTimersByTime(60_000); // cooldown elapsed → resend is enabled
+      const first = c.resendCode();
+      const second = c.resendCode(); // second tap before the first resolves
+      resolveResend({ kind: "sent" });
+      await Promise.all([first, second]);
+      expect(requestCode).toHaveBeenCalledTimes(2); // 1 initial + 1 resend, never 3
+      c.dismissSignIn();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("rehydrateCodeEntry lands straight on code entry for the persisted email (AE2)", () => {
     const t = 100_000;
     const { c } = makeController({ auth: codeAuth(), clock: () => t });

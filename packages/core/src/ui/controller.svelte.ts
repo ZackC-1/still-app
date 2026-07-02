@@ -217,6 +217,15 @@ export class UiController {
   private readonly now: () => number;
   /** When the current code was requested — drives the resend countdown and expiry detection. */
   private codeRequestedAt: number | null = null;
+  /** Bumped by any deliberate exit from the sign-in flow (dismiss / use-a-different-email). An
+   * async auth call captures it before its await and bails if it changed — so a request/verify the
+   * user abandoned mid-flight can't still persist a pendingOtp record or silently sign them in (F6,
+   * mirrors pollReconcile's post-await re-check). */
+  private authFlowGeneration = 0;
+  /** Synchronous in-flight guard for resend: the resend cooldown only starts AFTER the request
+   * resolves, so two rapid taps would both pass the cooldown check and fire concurrent requests
+   * without this (F7). */
+  private resendInFlight = false;
   /** Ticks the visible countdown once a second while a cooldown runs; self-clears at 0 (the popup
    * dies with the sheet anyway, so no destroy hook is needed). */
   private cooldownTimer: ReturnType<typeof setInterval> | null = null;
@@ -386,6 +395,7 @@ export class UiController {
   }
 
   dismissSignIn(): void {
+    this.authFlowGeneration += 1; // cancel any in-flight send/verify/resend continuation (F6)
     this.signInOpen = false;
     // A deliberate "Not now" abandons the code flow entirely (unlike popup death, which persists
     // it): clear the pending OTP so the next open starts fresh at the email field (R1).
@@ -686,7 +696,9 @@ export class UiController {
   private async sendCode(email: string): Promise<void> {
     this.authFlow = "sending";
     this.authError = null;
+    const gen = this.authFlowGeneration;
     const outcome = await this.auth!.requestCode!(email);
+    if (this.authFlowGeneration !== gen) return; // dismissed mid-request — don't persist or enter
     if (outcome.kind === "sent") {
       this.enterCodeEntry(email, this.now());
       this.persistence?.setPendingOtp({ email, requestedAt: this.codeRequestedAt! });
@@ -704,7 +716,11 @@ export class UiController {
     this.authFlow = "verifying";
     this.codeErrorKind = null;
     const expired = this.codeIsExpired(); // judged against the request time, pre-await
+    const gen = this.authFlowGeneration;
     const outcome = await this.auth.verifyCode(this.codeEmail, code);
+    // Abandoned mid-verify (Not now / use-a-different-email): drop the result — a cancelled verify
+    // must not silently sign the user in (F6).
+    if (this.authFlowGeneration !== gen) return;
     if (outcome.kind === "verified") {
       this.userId = outcome.userId;
       this.clearCodeFlow();
@@ -732,21 +748,29 @@ export class UiController {
    * displayed countdown); success restarts the countdown and resets the attempt count. */
   async resendCode(): Promise<void> {
     if (!this.auth?.requestCode || this.codeEmail === null) return;
-    if (this.authFlow === "verifying" || this.resendRemainingMs() > 0) return;
+    if (this.authFlow === "verifying" || this.resendInFlight || this.resendRemainingMs() > 0) return;
     const email = this.codeEmail;
-    const outcome = await this.auth.requestCode(email);
-    if (outcome.kind === "sent") {
-      this.enterCodeEntry(email, this.now());
-      this.persistence?.setPendingOtp({ email, requestedAt: this.codeRequestedAt! });
-    } else {
-      // Stay on code entry — the previous code may still work; surface a calm resend line.
-      this.codeErrorKind = "resend-failed";
+    const gen = this.authFlowGeneration;
+    this.resendInFlight = true; // synchronous guard: the cooldown only starts after this resolves (F7)
+    try {
+      const outcome = await this.auth.requestCode(email);
+      if (this.authFlowGeneration !== gen) return; // abandoned mid-resend
+      if (outcome.kind === "sent") {
+        this.enterCodeEntry(email, this.now());
+        this.persistence?.setPendingOtp({ email, requestedAt: this.codeRequestedAt! });
+      } else {
+        // Stay on code entry — the previous code may still work; surface a calm resend line.
+        this.codeErrorKind = "resend-failed";
+      }
+    } finally {
+      this.resendInFlight = false;
     }
   }
 
   /** The "use a different email" escape (R1): back to the email field. Clears the pending OTP but
    * keeps any purchase intent — the user is still mid-unlock, just fixing a typo'd address. */
   useDifferentEmail(): void {
+    this.authFlowGeneration += 1; // cancel any in-flight verify/resend continuation (F6)
     this.clearCodeFlow();
     this.authFlow = "idle";
     this.authError = null;

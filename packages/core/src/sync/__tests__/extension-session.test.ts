@@ -128,6 +128,7 @@ function harness(opts: HarnessOpts = {}) {
   const checkoutPending = makeSlot<CheckoutPendingRecord>(opts.checkoutPendingValue ?? null);
   const nudgeStamp = makeSlot<number>(opts.nudgeStampValue ?? null);
   const closeTab = vi.fn(async () => {});
+  const clearAuthStorage = vi.fn(async () => {});
 
   const session = createExtensionSession({
     auth,
@@ -137,6 +138,7 @@ function harness(opts: HarnessOpts = {}) {
     identity,
     stores: { pendingOtp, checkoutPending, nudgeStamp },
     closeTab,
+    clearAuthStorage,
     now,
   });
 
@@ -154,8 +156,12 @@ function harness(opts: HarnessOpts = {}) {
     checkoutPending,
     nudgeStamp,
     closeTab,
+    clearAuthStorage,
     events,
     advance,
+    setSessionUser: (userId: string | null) => {
+      sessionUser = userId;
+    },
     seedIdentity: (userId: string) => {
       lastSynced = userId;
     },
@@ -381,6 +387,16 @@ describe("ExtensionSession — onNudge (content-script reconcile nudge, R4)", ()
     expect(await second).toBe("throttled");
     expect(h.backend.reconcileEntitlementChecked).toHaveBeenCalledTimes(1);
   });
+
+  it("a non-definitive reconcile (offline → unknown) rolls the throttle stamp back — no 6h mute (F4)", async () => {
+    const h = harness({ checked: "unavailable", checkoutPendingValue: { startedAt: T0 } });
+    expect(await h.session.onNudge()).toBe("reconciled");
+    // The stamp was written before the await, then rolled back to its prior value (null) because
+    // the reconcile couldn't confirm — the next nudge must not be muted for 6h.
+    expect(h.nudgeStamp.value).toBe(null);
+    expect(await h.session.onNudge()).toBe("reconciled");
+    expect(h.backend.reconcileEntitlementChecked).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("ExtensionSession — resume (background wake, R2 hard rule)", () => {
@@ -424,6 +440,7 @@ describe("ExtensionSession — teardown parity (voluntary sign-out / delete, R8)
     expect(h.nudgeStamp.value).toBe(null);
     expect(h.closeTab).toHaveBeenCalledWith(7);
     expect(h.identity.clear).toHaveBeenCalled();
+    expect(h.clearAuthStorage).toHaveBeenCalled(); // offline-proof session removal (F1)
   }
 
   function seededHarness(): ReturnType<typeof harness> {
@@ -467,6 +484,21 @@ describe("ExtensionSession — teardown parity (voluntary sign-out / delete, R8)
     expect(h.checkoutPending.value).toEqual({ startedAt: T0, tabId: 7 });
     expect(h.auth.signOut).not.toHaveBeenCalled();
     expect(h.identity.clear).not.toHaveBeenCalled();
+  });
+
+  it("a sign-out that lands DURING an in-flight reconcile is not overwritten by a stale entitled write (F2)", async () => {
+    const h = harness({ read: "entitled" });
+    // The reconcile's entitlement read resolves only after a concurrent sign-out has run its full
+    // teardown — the TOCTOU window. Without the generation guard the reconcile would re-write
+    // entitled:true after teardown wrote entitled:false, resurrecting Pro for a signed-out browser.
+    h.backend.readEntitlement.mockImplementationOnce(async () => {
+      await h.session.signOut();
+      return "entitled";
+    });
+    const outcome = await h.session.reconcile();
+    expect(outcome).toBe("signed-out"); // the reconcile bails at the post-await guard
+    expect(h.recordWrites.at(-1)).toEqual({ entitled: false, updatedAt: T0 }); // teardown's write wins
+    expect(h.recordWrites.filter((r) => r.entitled === true)).toHaveLength(0);
   });
 });
 

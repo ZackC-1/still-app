@@ -18,11 +18,22 @@ function portWith(result: { data?: unknown; error?: unknown }) {
 }
 
 describe("SupabaseBackendPort.createWebCheckout (plan U4)", () => {
-  it("200 with a checkout_url → checkout-url", async () => {
+  it("200 with an https checkout_url → checkout-url, with a client-side timeout signal (F5)", async () => {
     const url = "https://pay.rev.cat/token/user-uuid";
     const { port, invoke } = portWith({ data: { checkout_url: url } });
     await expect(port.createWebCheckout()).resolves.toEqual({ kind: "checkout-url", url });
-    expect(invoke).toHaveBeenCalledWith("create-web-checkout", { body: {} });
+    // The invoke carries a body AND an AbortSignal deadline so a hung fetch can't strand the popup.
+    expect(invoke).toHaveBeenCalledWith(
+      "create-web-checkout",
+      expect.objectContaining({ body: {}, signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  it("a 200 with a non-https checkout_url → unavailable (scheme gate before opening a tab, F3)", async () => {
+    for (const url of ["http://pay.rev.cat/t/u", "javascript:alert(1)", "not a url"]) {
+      const { port } = portWith({ data: { checkout_url: url } });
+      await expect(port.createWebCheckout()).resolves.toEqual({ kind: "unavailable" });
+    }
   });
 
   it("409 → already-entitled (the cross-device restore case, R5/AE4)", async () => {

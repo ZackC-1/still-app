@@ -134,6 +134,13 @@ export interface ExtensionSessionDeps {
   /** Best-effort chrome.tabs.remove: teardown closes a recorded checkout tab — an open
    * pay.rev.cat tab still carries the previous identity. */
   readonly closeTab: (tabId: number) => Promise<void>;
+  /** Best-effort removal of the persisted Supabase session (U6 injects a chrome.storage remove of
+   * the auth storage key). This is the offline-proof half of the sign-out guarantee: auth-js only
+   * clears the local session AFTER a successful server revoke, so a failed/offline sign-out would
+   * otherwise leave the session persisted — the next background resume() would resurrect the user
+   * and the next reconcile would re-grant Pro after an explicit sign-out. Optional so tests and any
+   * future host can omit it. */
+  readonly clearAuthStorage?: () => Promise<void>;
   /** Injected clock (ms epoch); Date.now in real wiring. */
   readonly now?: () => number;
 }
@@ -197,8 +204,14 @@ export interface ExtensionSession {
 }
 
 export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSession {
-  const { auth, backend, records, sync, identity, stores, closeTab } = deps;
+  const { auth, backend, records, sync, identity, stores, closeTab, clearAuthStorage } = deps;
   const now = deps.now ?? (() => Date.now());
+
+  /** Bumped by every teardown/identity-purge. A reconcile captures it before its network await and
+   * skips the entitlement write if it changed during the await — the airtight guard against a torn
+   * sign-out (or a concurrent identity switch) letting a stale `entitled: true` land after the purge
+   * already wrote `entitled: false`. Independent of any auth-js in-memory-session quirk. */
+  let teardownGeneration = 0;
 
   /** Purchase intent set before any pending-OTP record exists (locked-row tap precedes the code
    * request) — staged in-instance and folded into the next persisted record. A worker restart in
@@ -252,6 +265,7 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
    * so one storage failure cannot strand the rest of the purge.
    */
   const clearUserScopedState = async (): Promise<void> => {
+    teardownGeneration += 1; // invalidate any reconcile write in flight across its network await (F2)
     await attempt(() => records.setRecord({ entitled: false, updatedAt: now() }));
     const pending = await readCheckoutPending();
     if (pending?.tabId !== undefined) {
@@ -263,6 +277,9 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
     await attempt(() => stores.pendingOtp.set(null));
     await attempt(() => stores.nudgeStamp.set(null)); // the old user's throttle must not mute the next
     await attempt(() => identity.clear());
+    // Drop the persisted Supabase session too (offline-proof sign-out, F1) — without this a failed
+    // remote revoke leaves the session on disk and the next wake resurrects the signed-out user.
+    if (clearAuthStorage) await attempt(clearAuthStorage);
   };
 
   /**
@@ -278,12 +295,19 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
     try {
       const userId = await auth.currentUserId();
       if (userId === null) return "signed-out";
+      const generationAtStart = teardownGeneration;
       const call = await backend.reconcileEntitlementChecked();
       if (call === "auth-required") return "auth-required";
       if (call === "unavailable") return "unknown";
       const read = await backend.readEntitlement();
       if (read === "unknown") return "unknown";
       const entitled = read === "entitled";
+      // F2 guard: a teardown or identity switch that ran during the network await already wrote
+      // `entitled: false` and purged this user; writing the reconciled record now would resurrect a
+      // stale grant for a signed-out or replaced identity. Bail before the write when the generation
+      // moved or the current identity no longer matches the one we reconciled.
+      if (teardownGeneration !== generationAtStart) return "signed-out";
+      if ((await auth.currentUserId()) !== userId) return "signed-out";
       await records.setRecord({ entitled, userId, updatedAt: now() });
       // A confirmed purchase ends the checkout-pending lifecycle background-side too — the popup
       // may never reopen (AE3); the plan's sequence is "write cache, clear pending". The tab is
@@ -345,12 +369,18 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
         await attempt(() => stores.pendingOtp.set(null));
         // The full sign-in flow: reconcile-before-read, cloud-wins mirror, sync only when
         // entitled (R9 semantics unchanged).
+        const generationAtStart = teardownGeneration;
         await sync.onSignedIn(userId);
         // Write the record from that sign-in's own reconcile — one RevenueCat query, not two.
         // cloudReachable means the answer was definitive (explicit false included); unreachable
-        // means unknown — no write, the cache rides its TTL (AE6).
+        // means unknown — no write, the cache rides its TTL (AE6). The F2 guard also applies: a
+        // sign-out racing this sign-in must not have its `entitled: false` purge overwritten.
         const state = sync.getState();
-        if (state.cloudReachable) {
+        if (
+          state.cloudReachable &&
+          teardownGeneration === generationAtStart &&
+          (await auth.currentUserId()) === userId
+        ) {
           await records.setRecord({ entitled: state.entitled, userId, updatedAt: now() });
         }
       } catch {
@@ -423,7 +453,13 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
         // Stamp BEFORE awaiting the network call: another worker instance waking mid-flight reads
         // it and skips — the cross-instance half of the single-flight rule.
         await stores.nudgeStamp.set(now());
-        await runReconcile();
+        const outcome = await runReconcile();
+        // Roll the stamp back on a non-definitive answer (offline/5xx → unknown, or auth-required):
+        // a failed nudge must not mute nudge-reconciles for 6h, or a refund/purchase could sit
+        // unseen far past the ~24h staleness bound (F4). Restore the prior stamp (null if none).
+        if (outcome === "unknown" || outcome === "auth-required") {
+          await attempt(() => stores.nudgeStamp.set(stamp));
+        }
         return "reconciled";
       } catch {
         return "no-op"; // a torn nudge is a skipped nudge — never a throw at a content script

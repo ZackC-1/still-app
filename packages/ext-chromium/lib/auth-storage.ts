@@ -38,3 +38,16 @@ export function createAuthStorage(): SupportedStorage {
     },
   };
 }
+
+/** Drop the persisted Supabase session outright (plan U6, F1). Wired as the session's
+ * `clearAuthStorage` so a voluntary sign-out is offline-proof: auth-js only removes the local
+ * session AFTER a successful server revoke, so a failed/offline sign-out would otherwise leave the
+ * session on disk and the next background wake would resurrect the signed-out user. Removes the
+ * session record and its PKCE code-verifier sibling; best-effort, never throws. */
+export async function clearExtensionAuthStorage(): Promise<void> {
+  try {
+    await browser.storage.local.remove([AUTH_STORAGE_KEY, `${AUTH_STORAGE_KEY}-code-verifier`]);
+  } catch {
+    /* best-effort — the SDK sign-out already attempted local removal too */
+  }
+}
