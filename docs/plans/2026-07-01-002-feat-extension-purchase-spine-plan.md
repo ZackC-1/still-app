@@ -1,7 +1,7 @@
 ---
 title: "feat: Chrome/Firefox extension purchase spine + paywall success payoff"
 type: feat
-status: active
+status: completed
 date: 2026-07-01
 origin: docs/plans/2026-07-01-001-monetization-spec-reconciliation.md
 ---
