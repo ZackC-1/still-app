@@ -38,6 +38,14 @@ export default defineContentScript({
       ruleSet,
       cache,
       entitlement,
+      // Firefox ships NO DNR redirect (wxt.config omits the ruleset — Firefox doesn't support the
+      // regexSubstitution redirect), so on Firefox the content script is the ONLY Shorts redirect.
+      // Fire it synchronously at document_start before storage hydration, so a direct (cold) nav to
+      // m.youtube.com/shorts/<id> can't start playing the Short before the redirect — the same fix
+      // Safari uses (issue #28). Chromium keeps DNR-only: it redirects at the network layer and is
+      // correctly gated on the setting, so it neither needs nor wants a pre-hydration content-script
+      // redirect (which would briefly fire for a YouTube-off user before hydration corrects).
+      redirectBeforeHydration: import.meta.env.FIREFOX,
       // The packaged manifest CSS is generated from the bundled seed: when that's what applies,
       // the per-frame reapply can skip hide surfaces entirely (CSS owns them) and only run removes.
       manifestCssOwnsHides: source === "bundled",
