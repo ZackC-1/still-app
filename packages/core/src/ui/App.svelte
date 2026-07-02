@@ -144,13 +144,19 @@
       price={c.paywallPrice}
       purchaseFlow={c.purchaseFlow}
       purchaseError={c.purchaseError}
+      checkoutFlow={c.checkoutFlow}
       justUnlocked={c.justUnlocked}
       onGet={() => {
-        if (onGet && c.beginPurchase()) onGet();
+        // Web-purchasable hosts (the injected checkout seam, U4/U6) hand off to a checkout tab;
+        // Apple hosts keep the native in-place purchase through the host's onGet closure.
+        if (c.canWebCheckout) void c.startWebCheckout();
+        else if (onGet && c.beginPurchase()) onGet();
       }}
       onRestore={() => {
         if (onRestore && c.beginRestore()) onRestore();
       }}
+      onStartOver={() => c.abandonCheckout()}
+      onReSignIn={() => c.reSignInFromCheckout()}
       onDismiss={() => c.dismissPaywall()}
     />
   {/if}

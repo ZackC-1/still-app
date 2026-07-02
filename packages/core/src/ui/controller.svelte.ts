@@ -3,7 +3,7 @@ import { DEFAULT_SETTINGS } from "@still/shared-types";
 import { PRO_SERVICE_IDS } from "../rules/tiers.js";
 import type { SettingsCache } from "../storage/cache.js";
 import type { PurchaseResult } from "../native/bridge.js";
-import type { RequestCodeOutcome, VerifyCodeOutcome } from "../sync/ports.js";
+import type { RequestCodeOutcome, VerifyCodeOutcome, WebCheckoutOutcome } from "../sync/ports.js";
 import { etldPlusOne } from "../rules/match.js";
 
 // The host-agnostic view-model for the shared UI (KTD4). It reads/writes settings through the
@@ -58,6 +58,32 @@ export type PurchaseFlow =
   | "restoring"
   | "restored-none"; // restore completed but nothing to restore
 
+// ── Web checkout-pending lifecycle (plan U4/R3/R5) ────────────────────────────────────────────────
+
+/** The checkout-pending presentation, orthogonal to PurchaseFlow: PurchaseFlow tracks one tap's
+ * in-flight purchase, this tracks the PERSISTED "a checkout tab was opened" flag across popup
+ * deaths. `none` = no pending presentation. */
+export type CheckoutFlow =
+  | "none"
+  | "checking" // rehydrated pending: the fast-poll window is running ("Checking your purchase…")
+  | "quiet-pending" // poll window exhausted / tab just opened: reopen the popup for a fresh window
+  | "stale-pending" // pending >24h (or garbage record): the find-my-purchase support state
+  | "auth-required"; // session died mid-checkout: re-sign-in affordance, pending preserved
+
+/** What a host reconcile reported — only `auth-required` changes the controller's course; the
+ * entitled flip itself always arrives through the entitlement-store subscription (write-then-
+ * notify ordering, R6), never through this return value. */
+export type CheckoutReconcileOutcome = "entitled" | "not-entitled" | "auth-required" | "unknown";
+
+/** Reconcile fast-poll: 3s × 10 per popup-open window, then stop. Every poll is a live RevenueCat
+ * query server-side — the cap is deliberate (plan Risks); reopening the popup starts a fresh
+ * window, and the background nudge (AE3) covers users who never reopen it. */
+export const CHECKOUT_POLL_INTERVAL_MS = 3_000;
+export const CHECKOUT_POLL_MAX = 10;
+/** A pending flag older than this decays into the find-my-purchase support state (U4): checkout
+ * abandonment is the most common outcome, and "checking" forever would be a lie. */
+export const CHECKOUT_PENDING_TTL_MS = 24 * 60 * 60_000;
+
 export interface UiHost {
   /** false on hosts with no purchase path (non-Apple desktop): explanatory paywall, no CTA (R19). */
   readonly canPurchase: boolean;
@@ -100,12 +126,41 @@ export interface AuthPersistence {
   setPurchaseIntent(active: boolean): void;
 }
 
+/** The persisted checkout-pending record (plan U4/R3). Written BEFORE the checkout tab opens —
+ * the popup dies the moment the tab takes focus, so anything not persisted first is lost.
+ * `tabId` is a best-effort enrichment from the opener (U5's teardown closes the recorded tab). */
+export interface CheckoutPending {
+  readonly startedAt: number;
+  readonly tabId?: number;
+}
+
+/** Host checkout seam (plan U4/R3/R5), injected like AuthPersistence above: the controller owns
+ * the checkout state machine, the host owns the mechanics. U6 backs these with background
+ * messages + chrome.tabs/chrome.storage; tests use in-memory fakes. Only web-purchasable hosts
+ * (ext-chromium) wire it — the default shared wiring (Safari) stays checkout-free (R10/AE7). */
+export interface UiCheckout {
+  /** Ask the backend for a checkout URL (create-web-checkout, structured outcome). */
+  createCheckout(): Promise<WebCheckoutOutcome>;
+  /** Open the checkout tab. Resolves with the new tab's id when the host knows it — the popup
+   * usually dies before this resolves, which is fine: the pending flag is already persisted. */
+  openCheckoutTab(url: string): Promise<number | undefined>;
+  /** Persist the pending record; null clears it. Must land synchronously-enough that a write
+   * followed by popup death survives (chrome.storage queues the write, U6). */
+  setPending(pending: CheckoutPending | null): void;
+  /** Trigger a server reconcile (backend → entitlement-cache write). The entitled flip reaches
+   * the controller through the entitlement subscription; the returned outcome only signals
+   * auth-required (re-sign-in) vs keep-waiting. */
+  reconcile(): Promise<CheckoutReconcileOutcome>;
+}
+
 export interface UiControllerDeps {
   readonly cache: SettingsCache;
   readonly host: UiHost;
   readonly auth?: UiAuth;
   /** Host persistence for pendingOtp + purchase intent. Only code-flow hosts wire it. */
   readonly persistence?: AuthPersistence;
+  /** Host checkout seam (plan U4/R3). Only web-purchasable hosts wire it. */
+  readonly checkout?: UiCheckout;
   /** Injected clock (ms epoch) for the resend cooldown / OTP expiry — Date.now in real wiring,
    * controlled in tests (same seam as SettingsCache / the entitlement adapters). */
   readonly clock?: () => number;
@@ -150,11 +205,15 @@ export class UiController {
   deleteError = $state<string | null>(null);
   purchaseFlow = $state<PurchaseFlow>("idle");
   purchaseError = $state<string | null>(null);
+  /** The checkout-pending presentation (plan U4/R3): persisted-flag lifecycle across popup deaths,
+   * orthogonal to purchaseFlow (which tracks one tap's in-flight purchase). */
+  checkoutFlow = $state<CheckoutFlow>("none");
 
   readonly host: UiHost;
   private readonly cache: SettingsCache;
   private readonly auth?: UiAuth;
   private readonly persistence?: AuthPersistence;
+  private readonly checkout?: UiCheckout;
   private readonly now: () => number;
   /** When the current code was requested — drives the resend countdown and expiry detection. */
   private codeRequestedAt: number | null = null;
@@ -163,12 +222,20 @@ export class UiController {
   private cooldownTimer: ReturnType<typeof setInterval> | null = null;
   /** Auto-dismisses the payoff after PAYOFF_DURATION_MS; cleared on early dismiss (U3/R6). */
   private payoffTimer: ReturnType<typeof setTimeout> | null = null;
+  /** The local mirror of the persisted checkout-pending record (U4/R3) — kept so re-invoking
+   * checkout / start-over can replace or clear the flag without a storage round-trip. */
+  private checkoutPending: CheckoutPending | null = null;
+  /** The fast-poll window's timer + call count (3s × 10, then quiet-pending). Plain setTimeout is
+   * the fake-timer seam, matching the payoff/cooldown pattern. */
+  private pollTimer: ReturnType<typeof setTimeout> | null = null;
+  private pollCount = 0;
 
   constructor(deps: UiControllerDeps) {
     this.cache = deps.cache;
     this.host = deps.host;
     this.auth = deps.auth;
     this.persistence = deps.persistence;
+    this.checkout = deps.checkout;
     this.now = deps.clock ?? (() => Date.now());
     this.settings = deps.cache.current();
     deps.cache.subscribe((s) => {
@@ -194,19 +261,23 @@ export class UiController {
     const rose = !this.#entitled && value;
     this.#entitled = value;
     // Payoff only when a paywall surface is open (a quiet background unlock stays quiet, R6).
+    // Eligibility is judged BEFORE the pending flag is cleared below — the checkout-pending
+    // presentation is exactly what makes a rehydrated paying user eligible (U4).
     if (rose && this.payoffEligible) this.showPayoff();
+    // Server-confirmed entitlement ends any checkout-pending lifecycle: clear the persisted flag
+    // and stop polling — the payoff (above) fires exactly once, on this edge (U4/R6).
+    if (rose) this.clearCheckoutPending();
     // Ordering pin: the payoff must never render against a false entitlement — a revocation or
     // teardown mid-payoff clears it immediately.
     if (!value) this.clearPayoff();
   }
 
-  /** Whether an entitled false→true transition should celebrate (U3/R6): only while the paywall
-   * is open — the rehydrated "checking your purchase…"/pending presentation renders inside the
-   * open sheet, so it qualifies through paywallOpen. U4 note: when the persisted checkout-pending
-   * state gains a paywall-independent rehydration surface, extend THIS rule so that state also
-   * qualifies — a paying user must get the payoff, never a quiet unlock. */
+  /** Whether an entitled false→true transition should celebrate (U3/R6): while the paywall is
+   * open, or while a checkout-pending presentation (U4: checking / quiet-pending / stale /
+   * auth-required) is active — that presentation is a paywall-independent rehydration surface,
+   * and a paying user must get the payoff, never a quiet unlock. */
   private get payoffEligible(): boolean {
-    return this.paywallOpen;
+    return this.paywallOpen || this.checkoutFlow !== "none";
   }
 
   /** Show the payoff and schedule its auto-dismiss. The payoff supersedes any in-flight/outcome
@@ -215,6 +286,9 @@ export class UiController {
    * resend-cooldown pattern (U3/R6). */
   private showPayoff(): void {
     this.justUnlocked = true;
+    // The payoff renders inside the paywall sheet; when eligibility came from the checkout-pending
+    // presentation with the sheet dismissed (U4), surface the sheet so the payoff is seen.
+    this.paywallOpen = true;
     this.purchaseFlow = "idle";
     this.purchaseError = null;
     this.clearPayoffTimer();
@@ -402,6 +476,188 @@ export class UiController {
     this.purchaseFlow = restored ? "idle" : "restored-none";
   }
 
+  // ── Web checkout flow (plan U4/R3/R5) ───────────────────────────────────────────────────────────
+
+  /** Whether this host purchases through a web checkout tab (the injected seam, U6) — the paywall
+   * CTA then drives startWebCheckout instead of the host's native onGet closure. */
+  get canWebCheckout(): boolean {
+    return this.host.canPurchase && this.checkout !== undefined;
+  }
+
+  /** The paywall CTA on a web host: create-checkout with structured outcome routing (U4). Also the
+   * retry from the stale find-my-purchase state — invoking checkout while a pending flag exists
+   * REPLACES the flag (the server 409 is the double-entitlement guard); abandonment must never
+   * trap the buyer for 24h. */
+  async startWebCheckout(): Promise<void> {
+    if (!this.checkout || this.purchaseBusy) return;
+    // A fresh checkout supersedes any pending presentation/poll window (replace, not block).
+    this.stopPollTimer();
+    this.checkoutFlow = "none";
+    this.purchaseFlow = "opening-checkout";
+    this.purchaseError = null;
+    const outcome = await this.checkout.createCheckout();
+    switch (outcome.kind) {
+      case "checkout-url": {
+        // Persist BEFORE opening the tab: the popup dies the moment the tab takes focus (R3), so
+        // a flag written after tabs.create would be lost with it.
+        const pending: CheckoutPending = { startedAt: this.now() };
+        this.setCheckoutPending(pending);
+        const tabId = await this.checkout.openCheckoutTab(outcome.url);
+        // Best-effort enrichment — in a popup this line usually never runs (the popup is dead).
+        if (tabId !== undefined) this.setCheckoutPending({ ...pending, tabId });
+        // A surviving context (options page) settles into the quiet-pending presentation: polling
+        // costs a live RC query per hit, so fast-poll windows start on reopen/rehydration (U4).
+        this.purchaseFlow = "idle";
+        this.checkoutFlow = "quiet-pending";
+        return;
+      }
+      case "already-entitled": {
+        // R5/AE4: the cross-device restore case is a SUCCESS path — reconcile writes the cache,
+        // the entitled flip arrives through the subscription and fires the payoff. Never an error.
+        if (this.entitled || this.justUnlocked) {
+          // The host's reconcile already landed before this outcome arrived — payoff handled.
+          if (!this.justUnlocked) this.purchaseFlow = "idle";
+          return;
+        }
+        this.purchaseFlow = "restoring";
+        const result = await this.checkout.reconcile();
+        if (this.entitled || this.justUnlocked) return; // write landed mid-await; payoff superseded
+        if (result === "auth-required") {
+          this.enterCheckoutAuthRequired();
+          return;
+        }
+        if (result === "entitled") return; // cache write in flight — the flip fires the payoff (R6)
+        // Entitled server-side (the 409) but the confirming reconcile couldn't land right now
+        // (offline): calm retry copy, CTA re-enabled — still never an error state (R5).
+        this.purchaseFlow = "unavailable";
+        return;
+      }
+      case "auth-required":
+        // Session died before checkout could start: re-sign-in affordance; the entitlement cache
+        // and any prior pending flag both survive (KTD auth-required ≠ teardown).
+        this.enterCheckoutAuthRequired();
+        return;
+      case "unavailable":
+        // Calm failure copy; not busy, so the CTA re-enables for a retry (R3).
+        this.purchaseFlow = "unavailable";
+        return;
+    }
+  }
+
+  /** Host rehydration input (U4/R3): called on mount with the persisted checkout-pending record.
+   * Fresh pending → "checking your purchase…" + a fresh fast-poll window (reopening the popup IS
+   * the retry gesture); >24h or garbage/missing startedAt → the stale find-my-purchase state —
+   * expired-pending, never NaN-comparison limbo (mirrors the chrome-adapter garbage-timestamp
+   * rule). Already entitled (the background nudge won the race, AE3) → clear the moot flag. */
+  rehydrateCheckoutPending(pending: { startedAt?: number; tabId?: number } | null | undefined): void {
+    if (!this.checkout || pending === null || pending === undefined) return;
+    if (this.entitled) {
+      this.setCheckoutPending(null);
+      return;
+    }
+    const at = pending.startedAt;
+    // Normalize a garbage/missing startedAt to a just-expired stamp: there is nothing to measure
+    // the 24h window from, so the record reads as expired-pending through the one shared
+    // presentation path below — never a NaN comparison, never an eternal "checking".
+    const startedAt =
+      typeof at === "number" && Number.isFinite(at)
+        ? at
+        : this.now() - CHECKOUT_PENDING_TTL_MS - 1;
+    this.presentCheckoutPending({ startedAt, tabId: pending.tabId });
+  }
+
+  /** "I didn't finish checkout — start over" (U4): clears the pending flag immediately and
+   * re-enables the CTA. Checkout abandonment is the most common outcome — never a 24h trap. */
+  abandonCheckout(): void {
+    this.clearCheckoutPending();
+    this.purchaseFlow = "idle";
+    this.purchaseError = null;
+  }
+
+  /** The auth-required re-sign-in affordance (U4): the session is dead, so reflect it locally —
+   * WITHOUT teardown semantics: no entitlement write (the cache rides out its TTL), no pending
+   * clear (the purchase may have happened). Purchase intent makes the paywall reopen after the
+   * sign-in completes, and verifyCode resumes the pending presentation (one continuous flow). */
+  reSignInFromCheckout(): void {
+    this.userId = null; // local mirror of the dead session — NOT resetToSignedOut (no downgrade)
+    this.stopPollTimer(); // polls would keep hitting 401; sign-in restarts the window
+    this.paywallOpen = false;
+    this.setPurchaseIntent(true);
+    this.openSignIn();
+  }
+
+  /** Shared presentation for a (normalized) pending record: stale → find-my-purchase; fresh →
+   * checking + a fast-poll window. Both surface through the paywall sheet — the rehydrated
+   * pending state counts as paywall-open (U3 rule / U4). */
+  private presentCheckoutPending(pending: CheckoutPending): void {
+    this.checkoutPending = pending;
+    this.paywallOpen = true;
+    this.purchaseFlow = "idle";
+    this.purchaseError = null;
+    if (this.now() - pending.startedAt > CHECKOUT_PENDING_TTL_MS) {
+      this.stopPollTimer();
+      this.checkoutFlow = "stale-pending";
+      return;
+    }
+    this.startPollWindow();
+  }
+
+  /** A fresh fast-poll window: reconcile now, then every 3s up to the cap (U4). */
+  private startPollWindow(): void {
+    this.stopPollTimer();
+    this.pollCount = 0;
+    this.checkoutFlow = "checking";
+    void this.pollReconcile();
+  }
+
+  private async pollReconcile(): Promise<void> {
+    if (!this.checkout || this.checkoutFlow !== "checking") return;
+    this.pollCount += 1;
+    const outcome = await this.checkout.reconcile();
+    // The window may have ended mid-await: the entitled flip cleared pending (payoff path), or
+    // start-over / a fresh checkout superseded it — never act on a stale poll.
+    if (this.checkoutFlow !== "checking") return;
+    if (outcome === "auth-required") {
+      this.enterCheckoutAuthRequired();
+      return;
+    }
+    if (this.pollCount >= CHECKOUT_POLL_MAX) {
+      // Cap reached (each poll is a live RC query): rest in the quiet-pending copy — reopening
+      // the popup starts a fresh window, and the background nudge (AE3) keeps working meanwhile.
+      this.checkoutFlow = "quiet-pending";
+      return;
+    }
+    this.pollTimer = setTimeout(() => void this.pollReconcile(), CHECKOUT_POLL_INTERVAL_MS);
+  }
+
+  private enterCheckoutAuthRequired(): void {
+    this.stopPollTimer();
+    this.checkoutFlow = "auth-required";
+    this.purchaseFlow = "idle";
+    this.purchaseError = null;
+  }
+
+  /** Persist (or clear) the pending record through the host seam, mirroring it locally. */
+  private setCheckoutPending(pending: CheckoutPending | null): void {
+    this.checkoutPending = pending;
+    this.checkout?.setPending(pending);
+  }
+
+  /** End the pending lifecycle everywhere: poll window, presentation, persisted flag. Runs on the
+   * entitled flip (purchase confirmed), start-over, and teardown. */
+  private clearCheckoutPending(): void {
+    this.stopPollTimer();
+    if (this.checkoutPending !== null) this.setCheckoutPending(null);
+    this.checkoutFlow = "none";
+  }
+
+  private stopPollTimer(): void {
+    if (this.pollTimer !== null) {
+      clearTimeout(this.pollTimer);
+      this.pollTimer = null;
+    }
+  }
+
   /** The sheet's one send action. Code-capable hosts get the code flow (→ code-entry); everyone
    * else keeps the magic link (→ sent). Same button, capability-driven path (plan U2). */
   async signIn(email: string): Promise<void> {
@@ -458,6 +714,9 @@ export class UiController {
       const continueToPaywall = this.purchaseIntent;
       this.setPurchaseIntent(false);
       if (continueToPaywall) this.openPaywall();
+      // Re-sign-in with a live checkout-pending flag (the U4 auth-required path): resume the
+      // pending presentation — a fresh poll window, or the stale state if it decayed meanwhile.
+      if (this.checkoutPending !== null) this.presentCheckoutPending(this.checkoutPending);
     } else if (outcome.kind === "invalid-code") {
       this.codeAttempts += 1;
       this.codeErrorKind = expired ? "expired" : "wrong";
@@ -584,6 +843,9 @@ export class UiController {
     // that could auto-open the paywall for the NEXT identity on this browser (R8 spirit).
     this.clearCodeFlow();
     this.setPurchaseIntent(false);
+    // A VOLUNTARY sign-out/delete also ends any checkout-pending lifecycle (R8 teardown) — unlike
+    // the involuntary auth-required path (reSignInFromCheckout), which preserves it.
+    this.clearCheckoutPending();
   }
 
   async signOut(): Promise<void> {

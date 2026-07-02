@@ -66,6 +66,22 @@ export const STRINGS = {
     // Success payoff (R6): rendered only after the entitlement store write has landed — see
     // UiController.justUnlocked for the one transition rule that drives it on every host.
     unlocked: "Pro unlocked. Enjoy the quiet.",
+    // Web checkout-pending lifecycle (plan U4/R3): the popup died into the checkout tab and came
+    // back to a persisted pending flag. Calm and honest at every stage: a capped fast-poll
+    // ("checking"), a between-windows resting line ("quietPending" — reopening starts a fresh
+    // window), an explicit escape for the most common outcome, abandonment ("startOver" — never a
+    // 24h trap), and the >24h decay into the already-decided support path ("Find my purchase" =
+    // mailto, docs/monetization-design.md).
+    checking: "Checking your purchase…",
+    quietPending: "Still checking — this can take a minute. Reopen this window to check again.",
+    startOver: "I didn't finish checkout — start over",
+    stalePending: "We haven't seen your purchase yet. If you paid, we'll find it together.",
+    findMyPurchase: "Find my purchase",
+    retryCheckout: "Try checkout again",
+    // Session died mid-checkout (401 → auth-required): the remedy is re-sign-in, never teardown —
+    // the pending flag and the cached entitlement both survive (KTD auth-required semantics).
+    authRequired: "You've been signed out. Sign in again to check your purchase.",
+    signInAgain: "Sign in again",
   },
 
   auth: {

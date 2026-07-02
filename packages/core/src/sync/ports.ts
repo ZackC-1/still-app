@@ -40,6 +40,31 @@ export interface CodeAuthPort {
   verifyCode(email: string, token: string): Promise<VerifyCodeOutcome>;
 }
 
+// ── Web checkout (plan U4/R3/R5) ──────────────────────────────────────────────────────────────────
+// A separate capability interface, same shape decision as CodeAuthPort above: only web-purchasable
+// hosts (the Chromium extension's background, U5/U6) wire it, so every existing BackendPort mock
+// compiles unchanged and the Apple wiring never gains a web-checkout method to accidentally call
+// (3.1.1 hygiene). The outcome union maps MECHANICALLY from the create-web-checkout HTTP status
+// (200/409/401/everything-else) — never from matched error strings (docs/solutions:
+// structured-outcome-over-cross-language-string).
+
+/** Outcome of asking the backend for a Web Billing checkout URL. */
+export type WebCheckoutOutcome =
+  /** 200: open this RevenueCat-hosted checkout in a tab (the purchase happens there, R3). */
+  | { readonly kind: "checkout-url"; readonly url: string }
+  /** 409: this account already owns Pro — the cross-device restore case. A SUCCESS path: the
+   * caller reconciles and the entitled transition fires the payoff; never an error toast (R5). */
+  | { readonly kind: "already-entitled" }
+  /** 401: the session died. Remedy is re-sign-in — never teardown, never a cache downgrade. */
+  | { readonly kind: "auth-required" }
+  /** 502 / network / anything else: checkout can't start right now — one calm retry line. */
+  | { readonly kind: "unavailable" };
+
+export interface WebCheckoutPort {
+  /** Ask the create-web-checkout Edge Function for a checkout URL for the signed-in user. */
+  createWebCheckout(): Promise<WebCheckoutOutcome>;
+}
+
 export type EntitlementRead = "entitled" | "not-entitled" | "unknown";
 
 export interface BackendPort {

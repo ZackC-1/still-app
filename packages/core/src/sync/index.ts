@@ -8,6 +8,8 @@ export type {
   VerifyCodeOutcome,
   BackendPort,
   EntitlementRead,
+  WebCheckoutOutcome,
+  WebCheckoutPort,
 } from "./ports.js";
 export { SyncService, type SyncState, type LastSyncedIdentityStore } from "./service.js";
 export { SupabaseAuthPort } from "./auth.js";
