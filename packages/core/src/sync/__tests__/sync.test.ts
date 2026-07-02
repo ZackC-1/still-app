@@ -3,7 +3,7 @@ import type { StillSettings } from "@still/shared-types";
 import { DEFAULT_SETTINGS } from "@still/shared-types";
 import { SettingsCache } from "../../storage/cache.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
-import { SyncService, type SyncState } from "../service.js";
+import { SyncService, type LastSyncedIdentityStore, type SyncState } from "../service.js";
 import type { AuthPort, BackendPort, EntitlementRead } from "../ports.js";
 
 /** A backend whose writeProfile stays pending until resolve()/reject() is called — to drive coalescing
@@ -107,6 +107,21 @@ function mockBackend(
 function makeCache(local?: StillSettings) {
   let t = 1000;
   return new SettingsCache(new InMemoryStorageAdapter(local ?? null), { now: () => ++t });
+}
+
+/** In-memory LastSyncedIdentityStore — the storage-backed seam's test double. */
+function identityStore(initial: string | null = null) {
+  let last = initial;
+  const sets: string[] = [];
+  const store: LastSyncedIdentityStore = {
+    get: () => Promise.resolve(last),
+    set: (userId) => {
+      sets.push(userId);
+      last = userId;
+      return Promise.resolve();
+    },
+  };
+  return { store, sets, current: () => last };
 }
 
 describe("SyncService", () => {
@@ -273,6 +288,97 @@ describe("SyncService", () => {
     expect(svc.getState().cloudReachable).toBe(true);
     // No permanent loss: the cache still holds the latest, re-pushed on the next edit.
     expect(d.writes.at(-1)!.services.tiktok).toBe(false);
+  });
+
+  // ── identity switch (R8/AE5): never seed a new user's cloud from the previous user's local ─────
+
+  it("a DIFFERENT user signing in with an empty cloud does NOT seed it from local settings", async () => {
+    const cache = makeCache(settings({ globalOn: false, updatedAt: 9_000 })); // user A's leftovers
+    await cache.hydrate();
+    const { backend, writes } = mockBackend({ entitled: true, cloud: null });
+    const { store } = identityStore(USER); // last synced: user A
+    const svc = new SyncService(cache, mockAuth().auth, backend, undefined, store);
+    await svc.onSignedIn(OTHER_USER);
+    expect(writes.length).toBe(0); // cloud wins — B's profile never written from A's blob
+    expect(svc.getState().syncing).toBe(true); // sync still starts; write-through covers B's own edits
+  });
+
+  it("the SAME user re-signing in keeps today's empty-cloud seed behavior", async () => {
+    const cache = makeCache(settings({ globalOn: false, updatedAt: 9_000 }));
+    await cache.hydrate();
+    const { backend, writes } = mockBackend({ entitled: true, cloud: null });
+    const { store } = identityStore(USER);
+    const svc = new SyncService(cache, mockAuth().auth, backend, undefined, store);
+    await svc.onSignedIn(USER);
+    expect(writes.length).toBe(1); // seed preserved for the returning user
+    expect(writes[0]!.globalOn).toBe(false);
+  });
+
+  it("no recorded identity yet → treated as a switch: no seed (fresh accounts start from cloud)", async () => {
+    const cache = makeCache(settings({ globalOn: false, updatedAt: 9_000 }));
+    await cache.hydrate();
+    const { backend, writes } = mockBackend({ entitled: true, cloud: null });
+    const { store } = identityStore(null); // seam wired, nothing ever recorded — can't vouch for the blob
+    const svc = new SyncService(cache, mockAuth().auth, backend, undefined, store);
+    await svc.onSignedIn(USER);
+    expect(writes.length).toBe(0);
+  });
+
+  it("identity seam absent (existing callers) → behavior identical to today: empty cloud is seeded", async () => {
+    const cache = makeCache(settings({ globalOn: false, updatedAt: 9_000 }));
+    await cache.hydrate();
+    const { backend, writes } = mockBackend({ entitled: true, cloud: null });
+    const svc = new SyncService(cache, mockAuth().auth, backend); // no seam — regression pin
+    await svc.onSignedIn(USER);
+    expect(writes.length).toBe(1);
+  });
+
+  it("identity switch with an existing cloud: a newer local is NOT pushed up over the new user's cloud", async () => {
+    const cache = makeCache(settings({ globalOn: true, updatedAt: 9_000 })); // A's local, newer
+    await cache.hydrate();
+    const { backend, writes } = mockBackend({
+      entitled: true,
+      cloud: settings({ globalOn: false, updatedAt: 1 }), // B's cloud, older
+    });
+    const { store } = identityStore(USER);
+    const svc = new SyncService(cache, mockAuth().auth, backend, undefined, store);
+    await svc.onSignedIn(OTHER_USER);
+    expect(writes.length).toBe(0); // AE5: B's cloud profile never written from A's local settings
+  });
+
+  it("records the identity only when a sync starts: entitled sign-in records, a free sign-in does not", async () => {
+    const free = identityStore(null);
+    const freeSvc = new SyncService(makeCache(), mockAuth().auth, mockBackend({ entitled: false }).backend, undefined, free.store);
+    await freeSvc.onSignedIn(OTHER_USER);
+    // A free user's sign-in must not claim the local blob — their later Pro sign-in would
+    // otherwise seed the cloud from settings that may belong to the previous account.
+    expect(free.sets).toEqual([]);
+
+    const paid = identityStore(null);
+    const paidSvc = new SyncService(makeCache(), mockAuth().auth, mockBackend({ entitled: true }).backend, undefined, paid.store);
+    await paidSvc.onSignedIn(USER);
+    expect(paid.sets).toEqual([USER]);
+    expect(paid.current()).toBe(USER);
+  });
+
+  it("after the switch is recorded, the new user's next re-sign-in behaves as same-user again", async () => {
+    const { backend, writes } = mockBackend({ entitled: true, cloud: null });
+    const { store } = identityStore(USER);
+    const cache = makeCache(settings({ updatedAt: 9_000 }));
+    await cache.hydrate();
+    const svc = new SyncService(cache, mockAuth().auth, backend, undefined, store);
+    await svc.onSignedIn(OTHER_USER); // switch: no seed, identity recorded
+    expect(writes.length).toBe(0);
+    await svc.onSignedIn(OTHER_USER); // same user now — seed allowed again
+    expect(writes.length).toBe(1);
+  });
+
+  it("a failed reconcile on sign-in does not record the identity (flow never completed)", async () => {
+    const { store, sets } = identityStore(null);
+    const { backend } = mockBackend({ entitled: true, reconcileThrows: true });
+    const svc = new SyncService(makeCache(), mockAuth().auth, backend, undefined, store);
+    await svc.onSignedIn(USER);
+    expect(sets).toEqual([]);
   });
 
   // ── account deletion (App Store 5.1.1) ──────────────────────────────────────────────────────────

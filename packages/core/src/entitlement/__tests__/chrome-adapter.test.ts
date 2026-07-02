@@ -94,3 +94,96 @@ describe("ChromeEntitlementAdapter — offline TTL", () => {
     expect(seen).toEqual([true, false]);
   });
 });
+
+describe("ChromeEntitlementAdapter — identity-bound record store (R7/R8)", () => {
+  const NOW = 1_700_000_000_000;
+
+  it("treats a stored-userId mismatch as no cache: user A's record is null under session user B", async () => {
+    installChrome({ [STORAGE_KEY]: { entitled: true, userId: "user-a", updatedAt: NOW - 1000 } });
+    const adapter = new ChromeEntitlementAdapter(() => NOW);
+    expect(await adapter.getRecord("user-b")).toBeNull();
+  });
+
+  it("returns the record to the same user within the TTL", async () => {
+    installChrome({ [STORAGE_KEY]: { entitled: true, userId: "user-a", updatedAt: NOW - 1000 } });
+    const adapter = new ChromeEntitlementAdapter(() => NOW);
+    expect(await adapter.getRecord("user-a")).toEqual({
+      entitled: true,
+      userId: "user-a",
+      updatedAt: NOW - 1000,
+    });
+  });
+
+  it("a legacy record without userId still reads under any session (Safari compatibility)", async () => {
+    installChrome({ [STORAGE_KEY]: { entitled: true, updatedAt: NOW - 1000 } });
+    const adapter = new ChromeEntitlementAdapter(() => NOW);
+    expect(await adapter.getRecord("user-b")).toEqual({ entitled: true, updatedAt: NOW - 1000 });
+    expect(await adapter.getRecord()).toEqual({ entitled: true, updatedAt: NOW - 1000 });
+    expect(await adapter.get()).toBe(true);
+  });
+
+  it("a session-less read (content-script shaped) still sees an identity-bound record", async () => {
+    installChrome({ [STORAGE_KEY]: { entitled: true, userId: "user-a", updatedAt: NOW - 1000 } });
+    const adapter = new ChromeEntitlementAdapter(() => NOW);
+    expect(await adapter.get()).toBe(true);
+    expect((await adapter.getRecord())?.userId).toBe("user-a");
+  });
+
+  it("drops an expired record on record-level reads too (TTL preserved)", async () => {
+    installChrome({
+      [STORAGE_KEY]: { entitled: true, userId: "user-a", updatedAt: NOW - (ENTITLEMENT_CACHE_TTL_MS + 1) },
+    });
+    const adapter = new ChromeEntitlementAdapter(() => NOW);
+    expect(await adapter.getRecord("user-a")).toBeNull();
+  });
+
+  it("a reconcile-shaped rewrite with unchanged entitled:true refreshes the TTL (R7)", async () => {
+    installChrome();
+    let now = NOW;
+    const adapter = new ChromeEntitlementAdapter(() => now);
+    await adapter.setRecord({ entitled: true, userId: "user-a", updatedAt: now });
+
+    // Just before expiry, an always-online user's reconcile rewrites the same value…
+    now = NOW + ENTITLEMENT_CACHE_TTL_MS - 1000;
+    await adapter.setRecord({ entitled: true, userId: "user-a", updatedAt: now });
+
+    // …so past the ORIGINAL write's TTL the cache is still honored (measured from the rewrite).
+    now = NOW + ENTITLEMENT_CACHE_TTL_MS + 1000;
+    expect(await adapter.getRecord("user-a")).toEqual({
+      entitled: true,
+      userId: "user-a",
+      updatedAt: NOW + ENTITLEMENT_CACHE_TTL_MS - 1000,
+    });
+    expect(await adapter.get()).toBe(true);
+  });
+
+  it("an explicit entitled:false write notifies subscribers (teardown contract)", async () => {
+    installChrome({ [STORAGE_KEY]: { entitled: true, userId: "user-a", updatedAt: NOW - 1000 } });
+    const adapter = new ChromeEntitlementAdapter(() => NOW);
+    const seen: boolean[] = [];
+    adapter.subscribe((entitled) => seen.push(entitled));
+    await adapter.setRecord({ entitled: false, updatedAt: NOW });
+    expect(seen).toEqual([false]);
+    expect(await adapter.get()).toBe(false);
+  });
+
+  it("a boolean set() (Safari-pull shaped) replaces the record without carrying the old userId", async () => {
+    const { store } = installChrome({ [STORAGE_KEY]: { entitled: true, userId: "user-a", updatedAt: NOW - 1000 } });
+    const adapter = new ChromeEntitlementAdapter(() => NOW);
+    await adapter.set(true, NOW);
+    expect(store[STORAGE_KEY]).toEqual({ entitled: true, updatedAt: NOW });
+  });
+
+  it("a garbage userId reads as an unbound record (defensive parse)", async () => {
+    installChrome({ [STORAGE_KEY]: { entitled: true, userId: 42, updatedAt: NOW - 1000 } });
+    const adapter = new ChromeEntitlementAdapter(() => NOW);
+    expect(await adapter.getRecord("user-b")).toEqual({ entitled: true, updatedAt: NOW - 1000 });
+  });
+
+  it("a non-finite timestamp is expired — never an unbounded grant", async () => {
+    installChrome({ [STORAGE_KEY]: { entitled: true, updatedAt: Number.POSITIVE_INFINITY } });
+    const adapter = new ChromeEntitlementAdapter(() => NOW);
+    expect(await adapter.get()).toBeNull();
+    expect(await adapter.getRecord()).toBeNull();
+  });
+});
