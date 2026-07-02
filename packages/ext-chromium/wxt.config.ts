@@ -13,6 +13,20 @@ import { defineConfig } from "wxt";
 //     which is browser-agnostic. The background's DNR wiring no-ops when the API is absent.
 export default defineConfig({
   modules: ["@wxt-dev/module-svelte"],
+  svelte: {
+    vite: {
+      compilerOptions: {
+        // Scope hashes must not depend on the absolute build path. vite-plugin-svelte's default
+        // cssHash mixes in the component's normalized filename, and @still/core components resolve
+        // through the pnpm symlink to a path OUTSIDE this package's Vite root — so the default hash
+        // changes with the checkout directory. AMO reviewers rebuild the sources in their own
+        // directory and diff against the uploaded zip; a path-dependent hash guarantees a mismatch.
+        // Hashing the css text alone is deterministic everywhere (identical css → identical scoped
+        // rules, so collisions are harmless).
+        cssHash: ({ hash, css }) => `svelte-${hash(css ?? "")}`,
+      },
+    },
+  },
   outDir: "dist",
   // Force MV3 for every target (WXT defaults Firefox to MV2). Keeps the Firefox manifest shape
   // aligned with the Chromium and Safari (ext-safari) MV3 builds.

@@ -80,8 +80,12 @@ pnpm --filter @still/ext-chromium zip:firefox      # → an extension .zip AND a
        Bundler: WXT 0.20 + Vite — minification only, NO obfuscation.
        ```
        Before submitting, **test the reproduction**: extract your sources zip to a clean dir and run the
-       two commands — the output must equal your uploaded zip. Include the **lockfile**; **strip any
-       `.env`** first (it can change chunk hashes and fail the diff).
+       two commands — the output must equal your uploaded zip. Include the **lockfile** AND the exact
+       **`packages/ext-chromium/.env`** used for the store build — it holds only the *public* Supabase
+       URL + anon key (both already ship inside the uploaded artifact, so this discloses nothing), and a
+       reviewer building without it gets a spine-disabled bundle that can never match. Builds are
+       path-independent (deterministic Svelte `cssHash` — set in `wxt.config.ts`), so the reviewer's
+       checkout directory doesn't matter.
        [Source code submission policy](https://extensionworkshop.com/documentation/publish/source-code-submission/)
 4. [ ] **Signing is automatic** for a listed add-on — AMO signs the reviewed build; you do not run
        `web-ext sign` (that's only for unlisted/self-distributed builds). You can also automate the whole
