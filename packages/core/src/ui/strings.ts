@@ -35,25 +35,37 @@ export const STRINGS = {
 
   // The user-facing label is "Still Pro"; the internal product/entitlement id stays `still_sync`
   // everywhere (StoreKit, RevenueCat, DB — see docs/monetization-design.md §5, do NOT rename ids).
-  // Value copy is launch-real: only shipped capabilities (Reels/TikTok/Facebook blocking + sync) —
-  // no YT recs/comments bullets until that feature exists. Never mention web pricing here (3.1.3).
+  // Ratified copy (plan U3/D6/R10). Value copy is launch-real: only shipped capabilities
+  // (Instagram Reels / TikTok / Facebook Reels blocking + sync) — no YT recs/comments bullets
+  // until that feature exists. NEVER put a web price in this shared file (3.1.3 anti-steering):
+  // the Apple CTA price comes from StoreKit and the web display price is host-injected by the
+  // ext-chromium entrypoint only.
   paywall: {
     title: "Still Pro",
-    body: "Quiets Instagram Reels, TikTok, and Facebook too — with your settings synced on every device. One purchase, not a subscription.",
+    headline: "The rest of the noise, gone too",
+    body: "Instagram Reels, TikTok, and Facebook Reels go quiet — with your settings synced on every device.",
+    reassurance: "One payment. Yours forever.",
     cta: "Unlock Pro",
     restore: "Restore purchase",
-    // Hosts without a purchase path (the browser extensions): explanatory only (R19). Safari
-    // genuinely unlocks by itself via the App-Group entitlement pull once the app purchase lands.
-    nonApple: "Unlock Pro in the Still app on iPhone or Mac — Safari unlocks automatically. Chrome and Firefox unlock is on the way.",
+    // Safari only (AE7/3.1.1): its popup has no purchase path — Pro genuinely unlocks by itself
+    // via the App-Group entitlement pull once the app purchase lands. Web-purchasable hosts
+    // (Chrome/Firefox) never render this line; they get the real checkout flow instead (U4/U6).
+    nonApple: "Unlock Pro in the Still app on iPhone or Mac — Safari unlocks automatically.",
     dismiss: "Not now",
     // Purchase/restore outcome feedback (P1 #5). The sheet stays open through these.
-    purchasing: "Completing your purchase…",
+    purchasing: "Completing your purchase…", // Apple's in-place native purchase only
+    // Web checkout hand-off (U3→U4): the purchase continues in a NEW tab, not in place — the
+    // Apple `purchasing` line would describe a purchase that hasn't started here.
+    openingCheckout: "Opening checkout…",
     pending: "Waiting for approval — we'll unlock Pro as soon as it's confirmed.",
     cancelled: "Purchase cancelled.",
     failed: "Something went wrong. Please try again.",
     unavailable: "Still Pro isn't available right now. Try again in a moment.",
     restoring: "Restoring…",
     restoredNone: "No purchase to restore on this account.",
+    // Success payoff (R6): rendered only after the entitlement store write has landed — see
+    // UiController.justUnlocked for the one transition rule that drives it on every host.
+    unlocked: "Pro unlocked. Enjoy the quiet.",
   },
 
   auth: {

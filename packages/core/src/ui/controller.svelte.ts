@@ -40,11 +40,17 @@ export const CODE_ATTEMPTS_BEFORE_NEW_CODE = 3;
  * → idle (signed out) | error. */
 export type DeleteFlow = "idle" | "confirming" | "deleting" | "error";
 
+/** How long the "Pro unlocked. Enjoy the quiet." payoff stays before auto-dismissing the paywall
+ * (U3/R6): long enough to read one line, short enough that the unlock itself — the rows switching
+ * on behind the sheet — is the star. */
+export const PAYOFF_DURATION_MS = 2_500;
+
 /** Purchase/restore flow surfaced in the paywall (P1 #5). The sheet stays open through every state
- * except a confirmed purchase (which the host dismisses + re-enters session). */
+ * except a confirmed purchase (which resolves through the justUnlocked payoff, U3/R6). */
 export type PurchaseFlow =
   | "idle"
-  | "purchasing"
+  | "purchasing" // Apple's in-place native purchase
+  | "opening-checkout" // web hand-off to a checkout tab (U3 presentation; U4 wires the mechanics)
   | "pending" // store accepted, entitlement not yet active (e.g. Ask-to-Buy)
   | "cancelled"
   | "failed"
@@ -110,9 +116,15 @@ export class UiController {
 
   // Sync + connectivity — the entrypoint updates these from SyncService events.
   userId = $state<string | null>(null);
-  entitled = $state(false);
   reconciling = $state(false);
   cloudReachable = $state(true);
+
+  /** Backing store for the `entitled` accessor pair below (U3/R6 payoff observation). */
+  #entitled = $state(false);
+  /** The "Pro unlocked. Enjoy the quiet." payoff (U3/R6): true from the moment entitlement turns
+   * on with the paywall open until the payoff dismisses (~2.5s auto, or early on tap/Escape).
+   * Never true while `entitled` is false — the setter clears it on any downgrade. */
+  justUnlocked = $state(false);
 
   // UI-local state.
   authFlow = $state<AuthFlow>("idle");
@@ -149,6 +161,8 @@ export class UiController {
   /** Ticks the visible countdown once a second while a cooldown runs; self-clears at 0 (the popup
    * dies with the sheet anyway, so no destroy hook is needed). */
   private cooldownTimer: ReturnType<typeof setInterval> | null = null;
+  /** Auto-dismisses the payoff after PAYOFF_DURATION_MS; cleared on early dismiss (U3/R6). */
+  private payoffTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(deps: UiControllerDeps) {
     this.cache = deps.cache;
@@ -160,6 +174,63 @@ export class UiController {
     deps.cache.subscribe((s) => {
       this.settings = s;
     });
+  }
+
+  /** Entitlement as the UI renders it. Hosts still assign it like a plain property (apple-session's
+   * onSyncState, the extension entitlement-storage subscription), but it routes through this
+   * accessor pair so the controller itself observes the false→true transition — ONE payoff rule
+   * for every host (U3/R6), instead of per-host dismiss calls.
+   *
+   * Ordering (R6: the payoff fires only AFTER the entitlement store write has landed): this
+   * property is driven by the entitlement storage subscription on extension hosts — which fires
+   * only once the record write landed — and by explicit setters after a server-confirmed reconcile
+   * on Apple. So observing the controller's own transition IS the after-the-write signal; no extra
+   * synchronization is needed here. */
+  get entitled(): boolean {
+    return this.#entitled;
+  }
+
+  set entitled(value: boolean) {
+    const rose = !this.#entitled && value;
+    this.#entitled = value;
+    // Payoff only when a paywall surface is open (a quiet background unlock stays quiet, R6).
+    if (rose && this.payoffEligible) this.showPayoff();
+    // Ordering pin: the payoff must never render against a false entitlement — a revocation or
+    // teardown mid-payoff clears it immediately.
+    if (!value) this.clearPayoff();
+  }
+
+  /** Whether an entitled false→true transition should celebrate (U3/R6): only while the paywall
+   * is open — the rehydrated "checking your purchase…"/pending presentation renders inside the
+   * open sheet, so it qualifies through paywallOpen. U4 note: when the persisted checkout-pending
+   * state gains a paywall-independent rehydration surface, extend THIS rule so that state also
+   * qualifies — a paying user must get the payoff, never a quiet unlock. */
+  private get payoffEligible(): boolean {
+    return this.paywallOpen;
+  }
+
+  /** Show the payoff and schedule its auto-dismiss. The payoff supersedes any in-flight/outcome
+   * purchase copy (e.g. Apple's "pending" after an Ask-to-Buy approval finally reconciles). Plain
+   * setTimeout is the settable timeout seam — tests drive it with vitest fake timers, matching the
+   * resend-cooldown pattern (U3/R6). */
+  private showPayoff(): void {
+    this.justUnlocked = true;
+    this.purchaseFlow = "idle";
+    this.purchaseError = null;
+    this.clearPayoffTimer();
+    this.payoffTimer = setTimeout(() => this.dismissPaywall(), PAYOFF_DURATION_MS);
+  }
+
+  private clearPayoff(): void {
+    this.clearPayoffTimer();
+    this.justUnlocked = false;
+  }
+
+  private clearPayoffTimer(): void {
+    if (this.payoffTimer !== null) {
+      clearTimeout(this.payoffTimer);
+      this.payoffTimer = null;
+    }
   }
 
   get popupState(): PopupState {
@@ -266,6 +337,9 @@ export class UiController {
   }
 
   dismissPaywall(): void {
+    // An early tap/Escape ends the payoff too; clearing the timer keeps a stale auto-dismiss from
+    // firing into a later, unrelated paywall session (U3/R6).
+    this.clearPayoff();
     this.paywallOpen = false;
     this.purchaseFlow = "idle";
     this.purchaseError = null;
@@ -275,7 +349,11 @@ export class UiController {
 
   /** Whether a purchase or restore is in flight — used to disable duplicate taps. */
   get purchaseBusy(): boolean {
-    return this.purchaseFlow === "purchasing" || this.purchaseFlow === "restoring";
+    return (
+      this.purchaseFlow === "purchasing" ||
+      this.purchaseFlow === "opening-checkout" ||
+      this.purchaseFlow === "restoring"
+    );
   }
 
   /** Mark a purchase as started (disables the CTA). The host then drives the native purchase and

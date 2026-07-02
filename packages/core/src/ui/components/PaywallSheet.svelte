@@ -13,6 +13,10 @@
     /** Localized store price (e.g. "$1.99"), fetched from StoreKit via RevenueCat. Null
      * until loaded or unavailable — the CTA then shows without a price suffix rather than a guess. */
     price?: string | null;
+    /** The success payoff (U3/R6): replaces the sheet's content with "Pro unlocked. Enjoy the
+     * quiet." while the newly unlocked rows switch on behind it. The controller owns its
+     * lifetime (~2.5s auto-dismiss; tap/Escape dismiss early through onDismiss). */
+    justUnlocked?: boolean;
   }
   let {
     canPurchase,
@@ -22,10 +26,15 @@
     purchaseFlow = "idle",
     purchaseError = null,
     price = null,
+    justUnlocked = false,
   }: Props = $props();
   let sheet = $state<HTMLDivElement>();
 
-  const busy = $derived(purchaseFlow === "purchasing" || purchaseFlow === "restoring");
+  const busy = $derived(
+    purchaseFlow === "purchasing" ||
+      purchaseFlow === "opening-checkout" ||
+      purchaseFlow === "restoring",
+  );
 
   // The outcome line shown beneath the buttons (kept open through every non-purchased state).
   const status = $derived.by(() => {
@@ -46,6 +55,9 @@
   });
 
   $effect(() => {
+    // Re-runs when the content swaps to the payoff (the previously focused button unmounts):
+    // focus must stay inside the sheet so Escape keeps dismissing.
+    void justUnlocked;
     sheet?.querySelector<HTMLElement>("button")?.focus();
   });
 
@@ -80,28 +92,39 @@
   tabindex="-1"
   onkeydown={onKeydown}
 >
-  <h2>{STRINGS.paywall.title}</h2>
-  {#if canPurchase}
-    <p>{STRINGS.paywall.body}</p>
-    <button class="primary" onclick={onGet} disabled={busy}>
-      {#if purchaseFlow === "purchasing"}
-        {STRINGS.paywall.purchasing}
-      {:else if price}
-        {STRINGS.paywall.cta} · {price}
-      {:else}
-        {STRINGS.paywall.cta}
-      {/if}
+  {#if justUnlocked}
+    <!-- The payoff (U3/R6): one line while the unlocked rows switch on behind the sheet. A button
+         so a tap anywhere on it dismisses early (the controller also auto-dismisses in ~2.5s). -->
+    <button class="payoff" onclick={onDismiss}>
+      <span role="status">{STRINGS.paywall.unlocked}</span>
     </button>
-    <button class="secondary" onclick={onRestore} disabled={busy}>
-      {purchaseFlow === "restoring" ? STRINGS.paywall.restoring : STRINGS.paywall.restore}
-    </button>
-    {#if status}
-      <p class="status" class:error={purchaseFlow === "failed"} role="status">{status}</p>
-    {/if}
   {:else}
-    <p>{STRINGS.paywall.nonApple}</p>
+    <h2>{STRINGS.paywall.headline}</h2>
+    {#if canPurchase}
+      <p>{STRINGS.paywall.body}</p>
+      <button class="primary" onclick={onGet} disabled={busy}>
+        {#if purchaseFlow === "purchasing"}
+          {STRINGS.paywall.purchasing}
+        {:else if purchaseFlow === "opening-checkout"}
+          {STRINGS.paywall.openingCheckout}
+        {:else if price}
+          {STRINGS.paywall.cta} · {price}
+        {:else}
+          {STRINGS.paywall.cta}
+        {/if}
+      </button>
+      <button class="secondary" onclick={onRestore} disabled={busy}>
+        {purchaseFlow === "restoring" ? STRINGS.paywall.restoring : STRINGS.paywall.restore}
+      </button>
+      <p class="reassure">{STRINGS.paywall.reassurance}</p>
+      {#if status}
+        <p class="status" class:error={purchaseFlow === "failed"} role="status">{status}</p>
+      {/if}
+    {:else}
+      <p>{STRINGS.paywall.nonApple}</p>
+    {/if}
+    <button class="dismiss" onclick={onDismiss}>{STRINGS.paywall.dismiss}</button>
   {/if}
-  <button class="dismiss" onclick={onDismiss}>{STRINGS.paywall.dismiss}</button>
 </div>
 
 <style>
@@ -154,9 +177,23 @@
     opacity: 0.6;
     cursor: default;
   }
+  .reassure {
+    font-size: 13.5px;
+    text-align: center;
+  }
   .status {
     color: var(--ink-secondary);
     font-size: 14px;
+  }
+  .payoff {
+    background: transparent;
+    border: none;
+    padding: var(--space-6) 0;
+    font: inherit;
+    font-size: 17px;
+    font-weight: 600;
+    color: var(--ink);
+    text-align: center;
   }
   .status.error {
     color: #c2261e;

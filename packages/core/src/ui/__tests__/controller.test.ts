@@ -4,6 +4,7 @@ import { InMemoryStorageAdapter } from "../../storage/adapter.js";
 import {
   UiController,
   OTP_TTL_MS,
+  PAYOFF_DURATION_MS,
   type AuthPersistence,
   type UiAuth,
   type UiHost,
@@ -452,12 +453,168 @@ describe("UiController", () => {
     expect(persistence.setPendingOtp).toHaveBeenLastCalledWith(null);
     expect(c.purchaseIntent).toBe(true); // still mid-unlock — only "Not now" abandons it
   });
+
+  it("the opening-checkout hand-off counts as busy (duplicate-tap guard, U3→U4 hook)", () => {
+    const { c } = makeController();
+    c.purchaseFlow = "opening-checkout";
+    expect(c.purchaseBusy).toBe(true);
+    expect(c.beginPurchase()).toBe(false); // no second checkout while the tab is opening
+  });
+});
+
+// ── success payoff (plan U3/R6): one transition rule drives every host ──────────────────────────
+
+describe("UiController — success payoff (plan U3/R6)", () => {
+  it("entitled false→true with the paywall open shows the payoff inside the still-open sheet", () => {
+    const { c } = makeController();
+    c.userId = "u";
+    c.openPaywall();
+    c.setPurchaseOutcome({ outcome: "pending", entitled: false }); // e.g. Ask-to-Buy just approved
+    c.entitled = true; // the entitlement store write landed (storage subscription / sync state)
+    expect(c.justUnlocked).toBe(true);
+    expect(c.paywallOpen).toBe(true); // payoff renders in place; controller dismisses later
+    expect(c.purchaseFlow).toBe("idle"); // the payoff supersedes any pending/outcome copy
+    c.dismissPaywall(); // clear the payoff timer
+  });
+
+  it("entitled false→true with the paywall closed unlocks quietly — no payoff", () => {
+    const { c } = makeController();
+    c.entitled = true;
+    expect(c.justUnlocked).toBe(false);
+    expect(c.paywallOpen).toBe(false); // a quiet background unlock never pops a sheet
+  });
+
+  it("ordering pin: the payoff never renders while entitled is false", () => {
+    const { c } = makeController();
+    c.openPaywall();
+    expect(c.justUnlocked).toBe(false); // nothing before the entitlement write lands
+    c.entitled = true;
+    expect(c.justUnlocked).toBe(true);
+    c.entitled = false; // revocation / teardown mid-payoff
+    expect(c.justUnlocked).toBe(false); // cleared immediately — never against a false entitlement
+    c.dismissPaywall();
+  });
+
+  it("auto-dismisses the paywall after ~2.5s", () => {
+    vi.useFakeTimers();
+    try {
+      const { c } = makeController();
+      c.openPaywall();
+      c.entitled = true;
+      vi.advanceTimersByTime(PAYOFF_DURATION_MS - 1);
+      expect(c.justUnlocked).toBe(true); // still celebrating
+      expect(c.paywallOpen).toBe(true);
+      vi.advanceTimersByTime(1);
+      expect(c.justUnlocked).toBe(false);
+      expect(c.paywallOpen).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("dismisses early on tap/Escape, and the cleared timer never fires into a later paywall", () => {
+    vi.useFakeTimers();
+    try {
+      const { c } = makeController();
+      c.openPaywall();
+      c.entitled = true;
+      c.dismissPaywall(); // the sheet routes tap-on-payoff and Escape here
+      expect(c.justUnlocked).toBe(false);
+      expect(c.paywallOpen).toBe(false);
+      c.openPaywall(); // a later, unrelated paywall session
+      vi.advanceTimersByTime(PAYOFF_DURATION_MS * 2);
+      expect(c.paywallOpen).toBe(true); // the stale auto-dismiss was cancelled with the payoff
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a repeated entitled=true (no false→true edge) never re-triggers the payoff", () => {
+    const { c } = makeController();
+    c.openPaywall();
+    c.entitled = true;
+    c.dismissPaywall();
+    c.openPaywall();
+    c.entitled = true; // same value again (e.g. another sync-state projection)
+    expect(c.justUnlocked).toBe(false);
+    c.dismissPaywall();
+  });
+
+  it("locked rows become live toggles the moment the transition lands, previously-on services on", () => {
+    const { c } = makeController();
+    c.openPaywall();
+    expect(c.isLocked("instagram")).toBe(true);
+    c.entitled = true;
+    expect(c.isLocked("instagram")).toBe(false);
+    expect(c.isLocked("tiktok")).toBe(false);
+    expect(c.isLocked("facebook")).toBe(false);
+    // Entitlement never mutated the settings themselves — the default-on services light up as-is.
+    expect(c.settings.services.instagram).toBe(true);
+    expect(c.settings.services.tiktok).toBe(true);
+    expect(c.settings.services.facebook).toBe(true);
+    c.dismissPaywall();
+  });
+
+  it("sign-out mid-payoff clears it with the rest of the session state", async () => {
+    const { c } = makeController({ auth: codeAuth() });
+    c.userId = "u";
+    c.openPaywall();
+    c.entitled = true;
+    expect(c.justUnlocked).toBe(true);
+    await c.signOut();
+    expect(c.justUnlocked).toBe(false);
+    expect(c.paywallOpen).toBe(false);
+  });
 });
 
 describe("code-flow copy (plan U2/R1)", () => {
   it("never says 'link' anywhere in the code path strings", () => {
     for (const [key, value] of Object.entries(STRINGS.codeAuth)) {
       expect(value.toLowerCase(), `codeAuth.${key}`).not.toContain("link");
+    }
+  });
+});
+
+describe("ratified paywall copy (plan U3/D6/R10)", () => {
+  /** Every string leaf of a STRINGS subtree, flattened with its dotted path for failure output. */
+  function stringLeaves(node: unknown, path = "STRINGS"): Array<[string, string]> {
+    if (typeof node === "string") return [[path, node]];
+    if (node && typeof node === "object") {
+      return Object.entries(node).flatMap(([k, v]) => stringLeaves(v, `${path}.${k}`));
+    }
+    return [];
+  }
+
+  it("carries the ratified lines verbatim (D6)", () => {
+    expect(STRINGS.paywall.headline).toBe("The rest of the noise, gone too");
+    expect(STRINGS.paywall.reassurance).toBe("One payment. Yours forever.");
+    expect(STRINGS.paywall.unlocked).toBe("Pro unlocked. Enjoy the quiet.");
+    expect(STRINGS.paywall.openingCheckout).toBe("Opening checkout…");
+  });
+
+  it("names the three unlocks plainly and keeps sync a named benefit", () => {
+    expect(STRINGS.paywall.body).toContain("Instagram Reels");
+    expect(STRINGS.paywall.body).toContain("TikTok");
+    expect(STRINGS.paywall.body).toContain("Facebook Reels");
+    expect(STRINGS.paywall.body).toMatch(/synced/);
+  });
+
+  it("no 'on the way' promise survives anywhere — the web purchase path is real now", () => {
+    for (const [path, value] of stringLeaves(STRINGS)) {
+      expect(value.toLowerCase(), path).not.toContain("on the way");
+    }
+  });
+
+  it("never ships a web price in the shared strings (3.1.3 — the display price is host-injected)", () => {
+    for (const [path, value] of stringLeaves(STRINGS)) {
+      expect(value, path).not.toMatch(/[$€£]\s?\d/);
+      expect(value, path).not.toMatch(/\b\d+[.,]\d{2}\b/); // anything 1.99-shaped
+    }
+  });
+
+  it("keeps the paywall launch-real: no YouTube recommendations/comments claims", () => {
+    for (const [path, value] of stringLeaves(STRINGS.paywall, "STRINGS.paywall")) {
+      expect(value.toLowerCase(), path).not.toMatch(/recommendation|comments/);
     }
   });
 });

@@ -9,7 +9,11 @@ import type { SyncService, SyncState } from "./service.js";
 //
 // Money-flow invariants owned by this module:
 //   • Double-charge guard: before purchasing, re-enter the session (fresh online reconcile); if the
-//     account is already entitled (e.g. bought on the web), dismiss — never charge again.
+//     account is already entitled (e.g. bought on the web), never charge again.
+//   • Unlock payoff, not force-dismiss (U3/R6): every server-confirmed unlock lands here as the
+//     controller's `entitled` flipping false→true inside enterSession — with the paywall open,
+//     that transition shows "Pro unlocked. Enjoy the quiet." and the controller owns the dismissal.
+//     This module no longer calls dismissPaywall() at its entitled call sites.
 //   • Offline guard: a signed-in user whose entitlement can't be checked online must NOT reach the
 //     native purchase — surface a calm retry message instead.
 //   • Local purchase success is feedback, not authority: Pro UI requires the webhook→Supabase→
@@ -116,8 +120,9 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
         if (controller.userId) {
           await enterSession(controller.userId);
           if (controller.entitled) {
-            // Already unlocked (e.g. bought on the web) — never charge a second time.
-            controller.dismissPaywall();
+            // Already unlocked (e.g. bought on the web, AE4) — never charge a second time. The
+            // entitled false→true transition inside enterSession showed the payoff with the
+            // paywall open; the controller owns its dismissal (U3/R6) — no force-dismiss here.
             return;
           }
           if (!controller.cloudReachable) {
@@ -132,15 +137,15 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
         const result = await bridge.purchaseStillPro();
         // Surface every outcome (cancelled/pending/failed/no-offering) in the still-open paywall.
         controller.setPurchaseOutcome(result);
-        // The webhook writes the Supabase entitlement; re-reconcile before dismissing into Pro.
+        // The webhook writes the Supabase entitlement; re-reconcile before unlocking into Pro.
         // Local RevenueCat CustomerInfo is immediate feedback, not authority for Pro gating.
         if (result.entitled && controller.userId) {
           await enterSession(controller.userId);
-          if (controller.entitled) {
-            controller.dismissPaywall();
-          } else {
+          if (!controller.entitled) {
             controller.setPurchaseOutcome({ outcome: "pending", entitled: false });
           }
+          // else: the server-confirmed transition showed the payoff; the controller dismisses
+          // after it (U3/R6) — no force-dismiss here.
         }
       } catch (e) {
         // A rejected native call must resolve the flow to a visible failed state — never leave the
@@ -159,11 +164,10 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
         controller.setRestoreOutcome(restored);
         if (restored && controller.userId) {
           await enterSession(controller.userId);
-          if (controller.entitled) {
-            controller.dismissPaywall();
-          } else {
+          if (!controller.entitled) {
             controller.setPurchaseOutcome({ outcome: "pending", entitled: false });
           }
+          // else: the entitled transition showed the payoff — controller-owned dismissal (U3/R6).
         }
       } catch {
         controller.setRestoreOutcome(false); // a rejected restore unsticks the CTA
@@ -177,11 +181,10 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
         controller.userId &&
         !controller.reconciling
       ) {
-        const userId = controller.userId;
-        void (async () => {
-          await enterSession(userId);
-          if (controller.entitled) controller.dismissPaywall();
-        })();
+        // A landed approval flips controller.entitled inside enterSession — the false→true
+        // transition with the (pending) paywall open shows the payoff and the controller
+        // dismisses after it (U3/R6); no dismissPaywall() here.
+        void enterSession(controller.userId);
       }
     },
 

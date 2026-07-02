@@ -291,6 +291,73 @@ describe("App", () => {
     render(App, { props: { controller: c, onGet: () => {} } });
     expect(screen.getByText(/Waiting for approval/)).toBeTruthy();
   });
+
+  it("the paywall leads with the ratified headline and reassurance (D6)", () => {
+    const c = controller();
+    c.userId = "u";
+    c.openPaywall();
+    render(App, { props: { controller: c, onGet: () => {} } });
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByText(STRINGS.paywall.headline)).toBeTruthy();
+    expect(dialog.getByText(STRINGS.paywall.reassurance)).toBeTruthy();
+  });
+
+  // ── success payoff (plan U3/R6) ────────────────────────────────────────────────────────────────
+
+  it("the payoff renders as a status line while the rows behind unlock live-and-on", async () => {
+    const c = controller();
+    c.userId = "u";
+    c.openPaywall();
+    render(App, { props: { controller: c, onGet: () => {} } });
+    expect(document.querySelectorAll(".card.locked").length).toBe(3); // still locked pre-payoff
+    c.entitled = true; // the entitlement store write landed while the sheet is open
+    await tick();
+    const status = screen.getByRole("status");
+    expect(status.textContent).toBe(STRINGS.paywall.unlocked);
+    // The service rows behind the sheet are already live: no locks, previously-on services on.
+    expect(document.querySelectorAll(".card.locked").length).toBe(0);
+    const instagram = document.querySelector('[data-service="instagram"] [role="switch"]');
+    expect(instagram?.getAttribute("aria-checked")).toBe("true");
+    // Nothing left to buy: the CTA/restore affordances are gone during the payoff.
+    expect(screen.queryByText(STRINGS.paywall.restore)).toBeNull();
+    c.dismissPaywall(); // clear the payoff auto-dismiss timer
+  });
+
+  it("a tap on the payoff dismisses it early", async () => {
+    const c = controller();
+    c.userId = "u";
+    c.openPaywall();
+    render(App, { props: { controller: c, onGet: () => {} } });
+    c.entitled = true;
+    await tick();
+    await fireEvent.click(screen.getByText(STRINGS.paywall.unlocked));
+    expect(c.paywallOpen).toBe(false);
+    expect(c.justUnlocked).toBe(false);
+  });
+
+  it("Escape dismisses the payoff early", async () => {
+    const c = controller();
+    c.userId = "u";
+    c.openPaywall();
+    render(App, { props: { controller: c, onGet: () => {} } });
+    c.entitled = true;
+    await tick();
+    await fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    expect(c.paywallOpen).toBe(false);
+    expect(c.justUnlocked).toBe(false);
+  });
+
+  it("the web checkout hand-off renders the transitional line with the CTA disabled (U3→U4 hook)", () => {
+    const c = controller();
+    c.userId = "u";
+    c.openPaywall();
+    c.purchaseFlow = "opening-checkout";
+    render(App, { props: { controller: c, onGet: () => {} } });
+    const cta = within(screen.getByRole("dialog")).getByText(
+      STRINGS.paywall.openingCheckout,
+    ) as HTMLButtonElement;
+    expect(cta.disabled).toBe(true); // busy — no duplicate checkout taps
+  });
 });
 
 describe("Placeholder", () => {

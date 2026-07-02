@@ -135,13 +135,16 @@
   {/if}
 
   <!-- The sheet also opens on hosts without a purchase path (locked-row taps in the extensions):
-       it renders its explanatory state there instead of a buy CTA (R19). -->
+       it renders its explanatory state there instead of a buy CTA (R19). During the payoff
+       (U3/R6) the sheet stays mounted showing "Pro unlocked" while the service rows above —
+       already reactive to c.entitled — render live-and-on behind it. -->
   {#if c.paywallOpen}
     <PaywallSheet
       canPurchase={c.host.canPurchase}
       price={c.paywallPrice}
       purchaseFlow={c.purchaseFlow}
       purchaseError={c.purchaseError}
+      justUnlocked={c.justUnlocked}
       onGet={() => {
         if (onGet && c.beginPurchase()) onGet();
       }}
