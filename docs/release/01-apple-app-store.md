@@ -110,7 +110,9 @@ repackaged website (re: Guideline 4.2). This is a Safari Web Extension container
 
 To test:
 1. Install the app; follow onboarding to enable the extension in Safari.
-2. Visit youtube.com in Safari — the Shorts shelf/tab are removed (free tier).
+2. Visit youtube.com in Safari — the Shorts shelf/tab are removed (free tier). On **iPhone** this is
+   `m.youtube.com`; confirm the Shorts shelf/tab are gone AND a `/shorts/<id>` URL redirects to the
+   watch page (mobile is the historically weakest surface — see track 6 below).
 3. Tap "Unlock Pro" in the app and buy with the sandbox account below to enable Reels/TikTok/Facebook
    removal + sync.
 
@@ -163,6 +165,9 @@ Docs: [Submitting for review](https://developer.apple.com/help/app-store-connect
 
 ## Done when
 
+- [ ] **Mobile-Shorts validation passed on a physical iPhone** (iOS Safari `m.youtube.com`) —
+      [`06-mobile-blocking-validation.md`](06-mobile-blocking-validation.md) §A. This is the free-tier
+      core promise on the weakest surface; do it **before** submitting, not after approval.
 - [ ] iOS app **Approved** and released.
 - [ ] macOS app **Approved** and released.
 - [ ] A sandbox purchase of `still_sync` unlocks Pro and the RevenueCat → Supabase webhook records the

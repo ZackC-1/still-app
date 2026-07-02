@@ -15,9 +15,10 @@ and the official URL. Work top-to-bottom; check boxes as you go.
 | # | Track | What ships | Pro purchase path | Status today |
 |---|-------|-----------|-------------------|--------------|
 | 1 | **Apple App Store** (iOS + Mac) — [`01-apple-app-store.md`](01-apple-app-store.md) | Native app + Safari extension + **$1.99 IAP** | StoreKit 2 → RevenueCat | Code ready; needs human Xcode/device + ASC steps |
-| 2 | **Chrome Web Store** — [`02-chrome-web-store.md`](02-chrome-web-store.md) | Chromium extension | RevenueCat **Web Billing** | Free tier ready; Pro web-UI is U8/U10 (server ready) |
-| 3 | **Firefox Add-ons (AMO)** — [`03-firefox-amo.md`](03-firefox-amo.md) | Firefox extension (new MV3 build) | RevenueCat **Web Billing** | Build added in this PR; free tier ready |
+| 2 | **Chrome Web Store** — [`02-chrome-web-store.md`](02-chrome-web-store.md) | Chromium extension **+ Pro purchase** | RevenueCat **Web Billing** | Purchase spine shipped (PR #34); gated on the deploy checklist |
+| 3 | **Firefox Add-ons (AMO)** — [`03-firefox-amo.md`](03-firefox-amo.md) | Firefox extension (MV3) **+ Pro purchase** | RevenueCat **Web Billing** | Purchase spine shipped (PR #34); manifest declares auth data |
 | 4 | **RevenueCat** — [`04-revenuecat.md`](04-revenuecat.md) | Cross-platform $1.99 entitlement | — | Configure once; powers Apple **and** web Pro |
+| 5 | **Mobile blocking validation** — [`06-mobile-blocking-validation.md`](06-mobile-blocking-validation.md) | On-device YouTube-Shorts check (all mobile) | — | **REQUIRED gate** before any store submit — CI can't cover it |
 | — | **Google Play** (future) — [`05-future-google-play.md`](05-future-google-play.md) | — | — | **No Android app exists** — documented as future work |
 
 > **Read [`04-revenuecat.md`](04-revenuecat.md) early.** RevenueCat is the shared spine for Pro on
@@ -37,17 +38,23 @@ the open→pay→entitlement flow. See [`04-revenuecat.md` §3](04-revenuecat.md
 
 1. **RevenueCat dashboard config** ([`04`](04-revenuecat.md)) — products, the `still_sync` entitlement,
    Apple `.p8`, Web Billing + Purchase Link, webhook. Nothing monetized works until this exists.
-2. **Apple App Store** ([`01`](01-apple-app-store.md)) — the only track with paid Pro fully wired in
-   the shipping UI today, and the **longest review queue** (budget 1–2 weeks), so start it early.
-3. **Chrome Web Store** ([`02`](02-chrome-web-store.md)) — fast ($5, no hardware). Ships the **free**
-   Shorts remover now; the in-extension Pro CTA is U8/U10 follow-on (the server side is ready).
-4. **Firefox AMO** ([`03`](03-firefox-amo.md)) — free extension, same Pro note as Chrome.
+2. **Apple App Store** ([`01`](01-apple-app-store.md)) — paid Pro fully wired via StoreKit, and the
+   **longest review queue** (budget 1–2 weeks), so start it early.
+3. **Chrome Web Store** ([`02`](02-chrome-web-store.md)) — fast ($5, no hardware). Ships the Shorts
+   remover **plus** the in-extension Pro purchase (OTP sign-in + Web Billing CTA).
+4. **Firefox AMO** ([`03`](03-firefox-amo.md)) — same extension, same Pro purchase path as Chrome.
+5. **Mobile blocking validation** ([`06`](06-mobile-blocking-validation.md)) — the **required
+   on-device gate**: verify YouTube-Shorts blocking on a real iPhone (Safari) and Firefox Android
+   *before* submitting any store build. CI runs headless Chromium against fixtures and cannot cover it.
 
-> **Why the extensions launch free-first.** The Apple apps have the StoreKit paywall wired. The
-> browser extensions' in-product "Unlock Pro" UI (Supabase sign-in + Web Billing CTA) is deferred
-> work (units U8/U10 in `docs/monetization-design.md`); the entitlement cache currently defaults to
-> free, so the extensions ship as the free Shorts remover and gain Pro when that UI lands. The
-> RevenueCat Web Billing plumbing you set up now is what that UI will call.
+> **The extension Pro purchase now ships (PR #34).** The browser extensions have the full in-product
+> "Unlock Pro" flow — email-OTP sign-in, the RevenueCat Web Billing checkout hand-off, entitlement +
+> settings sync. It is **code-complete**; what remains is human/portal work in
+> [`extension-purchase-deploy-checklist.md`](extension-purchase-deploy-checklist.md) (custom SMTP so
+> OTP emails send, the `{{ .Token }}` email-template line, the Web Billing product/secret, store
+> listing disclosures). Until that portal work is done, an unconfigured build fails safe to the free
+> Shorts remover — so you *can* launch free-first by shipping without the prod `.env`, but the Pro
+> code is there the moment the checklist is complete.
 
 ---
 
@@ -57,7 +64,8 @@ the open→pay→entitlement flow. See [`04-revenuecat.md` §3](04-revenuecat.md
 |------|-----|-------|
 | Apple Developer Program ($99/yr) | Track 1 | ✅ Enrolled — team **UM9HVDH3P3** |
 | A Mac with **Xcode 16+** | Track 1 | Required for all App Store uploads (2025+) |
-| A physical iPhone + Mac to test | Track 1 | Safari-extension review needs real on-device proof |
+| A physical iPhone + Mac to test | Tracks 1 & 6 | Safari-extension review + mobile-Shorts validation need real on-device proof |
+| A physical Android device (or emulator) with Firefox | Track 6 | Firefox-Android mobile-Shorts validation ([`06`](06-mobile-blocking-validation.md)) |
 | Chrome Web Store dev account ($5 one-time) | Track 2 | [chrome.google.com/webstore/devconsole](https://chrome.google.com/webstore/devconsole) |
 | Firefox AMO account (free) | Track 3 | [addons.mozilla.org/developers](https://addons.mozilla.org/developers/) |
 | RevenueCat account (**Pro plan** for webhooks) | Track 4 | [app.revenuecat.com](https://app.revenuecat.com) |
