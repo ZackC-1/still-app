@@ -120,10 +120,17 @@ supabase secrets set \
   REVENUECAT_WEB_BILLING_CHECKOUT_URL='<production pay.rev.cat link>' \
   REVENUECAT_WEB_PRODUCT_ID='still_sync_web' \
   --project-ref kikpgrreradotvvefdgd
-supabase functions deploy revenuecat-webhook --project-ref kikpgrreradotvvefdgd
+supabase functions deploy revenuecat-webhook --project-ref kikpgrreradotvvefdgd \
+  --import-map supabase/functions/deno.json
 supabase db push --project-ref kikpgrreradotvvefdgd            # applies 0008 RLS (entitled-write gate)
-supabase functions deploy create-web-checkout --project-ref kikpgrreradotvvefdgd
+supabase functions deploy create-web-checkout --project-ref kikpgrreradotvvefdgd \
+  --import-map supabase/functions/deno.json
 ```
+
+> **`--import-map` is required.** `_shared/pg-store.ts` imports the bare specifier `postgres`, mapped
+> in `supabase/functions/deno.json` — but the CLI does not upload that file to the remote bundler on
+> its own, so a deploy without the flag fails with `Relative import path "postgres" not prefixed…`
+> (HTTP 400). The failure is atomic (nothing partially deploys).
 
 The full Go/No-Go SQL verification + rollback for that migration is in
 [`04-revenuecat.md` §6](04-revenuecat.md) and was produced by the deployment-verification review.
