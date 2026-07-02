@@ -1,6 +1,10 @@
 # Still — Monetization Design (Free + $1.99 Pro, cross-platform)
 
-> **Status:** design spec, not yet implemented. Input to a future `ce-plan` / `ce-work` run.
+> **Status:** largely implemented. U1–U9 shipped across PRs #24–#33; the U10+U8 extension
+> auth/checkout spine shipped via `docs/plans/2026-07-01-002-feat-extension-purchase-spine-plan.md`
+> (which also amends two details: extension sign-in is email-OTP code entry, not magic link, and
+> the §6 signed entitlement token remains deferred in favor of the identity-bound cached record).
+> Remaining human/portal work: `docs/release/extension-purchase-deploy-checklist.md`.
 > **Revised 2026-06-25** after a 7-persona `ce-doc-review` — hardened for: the entitlement-store
 > security model, paywall UX states, identity/relay handling, the `still_sync` rename trap, the
 > $1.99-vs-$2.99 config mismatch, anti-steering, and offline grace. Founder-ratified choices are
