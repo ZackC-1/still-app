@@ -40,14 +40,20 @@ export default defineConfig({
             browser_specific_settings: {
               gecko: {
                 id: "still@chartash.com",
+                // Firefox's built-in data-collection consent UI only exists on 140+. Since this
+                // build declares data collection (below), pin the minimum to 140 so no one can
+                // install on an older Firefox and sign in / transmit auth+settings data WITHOUT a
+                // consent screen — the exact case Mozilla's built-in-consent docs require handling
+                // (min version / disable collection / custom consent), and an AMO-rejection risk
+                // otherwise.
+                strict_min_version: "140.0",
                 // Mandatory AMO data-collection consent (H1 2026, R11). The purchase spine (plan
                 // U5/U6) signs users in with an emailed one-time code and keeps a Supabase session
                 // in extension storage, so the former ["none"] is no longer true: declare
                 // authentication data. Settings sync transmits only the signed-in user's own Still
                 // settings under that same account — no separate AMO category covers app
-                // preferences today. Backward-compatible (ignored on older Firefox), so we still
-                // don't pin strict_min_version. Re-verify category names against AMO's current
-                // list at submission time (plan risk note).
+                // preferences today. Re-verify category names against AMO's current list at
+                // submission time (plan risk note).
                 data_collection_permissions: { required: ["authenticationInfo"] },
               },
             },

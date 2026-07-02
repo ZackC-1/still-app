@@ -298,6 +298,22 @@ describe("ExtensionSession — reconcile / restore", () => {
     expect(h.backend.reconcileEntitlementChecked).not.toHaveBeenCalled();
   });
 
+  it("a web purchase after a free sign-in runs the initial settings sync on unlock (Codex-1)", async () => {
+    // Sign in while NOT entitled — no sync starts (R7). Then the reconcile that confirms the
+    // purchase must run the initial cloud mirror, not just resume() write-through, or the buyer's
+    // settings wouldn't sync until their next edit despite the UI reporting syncing.
+    const h = harness({ read: "not-entitled" });
+    await h.session.verifyCode("a@still.app", "123456");
+    expect(h.sync.getState().entitled).toBe(false);
+    h.backend.readProfile.mockClear();
+    h.backend.writeProfile.mockClear();
+
+    h.backend.readEntitlement.mockResolvedValue("entitled"); // the purchase landed
+    expect(await h.session.reconcile()).toBe("entitled");
+    expect(h.backend.readProfile).toHaveBeenCalled(); // initial mirror ran on unlock
+    expect(h.sync.getState()).toMatchObject({ entitled: true, syncing: true });
+  });
+
   it("restore() is the same reconcile spine (the web Restore button, R5)", async () => {
     const h = harness();
     expect(await h.session.restore()).toBe("entitled");

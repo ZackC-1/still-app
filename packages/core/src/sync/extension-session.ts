@@ -120,7 +120,7 @@ export interface ExtensionIdentityStore extends LastSyncedIdentityStore {
  * service in U6 wiring and in the test harness — "sync started" is then a real writeProfile. */
 export type ExtensionSessionSync = Pick<
   SyncService,
-  "onSignedIn" | "signOut" | "deleteAccount" | "resume" | "getState"
+  "onSignedIn" | "onEntitlementConfirmed" | "signOut" | "deleteAccount" | "resume" | "getState"
 >;
 
 export interface ExtensionSessionDeps {
@@ -313,7 +313,11 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
       // may never reopen (AE3); the plan's sequence is "write cache, clear pending". The tab is
       // NOT closed here: it is showing the purchase-complete page.
       if (entitled) await attempt(() => stores.checkoutPending.set(null));
-      sync.resume(userId, entitled);
+      // Settle the sync lifecycle from this same reconcile — no second RevenueCat query. Unlike
+      // resume(), this runs the initial cloud mirror on a not-entitled → entitled transition (a web
+      // purchase after a free sign-in), so the buyer's settings sync immediately instead of waiting
+      // for their next edit; the steady state stays a cheap write-through re-arm.
+      await sync.onEntitlementConfirmed(userId, entitled);
       return entitled ? "entitled" : "not-entitled";
     } catch {
       return "unknown"; // a torn reconcile reads as couldn't-check — never a throw across the boundary

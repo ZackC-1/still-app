@@ -85,13 +85,53 @@ export class SyncService {
     this.setState({ ...this.state, entitled, cloudReachable: true });
     if (!entitled) return; // un-entitled signed-in user does NOT sync (R7 gating)
 
-    // Identity-switch guard (R8/AE5): when this sign-in is for a different user than the last one
-    // we synced for — or no prior identity was ever recorded, so the seam can't vouch that the
-    // local blob is theirs — never push local settings to the cloud during sign-in (no empty-cloud
-    // seed, no LWW push-up). Cloud wins; a fresh account starts from local defaults only after an
-    // explicit reset. Without the seam (existing hosts) behavior is unchanged.
-    const crossIdentity = this.identity !== undefined && (await this.identity.get()) !== userId;
+    await this.mirrorAndStartWriteThrough(userId);
+  }
 
+  /**
+   * Entitlement just confirmed for a signed-in user by an ALREADY-COMPLETED reconcile (the
+   * extension web-checkout / restore / popup-open path drives this after runReconcile) — so unlike
+   * `onSignedIn` this does NOT reconcile again (no second RevenueCat query). A not-entitled →
+   * entitled transition (e.g. a web purchase after signing in free) runs the initial cloud mirror
+   * that `resume()` alone skips, so the buyer's settings sync immediately instead of waiting for
+   * their next edit. When already syncing for this same user it just re-arms write-through
+   * (cheap, no network); a false answer stops sync.
+   */
+  async onEntitlementConfirmed(userId: string, entitled: boolean): Promise<void> {
+    if (!entitled) {
+      this.resume(userId, false);
+      return;
+    }
+    const alreadySyncing =
+      this.state.userId === userId && this.state.entitled && this.unsubCache !== null;
+    this.setState({
+      userId,
+      entitled: true,
+      syncing: this.state.syncing,
+      cloudReachable: this.state.cloudReachable,
+    });
+    if (alreadySyncing) {
+      this.startWriteThrough(); // steady state: no redundant mirror-down (matches resume semantics)
+      return;
+    }
+    try {
+      await this.mirrorAndStartWriteThrough(userId);
+    } catch {
+      this.setState({ ...this.state, cloudReachable: false });
+    }
+  }
+
+  /**
+   * The initial cloud mirror + write-through for a newly-entitled user, shared by `onSignedIn` and
+   * `onEntitlementConfirmed`. Identity-switch guard (R8/AE5): when this is for a different user than
+   * the last one we synced for — or no prior identity was ever recorded, so the seam can't vouch the
+   * local blob is theirs — never push local settings to the cloud (no empty-cloud seed, no LWW
+   * push-up). Cloud wins; a fresh account starts from local defaults only after an explicit reset.
+   * Without the seam (existing hosts) behavior is unchanged. Records identity only when a sync
+   * actually starts: a free user's sign-in must not claim the local blob for their identity.
+   */
+  private async mirrorAndStartWriteThrough(userId: string): Promise<void> {
+    const crossIdentity = this.identity !== undefined && (await this.identity.get()) !== userId;
     const cloud = await this.backend.readProfile();
     if (cloud) {
       // LWW: a newer cloud wins (cloud is source of truth); a newer local is pushed up to converge.
@@ -101,9 +141,6 @@ export class SyncService {
       await this.backend.writeProfile(this.cache.current()); // seed an empty cloud from local
     }
     this.startWriteThrough();
-    // Recorded only when a sync actually starts: a free user's sign-in must NOT claim the local
-    // blob for their identity, or their later Pro sign-in would seed the cloud from settings that
-    // may still belong to the previous account.
     await this.identity?.set(userId);
   }
 

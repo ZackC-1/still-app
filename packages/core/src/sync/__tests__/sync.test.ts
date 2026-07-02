@@ -381,6 +381,58 @@ describe("SyncService", () => {
     expect(sets).toEqual([]);
   });
 
+  // ── onEntitlementConfirmed: mirror-on-unlock without a second reconcile (Codex-1 fix) ────────────
+
+  it("a not-entitled → entitled transition runs the initial cloud mirror, with NO reconcile call", async () => {
+    const cache = makeCache(settings({ globalOn: false, updatedAt: 9_000 }));
+    await cache.hydrate();
+    const d = mockBackend({ entitled: false }); // signed in free first
+    const svc = new SyncService(cache, mockAuth().auth, d.backend);
+    await svc.onSignedIn(USER);
+    expect(svc.getState().entitled).toBe(false);
+    d.calls.length = 0; // watch only what the unlock does
+
+    await svc.onEntitlementConfirmed(USER, true); // the web purchase lands
+    expect(d.calls).toContain("readProfile"); // the initial mirror ran…
+    expect(d.calls).not.toContain("reconcile"); // …without a second RevenueCat query
+    expect(svc.getState()).toMatchObject({ entitled: true, syncing: true });
+  });
+
+  it("an entitled buyer's later local edit reaches the cloud after the unlock mirror", async () => {
+    const cache = makeCache();
+    await cache.hydrate();
+    const d = mockBackend({ entitled: false, cloud: null });
+    const svc = new SyncService(cache, mockAuth().auth, d.backend);
+    await svc.onSignedIn(USER); // free
+    await svc.onEntitlementConfirmed(USER, true); // buys → write-through armed
+    d.calls.length = 0;
+    await cache.setGlobalOn(false); // a settings edit
+    await Promise.resolve();
+    expect(d.calls).toContain("writeProfile");
+  });
+
+  it("already syncing for the same user → re-arm only, no redundant mirror-down", async () => {
+    const cache = makeCache();
+    await cache.hydrate();
+    const d = mockBackend({ entitled: true });
+    const svc = new SyncService(cache, mockAuth().auth, d.backend);
+    await svc.onSignedIn(USER); // already entitled + syncing
+    d.calls.length = 0;
+    await svc.onEntitlementConfirmed(USER, true);
+    expect(d.calls).not.toContain("readProfile"); // steady state: no per-reconcile mirror
+    expect(svc.getState().syncing).toBe(true);
+  });
+
+  it("a false answer stops sync (resume semantics)", async () => {
+    const cache = makeCache();
+    await cache.hydrate();
+    const d = mockBackend({ entitled: true });
+    const svc = new SyncService(cache, mockAuth().auth, d.backend);
+    await svc.onSignedIn(USER);
+    await svc.onEntitlementConfirmed(USER, false);
+    expect(svc.getState()).toMatchObject({ entitled: false, syncing: false });
+  });
+
   // ── account deletion (App Store 5.1.1) ──────────────────────────────────────────────────────────
 
   it("deleteAccount deletes then signs out (state → signed out)", async () => {
