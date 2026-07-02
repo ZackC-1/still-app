@@ -1,11 +1,16 @@
 # Track 2 — Chrome Web Store (Chromium extension)
 
-Fast and cheap ($5 one-time, no hardware). Ships the **free** Shorts remover today. The in-extension
-"Unlock Pro" CTA (Supabase sign-in + RevenueCat Web Billing) is deferred work (U8/U10) — the server
-side is ready, but the extension UI doesn't expose a buy button yet, so this is a **free-tier launch**.
+Fast and cheap ($5 one-time, no hardware). Ships the Shorts remover **plus** the in-extension
+"Unlock Pro" purchase (email-OTP sign-in + RevenueCat Web Billing) shipped in PR #34. Whether Pro is
+live depends only on the build carrying prod Supabase creds — an unconfigured build fails safe to the
+free Shorts remover. See [`extension-purchase-deploy-checklist.md`](extension-purchase-deploy-checklist.md).
 
 **Build artifact:** `packages/ext-chromium/dist/chrome-mv3` (MV3, DNR Shorts-redirect, host permissions
 limited to the 4 service domains).
+
+> **No mobile surface.** Chrome for Android doesn't support extensions, so this track is desktop-only —
+> there is no mobile-Chrome YouTube case. Mobile YouTube-Shorts validation lives on the iOS Safari and
+> Firefox-Android tracks ([`06-mobile-blocking-validation.md`](06-mobile-blocking-validation.md)).
 
 ```bash
 pnpm --filter @still/ext-chromium build   # → packages/ext-chromium/dist/chrome-mv3
@@ -51,25 +56,26 @@ Docs: [Prepare your store listing](https://developer.chrome.com/docs/webstore/cw
        - `activeTab` → "Let the toolbar popup pause Still on the current site without broad access."
        - host permissions (`youtube/instagram/facebook/tiktok`) → "Apply the content rules only on the
          sites Still supports." (Never `<all_urls>`.)
-3. [ ] **Data usage** disclosures + the certification checkboxes: Still collects/transmits **no** user
-       data from the extension today → declare none. **No remote code** (MV3; all code is in the package).
+3. [ ] **Data usage** disclosures + the certification checkboxes. The **free** tier collects/transmits
+       **no** data (fully on-device). **Still Pro** sign-in (PR #34) transmits the user's **email /
+       authentication info** to Supabase for the cross-device entitlement + settings sync — disclose
+       that under the appropriate data types if you ship the build with Pro enabled (a free-only build
+       with no prod Supabase creds transmits nothing). **No remote code** (MV3; all code is in the package).
 
 Docs: [User data privacy policy](https://developer.chrome.com/docs/webstore/program-policies/user-data-faq) ·
 [Program policies](https://developer.chrome.com/docs/webstore/program-policies/policies)
 
 ---
 
-## 4. External payments policy (for when the Pro CTA lands)
+## 4. External payments policy (shipped in PR #34)
 
 Chrome Web Store's own payments are **deprecated**. Still's Pro is an **external** RevenueCat Web
 Billing checkout. Per the current [program policies](https://developer.chrome.com/docs/webstore/program-policies/policies)
 (updated 2025-05), linking out to your own checkout for digital goods is allowed — you just must not
-be deceptive about it. When the Pro CTA ships:
-- [ ] Disclose in the listing that Pro is a paid upgrade purchased on the web.
-- [ ] The CTA opens the RevenueCat Web Purchase Link in a new tab; no payment happens inside the
-      extension surface.
-
-(Nothing to do for the free-tier launch.)
+be deceptive about it. Since the Pro CTA now ships in the extension:
+- [ ] Disclose in the listing that Pro is a paid upgrade purchased on the web ($1.99 one-time).
+- [ ] Confirm the CTA opens the RevenueCat Web Purchase Link in a new tab; no payment happens inside
+      the extension surface. (It's inert until the deploy checklist is complete.)
 
 ---
 

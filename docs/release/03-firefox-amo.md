@@ -1,11 +1,16 @@
 # Track 3 — Firefox Add-ons (addons.mozilla.org / AMO)
 
-The Firefox build was **added in this PR** (a second target of the existing WXT project). Like Chrome,
-this is a **free-tier launch** today (the in-extension Pro CTA is U8/U10 follow-on).
+The Firefox build is a second target of the existing WXT project. It ships the Shorts remover **plus**
+the in-extension Pro purchase (email-OTP sign-in + RevenueCat Web Billing) shipped in PR #34 — same
+extension as Chrome. Whether Pro is live depends only on the build carrying prod Supabase creds; see
+[`extension-purchase-deploy-checklist.md`](extension-purchase-deploy-checklist.md).
 
 **Build artifact:** `packages/ext-chromium/dist/firefox-mv3` (MV3; **no** declarativeNetRequest —
-Firefox doesn't reliably support DNR regexSubstitution redirects, so Shorts redirect uses the
-browser-agnostic content-script path, same as Safari).
+Firefox doesn't reliably support DNR regexSubstitution redirects, so the Shorts redirect uses the
+browser-agnostic content-script path, same as Safari). **PR #36** fires that redirect synchronously at
+`document_start` before hydration on Firefox, so a direct nav to `m.youtube.com/shorts/<id>` on
+**Firefox Android** redirects before the Short plays — validate on-device per
+[`06-mobile-blocking-validation.md`](06-mobile-blocking-validation.md) §B.
 
 ```bash
 pnpm --filter @still/ext-chromium build:firefox   # → packages/ext-chromium/dist/firefox-mv3
@@ -18,7 +23,10 @@ pnpm --filter @still/ext-chromium zip:firefox      # → an extension .zip AND a
 
 > **Verified already:** `web-ext lint` on the build reports **0 errors** (the lone warning is Svelte 5's
 > internal `innerHTML` template runtime — benign, present in every Svelte extension). The manifest has
-> the required `browser_specific_settings.gecko.id` and `data_collection_permissions: {required:["none"]}`.
+> the required `browser_specific_settings.gecko.id`, `data_collection_permissions: {required:
+> ["authenticationInfo"]}` (the Pro sign-in transmits an account email — PR #34), and
+> `strict_min_version: "140.0"` (Firefox's built-in data-collection consent UI exists only on 140+, so
+> the floor guarantees no older-Firefox user signs in without a consent screen).
 
 ---
 
@@ -28,7 +36,8 @@ pnpm --filter @still/ext-chromium zip:firefox      # → an extension .zip AND a
 |-------|-------|-----|
 | `manifest_version` | 3 | matches Chrome/Safari builds |
 | `browser_specific_settings.gecko.id` | `still@chartash.com` | **PERMANENT** add-on id once published — change it *before* first submit if you want a different one |
-| `gecko.data_collection_permissions` | `{ required: ["none"] }` | Firefox data-consent; Still collects no data. Becoming mandatory for new AMO submissions |
+| `gecko.data_collection_permissions` | `{ required: ["authenticationInfo"] }` | The Pro sign-in transmits an account email (PR #34). Was `["none"]` before Pro shipped. Mandatory for new AMO submissions |
+| `gecko.strict_min_version` | `"140.0"` | Firefox's built-in data-collection consent UI is 140+ only; the floor prevents an older-Firefox user signing in with no consent screen |
 | background | event page (`scripts`) | WXT emits the Firefox-correct shape; the DNR-gating wiring no-ops on Firefox |
 | host permissions | the 4 service domains | never `<all_urls>` |
 
@@ -86,22 +95,25 @@ pnpm --filter @still/ext-chromium zip:firefox      # → an extension .zip AND a
 - [ ] **Listing icons:** 32×32 and 64×64 PNG (AMO's listing sizes; the build also ships 16/48/96/128).
 - [ ] **Screenshots:** at least one at **1280×800**.
 - [ ] **Categories:** up to 2, e.g. "Privacy & Security".
-- [ ] **Privacy:** paste a short policy into the listing form (an external link alone is insufficient) —
-      or, since Still transmits no data, state "No data collected" (matches the manifest
-      `data_collection_permissions: none`). **Data-consent (new Nov 2025):** the `none` declaration
-      covers Firefox 140+; on older Firefox the no-data exemption means no post-install consent screen is
-      needed — note this in reviewer notes.
-- [ ] **"This add-on requires payment"** checkbox — leave unchecked for the free launch; check it when
-      the Pro CTA ships.
+- [ ] **Privacy:** paste a short policy into the listing form (an external link alone is insufficient).
+      Disclose what the manifest declares: the **free** tier transmits no data (fully on-device), and
+      **Still Pro** sign-in transmits the user's account **email/authentication info** to Supabase for
+      the cross-device entitlement + settings sync (`data_collection_permissions: authenticationInfo`).
+      **Data-consent (Nov 2025+):** because the build declares data collection, `strict_min_version:
+      140.0` ensures every install gets Firefox's built-in consent screen — state this in reviewer notes.
+- [ ] **"This add-on requires payment"** checkbox — **check it** (Still Pro is a paid upgrade purchased
+      via the external RevenueCat Web Billing link; the free tier still works without paying).
 - [ ] **License** for the listing; optional **support email/website**.
 
 ---
 
-## 5. External payments (for when the Pro CTA lands)
+## 5. External payments (shipped in PR #34)
 
-Mozilla allows add-ons to link out to an external paid upgrade. When the Pro CTA ships, it opens the
-RevenueCat Web Purchase Link in a new tab (no payment inside the add-on). Disclose the paid upgrade in
-the listing. (Nothing to do for the free-tier launch.)
+Mozilla allows add-ons to link out to an external paid upgrade. Still's Pro CTA opens the RevenueCat
+Web Purchase Link in a **new tab** — no payment happens inside the add-on. Disclose the paid upgrade in
+the listing (and check the "requires payment" box above). The checkout only functions once the deploy
+checklist is complete (custom SMTP for OTP, the Web Billing product/secret) — an unconfigured build
+fails safe to the free Shorts remover.
 
 ---
 
@@ -127,6 +139,9 @@ Docs: [Submitting an add-on](https://extensionworkshop.com/documentation/publish
 
 ## Done when
 
+- [ ] Free YouTube Shorts removal verified on a clean **desktop** Firefox profile (load `dist/firefox-mv3`
+      via `about:debugging` → "This Firefox" → "Load Temporary Add-on" for a pre-submit smoke test).
+- [ ] **Firefox Android mobile-Shorts validation passed** on a real device (`m.youtube.com` redirect +
+      removal) — [`06-mobile-blocking-validation.md`](06-mobile-blocking-validation.md) §B. This is the
+      surface PR #36 fixed; verify it before submit.
 - [ ] Add-on **Approved** and live on AMO.
-- [ ] Free YouTube Shorts removal verified on a clean Firefox profile (load `dist/firefox-mv3` via
-      `about:debugging` → "This Firefox" → "Load Temporary Add-on" for a pre-submit smoke test).

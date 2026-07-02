@@ -81,3 +81,8 @@ until this list is complete. Work top to bottom; the order matters.
       playbook (§5).
 - [ ] Paid-but-never-reopened: pay, close everything, visit instagram.com —
       blocking activates via the background nudge without opening the popup.
+
+> This section verifies the **purchase** spine. The **free-tier** mobile
+> YouTube-Shorts blocking has its own required on-device gate — see
+> [`06-mobile-blocking-validation.md`](06-mobile-blocking-validation.md).
+> Do both before submitting.
