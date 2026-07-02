@@ -10,6 +10,8 @@ export type {
   EntitlementRead,
   WebCheckoutOutcome,
   WebCheckoutPort,
+  ReconcileCallOutcome,
+  CheckedReconcilePort,
 } from "./ports.js";
 export { SyncService, type SyncState, type LastSyncedIdentityStore } from "./service.js";
 export { SupabaseAuthPort } from "./auth.js";
@@ -20,3 +22,22 @@ export {
   type AppleSessionBridge,
   type AppleSessionDeps,
 } from "./apple-session.js";
+export {
+  createExtensionSession,
+  NUDGE_STALENESS_MS,
+  NUDGE_THROTTLE_MS,
+  type ExtensionSession,
+  type ExtensionSessionDeps,
+  type ExtensionSessionState,
+  type ExtensionSessionStores,
+  type ExtensionSessionSync,
+  type ExtensionIdentityStore,
+  type PersistedSlot,
+  type PendingOtpRecord,
+  type CheckoutPendingRecord,
+  type SessionReconcileOutcome,
+  type NudgeOutcome,
+  type ResumeOutcome,
+  type SignOutSessionOutcome,
+  type DeleteAccountSessionOutcome,
+} from "./extension-session.js";

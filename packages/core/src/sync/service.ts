@@ -107,6 +107,23 @@ export class SyncService {
     await this.identity?.set(userId);
   }
 
+  /**
+   * Restart write-through from CACHED state after a background wake (plan U5): an MV3 worker that
+   * wakes on a settings edit must not drop paid sync (the write-through subscription is in-memory
+   * and died with the worker) and must not burn a live RevenueCat query per wake — so no network
+   * here. Mirror-down and seeding stay sign-in concerns (`onSignedIn`); resume trusts the caller's
+   * cached entitlement and only restarts (entitled) or stops (cached false) the write-through.
+   */
+  resume(userId: string, entitled: boolean): void {
+    if (!entitled) {
+      this.stopWriteThrough();
+      this.setState({ userId, entitled: false, syncing: false, cloudReachable: this.state.cloudReachable });
+      return;
+    }
+    this.setState({ userId, entitled: true, syncing: false, cloudReachable: this.state.cloudReachable });
+    this.startWriteThrough();
+  }
+
   async signOut(): Promise<void> {
     this.stopWriteThrough();
     await this.auth.signOut();

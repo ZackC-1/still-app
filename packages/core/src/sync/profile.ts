@@ -2,18 +2,35 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import type { StillSettings } from "@still/shared-types";
 import { parseSettings } from "../storage/settings-validation.js";
-import type { BackendPort, EntitlementRead, WebCheckoutOutcome, WebCheckoutPort } from "./ports.js";
+import type {
+  BackendPort,
+  CheckedReconcilePort,
+  EntitlementRead,
+  ReconcileCallOutcome,
+  WebCheckoutOutcome,
+  WebCheckoutPort,
+} from "./ports.js";
 
 // Entitlement + profile-settings access over Supabase. Reads rely on RLS (a user sees only its own
 // rows); the reconcile call self-heals the entitlement on every sign-in (U13/U14).
 
-export class SupabaseBackendPort implements BackendPort, WebCheckoutPort {
+export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, CheckedReconcilePort {
   constructor(private readonly client: SupabaseClient) {}
 
   async reconcileEntitlement(): Promise<void> {
     // The session JWT is attached automatically; the function derives the subject from it (KTD5).
     const { error } = await this.client.functions.invoke("reconcile-entitlement", { body: {} });
     if (error) throw error;
+  }
+
+  /** Status-aware reconcile (plan U5): the same invoke as `reconcileEntitlement` above, but the
+   * failure maps by HTTP status instead of throwing — 401 → auth-required (re-sign-in, never
+   * teardown), everything else → unavailable. Mirrors `createWebCheckout`'s mapping below. */
+  async reconcileEntitlementChecked(): Promise<ReconcileCallOutcome> {
+    const { error } = await this.client.functions.invoke("reconcile-entitlement", { body: {} });
+    if (!error) return "ok";
+    const status = error instanceof FunctionsHttpError ? httpStatus(error.context) : null;
+    return status === 401 ? "auth-required" : "unavailable";
   }
 
   /** Start a Web Billing checkout (plan U4/R3/R5). Maps the create-web-checkout contract by HTTP

@@ -65,6 +65,22 @@ export interface WebCheckoutPort {
   createWebCheckout(): Promise<WebCheckoutOutcome>;
 }
 
+/** Transport outcome of invoking reconcile-entitlement, mapped MECHANICALLY by HTTP status like
+ * WebCheckoutOutcome above: `ok` (2xx) | `auth-required` (401) | `unavailable` (network / 5xx /
+ * anything else). The extension session (plan U5) needs the 401 branch — its remedy is re-sign-in,
+ * never teardown and never a cache downgrade — and the throwing `reconcileEntitlement` on
+ * BackendPort cannot surface it without matching error strings (docs/solutions:
+ * structured-outcome-over-cross-language-string). */
+export type ReconcileCallOutcome = "ok" | "auth-required" | "unavailable";
+
+/** Status-aware reconcile capability. Same capability-interface shape decision as CodeAuthPort /
+ * WebCheckoutPort above: only the extension background (U5/U6) wires it, so every existing
+ * BackendPort mock compiles unchanged and SyncService keeps its throwing `reconcileEntitlement`. */
+export interface CheckedReconcilePort {
+  /** Invoke the reconcile-entitlement Edge Function, reporting the transport outcome by status. */
+  reconcileEntitlementChecked(): Promise<ReconcileCallOutcome>;
+}
+
 export type EntitlementRead = "entitled" | "not-entitled" | "unknown";
 
 export interface BackendPort {
