@@ -81,7 +81,8 @@ supabase secrets set \
   REVENUECAT_WEB_BILLING_CHECKOUT_URL='https://pay.rev.cat/<your-token>' \
   REVENUECAT_WEB_PRODUCT_ID='still_sync_web' \
   --project-ref kikpgrreradotvvefdgd
-supabase functions deploy create-web-checkout --project-ref kikpgrreradotvvefdgd
+supabase functions deploy create-web-checkout --project-ref kikpgrreradotvvefdgd \
+  --import-map supabase/functions/deno.json
 ```
 
 > **How the function uses it (fixed in this PR).** `create-web-checkout` verifies the Supabase JWT,
