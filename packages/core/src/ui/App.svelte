@@ -135,19 +135,28 @@
   {/if}
 
   <!-- The sheet also opens on hosts without a purchase path (locked-row taps in the extensions):
-       it renders its explanatory state there instead of a buy CTA (R19). -->
+       it renders its explanatory state there instead of a buy CTA (R19). During the payoff
+       (U3/R6) the sheet stays mounted showing "Pro unlocked" while the service rows above —
+       already reactive to c.entitled — render live-and-on behind it. -->
   {#if c.paywallOpen}
     <PaywallSheet
       canPurchase={c.host.canPurchase}
       price={c.paywallPrice}
       purchaseFlow={c.purchaseFlow}
       purchaseError={c.purchaseError}
+      checkoutFlow={c.checkoutFlow}
+      justUnlocked={c.justUnlocked}
       onGet={() => {
-        if (onGet && c.beginPurchase()) onGet();
+        // Web-purchasable hosts (the injected checkout seam, U4/U6) hand off to a checkout tab;
+        // Apple hosts keep the native in-place purchase through the host's onGet closure.
+        if (c.canWebCheckout) void c.startWebCheckout();
+        else if (onGet && c.beginPurchase()) onGet();
       }}
       onRestore={() => {
         if (onRestore && c.beginRestore()) onRestore();
       }}
+      onStartOver={() => c.abandonCheckout()}
+      onReSignIn={() => c.reSignInFromCheckout()}
       onDismiss={() => c.dismissPaywall()}
     />
   {/if}

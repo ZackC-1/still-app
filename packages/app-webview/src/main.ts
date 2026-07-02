@@ -10,6 +10,7 @@ import {
   SyncService,
   createAppleSession,
   type AppleSession,
+  type LastSyncedIdentityStore,
 } from "@still/core/sync";
 
 // Entry for the Apple app's WKWebView settings screen — THIN WIRING ONLY. Settings persist through
@@ -35,18 +36,34 @@ let onGet: (() => void) | undefined;
 let onRestore: (() => void) | undefined;
 
 if (supabaseUrl && supabaseAnonKey) {
+  const sessionStorage = safeStorage();
   const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
-    auth: { persistSession: true, autoRefreshToken: true, storage: safeStorage() },
+    auth: { persistSession: true, autoRefreshToken: true, storage: sessionStorage },
   });
   const authPort = new SupabaseAuthPort(supabase);
   const backend = new SupabaseBackendPort(supabase);
+
+  // Cross-identity guard (AE5) — parity with the extension: a persisted last-synced Apple identity
+  // so a Sign in with Apple that switches Apple IDs (→ a different Supabase UUID) never seeds or
+  // LWW-pushes the previous user's local settings into the new account's cloud profile. Backed by
+  // the same launch-scoped storage as the session.
+  const identity: LastSyncedIdentityStore = {
+    get: async () => sessionStorage.getItem("still:last-identity"),
+    set: async (userId: string) => void sessionStorage.setItem("still:last-identity", userId),
+  };
 
   // The orchestrator, controller, and SyncService form a construction cycle (the session projects
   // sync state into the controller; the controller's auth actions call the session). Forward-declare
   // the session — it is assigned before any callback can fire.
   // eslint-disable-next-line prefer-const -- assigned once below; must be declared before the closures that capture it
   let session: AppleSession;
-  const sync = new SyncService(cache, authPort, backend, (state) => session.onSyncState(state));
+  const sync = new SyncService(
+    cache,
+    authPort,
+    backend,
+    (state) => session.onSyncState(state),
+    identity,
+  );
 
   controller = new UiController({
     cache,

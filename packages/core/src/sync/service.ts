@@ -8,6 +8,21 @@ import type { AuthPort, BackendPort, EntitlementRead } from "./ports.js";
 //   - Sync is gated on entitlement: only an entitled, signed-in user mirrors settings to the cloud.
 //     A free / signed-out user stays entirely local (the cache never touches the network).
 //   - Cloud is source of truth when entitled; local edits write through; conflicts resolve by LWW.
+//   - Across identities, cloud wins: when the signing-in user differs from the last user we synced
+//     for, sign-in never pushes the local blob to the cloud (no seed, no LWW push-up) — the local
+//     settings may belong to the previous account on this browser (AE5).
+
+/**
+ * Persists the last userId a settings sync ran for, so `onSignedIn` can tell a same-user
+ * re-sign-in (seed-from-local allowed) from an identity switch (cloud wins). Storage-backed in
+ * real wiring, in-memory in tests. Optional: without it the service behaves exactly as before —
+ * existing hosts keep today's same-user seed semantics.
+ */
+export interface LastSyncedIdentityStore {
+  /** The last userId a sync started for, or null when none was ever recorded. */
+  get(): Promise<string | null>;
+  set(userId: string): Promise<void>;
+}
 
 export interface SyncState {
   readonly userId: string | null;
@@ -32,6 +47,7 @@ export class SyncService {
     private readonly auth: AuthPort,
     private readonly backend: BackendPort,
     private readonly onState?: (state: SyncState) => void,
+    private readonly identity?: LastSyncedIdentityStore,
   ) {}
 
   getState(): SyncState {
@@ -69,14 +85,79 @@ export class SyncService {
     this.setState({ ...this.state, entitled, cloudReachable: true });
     if (!entitled) return; // un-entitled signed-in user does NOT sync (R7 gating)
 
+    await this.mirrorAndStartWriteThrough(userId);
+  }
+
+  /**
+   * Entitlement just confirmed for a signed-in user by an ALREADY-COMPLETED reconcile (the
+   * extension web-checkout / restore / popup-open path drives this after runReconcile) — so unlike
+   * `onSignedIn` this does NOT reconcile again (no second RevenueCat query). A not-entitled →
+   * entitled transition (e.g. a web purchase after signing in free) runs the initial cloud mirror
+   * that `resume()` alone skips, so the buyer's settings sync immediately instead of waiting for
+   * their next edit. When already syncing for this same user it just re-arms write-through
+   * (cheap, no network); a false answer stops sync.
+   */
+  async onEntitlementConfirmed(userId: string, entitled: boolean): Promise<void> {
+    if (!entitled) {
+      this.resume(userId, false);
+      return;
+    }
+    const alreadySyncing =
+      this.state.userId === userId && this.state.entitled && this.unsubCache !== null;
+    this.setState({
+      userId,
+      entitled: true,
+      syncing: this.state.syncing,
+      cloudReachable: this.state.cloudReachable,
+    });
+    if (alreadySyncing) {
+      this.startWriteThrough(); // steady state: no redundant mirror-down (matches resume semantics)
+      return;
+    }
+    try {
+      await this.mirrorAndStartWriteThrough(userId);
+    } catch {
+      this.setState({ ...this.state, cloudReachable: false });
+    }
+  }
+
+  /**
+   * The initial cloud mirror + write-through for a newly-entitled user, shared by `onSignedIn` and
+   * `onEntitlementConfirmed`. Identity-switch guard (R8/AE5): when this is for a different user than
+   * the last one we synced for — or no prior identity was ever recorded, so the seam can't vouch the
+   * local blob is theirs — never push local settings to the cloud (no empty-cloud seed, no LWW
+   * push-up). Cloud wins; a fresh account starts from local defaults only after an explicit reset.
+   * Without the seam (existing hosts) behavior is unchanged. Records identity only when a sync
+   * actually starts: a free user's sign-in must not claim the local blob for their identity.
+   */
+  private async mirrorAndStartWriteThrough(userId: string): Promise<void> {
+    const crossIdentity = this.identity !== undefined && (await this.identity.get()) !== userId;
     const cloud = await this.backend.readProfile();
     if (cloud) {
       // LWW: a newer cloud wins (cloud is source of truth); a newer local is pushed up to converge.
       const applied = this.cache.applyRemote(cloud);
-      if (!applied) await this.backend.writeProfile(this.cache.current());
-    } else {
+      if (!applied && !crossIdentity) await this.backend.writeProfile(this.cache.current());
+    } else if (!crossIdentity) {
       await this.backend.writeProfile(this.cache.current()); // seed an empty cloud from local
     }
+    this.startWriteThrough();
+    await this.identity?.set(userId);
+  }
+
+  /**
+   * Restart write-through from CACHED state after a background wake (plan U5): an MV3 worker that
+   * wakes on a settings edit must not drop paid sync (the write-through subscription is in-memory
+   * and died with the worker) and must not burn a live RevenueCat query per wake — so no network
+   * here. Mirror-down and seeding stay sign-in concerns (`onSignedIn`); resume trusts the caller's
+   * cached entitlement and only restarts (entitled) or stops (cached false) the write-through.
+   */
+  resume(userId: string, entitled: boolean): void {
+    if (!entitled) {
+      this.stopWriteThrough();
+      this.setState({ userId, entitled: false, syncing: false, cloudReachable: this.state.cloudReachable });
+      return;
+    }
+    this.setState({ userId, entitled: true, syncing: false, cloudReachable: this.state.cloudReachable });
     this.startWriteThrough();
   }
 

@@ -28,6 +28,15 @@ Names the load-bearing concepts in this codebase. Use these terms in code, comme
   pending-vs-authority purchase states, restore, Ask-to-Buy recheck, teardown parity. The
   app-webview entrypoint is thin wiring around it.
 - **Extension UI factory** (`core/ui/extension-setup.ts`) — the one popup/options controller
-  wiring every extension build shares.
+  wiring every extension build shares. Purchase/auth capabilities are an OPTIONAL injection
+  passed only by ext-chromium entrypoints — the uninjected default (Safari) stays purchase-free
+  by construction (guideline 3.1.1).
+- **Extension session orchestrator** (`core/sync/extension-session.ts`) — the apple-session
+  mirror for Chrome/Firefox: background-owned Supabase session, OTP sign-in, reconcile→
+  entitlement-record writes, web-checkout hand-off with a persisted checkout-pending lifecycle,
+  nudge gating (24h staleness / 6h throttle), `resume()` from cached entitlement on worker wake,
+  and one shared voluntary-teardown helper. The ext-chromium background entrypoint is thin
+  wiring around it; entitlement reaches Chrome/Firefox through this lane the way the App-Group
+  entitlement lane serves Safari.
 - **App-Group bridge** — the Swift↔web↔extension seam on Apple: settings lane (`SettingsBridge`,
   LWW) + entitlement lane (`EntitlementBridge`, app-written only after server reconcile).

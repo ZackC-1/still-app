@@ -16,7 +16,8 @@
   },
   "dependencies": {
     "@still/core": "workspace:*",
-    "@still/shared-types": "workspace:*"
+    "@still/shared-types": "workspace:*",
+    "@supabase/supabase-js": "^2.108.2"
   },
   "devDependencies": {
     "@types/chrome": "^0.2.0",

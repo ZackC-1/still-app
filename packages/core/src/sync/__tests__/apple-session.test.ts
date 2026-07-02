@@ -1,13 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import { SettingsCache } from "../../storage/cache.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
-import { UiController } from "../../ui/controller.svelte.js";
+import { PAYOFF_DURATION_MS, UiController } from "../../ui/controller.svelte.js";
 import { createAppleSession, type AppleSessionBridge, type AppleSessionDeps } from "../apple-session.js";
 import type { SyncState } from "../service.js";
 
 // The money-flow branches that used to live untested in the app-webview entrypoint: double-charge
-// guard, offline guard, pending-vs-dismiss after purchase/restore, rejected-native recovery,
+// guard, offline guard, pending-vs-payoff after purchase/restore, rejected-native recovery,
 // Ask-to-Buy foreground recheck, entitlement mirroring, and teardown parity.
+//
+// Server-confirmed unlocks resolve through the controller's payoff (U3/R6): the entitled
+// false→true transition with the paywall open shows "Pro unlocked. Enjoy the quiet." and the
+// controller dismisses after ~2.5s — this module never force-dismisses at those moments.
 
 function makeBridge(over: Partial<AppleSessionBridge> = {}): AppleSessionBridge {
   return {
@@ -76,6 +80,14 @@ describe("AppleSession — sync-state projection + entitlement mirror", () => {
     session.onSyncState({ userId: null, entitled: false, syncing: false, cloudReachable: true });
     expect(bridge.setEntitlement).toHaveBeenCalledWith(false);
   });
+
+  it("an entitled sync state with the paywall CLOSED unlocks quietly — no payoff (U3/R6)", () => {
+    const { session, controller } = harness();
+    session.onSyncState({ userId: "u1", entitled: true, syncing: true, cloudReachable: true });
+    expect(controller.entitled).toBe(true);
+    expect(controller.justUnlocked).toBe(false);
+    expect(controller.paywallOpen).toBe(false);
+  });
 });
 
 describe("AppleSession — enterSession", () => {
@@ -98,13 +110,23 @@ describe("AppleSession — enterSession", () => {
 });
 
 describe("AppleSession — onGet (the purchase flow)", () => {
-  it("double-charge guard: already entitled after the fresh online check → dismiss, never purchase", async () => {
-    const { session, controller, bridge } = harness({ onSignedInState: { entitled: true } });
-    controller.userId = "u1";
-    controller.openPaywall();
-    await session.onGet();
-    expect(bridge.purchaseStillPro).not.toHaveBeenCalled();
-    expect(controller.paywallOpen).toBe(false);
+  it("double-charge guard: already entitled after the fresh online check → payoff, never purchase (AE4)", async () => {
+    vi.useFakeTimers();
+    try {
+      const { session, controller, bridge } = harness({ onSignedInState: { entitled: true } });
+      controller.userId = "u1";
+      controller.openPaywall();
+      await session.onGet();
+      expect(bridge.purchaseStillPro).not.toHaveBeenCalled();
+      // The cross-device restore case reads as success, not a silent dismiss: the entitled
+      // transition shows the payoff, then the controller dismisses on its own (U3/R6).
+      expect(controller.justUnlocked).toBe(true);
+      expect(controller.paywallOpen).toBe(true);
+      vi.advanceTimersByTime(PAYOFF_DURATION_MS);
+      expect(controller.paywallOpen).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("offline guard: signed-in but unreachable → calm failure, never purchase", async () => {
@@ -127,23 +149,35 @@ describe("AppleSession — onGet (the purchase flow)", () => {
     expect(controller.paywallOpen).toBe(true);
   });
 
-  it("server-confirmed success → paywall dismissed into Pro", async () => {
-    let reconciled = false;
-    const h = harness({ onSignedInState: {} });
-    h.sync.onSignedIn.mockImplementation(async (userId: string) => {
-      h.session.onSyncState({
-        userId,
-        entitled: reconciled, // second reconcile (after purchase) sees the webhook's write
-        syncing: false,
-        cloudReachable: true,
+  it("server-confirmed success → payoff, then the controller dismisses into Pro", async () => {
+    vi.useFakeTimers();
+    try {
+      let reconciled = false;
+      const h = harness({ onSignedInState: {} });
+      h.sync.onSignedIn.mockImplementation(async (userId: string) => {
+        h.session.onSyncState({
+          userId,
+          entitled: reconciled, // second reconcile (after purchase) sees the webhook's write
+          syncing: false,
+          cloudReachable: true,
+        });
+        reconciled = true;
       });
-      reconciled = true;
-    });
-    h.controller.userId = "u1";
-    h.controller.openPaywall();
-    await h.session.onGet();
-    expect(h.controller.paywallOpen).toBe(false);
-    expect(h.controller.entitled).toBe(true);
+      h.controller.userId = "u1";
+      h.controller.openPaywall();
+      await h.session.onGet();
+      expect(h.controller.entitled).toBe(true);
+      // Payoff shown (never while entitled was still false), no instant force-dismiss (U3/R6)…
+      expect(h.controller.justUnlocked).toBe(true);
+      expect(h.controller.paywallOpen).toBe(true);
+      expect(h.controller.purchaseFlow).toBe("idle"); // the payoff superseded "pending"/outcome copy
+      // …then the controller auto-dismisses after the payoff.
+      vi.advanceTimersByTime(PAYOFF_DURATION_MS);
+      expect(h.controller.paywallOpen).toBe(false);
+      expect(h.controller.justUnlocked).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("a rejected native purchase resolves to a visible failed state (CTA never stuck)", async () => {
@@ -167,15 +201,23 @@ describe("AppleSession — onRestore", () => {
     expect(controller.paywallOpen).toBe(true);
   });
 
-  it("restored + server-confirmed → dismissed into Pro", async () => {
-    const { session, controller } = harness({
-      bridge: { restore: vi.fn(async () => true) },
-      onSignedInState: { entitled: true },
-    });
-    controller.userId = "u1";
-    controller.openPaywall();
-    await session.onRestore();
-    expect(controller.paywallOpen).toBe(false);
+  it("restored + server-confirmed → payoff, then the controller dismisses into Pro", async () => {
+    vi.useFakeTimers();
+    try {
+      const { session, controller } = harness({
+        bridge: { restore: vi.fn(async () => true) },
+        onSignedInState: { entitled: true },
+      });
+      controller.userId = "u1";
+      controller.openPaywall();
+      await session.onRestore();
+      expect(controller.justUnlocked).toBe(true); // payoff instead of an instant dismiss (U3/R6)
+      expect(controller.paywallOpen).toBe(true);
+      vi.advanceTimersByTime(PAYOFF_DURATION_MS);
+      expect(controller.paywallOpen).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("a rejected restore unsticks the CTA", async () => {
@@ -200,8 +242,12 @@ describe("AppleSession — Ask-to-Buy foreground recheck", () => {
     expect(sync.onSignedIn).not.toHaveBeenCalled();
 
     session.onVisibilityChange("visible");
-    await vi.waitFor(() => expect(controller.paywallOpen).toBe(false));
+    // The rehydrated pending state counts as paywall-open: the landed approval shows the payoff
+    // (controller-owned dismissal thereafter, pinned in the controller suite) — no force-dismiss.
+    await vi.waitFor(() => expect(controller.justUnlocked).toBe(true));
+    expect(controller.paywallOpen).toBe(true);
     expect(sync.onSignedIn).toHaveBeenCalledWith("u1");
+    controller.dismissPaywall(); // clear the payoff timer so nothing fires after the test
   });
 
   it("does nothing when the purchase isn't pending", () => {

@@ -8,3 +8,12 @@
  * (e.g. https://still.app/privacy), update this constant + the ASC field together.
  */
 export const PRIVACY_POLICY_URL = "https://zackc-1.github.io/still-app/privacy/";
+
+/**
+ * Support contact for purchase recovery (plan U4). "Find my purchase" is a support mailto for v1
+ * [DECIDED — docs/monetization-design.md]: when a checkout-pending flag decays past 24h without
+ * the server ever confirming the purchase, the paywall offers this instead of an infinite spinner.
+ * Same address as the App Store support listing.
+ */
+export const SUPPORT_EMAIL = "zack@cadmuslabs.co";
+export const FIND_MY_PURCHASE_MAILTO = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Find my purchase")}`;
