@@ -3,8 +3,11 @@
 
   interface Props {
     controller: UiController;
+    /** Web restore = a fresh authenticated reconcile (plan U5/U6). Absent on builds without the
+     * purchase spine — the paywall then renders its explanatory state with no live buttons. */
+    onRestore?: () => void;
   }
-  let { controller }: Props = $props();
+  let { controller, onRestore }: Props = $props();
 
   function openOptions(): void {
     chrome.runtime.openOptionsPage();
@@ -12,7 +15,7 @@
 </script>
 
 <div class="popup">
-  <App {controller} />
+  <App {controller} {onRestore} />
   <button class="open-options" onclick={openOptions}>Open settings</button>
 </div>
 

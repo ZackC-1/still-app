@@ -43,6 +43,31 @@ import type { LastSyncedIdentityStore, SyncService } from "./service.js";
 // on wake) — over a chrome.storage.local-backed auth storage adapter under a distinct
 // `storageKey` (trade-off accepted and documented in the plan's KTD).
 
+/** The build-time Supabase trust config for the extension spine (U6). */
+export interface ExtensionSupabaseConfig {
+  readonly url: string;
+  readonly anonKey: string;
+}
+
+/**
+ * The build-mode trust gate for the WHOLE auth/purchase spine (plan KTD, fail-safe; the
+ * ruleSetEndpointFromEnv pattern): both the background (client construction) and the popup/options
+ * wiring (UI injection) gate on this one pure function, so an unconfigured build can never have a
+ * live half. Absent/blank env → null → no Supabase client, no auth/checkout affordances, message
+ * handlers answer their unavailable-style outcomes — NEVER a dev-endpoint fallback
+ * (docs/solutions/security-issues/gate-production-trust-by-build-mode.md).
+ */
+export function extensionSupabaseConfig(
+  url: string | undefined,
+  anonKey: string | undefined,
+): ExtensionSupabaseConfig | null {
+  const trimmedUrl = url?.trim() ?? "";
+  const trimmedKey = anonKey?.trim() ?? "";
+  return trimmedUrl.length > 0 && trimmedKey.length > 0
+    ? { url: trimmedUrl, anonKey: trimmedKey }
+    : null;
+}
+
 /** A cached entitlement older than this makes a content-script nudge reconcile (R4). Distinct
  * from the 30-day fail-safe TTL (ENTITLEMENT_CACHE_TTL_MS): this bound keeps refund revocation
  * within ~24h for an online user who never opens the popup. */

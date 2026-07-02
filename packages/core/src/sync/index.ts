@@ -24,8 +24,10 @@ export {
 } from "./apple-session.js";
 export {
   createExtensionSession,
+  extensionSupabaseConfig,
   NUDGE_STALENESS_MS,
   NUDGE_THROTTLE_MS,
+  type ExtensionSupabaseConfig,
   type ExtensionSession,
   type ExtensionSessionDeps,
   type ExtensionSessionState,

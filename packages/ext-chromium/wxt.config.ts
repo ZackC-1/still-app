@@ -40,11 +40,15 @@ export default defineConfig({
             browser_specific_settings: {
               gecko: {
                 id: "still@chartash.com",
-                // Becoming mandatory for new AMO submissions (Firefox data-consent): Still's extension
-                // collects and transmits no personal data, so declare "none". Backward-compatible
-                // (ignored on older Firefox), so we don't pin strict_min_version and shrink reach.
-                // Revisit if Pro cloud-sync wiring (U10) ever transmits user data from the extension.
-                data_collection_permissions: { required: ["none"] },
+                // Mandatory AMO data-collection consent (H1 2026, R11). The purchase spine (plan
+                // U5/U6) signs users in with an emailed one-time code and keeps a Supabase session
+                // in extension storage, so the former ["none"] is no longer true: declare
+                // authentication data. Settings sync transmits only the signed-in user's own Still
+                // settings under that same account — no separate AMO category covers app
+                // preferences today. Backward-compatible (ignored on older Firefox), so we still
+                // don't pin strict_min_version. Re-verify category names against AMO's current
+                // list at submission time (plan risk note).
+                data_collection_permissions: { required: ["authenticationInfo"] },
               },
             },
           }

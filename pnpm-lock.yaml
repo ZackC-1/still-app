@@ -121,6 +121,9 @@ importers:
       '@still/shared-types':
         specifier: workspace:*
         version: link:../shared-types
+      '@supabase/supabase-js':
+        specifier: ^2.108.2
+        version: 2.108.2
     devDependencies:
       '@types/chrome':
         specifier: ^0.2.0
