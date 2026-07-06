@@ -1,10 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AuthPort, CodeAuthPort, RequestCodeOutcome, VerifyCodeOutcome } from "./ports.js";
 
-// Passwordless email auth over Supabase (R8, plan U2/R1). Two completion styles off the same
-// signInWithOtp email: Apple keeps the magic link ({{ .ConfirmationURL }}), the extension enters
-// the 6-digit code ({{ .Token }}) — one email template serves both (plan KTD). The returned user
-// UUID is later used as the RevenueCat app_user_id (KTD5).
+// Passwordless email auth over Supabase (R8, plan U2/R1). EVERY live host — the extensions AND
+// the Apple app (since 2026-07-06) — completes with the emailed 6-digit code ({{ .Token }}); the
+// magic-link path ({{ .ConfirmationURL }}) is retained for a possible future full-browser host
+// but is currently wired by no one (a WKWebView can never receive the link's browser redirect).
+// The returned user UUID is later used as the RevenueCat app_user_id (KTD5).
 
 export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
   constructor(

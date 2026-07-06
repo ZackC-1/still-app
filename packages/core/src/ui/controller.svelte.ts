@@ -17,9 +17,10 @@ export type PopupState =
   | "entitled-syncing"
   | "cloud-unreachable"; // signed in but offline → cached settings + a muted note
 
-/** Auth flow states. `idle → sending → sent | error` is the magic-link path (Apple). The code
- * flow (plan U2/R1, extension hosts) adds `sending → code-entry → verifying → signed-in |
- * code-error`, with `error` doubling as the calm send-failure state for both paths. */
+/** Auth flow states. The code flow (plan U2/R1) — `sending → code-entry → verifying → signed-in |
+ * code-error` — is the ONLY live path (extensions and the Apple app both wire it, 2026-07-06).
+ * `idle → sending → sent | error` is the magic-link path, currently wired by no host; `error`
+ * doubles as the calm send-failure state for both paths. */
 export type AuthFlow = "idle" | "sending" | "sent" | "error" | "code-entry" | "verifying" | "code-error";
 
 /** Why the last code-flow step failed — the sheet maps each kind to its own calm line.
@@ -92,8 +93,10 @@ export interface UiHost {
 }
 
 export interface UiAuth {
-  /** Send a magic link (Apple hosts). Optional: code-flow hosts wire requestCode/verifyCode
-   * instead — hosts advertise capabilities, and the sheet renders whichever path is present. */
+  /** Send a magic link. Currently wired by NO host (extensions and the Apple app all use the
+   * code pair below — a WKWebView/popup can never receive the link's browser redirect); retained
+   * for a possible future full-browser host. Hosts advertise capabilities, and the sheet renders
+   * whichever path is present — canUseCode takes precedence. */
   signIn?(email: string): Promise<{ error?: string }>;
   signOut(): Promise<void>;
   /** Delete the account (App Store 5.1.1 / GDPR). Optional: only wired on hosts with an account.

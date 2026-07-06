@@ -54,6 +54,13 @@ export interface AppleSession {
    * paywall price loaded — with the entitlement-pending state shown while reconcile is in flight. */
   enterSession(userId: string): Promise<void>;
   onSignInWithApple(): Promise<void>;
+  /** Email-code sign-in entry (the one live auth path since 2026-07-06): the host's
+   * UiAuth.verifyCode closure calls this AFTER the code was exchanged for a Supabase session, and
+   * AWAITS it — so the controller's post-verified continuations (purchase-intent paywall, Restore)
+   * land on a configured RevenueCat (KTD5) with entitlement + price settled. Side-effect failures
+   * are swallowed (extension-session parity: the session exists; onGet / visibility-change
+   * re-entry self-heal) — never throw at the sheet. */
+  onCodeVerified(userId: string): Promise<void>;
   onGet(): Promise<void>;
   onRestore(): Promise<void>;
   /** Ask-to-Buy: a "pending" purchase is approved out-of-band; re-reconcile on return to the
@@ -95,6 +102,17 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
     },
 
     enterSession,
+
+    async onCodeVerified(userId: string): Promise<void> {
+      try {
+        await enterSession(userId);
+      } catch {
+        // The Supabase session is real even when a bootstrap side effect (configurePurchases /
+        // reconcile / mirror) failed; onGet and onVisibilityChange re-enter the session, so the
+        // next purchase tap or foreground return self-heals. Extension-session verifyCode makes
+        // the same call ("never throw at the popup").
+      }
+    },
 
     async onSignInWithApple(): Promise<void> {
       controller.authFlow = "sending";

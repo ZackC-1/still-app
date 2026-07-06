@@ -1,7 +1,7 @@
 import { mount } from "svelte";
 import { createClient, type SupabaseClient, type SupportedStorage } from "@supabase/supabase-js";
 import "@still/core/ui/tokens.css";
-import { App, UiController } from "@still/core/ui";
+import { App, UiController, type AuthPersistence } from "@still/core/ui";
 import { SettingsCache, WKWebViewStorageAdapter } from "@still/core/storage";
 import { NativeBridge } from "@still/core/native";
 import {
@@ -15,9 +15,11 @@ import {
 
 // Entry for the Apple app's WKWebView settings screen — THIN WIRING ONLY. Settings persist through
 // the native App-Group bridge (U17); the auth/purchase/entitlement orchestration (U19) lives in
-// core's tested AppleSession module: Sign in with Apple runs natively and the identity token is
-// exchanged for a Supabase session; buy/restore run natively (StoreKit/RevenueCat) keyed to the
-// Supabase UUID (KTD5); the UI gates on the Supabase entitlement surfaced through SyncService.
+// core's tested AppleSession module: the user signs in with an emailed 6-digit code (the SAME flow
+// as the browser extensions — one identity story on every surface, 2026-07-06; the native Sign in
+// with Apple path is retired and unreached pending full excision), then buy/restore run natively
+// (StoreKit/RevenueCat) keyed to the Supabase UUID (KTD5); the UI gates on the Supabase
+// entitlement surfaced through SyncService.
 
 const cache = new SettingsCache(new WKWebViewStorageAdapter());
 cache.watch();
@@ -31,7 +33,6 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 let controller: UiController;
-let onSignInWithApple: (() => void) | undefined;
 let onGet: (() => void) | undefined;
 let onRestore: (() => void) | undefined;
 
@@ -65,11 +66,45 @@ if (supabaseUrl && supabaseAnonKey) {
     identity,
   );
 
+  // AE2 persistence — iOS jettisons the app (and the WKWebView content process can reload) while
+  // the user is off reading the code in Mail; relaunch must land back on code entry, not a blank
+  // email field (a fresh request would also hit the 60s resend cooldown). Backed by the same
+  // launch-scoped safeStorage as the session; best-effort by design (in-memory fallback loses it).
+  const PENDING_OTP_KEY = "still:pending-otp";
+  const PURCHASE_INTENT_KEY = "still:purchase-intent";
+  const persistence: AuthPersistence = {
+    setPendingOtp(pending) {
+      if (pending === null) sessionStorage.removeItem(PENDING_OTP_KEY);
+      else sessionStorage.setItem(PENDING_OTP_KEY, JSON.stringify(pending));
+    },
+    setPurchaseIntent(active) {
+      if (active) sessionStorage.setItem(PURCHASE_INTENT_KEY, "1");
+      else sessionStorage.removeItem(PURCHASE_INTENT_KEY);
+    },
+  };
+
   controller = new UiController({
     cache,
     host: { canPurchase: true },
+    persistence,
     auth: {
-      signIn: (email) => authPort.signInWithMagicLink(email),
+      // Email-code sign-in — the SAME flow as the browser extensions (founder call 2026-07-06:
+      // one identity story on every surface, so one purchase provably follows one email; Sign in
+      // with Apple would mint a different Supabase user than the same person's email sign-in in
+      // Chrome/Firefox and strand the entitlement). The magic-LINK path is deliberately NOT wired
+      // on this host: the link completes in the default browser, which can never hand the session
+      // back to this WKWebView.
+      requestCode: (email) => authPort.requestCode(email),
+      // Session side effects belong in the host closure (UiAuth contract), but the orchestration
+      // lives in the TESTED AppleSession module (this file is thin wiring): a verified code AWAITS
+      // the full session entry — RevenueCat keyed to the Supabase UUID (KTD5), reconcile,
+      // App-Group mirror, paywall price — so the controller's post-verified continuations
+      // (purchase-intent paywall, Restore) never run against an unconfigured RevenueCat.
+      verifyCode: async (email, token) => {
+        const outcome = await authPort.verifyCode(email, token);
+        if (outcome.kind === "verified") await session.onCodeVerified(outcome.userId);
+        return outcome;
+      },
       signOut: () => session.signOutEverywhere(),
       deleteAccount: () => session.deleteAccountEverywhere(),
     },
@@ -90,14 +125,38 @@ if (supabaseUrl && supabaseAnonKey) {
     },
   });
 
-  // Resume an existing Supabase session on launch.
+  // AE2 rehydration: a relaunch within the OTP TTL lands straight on code entry for the pending
+  // email (rehydrateCodeEntry itself no-ops when moot — code capability absent or already signed
+  // in). Corrupted records just fall back to the initial email field.
+  void (async () => {
+    try {
+      // SupportedStorage.getItem is async-capable in its type; both real backings here are sync.
+      const raw = await sessionStorage.getItem(PENDING_OTP_KEY);
+      if (raw === null) return;
+      const pending = JSON.parse(raw) as { email?: unknown; requestedAt?: unknown };
+      if (typeof pending.email !== "string") return;
+      controller.rehydrateCodeEntry({
+        email: pending.email,
+        requestedAt: typeof pending.requestedAt === "number" ? pending.requestedAt : undefined,
+        purchaseIntent: (await sessionStorage.getItem(PURCHASE_INTENT_KEY)) === "1",
+      });
+    } catch {
+      /* unreadable record — the user simply starts from the email field */
+    }
+  })();
+
+  // Resume an existing Supabase session on launch. The userId guard closes the slow-network race
+  // where the user completes a fresh code sign-in before this launch check resolves — without it,
+  // two enterSession pipelines (possibly for different identities) would interleave.
   void supabase.auth.getUser().then(({ data }) => {
-    if (data.user) void session.enterSession(data.user.id);
+    if (data.user && controller.userId === null) void session.enterSession(data.user.id);
   });
 
-  // Native actions only exist inside the WKWebView host.
+  // Native actions only exist inside the WKWebView host. Sign in with Apple is no longer offered
+  // (email-code sign-in above is the one auth path, 2026-07-06); the native SIWA bridge + the
+  // AppleSession.onSignInWithApple orchestration stay in place but unreached — full excision is
+  // deferred to a post-launch cleanup so this change stays off the tested money spine.
   if (bridge.available) {
-    onSignInWithApple = () => void session.onSignInWithApple();
     onGet = () => void session.onGet();
     onRestore = () => void session.onRestore();
     document.addEventListener("visibilitychange", () =>
@@ -110,7 +169,7 @@ if (supabaseUrl && supabaseAnonKey) {
 
 mount(App, {
   target: document.getElementById("app")!,
-  props: { controller, onSignInWithApple, onGet, onRestore },
+  props: { controller, onGet, onRestore },
 });
 
 /** localStorage with an in-memory fallback — WKWebView's file:// origin can refuse persistent storage,
