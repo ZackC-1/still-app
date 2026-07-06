@@ -278,3 +278,36 @@ describe("AppleSession — teardown parity (KTD5)", () => {
     expect(h.bridge.signOut).toHaveBeenCalled();
   });
 });
+
+describe("AppleSession — email-code sign-in entry (onCodeVerified)", () => {
+  it("awaits the full session entry: RevenueCat keyed to the UUID (KTD5), reconcile projected, price loaded", async () => {
+    const { session, controller, bridge, sync } = harness();
+    await session.onCodeVerified("u7");
+    expect(bridge.configurePurchases).toHaveBeenCalledWith("u7");
+    expect(sync.onSignedIn).toHaveBeenCalledWith("u7");
+    expect(controller.userId).toBe("u7");
+    expect(controller.reconciling).toBe(false);
+    await new Promise((r) => setTimeout(r, 0)); // price load is fire-and-forget by design
+    expect(controller.paywallPrice).toBe("$1.99");
+  });
+
+  it("swallows bootstrap failures — the session exists; onGet/visibility re-entry self-heal (never throw at the sheet)", async () => {
+    const { session, controller } = harness({
+      bridge: {
+        configurePurchases: vi.fn(async () => {
+          throw new Error("native bridge down");
+        }),
+      },
+    });
+    await expect(session.onCodeVerified("u7")).resolves.toBeUndefined();
+    expect(controller.reconciling).toBe(false); // the finally still clears the in-flight state
+  });
+
+  it("a sync bootstrap failure after RevenueCat config is also swallowed and clears reconciling", async () => {
+    const h = harness();
+    h.sync.onSignedIn.mockRejectedValueOnce(new Error("backend down"));
+    await expect(h.session.onCodeVerified("u9")).resolves.toBeUndefined();
+    expect(h.controller.reconciling).toBe(false);
+    expect(h.controller.userId).toBeNull(); // onSyncState never ran — the signed-in projection waits for the self-heal
+  });
+});
