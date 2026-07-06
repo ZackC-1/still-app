@@ -53,15 +53,8 @@
     {/each}
   </div>
 
-  <!-- Per-site pause (only where there's an active host: popup, not options page) -->
-  {#if c.host.currentHost}
-    <section class="pause card">
-      <span class="pause-label">{c.currentPaused ? STRINGS.pause.pausedNote : c.host.currentHost}</span>
-      <button class="link" onclick={() => c.togglePause()}>
-        {c.currentPaused ? STRINGS.pause.resume : STRINGS.pause.pause}
-      </button>
-    </section>
-  {/if}
+  <!-- Per-site pause UI removed 2026-07-06 (founder call: popup must fit one panel; feature may
+       return). The controller's pause logic is intact — no host passes currentHost anymore. -->
 
   <!-- Account management (App Store 5.1.1): privacy policy link + in-app account deletion. -->
   {#snippet accountManagement()}
@@ -224,22 +217,6 @@
     background: var(--surface-raised);
     border-radius: var(--radius-card);
   }
-  .pause {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-3);
-    padding: var(--space-3) var(--space-4);
-  }
-  .pause-label {
-    font-size: 15px;
-    color: var(--ink-secondary);
-    min-inline-size: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   .sync {
     display: flex;
     flex-direction: column;
