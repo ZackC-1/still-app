@@ -62,8 +62,18 @@ enum OnboardingPresenter {
     controller.isModalInPresentation = true // must finish the flow — no swipe-to-dismiss
     host.present(controller, animated: true)
     #elseif os(macOS)
-    let controller = NSHostingController(rootView: view)
+    // The sheet is fixed-size, so pin the SwiftUI content to it and opt the hosting view out of
+    // AppKit constraint-based sizing. On macOS 26, NSHostingView's safe-area-corner-inset
+    // invalidation can post setNeedsUpdateConstraints DURING the sheet window's display-cycle
+    // flush, which AppKit rejects with an uncaught NSException → launch abort (observed 3× on
+    // 2026-07-06; the same signature is reported against other SwiftUI apps on macOS 26). With
+    // no sizing options the hosting view never posts constraint invalidations, removing the race;
+    // the sheet takes its size from preferredContentSize alone.
+    let controller = NSHostingController(rootView: view.frame(width: 520, height: 660))
     controller.preferredContentSize = NSSize(width: 520, height: 660)
+    if #available(macOS 13.0, *) {
+      controller.sizingOptions = []
+    }
     host.presentAsSheet(controller)
     #endif
   }
