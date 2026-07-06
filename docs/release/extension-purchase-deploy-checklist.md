@@ -10,13 +10,25 @@ until this list is complete. Work top to bottom; the order matters.
 - [ ] **Custom SMTP** on the hosted project (Auth → SMTP). The built-in sender
       allows ~2-4 emails/hour project-wide — OTP sign-in is unusable without
       this. Blocker for everything below.
-- [ ] **Email template**: edit the "Magic Link" template to include BOTH
-      `{{ .ConfirmationURL }}` (Apple magic-link flow) and `{{ .Token }}`
-      (extension 6-digit code). One template serves both flows.
-- [ ] **Immediately after the template edit**: verify the Apple magic-link
-      sign-in end-to-end (send → email renders both the link and the code →
-      link completes sign-in in the app). The template change touches the LIVE
-      Apple flow; do not proceed with a broken link.
+- [ ] **Email templates — BOTH of them**: edit "Magic Link" AND "Confirm signup"
+      to include BOTH `{{ .ConfirmationURL }}` and `{{ .Token }}` (the extension
+      6-digit code). GoTrue sends **"Confirm signup"** — not "Magic Link" — the
+      FIRST time an address signs in via OTP, so missing that template means no
+      new customer can ever complete the code sign-in. Making the two templates
+      identical is correct: users get one consistent email either way.
+      (Verified live 2026-07-06.)
+- [ ] **Email OTP length = 6** (Auth → Sign In / Providers → Email). The hosted
+      project defaulted to 8; the popup's code field accepts exactly 6
+      (`supabase/config.toml` pins `otp_length = 6` locally), so an 8-digit code
+      cannot be entered at all.
+- [ ] **Immediately after the template edits**, verify end-to-end: sign in from
+      the extension popup with a BRAND-NEW address, then again with the same
+      (now-existing) address — the two requests exercise the two different
+      templates. Click the emailed link once: it must land on the configured
+      **Site URL** (Auth → URL Configuration — set it to the public site, not
+      the localhost default). Note: the shipped Apple app signs in via native
+      Sign in with Apple (no email), so these templates' live consumers are the
+      extension code flow and the link itself.
 - [ ] Confirm hosted OTP settings match expectations: 1h OTP expiry, 60s
       resend cooldown (Auth → Rate limits), and note the hosted refresh-token
       timebox for the U7 verification run.
