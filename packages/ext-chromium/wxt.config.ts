@@ -3,7 +3,8 @@ import { defineConfig } from "wxt";
 // WebExtension build for Chromium (Chrome/Edge/Brave/Arc) AND Firefox — both MV3, same entrypoints.
 // Build Chromium with `wxt build` (→ dist/chrome-mv3) and Firefox with `wxt build -b firefox`
 // (→ dist/firefox-mv3). Host permissions are limited to the four service domains — never <all_urls>
-// (R14). `activeTab` (not `tabs`) powers the popup's pause-on-this-site without broad access.
+// (R14). No tab-access permission: the popup never reads the active tab (the pause-on-this-site
+// control and its activeTab grant were removed 2026-07-06).
 //
 // Shorts→watch redirect:
 //   • Chromium: a static declarativeNetRequest rule is the PRIMARY path (network-layer, zero paint —
@@ -38,7 +39,6 @@ export default defineConfig({
       description: "Removes short-form video — Shorts, Reels, and all of TikTok.",
       permissions: [
         "storage",
-        "activeTab",
         // DNR is Chromium-only here (see header); Firefox uses the content-script redirect.
         ...(isFirefox ? [] : ["declarativeNetRequestWithHostAccess"]),
       ],

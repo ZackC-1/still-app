@@ -53,9 +53,10 @@ Docs: [Prepare your store listing](https://developer.chrome.com/docs/webstore/cw
        - `declarativeNetRequestWithHostAccess` → "Redirect YouTube Shorts URLs to the standard watch
          page at the network layer (no page flash)."
        - `storage` → "Persist the user's on/off and per-site settings locally."
-       - `activeTab` → "Let the toolbar popup pause Still on the current site without broad access."
        - host permissions (`youtube/instagram/facebook/tiktok`) → "Apply the content rules only on the
          sites Still supports." (Never `<all_urls>`.)
+       *(There is no `activeTab`/`tabs` permission — the pause-on-this-site control that used it was
+       removed 2026-07-06.)*
 3. [ ] **Data usage** disclosures + the certification checkboxes. The **free** tier collects/transmits
        **no** data (fully on-device). **Still Pro** sign-in (PR #34) transmits the user's **email /
        authentication info** to Supabase for the cross-device entitlement + settings sync — disclose
