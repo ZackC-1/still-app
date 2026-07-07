@@ -48,7 +48,7 @@ export async function verifyRuleSet(set: SignedRuleSet, opts: VerifyOptions): Pr
   if (compareVersions(set.version, opts.minVersion) < 0) {
     return { ok: false, reason: `version ${set.version} below floor ${opts.minVersion}` };
   }
-  let valid = false;
+  let valid: boolean;
   try {
     valid = await ed.verifyAsync(
       hexToBytes(set.signature.value),

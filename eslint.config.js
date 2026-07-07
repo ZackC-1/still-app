@@ -6,6 +6,9 @@ import svelte from "eslint-plugin-svelte";
 export default tseslint.config(
   {
     ignores: [
+      // Apple's stock safari-web-extension template resources (Main.html + Script.js shell) —
+      // vendored, not ours to lint.
+      "apps/apple/Still/Shared (App)/Resources/**",
       "**/dist/**",
       "**/.output/**",
       "**/.wxt/**",
