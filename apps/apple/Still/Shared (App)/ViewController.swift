@@ -55,6 +55,19 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
         }
     }
 
+#if os(macOS)
+    /// Window-geometry hardening (PR #55 review findings), from the one macOS viewDidAppear below:
+    /// the window is restorable="NO" with no autosave name, so without this every relaunch discards
+    /// a manual resize and reopens at the storyboard's 480x860 default; and the storyboard minSize
+    /// archives as a FRAME minimum (NSMinSize), landing the CONTENT floor ~28pt short of the
+    /// intended 440x560 (title-bar height) — contentMinSize makes the floor exact.
+    private func applyWindowGeometryPolicy() {
+        guard let window = view.window else { return }
+        window.setFrameAutosaveName("StillMainWindow")
+        window.contentMinSize = NSSize(width: 440, height: 560)
+    }
+#endif
+
     // Navigation lockdown (P0 #1): only the bundled web build may load in the web view. A remote
     // navigation (e.g. an injected/compromised page trying to reach an attacker origin) is cancelled;
     // a user-tapped external http(s) link (e.g. the in-app privacy policy) is handed to the system
@@ -90,6 +103,7 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
 #elseif os(macOS)
     override func viewDidAppear() {
         super.viewDidAppear()
+        applyWindowGeometryPolicy()
         OnboardingPresenter.presentIfNeeded(from: self)
     }
 #endif
