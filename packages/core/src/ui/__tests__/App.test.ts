@@ -94,11 +94,13 @@ describe("App", () => {
     expect(dialog.queryByText(STRINGS.paywall.cta)).toBeNull();
   });
 
-  it("not-entitled + can-purchase shows the upgrade CTA", () => {
+  it("not-entitled + can-purchase shows the upgrade CTA and it opens the paywall", async () => {
     const c = controller();
     c.userId = "u";
     render(App, { props: { controller: c } });
-    expect(screen.getByText(STRINGS.paywall.upgradeCta)).toBeTruthy();
+    await fireEvent.click(screen.getByText(STRINGS.paywall.upgradeCta));
+    expect(c.paywallOpen).toBe(true);
+    expect(c.signInOpen).toBe(false); // signed in: straight to the paywall, no re-auth detour
   });
 
   it("entitled shows the synced state", () => {
