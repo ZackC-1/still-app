@@ -24,6 +24,10 @@
                             </wkWebView>
                         </subviews>
                         <viewLayoutGuide key="safeArea" id="6Tk-OE-BBY"/>
+                        <!-- The webview is pinned to the safe area, so the root view shows through in the
+                             status-bar/home-indicator strips. Paint it the web UI's light-only surface
+                             (tokens.css surface token, #ffffff); Info.plist forces Light so status-bar text stays dark. -->
+                        <color key="backgroundColor" white="1" alpha="1" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>
                         <constraints>
                             <constraint firstItem="RDB-ib-igF" firstAttribute="leading" secondItem="6Tk-OE-BBY" secondAttribute="leading" id="2Cj-rS-KvL"/>
                             <constraint firstItem="RDB-ib-igF" firstAttribute="top" secondItem="6Tk-OE-BBY" secondAttribute="top" id="Fzh-MV-Hkk"/>
