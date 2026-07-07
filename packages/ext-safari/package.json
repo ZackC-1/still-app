@@ -16,11 +16,11 @@
     "@still/shared-types": "workspace:*"
   },
   "devDependencies": {
-    "@types/chrome": "^0.2.0",
+    "@types/chrome": "^0.2.2",
     "@wxt-dev/module-svelte": "^2.0.5",
     "svelte": "^5.56.4",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.9",
+    "vitest": "^4.1.10",
     "wxt": "^0.20.27"
   }
 }
