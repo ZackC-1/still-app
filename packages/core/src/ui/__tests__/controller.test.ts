@@ -15,7 +15,11 @@ import {
   type UiCheckout,
   type UiHost,
 } from "../controller.svelte.js";
-import type { RequestCodeOutcome, VerifyCodeOutcome, WebCheckoutOutcome } from "../../sync/ports.js";
+import type {
+  RequestCodeOutcome,
+  VerifyCodeOutcome,
+  WebCheckoutOutcome,
+} from "../../sync/ports.js";
 import { STRINGS } from "../strings.js";
 
 function makeController(
@@ -27,7 +31,9 @@ function makeController(
     clock?: () => number;
   } = {},
 ) {
-  const cache = new SettingsCache(new InMemoryStorageAdapter(null), { now: () => Date.now() });
+  const cache = new SettingsCache(new InMemoryStorageAdapter(null), {
+    now: () => Date.now(),
+  });
   const c = new UiController({
     cache,
     host: { canPurchase: true, currentHost: "youtube.com", ...extra.host },
@@ -43,9 +49,14 @@ function makeController(
 function codeAuth(over: Partial<UiAuth> = {}): UiAuth {
   return {
     signOut: vi.fn(() => Promise.resolve()),
-    requestCode: vi.fn(() => Promise.resolve<RequestCodeOutcome>({ kind: "sent" })),
+    requestCode: vi.fn(() =>
+      Promise.resolve<RequestCodeOutcome>({ kind: "sent" }),
+    ),
     verifyCode: vi.fn(() =>
-      Promise.resolve<VerifyCodeOutcome>({ kind: "verified", userId: "user-1" }),
+      Promise.resolve<VerifyCodeOutcome>({
+        kind: "verified",
+        userId: "user-1",
+      }),
     ),
     ...over,
   };
@@ -63,7 +74,10 @@ function checkoutSeam(over: Partial<UiCheckout> = {}) {
   const order: string[] = [];
   const seam = {
     createCheckout: vi.fn(() =>
-      Promise.resolve<WebCheckoutOutcome>({ kind: "checkout-url", url: CHECKOUT_URL }),
+      Promise.resolve<WebCheckoutOutcome>({
+        kind: "checkout-url",
+        url: CHECKOUT_URL,
+      }),
     ),
     openCheckoutTab: vi.fn((url: string) => {
       order.push(`open:${url}`);
@@ -72,7 +86,9 @@ function checkoutSeam(over: Partial<UiCheckout> = {}) {
     setPending: vi.fn((pending: CheckoutPending | null) => {
       order.push(pending === null ? "clear-pending" : "persist-pending");
     }),
-    reconcile: vi.fn(() => Promise.resolve<CheckoutReconcileOutcome>("unknown")),
+    reconcile: vi.fn(() =>
+      Promise.resolve<CheckoutReconcileOutcome>("unknown"),
+    ),
     ...over,
   };
   return { seam, order };
@@ -114,7 +130,10 @@ describe("UiController", () => {
 
   it("locked tap routes signed-out purchasable users to sign-in first (principle 8)", () => {
     const { c } = makeController({
-      auth: { signIn: vi.fn(() => Promise.resolve({})), signOut: vi.fn(() => Promise.resolve()) },
+      auth: {
+        signIn: vi.fn(() => Promise.resolve({})),
+        signOut: vi.fn(() => Promise.resolve()),
+      },
     });
     c.lockedTap();
     expect(c.signInOpen).toBe(true);
@@ -123,7 +142,10 @@ describe("UiController", () => {
 
   it("locked tap opens the paywall for signed-in users", () => {
     const { c } = makeController({
-      auth: { signIn: vi.fn(() => Promise.resolve({})), signOut: vi.fn(() => Promise.resolve()) },
+      auth: {
+        signIn: vi.fn(() => Promise.resolve({})),
+        signOut: vi.fn(() => Promise.resolve()),
+      },
     });
     c.userId = "u";
     c.lockedTap();
@@ -136,6 +158,64 @@ describe("UiController", () => {
     c.lockedTap();
     expect(c.paywallOpen).toBe(true);
     expect(c.signInOpen).toBe(false);
+  });
+
+  it("signed-out upgrade records purchase intent and opens sign-in", () => {
+    const persistence = mockPersistence();
+    const { c } = makeController({ auth: codeAuth(), persistence });
+    c.startUpgrade();
+    expect(c.purchaseIntent).toBe(true);
+    expect(persistence.setPurchaseIntent).toHaveBeenCalledWith(true);
+    expect(c.signInOpen).toBe(true);
+    expect(c.paywallOpen).toBe(false);
+  });
+
+  it("signed-in upgrade opens the paywall directly", () => {
+    const { c } = makeController({ auth: codeAuth() });
+    c.userId = "u";
+    c.startUpgrade();
+    expect(c.paywallOpen).toBe(true);
+    expect(c.signInOpen).toBe(false);
+    expect(c.purchaseIntent).toBe(false);
+  });
+
+  it("startUpgrade no-ops when already entitled (out-of-band callers)", () => {
+    // The rendered CTAs are already gated off for Pro users; this pins the method's own guard
+    // for callers that bypass the UI gating (scripts, future surfaces).
+    const persistence = mockPersistence();
+    const { c } = makeController({ auth: codeAuth(), persistence });
+    c.entitled = true;
+    c.startUpgrade();
+    expect(c.paywallOpen).toBe(false);
+    expect(c.signInOpen).toBe(false);
+    expect(c.purchaseIntent).toBe(false);
+    expect(persistence.setPurchaseIntent).not.toHaveBeenCalled();
+  });
+
+  it("upgrade continuation skips the buy sheet when sign-in already unlocked Pro", async () => {
+    // A signed-out but already-Pro account taps Upgrade → sign-in. On the Apple host the awaited
+    // verifyCode reconciles entitlement before returning, so the purchase-intent continuation
+    // must not open a paywall the user has nothing to buy from.
+    const persistence = mockPersistence();
+    let ref: UiController | null = null;
+    const auth = codeAuth({
+      verifyCode: vi.fn(() => {
+        ref!.entitled = true; // the host's reconcile landed inside the awaited verify
+        return Promise.resolve<VerifyCodeOutcome>({
+          kind: "verified",
+          userId: "user-1",
+        });
+      }),
+    });
+    const { c } = makeController({ auth, persistence });
+    ref = c;
+    c.startUpgrade(); // signed out on a purchasable host → intent + sign-in
+    expect(c.signInOpen).toBe(true);
+    await c.signIn("a@b.com");
+    await c.verifyCode("123456");
+    expect(c.userId).toBe("user-1");
+    expect(c.paywallOpen).toBe(false); // already Pro — no buy sheet
+    expect(c.purchaseIntent).toBe(false); // the intent was still consumed
   });
 
   it("derives the full popup state matrix", () => {
@@ -154,7 +234,9 @@ describe("UiController", () => {
 
   it("runs the magic-link flow idle → sending → sent", async () => {
     const signIn = vi.fn(() => Promise.resolve({}));
-    const { c } = makeController({ auth: { signIn, signOut: vi.fn(() => Promise.resolve()) } });
+    const { c } = makeController({
+      auth: { signIn, signOut: vi.fn(() => Promise.resolve()) },
+    });
     const pending = c.signIn("a@b.com");
     expect(c.authFlow).toBe("sending");
     await pending;
@@ -164,7 +246,10 @@ describe("UiController", () => {
 
   it("surfaces an auth error", async () => {
     const { c } = makeController({
-      auth: { signIn: () => Promise.resolve({ error: "rate limited" }), signOut: vi.fn(() => Promise.resolve()) },
+      auth: {
+        signIn: () => Promise.resolve({ error: "rate limited" }),
+        signOut: vi.fn(() => Promise.resolve()),
+      },
     });
     await c.signIn("a@b.com");
     expect(c.authFlow).toBe("error");
@@ -173,7 +258,10 @@ describe("UiController", () => {
 
   it("signOut clears local state and resets the purchase flow even when auth.signOut throws", async () => {
     const { c } = makeController({
-      auth: { signIn: () => Promise.resolve({}), signOut: () => Promise.reject(new Error("network")) },
+      auth: {
+        signIn: () => Promise.resolve({}),
+        signOut: () => Promise.reject(new Error("network")),
+      },
     });
     c.userId = "u";
     c.entitled = true;
@@ -212,14 +300,20 @@ describe("UiController", () => {
   });
 
   it("canDeleteAccount reflects whether the host wired deletion", () => {
-    const without = makeController({ auth: { signIn: () => Promise.resolve({}), signOut: vi.fn() } });
+    const without = makeController({
+      auth: { signIn: () => Promise.resolve({}), signOut: vi.fn() },
+    });
     expect(without.c.canDeleteAccount).toBe(false);
-    const withDel = makeController({ auth: deletableAuth(vi.fn(() => Promise.resolve())) });
+    const withDel = makeController({
+      auth: deletableAuth(vi.fn(() => Promise.resolve())),
+    });
     expect(withDel.c.canDeleteAccount).toBe(true);
   });
 
   it("delete flow: request → confirming, cancel → idle", () => {
-    const { c } = makeController({ auth: deletableAuth(vi.fn(() => Promise.resolve())) });
+    const { c } = makeController({
+      auth: deletableAuth(vi.fn(() => Promise.resolve())),
+    });
     c.requestDeleteAccount();
     expect(c.deleteFlow).toBe("confirming");
     c.cancelDeleteAccount();
@@ -268,7 +362,11 @@ describe("UiController", () => {
     expect(c.purchaseFlow).toBe("pending");
     c.setPurchaseOutcome({ outcome: "cancelled", entitled: false });
     expect(c.purchaseFlow).toBe("cancelled");
-    c.setPurchaseOutcome({ outcome: "failed", entitled: false, error: "network down" });
+    c.setPurchaseOutcome({
+      outcome: "failed",
+      entitled: false,
+      error: "network down",
+    });
     expect(c.purchaseFlow).toBe("failed");
     expect(c.purchaseError).toBe("network down");
     c.setPurchaseOutcome({ outcome: "unavailable", entitled: false });
@@ -309,13 +407,18 @@ describe("UiController", () => {
     expect(auth.requestCode).toHaveBeenCalledWith("a@b.com");
     expect(c.authFlow).toBe("code-entry");
     expect(c.codeEmail).toBe("a@b.com");
-    expect(persistence.setPendingOtp).toHaveBeenCalledWith({ email: "a@b.com", requestedAt: t });
+    expect(persistence.setPendingOtp).toHaveBeenCalledWith({
+      email: "a@b.com",
+      requestedAt: t,
+    });
     c.dismissSignIn(); // stop the cooldown ticker
   });
 
   it("requestCode failure shows the calm error state with no raw error text", async () => {
     const auth = codeAuth({
-      requestCode: vi.fn(() => Promise.resolve<RequestCodeOutcome>({ kind: "send-failed" })),
+      requestCode: vi.fn(() =>
+        Promise.resolve<RequestCodeOutcome>({ kind: "send-failed" }),
+      ),
     });
     const persistence = mockPersistence();
     const { c } = makeController({ auth, persistence });
@@ -387,7 +490,10 @@ describe("UiController", () => {
     const verifyCode = vi.fn(() =>
       Promise.resolve<VerifyCodeOutcome>({ kind: "invalid-code" }),
     );
-    const { c } = makeController({ auth: codeAuth({ verifyCode }), clock: () => t });
+    const { c } = makeController({
+      auth: codeAuth({ verifyCode }),
+      clock: () => t,
+    });
     await c.signIn("a@b.com");
     t += OTP_TTL_MS + 1;
     await c.verifyCode("123456");
@@ -425,10 +531,14 @@ describe("UiController", () => {
   it("dismissing mid-verify drops the result — a cancelled verify does not sign in (F6)", async () => {
     let resolveVerify!: (v: VerifyCodeOutcome) => void;
     const verifyCode = vi.fn(
-      () => new Promise<VerifyCodeOutcome>((resolve) => (resolveVerify = resolve)),
+      () =>
+        new Promise<VerifyCodeOutcome>((resolve) => (resolveVerify = resolve)),
     );
     const persistence = mockPersistence();
-    const { c } = makeController({ auth: codeAuth({ verifyCode }), persistence });
+    const { c } = makeController({
+      auth: codeAuth({ verifyCode }),
+      persistence,
+    });
     await c.signIn("a@b.com");
     const pending = c.verifyCode("123456"); // in flight
     c.dismissSignIn(); // user hits "Not now" before the network resolves
@@ -441,10 +551,14 @@ describe("UiController", () => {
   it("dismissing mid-send drops the result — no pendingOtp persisted, no code entry (F6)", async () => {
     let resolveSend!: (v: RequestCodeOutcome) => void;
     const requestCode = vi.fn(
-      () => new Promise<RequestCodeOutcome>((resolve) => (resolveSend = resolve)),
+      () =>
+        new Promise<RequestCodeOutcome>((resolve) => (resolveSend = resolve)),
     );
     const persistence = mockPersistence();
-    const { c } = makeController({ auth: codeAuth({ requestCode }), persistence });
+    const { c } = makeController({
+      auth: codeAuth({ requestCode }),
+      persistence,
+    });
     const pending = c.signIn("a@b.com"); // enters "sending", awaits requestCode
     c.dismissSignIn();
     resolveSend({ kind: "sent" });
@@ -465,9 +579,15 @@ describe("UiController", () => {
         .fn()
         .mockResolvedValueOnce({ kind: "sent" }) // the initial signIn
         .mockImplementationOnce(
-          () => new Promise<RequestCodeOutcome>((resolve) => (resolveResend = resolve)),
+          () =>
+            new Promise<RequestCodeOutcome>(
+              (resolve) => (resolveResend = resolve),
+            ),
         );
-      const { c } = makeController({ auth: codeAuth({ requestCode }), clock: () => t });
+      const { c } = makeController({
+        auth: codeAuth({ requestCode }),
+        clock: () => t,
+      });
       await c.signIn("a@b.com");
       t += 60_000;
       vi.advanceTimersByTime(60_000); // cooldown elapsed → resend is enabled
@@ -485,7 +605,11 @@ describe("UiController", () => {
   it("rehydrateCodeEntry lands straight on code entry for the persisted email (AE2)", () => {
     const t = 100_000;
     const { c } = makeController({ auth: codeAuth(), clock: () => t });
-    c.rehydrateCodeEntry({ email: "saved@b.com", requestedAt: t - 10_000, purchaseIntent: true });
+    c.rehydrateCodeEntry({
+      email: "saved@b.com",
+      requestedAt: t - 10_000,
+      purchaseIntent: true,
+    });
     expect(c.authFlow).toBe("code-entry");
     expect(c.signInOpen).toBe(true);
     expect(c.codeEmail).toBe("saved@b.com");
@@ -496,7 +620,9 @@ describe("UiController", () => {
 
   it("an Apple-shaped UiAuth (no code capability) keeps the magic-link flow unchanged", async () => {
     const signIn = vi.fn(() => Promise.resolve({}));
-    const { c } = makeController({ auth: { signIn, signOut: vi.fn(() => Promise.resolve()) } });
+    const { c } = makeController({
+      auth: { signIn, signOut: vi.fn(() => Promise.resolve()) },
+    });
     expect(c.canUseCode).toBe(false);
     await c.signIn("a@b.com");
     expect(c.authFlow).toBe("sent"); // not code-entry
@@ -666,7 +792,10 @@ describe("UiController — web checkout flow (plan U4/R3/R5)", () => {
     const { seam } = checkoutSeam();
     expect(makeController({ checkout: seam }).c.canWebCheckout).toBe(true);
     // A host without a purchase path never web-checkouts even if a seam were wired (R10 pin).
-    expect(makeController({ checkout: seam, host: { canPurchase: false } }).c.canWebCheckout).toBe(false);
+    expect(
+      makeController({ checkout: seam, host: { canPurchase: false } }).c
+        .canWebCheckout,
+    ).toBe(false);
   });
 
   it("checkout-url: pending is persisted BEFORE the tab opens; the flow shows opening-checkout (R3)", async () => {
@@ -679,17 +808,25 @@ describe("UiController — web checkout flow (plan U4/R3/R5)", () => {
     expect(c.purchaseFlow).toBe("opening-checkout"); // the hand-off copy, not Apple's "purchasing"
     await inFlight;
     // The ordering pin: a flag persisted after tabs.create would die with the popup.
-    expect(order.slice(0, 2)).toEqual(["persist-pending", `open:${CHECKOUT_URL}`]);
+    expect(order.slice(0, 2)).toEqual([
+      "persist-pending",
+      `open:${CHECKOUT_URL}`,
+    ]);
     expect(seam.setPending).toHaveBeenNthCalledWith(1, { startedAt: t });
     // Best-effort tabId enrichment once the opener resolves (popups usually die before this).
-    expect(seam.setPending).toHaveBeenLastCalledWith({ startedAt: t, tabId: 42 });
+    expect(seam.setPending).toHaveBeenLastCalledWith({
+      startedAt: t,
+      tabId: 42,
+    });
     // A surviving context (options page) rests in quiet-pending — poll windows start on reopen.
     expect(c.purchaseFlow).toBe("idle");
     expect(c.checkoutFlow).toBe("quiet-pending");
   });
 
   it("409 already-entitled → reconcile invoked → payoff after the entitled write; never an error (R5/AE4)", async () => {
-    const reconcile = vi.fn(() => Promise.resolve<CheckoutReconcileOutcome>("entitled"));
+    const reconcile = vi.fn(() =>
+      Promise.resolve<CheckoutReconcileOutcome>("entitled"),
+    );
     const { seam } = checkoutSeam({
       createCheckout: vi.fn(() =>
         Promise.resolve<WebCheckoutOutcome>({ kind: "already-entitled" }),
@@ -712,7 +849,9 @@ describe("UiController — web checkout flow (plan U4/R3/R5)", () => {
 
   it("unavailable → calm failure copy with the CTA re-enabled; nothing persisted (R3)", async () => {
     const { seam } = checkoutSeam({
-      createCheckout: vi.fn(() => Promise.resolve<WebCheckoutOutcome>({ kind: "unavailable" })),
+      createCheckout: vi.fn(() =>
+        Promise.resolve<WebCheckoutOutcome>({ kind: "unavailable" }),
+      ),
     });
     const { c } = makeController({ checkout: seam });
     c.userId = "u";
@@ -728,14 +867,18 @@ describe("UiController — web checkout flow (plan U4/R3/R5)", () => {
     vi.useFakeTimers();
     try {
       const t = 1_000_000;
-      const reconcile = vi.fn(() => Promise.resolve<CheckoutReconcileOutcome>("unknown"));
+      const reconcile = vi.fn(() =>
+        Promise.resolve<CheckoutReconcileOutcome>("unknown"),
+      );
       const { seam } = checkoutSeam({ reconcile });
       const { c } = makeController({ checkout: seam, clock: () => t });
       c.rehydrateCheckoutPending({ startedAt: t - 60_000 });
       expect(c.checkoutFlow).toBe("checking");
       expect(c.paywallOpen).toBe(true); // the pending presentation is a paywall surface (U3 rule)
       expect(reconcile).toHaveBeenCalledTimes(1); // the window checks immediately on rehydration
-      await vi.advanceTimersByTimeAsync(CHECKOUT_POLL_INTERVAL_MS * (CHECKOUT_POLL_MAX - 1));
+      await vi.advanceTimersByTimeAsync(
+        CHECKOUT_POLL_INTERVAL_MS * (CHECKOUT_POLL_MAX - 1),
+      );
       expect(reconcile).toHaveBeenCalledTimes(CHECKOUT_POLL_MAX);
       expect(c.checkoutFlow).toBe("quiet-pending"); // window exhausted → the calm resting copy
       await vi.advanceTimersByTimeAsync(CHECKOUT_POLL_INTERVAL_MS * 5);
@@ -762,9 +905,16 @@ describe("UiController — web checkout flow (plan U4/R3/R5)", () => {
 
   it("garbage or missing startedAt reads as expired-pending — never NaN-comparison limbo", () => {
     const { seam } = checkoutSeam();
-    for (const startedAt of [Number.NaN, Number.POSITIVE_INFINITY, undefined, "yesterday"]) {
+    for (const startedAt of [
+      Number.NaN,
+      Number.POSITIVE_INFINITY,
+      undefined,
+      "yesterday",
+    ]) {
       const { c } = makeController({ checkout: seam, clock: () => 5_000 });
-      c.rehydrateCheckoutPending({ startedAt: startedAt as number | undefined });
+      c.rehydrateCheckoutPending({
+        startedAt: startedAt as number | undefined,
+      });
       expect(c.checkoutFlow, String(startedAt)).toBe("stale-pending");
       expect(seam.reconcile).not.toHaveBeenCalled();
     }
@@ -784,7 +934,9 @@ describe("UiController — web checkout flow (plan U4/R3/R5)", () => {
     vi.useFakeTimers();
     try {
       const t = 1_000_000;
-      const reconcile = vi.fn(() => Promise.resolve<CheckoutReconcileOutcome>("unknown"));
+      const reconcile = vi.fn(() =>
+        Promise.resolve<CheckoutReconcileOutcome>("unknown"),
+      );
       const { seam } = checkoutSeam({ reconcile });
       const { c } = makeController({ checkout: seam, clock: () => t });
       c.rehydrateCheckoutPending({ startedAt: t - 5_000 });
@@ -824,7 +976,10 @@ describe("UiController — web checkout flow (plan U4/R3/R5)", () => {
       // the server 409 stays the double-entitlement guard.
       c.rehydrateCheckoutPending({ startedAt: t - 10_000 });
       await c.startWebCheckout();
-      expect(seam.setPending).toHaveBeenLastCalledWith({ startedAt: t, tabId: 42 });
+      expect(seam.setPending).toHaveBeenLastCalledWith({
+        startedAt: t,
+        tabId: 42,
+      });
       expect(c.checkoutFlow).toBe("quiet-pending");
     } finally {
       vi.useRealTimers();
@@ -838,7 +993,11 @@ describe("UiController — web checkout flow (plan U4/R3/R5)", () => {
         Promise.resolve<WebCheckoutOutcome>({ kind: "auth-required" }),
       ),
     });
-    const { c } = makeController({ checkout: seam, auth: codeAuth(), persistence });
+    const { c } = makeController({
+      checkout: seam,
+      auth: codeAuth(),
+      persistence,
+    });
     c.userId = "u";
     c.openPaywall();
     await c.startWebCheckout();
@@ -864,7 +1023,12 @@ describe("UiController — web checkout flow (plan U4/R3/R5)", () => {
         .mockResolvedValueOnce("auth-required")
         .mockResolvedValue("unknown");
       const { seam } = checkoutSeam({ reconcile });
-      const { c } = makeController({ checkout: seam, auth: codeAuth(), persistence, clock: () => t });
+      const { c } = makeController({
+        checkout: seam,
+        auth: codeAuth(),
+        persistence,
+        clock: () => t,
+      });
       c.userId = "u";
       c.rehydrateCheckoutPending({ startedAt: t - 5_000 });
       await vi.advanceTimersByTimeAsync(0); // flush the first poll's outcome
@@ -890,7 +1054,11 @@ describe("UiController — web checkout flow (plan U4/R3/R5)", () => {
   it("signed-out purchase tap still routes sign-in → paywall with the checkout seam present (AE1)", async () => {
     const persistence = mockPersistence();
     const { seam } = checkoutSeam();
-    const { c } = makeController({ checkout: seam, auth: codeAuth(), persistence });
+    const { c } = makeController({
+      checkout: seam,
+      auth: codeAuth(),
+      persistence,
+    });
     c.lockedTap(); // signed out on a purchasable host → sign-in first, intent recorded
     expect(c.signInOpen).toBe(true);
     expect(c.paywallOpen).toBe(false);
@@ -908,7 +1076,11 @@ describe("UiController — web checkout flow (plan U4/R3/R5)", () => {
     try {
       const t = 4_000_000;
       const { seam } = checkoutSeam();
-      const { c } = makeController({ checkout: seam, auth: codeAuth(), clock: () => t });
+      const { c } = makeController({
+        checkout: seam,
+        auth: codeAuth(),
+        clock: () => t,
+      });
       c.userId = "u";
       c.rehydrateCheckoutPending({ startedAt: t - 1_000 });
       expect(c.checkoutFlow).toBe("checking");
@@ -931,10 +1103,15 @@ describe("code-flow copy (plan U2/R1)", () => {
 
 describe("ratified paywall copy (plan U3/D6/R10)", () => {
   /** Every string leaf of a STRINGS subtree, flattened with its dotted path for failure output. */
-  function stringLeaves(node: unknown, path = "STRINGS"): Array<[string, string]> {
+  function stringLeaves(
+    node: unknown,
+    path = "STRINGS",
+  ): Array<[string, string]> {
     if (typeof node === "string") return [[path, node]];
     if (node && typeof node === "object") {
-      return Object.entries(node).flatMap(([k, v]) => stringLeaves(v, `${path}.${k}`));
+      return Object.entries(node).flatMap(([k, v]) =>
+        stringLeaves(v, `${path}.${k}`),
+      );
     }
     return [];
   }
@@ -967,7 +1144,10 @@ describe("ratified paywall copy (plan U3/D6/R10)", () => {
   });
 
   it("keeps the paywall launch-real: no YouTube recommendations/comments claims", () => {
-    for (const [path, value] of stringLeaves(STRINGS.paywall, "STRINGS.paywall")) {
+    for (const [path, value] of stringLeaves(
+      STRINGS.paywall,
+      "STRINGS.paywall",
+    )) {
       expect(value.toLowerCase(), path).not.toMatch(/recommendation|comments/);
     }
   });

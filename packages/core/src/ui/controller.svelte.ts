@@ -3,7 +3,11 @@ import { DEFAULT_SETTINGS } from "@still/shared-types";
 import { PRO_SERVICE_IDS } from "../rules/tiers.js";
 import type { SettingsCache } from "../storage/cache.js";
 import type { PurchaseResult } from "../native/bridge.js";
-import type { RequestCodeOutcome, VerifyCodeOutcome, WebCheckoutOutcome } from "../sync/ports.js";
+import type {
+  RequestCodeOutcome,
+  VerifyCodeOutcome,
+  WebCheckoutOutcome,
+} from "../sync/ports.js";
 import { etldPlusOne } from "../rules/match.js";
 
 // The host-agnostic view-model for the shared UI (KTD4). It reads/writes settings through the
@@ -21,12 +25,23 @@ export type PopupState =
  * code-error` — is the ONLY live path (extensions and the Apple app both wire it, 2026-07-06).
  * `idle → sending → sent | error` is the magic-link path, currently wired by no host; `error`
  * doubles as the calm send-failure state for both paths. */
-export type AuthFlow = "idle" | "sending" | "sent" | "error" | "code-entry" | "verifying" | "code-error";
+export type AuthFlow =
+  | "idle"
+  | "sending"
+  | "sent"
+  | "error"
+  | "code-entry"
+  | "verifying"
+  | "code-error";
 
 /** Why the last code-flow step failed — the sheet maps each kind to its own calm line.
  * `wrong`/`expired` come from verify (expired = the request is older than the OTP TTL);
  * `check-failed`/`resend-failed` are network/backend failures, not attempts. */
-export type CodeErrorKind = "wrong" | "expired" | "check-failed" | "resend-failed";
+export type CodeErrorKind =
+  | "wrong"
+  | "expired"
+  | "check-failed"
+  | "resend-failed";
 
 /** Resend is blocked for 60s after each send, with a visible countdown (Supabase's own resend
  * window — resending earlier would fail server-side anyway). */
@@ -74,7 +89,11 @@ export type CheckoutFlow =
 /** What a host reconcile reported — only `auth-required` changes the controller's course; the
  * entitled flip itself always arrives through the entitlement-store subscription (write-then-
  * notify ordering, R6), never through this return value. */
-export type CheckoutReconcileOutcome = "entitled" | "not-entitled" | "auth-required" | "unknown";
+export type CheckoutReconcileOutcome =
+  | "entitled"
+  | "not-entitled"
+  | "auth-required"
+  | "unknown";
 
 /** Reconcile fast-poll: 3s × 10 per popup-open window, then stop. Every poll is a live RevenueCat
  * query server-side — the cap is deliberate (plan Risks); reopening the popup starts a fresh
@@ -304,7 +323,10 @@ export class UiController {
     this.purchaseFlow = "idle";
     this.purchaseError = null;
     this.clearPayoffTimer();
-    this.payoffTimer = setTimeout(() => this.dismissPaywall(), PAYOFF_DURATION_MS);
+    this.payoffTimer = setTimeout(
+      () => this.dismissPaywall(),
+      PAYOFF_DURATION_MS,
+    );
   }
 
   private clearPayoff(): void {
@@ -349,7 +371,8 @@ export class UiController {
    * user-agent sniffing. Both methods must be wired for the code-entry UI to render. */
   get canUseCode(): boolean {
     return (
-      typeof this.auth?.requestCode === "function" && typeof this.auth?.verifyCode === "function"
+      typeof this.auth?.requestCode === "function" &&
+      typeof this.auth?.verifyCode === "function"
     );
   }
 
@@ -373,17 +396,23 @@ export class UiController {
     return !this.entitled && PRO_SERVICE_IDS.has(id);
   }
 
-  /** Tap on a locked row: the Pro discovery surface. Signed-out on a purchasable host → sign in
-   * first (sign-in-before-purchase, monetization principle 8), recording purchase intent so a
-   * successful sign-in continues to the paywall without re-tapping the row (AE1); otherwise open
-   * the paywall — which renders its explanatory state on hosts without a purchase path. */
-  lockedTap(): void {
+  /** Start the Pro upgrade path. Signed-out on a purchasable host → sign in first
+   * (sign-in-before-purchase, monetization principle 8), recording purchase intent so a
+   * successful sign-in continues to the paywall without re-tapping. Signed-in users open the
+   * paywall directly; hosts without a purchase path get the explanatory paywall state. */
+  startUpgrade(): void {
+    if (this.entitled) return;
     if (this.host.canPurchase && this.canSignIn && !this.userId) {
       this.setPurchaseIntent(true);
       this.openSignIn();
       return;
     }
     this.openPaywall();
+  }
+
+  /** Tap on a locked row: the Pro discovery surface. */
+  lockedTap(): void {
+    this.startUpgrade();
   }
 
   togglePause(): void {
@@ -413,7 +442,8 @@ export class UiController {
     // Reset terminal auth states so reopening the sheet starts fresh at the email field — otherwise a
     // lingering "sent" lands on a Resend that fires with an empty email (the sheet's local input is
     // unmounted on close), and a lingering "error" shows a stale message.
-    if (this.authFlow === "error" || this.authFlow === "sent") this.authFlow = "idle";
+    if (this.authFlow === "error" || this.authFlow === "sent")
+      this.authFlow = "idle";
     this.authError = null;
   }
 
@@ -562,7 +592,9 @@ export class UiController {
    * the retry gesture); >24h or garbage/missing startedAt → the stale find-my-purchase state —
    * expired-pending, never NaN-comparison limbo (mirrors the chrome-adapter garbage-timestamp
    * rule). Already entitled (the background nudge won the race, AE3) → clear the moot flag. */
-  rehydrateCheckoutPending(pending: { startedAt?: number; tabId?: number } | null | undefined): void {
+  rehydrateCheckoutPending(
+    pending: { startedAt?: number; tabId?: number } | null | undefined,
+  ): void {
     if (!this.checkout || pending === null || pending === undefined) return;
     if (this.entitled) {
       this.setCheckoutPending(null);
@@ -640,7 +672,10 @@ export class UiController {
       this.checkoutFlow = "quiet-pending";
       return;
     }
-    this.pollTimer = setTimeout(() => void this.pollReconcile(), CHECKOUT_POLL_INTERVAL_MS);
+    this.pollTimer = setTimeout(
+      () => void this.pollReconcile(),
+      CHECKOUT_POLL_INTERVAL_MS,
+    );
   }
 
   private enterCheckoutAuthRequired(): void {
@@ -674,7 +709,12 @@ export class UiController {
   /** The sheet's one send action. Code-capable hosts get the code flow (→ code-entry); everyone
    * else keeps the magic link (→ sent). Same button, capability-driven path (plan U2). */
   async signIn(email: string): Promise<void> {
-    if (!this.auth || this.authFlow === "sending" || this.authFlow === "verifying") return;
+    if (
+      !this.auth ||
+      this.authFlow === "sending" ||
+      this.authFlow === "verifying"
+    )
+      return;
     if (this.canUseCode) {
       await this.sendCode(email);
       return;
@@ -704,7 +744,10 @@ export class UiController {
     if (this.authFlowGeneration !== gen) return; // dismissed mid-request — don't persist or enter
     if (outcome.kind === "sent") {
       this.enterCodeEntry(email, this.now());
-      this.persistence?.setPendingOtp({ email, requestedAt: this.codeRequestedAt! });
+      this.persistence?.setPendingOtp({
+        email,
+        requestedAt: this.codeRequestedAt!,
+      });
     } else {
       this.authFlow = "error";
     }
@@ -732,10 +775,15 @@ export class UiController {
       this.persistence?.setPendingOtp(null);
       const continueToPaywall = this.purchaseIntent;
       this.setPurchaseIntent(false);
-      if (continueToPaywall) this.openPaywall();
+      // An already-Pro account signing in through an upgrade surface must not land on a buy
+      // sheet. Hosts that reconcile entitlement inside the awaited verifyCode (the Apple host's
+      // onCodeVerified) have `entitled` settled here; hosts whose reconcile lands later still
+      // open the paywall, and the entitled flip converts it to the payoff (justUnlocked).
+      if (continueToPaywall && !this.entitled) this.openPaywall();
       // Re-sign-in with a live checkout-pending flag (the U4 auth-required path): resume the
       // pending presentation — a fresh poll window, or the stale state if it decayed meanwhile.
-      if (this.checkoutPending !== null) this.presentCheckoutPending(this.checkoutPending);
+      if (this.checkoutPending !== null)
+        this.presentCheckoutPending(this.checkoutPending);
     } else if (outcome.kind === "invalid-code") {
       this.codeAttempts += 1;
       this.codeErrorKind = expired ? "expired" : "wrong";
@@ -751,7 +799,12 @@ export class UiController {
    * displayed countdown); success restarts the countdown and resets the attempt count. */
   async resendCode(): Promise<void> {
     if (!this.auth?.requestCode || this.codeEmail === null) return;
-    if (this.authFlow === "verifying" || this.resendInFlight || this.resendRemainingMs() > 0) return;
+    if (
+      this.authFlow === "verifying" ||
+      this.resendInFlight ||
+      this.resendRemainingMs() > 0
+    )
+      return;
     const email = this.codeEmail;
     const gen = this.authFlowGeneration;
     this.resendInFlight = true; // synchronous guard: the cooldown only starts after this resolves (F7)
@@ -760,7 +813,10 @@ export class UiController {
       if (this.authFlowGeneration !== gen) return; // abandoned mid-resend
       if (outcome.kind === "sent") {
         this.enterCodeEntry(email, this.now());
-        this.persistence?.setPendingOtp({ email, requestedAt: this.codeRequestedAt! });
+        this.persistence?.setPendingOtp({
+          email,
+          requestedAt: this.codeRequestedAt!,
+        });
       } else {
         // Stay on code entry — the previous code may still work; surface a calm resend line.
         this.codeErrorKind = "resend-failed";
@@ -783,10 +839,17 @@ export class UiController {
   /** Host rehydration input (AE2): called on mount with the persisted pendingOtp so reopening the
    * popup within the OTP TTL lands straight on code entry for that email — countdown restored from
    * the original request time, purchase intent restored from the persisted flag. */
-  rehydrateCodeEntry(pending: { email: string; requestedAt?: number; purchaseIntent?: boolean }): void {
+  rehydrateCodeEntry(pending: {
+    email: string;
+    requestedAt?: number;
+    purchaseIntent?: boolean;
+  }): void {
     if (!this.canUseCode || this.userId) return;
     const at = pending.requestedAt;
-    this.enterCodeEntry(pending.email, typeof at === "number" && Number.isFinite(at) ? at : null);
+    this.enterCodeEntry(
+      pending.email,
+      typeof at === "number" && Number.isFinite(at) ? at : null,
+    );
     this.purchaseIntent = pending.purchaseIntent === true; // already persisted — no seam echo
     this.signInOpen = true;
   }
@@ -807,7 +870,10 @@ export class UiController {
   }
 
   private codeIsExpired(): boolean {
-    return this.codeRequestedAt !== null && this.now() - this.codeRequestedAt > OTP_TTL_MS;
+    return (
+      this.codeRequestedAt !== null &&
+      this.now() - this.codeRequestedAt > OTP_TTL_MS
+    );
   }
 
   private setPurchaseIntent(active: boolean): void {

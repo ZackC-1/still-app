@@ -5,11 +5,8 @@
   interface Props {
     controller: UiController;
     onDismiss: () => void;
-    /** Apple host only: run native Sign in with Apple. When set, the sheet shows the Apple button
-     * instead of the email magic-link field. */
-    onSignInWithApple?: () => void;
   }
-  let { controller: c, onDismiss, onSignInWithApple }: Props = $props();
+  let { controller: c, onDismiss }: Props = $props();
   let email = $state("");
   let code = $state("");
   let sheet = $state<HTMLDivElement>();
@@ -18,7 +15,9 @@
   // calm line for each failure kind (never raw backend text, never the magic-link copy).
   const inCodeEntry = $derived(
     c.canUseCode &&
-      (c.authFlow === "code-entry" || c.authFlow === "verifying" || c.authFlow === "code-error"),
+      (c.authFlow === "code-entry" ||
+        c.authFlow === "verifying" ||
+        c.authFlow === "code-error"),
   );
   const codeErrorLine = $derived.by(() => {
     if (c.codeErrorKind === null) return null;
@@ -61,14 +60,11 @@
 >
   <div class="grip" aria-hidden="true"></div>
   <h2>{STRINGS.auth.title}</h2>
-  <p class="body">{inCodeEntry ? STRINGS.codeAuth.prompt : STRINGS.auth.prompt}</p>
+  <p class="body">
+    {inCodeEntry ? STRINGS.codeAuth.prompt : STRINGS.auth.prompt}
+  </p>
 
-  {#if onSignInWithApple}
-    <button class="apple" disabled={c.authFlow === "sending"} onclick={onSignInWithApple}>
-      {c.authFlow === "sending" ? STRINGS.auth.signingIn : STRINGS.auth.apple}
-    </button>
-    {#if c.authFlow === "error"}<p class="error">{c.authError ?? STRINGS.auth.error}</p>{/if}
-  {:else if inCodeEntry}
+  {#if inCodeEntry}
     <p class="sent">{STRINGS.codeAuth.sentTo} {c.codeEmail}</p>
     <input
       class="code"
@@ -86,10 +82,16 @@
       disabled={code.length !== 6 || c.authFlow === "verifying"}
       onclick={() => c.verifyCode(code)}
     >
-      {c.authFlow === "verifying" ? STRINGS.codeAuth.verifying : STRINGS.codeAuth.verify}
+      {c.authFlow === "verifying"
+        ? STRINGS.codeAuth.verifying
+        : STRINGS.codeAuth.verify}
     </button>
     {#if codeErrorLine}<p class="error">{codeErrorLine}</p>{/if}
-    <button class="link" disabled={c.resendCooldown > 0} onclick={() => c.resendCode()}>
+    <button
+      class="link"
+      disabled={c.resendCooldown > 0}
+      onclick={() => c.resendCode()}
+    >
       {c.resendCooldown > 0
         ? `${STRINGS.codeAuth.resendWait} ${c.resendCooldown}s`
         : STRINGS.codeAuth.resend}
@@ -99,7 +101,9 @@
     </button>
   {:else if c.authFlow === "sent"}
     <p class="sent">{STRINGS.auth.sent}</p>
-    <button class="link" onclick={() => c.signIn(email)}>{STRINGS.auth.resend}</button>
+    <button class="link" onclick={() => c.signIn(email)}
+      >{STRINGS.auth.resend}</button
+    >
   {:else}
     <input
       class="email"
@@ -108,7 +112,11 @@
       placeholder={STRINGS.auth.emailPlaceholder}
       aria-label={STRINGS.auth.emailLabel}
     />
-    <button class="primary" disabled={c.authFlow === "sending"} onclick={() => c.signIn(email)}>
+    <button
+      class="primary"
+      disabled={c.authFlow === "sending"}
+      onclick={() => c.signIn(email)}
+    >
       {c.authFlow === "sending"
         ? STRINGS.auth.sending
         : c.canUseCode
@@ -118,7 +126,9 @@
     {#if c.authFlow === "error"}
       <!-- Code hosts get the code-flow line; authError (magic-link hosts only) never renders here. -->
       <p class="error">
-        {c.canUseCode ? STRINGS.codeAuth.sendError : (c.authError ?? STRINGS.auth.error)}
+        {c.canUseCode
+          ? STRINGS.codeAuth.sendError
+          : (c.authError ?? STRINGS.auth.error)}
       </p>
     {/if}
   {/if}
@@ -162,16 +172,6 @@
   .body {
     margin: 0;
     color: var(--ink-secondary);
-  }
-  .apple {
-    background: #000;
-    color: #fff;
-    border: none;
-    border-radius: var(--radius-control);
-    padding: var(--space-4);
-    font: inherit;
-    font-weight: 600;
-    cursor: pointer;
   }
   .primary {
     background: var(--still-blue);
