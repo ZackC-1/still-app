@@ -77,6 +77,7 @@
         <scene sceneID="R2V-B0-nI4">
             <objects>
                 <windowController showSeguePresentationStyle="single" id="B8D-0N-5wS" sceneMemberID="viewController">
+                    <!--480x860: the shared web UI caps at 432px wide (max-inline-size 400 + 16px padding/side, centered via margin-inline:auto) and runs ~820pt tall across its settings states, so 480x860 shows everything unscrolled with symmetric gutters. Static by design — there is no resize-to-content bridge; revisit if the UI grows (review finding, PR #55).-->
                     <window key="window" title="Still" allowsToolTipsWhenApplicationIsInactive="NO" autorecalculatesKeyViewLoop="NO" restorable="NO" releasedWhenClosed="NO" animationBehavior="default" id="IQv-IB-iLA">
                         <windowStyleMask key="styleMask" titled="YES" closable="YES" miniaturizable="YES" resizable="YES"/>
                         <windowCollectionBehavior key="collectionBehavior" fullScreenNone="YES"/>
