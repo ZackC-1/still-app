@@ -21,8 +21,8 @@ importers:
         specifier: ^1.61.1
         version: 1.61.1
       '@types/node':
-        specifier: ^22.18.13
-        version: 22.20.0
+        specifier: ^26.1.0
+        version: 26.1.0
       eslint:
         specifier: ^9.39.1
         version: 9.39.4(jiti@2.7.0)
@@ -62,7 +62,7 @@ importers:
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: ^7.2.0
-        version: 7.2.0(svelte@5.56.4(@typescript-eslint/types@8.63.0))(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0))
+        version: 7.2.0(svelte@5.56.4(@typescript-eslint/types@8.63.0))(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0))
       '@types/chrome':
         specifier: ^0.2.2
         version: 0.2.2
@@ -74,7 +74,7 @@ importers:
         version: 5.9.3
       vite:
         specifier: ^8.1.3
-        version: 8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)
+        version: 8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)
 
   packages/core:
     dependencies:
@@ -93,13 +93,13 @@ importers:
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: ^7.2.0
-        version: 7.2.0(svelte@5.56.4(@typescript-eslint/types@8.63.0))(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0))
+        version: 7.2.0(svelte@5.56.4(@typescript-eslint/types@8.63.0))(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0))
       '@testing-library/jest-dom':
         specifier: ^6.9.1
         version: 6.9.1
       '@testing-library/svelte':
         specifier: ^5.4.2
-        version: 5.4.2(svelte@5.56.4(@typescript-eslint/types@8.63.0))(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0))(vitest@4.1.10(@types/node@22.20.0)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)))
+        version: 5.4.2(svelte@5.56.4(@typescript-eslint/types@8.63.0))(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0))(vitest@4.1.10(@types/node@26.1.0)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)))
       '@types/chrome':
         specifier: ^0.2.2
         version: 0.2.2
@@ -117,7 +117,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@22.20.0)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0))
+        version: 4.1.10(@types/node@26.1.0)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0))
 
   packages/ext-chromium:
     dependencies:
@@ -136,7 +136,7 @@ importers:
         version: 0.2.2
       '@wxt-dev/module-svelte':
         specifier: ^2.0.5
-        version: 2.0.5(svelte@5.56.4(@typescript-eslint/types@8.63.0))(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0))(wxt@0.20.27(@types/node@22.20.0)(eslint@9.39.4(jiti@2.7.0))(jiti@2.7.0)(rolldown@1.1.4))
+        version: 2.0.5(svelte@5.56.4(@typescript-eslint/types@8.63.0))(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0))(wxt@0.20.27(@types/node@26.1.0)(eslint@9.39.4(jiti@2.7.0))(jiti@2.7.0)(rolldown@1.1.4))
       svelte:
         specifier: ^5.56.4
         version: 5.56.4(@typescript-eslint/types@8.63.0)
@@ -145,7 +145,7 @@ importers:
         version: 5.9.3
       wxt:
         specifier: ^0.20.27
-        version: 0.20.27(@types/node@22.20.0)(eslint@9.39.4(jiti@2.7.0))(jiti@2.7.0)(rolldown@1.1.4)
+        version: 0.20.27(@types/node@26.1.0)(eslint@9.39.4(jiti@2.7.0))(jiti@2.7.0)(rolldown@1.1.4)
 
   packages/ext-safari:
     dependencies:
@@ -161,7 +161,7 @@ importers:
         version: 0.2.2
       '@wxt-dev/module-svelte':
         specifier: ^2.0.5
-        version: 2.0.5(svelte@5.56.4(@typescript-eslint/types@8.63.0))(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0))(wxt@0.20.27(@types/node@22.20.0)(eslint@9.39.4(jiti@2.7.0))(jiti@2.7.0)(rolldown@1.1.4))
+        version: 2.0.5(svelte@5.56.4(@typescript-eslint/types@8.63.0))(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0))(wxt@0.20.27(@types/node@26.1.0)(eslint@9.39.4(jiti@2.7.0))(jiti@2.7.0)(rolldown@1.1.4))
       svelte:
         specifier: ^5.56.4
         version: 5.56.4(@typescript-eslint/types@8.63.0)
@@ -170,10 +170,10 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^4.1.10
-        version: 4.1.10(@types/node@22.20.0)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0))
+        version: 4.1.10(@types/node@26.1.0)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0))
       wxt:
         specifier: ^0.20.27
-        version: 0.20.27(@types/node@22.20.0)(eslint@9.39.4(jiti@2.7.0))(jiti@2.7.0)(rolldown@1.1.4)
+        version: 0.20.27(@types/node@26.1.0)(eslint@9.39.4(jiti@2.7.0))(jiti@2.7.0)(rolldown@1.1.4)
 
   packages/shared-types:
     devDependencies:
@@ -777,8 +777,8 @@ packages:
   '@types/minimatch@3.0.5':
     resolution: {integrity: sha512-Klz949h02Gz2uZCMGwDUSDS1YBlTdDDgbWHi+81l29tQALUtvz4rAYi5uoVhE5Lagoq6DeqAUlbrHvW/mXDgdQ==}
 
-  '@types/node@22.20.0':
-    resolution: {integrity: sha512-QWlFW2wf3nTjC13/DqRnBpR4ZO36VJH/JVBkA/vcnmbTBNQIlnObqyqZE1tUR7+Ni23Lda8R1BxMfbXRpCUx5g==}
+  '@types/node@26.1.0':
+    resolution: {integrity: sha512-O0A1G3xPGy4w7AgQdAQYUlQ+BKk2Oovw8eRpofyp5KdBZULnbe+WqaOVNrm705SHphCiG4XHsACrSmPu1f+Kgw==}
 
   '@types/trusted-types@2.0.7':
     resolution: {integrity: sha512-ScaPdn1dQczgbl0QFTeTOmVHFULt394XJgOQNoyVhZ6r2vLnMLJfBPd53SB52T/3G36VI1/g2MZaX0cwDuXsfw==}
@@ -2537,8 +2537,8 @@ packages:
   uhyphen@0.2.0:
     resolution: {integrity: sha512-qz3o9CHXmJJPGBdqzab7qAYuW8kQGKNEuoHFYrBwV6hWIMcpAmxDLXojcHfFr9US1Pe6zUswEIJIbLI610fuqA==}
 
-  undici-types@6.21.0:
-    resolution: {integrity: sha512-iwDZqg0QAGrg9Rav5H4n0M64c3mkR59cJ6wQp+7C4nI0gsmExaedaYLNO44eT4AtBBwjbTiGPMlt2Md0T9H9JQ==}
+  undici-types@8.3.0:
+    resolution: {integrity: sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==}
 
   undici@7.28.0:
     resolution: {integrity: sha512-cRZYrTDwWznlnRiPjggAGxZXanty6M8RV1ff8Wm4LWXBp7/IG8v5DnOm74DtUBp9OONpK75YlPnIjQqX0dBDtA==}
@@ -3211,14 +3211,14 @@ snapshots:
 
   '@sveltejs/load-config@0.2.0': {}
 
-  '@sveltejs/vite-plugin-svelte@7.2.0(svelte@5.56.4(@typescript-eslint/types@8.63.0))(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0))':
+  '@sveltejs/vite-plugin-svelte@7.2.0(svelte@5.56.4(@typescript-eslint/types@8.63.0))(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0))':
     dependencies:
       deepmerge: 4.3.1
       magic-string: 0.30.21
       obug: 2.1.3
       svelte: 5.56.4(@typescript-eslint/types@8.63.0)
-      vite: 8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)
-      vitefu: 1.1.3(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0))
+      vite: 8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)
+      vitefu: 1.1.3(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0))
 
   '@testing-library/dom@10.4.1':
     dependencies:
@@ -3244,14 +3244,14 @@ snapshots:
     dependencies:
       svelte: 5.56.4(@typescript-eslint/types@8.63.0)
 
-  '@testing-library/svelte@5.4.2(svelte@5.56.4(@typescript-eslint/types@8.63.0))(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0))(vitest@4.1.10(@types/node@22.20.0)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)))':
+  '@testing-library/svelte@5.4.2(svelte@5.56.4(@typescript-eslint/types@8.63.0))(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0))(vitest@4.1.10(@types/node@26.1.0)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)))':
     dependencies:
       '@testing-library/dom': 10.4.1
       '@testing-library/svelte-core': 1.1.3(svelte@5.56.4(@typescript-eslint/types@8.63.0))
       svelte: 5.56.4(@typescript-eslint/types@8.63.0)
     optionalDependencies:
-      vite: 8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)
-      vitest: 4.1.10(@types/node@22.20.0)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0))
+      vite: 8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)
+      vitest: 4.1.10(@types/node@26.1.0)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0))
 
   '@tybys/wasm-util@0.10.3':
     dependencies:
@@ -3286,9 +3286,9 @@ snapshots:
 
   '@types/minimatch@3.0.5': {}
 
-  '@types/node@22.20.0':
+  '@types/node@26.1.0':
     dependencies:
-      undici-types: 6.21.0
+      undici-types: 8.3.0
 
   '@types/trusted-types@2.0.7': {}
 
@@ -3394,13 +3394,13 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.1.0
 
-  '@vitest/mocker@4.1.10(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0))':
+  '@vitest/mocker@4.1.10(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0))':
     dependencies:
       '@vitest/spy': 4.1.10
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)
+      vite: 8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)
 
   '@vitest/pretty-format@4.1.10':
     dependencies:
@@ -3447,11 +3447,11 @@ snapshots:
       '@types/filesystem': 0.0.36
       '@types/har-format': 1.2.16
 
-  '@wxt-dev/module-svelte@2.0.5(svelte@5.56.4(@typescript-eslint/types@8.63.0))(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0))(wxt@0.20.27(@types/node@22.20.0)(eslint@9.39.4(jiti@2.7.0))(jiti@2.7.0)(rolldown@1.1.4))':
+  '@wxt-dev/module-svelte@2.0.5(svelte@5.56.4(@typescript-eslint/types@8.63.0))(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0))(wxt@0.20.27(@types/node@26.1.0)(eslint@9.39.4(jiti@2.7.0))(jiti@2.7.0)(rolldown@1.1.4))':
     dependencies:
-      '@sveltejs/vite-plugin-svelte': 7.2.0(svelte@5.56.4(@typescript-eslint/types@8.63.0))(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0))
+      '@sveltejs/vite-plugin-svelte': 7.2.0(svelte@5.56.4(@typescript-eslint/types@8.63.0))(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0))
       svelte: 5.56.4(@typescript-eslint/types@8.63.0)
-      wxt: 0.20.27(@types/node@22.20.0)(eslint@9.39.4(jiti@2.7.0))(jiti@2.7.0)(rolldown@1.1.4)
+      wxt: 0.20.27(@types/node@26.1.0)(eslint@9.39.4(jiti@2.7.0))(jiti@2.7.0)(rolldown@1.1.4)
     transitivePeerDependencies:
       - vite
 
@@ -3609,7 +3609,7 @@ snapshots:
 
   chrome-launcher@1.2.0:
     dependencies:
-      '@types/node': 22.20.0
+      '@types/node': 26.1.0
       escape-string-regexp: 4.0.0
       is-wsl: 2.2.0
       lighthouse-logger: 2.0.2
@@ -5013,7 +5013,7 @@ snapshots:
 
   uhyphen@0.2.0: {}
 
-  undici-types@6.21.0: {}
+  undici-types@8.3.0: {}
 
   undici@7.28.0: {}
 
@@ -5070,13 +5070,13 @@ snapshots:
 
   uuid@11.1.1: {}
 
-  vite-node@6.0.0(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0):
+  vite-node@6.0.0(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0):
     dependencies:
       cac: 7.0.0
       es-module-lexer: 2.3.0
       obug: 2.1.3
       pathe: 2.0.3
-      vite: 8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)
+      vite: 8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)
     transitivePeerDependencies:
       - '@types/node'
       - '@vitejs/devtools'
@@ -5091,7 +5091,7 @@ snapshots:
       - tsx
       - yaml
 
-  vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0):
+  vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0):
     dependencies:
       lightningcss: 1.32.0
       picomatch: 4.0.5
@@ -5099,19 +5099,19 @@ snapshots:
       rolldown: 1.1.4
       tinyglobby: 0.2.17
     optionalDependencies:
-      '@types/node': 22.20.0
+      '@types/node': 26.1.0
       esbuild: 0.28.1
       fsevents: 2.3.3
       jiti: 2.7.0
 
-  vitefu@1.1.3(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)):
+  vitefu@1.1.3(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)):
     optionalDependencies:
-      vite: 8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)
+      vite: 8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)
 
-  vitest@4.1.10(@types/node@22.20.0)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)):
+  vitest@4.1.10(@types/node@26.1.0)(jsdom@29.1.1(@noble/hashes@2.2.0))(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)):
     dependencies:
       '@vitest/expect': 4.1.10
-      '@vitest/mocker': 4.1.10(vite@8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0))
+      '@vitest/mocker': 4.1.10(vite@8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0))
       '@vitest/pretty-format': 4.1.10
       '@vitest/runner': 4.1.10
       '@vitest/snapshot': 4.1.10
@@ -5128,10 +5128,10 @@ snapshots:
       tinyexec: 1.2.4
       tinyglobby: 0.2.17
       tinyrainbow: 3.1.0
-      vite: 8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)
+      vite: 8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
-      '@types/node': 22.20.0
+      '@types/node': 26.1.0
       jsdom: 29.1.1(@noble/hashes@2.2.0)
     transitivePeerDependencies:
       - msw
@@ -5233,7 +5233,7 @@ snapshots:
       is-wsl: 3.1.1
       powershell-utils: 0.1.0
 
-  wxt@0.20.27(@types/node@22.20.0)(eslint@9.39.4(jiti@2.7.0))(jiti@2.7.0)(rolldown@1.1.4):
+  wxt@0.20.27(@types/node@26.1.0)(eslint@9.39.4(jiti@2.7.0))(jiti@2.7.0)(rolldown@1.1.4):
     dependencies:
       '@1natsu/wait-element': 4.2.0
       '@aklinker1/rollup-plugin-visualizer': 5.12.0
@@ -5274,8 +5274,8 @@ snapshots:
       scule: 1.3.0
       tinyglobby: 0.2.17
       unimport: 6.3.0(rolldown@1.1.4)
-      vite: 8.1.3(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)
-      vite-node: 6.0.0(@types/node@22.20.0)(esbuild@0.28.1)(jiti@2.7.0)
+      vite: 8.1.3(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)
+      vite-node: 6.0.0(@types/node@26.1.0)(esbuild@0.28.1)(jiti@2.7.0)
       web-ext-run: 0.2.4
     optionalDependencies:
       eslint: 9.39.4(jiti@2.7.0)
