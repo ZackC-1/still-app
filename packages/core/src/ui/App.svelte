@@ -13,11 +13,10 @@
     controller: UiController;
     onGet?: () => void;
     onRestore?: () => void;
-    /** Apple host only: run native Sign in with Apple. When set, the sign-in sheet shows the Apple
-     * button instead of the email magic-link field (the Chromium extension keeps email). */
+    /** Deprecated Apple host hook. Kept as a no-op prop so older host wiring cannot surface SIWA. */
     onSignInWithApple?: () => void;
   }
-  let { controller: c, onGet, onRestore, onSignInWithApple }: Props = $props();
+  let { controller: c, onGet, onRestore }: Props = $props();
 </script>
 
 <div class="still-ui app">
@@ -59,23 +58,41 @@
   <!-- Account management (App Store 5.1.1): privacy policy link + in-app account deletion. -->
   {#snippet accountManagement()}
     <div class="account">
-      <a class="link" href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer">
+      <a
+        class="link"
+        href={PRIVACY_POLICY_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
         {STRINGS.account.privacyPolicy}
       </a>
       {#if c.canDeleteAccount}
         {#if c.deleteFlow === "confirming"}
-          <div class="confirm" role="group" aria-label={STRINGS.account.deleteConfirmTitle}>
+          <div
+            class="confirm"
+            role="group"
+            aria-label={STRINGS.account.deleteConfirmTitle}
+          >
             <p class="danger-note">{STRINGS.account.deleteConfirmBody}</p>
-            <button class="danger-solid" onclick={() => c.confirmDeleteAccount()}>
+            <button
+              class="danger-solid"
+              onclick={() => c.confirmDeleteAccount()}
+            >
               {STRINGS.account.deleteConfirm}
             </button>
-            <button class="link" onclick={() => c.cancelDeleteAccount()}>{STRINGS.account.deleteCancel}</button>
+            <button class="link" onclick={() => c.cancelDeleteAccount()}
+              >{STRINGS.account.deleteCancel}</button
+            >
           </div>
         {:else if c.deleteFlow === "deleting"}
           <button class="link" disabled>{STRINGS.account.deleting}</button>
         {:else}
-          <button class="link danger" onclick={() => c.requestDeleteAccount()}>{STRINGS.account.delete}</button>
-          {#if c.deleteFlow === "error"}<p class="error">{c.deleteError ?? STRINGS.account.deleteError}</p>{/if}
+          <button class="link danger" onclick={() => c.requestDeleteAccount()}
+            >{STRINGS.account.delete}</button
+          >
+          {#if c.deleteFlow === "error"}<p class="error">
+              {c.deleteError ?? STRINGS.account.deleteError}
+            </p>{/if}
         {/if}
       {/if}
     </div>
@@ -84,17 +101,26 @@
   <!-- Sync / account section: renders the popup state matrix -->
   <section class="sync card" data-state={c.popupState}>
     {#if c.popupState === "signed-out"}
-      {#if c.canSignIn || onSignInWithApple}
-        <p class="muted">{STRINGS.auth.prompt}</p>
+      {#if c.canSignIn}
         <button class="primary block" onclick={() => c.openSignIn()}>
-          {onSignInWithApple ? STRINGS.auth.apple : STRINGS.auth.signInCta}
+          {STRINGS.auth.signInCta}
         </button>
+        {#if c.host.canPurchase}
+          <button class="secondary block" onclick={() => c.startUpgrade()}>
+            Upgrade to Still Pro
+          </button>
+        {/if}
       {:else}
         <!-- No auth path on this host (the browser extensions, until U10): a sign-in CTA here
              would silently do nothing, so show the quiet explanatory note instead. -->
         <p class="muted">{STRINGS.paywall.nonApple}</p>
       {/if}
-      <a class="link center" href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer">
+      <a
+        class="link center"
+        href={PRIVACY_POLICY_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
         {STRINGS.account.privacyPolicy}
       </a>
     {:else if c.popupState === "not-entitled"}
@@ -104,27 +130,35 @@
             <span class="syncrow-title">{STRINGS.paywall.title}</span>
             <span class="syncrow-sub">{STRINGS.paywall.body}</span>
           </div>
-          <button class="primary" onclick={() => c.openPaywall()}>{STRINGS.paywall.cta}</button>
+          <button class="primary" onclick={() => c.startUpgrade()}
+            >Upgrade to Still Pro</button
+          >
         </div>
       {:else}
         <p class="muted">{STRINGS.paywall.nonApple}</p>
       {/if}
-      <button class="link" onclick={() => c.signOut()}>{STRINGS.auth.signOut}</button>
+      <button class="link" onclick={() => c.signOut()}
+        >{STRINGS.auth.signOut}</button
+      >
       {@render accountManagement()}
     {:else if c.popupState === "entitlement-pending"}
       <p class="muted">{STRINGS.sync.pending}</p>
     {:else if c.popupState === "entitled-syncing"}
       <p class="synced">{STRINGS.sync.syncing}</p>
-      <button class="link" onclick={() => c.signOut()}>{STRINGS.auth.signOut}</button>
+      <button class="link" onclick={() => c.signOut()}
+        >{STRINGS.auth.signOut}</button
+      >
       {@render accountManagement()}
     {:else if c.popupState === "cloud-unreachable"}
       <p class="muted">{STRINGS.sync.unreachable}</p>
-      <button class="link" onclick={() => c.signOut()}>{STRINGS.auth.signOut}</button>
+      <button class="link" onclick={() => c.signOut()}
+        >{STRINGS.auth.signOut}</button
+      >
     {/if}
   </section>
 
   {#if c.signInOpen && c.popupState === "signed-out"}
-    <SignInSheet controller={c} {onSignInWithApple} onDismiss={() => c.dismissSignIn()} />
+    <SignInSheet controller={c} onDismiss={() => c.dismissSignIn()} />
   {/if}
 
   <!-- The sheet also opens on hosts without a purchase path (locked-row taps in the extensions):
@@ -274,6 +308,21 @@
   }
   .primary:hover {
     background: var(--still-blue-pressed);
+  }
+  .secondary {
+    background: transparent;
+    color: var(--still-blue);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+    padding: var(--space-3) var(--space-4);
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .secondary.block {
+    inline-size: 100%;
+    padding: var(--space-4);
+    font-size: 16px;
   }
 
   .link {

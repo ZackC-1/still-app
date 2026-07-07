@@ -15,9 +15,8 @@
                         <rect key="frame" x="0.0" y="0.0" width="414" height="896"/>
                         <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
                         <subviews>
-                            <wkWebView contentMode="scaleToFill" fixedFrame="YES" translatesAutoresizingMaskIntoConstraints="NO" id="RDB-ib-igF">
-                                <rect key="frame" x="0.0" y="0.0" width="414" height="896"/>
-                                <autoresizingMask key="autoresizingMask" widthSizable="YES" heightSizable="YES"/>
+                            <wkWebView contentMode="scaleToFill" translatesAutoresizingMaskIntoConstraints="NO" id="RDB-ib-igF">
+                                <rect key="frame" x="0.0" y="48" width="414" height="814"/>
                                 <wkWebViewConfiguration key="configuration">
                                     <audiovisualMediaTypes key="mediaTypesRequiringUserActionForPlayback" none="YES"/>
                                     <wkPreferences key="preferences"/>
@@ -25,6 +24,12 @@
                             </wkWebView>
                         </subviews>
                         <viewLayoutGuide key="safeArea" id="6Tk-OE-BBY"/>
+                        <constraints>
+                            <constraint firstItem="RDB-ib-igF" firstAttribute="leading" secondItem="6Tk-OE-BBY" secondAttribute="leading" id="2Cj-rS-KvL"/>
+                            <constraint firstItem="RDB-ib-igF" firstAttribute="top" secondItem="6Tk-OE-BBY" secondAttribute="top" id="Fzh-MV-Hkk"/>
+                            <constraint firstItem="6Tk-OE-BBY" firstAttribute="bottom" secondItem="RDB-ib-igF" secondAttribute="bottom" id="RbG-cc-dvF"/>
+                            <constraint firstItem="6Tk-OE-BBY" firstAttribute="trailing" secondItem="RDB-ib-igF" secondAttribute="trailing" id="ndM-mm-iQn"/>
+                        </constraints>
                     </view>
                     <connections>
                         <outlet property="webView" destination="RDB-ib-igF" id="avx-RC-qRB"/>
