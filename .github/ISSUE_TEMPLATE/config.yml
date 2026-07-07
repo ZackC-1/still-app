@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Product support
+    url: https://zackc-1.github.io/still-app/support.html
+    about: Use the public support page for non-development support.
+  - name: Security reports
+    url: https://github.com/ZackC-1/still-app/security/advisories/new
+    about: Report vulnerabilities privately. Do not open public security issues.

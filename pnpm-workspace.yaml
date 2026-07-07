@@ -1,11 +1,10 @@
 packages:
   - "packages/*"
 
-# Supply-chain "release-age cooldown": the GitHub runner enforces a 1-day minimumReleaseAge,
-# which rejects any dependency published within the last 24h (e.g. a same-day svelte/wxt patch)
-# and would make the autonomous /loop's CI fail on wall-clock, not on anything real. We disable
-# the age heuristic here: the lockfile already pins exact versions + integrity hashes (the actual
-# tamper protection), and branch protection + secret scanning are the enforced guardrails (KTD12).
+# Supply-chain "release-age cooldown": some runners enforce a 1-day minimumReleaseAge,
+# which rejects any dependency published within the last 24h, such as a same-day Svelte/WXT patch.
+# We disable the age heuristic here: the lockfile already pins exact versions and integrity hashes,
+# and branch protection plus secret scanning are the enforced guardrails.
 # Revisit if a stricter supply-chain posture is wanted.
 minimumReleaseAge: 0
 
@@ -15,4 +14,4 @@ allowBuilds:
   esbuild: true
   spawn-sync: true
 
-# ext-firefox is scaffold-only (deferred); it has no package.json yet, so pnpm skips it.
+# ext-firefox is a reserved package slot; the current Firefox build is produced from ext-chromium.

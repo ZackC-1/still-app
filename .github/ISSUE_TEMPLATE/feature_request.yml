@@ -1,0 +1,38 @@
+name: Feature request
+description: Suggest a focused improvement to Still.
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user problem would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should Still do?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Blocking behavior
+        - Extension UI
+        - Apple app
+        - Account / purchase / sync
+        - Privacy / security
+        - Documentation
+        - Release operations
+    validations:
+      required: true
+  - type: textarea
+    id: tradeoffs
+    attributes:
+      label: Tradeoffs
+      description: What could this make worse or more complex?

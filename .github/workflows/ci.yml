@@ -1,7 +1,7 @@
 name: CI
 
-# The autonomous /loop's commits run against this. It must be green before merge to main.
-# No deploy steps here — Supabase/Apple deploys are human-gated (see docs/CONNECTIONS.md).
+# Public trust gate for code and documentation changes. Deployment remains separate:
+# Supabase, Apple, and store portal steps are human-gated in docs/CONNECTIONS.md.
 
 on:
   push:
@@ -9,7 +9,7 @@ on:
   pull_request:
     branches: [main]
 
-# Cancel superseded runs on the same ref (the loop pushes frequently).
+# Cancel superseded runs on the same ref.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -17,7 +17,7 @@ concurrency:
 permissions:
   contents: read
 
-# Disable the release-age cooldown at the workflow level too — if the runner injects this as an
+# Disable the release-age cooldown at the workflow level too. If the runner injects this as an
 # env var it would override pnpm-workspace.yaml, so we pin it to 0 here as well. See the rationale
 # in pnpm-workspace.yaml.
 env:
@@ -81,8 +81,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The Playwright harness (config + fixtures) is added in U16. Until then this job is a
-      # green no-op; it activates automatically the moment playwright.config.ts lands.
       - name: Detect Playwright harness
         id: detect
         run: |
