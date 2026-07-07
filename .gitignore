@@ -22,6 +22,9 @@ playwright-report/
 # Supabase
 supabase/.branches/
 supabase/.temp/
+# Root lockfile generated when Deno commands are run from the repo root.
+# The canonical function lockfile is tracked at supabase/functions/deno.lock.
+/deno.lock
 
 # Xcode / Apple
 DerivedData/

@@ -1,0 +1,9 @@
+# Default owner for public repository review.
+* @ZackC-1
+
+# Keep high-risk areas explicitly visible in GitHub's file ownership UI.
+/apps/apple/ @ZackC-1
+/packages/ @ZackC-1
+/supabase/ @ZackC-1
+/.github/ @ZackC-1
+/docs/ @ZackC-1

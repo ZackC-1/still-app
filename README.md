@@ -1,63 +1,96 @@
 # Still
 
-Surgically removes short-form video — YouTube Shorts, Instagram/Facebook Reels, and all of TikTok — across Chromium and Safari, with a native Apple app for the Safari extension and the one-time "Still Pro" purchase.
+[![CI](https://github.com/ZackC-1/still-app/actions/workflows/ci.yml/badge.svg)](https://github.com/ZackC-1/still-app/actions/workflows/ci.yml)
 
-Still is **not** a willpower app: no timers, streaks, locks, or shaming. It removes the short-form surfaces and their entry points and gets out of the way. Regular feeds are left untouched.
+Still removes short-form video surfaces from YouTube, Instagram, Facebook, and TikTok. It is designed to be quiet infrastructure: no timers, streaks, locks, shame loops, or attention dashboards. The app removes the short-form entry points and leaves regular feeds alone.
 
-## What it is
+This repository is public so people who install Still can inspect what runs in the browser, how privacy is handled, how paid unlocks are verified, and how releases are tested.
 
-| Piece | What it does |
+## What Still ships
+
+| Surface | What it does |
 |---|---|
-| **WebExtension** | A data-driven content script that hides/removes short-form surfaces and redirects Shorts URLs to the standard watch page. Ships as a Chromium MV3 extension and a Safari Web Extension from one codebase. |
-| **Apple app** | Hosts the Safari Web Extension (iOS + macOS) and runs the StoreKit 2 / RevenueCat purchase for "Still Pro". |
-| **Supabase backend** | Rule-set hosting (selectors update without an app-store resubmission), magic-link auth, per-account settings sync, and the entitlement bridge. |
+| Browser extensions | Shared WebExtension code for Chromium and Firefox builds, with a data-driven content script for blocking short-form surfaces. |
+| Safari extension | The same blocking core packaged as a Safari Web Extension. |
+| Apple app | iOS and macOS host app for the Safari extension, StoreKit 2 purchase, and the extension bridge. |
+| Supabase backend | Auth, settings sync, entitlement reconciliation, signed rule-set hosting, export, deletion, and selector canary functions. |
+
+## Product model
+
+| Tier | Included |
+|---|---|
+| Free | YouTube Shorts removal. No account required. Settings stay on-device. |
+| Still Pro | Reels, TikTok, Facebook short-form surfaces, and cross-device settings sync. One-time purchase. |
+
+Still does not collect browsing history. Host permissions are limited to `youtube.com`, `instagram.com`, `facebook.com`, and `tiktok.com`; the extension never requests `<all_urls>`.
 
 ## Architecture
 
-One shared TypeScript core feeds three thin shells (Chromium extension, Safari extension, Apple WKWebView) and a Supabase backend. Blocking is driven by a **versioned, Ed25519-signed JSON rule set** — the packaged extension is the complete interpreter; remote rule sets supply only validated data (selectors, match patterns, action enum values), never executable code.
-
-See [`docs/plans/2026-06-23-001-feat-still-build-plan.md`](docs/plans/2026-06-23-001-feat-still-build-plan.md) for the full design and [`docs/Still-Spec-v1.md`](docs/Still-Spec-v1.md) for the product spec.
-
-## Repository layout
+Still is a TypeScript-first monorepo with thin platform shells:
 
 ```
 packages/
-  shared-types/    rule set, settings, entitlement types
-  core/            rule engine, content script, Svelte UI, storage adapter, seed rule set
-  ext-chromium/    WXT MV3 extension (Chrome/Edge/Brave/Arc)
-  ext-safari/      WXT --mv3 build → resources for Xcode
-  ext-firefox/     scaffold only (deferred)
+  shared-types/    rule set, settings, and entitlement types
+  core/            rule engine, content script, Svelte UI, storage, sync, native bridge adapters
+  ext-chromium/    WXT MV3 extension for Chromium; also produces the Firefox build
+  ext-safari/      WXT Safari extension resources consumed by the Apple app
+  ext-firefox/     reserved package slot; Firefox currently builds from ext-chromium
 apps/
-  apple/           Xcode project: iOS + macOS targets (Phase B)
+  apple/           Xcode project for iOS, macOS, Safari extension, and StillKit
 supabase/
-  migrations/      schema + RLS
-  functions/       revenuecat-webhook, reconcile-entitlement, delete-user, export-user-data, selector-canary
+  migrations/      schema, RLS, indexes, and rule-set seed data
+  functions/       Edge Functions for billing, account, entitlement, and canary flows
 tests/
-  fixtures/        recorded HTML per service for Playwright
+  fixtures/        recorded service pages used by Playwright
+  playwright/      extension integration tests
+  smoke/           non-gating real-site smoke checks
+docs/
+  release/         first-release runbooks for every store and backend dependency
 ```
+
+The blocking engine consumes a signed, versioned JSON rule set. Remote updates are data only: selectors, match patterns, action enum values, and tier metadata. They are schema-checked and Ed25519-verified before use; remote rule sets never ship executable code.
+
+For a deeper map, start with [docs/README.md](docs/README.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Trust signals
+
+- CI runs lint, typecheck, unit tests, extension builds, Supabase function checks, and Playwright fixture tests on every PR.
+- `main` is protected by a GitHub ruleset requiring PRs and the required status checks before merge.
+- Real secrets are excluded from the repository. Tracked config files contain empty defaults or public client keys only.
+- Store privacy copy lives in [docs/privacy.html](docs/privacy.html), and support copy lives in [docs/support.html](docs/support.html).
+- Security reporting instructions live in [SECURITY.md](SECURITY.md).
 
 ## Development
 
-Requires Node 22+, pnpm, the Supabase CLI + Docker (local Postgres/functions), and Playwright (Chromium channel).
+Requirements:
+
+- Node.js 22+
+- pnpm 11.x
+- Supabase CLI and Docker for local database/function work
+- Playwright Chromium for extension fixture tests
+- Xcode 16+ for Apple targets
 
 ```bash
 pnpm install
-pnpm -r build          # builds both extension dist/ folders
-pnpm -r test           # rule-engine + core unit tests
-pnpm exec playwright test --project=fixtures   # extension on recorded fixtures
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm exec playwright test --project=fixtures
 ```
 
-Load the built Chromium extension from `packages/ext-chromium/.output/chrome-mv3` (build the `dist/`, never load source).
+Load the built Chromium extension from `packages/ext-chromium/.output/chrome-mv3`. Build output is generated; do not load the source directory as the extension.
 
-## Build phases & autonomy
+Apple helpers live in [apps/apple/scripts/README.md](apps/apple/scripts/README.md).
 
-The build is split by what an autonomous agent can complete without Apple credentials:
+## Release operations
 
-- **Phase A** (autonomous, CI-green): monorepo, core, Chromium extension, the entire Supabase backend including the RevenueCat webhook bridge (proven with a *faked* payload), and the full test harness.
-- **Phase B** (human-gated): the agent writes 100% of the Swift / StoreKit / RevenueCat code, but a human on a Mac runs Xcode signing, App Store Connect IAP setup, RevenueCat config, and the real sandbox purchase.
+The release runbook starts at [docs/release/README.md](docs/release/README.md). It documents the Apple App Store, Chrome Web Store, Firefox AMO, RevenueCat, Supabase, and mobile-validation steps, including the human-gated credentials and portal work that cannot be automated safely.
 
-External-service connections and who owns each gate live in [`docs/CONNECTIONS.md`](docs/CONNECTIONS.md).
+## Contributing
 
-## Privacy
+Small fixes and documentation improvements are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR, use the issue templates for bugs and feature requests, and keep security-sensitive reports out of public issues.
 
-Host permissions are limited to the four service domains (`youtube.com`, `instagram.com`, `facebook.com`, `tiktok.com`) — never `<all_urls>`. Both stores' privacy disclosures declare zero data collection. Free (sync-off) users transmit nothing; their settings live only on-device.
+## License
+
+See [LICENSE](LICENSE). The repository is currently source-available for transparency, not open-source licensed for reuse.

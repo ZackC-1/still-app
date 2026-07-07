@@ -11,6 +11,13 @@ export default tseslint.config(
       "**/.wxt/**",
       "**/node_modules/**",
       "**/coverage/**",
+      "**/build/**",
+      "**/DerivedData/**",
+      "**/.build/**",
+      "**/.swiftpm/**",
+      "**/test-results/**",
+      "**/playwright-report/**",
+      "**/.playwright/**",
       "**/*.config.js",
       "**/*.config.ts",
       // Supabase Edge Functions are Deno (jsr:/npm: imports, .ts extensions, Deno globals) —

@@ -1,0 +1,71 @@
+name: Bug report
+description: Report reproducible behavior in Still.
+title: "fix: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Do not include secrets, tokens, private account data, or security exploit details here. Use the Security tab for vulnerabilities.
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      options:
+        - Chrome / Chromium extension
+        - Firefox extension
+        - Safari extension
+        - iOS app
+        - macOS app
+        - Supabase backend
+        - Documentation
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: App/extension version, store build, or commit SHA.
+      placeholder: "1.0.0, build 2, or 4172529"
+  - type: dropdown
+    id: service
+    attributes:
+      label: Affected service
+      options:
+        - YouTube
+        - Instagram
+        - Facebook
+        - TikTok
+        - Account / purchase / sync
+        - Not service-specific
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: List the smallest reliable path to reproduce the issue.
+      placeholder: |
+        1. Install Still on ...
+        2. Open ...
+        3. Click ...
+        4. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Screenshots or logs
+      description: Add screenshots or relevant logs if helpful. Remove private data first.
