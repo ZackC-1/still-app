@@ -28,7 +28,7 @@ jobs:
     name: lint · typecheck · unit · build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # pnpm version is read from package.json "packageManager" (pnpm@11.9.0).
       - uses: pnpm/action-setup@v4
@@ -57,7 +57,7 @@ jobs:
     name: Supabase Edge Functions (Deno)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
@@ -79,7 +79,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: check
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Detect Playwright harness
         id: detect
