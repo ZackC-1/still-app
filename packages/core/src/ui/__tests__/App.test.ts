@@ -98,7 +98,7 @@ describe("App", () => {
     const c = controller();
     c.userId = "u";
     render(App, { props: { controller: c } });
-    expect(screen.getByText("Upgrade to Still Pro")).toBeTruthy();
+    expect(screen.getByText(STRINGS.paywall.upgradeCta)).toBeTruthy();
   });
 
   it("entitled shows the synced state", () => {
@@ -113,7 +113,7 @@ describe("App", () => {
     const c = controller({ host: { canPurchase: false } });
     c.userId = "u";
     render(App, { props: { controller: c } });
-    expect(screen.queryByText("Upgrade to Still Pro")).toBeNull();
+    expect(screen.queryByText(STRINGS.paywall.upgradeCta)).toBeNull();
     expect(screen.getByText(/Unlock Pro in the Still app/)).toBeTruthy();
   });
 
@@ -161,7 +161,7 @@ describe("App", () => {
     const c = controller({ auth: codeCapableAuth() });
     render(App, { props: { controller: c } });
     expect(screen.getByText("Sign in to Still")).toBeTruthy();
-    expect(screen.getByText("Upgrade to Still Pro")).toBeTruthy();
+    expect(screen.getByText(STRINGS.paywall.upgradeCta)).toBeTruthy();
     expect(screen.queryByText(STRINGS.auth.prompt)).toBeNull();
     await fireEvent.click(screen.getByText("Sign in to Still"));
     expect(
@@ -173,7 +173,7 @@ describe("App", () => {
     const c = controller({ deletable: true });
     c.userId = "u";
     render(App, { props: { controller: c } });
-    expect(screen.getByText("Upgrade to Still Pro")).toBeTruthy();
+    expect(screen.getByText(STRINGS.paywall.upgradeCta)).toBeTruthy();
     expect(screen.getByText("Sign out")).toBeTruthy();
     expect(screen.getByText("Privacy policy")).toBeTruthy();
     expect(screen.getByText("Delete account")).toBeTruthy();
@@ -185,14 +185,14 @@ describe("App", () => {
     c.entitled = true;
     render(App, { props: { controller: c } });
     expect(screen.queryByText("Sign in to Still")).toBeNull();
-    expect(screen.queryByText("Upgrade to Still Pro")).toBeNull();
+    expect(screen.queryByText(STRINGS.paywall.upgradeCta)).toBeNull();
     expect(screen.getByText(/Synced across your devices/)).toBeTruthy();
   });
 
   it("signed-out upgrade records intent and opens email-code sign-in before paywall", async () => {
     const c = controller({ auth: codeCapableAuth() });
     render(App, { props: { controller: c } });
-    await fireEvent.click(screen.getByText("Upgrade to Still Pro"));
+    await fireEvent.click(screen.getByText(STRINGS.paywall.upgradeCta));
     expect(c.purchaseIntent).toBe(true);
     expect(c.signInOpen).toBe(true);
     expect(c.paywallOpen).toBe(false);

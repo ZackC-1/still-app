@@ -107,7 +107,7 @@
         </button>
         {#if c.host.canPurchase}
           <button class="secondary block" onclick={() => c.startUpgrade()}>
-            Upgrade to Still Pro
+            {STRINGS.paywall.upgradeCta}
           </button>
         {/if}
       {:else}
@@ -131,7 +131,7 @@
             <span class="syncrow-sub">{STRINGS.paywall.body}</span>
           </div>
           <button class="primary" onclick={() => c.startUpgrade()}
-            >Upgrade to Still Pro</button
+            >{STRINGS.paywall.upgradeCta}</button
           >
         </div>
       {:else}

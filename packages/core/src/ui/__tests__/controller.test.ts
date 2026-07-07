@@ -179,6 +179,19 @@ describe("UiController", () => {
     expect(c.purchaseIntent).toBe(false);
   });
 
+  it("startUpgrade no-ops when already entitled (out-of-band callers)", () => {
+    // The rendered CTAs are already gated off for Pro users; this pins the method's own guard
+    // for callers that bypass the UI gating (scripts, future surfaces).
+    const persistence = mockPersistence();
+    const { c } = makeController({ auth: codeAuth(), persistence });
+    c.entitled = true;
+    c.startUpgrade();
+    expect(c.paywallOpen).toBe(false);
+    expect(c.signInOpen).toBe(false);
+    expect(c.purchaseIntent).toBe(false);
+    expect(persistence.setPurchaseIntent).not.toHaveBeenCalled();
+  });
+
   it("derives the full popup state matrix", () => {
     const { c } = makeController();
     expect(c.popupState).toBe("signed-out");

@@ -62,6 +62,9 @@ export const STRINGS = {
     body: "Instagram Reels, TikTok, and Facebook Reels go quiet — with your settings synced on every device.",
     reassurance: "One payment. Yours forever.",
     cta: "Unlock Pro",
+    // Home-screen upgrade CTA (signed-out and signed-in-not-entitled states) — routes through
+    // UiController.startUpgrade(), never straight to checkout.
+    upgradeCta: "Upgrade to Still Pro",
     restore: "Restore purchase",
     // Safari only (AE7/3.1.1): its popup has no purchase path — Pro genuinely unlocks by itself
     // via the App-Group entitlement pull once the app purchase lands. Web-purchasable hosts
@@ -117,15 +120,14 @@ export const STRINGS = {
     error: "Couldn't send the link. Try again.",
     resend: "Resend link",
     signOut: "Sign out",
-    apple: "Sign in with Apple",
     signInCta: "Sign in to Still",
-    signingIn: "Signing in…",
   },
 
   // Email-OTP code entry (plan U2/R1) — the extension popup can't receive a magic-link redirect,
   // so it signs in with an emailed 6-digit code. None of these lines may say "link": the
   // magic-link strings above (auth.send/sent/error/resend) must never render in the code flow.
-  // The Apple magic-link strings stay untouched.
+  // Every live host (extensions and the Apple app, 2026-07-06) wires the code flow; the magic-link
+  // strings stay only for the currently-unwired signIn() path.
   codeAuth: {
     send: "Email me a code",
     prompt: "Check your email for a 6-digit code.",
