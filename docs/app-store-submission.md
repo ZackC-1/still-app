@@ -25,7 +25,7 @@ These are the things App Review rejects content-blocker / IAP apps for. Where it
 | Privacy manifest / required-reason APIs | ✅ `PrivacyInfo.xcprivacy` in app + extension |
 | Export-compliance prompt every upload | ✅ `ITSAppUsesNonExemptEncryption = NO` in both app Info.plists (HTTPS-only, exempt) |
 | Over-broad host permissions | ✅ Extension scoped to the 4 domains, not `<all_urls>` |
-| Sign in with Apple equivalence (4.8) | ✅ SIWA is the only social login → 4.8 satisfied (keep SIWA if you ever add Google) |
+| Sign in with Apple equivalence (4.8) | ✅ No third-party/social login — sign-in is a first-party email code (PR #43/#45 removed SIWA), so 4.8 doesn't apply (add SIWA back only if you ever add Google/Facebook login) |
 | **Third-party logos in icon/screenshots (5.2.1)** | ⚠️ **OPEN — see §D.** Icon is clean (balance mark); the in-app service rows use real brand logos |
 
 ---
@@ -61,10 +61,11 @@ STEP 3 — VERIFY BLOCKING (in Safari)
   • tiktok.com → the whole site shows a "This site is blocked" page
 
 OPTIONAL — NOT NEEDED TO EVALUATE THE APP
-  • Sign in with Apple is optional, used only to enable settings Sync. Not required for blocking.
+  • Sign-in is optional (email + 6-digit code), used only for Still Pro and settings Sync. Not required for blocking.
   • One non-consumable IAP: "Still Pro" (product id still_sync), $1.99 — unlocks Reels/TikTok/Facebook blocking + cross-device settings sync.
-    Blocking does NOT require it. To test: Account section → Sign in with Apple (your own sandbox
-    Apple ID is fine) → purchase Still Pro. "Restore Purchases" is on the same screen.
+    YouTube Shorts blocking does NOT require it. To test: tap "Upgrade to Still Pro" → sign in with
+    any email you control (a 6-digit code is emailed) → purchase with a sandbox Apple ID.
+    "Restore Purchases" is on the paywall.
 
 ACCOUNT DELETION (5.1.1): Account section → "Delete Account" removes the server-side record.
 
@@ -86,7 +87,7 @@ Legend: **[ONE-TIME]** = account/app setup done once · **[PER-RELEASE]** = repe
 
 ### 1. One-time account & signing setup **[ONE-TIME]**
 - [ ] **Business → Agreements**: the **Paid Applications Agreement** is **Active** (required even for a free app, because it ships an IAP). Complete banking + tax under Cadmus Labs.
-- [ ] App ID `com.chartash.still` has **App Groups + Sign in with Apple + In-App Purchase**; the extension App ID has **App Groups**; both share the **same** App Group.
+- [ ] App ID `com.chartash.still` has **App Groups + In-App Purchase** (the **Sign in with Apple** capability may remain enabled but is unused since the email-code swap, PR #43/#45); the extension App ID has **App Groups**; both share the **same** App Group.
 - [ ] An **Apple Distribution** certificate exists for the team. *(You currently have only an Apple Development cert — the first `archive.sh` run, or Xcode → Settings → Accounts → Manage Certificates → +, creates the Distribution cert.)*
 - [ ] **App Store** provisioning profiles resolve for **both** the app and the extension App IDs (archive uses `-allowProvisioningUpdates`).
 - [ ] Create an **App Store Connect API key** (Users and Access → Integrations → Keys, **App Manager** role). Download `AuthKey_*.p8` once; note the **Key ID** and **Issuer ID**.
@@ -100,7 +101,7 @@ Legend: **[ONE-TIME]** = account/app setup done once · **[PER-RELEASE]** = repe
 > A brand-new app's **first IAP must be submitted *with* the first app version**, or it's stuck at "Missing Metadata" forever and never reviewed.
 - [ ] **Monetization → In-App Purchases → +** → **Non-Consumable**. Reference Name `Still Pro`, **Product ID `still_sync`** (must match the StoreKit code), **Price $1.99**.
 - [ ] Add an **English localization** (display name + description) — without it, status stays "Missing Metadata".
-- [ ] Add the **IAP App Review screenshot** = a capture of the in-app **paywall** (mandatory; #1 "Missing Metadata" cause), plus IAP review notes (blocking is free; this only unlocks Sync; test via SIWA + sandbox).
+- [ ] Add the **IAP App Review screenshot** = a capture of the in-app **paywall** (mandatory; #1 "Missing Metadata" cause), plus IAP review notes (blocking is free; this only unlocks Pro + Sync; test via email-code sign-in + sandbox Apple ID).
 - [ ] On the **version page → In-App Purchases → +** → **attach `still_sync`** so it ships in this submission.
 - [ ] **[PER-RELEASE]** Sandbox-test: buy `still_sync`, confirm Sync unlocks, confirm **Restore Purchases** re-unlocks on a fresh install.
 
@@ -109,7 +110,7 @@ Legend: **[ONE-TIME]** = account/app setup done once · **[PER-RELEASE]** = repe
 
   | Data | Category → type |
   |---|---|
-  | Email (from Sign in with Apple) | Contact Info → **Email Address** |
+  | Email (from email-code sign-in, Supabase auth) | Contact Info → **Email Address** |
   | User ID (Supabase UUID) | Identifiers → **User ID** |
   | Purchase history | Purchases → **Purchase History** |
 
