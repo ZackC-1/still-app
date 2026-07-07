@@ -115,6 +115,11 @@ jobs:
         # survives in-job retries without a refresh. Update the index first, then retry with
         # backoff before failing the job.
         run: |
+          # packages.microsoft.com intermittently serves corrupt InRelease files from some Azure
+          # CDN edges ("Clearsigned file isn't valid, got 'NOSPLIT'"), which fails EVERY apt
+          # operation on the affected runner with exit 100 — retries included. Playwright's system
+          # deps all come from the Ubuntu archives, so drop Microsoft's repos entirely.
+          sudo rm -f /etc/apt/sources.list.d/*microsoft* /etc/apt/sources.list.d/*azure*
           for i in 1 2 3; do
             sudo apt-get update -qq || true
             pnpm exec playwright install --with-deps chromium && exit 0
