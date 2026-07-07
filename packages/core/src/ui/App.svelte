@@ -197,6 +197,9 @@
     padding: var(--space-4);
     min-inline-size: 320px;
     max-inline-size: 400px;
+    /* Center in hosts wider than the content cap (the 480pt macOS window, the options tab).
+       Popups size themselves to the content, so this is a no-op there. */
+    margin-inline: auto;
     background: var(--surface);
   }
   .appbar {

@@ -69,8 +69,13 @@ enum OnboardingPresenter {
     // 2026-07-06; the same signature is reported against other SwiftUI apps on macOS 26). With
     // no sizing options the hosting view never posts constraint invalidations, removing the race;
     // the sheet takes its size from preferredContentSize alone.
-    let controller = NSHostingController(rootView: view.frame(width: 520, height: 660))
-    controller.preferredContentSize = NSSize(width: 520, height: 660)
+    // Clamp to the host window: presentAsSheet does NOT clip an over-wide sheet, so a fixed
+    // 520pt sheet visually overhangs the 480pt default / 440pt minimum window (review finding,
+    // PR #55 — verified empirically). The frame stays FIXED at presentation time; sizingOptions
+    // = [] below (the macOS 26 race fix) depends on the hosting view never renegotiating size.
+    let sheetWidth = min(520, host.view.bounds.width)
+    let controller = NSHostingController(rootView: view.frame(width: sheetWidth, height: 660))
+    controller.preferredContentSize = NSSize(width: sheetWidth, height: 660)
     if #available(macOS 13.0, *) {
       controller.sizingOptions = []
     }
