@@ -192,6 +192,32 @@ describe("UiController", () => {
     expect(persistence.setPurchaseIntent).not.toHaveBeenCalled();
   });
 
+  it("upgrade continuation skips the buy sheet when sign-in already unlocked Pro", async () => {
+    // A signed-out but already-Pro account taps Upgrade → sign-in. On the Apple host the awaited
+    // verifyCode reconciles entitlement before returning, so the purchase-intent continuation
+    // must not open a paywall the user has nothing to buy from.
+    const persistence = mockPersistence();
+    let ref: UiController | null = null;
+    const auth = codeAuth({
+      verifyCode: vi.fn(() => {
+        ref!.entitled = true; // the host's reconcile landed inside the awaited verify
+        return Promise.resolve<VerifyCodeOutcome>({
+          kind: "verified",
+          userId: "user-1",
+        });
+      }),
+    });
+    const { c } = makeController({ auth, persistence });
+    ref = c;
+    c.startUpgrade(); // signed out on a purchasable host → intent + sign-in
+    expect(c.signInOpen).toBe(true);
+    await c.signIn("a@b.com");
+    await c.verifyCode("123456");
+    expect(c.userId).toBe("user-1");
+    expect(c.paywallOpen).toBe(false); // already Pro — no buy sheet
+    expect(c.purchaseIntent).toBe(false); // the intent was still consumed
+  });
+
   it("derives the full popup state matrix", () => {
     const { c } = makeController();
     expect(c.popupState).toBe("signed-out");

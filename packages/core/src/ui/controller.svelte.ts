@@ -775,7 +775,11 @@ export class UiController {
       this.persistence?.setPendingOtp(null);
       const continueToPaywall = this.purchaseIntent;
       this.setPurchaseIntent(false);
-      if (continueToPaywall) this.openPaywall();
+      // An already-Pro account signing in through an upgrade surface must not land on a buy
+      // sheet. Hosts that reconcile entitlement inside the awaited verifyCode (the Apple host's
+      // onCodeVerified) have `entitled` settled here; hosts whose reconcile lands later still
+      // open the paywall, and the entitled flip converts it to the payoff (justUnlocked).
+      if (continueToPaywall && !this.entitled) this.openPaywall();
       // Re-sign-in with a live checkout-pending flag (the U4 auth-required path): resume the
       // pending presentation — a fresh poll window, or the stale state if it decayed meanwhile.
       if (this.checkoutPending !== null)
