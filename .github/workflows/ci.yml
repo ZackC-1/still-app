@@ -110,7 +110,18 @@ jobs:
 
       - name: Install Playwright Chromium
         if: steps.detect.outputs.present == 'true'
-        run: pnpm exec playwright install --with-deps chromium
+        # Exit 100 here is apt (--with-deps), not the browser CDN: a stale package index on
+        # some runner images 404s persistently — it killed 5+ CI runs on 2026-07-07 alone and
+        # survives in-job retries without a refresh. Update the index first, then retry with
+        # backoff before failing the job.
+        run: |
+          for i in 1 2 3; do
+            sudo apt-get update -qq || true
+            pnpm exec playwright install --with-deps chromium && exit 0
+            echo "playwright install failed (attempt $i); retrying in $((i * 20))s"
+            sleep $((i * 20))
+          done
+          exit 1
 
       - name: Run Playwright fixture tests (gating)
         if: steps.detect.outputs.present == 'true'
