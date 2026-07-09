@@ -93,14 +93,25 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
     }
 
     /// Push the current App-Group settings record into the page. The record JSON (the same
-    /// encodeRecord shape the bridge replies with) is injected as a JS object literal — the web
-    /// side's parseStoredSettingsRecord accepts the record-shaped object. Guarded so it no-ops when
-    /// nothing is stored yet or the page hasn't installed __stillApplyRemote.
+    /// encodeRecord shape the bridge replies with) is passed to window.__stillApplyRemote as a
+    /// structured callAsyncJavaScript argument, never concatenated into script source. Guarded so it
+    /// no-ops when nothing is stored yet or the page hasn't installed __stillApplyRemote.
     private func pushStoredSettingsToWeb() {
         let json = settingsBridge.handle(.get)
         guard !json.isEmpty else { return }
-        let script = "typeof window.__stillApplyRemote === 'function' && window.__stillApplyRemote(\(json));"
-        webView.evaluateJavaScript(script, completionHandler: nil)
+        // The record travels as the JSON STRING the bridge already returns, bound to `record` via
+        // callAsyncJavaScript's arguments dictionary: the web side's parseStoredSettingsRecord sees
+        // through strings (it JSON.parses them exactly like the bridge's reply path), so there's no
+        // lossy JSON→Foundation→JS round-trip, no double encode, and — the point of this API — no
+        // string-into-source concatenation for a crafted record to escape. Runs in .page, the same
+        // content world where the "still" handler is registered (viewDidLoad) and where the page's
+        // WKWebViewStorageAdapter installs __stillApplyRemote.
+        webView.callAsyncJavaScript(
+            "if (typeof window.__stillApplyRemote === 'function') { window.__stillApplyRemote(record); }",
+            arguments: ["record": json],
+            in: nil,
+            in: .page,
+            completionHandler: nil)
     }
 
 #if os(macOS)
