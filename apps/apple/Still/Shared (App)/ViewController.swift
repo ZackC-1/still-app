@@ -24,10 +24,14 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
 
     @IBOutlet var webView: WKWebView!
 
+    // The App-Group settings bridge (U17). Held directly (not just inside the router) so the Darwin
+    // observer below can re-read the stored record when the Safari extension writes settings. The
+    // store falls back to in-memory if the App Group isn't provisioned, so the UI still launches.
+    private let settingsBridge = SettingsBridge(store: .appGroup())
+
     // Routes web messages to native: the App-Group settings bridge (U17) plus the U19 auth/purchase
-    // actions. The settings store falls back to in-memory if the App Group isn't provisioned, so the
-    // UI still launches.
-    private let router = WebBridgeRouter(settings: SettingsBridge(store: .appGroup()))
+    // actions.
+    private lazy var router = WebBridgeRouter(settings: settingsBridge)
 
     // The bundled web build's index URL — the only origin trusted to drive privileged native actions
     // and the only navigation we allow (P0 #1). Set once the bundle is located in viewDidLoad.
@@ -53,6 +57,50 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
         } else {
             assertionFailure("WebUI/index.html missing from the app bundle — build the web bundle first")
         }
+
+        observeExternalSettingsChanges()
+    }
+
+    deinit {
+        CFNotificationCenterRemoveObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            Unmanaged.passUnretained(self).toOpaque(),
+            CFNotificationName(StillSettingsChangedNotification.name as CFString),
+            nil)
+    }
+
+    // Refresh the already-running web UI when another App-Group process writes settings (e.g. the
+    // Safari extension reconciles a toggle): StillKit posts a Darwin notification on every applied
+    // settings write — the only notification bus that crosses the extension ↔ app process boundary —
+    // and we push the stored record into the page via window.__stillApplyRemote (the receiver the
+    // WKWebViewStorageAdapter installs). The app's own writes echo through here too; that's harmless
+    // because the web SettingsCache dedupes incoming records by updatedAt/version, so the echo
+    // no-ops and no feedback loop forms.
+    private func observeExternalSettingsChanges() {
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            Unmanaged.passUnretained(self).toOpaque(),
+            { _, observer, _, _, _ in
+                // C-function context: no captures allowed. Recover self from the observer pointer
+                // and hop to the main actor before touching the web view.
+                guard let observer else { return }
+                let controller = Unmanaged<ViewController>.fromOpaque(observer).takeUnretainedValue()
+                Task { @MainActor in controller.pushStoredSettingsToWeb() }
+            },
+            StillSettingsChangedNotification.name as CFString,
+            nil,
+            .deliverImmediately)
+    }
+
+    /// Push the current App-Group settings record into the page. The record JSON (the same
+    /// encodeRecord shape the bridge replies with) is injected as a JS object literal — the web
+    /// side's parseStoredSettingsRecord accepts the record-shaped object. Guarded so it no-ops when
+    /// nothing is stored yet or the page hasn't installed __stillApplyRemote.
+    private func pushStoredSettingsToWeb() {
+        let json = settingsBridge.handle(.get)
+        guard !json.isEmpty else { return }
+        let script = "typeof window.__stillApplyRemote === 'function' && window.__stillApplyRemote(\(json));"
+        webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
 #if os(macOS)

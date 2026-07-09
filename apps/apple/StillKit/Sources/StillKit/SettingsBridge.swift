@@ -56,7 +56,13 @@ public struct SettingsBridge {
       guard let stored = store.peekRecord() else { return "" }
       return Self.encodeRecord(stored)
     case .set(let incoming):
-      store.applyRecord(incoming)
+      // Broadcast the change (Darwin — see StillSettingsChangedNotification) only when the write
+      // actually changed the store: both native hosts route their settings writes through this one
+      // `set`, and gating on the applied result means a stale/echoed write can't ping-pong
+      // notifications between the app and the extension.
+      if store.applyRecord(incoming) {
+        Self.postSettingsChanged()
+      }
       return Self.encodeRecord(store.currentRecord())
     }
   }
@@ -66,6 +72,15 @@ public struct SettingsBridge {
   public func handle(rawBody body: Any) -> String? {
     guard let request = BridgeRequest.parse(body) else { return nil }
     return handle(request)
+  }
+
+  /// Post the cross-process change signal on the Darwin notify center — the shared write path for
+  /// both hosts, so the app's WKWebView learns about extension writes (and vice versa) immediately.
+  private static func postSettingsChanged() {
+    CFNotificationCenterPostNotification(
+      CFNotificationCenterGetDarwinNotifyCenter(),
+      CFNotificationName(StillSettingsChangedNotification.name as CFString),
+      nil, nil, true)
   }
 
   static func encode(_ settings: StillSettings) -> String {
