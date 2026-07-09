@@ -13,21 +13,24 @@ function record(over: Partial<StillSettings> = {}) {
 
 /**
  * A fake native host: an App Group with last-write-wins, exposed through a postMessage port that
- * mirrors WKScriptMessageHandlerWithReply (returns a Promise) and replies with JSON strings.
+ * mirrors WKScriptMessageHandlerWithReply (returns a Promise) and replies exactly like the Swift
+ * SettingsBridge: the full StoredSettingsRecord JSON-encoded as a string (encodeRecord), with the
+ * syncMetadata key omitted when nil.
  */
 function makeNativeHost(stored: StillSettings | null = null) {
   let value: StillSettings | null = stored;
   const posted: unknown[] = [];
+  const encodeRecord = () => JSON.stringify({ settings: value });
   const port = {
     postMessage: vi.fn(async (msg: unknown): Promise<unknown> => {
       posted.push(msg);
       const m = msg as { kind: string; settings?: string };
-      if (m.kind === "get") return value ? JSON.stringify(value) : "";
+      if (m.kind === "get") return value ? encodeRecord() : "";
       if (m.kind === "set") {
         const parsed = JSON.parse(m.settings!) as StillSettings | { settings: StillSettings };
         const incoming = "settings" in parsed ? parsed.settings : parsed;
         if (!value || incoming.updatedAt > value.updatedAt) value = incoming; // native LWW
-        return JSON.stringify(value);
+        return encodeRecord();
       }
       return null;
     }),
@@ -113,6 +116,19 @@ describe("WKWebViewStorageAdapter", () => {
     host.win.__stillApplyRemote?.(JSON.stringify(settings({ globalOn: false, updatedAt: 99 })));
     expect(seen).toHaveBeenCalledTimes(1);
     expect(seen.mock.calls[0]![0].settings.globalOn).toBe(false);
+  });
+
+  it("subscribe() accepts a native push in the Swift encodeRecord shape (record JSON string)", () => {
+    const host = makeNativeHost(null);
+    const adapter = new WKWebViewStorageAdapter(host.win);
+    const seen = vi.fn();
+    adapter.subscribe(seen);
+    host.win.__stillApplyRemote?.(
+      JSON.stringify({ settings: settings({ globalOn: false, updatedAt: 123 }) }),
+    );
+    expect(seen).toHaveBeenCalledTimes(1);
+    expect(seen.mock.calls[0]![0].settings.updatedAt).toBe(123);
+    expect(seen.mock.calls[0]![0].syncMetadata).toBeNull();
   });
 
   it("unsubscribe() stops delivery", () => {

@@ -89,13 +89,16 @@ export function parseSyncedSettingsEnvelope(value: unknown): SyncedSettingsEnvel
   return metadata ? { settings, ...metadata } : null;
 }
 
-/** Parse extension/App Group storage. Backward compatible with old settings-only records. */
+/** Parse extension/App Group storage. Backward compatible with old settings-only records. Accepts a
+ * parsed object OR a JSON string — the Swift SettingsBridge replies with the record JSON-encoded, so
+ * the record branch must see through strings exactly like parseSettings does. */
 export function parseStoredSettingsRecord(value: unknown): StoredSettingsRecord | null {
   const direct = parseSettings(value);
   if (direct) return { settings: direct, syncMetadata: null };
 
-  if (!value || typeof value !== "object") return null;
-  const obj = value as { settings?: unknown; syncMetadata?: unknown; metadata?: unknown };
+  const decoded: unknown = typeof value === "string" ? safeParse(value) : value;
+  if (!decoded || typeof decoded !== "object") return null;
+  const obj = decoded as { settings?: unknown; syncMetadata?: unknown; metadata?: unknown };
   const settings = parseSettings(obj.settings);
   if (!settings) return null;
   const rawMetadata = obj.syncMetadata ?? obj.metadata ?? null;

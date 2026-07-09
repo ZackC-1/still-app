@@ -96,4 +96,27 @@ describe("settings sync envelope parsing", () => {
       },
     })?.syncMetadata?.version).toBe(2);
   });
+
+  it("parses a record delivered as a JSON string (the Swift encodeRecord wire shape)", () => {
+    // The Apple bridge replies with the whole record JSON-encoded; rejecting the string form made
+    // App-Group/WKWebView reads come back null and dropped newer native settings.
+    expect(parseStoredSettingsRecord(JSON.stringify({ settings: valid }))).toEqual({
+      settings: valid,
+      syncMetadata: null,
+    });
+    const withMetadata = parseStoredSettingsRecord(
+      JSON.stringify({
+        settings: valid,
+        syncMetadata: {
+          version: 3,
+          serverUpdatedAt: "2026-07-09T18:00:00.000Z",
+          lastWriteId: null,
+        },
+      }),
+    );
+    expect(withMetadata?.syncMetadata?.version).toBe(3);
+    // Garbage strings still parse to null, never throw.
+    expect(parseStoredSettingsRecord("{not json")).toBeNull();
+    expect(parseStoredSettingsRecord(JSON.stringify({ settings: { globalOn: "yes" } }))).toBeNull();
+  });
 });
