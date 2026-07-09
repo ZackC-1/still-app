@@ -341,6 +341,25 @@ describe("applyDom", () => {
     expect((document.querySelector("#fb-home-nav") as HTMLElement).style.display).toBe("");
   });
 
+  // Issue #58: on-device, removing only the [role=tab] left a solid gray rectangle in the tab bar —
+  // Facebook wraps each tab in a per-slot container carrying a skeleton-gray background, so the
+  // WRAPPER (the tablist's immediate child containing the reels tab) must be removed, not just the
+  // tab inside it. Sibling slots must survive untouched.
+  it("removes the whole per-slot wrapper around the mobile Facebook Reels tab (issue #58)", () => {
+    document.body.innerHTML = `
+      <div role="tablist">
+        <div id="slot-home" class="bg-s2"><div role="tab" aria-label="feed, 1 of 6"></div></div>
+        <div id="slot-reels" class="bg-s2"><div role="tab" aria-label="reels, 4 of 6"></div></div>
+        <div id="slot-market" class="bg-s2"><div role="tab" aria-label="marketplace, 6 of 6"></div></div>
+      </div>
+    `;
+    applyDom(ruleSet, allOn, new URL("https://m.facebook.com/"), document, { pro: true });
+    expect(document.querySelector("#slot-reels")).toBeNull(); // the gray slot itself is gone
+    expect(document.querySelector("#slot-home")).not.toBeNull();
+    expect(document.querySelector("#slot-market")).not.toBeNull();
+    expect(document.querySelectorAll("[role=tablist] > *").length).toBe(2);
+  });
+
   it("does nothing when the service is off", () => {
     document.body.innerHTML = `<ytd-reel-shelf-renderer id="shelf"></ytd-reel-shelf-renderer>`;
     applyDom(ruleSet, settings({ services: servicesWith("youtube") }), new URL("https://www.youtube.com/"), document);

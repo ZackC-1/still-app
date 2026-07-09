@@ -1,5 +1,5 @@
 {
-  "version": "1.0.2",
+  "version": "1.0.3",
   "services": {
     "youtube": {
       "matches": [
@@ -246,6 +246,7 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
+            "[role=\"tablist\"] > :has([role=\"tab\"][aria-label*=\"reels\" i])",
             "[role=\"tablist\"] > [role=\"tab\"][aria-label*=\"reels\" i]",
             "[role=\"tab\"][aria-label*=\"reels\" i]"
           ]
@@ -293,6 +294,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "5a5962e5a5ffa70d5d6beddf8b39afe79f271903b4cf666324964e0f80ab37126085a185ea6091df40774b285b0bf249efbd2c9d47955e45cb6fb5832ee56b05"
+    "value": "7218c8350084077e8fc10b01dd6a8988e245fcf013acfd2a7a3ce8b30d0f19799f74b4de1d7ac0a3e2fc9df6a73875c36433ebf2f19d960594bc10ec6c3b4c0f"
   }
 }
