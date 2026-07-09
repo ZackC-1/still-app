@@ -5,7 +5,7 @@ import { DEFAULT_SETTINGS } from "@still/shared-types";
 import { SettingsCache } from "../../storage/cache.js";
 import { InMemoryStorageAdapter, type StorageAdapter } from "../../storage/adapter.js";
 import { EntitlementCache, InMemoryEntitlementAdapter } from "../../entitlement/index.js";
-import { createContentScript } from "../index.js";
+import { createContentScript, earlyShortsRedirect } from "../index.js";
 import { ROOT_ACTIVE_CLASS } from "../../rules/engine.js";
 
 const ruleSet = seed as unknown as SignedRuleSet;
@@ -219,58 +219,45 @@ describe("content script — redirect + SPA navigation (U7)", () => {
   });
 });
 
+// The early (pre-ruleset) hard-nav Shorts redirect for DNR-less extensions (Safari; Firefox). It
+// must respect the PERSISTED settings — an off/paused user's navigation can't be undone — while
+// still firing after just one settings read, ahead of the ruleset-gated apply path.
+describe("earlyShortsRedirect (Safari/Firefox hard-nav path)", () => {
+  it("redirects a direct mobile Shorts URL once the persisted settings allow it", async () => {
+    const win = makeWin("https://m.youtube.com/shorts/mobile123");
+    const redirectPort = { replace: vi.fn() };
+    await earlyShortsRedirect({ win, ruleSet, cache: cacheWith(null), redirectPort });
+    expect(redirectPort.replace).toHaveBeenCalledTimes(1);
+    expect(redirectPort.replace).toHaveBeenCalledWith("https://m.youtube.com/watch?v=mobile123");
+  });
+
+  it.each([
+    ["YouTube off", { ...DEFAULT_SETTINGS, services: { ...DEFAULT_SETTINGS.services, youtube: false }, updatedAt: 1 }],
+    ["globally off", { ...DEFAULT_SETTINGS, globalOn: false, updatedAt: 1 }],
+    ["youtube.com paused", { ...DEFAULT_SETTINGS, pauses: ["youtube.com"], updatedAt: 1 }],
+  ] as Array<[string, StillSettings]>)(
+    "never redirects when the PERSISTED settings say %s (Codex PR #29)",
+    async (_label, persisted) => {
+      const win = makeWin("https://m.youtube.com/shorts/mobile123");
+      const redirectPort = { replace: vi.fn() };
+      // The user's choice lives in storage, NOT in the cache's initial snapshot — exactly the state
+      // a cold document_start sees. The redirect must wait for that read.
+      await earlyShortsRedirect({ win, ruleSet, cache: cacheWith(persisted), redirectPort });
+      expect(redirectPort.replace).not.toHaveBeenCalled();
+    },
+  );
+
+  it("no-ops on a non-Shorts URL without touching storage", async () => {
+    const win = makeWin("https://www.youtube.com/feed/subscriptions");
+    const redirectPort = { replace: vi.fn() };
+    await earlyShortsRedirect({ win, ruleSet, cache: cacheWith(null), redirectPort });
+    expect(redirectPort.replace).not.toHaveBeenCalled();
+  });
+});
+
 // U3: the redirect must NOT silently no-op when a navigation fires before hydration — the unconditional
 // post-hydration reapply has to pick it up. These lock that boundary behavior with a controllable hydrate.
 describe("content script — hydration boundary (U3)", () => {
-  it("Safari mode redirects a direct mobile Shorts URL before storage hydration", async () => {
-    const win = makeWin("https://m.youtube.com/shorts/mobile123");
-    const redirectPort = { replace: vi.fn() };
-    const { cache, release } = gatedCache(null);
-    const cs = createContentScript({
-      win,
-      doc: document,
-      ruleSet,
-      cache,
-      redirectPort,
-      schedule: sync,
-      redirectBeforeHydration: true,
-    });
-    const pending = cs.start();
-
-    expect(redirectPort.replace).toHaveBeenCalledTimes(1);
-    expect(redirectPort.replace).toHaveBeenCalledWith("https://m.youtube.com/watch?v=mobile123");
-
-    release();
-    await pending;
-    expect(redirectPort.replace).toHaveBeenCalledTimes(1);
-    cs.stop();
-  });
-
-  it("Safari mode does not pre-hydration redirect when the synchronous snapshot has YouTube off", async () => {
-    const off: StillSettings = {
-      ...DEFAULT_SETTINGS,
-      services: { youtube: false, instagram: true, tiktok: true, facebook: true },
-      updatedAt: 1,
-    };
-    const win = makeWin("https://m.youtube.com/shorts/mobile123");
-    const redirectPort = { replace: vi.fn() };
-    const cache = new SettingsCache(new InMemoryStorageAdapter(null), { now: () => Date.now(), initial: off });
-    const cs = createContentScript({
-      win,
-      doc: document,
-      ruleSet,
-      cache,
-      redirectPort,
-      schedule: sync,
-      redirectBeforeHydration: true,
-    });
-    const pending = cs.start();
-
-    expect(redirectPort.replace).not.toHaveBeenCalled();
-    await pending;
-    expect(redirectPort.replace).not.toHaveBeenCalled();
-    cs.stop();
-  });
 
   it("an early navigation is redirected after hydration, not during the pre-hydration window", async () => {
     const win = makeWin("https://www.youtube.com/feed/subscriptions");

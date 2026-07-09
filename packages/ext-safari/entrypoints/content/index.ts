@@ -1,6 +1,6 @@
 import "./still.css"; // packaged critical CSS (manifest content_scripts css, KTD2)
 import "./still-pro.css"; // packaged Pro CSS gated by html.still-pro-active
-import { createContentScript, type StillWindow } from "@still/core/content";
+import { createContentScript, earlyShortsRedirect, type StillWindow } from "@still/core/content";
 import { EntitlementCache, ChromeEntitlementAdapter } from "@still/core/entitlement";
 import { SettingsCache, ChromeStorageAdapter } from "@still/core/storage";
 import seed from "@still/core/seed";
@@ -29,6 +29,15 @@ export default defineContentScript({
     const cache = new SettingsCache(new ChromeStorageAdapter());
     const entitlement = new EntitlementCache(new ChromeEntitlementAdapter());
 
+    // Safari has no DNR, so this content script owns the hard-nav Shorts redirect (issue #28). Fire
+    // it ahead of the ruleset read below: it awaits only the persisted settings (one storage read),
+    // so an off/paused user is never redirected, and an on-user redirects before YouTube hydrates.
+    void earlyShortsRedirect({
+      win: window as unknown as StillWindow,
+      ruleSet: seed as unknown as SignedRuleSet,
+      cache,
+    });
+
     // Apply the newest of {cached, bundled}. The cached set is re-verified against THIS build's
     // trusted keys on read (storage outlives builds — a stale dev-signed or tampered cache must not
     // beat the bundled seed); the bundled seed is the trusted offline floor packaged with the signed
@@ -45,7 +54,6 @@ export default defineContentScript({
       ruleSet,
       cache,
       entitlement,
-      redirectBeforeHydration: true,
       // The packaged manifest CSS is generated from the bundled seed: when that's what applies,
       // the per-frame reapply can skip hide surfaces entirely (CSS owns them) and only run removes.
       manifestCssOwnsHides: source === "bundled",
