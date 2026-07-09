@@ -81,6 +81,23 @@ Deno.test("ES256 with no jwksUrl configured → null (fail closed)", async () =>
   }
 });
 
+Deno.test("malformed signature segment → null, never a throw (ES256 and HS256)", async () => {
+  const fx = await es256Fixture();
+  try {
+    const good = await signEs256({ sub: A }, fx.priv, "kid-test");
+    const [header, payload] = good.split(".");
+    const mangled = `${header}.${payload}.@@not-base64url@@`;
+    // Handlers await verifyJwt without a catch — a garbage signature must be a 401 (null), not a 500.
+    assertEquals(await verifyEs256(mangled, fx.url, "kid-test"), null);
+    assertEquals(await verifyJwt(mangled, { jwksUrl: fx.url }), null);
+    const hsGood = await signHs256({ sub: A }, HS_SECRET);
+    const [hsHeader, hsPayload] = hsGood.split(".");
+    assertEquals(await verifyJwt(`${hsHeader}.${hsPayload}.@@`, { hs256Secret: HS_SECRET }), null);
+  } finally {
+    fx.restore();
+  }
+});
+
 Deno.test("unsupported alg (none) → null", async () => {
   const b64url = (o: unknown) =>
     btoa(JSON.stringify(o)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
