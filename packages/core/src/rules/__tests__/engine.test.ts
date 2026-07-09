@@ -360,6 +360,39 @@ describe("applyDom", () => {
     expect(document.querySelectorAll("[role=tablist] > *").length).toBe(2);
   });
 
+  // The wrapper probe is destructive (action:remove on a nav bar), so it must be impossible for it
+  // to match a SHARED container holding other tabs too — otherwise a layout where the tablist has
+  // one child wrapping ALL tabs would lose the entire navigation strip, far worse than the gray
+  // slot. The :not(:has(> [role=tab]:not(reels))) guard pins that.
+  it("never removes a shared container that holds other tabs alongside Reels (issue #58 guard)", () => {
+    document.body.innerHTML = `
+      <div role="tablist">
+        <div id="shared-flat">
+          <div role="tab" aria-label="feed, 1 of 6"></div>
+          <div id="flat-reels-tab" role="tab" aria-label="reels, 4 of 6"></div>
+          <div role="tab" aria-label="marketplace, 6 of 6"></div>
+        </div>
+      </div>
+    `;
+    applyDom(ruleSet, allOn, new URL("https://m.facebook.com/"), document, { pro: true });
+    expect(document.querySelector("#shared-flat")).not.toBeNull(); // the bar survives…
+    expect(document.querySelector("#flat-reels-tab")).toBeNull(); // …the inner tab still goes (fallback)
+    expect(document.querySelectorAll("#shared-flat > [role=tab]").length).toBe(2);
+  });
+
+  it("leaves every Facebook mobile tab-bar surface intact for a FREE user (monetization gate)", () => {
+    document.body.innerHTML = `
+      <div role="tablist">
+        <div id="slot-reels" class="bg-s2"><div id="free-reels-tab" role="tab" aria-label="reels, 4 of 6"></div></div>
+      </div>
+      <div id="free-reel-button" role="button" aria-label="View reel video from Wally ."></div>
+    `;
+    applyDom(ruleSet, allOn, new URL("https://m.facebook.com/"), document, { pro: false });
+    expect(document.querySelector("#slot-reels")).not.toBeNull();
+    expect(document.querySelector("#free-reels-tab")).not.toBeNull();
+    expect(document.querySelector("#free-reel-button")).not.toBeNull();
+  });
+
   it("does nothing when the service is off", () => {
     document.body.innerHTML = `<ytd-reel-shelf-renderer id="shelf"></ytd-reel-shelf-renderer>`;
     applyDom(ruleSet, settings({ services: servicesWith("youtube") }), new URL("https://www.youtube.com/"), document);

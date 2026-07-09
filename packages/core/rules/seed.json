@@ -246,7 +246,7 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "[role=\"tablist\"] > :has([role=\"tab\"][aria-label*=\"reels\" i])",
+            "[role=\"tablist\"] > :has(> [role=\"tab\"][aria-label*=\"reels\" i]):not(:has(> [role=\"tab\"]:not([aria-label*=\"reels\" i])))",
             "[role=\"tablist\"] > [role=\"tab\"][aria-label*=\"reels\" i]",
             "[role=\"tab\"][aria-label*=\"reels\" i]"
           ]
@@ -294,6 +294,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "7218c8350084077e8fc10b01dd6a8988e245fcf013acfd2a7a3ce8b30d0f19799f74b4de1d7ac0a3e2fc9df6a73875c36433ebf2f19d960594bc10ec6c3b4c0f"
+    "value": "5db551d20a38053ac7974fd46a8f8f57fcb7ed2ecd9d8e340b8e83ef9c3001aaef8489e6102de64b8c7e916eaa3f211acbca25c1079ac6c0103d03a23b6eaf06"
   }
 }
