@@ -53,7 +53,9 @@ final class PurchaseManager {
 
   /// Await an SDK completion with (a) a resume-at-most-once guard — a double completion would be a
   /// fatal SWIFT TASK CONTINUATION MISUSE — and (b) the deadline above so the caller always returns.
-  private static func awaitSettled(_ start: @escaping (@escaping () -> Void) -> Void) async {
+  /// Returns the completion's success flag; the deadline path counts as failure (unknown ≠ settled),
+  /// so callers can fail CLOSED on an identity transition that never confirmably landed.
+  private static func awaitSettled(_ start: @escaping (@escaping (Bool) -> Void) -> Void) async -> Bool {
     final class Once: @unchecked Sendable {
       private let lock = NSLock()
       private var done = false
@@ -66,11 +68,11 @@ final class PurchaseManager {
       }
     }
     let once = Once()
-    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-      start { once.run { continuation.resume() } }
+    return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+      start { succeeded in once.run { continuation.resume(returning: succeeded) } }
       Task {
         try? await Task.sleep(nanoseconds: identityTransitionTimeoutNs)
-        once.run { continuation.resume() } // deadline: settle the bridge; guards gate purchases
+        once.run { continuation.resume(returning: false) } // deadline: settle the bridge, fail closed
       }
     }
   }
@@ -79,8 +81,11 @@ final class PurchaseManager {
   /// Safe to call repeatedly; logs in to re-key on an account switch / restore once configured.
   /// Awaitable so the bridge only acknowledges once the RevenueCat identity transition has settled —
   /// replying before `logIn` completes would let the web layer purchase while RevenueCat is still
-  /// keyed to the previous account. Returns even when `logIn` fails (never hangs a caller); the
-  /// `currentAppUserID` + `PurchaseDecision.readiness` guards remain the purchase-time gate.
+  /// keyed to the previous account. Returns even when `logIn` fails (never hangs a caller) — but a
+  /// failed/unconfirmed re-key CLEARS the configured identity: RevenueCat may still be keyed to the
+  /// previous account, and `currentAppUserID` is what the purchase guards trust, so leaving the new
+  /// id in place would let a purchase be attributed to the wrong account. Purchases stay disabled
+  /// until a later configure (onGet / visibility re-entry) succeeds.
   func configure(appUserID: String) async {
     let key = publicAPIKey
     guard !key.isEmpty else {
@@ -90,8 +95,12 @@ final class PurchaseManager {
     currentAppUserID = appUserID
     if isConfigured {
       // Account-switch / restore recovery path — await the re-key before returning to the caller.
-      await Self.awaitSettled { done in
-        Purchases.shared.logIn(appUserID) { _, _, _ in done() }
+      let rekeyed = await Self.awaitSettled { done in
+        Purchases.shared.logIn(appUserID) { _, _, error in done(error == nil) }
+      }
+      if !rekeyed, currentAppUserID == appUserID {
+        NSLog("PurchaseManager: RevenueCat re-key failed/timed out — purchases disabled until re-entry")
+        currentAppUserID = nil // fail closed, unless a newer configure already took over
       }
       return
     }
@@ -108,8 +117,10 @@ final class PurchaseManager {
     currentAppUserID = nil
     guard isConfigured else { return }
     // Back to an anonymous RevenueCat id; no entitlements. Awaited so a caller's ok means "settled".
-    await Self.awaitSettled { done in
-      Purchases.shared.logOut { _, _ in done() }
+    // A failed logOut needs no extra handling: currentAppUserID is already nil, which fails every
+    // purchase path closed regardless of what RevenueCat is still keyed to.
+    _ = await Self.awaitSettled { done in
+      Purchases.shared.logOut { _, error in done(error == nil) }
     }
   }
 
