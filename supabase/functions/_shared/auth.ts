@@ -42,5 +42,14 @@ export async function withAuthenticatedUser(
   });
   if (!claims || !isUuid(claims.sub)) return jsonResponse(401, { error: "unauthorized" });
 
-  return body(claims.sub, req);
+  try {
+    return await body(claims.sub, req);
+  } catch (error) {
+    // An uncaught body throw (Postgres/RevenueCat down) would otherwise become the platform's
+    // default 500 WITHOUT the CORS headers — a browser caller can't even read the status then, so
+    // backend-error looks identical to offline. Catch here so every gated function inherits a
+    // CORS-carrying, non-leaking 500; details stay in the server log.
+    console.error("authenticated handler failed:", error);
+    return jsonResponse(500, { error: "internal" });
+  }
 }
