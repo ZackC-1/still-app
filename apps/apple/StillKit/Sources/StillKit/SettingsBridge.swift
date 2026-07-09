@@ -41,9 +41,14 @@ public enum BridgeRequest: Equatable, Sendable {
 /// Processes bridge requests against a SharedSettingsStore (the App-Group container in production).
 public struct SettingsBridge {
   private let store: SharedSettingsStore
+  private let notifyChanged: () -> Void
 
-  public init(store: SharedSettingsStore) {
+  /// `notifyChanged` fires after a `set` that actually changed the store — the Darwin broadcast in
+  /// production. Injectable so tests can assert the applied-only gating without posting real
+  /// system-wide notifications (which would reach any concurrently running app/Simulator).
+  public init(store: SharedSettingsStore, notifyChanged: @escaping () -> Void = SettingsBridge.postSettingsChanged) {
     self.store = store
+    self.notifyChanged = notifyChanged
   }
 
   /// Handle a request, mutating the store on `set` by last-write-wins, and return the JSON string the
@@ -61,7 +66,7 @@ public struct SettingsBridge {
       // `set`, and gating on the applied result means a stale/echoed write can't ping-pong
       // notifications between the app and the extension.
       if store.applyRecord(incoming) {
-        Self.postSettingsChanged()
+        notifyChanged()
       }
       return Self.encodeRecord(store.currentRecord())
     }
@@ -76,7 +81,8 @@ public struct SettingsBridge {
 
   /// Post the cross-process change signal on the Darwin notify center — the shared write path for
   /// both hosts, so the app's WKWebView learns about extension writes (and vice versa) immediately.
-  private static func postSettingsChanged() {
+  /// Public only as the injectable default for `init(store:notifyChanged:)`.
+  public static func postSettingsChanged() {
     CFNotificationCenterPostNotification(
       CFNotificationCenterGetDarwinNotifyCenter(),
       CFNotificationName(StillSettingsChangedNotification.name as CFString),
