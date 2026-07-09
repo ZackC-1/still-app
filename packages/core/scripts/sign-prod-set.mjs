@@ -1,9 +1,13 @@
 // Sign the PRODUCTION rule set and write the publish migration.
 //
 // Reads the rule content from packages/core/rules/seed.json (the canonical rule set), signs
-// {version, services} with the PRODUCTION key, and writes supabase/migrations/0006_prod_rule_set.sql
-// (which flips the previous current set off and inserts this one as current). The payload + signature
-// are PUBLIC — safe to commit; the signing private key is never written anywhere by this script.
+// {version, services} with the PRODUCTION key, and writes a FRESH sequentially-numbered migration
+// (supabase/migrations/<NNNN>_prod_rule_set_v<version>.sql) that flips the previous current set off
+// and inserts this one as current. A new file per publish matters: `supabase db push` records
+// applied migration ids and SKIPS ones it has seen, so rewriting one fixed file (the old 0006
+// behavior) silently never reached hosted databases on later publishes. Re-running for the SAME
+// version overwrites that version's own migration (idempotent). The payload + signature are
+// PUBLIC — safe to commit; the signing private key is never written anywhere by this script.
 //
 // Private key resolution: STILL_PROD_PRIVATE_KEY_HEX env wins, else the gitignored file written by
 // gen-rule-set-key.mjs. Version: STILL_PROD_VERSION env, else the seed version with the patch bumped
@@ -11,7 +15,7 @@
 //
 // Run:  pnpm --filter @still/core sign-prod-set       (after gen-rule-set-key + populating trusted-keys)
 
-import { readFileSync, writeFileSync, existsSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import * as ed from "@noble/ed25519";
@@ -76,11 +80,30 @@ on conflict (version) do update
   set payload = excluded.payload, signature = excluded.signature, is_current = true;
 `;
 
-const migPath = join(here, "..", "..", "..", "supabase", "migrations", "0006_prod_rule_set.sql");
-writeFileSync(migPath, sql);
+// A fresh migration id per publish (db push skips ids it already applied); same-version re-runs
+// overwrite their own file. The initial publish shipped as 0006_prod_rule_set.sql — treated as the
+// migration for its own version so a plain re-run doesn't mint a duplicate.
+const migDir = join(here, "..", "..", "..", "supabase", "migrations");
+const versionSlug = version.replace(/[^0-9A-Za-z]+/g, "_");
+const numbered = readdirSync(migDir).filter((f) => /^\d{4}_.+\.sql$/.test(f));
+const legacyInitial = "0006_prod_rule_set.sql";
+const forThisVersion =
+  numbered.find((f) => f.endsWith(`_prod_rule_set_v${versionSlug}.sql`)) ??
+  (numbered.includes(legacyInitial) && !migrationBumpedPast(migDir, legacyInitial, version)
+    ? legacyInitial
+    : null);
+const nextId = String(Math.max(...numbered.map((f) => Number(f.slice(0, 4)))) + 1).padStart(4, "0");
+const migName = forThisVersion ?? `${nextId}_prod_rule_set_v${versionSlug}.sql`;
+writeFileSync(join(migDir, migName), sql);
+
+/** True when the legacy fixed-name migration holds a DIFFERENT version than this publish. */
+function migrationBumpedPast(dir, file, v) {
+  const m = /values \(\s*'([^']+)'/.exec(readFileSync(join(dir, file), "utf8"));
+  return m !== null && m[1] !== v;
+}
 
 console.log(`Signed the production rule set.`);
 console.log(`  version : ${version}  (bundled seed is ${seed.version})`);
 console.log(`  kid     : ${KID}`);
-console.log(`  migration: supabase/migrations/0006_prod_rule_set.sql`);
+console.log(`  migration: supabase/migrations/${migName}`);
 console.log(`\nNext: apply it to hosted Supabase — \`supabase db push\` (linked project) or paste the SQL.`);
