@@ -42,6 +42,16 @@ describe("parseSettings", () => {
     expect(parsed?.services).not.toHaveProperty("entitlement");
   });
 
+  it("ignores stored pauses while the pause UI is removed — no unreachable dead-site state", () => {
+    // PR #42 removed the pause-on-this-site control, but the engine and the Chromium DNR gate still
+    // honor stored pauses — an upgraded user with youtube.com paused would have Still disabled there
+    // with no way to resume. Valid pauses normalize to []; malformed ones still reject (corruption).
+    expect(parseSettings({ ...valid, pauses: ["youtube.com"] })).toEqual({ ...valid, pauses: [] });
+    expect(
+      parseSettings(JSON.stringify({ ...valid, pauses: ["youtube.com", "tiktok.com"] })),
+    ).toEqual({ ...valid, pauses: [] });
+  });
+
   it("back-compat: absent pauses defaults to [], absent service defaults off (no settings wipe)", () => {
     // A blob that predates the `pauses` field must NOT be discarded — dropping it makes readProfile()
     // return null and silently wipes the user's synced settings on upgrade.
