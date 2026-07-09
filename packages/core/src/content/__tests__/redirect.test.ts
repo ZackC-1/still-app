@@ -231,10 +231,13 @@ describe("earlyShortsRedirect (Safari/Firefox hard-nav path)", () => {
     expect(redirectPort.replace).toHaveBeenCalledWith("https://m.youtube.com/watch?v=mobile123");
   });
 
+  // NOTE: no "paused youtube.com" case — legacy pauses are neutralized to [] at the parseSettings
+  // choke point (the pause UI was removed), so a paused snapshot can never reach this evaluate in
+  // production. A test asserting pause-gating here would only pass because InMemoryStorageAdapter
+  // bypasses the production parse.
   it.each([
     ["YouTube off", { ...DEFAULT_SETTINGS, services: { ...DEFAULT_SETTINGS.services, youtube: false }, updatedAt: 1 }],
     ["globally off", { ...DEFAULT_SETTINGS, globalOn: false, updatedAt: 1 }],
-    ["youtube.com paused", { ...DEFAULT_SETTINGS, pauses: ["youtube.com"], updatedAt: 1 }],
   ] as Array<[string, StillSettings]>)(
     "never redirects when the PERSISTED settings say %s (Codex PR #29)",
     async (_label, persisted) => {
@@ -252,6 +255,42 @@ describe("earlyShortsRedirect (Safari/Firefox hard-nav path)", () => {
     const redirectPort = { replace: vi.fn() };
     await earlyShortsRedirect({ win, ruleSet, cache: cacheWith(null), redirectPort });
     expect(redirectPort.replace).not.toHaveBeenCalled();
+  });
+
+  it("bails when the page navigated away during the settings read (stale-capture guard)", async () => {
+    const win = makeWin("https://m.youtube.com/shorts/mobile123");
+    const redirectPort = { replace: vi.fn() };
+    const { cache, release } = gatedCache(null);
+    const pending = earlyShortsRedirect({ win, ruleSet, cache, redirectPort });
+    // An SPA/script navigation lands while the settings read is in flight.
+    win.setHref("https://m.youtube.com/watch?v=other");
+    release();
+    await pending;
+    expect(redirectPort.replace).not.toHaveBeenCalled();
+  });
+
+  it("shares the dedupe cell with the content script — ONE replace per navigation", async () => {
+    const win = makeWin("https://m.youtube.com/shorts/mobile123");
+    const redirectPort = { replace: vi.fn() };
+    const cache = cacheWith(null);
+    const redirectDedupe = { lastRedirect: null };
+    // The entrypoint wiring: early redirect and the content script run on the same document with
+    // the same cell. The early replace must not be repeated by the post-hydration reapply (the
+    // fake location doesn't actually navigate, mirroring the real pre-commit window).
+    await earlyShortsRedirect({ win, ruleSet, cache, redirectPort, redirectDedupe });
+    expect(redirectPort.replace).toHaveBeenCalledTimes(1);
+    const cs = createContentScript({
+      win,
+      doc: document,
+      ruleSet,
+      cache,
+      redirectPort,
+      schedule: sync,
+      redirectDedupe,
+    });
+    await cs.start();
+    expect(redirectPort.replace).toHaveBeenCalledTimes(1); // still one — reapply deduped
+    cs.stop();
   });
 });
 

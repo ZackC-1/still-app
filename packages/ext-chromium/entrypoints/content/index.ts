@@ -1,6 +1,11 @@
 import "./still.css"; // packaged critical CSS (manifest content_scripts css, KTD2)
 import "./still-pro.css"; // packaged Pro CSS gated by html.still-pro-active
-import { createContentScript, earlyShortsRedirect, type StillWindow } from "@still/core/content";
+import {
+  createContentScript,
+  earlyShortsRedirect,
+  type RedirectDedupe,
+  type StillWindow,
+} from "@still/core/content";
 import { EntitlementCache, ChromeEntitlementAdapter } from "@still/core/entitlement";
 import { SettingsCache, ChromeStorageAdapter } from "@still/core/storage";
 import { resolveRuleSetForLoad, ruleSetTrust } from "@still/core/rules";
@@ -26,15 +31,18 @@ export default defineContentScript({
     // Firefox ships NO DNR redirect (wxt.config omits the ruleset — Firefox doesn't support the
     // regexSubstitution redirect), so there the content script is the ONLY Shorts redirect. Fire it
     // ahead of the ruleset read below: it awaits only the persisted settings (one storage read), so
-    // a cold nav to m.youtube.com/shorts/<id> redirects before the page hydrates, and an off/paused
-    // user is never redirected. Chromium keeps DNR-only: it redirects at the network layer, is
-    // correctly gated on the setting, and needs no content-script pre-redirect.
+    // a cold nav to m.youtube.com/shorts/<id> redirects before the page hydrates, and a
+    // disabled/off user is never redirected. Chromium keeps DNR-only: it redirects at the network
+    // layer, is correctly gated on the setting, and needs no content-script pre-redirect. The
+    // shared dedupe cell keeps this and the post-hydration reapply to ONE replace per URL.
+    const redirectDedupe: RedirectDedupe = { lastRedirect: null };
     if (import.meta.env.FIREFOX) {
-      void earlyShortsRedirect({
+      earlyShortsRedirect({
         win: window as unknown as StillWindow,
         ruleSet: seed as unknown as SignedRuleSet,
         cache,
-      });
+        redirectDedupe,
+      }).catch(() => {}); // storage failure → no early redirect; the hydrated reapply still owns it
     }
 
     // Apply the newest of {cached, bundled}. The cached set is re-verified against THIS build's
@@ -54,6 +62,7 @@ export default defineContentScript({
       ruleSet,
       cache,
       entitlement,
+      redirectDedupe,
       // The packaged manifest CSS is generated from the bundled seed: when that's what applies,
       // the per-frame reapply can skip hide surfaces entirely (CSS owns them) and only run removes.
       manifestCssOwnsHides: source === "bundled",
