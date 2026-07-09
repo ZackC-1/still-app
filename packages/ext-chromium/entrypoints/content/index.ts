@@ -3,7 +3,7 @@ import "./still-pro.css"; // packaged Pro CSS gated by html.still-pro-active
 import { createContentScript, type StillWindow } from "@still/core/content";
 import { EntitlementCache, ChromeEntitlementAdapter } from "@still/core/entitlement";
 import { SettingsCache, ChromeStorageAdapter } from "@still/core/storage";
-import { resolveRuleSetForLoad } from "@still/core/rules";
+import { resolveRuleSetForLoad, ruleSetTrust } from "@still/core/rules";
 import seed from "@still/core/seed";
 import type { SignedRuleSet } from "@still/shared-types";
 
@@ -23,13 +23,15 @@ export default defineContentScript({
     const cache = new SettingsCache(new ChromeStorageAdapter());
     const entitlement = new EntitlementCache(new ChromeEntitlementAdapter());
 
-    // Apply the newest of {cached, bundled}. The cached set was signature-verified by the
-    // background before it was stored; the bundled seed is the trusted offline floor packaged with
+    // Apply the newest of {cached, bundled}. The cached set is re-verified against THIS build's
+    // trusted keys on read (storage outlives builds — a stale dev-signed or tampered cache must
+    // not beat the bundled seed); the bundled seed is the trusted offline floor packaged with
     // the extension. A fast local storage read — no network on the apply path. (The hard-nav
     // Shorts redirect is DNR, so this await doesn't sit on that path.)
     const { ruleSet, source } = await resolveRuleSetForLoad(
       seed as unknown as SignedRuleSet,
       chrome.storage.local,
+      ruleSetTrust(import.meta.env.PROD),
     );
 
     const script = createContentScript({

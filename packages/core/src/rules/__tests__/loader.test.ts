@@ -6,6 +6,7 @@ import type { SignedRuleSet } from "@still/shared-types";
 import seed from "../../../rules/seed.json";
 import {
   ruleSetTrustedKeys,
+  ruleSetTrust,
   ruleSetFetchConfig,
   readCachedRuleSet,
   writeCachedRuleSet,
@@ -48,6 +49,8 @@ const cfgWith = (fetchImpl: typeof fetch): FetchConfig => ({
   minVersion: "1.0.0",
   fetchImpl,
 });
+// The dev-build trust anchor used by the read/load paths in these tests.
+const DEV_TRUST = { allowedKeys: DEV_RULE_SET_KEYS, minVersion: "1.0.0" } as const;
 
 describe("rule-set build gating", () => {
   const DEV_KIDS = DEV_RULE_SET_KEYS.map((k) => k.kid);
@@ -92,16 +95,42 @@ describe("rule-set cache", () => {
     const area = memArea();
     const set = await signedAt("2.0.0");
     await writeCachedRuleSet(area, set);
-    expect((await readCachedRuleSet(area))?.version).toBe("2.0.0");
+    expect((await readCachedRuleSet(area, DEV_TRUST))?.version).toBe("2.0.0");
   });
 
   it("returns null when nothing is cached", async () => {
-    expect(await readCachedRuleSet(memArea())).toBeNull();
+    expect(await readCachedRuleSet(memArea(), DEV_TRUST)).toBeNull();
   });
 
   it("a write failure is swallowed (bundled seed still applies)", async () => {
     const failing = { set: () => Promise.reject(new Error("quota")) };
     await expect(writeCachedRuleSet(failing, bundled)).resolves.toBeUndefined();
+  });
+
+  // Storage outlives builds: the read path must re-verify, not trust verified-before-store.
+  it("rejects a cached set whose key this build does not trust (dev cache in a prod build)", async () => {
+    const area = memArea();
+    await writeCachedRuleSet(area, await signedAt("9.9.9")); // dev-signed
+    expect(await readCachedRuleSet(area, ruleSetTrust(true))).toBeNull();
+  });
+
+  it("rejects a tampered cached set (signature no longer matches)", async () => {
+    const area = memArea();
+    const valid = await signedAt("2.0.0");
+    await writeCachedRuleSet(area, { ...valid, version: "2.0.1" });
+    expect(await readCachedRuleSet(area, DEV_TRUST)).toBeNull();
+  });
+
+  it("rejects a schema-invalid cached blob", async () => {
+    const area = memArea();
+    area.store.set("still:ruleset", { version: "9.9.9", services: "not-an-object" });
+    expect(await readCachedRuleSet(area, DEV_TRUST)).toBeNull();
+  });
+
+  it("rejects a cached set below this build's version floor", async () => {
+    const area = memArea();
+    await writeCachedRuleSet(area, await signedAt("0.9.0"));
+    expect(await readCachedRuleSet(area, DEV_TRUST)).toBeNull(); // floor is 1.0.0
   });
 });
 
@@ -111,7 +140,7 @@ describe("refreshRuleSetCache", () => {
     const newer = await signedAt("2.0.0");
     const got = await refreshRuleSetCache(cfgWith(fetchReturning(newer)), area);
     expect(got?.version).toBe("2.0.0");
-    expect((await readCachedRuleSet(area))?.version).toBe("2.0.0");
+    expect((await readCachedRuleSet(area, DEV_TRUST))?.version).toBe("2.0.0");
   });
 
   it("a tampered/unverifiable response is not cached (null)", async () => {
@@ -120,7 +149,7 @@ describe("refreshRuleSetCache", () => {
     const tampered = { ...valid, version: "2.0.1" }; // signature is for 2.0.0 → mismatch
     const got = await refreshRuleSetCache(cfgWith(fetchReturning(tampered)), area);
     expect(got).toBeNull();
-    expect(await readCachedRuleSet(area)).toBeNull();
+    expect(await readCachedRuleSet(area, DEV_TRUST)).toBeNull();
   });
 
   it("a null config (no endpoint / prod w/o keys) is a no-op", async () => {
@@ -128,19 +157,37 @@ describe("refreshRuleSetCache", () => {
     expect(await refreshRuleSetCache(null, area)).toBeNull();
     expect(area.store.size).toBe(0);
   });
+
+  // A rollback / stale deployment must not clobber a newer cached hotfix.
+  it("keeps a strictly newer cached set when the endpoint serves an older one", async () => {
+    const area = memArea();
+    await writeCachedRuleSet(area, await signedAt("3.0.0"));
+    const older = await signedAt("2.0.0");
+    const got = await refreshRuleSetCache(cfgWith(fetchReturning(older)), area);
+    expect(got?.version).toBe("2.0.0"); // fetch itself succeeded…
+    expect((await readCachedRuleSet(area, DEV_TRUST))?.version).toBe("3.0.0"); // …but the cache kept the hotfix
+  });
+
+  it("replaces an older cache with a newer fetched set", async () => {
+    const area = memArea();
+    await writeCachedRuleSet(area, await signedAt("2.0.0"));
+    const newer = await signedAt("3.0.0");
+    await refreshRuleSetCache(cfgWith(fetchReturning(newer)), area);
+    expect((await readCachedRuleSet(area, DEV_TRUST))?.version).toBe("3.0.0");
+  });
 });
 
 describe("resolveRuleSetForLoad", () => {
   it("uses a newer cached set over the bundled seed", async () => {
     const area = memArea();
     await writeCachedRuleSet(area, await signedAt("9.9.9"));
-    const { ruleSet, source } = await resolveRuleSetForLoad(bundled, area);
+    const { ruleSet, source } = await resolveRuleSetForLoad(bundled, area, DEV_TRUST);
     expect(source).toBe("cached");
     expect(ruleSet.version).toBe("9.9.9");
   });
 
   it("falls back to the bundled seed when nothing is cached", async () => {
-    const { ruleSet, source } = await resolveRuleSetForLoad(bundled, memArea());
+    const { ruleSet, source } = await resolveRuleSetForLoad(bundled, memArea(), DEV_TRUST);
     expect(source).toBe("bundled");
     expect(ruleSet.version).toBe(bundled.version);
   });
@@ -148,7 +195,15 @@ describe("resolveRuleSetForLoad", () => {
   it("ignores an older cached set (rollback floor of the bundled seed)", async () => {
     const area = memArea();
     await writeCachedRuleSet(area, await signedAt("0.9.0"));
-    const { source } = await resolveRuleSetForLoad(bundled, area);
+    const { source } = await resolveRuleSetForLoad(bundled, area, DEV_TRUST);
     expect(source).toBe("bundled"); // bundled 1.0.0 > cached 0.9.0
+  });
+
+  it("falls back to the bundled seed when the cache fails this build's trust anchor", async () => {
+    const area = memArea();
+    await writeCachedRuleSet(area, await signedAt("9.9.9")); // dev-signed, higher version
+    const { ruleSet, source } = await resolveRuleSetForLoad(bundled, area, ruleSetTrust(true));
+    expect(source).toBe("bundled"); // a prod build never applies a dev-signed cache
+    expect(ruleSet.version).toBe(bundled.version);
   });
 });

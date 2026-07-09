@@ -5,7 +5,7 @@ import { EntitlementCache, ChromeEntitlementAdapter } from "@still/core/entitlem
 import { SettingsCache, ChromeStorageAdapter } from "@still/core/storage";
 import seed from "@still/core/seed";
 import type { SignedRuleSet } from "@still/shared-types";
-import { resolveRuleSetForLoad } from "@still/core/rules";
+import { resolveRuleSetForLoad, ruleSetTrust } from "@still/core/rules";
 
 // The document_start content script for Safari. Same shared engine as Chromium, but on Safari there
 // is no declarativeNetRequest: the Shorts→watch redirect is the content script's own location.replace
@@ -29,12 +29,14 @@ export default defineContentScript({
     const cache = new SettingsCache(new ChromeStorageAdapter());
     const entitlement = new EntitlementCache(new ChromeEntitlementAdapter());
 
-    // Apply the newest of {cached, bundled}. The cached set was signature-verified by the background
-    // before it was stored; the bundled seed is the trusted offline floor packaged with the signed
+    // Apply the newest of {cached, bundled}. The cached set is re-verified against THIS build's
+    // trusted keys on read (storage outlives builds — a stale dev-signed or tampered cache must not
+    // beat the bundled seed); the bundled seed is the trusted offline floor packaged with the signed
     // extension (P1 #6). A fast local storage read — no network on the apply path.
     const { ruleSet, source } = await resolveRuleSetForLoad(
       seed as unknown as SignedRuleSet,
       browser.storage.local,
+      ruleSetTrust(import.meta.env.PROD),
     );
 
     const script = createContentScript({
