@@ -2,7 +2,7 @@ import type { SignedRuleSet } from "@still/shared-types";
 import { fetchCurrentRuleSet, resolveRuleSet } from "./fetch.js";
 import type { FetchConfig, ResolvedRuleSet, RuleSetEndpoint } from "./fetch.js";
 import { validateRuleSet } from "./schema.js";
-import { verifyRuleSet, type TrustedKey } from "./signature.js";
+import { verifyRuleSet, type TrustedKey, type VerifyOptions } from "./signature.js";
 import { compareVersions } from "./version.js";
 import {
   DEV_RULE_SET_KEYS,
@@ -48,11 +48,9 @@ export interface WritableArea {
   set(items: Record<string, unknown>): Promise<void>;
 }
 
-/** The trust anchor a cached rule set must satisfy before it may beat the bundled seed. */
-export interface RuleSetTrust {
-  readonly allowedKeys: readonly TrustedKey[];
-  readonly minVersion: string;
-}
+/** The trust anchor a cached rule set must satisfy before it may beat the bundled seed — the same
+ * shape signature verification takes (alias, not a parallel type, so the two can't drift). */
+export type RuleSetTrust = VerifyOptions;
 
 /** This build's trust anchor: prod keys in prod, the dev key in dev (mirrors ruleSetTrustedKeys). */
 export function ruleSetTrust(prod: boolean): RuleSetTrust {
@@ -104,10 +102,7 @@ export async function refreshRuleSetCache(
   if (!cfg) return null;
   const fetched = await fetchCurrentRuleSet(cfg);
   if (!fetched) return null;
-  const cached = await readCachedRuleSet(area, {
-    allowedKeys: cfg.allowedKeys,
-    minVersion: cfg.minVersion,
-  });
+  const cached = await readCachedRuleSet(area, cfg); // FetchConfig carries the trust fields
   if (!cached || compareVersions(fetched.version, cached.version) > 0) {
     await writeCachedRuleSet(area, fetched);
   }
