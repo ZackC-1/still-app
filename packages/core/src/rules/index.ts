@@ -29,6 +29,7 @@ export {
   generateHideCss,
   renderPlaceholder,
   isServiceActive,
+  isServiceEnabledGlobally,
   isPaused,
   ROOT_ACTIVE_CLASS,
   STILL_PLACEHOLDER_LINE,

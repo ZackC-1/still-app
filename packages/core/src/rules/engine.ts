@@ -30,11 +30,23 @@ export interface ApplyResult {
   readonly removed: number;
 }
 
+/**
+ * The URL-free half of `isServiceActive`: "this service is on globally" — the master switch AND the
+ * service toggle. The ONE predicate the engine and the ext-chromium background's DNR gate share
+ * (R2), so the two can't drift. Pauses are deliberately NOT consulted here: they are host-scoped
+ * (URL-dependent), and dropping them from the background gate — which used to check
+ * `pauses.includes("youtube.com")` inline — is behavior-preserving in production, because
+ * parseSettings normalizes stored `pauses` to [] on every reparse (the pause UI was removed
+ * 2026-07-06; per-URL pauses remain isServiceActive's concern below).
+ */
+export function isServiceEnabledGlobally(settings: StillSettings, serviceId: ServiceId): boolean {
+  if (!settings.globalOn) return false;
+  return settings.services[serviceId] === true; // absent/brand-new service ⇒ off
+}
+
 /** True when the current host's service is on: global on, service toggle on, and host not paused. */
 export function isServiceActive(settings: StillSettings, serviceId: ServiceId, url: URL): boolean {
-  if (!settings.globalOn) return false;
-  if (settings.services[serviceId] !== true) return false; // absent/brand-new service ⇒ off
-  return !isPaused(settings, url);
+  return isServiceEnabledGlobally(settings, serviceId) && !isPaused(settings, url);
 }
 
 /** True when the URL's eTLD+1 is in the user's pause list. */
