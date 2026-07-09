@@ -7,9 +7,11 @@ import {
   applyDom,
   applyRemovals,
   generateHideCss,
+  renderPlaceholder,
   ROOT_ACTIVE_CLASS,
   resolveActiveService,
   ALWAYS_FREE_SURFACE_IDS,
+  STILL_PLACEHOLDER_LINE,
 } from "../engine.js";
 
 const ruleSet = seed as unknown as SignedRuleSet;
@@ -333,5 +335,36 @@ describe("generateHideCss (KTD2)", () => {
     expect(freeCss).toContain("ytd-guide-entry-renderer");
     expect(freeCss).not.toContain('a[href="/reels/"]');
     expect(freeCss).not.toContain('li:has(> a[href*="/reel"])');
+  });
+});
+
+describe("renderPlaceholder", () => {
+  beforeEach(() => {
+    document.body.innerHTML = `<div id="page">feed</div>`;
+  });
+
+  it("replaces the body with the placeholder once", () => {
+    renderPlaceholder(document);
+    const root = document.getElementById("still-placeholder");
+    expect(root).not.toBeNull();
+    expect(document.getElementById("page")).toBeNull();
+    expect(root?.querySelector("p")?.textContent).toBe(STILL_PLACEHOLDER_LINE);
+  });
+
+  it("no-ops when the placeholder is already up (observer-loop guard)", () => {
+    renderPlaceholder(document);
+    const first = document.getElementById("still-placeholder");
+    renderPlaceholder(document);
+    // Same node, not a fresh replaceChildren — a re-render would re-trigger the reapply observer.
+    expect(document.getElementById("still-placeholder")).toBe(first);
+    expect(document.body.childElementCount).toBe(1);
+  });
+
+  it("updates the copy in place when the line changes", () => {
+    renderPlaceholder(document, "one");
+    const first = document.getElementById("still-placeholder");
+    renderPlaceholder(document, "two");
+    expect(document.getElementById("still-placeholder")).toBe(first);
+    expect(first?.querySelector("p")?.textContent).toBe("two");
   });
 });
