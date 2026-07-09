@@ -116,7 +116,10 @@ export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, Checke
       .on(
         "postgres_changes",
         {
-          event: "UPDATE",
+          // "*" (INSERT + UPDATE): the FIRST cloud write for a user is an INSERT — the profiles row
+          // is only ever created by write_profile_settings' insert…on conflict path, so an
+          // UPDATE-only stream misses another device's first write until a reconnect.
+          event: "*",
           schema: "public",
           table: "profiles",
           filter: `id=eq.${userId}`,
