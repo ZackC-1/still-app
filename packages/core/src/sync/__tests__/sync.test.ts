@@ -555,14 +555,16 @@ describe("SyncService", () => {
     expect(svc.getState().syncing).toBe(true);
   });
 
-  it("a false answer stops sync (resume semantics)", async () => {
+  it("a false answer stops sync (resume semantics) and still counts as CONFIRMED", async () => {
     const cache = makeCache();
     await cache.hydrate();
     const d = mockBackend({ entitled: true });
     const svc = new SyncService(cache, mockAuth().auth, d.backend);
     await svc.onSignedIn(USER);
     await svc.onEntitlementConfirmed(USER, false);
-    expect(svc.getState()).toMatchObject({ entitled: false, syncing: false });
+    // confirmed:true is load-bearing: the caller's reconcile settled the answer, so hosts may
+    // stamp the entitled:false into native records (a plain resume() would be confirmed:false).
+    expect(svc.getState()).toMatchObject({ entitled: false, syncing: false, confirmed: true });
   });
 
   // ── account deletion (App Store 5.1.1) ──────────────────────────────────────────────────────────
