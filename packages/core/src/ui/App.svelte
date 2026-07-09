@@ -53,7 +53,8 @@
   </div>
 
   <!-- Per-site pause UI removed 2026-07-06 (founder call: popup must fit one panel; feature may
-       return). The controller's pause logic is intact — no host passes currentHost anymore. -->
+       return). The controller/cache pause mutators went with it (R1) — only the dormant `pauses`
+       settings field and engine.isPaused remain as the seam for its return. -->
 
   <!-- Account management (App Store 5.1.1): privacy policy link + in-app account deletion. -->
   {#snippet accountManagement()}

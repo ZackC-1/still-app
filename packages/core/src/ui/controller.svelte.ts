@@ -8,7 +8,6 @@ import type {
   VerifyCodeOutcome,
   WebCheckoutOutcome,
 } from "../sync/ports.js";
-import { etldPlusOne } from "../rules/match.js";
 
 // The host-agnostic view-model for the shared UI (KTD4). It reads/writes settings through the
 // injected SettingsCache and exposes the sync/auth/paywall state matrix (U9). The same controller
@@ -107,8 +106,6 @@ export const CHECKOUT_PENDING_TTL_MS = 24 * 60 * 60_000;
 export interface UiHost {
   /** false on hosts with no purchase path (non-Apple desktop): explanatory paywall, no CTA (R19). */
   readonly canPurchase: boolean;
-  /** The active tab's host for the per-site pause control. Absent on the options page. */
-  readonly currentHost?: string;
 }
 
 export interface UiAuth {
@@ -349,12 +346,6 @@ export class UiController {
     return "entitled-syncing";
   }
 
-  get currentPaused(): boolean {
-    return this.host.currentHost
-      ? this.settings.pauses.includes(etldPlusOne(this.host.currentHost))
-      : false;
-  }
-
   /** Whether the host wired account deletion (so the UI shows the Delete account affordance, R/5.1.1). */
   get canDeleteAccount(): boolean {
     return typeof this.auth?.deleteAccount === "function";
@@ -413,13 +404,6 @@ export class UiController {
   /** Tap on a locked row: the Pro discovery surface. */
   lockedTap(): void {
     this.startUpgrade();
-  }
-
-  togglePause(): void {
-    const host = this.host.currentHost;
-    if (!host) return;
-    if (this.currentPaused) void this.cache.resumeHost(host);
-    else void this.cache.pauseHost(host);
   }
 
   openSignIn(): void {

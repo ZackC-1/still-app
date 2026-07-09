@@ -14,10 +14,20 @@ export interface EntitlementStore {
   ): Promise<void>;
 }
 
-/** Small JSON Response helper shared by both functions. */
+export const corsHeaders = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-headers": "authorization, x-client-info, apikey, content-type",
+  "access-control-allow-methods": "POST, OPTIONS",
+};
+
+export function optionsResponse(): Response {
+  return new Response(null, { status: 204, headers: corsHeaders });
+}
+
+/** Small JSON Response helper shared by the functions. */
 export function jsonResponse(status: number, body: unknown): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json" },
+    headers: { ...corsHeaders, "content-type": "application/json" },
   });
 }

@@ -89,24 +89,41 @@ export async function writeCachedRuleSet(area: WritableArea, set: SignedRuleSet)
   }
 }
 
+/** The single in-flight refresh (R6 single-flight). ONE unkeyed module-level slot is deliberate:
+ * every extension build has exactly one background context with one fetch config per process, so
+ * concurrent callers always carry an equivalent cfg — per-config keying would buy nothing. */
+let refreshInFlight: Promise<SignedRuleSet | null> | null = null;
+
 /**
  * Background refresh: fetch + verify the current signed set and cache it for the NEXT page load.
  * Returns the verified set, or null on any failure / skip. Never throws — the content script always
  * has the bundled seed regardless. A fetched set is only persisted when STRICTLY newer than the
  * existing (verified) cache, so a rolled-back or stale deployment can't clobber a newer hotfix.
+ *
+ * Single-flight (R6): N service tabs navigating at once fire N concurrent refreshes against the one
+ * cache slot; callers arriving while a refresh is in flight share ITS promise instead of fanning out
+ * parallel fetch+read+write passes (the write-side version compare already made the race benign —
+ * this is fan-out elimination, not a correctness fix). The slot clears in a finally, so a later call
+ * fetches fresh and a rejection (fetchCurrentRuleSet never throws, but defensively) can't wedge it.
  */
-export async function refreshRuleSetCache(
+export function refreshRuleSetCache(
   cfg: FetchConfig | null,
   area: ReadableArea & WritableArea,
 ): Promise<SignedRuleSet | null> {
-  if (!cfg) return null;
-  const fetched = await fetchCurrentRuleSet(cfg);
-  if (!fetched) return null;
-  const cached = await readCachedRuleSet(area, cfg); // FetchConfig carries the trust fields
-  if (!cached || compareVersions(fetched.version, cached.version) > 0) {
-    await writeCachedRuleSet(area, fetched);
-  }
-  return fetched;
+  if (!cfg) return Promise.resolve(null);
+  if (refreshInFlight) return refreshInFlight;
+  refreshInFlight = (async (): Promise<SignedRuleSet | null> => {
+    const fetched = await fetchCurrentRuleSet(cfg);
+    if (!fetched) return null;
+    const cached = await readCachedRuleSet(area, cfg); // FetchConfig carries the trust fields
+    if (!cached || compareVersions(fetched.version, cached.version) > 0) {
+      await writeCachedRuleSet(area, fetched);
+    }
+    return fetched;
+  })().finally(() => {
+    refreshInFlight = null;
+  });
+  return refreshInFlight;
 }
 
 /**

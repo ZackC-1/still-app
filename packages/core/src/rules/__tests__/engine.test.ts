@@ -10,6 +10,8 @@ import {
   renderPlaceholder,
   ROOT_ACTIVE_CLASS,
   resolveActiveService,
+  isServiceActive,
+  isServiceEnabledGlobally,
   ALWAYS_FREE_SURFACE_IDS,
   STILL_PLACEHOLDER_LINE,
 } from "../engine.js";
@@ -43,6 +45,28 @@ describe("resolveActiveService — one contract for evaluate + applyDom (U6)", (
     const off = settings({ services: servicesWith("youtube") });
     expect(evaluate(ruleSet, off, yt).kind).toBe("noop");
     expect(applyDom(ruleSet, off, yt, document)).toEqual({ hidden: 0, removed: 0 });
+  });
+});
+
+describe("isServiceEnabledGlobally — the URL-free gate the DNR wiring shares (R2)", () => {
+  it("true only when BOTH the master switch and the service toggle are on", () => {
+    expect(isServiceEnabledGlobally(allOn, "youtube")).toBe(true);
+    expect(isServiceEnabledGlobally(settings({ globalOn: false }), "youtube")).toBe(false);
+    expect(isServiceEnabledGlobally(settings({ services: servicesWith("youtube") }), "youtube")).toBe(false);
+    // Both off at once is still off — the matrix has no surprising diagonal.
+    expect(
+      isServiceEnabledGlobally(settings({ globalOn: false, services: servicesWith("youtube") }), "youtube"),
+    ).toBe(false);
+  });
+
+  it("never consults pauses (host-scoped, URL-dependent) — per-URL pausing stays isServiceActive's job", () => {
+    const paused = settings({ pauses: ["youtube.com"] });
+    // Globally the service is on even with its own eTLD+1 in the pause list (which parseSettings
+    // normalizes to [] in production anyway)…
+    expect(isServiceEnabledGlobally(paused, "youtube")).toBe(true);
+    // …while the URL-aware predicate still honors the pause on a matching URL.
+    expect(isServiceActive(paused, "youtube", new URL("https://m.youtube.com/shorts/abc"))).toBe(false);
+    expect(isServiceActive(allOn, "youtube", new URL("https://m.youtube.com/shorts/abc"))).toBe(true);
   });
 });
 

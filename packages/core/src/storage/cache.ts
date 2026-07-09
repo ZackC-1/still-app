@@ -1,6 +1,5 @@
 import type { ServiceId, StillSettings } from "@still/shared-types";
 import { DEFAULT_SETTINGS } from "@still/shared-types";
-import { etldPlusOne } from "../rules/match.js";
 import type {
   SettingsSyncMetadata,
   StorageAdapter,
@@ -108,21 +107,8 @@ export class SettingsCache {
     return this.commit({ ...this.snapshot, services: { ...this.snapshot.services, [id]: on } });
   }
 
-  /** True when the host's eTLD+1 is paused. */
-  isPausedHost(host: string): boolean {
-    return this.snapshot.pauses.includes(etldPlusOne(host));
-  }
-
-  pauseHost(host: string): Promise<StillSettings> {
-    const key = etldPlusOne(host);
-    if (this.snapshot.pauses.includes(key)) return Promise.resolve(this.snapshot);
-    return this.commit({ ...this.snapshot, pauses: [...this.snapshot.pauses, key] });
-  }
-
-  resumeHost(host: string): Promise<StillSettings> {
-    const key = etldPlusOne(host);
-    return this.commit({ ...this.snapshot, pauses: this.snapshot.pauses.filter((p) => p !== key) });
-  }
+  // No pause mutators: they were removed with the pause-on-this-site UI (R1) — any write here would
+  // be silently erased anyway, since parseSettings normalizes stored `pauses` to [] on every reparse.
 
   /** Apply a mutation: stamp a fresh updatedAt, persist locally, and notify. No network. */
   private async commit(next: StillSettings): Promise<StillSettings> {

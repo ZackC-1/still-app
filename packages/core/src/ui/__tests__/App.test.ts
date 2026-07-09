@@ -33,7 +33,7 @@ function controller(
   });
   return new UiController({
     cache,
-    host: { canPurchase: true, currentHost: "youtube.com", ...opts.host },
+    host: { canPurchase: true, ...opts.host },
     auth:
       opts.auth ??
       (opts.deletable

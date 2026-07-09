@@ -83,7 +83,7 @@ function makePurchase(over: { state?: ExtensionSessionState } = {}) {
 describe("createExtensionUiController — no injection (the Safari pin, AE7/3.1.1)", () => {
   it("exposes no auth, no checkout, and no web price", async () => {
     installChrome();
-    const c = createExtensionUiController("youtube.com");
+    const c = createExtensionUiController();
     await flush();
     expect(c.host.canPurchase).toBe(false);
     expect(c.canSignIn).toBe(false);
@@ -102,7 +102,7 @@ describe("createExtensionUiController — with the ext-chromium injection (plan 
   it("exposes sign-in, web checkout, delete-account, and the host display price", async () => {
     installChrome();
     const { deps } = makePurchase();
-    const c = createExtensionUiController("youtube.com", deps);
+    const c = createExtensionUiController(deps);
     await flush();
     expect(c.host.canPurchase).toBe(true);
     expect(c.canSignIn).toBe(true);
@@ -115,7 +115,7 @@ describe("createExtensionUiController — with the ext-chromium injection (plan 
   it("opens the checkout tab with the URL from the checkout outcome", async () => {
     installChrome();
     const { deps, openCheckoutTab } = makePurchase({ state: snapshot({ userId: "user-1" }) });
-    const c = createExtensionUiController(undefined, deps);
+    const c = createExtensionUiController(deps);
     await flush();
     await c.startWebCheckout();
     expect(openCheckoutTab).toHaveBeenCalledWith(CHECKOUT_URL);
@@ -128,7 +128,7 @@ describe("createExtensionUiController — with the ext-chromium injection (plan 
         pendingOtp: { email: "a@b.co", requestedAt: Date.now(), purchaseIntent: true },
       }),
     });
-    const c = createExtensionUiController(undefined, deps);
+    const c = createExtensionUiController(deps);
     await flush();
     expect(c.authFlow).toBe("code-entry");
     expect(c.codeEmail).toBe("a@b.co");
@@ -141,7 +141,7 @@ describe("createExtensionUiController — with the ext-chromium injection (plan 
     const { deps, reconcile } = makePurchase({
       state: snapshot({ userId: "user-1", checkoutPending: { startedAt: Date.now() } }),
     });
-    const c = createExtensionUiController(undefined, deps);
+    const c = createExtensionUiController(deps);
     await flush();
     expect(c.userId).toBe("user-1");
     expect(c.checkoutFlow).toBe("checking");
@@ -154,7 +154,7 @@ describe("createExtensionUiController — with the ext-chromium injection (plan 
   it("reconciles once on a signed-in popup open with no pending flag (R4)", async () => {
     installChrome();
     const { deps, reconcile } = makePurchase({ state: snapshot({ userId: "user-1" }) });
-    createExtensionUiController(undefined, deps);
+    createExtensionUiController(deps);
     await flush();
     expect(reconcile).toHaveBeenCalledTimes(1);
   });
@@ -162,7 +162,7 @@ describe("createExtensionUiController — with the ext-chromium injection (plan 
   it("never reconciles on a signed-out open (no session, nothing to check)", async () => {
     installChrome();
     const { deps, reconcile } = makePurchase({ state: snapshot() });
-    createExtensionUiController(undefined, deps);
+    createExtensionUiController(deps);
     await flush();
     expect(reconcile).not.toHaveBeenCalled();
   });

@@ -40,22 +40,6 @@ describe("SettingsCache", () => {
     expect(seen.mock.calls[0]![0].services.tiktok).toBe(false);
   });
 
-  it("adds and removes a per-site pause keyed by eTLD+1", async () => {
-    const { cache } = makeCache();
-    await cache.pauseHost("m.youtube.com");
-    expect(cache.current().pauses).toEqual(["youtube.com"]);
-    expect(cache.isPausedHost("www.youtube.com")).toBe(true);
-    await cache.resumeHost("www.youtube.com");
-    expect(cache.current().pauses).toEqual([]);
-  });
-
-  it("does not duplicate a pause for an already-paused host", async () => {
-    const { cache } = makeCache();
-    await cache.pauseHost("youtube.com");
-    await cache.pauseHost("m.youtube.com");
-    expect(cache.current().pauses).toEqual(["youtube.com"]);
-  });
-
   it("resolves a stale incoming write by updatedAt (LWW)", async () => {
     const { cache } = makeCache(settings({ globalOn: true, updatedAt: 5000 }));
     await cache.hydrate();

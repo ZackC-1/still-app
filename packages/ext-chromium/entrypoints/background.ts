@@ -2,7 +2,12 @@ import { createClient } from "@supabase/supabase-js";
 import { browser } from "wxt/browser";
 import { SettingsCache, ChromeStorageAdapter } from "@still/core/storage";
 import { ChromeEntitlementAdapter } from "@still/core/entitlement";
-import { refreshRuleSetCache, ruleSetFetchConfig, type RuleSetEndpoint } from "@still/core/rules";
+import {
+  isServiceEnabledGlobally,
+  refreshRuleSetCache,
+  ruleSetFetchConfig,
+  type RuleSetEndpoint,
+} from "@still/core/rules";
 import {
   SupabaseAuthPort,
   SupabaseBackendPort,
@@ -31,9 +36,11 @@ import {
 //     The whole spine is gated by build-mode env (extensionSupabaseConfig, fail-safe): an
 //     unconfigured build has no client and answers every session message with its structured
 //     unavailable-style outcome — never a dev fallback.
-//   • DNR gating (Chromium only): the static Shorts-redirect ruleset (KTD1) is enabled only when
-//     YouTube is on globally and youtube.com isn't paused. The Firefox build ships no DNR ruleset
-//     (it redirects via the content script), so that wiring bails cleanly when the API is absent.
+//   • DNR gating (Chromium only): the static Shorts-redirect ruleset (KTD1) is enabled exactly
+//     when the engine considers YouTube on globally — isServiceEnabledGlobally, the same predicate
+//     isServiceActive composes (R2), so this gate can't drift from the content script's. The
+//     Firefox build ships no DNR ruleset (it redirects via the content script), so that wiring
+//     bails cleanly when the API is absent.
 const RULESET_ID = "youtube-shorts-redirect";
 
 /** The signed rule-set RPC endpoint, from the gitignored build-time .env. Absent in CI/dev → null,
@@ -117,8 +124,9 @@ export default defineBackground(() => {
   if (!chrome.declarativeNetRequest?.updateEnabledRulesets) return;
 
   const syncRuleset = async (): Promise<void> => {
-    const s = cache.current();
-    const enabled = s.globalOn && s.services.youtube && !s.pauses.includes("youtube.com");
+    // The engine's own URL-free gate (R2) — no re-derived inline predicate. Per-URL pauses don't
+    // apply to a global DNR ruleset (and parseSettings normalizes stored pauses to [] anyway).
+    const enabled = isServiceEnabledGlobally(cache.current(), "youtube");
     await chrome.declarativeNetRequest.updateEnabledRulesets(
       enabled ? { enableRulesetIds: [RULESET_ID] } : { disableRulesetIds: [RULESET_ID] },
     );
