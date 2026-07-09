@@ -51,7 +51,19 @@ export default defineContentScript({
     void script.start();
 
     // Nudge the background to pull the App-Group value (the app may have edited settings while the
-    // extension was asleep) and refresh the rule-set cache. Fire-and-forget.
-    void browser.runtime.sendMessage({ kind: "reconcile" }).catch(() => {});
+    // extension was asleep). Repeat on activation/focus and a bounded interval so already-open iOS
+    // Safari pages learn app-side setting changes without requiring a relaunch.
+    const requestReconcile = (): void => {
+      void browser.runtime.sendMessage({ kind: "reconcile" }).catch(() => {});
+    };
+    requestReconcile();
+    window.addEventListener("focus", requestReconcile);
+    window.addEventListener("pageshow", requestReconcile);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") requestReconcile();
+    });
+    window.setInterval(() => {
+      if (document.visibilityState === "visible") requestReconcile();
+    }, 15_000);
   },
 });

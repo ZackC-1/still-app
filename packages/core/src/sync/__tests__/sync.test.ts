@@ -4,26 +4,57 @@ import { DEFAULT_SETTINGS } from "@still/shared-types";
 import { SettingsCache } from "../../storage/cache.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
 import { SyncService, type LastSyncedIdentityStore, type SyncState } from "../service.js";
-import type { AuthPort, BackendPort, EntitlementRead } from "../ports.js";
+import type { AuthPort, BackendPort, EntitlementRead, SyncedSettingsEnvelope } from "../ports.js";
 
 /** A backend whose writeProfile stays pending until resolve()/reject() is called — to drive coalescing
  * and failure-surfacing while a write is in flight. reconcile/read resolve immediately. */
-function deferredBackend(cloud: StillSettings) {
+function envelope(settingsValue: StillSettings, version = settingsValue.updatedAt): SyncedSettingsEnvelope {
+  return {
+    settings: settingsValue,
+    version,
+    serverUpdatedAt: new Date(1_800_000_000_000 + version).toISOString(),
+    lastWriteId: null,
+  };
+}
+
+function deferredBackend(cloud: SyncedSettingsEnvelope) {
   const writes: StillSettings[] = [];
+  let version = cloud.version;
   let settle: { resolve: () => void; reject: () => void } | null = null;
+  let onEnvelope: ((envelope: SyncedSettingsEnvelope) => void) | null = null;
+  let onStatus: ((status: "subscribed" | "disconnected" | "error") => void) | null = null;
+  let unsubscribed = false;
   const backend: BackendPort = {
     reconcileEntitlement: () => Promise.resolve(),
     readEntitlement: () => Promise.resolve("entitled"),
     readProfile: () => Promise.resolve(cloud),
     writeProfile: (s) => {
       writes.push(s);
-      return new Promise<void>((resolve, reject) => {
-        settle = { resolve, reject: () => reject(new Error("offline")) };
+      return new Promise<SyncedSettingsEnvelope>((resolve, reject) => {
+        settle = {
+          resolve: () => resolve(envelope(s, ++version)),
+          reject: () => reject(new Error("offline")),
+        };
       });
+    },
+    subscribeToProfile: (_userId, listener, status) => {
+      onEnvelope = listener;
+      onStatus = status ?? null;
+      return () => {
+        unsubscribed = true;
+      };
     },
     deleteAccount: () => Promise.resolve(),
   };
-  return { backend, writes, resolve: () => settle?.resolve(), reject: () => settle?.reject() };
+  return {
+    backend,
+    writes,
+    resolve: () => settle?.resolve(),
+    reject: () => settle?.reject(),
+    emit: (env: SyncedSettingsEnvelope) => onEnvelope?.(env),
+    status: (s: "subscribed" | "disconnected" | "error") => onStatus?.(s),
+    unsubscribed: () => unsubscribed,
+  };
 }
 const drain = () => new Promise<void>((r) => setTimeout(r, 0));
 
@@ -56,12 +87,17 @@ function mockBackend(
     entitlementRead?: EntitlementRead;
     reconcileThrows?: boolean;
     reconcileGrants?: boolean;
-    cloud?: StillSettings | null;
+    cloud?: SyncedSettingsEnvelope | null;
     deleteThrows?: boolean;
   } = {},
 ) {
   const calls: string[] = [];
   const writes: StillSettings[] = [];
+  let version = opts.cloud?.version ?? 0;
+  let profileReads = 0;
+  let onEnvelope: ((envelope: SyncedSettingsEnvelope) => void) | null = null;
+  let onStatus: ((status: "subscribed" | "disconnected" | "error") => void) | null = null;
+  let unsubscribed = false;
   let entitled = opts.entitled ?? false;
   let entitlementRead = opts.entitlementRead;
   let reconcileThrows = opts.reconcileThrows ?? false;
@@ -78,12 +114,22 @@ function mockBackend(
     },
     readProfile: () => {
       calls.push("readProfile");
+      profileReads += 1;
       return Promise.resolve(opts.cloud ?? null);
     },
     writeProfile: (s) => {
       calls.push("writeProfile");
       writes.push(s);
-      return Promise.resolve();
+      return Promise.resolve(envelope(s, ++version));
+    },
+    subscribeToProfile: (_userId, listener, status) => {
+      calls.push("subscribeToProfile");
+      onEnvelope = listener;
+      onStatus = status ?? null;
+      return () => {
+        calls.push("unsubscribeProfile");
+        unsubscribed = true;
+      };
     },
     deleteAccount: () => {
       calls.push("deleteAccount");
@@ -95,6 +141,10 @@ function mockBackend(
     backend,
     calls,
     writes,
+    emitProfile: (env: SyncedSettingsEnvelope) => onEnvelope?.(env),
+    profileStatus: (status: "subscribed" | "disconnected" | "error") => onStatus?.(status),
+    profileReads: () => profileReads,
+    unsubscribed: () => unsubscribed,
     setEntitlementRead: (next: EntitlementRead) => {
       entitlementRead = next;
     },
@@ -148,7 +198,7 @@ describe("SyncService", () => {
   });
 
   it("entitled: newer cloud settings overwrite local on load", async () => {
-    const cloud = settings({ globalOn: false, updatedAt: 9_000 });
+    const cloud = envelope(settings({ globalOn: false, updatedAt: 9_000 }), 1);
     const cache = makeCache(settings({ globalOn: true, updatedAt: 1 }));
     await cache.hydrate();
     const svc = new SyncService(cache, mockAuth().auth, mockBackend({ entitled: true, cloud }).backend);
@@ -158,13 +208,72 @@ describe("SyncService", () => {
 
   it("entitled: a local edit writes through to the cloud", async () => {
     const cache = makeCache();
-    const { backend, writes } = mockBackend({ entitled: true, cloud: settings({ updatedAt: 1 }) });
+    const { backend, writes } = mockBackend({ entitled: true, cloud: envelope(settings({ updatedAt: 1 }), 1) });
     const svc = new SyncService(cache, mockAuth().auth, backend);
     await svc.onSignedIn(USER);
     const before = writes.length;
     await cache.setService("youtube", false);
     expect(writes.length).toBe(before + 1);
     expect(writes.at(-1)!.services.youtube).toBe(false);
+    await drain();
+    expect(cache.currentSyncMetadata()?.version).toBe(2);
+  });
+
+  it("remote realtime higher version updates local settings", async () => {
+    const cache = makeCache();
+    const d = mockBackend({ entitled: true, cloud: envelope(settings({ globalOn: true, updatedAt: 1 }), 1) });
+    const svc = new SyncService(cache, mockAuth().auth, d.backend);
+    await svc.onSignedIn(USER);
+    d.emitProfile(envelope(settings({ globalOn: false, updatedAt: 2 }), 2));
+    expect(cache.current().globalOn).toBe(false);
+    expect(cache.currentSyncMetadata()?.version).toBe(2);
+  });
+
+  it("remote realtime lower version is ignored", async () => {
+    const cache = makeCache();
+    const d = mockBackend({ entitled: true, cloud: envelope(settings({ globalOn: true, updatedAt: 1 }), 3) });
+    const svc = new SyncService(cache, mockAuth().auth, d.backend);
+    await svc.onSignedIn(USER);
+    d.emitProfile(envelope(settings({ globalOn: false, updatedAt: 9_999 }), 2));
+    expect(cache.current().globalOn).toBe(true);
+    expect(cache.currentSyncMetadata()?.version).toBe(3);
+  });
+
+  it("remote higher version during an in-flight local write wins over a stale ack", async () => {
+    const cache = makeCache(settings({ updatedAt: 1 }));
+    await cache.hydrate();
+    const d = deferredBackend(envelope(settings({ globalOn: true, updatedAt: 1 }), 1));
+    const svc = new SyncService(cache, mockAuth().auth, d.backend);
+    await svc.onSignedIn(USER);
+
+    await cache.setGlobalOn(false);
+    d.emit(envelope(settings({ globalOn: true, updatedAt: 3 }), 3));
+    d.resolve(); // resolves the local write as version 2, which must not beat remote v3
+    await drain();
+    expect(cache.current().globalOn).toBe(true);
+    expect(cache.currentSyncMetadata()?.version).toBe(3);
+  });
+
+  it("reconnect reads profile before trusting the stream as current", async () => {
+    const cache = makeCache();
+    const d = mockBackend({ entitled: true, cloud: envelope(settings({ globalOn: true, updatedAt: 1 }), 1) });
+    const svc = new SyncService(cache, mockAuth().auth, d.backend);
+    await svc.onSignedIn(USER);
+    const before = d.profileReads();
+    d.profileStatus("disconnected");
+    d.profileStatus("subscribed");
+    await drain();
+    expect(d.profileReads()).toBe(before + 1);
+  });
+
+  it("teardown unsubscribes realtime", async () => {
+    const cache = makeCache();
+    const { auth } = mockAuth();
+    const d = mockBackend({ entitled: true, cloud: envelope(settings({ updatedAt: 1 }), 1) });
+    const svc = new SyncService(cache, auth, d.backend);
+    await svc.onSignedIn(USER);
+    await svc.signOut();
+    expect(d.unsubscribed()).toBe(true);
   });
 
   it("un-entitled signed-in user does NOT sync (R7 gating)", async () => {
@@ -224,7 +333,7 @@ describe("SyncService", () => {
   it("sign-out reverts to local-only (later edits don't write through)", async () => {
     const cache = makeCache();
     const { auth } = mockAuth();
-    const { backend, writes } = mockBackend({ entitled: true, cloud: settings({ updatedAt: 1 }) });
+    const { backend, writes } = mockBackend({ entitled: true, cloud: envelope(settings({ updatedAt: 1 }), 1) });
     const svc = new SyncService(cache, auth, backend);
     await svc.onSignedIn(USER);
     await svc.signOut();
@@ -234,20 +343,20 @@ describe("SyncService", () => {
     expect(writes.length).toBe(after);
   });
 
-  it("LWW: a newer local is pushed up rather than overwritten by a stale cloud", async () => {
+  it("server version beats a future-skewed local updatedAt on sign-in", async () => {
     const cache = makeCache(settings({ globalOn: true, updatedAt: 9_000 }));
     await cache.hydrate();
-    const { backend, writes } = mockBackend({ entitled: true, cloud: settings({ globalOn: false, updatedAt: 1 }) });
+    const { backend, writes } = mockBackend({ entitled: true, cloud: envelope(settings({ globalOn: false, updatedAt: 1 }), 1) });
     const svc = new SyncService(cache, mockAuth().auth, backend);
     await svc.onSignedIn(USER);
-    expect(cache.current().globalOn).toBe(true); // local preserved
-    expect(writes.length).toBeGreaterThan(0); // pushed up
+    expect(cache.current().globalOn).toBe(false);
+    expect(writes.length).toBe(0);
   });
 
   it("coalesces edits during an in-flight write (latest-wins; the middle edit is not written)", async () => {
     const cache = makeCache(settings({ updatedAt: 1 }));
     await cache.hydrate();
-    const d = deferredBackend(settings({ globalOn: false, updatedAt: 9_000 })); // cloud newer → no seed write
+    const d = deferredBackend(envelope(settings({ globalOn: false, updatedAt: 9_000 }), 1)); // cloud exists → no seed write
     const svc = new SyncService(cache, mockAuth().auth, d.backend);
     await svc.onSignedIn(USER);
     expect(d.writes.length).toBe(0);
@@ -271,7 +380,7 @@ describe("SyncService", () => {
     const cache = makeCache(settings({ updatedAt: 1 }));
     await cache.hydrate();
     const states: SyncState[] = [];
-    const d = deferredBackend(settings({ globalOn: false, updatedAt: 9_000 }));
+    const d = deferredBackend(envelope(settings({ globalOn: false, updatedAt: 9_000 }), 1));
     const svc = new SyncService(cache, mockAuth().auth, d.backend, (s) => states.push(s));
     await svc.onSignedIn(USER);
     expect(svc.getState().cloudReachable).toBe(true);
@@ -338,7 +447,7 @@ describe("SyncService", () => {
     await cache.hydrate();
     const { backend, writes } = mockBackend({
       entitled: true,
-      cloud: settings({ globalOn: false, updatedAt: 1 }), // B's cloud, older
+      cloud: envelope(settings({ globalOn: false, updatedAt: 1 }), 1), // B's cloud
     });
     const { store } = identityStore(USER);
     const svc = new SyncService(cache, mockAuth().auth, backend, undefined, store);

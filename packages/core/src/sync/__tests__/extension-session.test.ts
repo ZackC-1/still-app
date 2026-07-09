@@ -77,6 +77,7 @@ function harness(opts: HarnessOpts = {}) {
     }),
   };
 
+  let profileVersion = 0;
   const backend = {
     reconcileEntitlement: vi.fn(async () => {
       events.push("reconcile");
@@ -87,7 +88,13 @@ function harness(opts: HarnessOpts = {}) {
     }),
     readEntitlement: vi.fn(async (): Promise<EntitlementRead> => opts.read ?? "entitled"),
     readProfile: vi.fn(async () => null),
-    writeProfile: vi.fn(async () => {}),
+    writeProfile: vi.fn(async (settings) => ({
+      settings,
+      version: ++profileVersion,
+      serverUpdatedAt: new Date(T0 + profileVersion).toISOString(),
+      lastWriteId: null,
+    })),
+    subscribeToProfile: vi.fn(() => vi.fn()),
     deleteAccount: vi.fn(async () => {}),
     createWebCheckout: vi.fn(
       async (): Promise<WebCheckoutOutcome> =>

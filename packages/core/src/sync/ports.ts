@@ -1,4 +1,7 @@
 import type { StillSettings } from "@still/shared-types";
+import type { SyncedSettingsEnvelope } from "../storage/adapter.js";
+
+export type { SyncedSettingsEnvelope } from "../storage/adapter.js";
 
 // The two ports the sync layer depends on. Real implementations wrap @supabase/supabase-js
 // (auth.ts, profile.ts); tests inject mocks. Keeping these abstract makes the coordination logic
@@ -90,9 +93,15 @@ export interface BackendPort {
    * returns unknown. */
   readEntitlement(): Promise<EntitlementRead>;
   /** Read the signed-in user's cloud settings, or null if none stored yet. */
-  readProfile(): Promise<StillSettings | null>;
-  /** Upsert the signed-in user's cloud settings. */
-  writeProfile(settings: StillSettings): Promise<void>;
+  readProfile(): Promise<SyncedSettingsEnvelope | null>;
+  /** Write the signed-in user's cloud settings through the server-authoritative RPC. */
+  writeProfile(settings: StillSettings, writeId: string): Promise<SyncedSettingsEnvelope>;
+  /** Subscribe to the signed-in user's own profile row. */
+  subscribeToProfile(
+    userId: string,
+    onEnvelope: (envelope: SyncedSettingsEnvelope) => void,
+    onStatus?: (status: "subscribed" | "disconnected" | "error") => void,
+  ): () => void;
   /** Delete the signed-in user's account (App Store Guideline 5.1.1 / GDPR). The subject is derived
    * from the verified session JWT server-side; cascades profile + entitlement. Throws on failure. */
   deleteAccount(): Promise<void>;

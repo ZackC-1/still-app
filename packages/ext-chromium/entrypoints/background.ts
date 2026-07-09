@@ -55,6 +55,8 @@ export default defineBackground(() => {
 
   // ── Auth/purchase session spine (plan U6/R2) ───────────────────────────────────────────────────
   const cache = new SettingsCache(new ChromeStorageAdapter());
+  cache.watch();
+  const hydrated = cache.hydrate();
   const session = createSessionSpine(cache);
 
   // Content-script nudge — the ONLY handler a content-script sender may reach (plan KTD sender
@@ -109,10 +111,7 @@ export default defineBackground(() => {
   // CACHED entitlement — no network. A worker that wakes on a settings edit must not drop paid
   // sync, and must not burn a live RevenueCat query per wake; live reconcile stays on the R4
   // triggers (popup open, qualifying nudge).
-  void session?.resume();
-
-  cache.watch();
-  const hydrated = cache.hydrate();
+  void hydrated.then(() => session?.resume());
 
   // ── DNR gating — Chromium only from here down. ───────────────────────────────────────────────
   if (!chrome.declarativeNetRequest?.updateEnabledRulesets) return;

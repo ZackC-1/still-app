@@ -3,7 +3,7 @@
 -- reads. Asserts cross-user isolation, event/rule-set opacity, and write-path narrowness.
 
 begin;
-select plan(20);
+select plan(32);
 
 -- ── seed (as the test superuser) ────────────────────────────────────────────────
 -- A, B: entitled. C: un-entitled (negative write paths). D: entitled (positive INSERT path).
@@ -67,9 +67,52 @@ select throws_ok(
   '42501', NULL, 'authenticated cannot execute set_entitlement'
 );
 
-select lives_ok(
+select throws_ok(
   $$ update public.profiles set settings = '{"globalOn":false}'::jsonb where id = '11111111-1111-1111-1111-111111111111' $$,
-  'entitled A can update its own synced profile'
+  '42501', NULL, 'authenticated users cannot directly update profiles after RPC migration'
+);
+
+select lives_ok(
+  $$ select public.write_profile_settings('{"globalOn":false,"services":{"youtube":true,"instagram":true,"tiktok":true,"facebook":true},"pauses":[],"updatedAt":1}'::jsonb, 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa'::uuid) $$,
+  'entitled A can write settings through write_profile_settings'
+);
+
+select is(
+  (select settings_version::int from public.profiles where id = '11111111-1111-1111-1111-111111111111'),
+  1, 'first accepted RPC write sets settings_version to 1'
+);
+
+select is(
+  (select settings_last_write_id::text from public.profiles where id = '11111111-1111-1111-1111-111111111111'),
+  'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa', 'RPC stores the last write id'
+);
+
+reset role;
+
+select lives_ok($$
+  create temp table profile_clock_probe as
+  select settings_server_updated_at as first_stamp
+  from public.profiles
+  where id = '11111111-1111-1111-1111-111111111111'
+$$, 'test captures first server settings timestamp');
+grant select on profile_clock_probe to authenticated;
+
+set local role authenticated;
+set local request.jwt.claims to '{"sub":"11111111-1111-1111-1111-111111111111"}';
+
+select lives_ok(
+  $$ select public.write_profile_settings('{"globalOn":true,"services":{"youtube":true,"instagram":true,"tiktok":true,"facebook":true},"pauses":[],"updatedAt":9999999999999}'::jsonb, 'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb'::uuid) $$,
+  'second accepted RPC write succeeds even with a skewed device updatedAt'
+);
+
+select is(
+  (select settings_version::int from public.profiles where id = '11111111-1111-1111-1111-111111111111'),
+  2, 'second accepted RPC write increments settings_version to 2'
+);
+
+select ok(
+  (select settings_server_updated_at > first_stamp from public.profiles, profile_clock_probe where id = '11111111-1111-1111-1111-111111111111'),
+  'RPC advances settings_server_updated_at on accepted writes'
 );
 
 reset role;
@@ -80,14 +123,18 @@ set local request.jwt.claims to '{"sub":"33333333-3333-3333-3333-333333333333"}'
 
 select throws_ok(
   $$ insert into public.profiles (id, settings) values ('33333333-3333-3333-3333-333333333333', '{"globalOn":true}'::jsonb) $$,
-  '42501', NULL, 'un-entitled user cannot insert a synced profile'
+  '42501', NULL, 'authenticated user cannot directly insert a synced profile'
+);
+
+select throws_ok(
+  $$ select public.write_profile_settings('{"globalOn":true}'::jsonb, 'cccccccc-cccc-4ccc-cccc-cccccccccccc'::uuid) $$,
+  '42501', NULL, 'un-entitled user cannot write settings through the RPC'
 );
 
 reset role;
 
 -- Seed C a profile row as superuser (bypasses RLS), then prove an un-entitled UPDATE is denied.
--- The UPDATE policy gates via USING, so a denied update silently affects 0 rows (NOT a 42501) —
--- assert both the 0-row count and that the stored row is unchanged.
+-- Direct UPDATE grants are revoked, so authenticated updates fail before RLS can silently filter.
 insert into public.profiles (id, settings)
   values ('33333333-3333-3333-3333-333333333333', '{"globalOn":true}'::jsonb);
 
@@ -95,13 +142,10 @@ set local role authenticated;
 set local request.jwt.claims to '{"sub":"33333333-3333-3333-3333-333333333333"}';
 
 -- Data-modifying CTE must sit at the statement top level (can't nest inside the is() argument).
-with upd as (
-  update public.profiles set settings = '{"globalOn":false}'::jsonb
-  where id = '33333333-3333-3333-3333-333333333333'
-  returning 1
-)
-select is((select count(*)::int from upd), 0,
-          'un-entitled user''s profile UPDATE is silently denied (0 rows via the USING gate)');
+select throws_ok(
+  $$ update public.profiles set settings = '{"globalOn":false}'::jsonb where id = '33333333-3333-3333-3333-333333333333' $$,
+  '42501', NULL, 'un-entitled user cannot directly update a profile'
+);
 
 select is(
   (select settings->>'globalOn' from public.profiles where id = '33333333-3333-3333-3333-333333333333'),
@@ -109,13 +153,28 @@ select is(
 
 reset role;
 
--- ── as entitled user D — positive INSERT path through the new RLS policy ──────────
+-- ── as entitled user D — direct INSERT denied; RPC insert path succeeds ──────────
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"44444444-4444-4444-4444-444444444444"}';
 
-select lives_ok(
+select throws_ok(
   $$ insert into public.profiles (id, settings) values ('44444444-4444-4444-4444-444444444444', '{"globalOn":true}'::jsonb) $$,
-  'entitled user can insert its own synced profile (INSERT with-check entitlement subquery passes)'
+  '42501', NULL, 'entitled user cannot directly insert its own synced profile'
+);
+
+select lives_ok(
+  $$ select public.write_profile_settings('{"globalOn":true,"services":{"youtube":true,"instagram":true,"tiktok":true,"facebook":true},"pauses":[],"updatedAt":1}'::jsonb, 'dddddddd-dddd-4ddd-dddd-dddddddddddd'::uuid) $$,
+  'entitled user can create its own synced profile through the RPC'
+);
+
+select is(
+  (select id from public.profiles where id = '44444444-4444-4444-4444-444444444444')::text,
+  '44444444-4444-4444-4444-444444444444', 'RPC derives the inserted profile id from auth.uid()'
+);
+
+select throws_ok(
+  $$ select public.write_profile_settings('[]'::jsonb, 'eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee'::uuid) $$,
+  '22023', NULL, 'RPC rejects non-object settings JSON'
 );
 
 reset role;
@@ -129,6 +188,11 @@ select is((select count(*)::int from public.get_current_rule_set()), 1, 'anon re
 select throws_ok(
   $$ insert into public.rule_sets (version, payload, signature) values ('9.9.9', '{}'::jsonb, '{}'::jsonb) $$,
   '42501', NULL, 'anon cannot insert into rule_sets'
+);
+
+select throws_ok(
+  $$ select public.write_profile_settings('{"globalOn":true}'::jsonb, 'ffffffff-ffff-4fff-ffff-ffffffffffff'::uuid) $$,
+  '42501', NULL, 'anon cannot execute write_profile_settings'
 );
 
 reset role;
