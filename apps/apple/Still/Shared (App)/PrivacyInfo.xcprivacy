@@ -67,6 +67,22 @@
 				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
 			</array>
 		</dict>
+		<dict>
+			<!-- Synced Still settings (Pro sync): the user's service toggles are uploaded to and
+			     retained in Supabase profiles.settings, keyed to the account — user-linked retained
+			     data, so it must be declared. Apple has no "app preferences" type; Other Data is the
+			     catch-all. On-device browsing/blocking activity is NOT collected. -->
+			<key>NSPrivacyCollectedDataType</key>
+			<string>NSPrivacyCollectedDataTypeOtherDataTypes</string>
+			<key>NSPrivacyCollectedDataTypeLinked</key>
+			<true/>
+			<key>NSPrivacyCollectedDataTypeTracking</key>
+			<false/>
+			<key>NSPrivacyCollectedDataTypePurposes</key>
+			<array>
+				<string>NSPrivacyCollectedDataTypePurposeAppFunctionality</string>
+			</array>
+		</dict>
 	</array>
 </dict>
 </plist>

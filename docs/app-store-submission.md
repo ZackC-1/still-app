@@ -106,13 +106,17 @@ Legend: **[ONE-TIME]** = account/app setup done once · **[PER-RELEASE]** = repe
 - [ ] **[PER-RELEASE]** Sandbox-test: buy `still_sync`, confirm Sync unlocks, confirm **Restore Purchases** re-unlocks on a fresh install.
 
 ### 4. App Privacy questionnaire **[ONE-TIME]**
-- [ ] **App Privacy → Get Started** → "Collect data?" **Yes**. Declare exactly three (each **Collected=Yes, Linked=Yes, Tracking=No, Purpose=App Functionality** — matches `PrivacyInfo.xcprivacy`):
+- [ ] **App Privacy → Get Started** → "Collect data?" **Yes**. Declare exactly four (each **Collected=Yes, Linked=Yes, Tracking=No, Purpose=App Functionality**):
 
   | Data | Category → type |
   |---|---|
   | Email (from email-code sign-in, Supabase auth) | Contact Info → **Email Address** |
   | User ID (Supabase UUID) | Identifiers → **User ID** |
   | Purchase history | Purchases → **Purchase History** |
+  | Synced settings (Pro settings sync uploads the full settings object — service toggles etc. — to Supabase `profiles.settings`, keyed to the account) | Other Data → **Other Data Types** |
+
+  All four match `PrivacyInfo.xcprivacy`; the synced-settings row covers the server-side copy of
+  the user's settings that sync creates.
 
 - [ ] Do **not** declare browsing/blocking data — it runs **on-device in the extension**, never sent to the server, so it is not "collected." Result shows **"Data Linked to You"** only, no tracking section → no ATT prompt.
 
