@@ -29,16 +29,18 @@ describe("parseNativeEntitlement", () => {
   });
 });
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 describe("applyNativeEntitlement", () => {
   it("writes the record through, preserving the app's server-confirmed updatedAt", async () => {
     const set = vi.fn().mockResolvedValue(undefined);
-    await expect(applyNativeEntitlement(record(true, 42), { set })).resolves.toBe(true);
+    await expect(applyNativeEntitlement(record(true, 42), { set }, () => 43)).resolves.toBe(true);
     expect(set).toHaveBeenCalledWith(true, 42);
   });
 
   it("writes an explicit revocation (entitled:false)", async () => {
     const set = vi.fn().mockResolvedValue(undefined);
-    await expect(applyNativeEntitlement(record(false, 9), { set })).resolves.toBe(true);
+    await expect(applyNativeEntitlement(record(false, 9), { set }, () => 10)).resolves.toBe(true);
     expect(set).toHaveBeenCalledWith(false, 9);
   });
 
@@ -46,5 +48,20 @@ describe("applyNativeEntitlement", () => {
     const set = vi.fn();
     await expect(applyNativeEntitlement(null, { set })).resolves.toBe(false);
     expect(set).not.toHaveBeenCalled();
+  });
+
+  it("drops an entitled record already past the 30-day TTL — never a live Pro unlock", async () => {
+    const set = vi.fn();
+    const now = 40 * DAY_MS;
+    await expect(applyNativeEntitlement(record(true, now - 31 * DAY_MS), { set }, () => now)).resolves.toBe(false);
+    expect(set).not.toHaveBeenCalled();
+  });
+
+  it("still writes an entitled record inside the TTL, and an expired revocation", async () => {
+    const set = vi.fn().mockResolvedValue(undefined);
+    const now = 40 * DAY_MS;
+    await expect(applyNativeEntitlement(record(true, now - 29 * DAY_MS), { set }, () => now)).resolves.toBe(true);
+    // An old entitled:false is not a grant — writing it is safe (free is the default).
+    await expect(applyNativeEntitlement(record(false, now - 31 * DAY_MS), { set }, () => now)).resolves.toBe(true);
   });
 });

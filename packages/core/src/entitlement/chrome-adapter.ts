@@ -61,7 +61,19 @@ export class ChromeEntitlementAdapter implements EntitlementAdapter, Entitlement
     ): void => {
       if (areaName !== "local") return;
       const stored = changes[STORAGE_KEY]?.newValue as StoredEntitlement | undefined;
-      if (typeof stored?.entitled === "boolean") listener(stored.entitled);
+      if (typeof stored?.entitled !== "boolean") return;
+      // Same TTL discipline as readFresh: a live storage write of an already-expired (or
+      // unstamped) entitled:true record must not unlock Pro in subscribed pages until the next
+      // hydrate corrects it. An entitled:false always forwards — free is the safe default.
+      if (
+        stored.entitled &&
+        (typeof stored.updatedAt !== "number" ||
+          !Number.isFinite(stored.updatedAt) ||
+          this.now() - stored.updatedAt > ENTITLEMENT_CACHE_TTL_MS)
+      ) {
+        return;
+      }
+      listener(stored.entitled);
     };
     chrome.storage.onChanged.addListener(handler);
     return () => chrome.storage.onChanged.removeListener(handler);
