@@ -45,6 +45,36 @@ final class PurchaseManager {
     (Bundle.main.object(forInfoDictionaryKey: "RevenueCatPublicAPIKey") as? String) ?? ""
   }
 
+  /// Bound on how long an identity transition may hold the bridge: WKScriptMessageHandlerWithReply
+  /// has no built-in timeout, so a RevenueCat completion that never fires would otherwise hang the
+  /// web layer's configurePurchases/signOut promise forever. Matches the web side's 8s edge-call
+  /// ceiling (EDGE_FN_TIMEOUT_MS). Nanoseconds: Duration needs iOS 16/macOS 13, targets are 15/11.
+  private static let identityTransitionTimeoutNs: UInt64 = 8_000_000_000
+
+  /// Await an SDK completion with (a) a resume-at-most-once guard — a double completion would be a
+  /// fatal SWIFT TASK CONTINUATION MISUSE — and (b) the deadline above so the caller always returns.
+  private static func awaitSettled(_ start: @escaping (@escaping () -> Void) -> Void) async {
+    final class Once: @unchecked Sendable {
+      private let lock = NSLock()
+      private var done = false
+      func run(_ body: () -> Void) {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !done else { return }
+        done = true
+        body()
+      }
+    }
+    let once = Once()
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+      start { once.run { continuation.resume() } }
+      Task {
+        try? await Task.sleep(nanoseconds: identityTransitionTimeoutNs)
+        once.run { continuation.resume() } // deadline: settle the bridge; guards gate purchases
+      }
+    }
+  }
+
   /// Configure RevenueCat for a signed-in user (KTD5: appUserID = Supabase UUID, never anonymous).
   /// Safe to call repeatedly; logs in to re-key on an account switch / restore once configured.
   /// Awaitable so the bridge only acknowledges once the RevenueCat identity transition has settled —
@@ -60,8 +90,8 @@ final class PurchaseManager {
     currentAppUserID = appUserID
     if isConfigured {
       // Account-switch / restore recovery path — await the re-key before returning to the caller.
-      await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-        Purchases.shared.logIn(appUserID) { _, _, _ in continuation.resume() }
+      await Self.awaitSettled { done in
+        Purchases.shared.logIn(appUserID) { _, _, _ in done() }
       }
       return
     }
@@ -78,8 +108,8 @@ final class PurchaseManager {
     currentAppUserID = nil
     guard isConfigured else { return }
     // Back to an anonymous RevenueCat id; no entitlements. Awaited so a caller's ok means "settled".
-    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-      Purchases.shared.logOut { _, _ in continuation.resume() }
+    await Self.awaitSettled { done in
+      Purchases.shared.logOut { _, _ in done() }
     }
   }
 
