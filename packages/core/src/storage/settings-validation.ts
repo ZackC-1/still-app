@@ -1,4 +1,9 @@
 import { SERVICE_IDS, type ServiceId, type StillSettings } from "@still/shared-types";
+import type {
+  SettingsSyncMetadata,
+  StoredSettingsRecord,
+  SyncedSettingsEnvelope,
+} from "./adapter.js";
 
 // The ONE place the StillSettings wire shape is validated and untrusted JSON is parsed defensively.
 // Shared by the WKWebView storage adapter and the Safari background reconcile (full shape guard), and
@@ -37,6 +42,66 @@ export function parseSettings(value: unknown): StillSettings | null {
     pauses,
     updatedAt: s.updatedAt,
   };
+}
+
+export function parseSettingsSyncMetadata(value: unknown): SettingsSyncMetadata | null {
+  if (!value || typeof value !== "object") return null;
+  const obj = value as {
+    version?: unknown;
+    serverUpdatedAt?: unknown;
+    lastWriteId?: unknown;
+  };
+  if (
+    typeof obj.version !== "number" ||
+    !Number.isSafeInteger(obj.version) ||
+    obj.version < 0 ||
+    typeof obj.serverUpdatedAt !== "string" ||
+    Number.isNaN(Date.parse(obj.serverUpdatedAt)) ||
+    !(obj.lastWriteId === null || typeof obj.lastWriteId === "string")
+  ) {
+    return null;
+  }
+  return {
+    version: obj.version,
+    serverUpdatedAt: obj.serverUpdatedAt,
+    lastWriteId: obj.lastWriteId,
+  };
+}
+
+/** Parse the canonical server envelope returned by read/write/realtime. */
+export function parseSyncedSettingsEnvelope(value: unknown): SyncedSettingsEnvelope | null {
+  if (!value || typeof value !== "object") return null;
+  const obj = value as {
+    settings?: unknown;
+    settings_version?: unknown;
+    settings_server_updated_at?: unknown;
+    settings_last_write_id?: unknown;
+    version?: unknown;
+    serverUpdatedAt?: unknown;
+    lastWriteId?: unknown;
+  };
+  const settings = parseSettings(obj.settings);
+  if (!settings) return null;
+  const version = obj.settings_version ?? obj.version;
+  const serverUpdatedAt = obj.settings_server_updated_at ?? obj.serverUpdatedAt;
+  const lastWriteId = obj.settings_last_write_id ?? obj.lastWriteId ?? null;
+  const metadata = parseSettingsSyncMetadata({ version, serverUpdatedAt, lastWriteId });
+  return metadata ? { settings, ...metadata } : null;
+}
+
+/** Parse extension/App Group storage. Backward compatible with old settings-only records. */
+export function parseStoredSettingsRecord(value: unknown): StoredSettingsRecord | null {
+  const direct = parseSettings(value);
+  if (direct) return { settings: direct, syncMetadata: null };
+
+  if (!value || typeof value !== "object") return null;
+  const obj = value as { settings?: unknown; syncMetadata?: unknown; metadata?: unknown };
+  const settings = parseSettings(obj.settings);
+  if (!settings) return null;
+  const rawMetadata = obj.syncMetadata ?? obj.metadata ?? null;
+  const syncMetadata = rawMetadata === null ? null : parseSettingsSyncMetadata(rawMetadata);
+  if (rawMetadata !== null && syncMetadata === null) return null;
+  return { settings, syncMetadata };
 }
 
 /** JSON.parse that returns null instead of throwing on malformed input. */

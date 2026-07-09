@@ -1,6 +1,6 @@
 import type { StillSettings } from "@still/shared-types";
-import type { StorageAdapter } from "./adapter.js";
-import { parseSettings } from "./settings-validation.js";
+import type { StorageAdapter, StoredSettingsRecord } from "./adapter.js";
+import { parseSettings, parseStoredSettingsRecord } from "./settings-validation.js";
 
 // WKWebView ↔ native bridge (KTD4). The Apple app hosts the one shared Svelte UI in a WKWebView;
 // this is the third StorageAdapter implementation, alongside chrome.storage (the extension) and the
@@ -32,7 +32,7 @@ export type BridgeMessage =
   | { readonly kind: "set"; readonly settings: string };
 
 export class WKWebViewStorageAdapter implements StorageAdapter {
-  private readonly listeners = new Set<(s: StillSettings) => void>();
+  private readonly listeners = new Set<(record: StoredSettingsRecord) => void>();
 
   constructor(
     private readonly win: StillBridgeWindow = globalThis as unknown as StillBridgeWindow,
@@ -42,25 +42,25 @@ export class WKWebViewStorageAdapter implements StorageAdapter {
     return this.win.webkit?.messageHandlers?.still ?? null;
   }
 
-  async get(): Promise<StillSettings | null> {
-    return parseSettings(await this.post({ kind: "get" }));
+  async get(): Promise<StoredSettingsRecord | null> {
+    return parseStoredSettingsRecord(await this.post({ kind: "get" }));
   }
 
-  async set(settings: StillSettings): Promise<void> {
+  async set(record: StoredSettingsRecord): Promise<void> {
     // Native persists via last-write-wins and replies with the resolved value, so if the App Group
     // already held something newer (an extension write the app hadn't seen) we surface it back to
     // the cache rather than silently clobbering it.
-    const resolved = parseSettings(await this.post({ kind: "set", settings: JSON.stringify(settings) }));
-    if (resolved && resolved.updatedAt !== settings.updatedAt) this.emit(resolved);
+    const resolved = parseStoredSettingsRecord(await this.post({ kind: "set", settings: JSON.stringify(record) }));
+    if (resolved && resolved.settings.updatedAt !== record.settings.updatedAt) this.emit(resolved);
   }
 
-  subscribe(listener: (settings: StillSettings) => void): () => void {
+  subscribe(listener: (record: StoredSettingsRecord) => void): () => void {
     this.listeners.add(listener);
     // Install the native→web callback once. Native invokes it on every external App Group change;
     // it accepts both a JS object literal (the common path) and a JSON string defensively.
     this.win.__stillApplyRemote ??= (s) => {
-      const parsed = parseSettings(s);
-      if (parsed) this.emit(parsed);
+      const parsed = parseStoredSettingsRecord(s) ?? parseSettings(s);
+      if (parsed) this.emit("settings" in parsed ? parsed : { settings: parsed, syncMetadata: null });
     };
     return () => this.listeners.delete(listener);
   }
@@ -72,8 +72,7 @@ export class WKWebViewStorageAdapter implements StorageAdapter {
     return port ? port.postMessage(message) : null;
   }
 
-  private emit(settings: StillSettings): void {
-    for (const l of [...this.listeners]) l(settings);
+  private emit(record: StoredSettingsRecord): void {
+    for (const l of [...this.listeners]) l(record);
   }
 }
-

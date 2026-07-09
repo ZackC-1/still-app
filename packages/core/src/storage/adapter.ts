@@ -5,13 +5,28 @@ import type { StillSettings } from "@still/shared-types";
 // (App-Group bridge, U17). All operations are async; the synchronous read path is the SettingsCache
 // snapshot, never the adapter directly.
 
+export interface SettingsSyncMetadata {
+  readonly version: number;
+  readonly serverUpdatedAt: string;
+  readonly lastWriteId: string | null;
+}
+
+export interface SyncedSettingsEnvelope extends SettingsSyncMetadata {
+  readonly settings: StillSettings;
+}
+
+export interface StoredSettingsRecord {
+  readonly settings: StillSettings;
+  readonly syncMetadata: SettingsSyncMetadata | null;
+}
+
 export interface StorageAdapter {
-  /** Read the persisted settings, or null if nothing has been written yet. */
-  get(): Promise<StillSettings | null>;
-  /** Persist settings. Implementations may notify subscribers of their own writes (realistic). */
-  set(settings: StillSettings): Promise<void>;
+  /** Read the persisted settings record, or null if nothing has been written yet. */
+  get(): Promise<StoredSettingsRecord | null>;
+  /** Persist settings and any cloud metadata together. */
+  set(record: StoredSettingsRecord): Promise<void>;
   /** Observe changes from any context (other tabs, the options page, the cloud mirror). */
-  subscribe(listener: (settings: StillSettings) => void): () => void;
+  subscribe(listener: (record: StoredSettingsRecord) => void): () => void;
 }
 
 /**
@@ -20,34 +35,41 @@ export interface StorageAdapter {
  * extension's own writes — the SettingsCache dedupes echoes via last-write-wins.
  */
 export class InMemoryStorageAdapter implements StorageAdapter {
-  private value: StillSettings | null;
-  private readonly listeners = new Set<(s: StillSettings) => void>();
+  private value: StoredSettingsRecord | null;
+  private readonly listeners = new Set<(record: StoredSettingsRecord) => void>();
 
-  constructor(initial: StillSettings | null = null) {
-    this.value = initial;
+  constructor(initial: StillSettings | StoredSettingsRecord | null = null) {
+    this.value = initial && "settings" in initial && "syncMetadata" in initial
+      ? initial
+      : initial
+        ? { settings: initial, syncMetadata: null }
+        : null;
   }
 
-  async get(): Promise<StillSettings | null> {
+  async get(): Promise<StoredSettingsRecord | null> {
     return this.value;
   }
 
-  async set(settings: StillSettings): Promise<void> {
-    this.value = settings;
-    this.emit(settings);
+  async set(record: StoredSettingsRecord): Promise<void> {
+    this.value = record;
+    this.emit(record);
   }
 
-  subscribe(listener: (s: StillSettings) => void): () => void {
+  subscribe(listener: (record: StoredSettingsRecord) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
 
   /** Simulate an external write from another context/device (tests, bridge integration). */
-  emitExternal(settings: StillSettings): void {
-    this.value = settings;
-    this.emit(settings);
+  emitExternal(settings: StillSettings | StoredSettingsRecord): void {
+    const record = "settings" in settings && "syncMetadata" in settings
+      ? settings
+      : { settings, syncMetadata: null };
+    this.value = record;
+    this.emit(record);
   }
 
-  private emit(settings: StillSettings): void {
-    for (const l of [...this.listeners]) l(settings);
+  private emit(record: StoredSettingsRecord): void {
+    for (const l of [...this.listeners]) l(record);
   }
 }

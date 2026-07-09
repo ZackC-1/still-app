@@ -17,7 +17,7 @@ import Foundation
 /// A decoded bridge request. Settings travel as JSON strings, decoded into the shared Codable model.
 public enum BridgeRequest: Equatable, Sendable {
   case get
-  case set(StillSettings)
+  case set(StoredSettingsRecord)
 
   /// Parse a raw message body (WKScriptMessage.body or SFExtensionMessageKey userInfo) into a
   /// request. Returns nil for an unknown shape, a missing `settings` string, or undecodable JSON —
@@ -29,9 +29,9 @@ public enum BridgeRequest: Equatable, Sendable {
       return .get
     case "set":
       guard let json = dict["settings"] as? String,
-            let settings = try? JSONDecoder().decode(StillSettings.self, from: Data(json.utf8))
+            let record = try? JSONDecoder().decode(StoredSettingsRecord.self, from: Data(json.utf8))
       else { return nil }
-      return .set(settings)
+      return .set(record)
     default:
       return nil
     }
@@ -53,11 +53,11 @@ public struct SettingsBridge {
   public func handle(_ request: BridgeRequest) -> String {
     switch request {
     case .get:
-      guard let stored = store.peek() else { return "" }
-      return Self.encode(stored)
+      guard let stored = store.peekRecord() else { return "" }
+      return Self.encodeRecord(stored)
     case .set(let incoming):
-      store.applyRemote(incoming)
-      return Self.encode(store.current())
+      store.applyRecord(incoming)
+      return Self.encodeRecord(store.currentRecord())
     }
   }
 
@@ -70,6 +70,13 @@ public struct SettingsBridge {
 
   static func encode(_ settings: StillSettings) -> String {
     guard let data = try? JSONEncoder().encode(settings),
+          let string = String(data: data, encoding: .utf8)
+    else { return "" }
+    return string
+  }
+
+  static func encodeRecord(_ record: StoredSettingsRecord) -> String {
+    guard let data = try? JSONEncoder().encode(record),
           let string = String(data: data, encoding: .utf8)
     else { return "" }
     return string

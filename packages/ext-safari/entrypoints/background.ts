@@ -1,7 +1,6 @@
-import { ChromeStorageAdapter, parseSettings } from "@still/core/storage";
+import { ChromeStorageAdapter, parseStoredSettingsRecord, type StoredSettingsRecord } from "@still/core/storage";
 import { ChromeEntitlementAdapter } from "@still/core/entitlement";
 import { refreshRuleSetCache, ruleSetFetchConfig, type RuleSetEndpoint } from "@still/core/rules";
-import type { StillSettings } from "@still/shared-types";
 import { createAppGroupReconciler } from "../lib/app-group-reconcile.js";
 import { applyNativeEntitlement, parseNativeEntitlement } from "../lib/entitlement-pull.js";
 
@@ -31,17 +30,17 @@ function ruleSetEndpointFromEnv(): RuleSetEndpoint | null {
   return url && anonKey ? { url, anonKey } : null;
 }
 
-/** Coerce a native `{ settings: "<json>" }` reply into StillSettings, or null. Unwraps the envelope,
+/** Coerce a native `{ settings: "<json>" }` reply into a settings record, or null. Unwraps the envelope,
  * then delegates the JSON parse + shape guard to the shared validator (the single hardening point). */
-function parseNativeSettings(reply: unknown): StillSettings | null {
+function parseNativeSettings(reply: unknown): StoredSettingsRecord | null {
   if (!reply || typeof reply !== "object") return null;
-  return parseSettings((reply as { settings?: unknown }).settings ?? null);
+  return parseStoredSettingsRecord((reply as { settings?: unknown }).settings ?? null);
 }
 
 export default defineBackground(() => {
   const adapter = new ChromeStorageAdapter();
 
-  async function pullFromApp(): Promise<StillSettings | null> {
+  async function pullFromApp(): Promise<StoredSettingsRecord | null> {
     try {
       const reply = await browser.runtime.sendNativeMessage(NATIVE_APP, { kind: "get" });
       return parseNativeSettings(reply);
@@ -50,11 +49,11 @@ export default defineBackground(() => {
     }
   }
 
-  async function pushToApp(settings: StillSettings): Promise<void> {
+  async function pushToApp(record: StoredSettingsRecord): Promise<void> {
     try {
       await browser.runtime.sendNativeMessage(NATIVE_APP, {
         kind: "set",
-        settings: JSON.stringify(settings),
+        settings: JSON.stringify(record),
       });
     } catch {
       /* native host unavailable */

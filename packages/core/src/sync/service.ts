@@ -1,5 +1,6 @@
 import type { StillSettings } from "@still/shared-types";
-import type { SettingsCache } from "../storage/cache.js";
+import type { SettingsCache, SettingsChangeSource } from "../storage/cache.js";
+import type { SyncedSettingsEnvelope } from "../storage/adapter.js";
 import type { AuthPort, BackendPort, EntitlementRead } from "./ports.js";
 
 // Coordinates auth + entitlement + settings sync (R6/R7/R8). The hard rules:
@@ -37,10 +38,13 @@ const SIGNED_OUT: SyncState = { userId: null, entitled: false, syncing: false, c
 export class SyncService {
   private state: SyncState = SIGNED_OUT;
   private unsubCache: (() => void) | null = null;
+  private unsubRealtime: (() => void) | null = null;
+  private realtimeStale = false;
   // Write coalescing: at most one in-flight writeProfile; a newer edit during a write replaces the
   // single pending value (latest-wins, matching updatedAt-LWW) and flushes when the in-flight settles.
   private writing = false;
   private pendingWrite: StillSettings | null = null;
+  private retryLatestOnReconnect = false;
 
   constructor(
     private readonly cache: SettingsCache,
@@ -66,6 +70,7 @@ export class SyncService {
   async onSignedIn(userId: string): Promise<void> {
     const previousEntitled = this.state.userId === userId ? this.state.entitled : false;
     this.stopWriteThrough();
+    this.stopRealtime();
     this.setState({ userId, entitled: previousEntitled, syncing: false, cloudReachable: true });
 
     // Reconcile BEFORE reading — the desktop self-heal path the bridge targets (U13/U14).
@@ -112,6 +117,7 @@ export class SyncService {
     });
     if (alreadySyncing) {
       this.startWriteThrough(); // steady state: no redundant mirror-down (matches resume semantics)
+      this.startRealtime(userId);
       return;
     }
     try {
@@ -134,13 +140,16 @@ export class SyncService {
     const crossIdentity = this.identity !== undefined && (await this.identity.get()) !== userId;
     const cloud = await this.backend.readProfile();
     if (cloud) {
-      // LWW: a newer cloud wins (cloud is source of truth); a newer local is pushed up to converge.
-      const applied = this.cache.applyRemote(cloud);
-      if (!applied && !crossIdentity) await this.backend.writeProfile(this.cache.current());
+      const localBefore = this.cache.current();
+      const applied = this.cache.applySyncedEnvelope(cloud);
+      if (!applied && !crossIdentity && !sameSettings(localBefore, cloud.settings)) {
+        await this.writeAndApply(this.cache.current());
+      }
     } else if (!crossIdentity) {
-      await this.backend.writeProfile(this.cache.current()); // seed an empty cloud from local
+      await this.writeAndApply(this.cache.current()); // seed an empty cloud from local
     }
     this.startWriteThrough();
+    this.startRealtime(userId);
     await this.identity?.set(userId);
   }
 
@@ -154,15 +163,18 @@ export class SyncService {
   resume(userId: string, entitled: boolean): void {
     if (!entitled) {
       this.stopWriteThrough();
+      this.stopRealtime();
       this.setState({ userId, entitled: false, syncing: false, cloudReachable: this.state.cloudReachable });
       return;
     }
     this.setState({ userId, entitled: true, syncing: false, cloudReachable: this.state.cloudReachable });
     this.startWriteThrough();
+    this.startRealtime(userId);
   }
 
   async signOut(): Promise<void> {
     this.stopWriteThrough();
+    this.stopRealtime();
     await this.auth.signOut();
     this.setState(SIGNED_OUT);
   }
@@ -179,6 +191,7 @@ export class SyncService {
     // Account is gone server-side. Local sign-out is now best-effort — force SIGNED_OUT regardless, so
     // a failing auth.signOut() can't strand the UI signed-in against a deleted account.
     this.stopWriteThrough();
+    this.stopRealtime();
     try {
       await this.auth.signOut();
     } catch {
@@ -190,7 +203,8 @@ export class SyncService {
   /** After this, every local settings edit is mirrored to the cloud (coalesced) while entitled. */
   private startWriteThrough(): void {
     this.setState({ ...this.state, syncing: true });
-    this.unsubCache ??= this.cache.subscribe((settings: StillSettings) => {
+    this.unsubCache ??= this.cache.subscribe((settings: StillSettings, source: SettingsChangeSource) => {
+      if (source === "synced") return;
       if (this.state.entitled && this.state.userId) this.enqueueWrite(settings);
     });
   }
@@ -212,10 +226,12 @@ export class SyncService {
 
   private async flushWrite(settings: StillSettings): Promise<void> {
     try {
-      await this.backend.writeProfile(settings);
+      await this.writeAndApply(settings);
       if (!this.state.cloudReachable) this.setState({ ...this.state, cloudReachable: true });
+      this.retryLatestOnReconnect = false;
     } catch {
       this.pendingWrite = null;
+      this.retryLatestOnReconnect = true;
       if (this.state.cloudReachable) this.setState({ ...this.state, cloudReachable: false });
     } finally {
       const next = this.pendingWrite;
@@ -233,6 +249,53 @@ export class SyncService {
     this.unsubCache = null;
     this.writing = false;
     this.pendingWrite = null;
+    this.retryLatestOnReconnect = false;
+  }
+
+  private startRealtime(userId: string): void {
+    if (this.unsubRealtime !== null) return;
+    this.realtimeStale = false;
+    this.unsubRealtime = this.backend.subscribeToProfile(
+      userId,
+      (envelope) => this.applyRemoteEnvelope(envelope),
+      (status) => {
+        if (status === "disconnected" || status === "error") {
+          this.realtimeStale = true;
+          return;
+        }
+        if (status === "subscribed" && this.realtimeStale) {
+          this.realtimeStale = false;
+          void this.refreshAfterRealtimeReconnect();
+        }
+      },
+    );
+  }
+
+  private stopRealtime(): void {
+    this.unsubRealtime?.();
+    this.unsubRealtime = null;
+    this.realtimeStale = false;
+  }
+
+  private async refreshAfterRealtimeReconnect(): Promise<void> {
+    if (!this.state.entitled || !this.state.userId) return;
+    try {
+      const envelope = await this.backend.readProfile();
+      if (envelope) this.applyRemoteEnvelope(envelope);
+      if (this.retryLatestOnReconnect) this.enqueueWrite(this.cache.current());
+      if (!this.state.cloudReachable) this.setState({ ...this.state, cloudReachable: true });
+    } catch {
+      if (this.state.cloudReachable) this.setState({ ...this.state, cloudReachable: false });
+    }
+  }
+
+  private applyRemoteEnvelope(envelope: SyncedSettingsEnvelope): void {
+    this.cache.applySyncedEnvelope(envelope);
+  }
+
+  private async writeAndApply(settings: StillSettings): Promise<void> {
+    const envelope = await this.backend.writeProfile(settings, randomWriteId());
+    this.cache.applySyncedEnvelope(envelope);
   }
 
   private setState(next: SyncState): void {
@@ -243,4 +306,16 @@ export class SyncService {
 
 function entitlementToBool(read: Exclude<EntitlementRead, "unknown">): boolean {
   return read === "entitled";
+}
+
+function randomWriteId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = Math.floor(Math.random() * 16);
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+function sameSettings(a: StillSettings, b: StillSettings): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
 }

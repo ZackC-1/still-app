@@ -7,6 +7,10 @@ function settings(over: Partial<StillSettings> = {}): StillSettings {
   return { ...DEFAULT_SETTINGS, ...over };
 }
 
+function record(over: Partial<StillSettings> = {}) {
+  return { settings: settings(over), syncMetadata: null };
+}
+
 /**
  * A fake native host: an App Group with last-write-wins, exposed through a postMessage port that
  * mirrors WKScriptMessageHandlerWithReply (returns a Promise) and replies with JSON strings.
@@ -20,7 +24,8 @@ function makeNativeHost(stored: StillSettings | null = null) {
       const m = msg as { kind: string; settings?: string };
       if (m.kind === "get") return value ? JSON.stringify(value) : "";
       if (m.kind === "set") {
-        const incoming = JSON.parse(m.settings!) as StillSettings;
+        const parsed = JSON.parse(m.settings!) as StillSettings | { settings: StillSettings };
+        const incoming = "settings" in parsed ? parsed.settings : parsed;
         if (!value || incoming.updatedAt > value.updatedAt) value = incoming; // native LWW
         return JSON.stringify(value);
       }
@@ -48,7 +53,7 @@ describe("WKWebViewStorageAdapter", () => {
     const host = makeNativeHost(settings({ globalOn: false, updatedAt: 5000 }));
     const adapter = new WKWebViewStorageAdapter(host.win);
     const got = await adapter.get();
-    expect(got?.globalOn).toBe(false);
+    expect(got?.settings.globalOn).toBe(false);
     expect(host.port.postMessage).toHaveBeenCalledWith({ kind: "get" });
   });
 
@@ -61,11 +66,11 @@ describe("WKWebViewStorageAdapter", () => {
   it("set() posts the settings as a JSON string and persists them natively", async () => {
     const host = makeNativeHost(null);
     const adapter = new WKWebViewStorageAdapter(host.win);
-    await adapter.set(settings({ globalOn: false, updatedAt: 7000 }));
+    await adapter.set(record({ globalOn: false, updatedAt: 7000 }));
     const msg = host.posted.at(-1) as { kind: string; settings: string };
     expect(msg.kind).toBe("set");
     expect(typeof msg.settings).toBe("string");
-    expect(JSON.parse(msg.settings).globalOn).toBe(false);
+    expect(JSON.parse(msg.settings).settings.globalOn).toBe(false);
     expect(host.value?.updatedAt).toBe(7000);
   });
 
@@ -75,10 +80,10 @@ describe("WKWebViewStorageAdapter", () => {
     const adapter = new WKWebViewStorageAdapter(host.win);
     const seen = vi.fn();
     adapter.subscribe(seen);
-    await adapter.set(settings({ globalOn: false, updatedAt: 6000 })); // stale → native keeps 9000
+    await adapter.set(record({ globalOn: false, updatedAt: 6000 })); // stale → native keeps 9000
     expect(seen).toHaveBeenCalledTimes(1);
-    expect(seen.mock.calls[0]![0].updatedAt).toBe(9000);
-    expect(seen.mock.calls[0]![0].globalOn).toBe(true);
+    expect(seen.mock.calls[0]![0].settings.updatedAt).toBe(9000);
+    expect(seen.mock.calls[0]![0].settings.globalOn).toBe(true);
   });
 
   it("set() does not echo to subscribers when our own write wins", async () => {
@@ -86,7 +91,7 @@ describe("WKWebViewStorageAdapter", () => {
     const adapter = new WKWebViewStorageAdapter(host.win);
     const seen = vi.fn();
     adapter.subscribe(seen);
-    await adapter.set(settings({ globalOn: false, updatedAt: 2000 })); // newer → ours wins
+    await adapter.set(record({ globalOn: false, updatedAt: 2000 })); // newer → ours wins
     expect(seen).not.toHaveBeenCalled();
   });
 
@@ -97,7 +102,7 @@ describe("WKWebViewStorageAdapter", () => {
     adapter.subscribe(seen);
     host.pushExternal(settings({ globalOn: false, updatedAt: 4242 }));
     expect(seen).toHaveBeenCalledTimes(1);
-    expect(seen.mock.calls[0]![0].updatedAt).toBe(4242);
+    expect(seen.mock.calls[0]![0].settings.updatedAt).toBe(4242);
   });
 
   it("subscribe() also accepts a native push delivered as a JSON string", () => {
@@ -107,7 +112,7 @@ describe("WKWebViewStorageAdapter", () => {
     adapter.subscribe(seen);
     host.win.__stillApplyRemote?.(JSON.stringify(settings({ globalOn: false, updatedAt: 99 })));
     expect(seen).toHaveBeenCalledTimes(1);
-    expect(seen.mock.calls[0]![0].globalOn).toBe(false);
+    expect(seen.mock.calls[0]![0].settings.globalOn).toBe(false);
   });
 
   it("unsubscribe() stops delivery", () => {
@@ -123,6 +128,6 @@ describe("WKWebViewStorageAdapter", () => {
   it("degrades to an empty store with no native host (plain browser)", async () => {
     const adapter = new WKWebViewStorageAdapter({});
     expect(await adapter.get()).toBeNull();
-    await expect(adapter.set(settings({ updatedAt: 1 }))).resolves.toBeUndefined();
+    await expect(adapter.set(record({ updatedAt: 1 }))).resolves.toBeUndefined();
   });
 });

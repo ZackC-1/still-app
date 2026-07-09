@@ -1,7 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import type { StillSettings } from "@still/shared-types";
-import { parseSettings } from "../storage/settings-validation.js";
+import type { SyncedSettingsEnvelope } from "../storage/adapter.js";
+import { parseSyncedSettingsEnvelope } from "../storage/settings-validation.js";
 import type {
   BackendPort,
   CheckedReconcilePort,
@@ -80,23 +81,59 @@ export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, Checke
     return data?.still_sync === true ? "entitled" : "not-entitled";
   }
 
-  async readProfile(): Promise<StillSettings | null> {
+  async readProfile(): Promise<SyncedSettingsEnvelope | null> {
     const { data } = await this.client
       .from("profiles")
-      .select("settings")
-      .maybeSingle<{ settings: unknown }>();
-    return parseSettings(data?.settings);
+      .select("settings,settings_version,settings_server_updated_at,settings_last_write_id")
+      .maybeSingle<{
+        settings: unknown;
+        settings_version: unknown;
+        settings_server_updated_at: unknown;
+        settings_last_write_id: unknown;
+      }>();
+    return parseSyncedSettingsEnvelope(data);
   }
 
-  async writeProfile(settings: StillSettings): Promise<void> {
-    const { data: userData } = await this.client.auth.getUser();
-    const id = userData.user?.id;
-    if (!id) return;
-    await this.client.from("profiles").upsert({
-      id,
-      settings,
-      updated_at: new Date(settings.updatedAt).toISOString(),
+  async writeProfile(settings: StillSettings, writeId: string): Promise<SyncedSettingsEnvelope> {
+    const { data, error } = await this.client.rpc("write_profile_settings", {
+      p_settings: settings,
+      p_write_id: writeId,
     });
+    if (error) throw error;
+    const row = Array.isArray(data) ? data[0] : data;
+    const envelope = parseSyncedSettingsEnvelope(row);
+    if (!envelope) throw new Error("Invalid profile settings envelope");
+    return envelope;
+  }
+
+  subscribeToProfile(
+    userId: string,
+    onEnvelope: (envelope: SyncedSettingsEnvelope) => void,
+    onStatus?: (status: "subscribed" | "disconnected" | "error") => void,
+  ): () => void {
+    const channel = this.client
+      .channel(`profile-settings:${userId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "profiles",
+          filter: `id=eq.${userId}`,
+        },
+        (payload) => {
+          const envelope = parseSyncedSettingsEnvelope(payload.new);
+          if (envelope) onEnvelope(envelope);
+        },
+      )
+      .subscribe((status) => {
+        if (status === "SUBSCRIBED") onStatus?.("subscribed");
+        else if (status === "CHANNEL_ERROR") onStatus?.("error");
+        else if (status === "CLOSED" || status === "TIMED_OUT") onStatus?.("disconnected");
+      });
+    return () => {
+      void channel.unsubscribe();
+    };
   }
 
   async deleteAccount(): Promise<void> {

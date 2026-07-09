@@ -25,8 +25,9 @@ final class BridgeTests: XCTestCase {
     let json = SettingsBridge.encode(settings(globalOn: false, updatedAt: 42))
     let request = BridgeRequest.parse(["kind": "set", "settings": json])
     guard case let .set(decoded) = request else { return XCTFail("expected .set") }
-    XCTAssertFalse(decoded.globalOn)
-    XCTAssertEqual(decoded.updatedAt, 42)
+    XCTAssertFalse(decoded.settings.globalOn)
+    XCTAssertEqual(decoded.settings.updatedAt, 42)
+    XCTAssertNil(decoded.syncMetadata)
   }
 
   func testParseRejectsUnknownAndMalformed() {
@@ -47,37 +48,37 @@ final class BridgeTests: XCTestCase {
   func testGetReturnsStoredSettingsAsJSON() throws {
     let (bridge, _) = bridge(settings(globalOn: false, updatedAt: 7))
     let reply = bridge.handle(.get)
-    let decoded = try JSONDecoder().decode(StillSettings.self, from: Data(reply.utf8))
-    XCTAssertFalse(decoded.globalOn)
-    XCTAssertEqual(decoded.updatedAt, 7)
+    let decoded = try JSONDecoder().decode(StoredSettingsRecord.self, from: Data(reply.utf8))
+    XCTAssertFalse(decoded.settings.globalOn)
+    XCTAssertEqual(decoded.settings.updatedAt, 7)
   }
 
   // MARK: set + last-write-wins
 
   func testSetNewerWritesAndEchoesIt() throws {
     let (bridge, store) = bridge(settings(globalOn: true, updatedAt: 100))
-    let reply = bridge.handle(.set(settings(globalOn: false, updatedAt: 200)))
+    let reply = bridge.handle(.set(StoredSettingsRecord(settings: settings(globalOn: false, updatedAt: 200), syncMetadata: nil)))
     XCTAssertFalse(store.current().globalOn)
     XCTAssertEqual(store.current().updatedAt, 200)
-    let echoed = try JSONDecoder().decode(StillSettings.self, from: Data(reply.utf8))
-    XCTAssertEqual(echoed.updatedAt, 200)
+    let echoed = try JSONDecoder().decode(StoredSettingsRecord.self, from: Data(reply.utf8))
+    XCTAssertEqual(echoed.settings.updatedAt, 200)
   }
 
   /// A stale `set` (lower updatedAt) is ignored, and the reply hands the web side the newer value the
   /// App Group already held — so the web cache reconciles instead of silently clobbering (KTD4).
   func testSetStaleIsIgnoredAndEchoesTheKeptValue() throws {
     let (bridge, store) = bridge(settings(globalOn: true, updatedAt: 500))
-    let reply = bridge.handle(.set(settings(globalOn: false, updatedAt: 400)))
+    let reply = bridge.handle(.set(StoredSettingsRecord(settings: settings(globalOn: false, updatedAt: 400), syncMetadata: nil)))
     XCTAssertTrue(store.current().globalOn)            // unchanged
     XCTAssertEqual(store.current().updatedAt, 500)
-    let echoed = try JSONDecoder().decode(StillSettings.self, from: Data(reply.utf8))
-    XCTAssertTrue(echoed.globalOn)                     // the kept (newer) value, not the stale write
-    XCTAssertEqual(echoed.updatedAt, 500)
+    let echoed = try JSONDecoder().decode(StoredSettingsRecord.self, from: Data(reply.utf8))
+    XCTAssertTrue(echoed.settings.globalOn)            // the kept (newer) value, not the stale write
+    XCTAssertEqual(echoed.settings.updatedAt, 500)
   }
 
   func testSetOnEmptyStoreAccepts() {
     let (bridge, store) = bridge()
-    _ = bridge.handle(.set(settings(globalOn: false, updatedAt: 1)))
+    _ = bridge.handle(.set(StoredSettingsRecord(settings: settings(globalOn: false, updatedAt: 1), syncMetadata: nil)))
     XCTAssertEqual(store.current().updatedAt, 1)
     XCTAssertFalse(store.current().globalOn)
   }
@@ -90,9 +91,19 @@ final class BridgeTests: XCTestCase {
     let setReply = bridge.handle(rawBody: ["kind": "set", "settings": json])
     XCTAssertNotNil(setReply)
     let getReply = try XCTUnwrap(bridge.handle(rawBody: ["kind": "get"]))
-    let decoded = try JSONDecoder().decode(StillSettings.self, from: Data(getReply.utf8))
-    XCTAssertEqual(decoded.updatedAt, 1782264630248)   // survives the JS Date.now()-sized millis
-    XCTAssertFalse(decoded.globalOn)
+    let decoded = try JSONDecoder().decode(StoredSettingsRecord.self, from: Data(getReply.utf8))
+    XCTAssertEqual(decoded.settings.updatedAt, 1782264630248)   // survives the JS Date.now()-sized millis
+    XCTAssertFalse(decoded.settings.globalOn)
+  }
+
+  func testMetadataRecordRoundTrips() throws {
+    let metadata = SettingsSyncMetadata(version: 4, serverUpdatedAt: "2026-07-09T18:00:00.000Z", lastWriteId: "w1")
+    let record = StoredSettingsRecord(settings: settings(globalOn: false, updatedAt: 1), syncMetadata: metadata)
+    let (bridge, store) = bridge()
+    let reply = bridge.handle(.set(record))
+    XCTAssertEqual(store.currentRecord().syncMetadata, metadata)
+    let echoed = try JSONDecoder().decode(StoredSettingsRecord.self, from: Data(reply.utf8))
+    XCTAssertEqual(echoed.syncMetadata, metadata)
   }
 
   func testRawBodyReturnsNilForGarbage() {

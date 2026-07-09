@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { DEFAULT_SETTINGS } from "@still/shared-types";
-import { parseSettings, safeParse } from "../settings-validation.js";
+import {
+  parseSettings,
+  parseStoredSettingsRecord,
+  parseSyncedSettingsEnvelope,
+  safeParse,
+} from "../settings-validation.js";
 
 const valid = { ...DEFAULT_SETTINGS, updatedAt: 5 };
 
@@ -56,5 +61,39 @@ describe("safeParse", () => {
   it("parses valid JSON and returns null on malformed input", () => {
     expect(safeParse('{"a":1}')).toEqual({ a: 1 });
     expect(safeParse("nope")).toBeNull();
+  });
+});
+
+describe("settings sync envelope parsing", () => {
+  it("parses a canonical Supabase envelope", () => {
+    expect(parseSyncedSettingsEnvelope({
+      settings: valid,
+      settings_version: 7,
+      settings_server_updated_at: "2026-07-09T18:00:00.000Z",
+      settings_last_write_id: null,
+    })).toEqual({
+      settings: valid,
+      version: 7,
+      serverUpdatedAt: "2026-07-09T18:00:00.000Z",
+      lastWriteId: null,
+    });
+  });
+
+  it("ignores invalid envelopes safely", () => {
+    expect(parseSyncedSettingsEnvelope({ settings: valid, settings_version: "7" })).toBeNull();
+    expect(parseSyncedSettingsEnvelope({ settings: { ...valid, globalOn: "yes" }, settings_version: 7 })).toBeNull();
+    expect(parseSyncedSettingsEnvelope({ settings: valid, settings_version: 7, settings_server_updated_at: "nope" })).toBeNull();
+  });
+
+  it("parses old settings-only and new stored records", () => {
+    expect(parseStoredSettingsRecord(valid)).toEqual({ settings: valid, syncMetadata: null });
+    expect(parseStoredSettingsRecord({
+      settings: valid,
+      syncMetadata: {
+        version: 2,
+        serverUpdatedAt: "2026-07-09T18:00:00.000Z",
+        lastWriteId: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+      },
+    })?.syncMetadata?.version).toBe(2);
   });
 });

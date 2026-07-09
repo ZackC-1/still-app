@@ -21,7 +21,7 @@ describe("SettingsCache", () => {
     const { adapter, cache } = makeCache();
     await cache.setService("youtube", false);
     expect(cache.current().services.youtube).toBe(false);
-    expect((await adapter.get())!.services.youtube).toBe(false);
+    expect((await adapter.get())!.settings.services.youtube).toBe(false);
   });
 
   it("stamps a fresh updatedAt on every write", async () => {
@@ -103,5 +103,67 @@ describe("SettingsCache", () => {
     adapter.emitExternal(settings({ globalOn: true, updatedAt: 150 }));
     expect(cache.current().globalOn).toBe(false);
     expect(seen).toHaveBeenCalledTimes(1);
+  });
+
+  it("applies a higher server version and persists metadata", () => {
+    const { cache } = makeCache(settings({ globalOn: true, updatedAt: 10 }));
+    const applied = cache.applySyncedEnvelope({
+      settings: settings({ globalOn: false, updatedAt: 1 }),
+      version: 2,
+      serverUpdatedAt: "2026-07-09T18:00:00.000Z",
+      lastWriteId: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
+    });
+    expect(applied).toBe(true);
+    expect(cache.current().globalOn).toBe(false);
+    expect(cache.currentSyncMetadata()?.version).toBe(2);
+  });
+
+  it("ignores a lower server version", () => {
+    const { cache } = makeCache(settings({ globalOn: true, updatedAt: 10 }));
+    cache.applySyncedEnvelope({
+      settings: settings({ globalOn: false, updatedAt: 1 }),
+      version: 3,
+      serverUpdatedAt: "2026-07-09T18:00:00.000Z",
+      lastWriteId: null,
+    });
+    expect(cache.applySyncedEnvelope({
+      settings: settings({ globalOn: true, updatedAt: 99 }),
+      version: 2,
+      serverUpdatedAt: "2026-07-09T18:00:01.000Z",
+      lastWriteId: null,
+    })).toBe(false);
+    expect(cache.current().globalOn).toBe(false);
+  });
+
+  it("does not double-notify for an equal server version", () => {
+    const { cache } = makeCache(settings({ globalOn: true, updatedAt: 10 }));
+    const seen = vi.fn();
+    cache.subscribe(seen);
+    const envelope = {
+      settings: settings({ globalOn: false, updatedAt: 1 }),
+      version: 3,
+      serverUpdatedAt: "2026-07-09T18:00:00.000Z",
+      lastWriteId: null,
+    };
+    cache.applySyncedEnvelope(envelope);
+    cache.applySyncedEnvelope(envelope);
+    expect(seen).toHaveBeenCalledTimes(1);
+  });
+
+  it("device updatedAt skew does not beat a newer server version", () => {
+    const { cache } = makeCache(settings({ globalOn: true, updatedAt: 10 }));
+    cache.applySyncedEnvelope({
+      settings: settings({ globalOn: false, updatedAt: 100 }),
+      version: 5,
+      serverUpdatedAt: "2026-07-09T18:00:00.000Z",
+      lastWriteId: null,
+    });
+    cache.applySyncedEnvelope({
+      settings: settings({ globalOn: true, updatedAt: 9_999_999_999_999 }),
+      version: 4,
+      serverUpdatedAt: "2026-07-09T18:00:01.000Z",
+      lastWriteId: null,
+    });
+    expect(cache.current().globalOn).toBe(false);
   });
 });

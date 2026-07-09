@@ -77,3 +77,41 @@ public struct StillSettings: Codable, Equatable, Sendable {
     updatedAt: 0,
   )
 }
+
+public struct SettingsSyncMetadata: Codable, Equatable, Sendable {
+  public var version: Int
+  public var serverUpdatedAt: String
+  public var lastWriteId: String?
+
+  public init(version: Int, serverUpdatedAt: String, lastWriteId: String?) {
+    self.version = version
+    self.serverUpdatedAt = serverUpdatedAt
+    self.lastWriteId = lastWriteId
+  }
+}
+
+public struct StoredSettingsRecord: Codable, Equatable, Sendable {
+  public var settings: StillSettings
+  public var syncMetadata: SettingsSyncMetadata?
+
+  public init(settings: StillSettings, syncMetadata: SettingsSyncMetadata?) {
+    self.settings = settings
+    self.syncMetadata = syncMetadata
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case settings
+    case syncMetadata
+  }
+
+  public init(from decoder: Decoder) throws {
+    if let container = try? decoder.container(keyedBy: CodingKeys.self),
+       container.contains(.settings) {
+      settings = try container.decode(StillSettings.self, forKey: .settings)
+      syncMetadata = try container.decodeIfPresent(SettingsSyncMetadata.self, forKey: .syncMetadata)
+      return
+    }
+    settings = try StillSettings(from: decoder)
+    syncMetadata = nil
+  }
+}

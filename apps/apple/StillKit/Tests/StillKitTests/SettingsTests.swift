@@ -83,10 +83,11 @@ final class SettingsTests: XCTestCase {
     """
 
     let reply = try XCTUnwrap(bridge.handle(rawBody: ["kind": "set", "settings": json]))
-    let echoed = try JSONDecoder().decode(StillSettings.self, from: Data(reply.utf8))
-    XCTAssertTrue(echoed.services.youtube)
-    XCTAssertFalse(echoed.services.instagram)
-    XCTAssertEqual(echoed.pauses, [])
+    let echoed = try JSONDecoder().decode(StoredSettingsRecord.self, from: Data(reply.utf8))
+    XCTAssertTrue(echoed.settings.services.youtube)
+    XCTAssertFalse(echoed.settings.services.instagram)
+    XCTAssertEqual(echoed.settings.pauses, [])
+    XCTAssertNil(echoed.syncMetadata)
   }
 
   func testBridgeDropsUnknownEntitlementFields() throws {
@@ -99,7 +100,9 @@ final class SettingsTests: XCTestCase {
     let reply = try XCTUnwrap(bridge.handle(rawBody: ["kind": "set", "settings": json]))
     let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any])
     XCTAssertNil(object["entitlement"])
-    let services = try XCTUnwrap(object["services"] as? [String: Any])
+    let settings = try XCTUnwrap(object["settings"] as? [String: Any])
+    XCTAssertNil(settings["entitlement"])
+    let services = try XCTUnwrap(settings["services"] as? [String: Any])
     XCTAssertNil(services["entitlement"])
   }
 }

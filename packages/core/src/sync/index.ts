@@ -12,6 +12,7 @@ export type {
   WebCheckoutPort,
   ReconcileCallOutcome,
   CheckedReconcilePort,
+  SyncedSettingsEnvelope,
 } from "./ports.js";
 export { SyncService, type SyncState, type LastSyncedIdentityStore } from "./service.js";
 export { SupabaseAuthPort } from "./auth.js";

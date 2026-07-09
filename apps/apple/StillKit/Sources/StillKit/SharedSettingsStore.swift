@@ -2,7 +2,8 @@ import Foundation
 
 // The shared settings store + its pluggable backing (KTD4). Production uses the App Group container
 // (so the app, the Safari extension, and the WKWebView agree); tests use an in-memory backing.
-// Merge is last-write-wins by `updatedAt`, mirroring the TypeScript SettingsCache.
+// Merge uses server sync metadata when present, falling back to last-write-wins by `updatedAt` for
+// old settings-only records.
 
 public protocol SettingsBacking {
   func read() -> Data?
@@ -20,7 +21,11 @@ public final class SharedSettingsStore {
 
   /// The current settings, or the defaults if nothing has been written / the data is unreadable.
   public func current() -> StillSettings {
-    peek() ?? .default
+    currentRecord().settings
+  }
+
+  public func currentRecord() -> StoredSettingsRecord {
+    peekRecord() ?? StoredSettingsRecord(settings: .default, syncMetadata: nil)
   }
 
   /// The stored settings, or nil if nothing has ever been written (unlike `current()`, which folds a
@@ -28,24 +33,53 @@ public final class SharedSettingsStore {
   /// empty reply on a fresh install, so the WKWebView UI shows bundled defaults rather than a
   /// spurious `updatedAt: 0` write that could mask a newer value on the other side.
   public func peek() -> StillSettings? {
-    guard let data = backing.read(), let settings = try? decoder.decode(StillSettings.self, from: data) else {
+    peekRecord()?.settings
+  }
+
+  public func peekRecord() -> StoredSettingsRecord? {
+    guard let data = backing.read(), let record = try? decoder.decode(StoredSettingsRecord.self, from: data) else {
       return nil
     }
-    return settings
+    return record
   }
 
   /// Persist settings as JSON the web UI can also read.
   public func save(_ settings: StillSettings) {
-    guard let data = try? encoder.encode(settings) else { return }
+    saveRecord(StoredSettingsRecord(settings: settings, syncMetadata: currentRecord().syncMetadata))
+  }
+
+  public func saveRecord(_ record: StoredSettingsRecord) {
+    guard let data = try? encoder.encode(record) else { return }
     backing.write(data)
   }
 
   /// Apply an incoming settings set via last-write-wins. Returns true if the store changed.
   @discardableResult
   public func applyRemote(_ incoming: StillSettings) -> Bool {
-    guard incoming.updatedAt > current().updatedAt else { return false }
-    save(incoming)
+    guard currentRecord().syncMetadata == nil, incoming.updatedAt > current().updatedAt else { return false }
+    saveRecord(StoredSettingsRecord(settings: incoming, syncMetadata: nil))
     return true
+  }
+
+  @discardableResult
+  public func applyRecord(_ incoming: StoredSettingsRecord) -> Bool {
+    guard shouldApply(incoming, over: currentRecord()) else { return false }
+    saveRecord(incoming)
+    return true
+  }
+}
+
+private func shouldApply(_ incoming: StoredSettingsRecord, over current: StoredSettingsRecord) -> Bool {
+  switch (incoming.syncMetadata, current.syncMetadata) {
+  case let (incoming?, current?):
+    if incoming.version != current.version { return incoming.version > current.version }
+    return incoming.serverUpdatedAt > current.serverUpdatedAt
+  case (.some, .none):
+    return true
+  case (.none, .some):
+    return false
+  case (.none, .none):
+    return incoming.settings.updatedAt > current.settings.updatedAt
   }
 }
 
