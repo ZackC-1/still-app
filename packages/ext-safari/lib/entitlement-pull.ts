@@ -1,4 +1,4 @@
-import { ENTITLEMENT_CACHE_TTL_MS } from "@still/core/entitlement";
+import { entitlementStampExpired } from "@still/core/entitlement";
 
 // The Safari entitlement pull, extracted from the background entrypoint so it is unit-testable with
 // injected deps. The app mirrors its server-reconciled entitlement into the App Group (StillKit
@@ -49,7 +49,7 @@ export async function applyNativeEntitlement(
   now: () => number = Date.now,
 ): Promise<boolean> {
   if (!record) return false;
-  if (record.entitled && now() - record.updatedAt > ENTITLEMENT_CACHE_TTL_MS) return false;
+  if (record.entitled && entitlementStampExpired(record.updatedAt, now())) return false;
   await sink.set(record.entitled, record.updatedAt);
   return true;
 }
