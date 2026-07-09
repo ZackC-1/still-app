@@ -240,3 +240,32 @@ describe("resolveRuleSetForLoad", () => {
     expect(ruleSet.version).toBe(bundled.version);
   });
 });
+
+// The failure half of the single-flight contract: a fetch that dies mid-flight must resolve (not
+// reject) for every joiner — fetchCurrentRuleSet swallows network errors to null — and must not
+// wedge the slot: the next burst gets a fresh fetch.
+it("a failed shared refresh resolves null for all joiners and never wedges the slot", async () => {
+  const area = memArea();
+  let release!: () => void;
+  const gate = new Promise<void>((r) => (release = r));
+  let fetches = 0;
+  const failingFetch = (async () => {
+    fetches++;
+    await gate;
+    throw new Error("network down");
+  }) as typeof fetch;
+  const cfg = cfgWith(failingFetch);
+
+  const first = refreshRuleSetCache(cfg, area);
+  const second = refreshRuleSetCache(cfg, area); // joins the doomed in-flight refresh
+  release();
+  const [a, b] = await Promise.all([first, second]); // resolves — never an unhandled rejection
+  expect(fetches).toBe(1);
+  expect(a).toBeNull();
+  expect(b).toBeNull();
+  expect(await readCachedRuleSet(area, DEV_TRUST)).toBeNull(); // nothing was cached
+
+  // Slot cleared despite the failure: the next call runs a fresh fetch.
+  expect(await refreshRuleSetCache(cfg, area)).toBeNull();
+  expect(fetches).toBe(2);
+});

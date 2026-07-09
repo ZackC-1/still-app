@@ -40,3 +40,8 @@ Names the load-bearing concepts in this codebase. Use these terms in code, comme
   entitlement lane serves Safari.
 - **App-Group bridge** — the Swift↔web↔extension seam on Apple: settings lane (`SettingsBridge`,
   LWW) + entitlement lane (`EntitlementBridge`, app-written only after server reconcile).
+- **Auth gate** (`supabase/functions/_shared/auth.ts`) — the one authenticated-request preamble
+  every browser/app-called function wraps its body in (`withAuthenticatedUser`): OPTIONS preflight →
+  POST-only → Bearer shape → `verifyJwt` (HS256/ES256 + defense-in-depth claims) → UUID subject.
+  The subject UUID never comes from the request body (KTD5 IDOR defense); handler bodies receive
+  only what the gate proved. `AuthDeps` is the shared auth slice per-function Deps extend.
