@@ -175,6 +175,39 @@ describe("refreshRuleSetCache", () => {
     await refreshRuleSetCache(cfgWith(fetchReturning(newer)), area);
     expect((await readCachedRuleSet(area, DEV_TRUST))?.version).toBe("3.0.0");
   });
+
+  // R6 single-flight: N tabs navigating at once must share ONE fetch+verify+write pass.
+  it("single-flights concurrent refreshes: one fetch shared by both callers, then a fresh slot", async () => {
+    const area = memArea();
+    const set = await signedAt("2.0.0");
+    // A fetchImpl gated on a controllable promise, counting invocations — both concurrent calls
+    // must land while the first fetch is provably still in flight.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let fetches = 0;
+    const gatedFetch = (async () => {
+      fetches++;
+      await gate;
+      const row = [{ payload: { version: set.version, services: set.services }, signature: set.signature }];
+      return new Response(JSON.stringify(row), { status: 200 });
+    }) as typeof fetch;
+    const cfg = cfgWith(gatedFetch);
+
+    const first = refreshRuleSetCache(cfg, area);
+    const second = refreshRuleSetCache(cfg, area); // joins the in-flight refresh
+    release();
+    const [a, b] = await Promise.all([first, second]);
+    expect(fetches).toBe(1); // ONE network pass for the burst
+    expect(a?.version).toBe("2.0.0");
+    expect(b).toBe(a); // the same shared result, not a parallel re-fetch
+    expect((await readCachedRuleSet(area, DEV_TRUST))?.version).toBe("2.0.0");
+
+    // The slot cleared on settle: a later refresh fetches fresh (release() already ran, so the
+    // gate is open for it).
+    const third = await refreshRuleSetCache(cfg, area);
+    expect(fetches).toBe(2);
+    expect(third?.version).toBe("2.0.0");
+  });
 });
 
 describe("resolveRuleSetForLoad", () => {
