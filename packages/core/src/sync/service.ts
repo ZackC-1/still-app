@@ -31,9 +31,24 @@ export interface SyncState {
   readonly syncing: boolean;
   /** False after a cloud write fails (offline/error); the UI shows the cached-settings note (U9). */
   readonly cloudReachable: boolean;
+  /**
+   * True only once `entitled` reflects a settled server answer for this session (reconcile + read
+   * completed, an already-reconciled confirmation, or a deliberate sign-out). `onSignedIn` first
+   * emits a PROVISIONAL state (previous/cold `entitled` with `cloudReachable: true`) before the
+   * reconcile round-trip — hosts that stamp entitlement into native stores (the App-Group record
+   * the Safari extension trusts for 30 days) must gate on this, not on `cloudReachable`, or a cold
+   * resume can overwrite a valid cached Pro record with `false` before the server answers.
+   */
+  readonly confirmed: boolean;
 }
 
-const SIGNED_OUT: SyncState = { userId: null, entitled: false, syncing: false, cloudReachable: true };
+const SIGNED_OUT: SyncState = {
+  userId: null,
+  entitled: false,
+  syncing: false,
+  cloudReachable: true,
+  confirmed: true, // a deliberate sign-out is definitive — hosts may clear native stamps on it
+};
 
 export class SyncService {
   private state: SyncState = SIGNED_OUT;
@@ -71,7 +86,15 @@ export class SyncService {
     const previousEntitled = this.state.userId === userId ? this.state.entitled : false;
     this.stopWriteThrough();
     this.stopRealtime();
-    this.setState({ userId, entitled: previousEntitled, syncing: false, cloudReachable: true });
+    // PROVISIONAL: entitled is a carry-over guess until the reconcile below settles — confirmed
+    // stays false so no host mirrors it into a native stamp yet.
+    this.setState({
+      userId,
+      entitled: previousEntitled,
+      syncing: false,
+      cloudReachable: true,
+      confirmed: false,
+    });
 
     // Reconcile BEFORE reading — the desktop self-heal path the bridge targets (U13/U14).
     try {
@@ -87,7 +110,7 @@ export class SyncService {
     }
 
     const entitled = entitlementToBool(entitlement);
-    this.setState({ ...this.state, entitled, cloudReachable: true });
+    this.setState({ ...this.state, entitled, cloudReachable: true, confirmed: true });
     if (!entitled) return; // un-entitled signed-in user does NOT sync (R7 gating)
 
     await this.mirrorAndStartWriteThrough(userId);
@@ -105,6 +128,7 @@ export class SyncService {
   async onEntitlementConfirmed(userId: string, entitled: boolean): Promise<void> {
     if (!entitled) {
       this.resume(userId, false);
+      this.setState({ ...this.state, confirmed: true }); // the caller's reconcile settled it
       return;
     }
     const alreadySyncing =
@@ -114,6 +138,7 @@ export class SyncService {
       entitled: true,
       syncing: this.state.syncing,
       cloudReachable: this.state.cloudReachable,
+      confirmed: true,
     });
     if (alreadySyncing) {
       this.startWriteThrough(); // steady state: no redundant mirror-down (matches resume semantics)
@@ -161,13 +186,26 @@ export class SyncService {
    * cached entitlement and only restarts (entitled) or stops (cached false) the write-through.
    */
   resume(userId: string, entitled: boolean): void {
+    // Resume trusts the caller's CACHED entitlement (no network) — never confirmed.
     if (!entitled) {
       this.stopWriteThrough();
       this.stopRealtime();
-      this.setState({ userId, entitled: false, syncing: false, cloudReachable: this.state.cloudReachable });
+      this.setState({
+        userId,
+        entitled: false,
+        syncing: false,
+        cloudReachable: this.state.cloudReachable,
+        confirmed: false,
+      });
       return;
     }
-    this.setState({ userId, entitled: true, syncing: false, cloudReachable: this.state.cloudReachable });
+    this.setState({
+      userId,
+      entitled: true,
+      syncing: false,
+      cloudReachable: this.state.cloudReachable,
+      confirmed: false,
+    });
     this.startWriteThrough();
     this.startRealtime(userId);
   }

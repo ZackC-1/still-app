@@ -312,6 +312,28 @@ describe("SyncService", () => {
     expect(svc.getState().cloudReachable).toBe(false);
   });
 
+  it("emits an UNCONFIRMED provisional state before reconcile, confirmed only after the read settles", async () => {
+    const cache = makeCache();
+    const backend = mockBackend({ entitled: true });
+    const states: SyncState[] = [];
+    const svc = new SyncService(cache, mockAuth().auth, backend.backend, (s) => states.push(s));
+    await svc.onSignedIn(USER);
+    // First emit is the pre-reconcile provisional (cold guess entitled:false, cloudReachable:true):
+    // it must carry confirmed:false so hosts don't stamp it into the App-Group entitlement record.
+    expect(states[0]).toMatchObject({ userId: USER, entitled: false, cloudReachable: true, confirmed: false });
+    expect(svc.getState()).toMatchObject({ entitled: true, confirmed: true });
+
+    // An offline re-sign-in never reaches a confirmed state.
+    backend.setReconcileThrows(true);
+    states.length = 0;
+    await svc.onSignedIn(USER);
+    expect(states.every((s) => !s.confirmed)).toBe(true);
+
+    // resume() trusts a cached answer — also never confirmed.
+    svc.resume(USER, true);
+    expect(svc.getState().confirmed).toBe(false);
+  });
+
   it("failed reconcile on an account switch does not inherit the prior user's entitlement", async () => {
     const cache = makeCache();
     const backend = mockBackend({ entitled: true });
@@ -327,6 +349,7 @@ describe("SyncService", () => {
       entitled: false,
       syncing: false,
       cloudReachable: false,
+      confirmed: false,
     });
   });
 
@@ -554,7 +577,7 @@ describe("SyncService", () => {
     expect(calls).toContain("deleteAccount");
     expect(authCalls).toContain("signOut");
     expect(svc.getState().userId).toBeNull();
-    expect(states.at(-1)).toEqual({ userId: null, entitled: false, syncing: false, cloudReachable: true });
+    expect(states.at(-1)).toEqual({ userId: null, entitled: false, syncing: false, cloudReachable: true, confirmed: true });
   });
 
   it("deleteAccount deletes BEFORE signing out (order)", async () => {
@@ -590,6 +613,6 @@ describe("SyncService", () => {
     await svc.onSignedIn(USER);
     await svc.deleteAccount(); // must not throw — the delete is what matters
     expect(svc.getState().userId).toBeNull();
-    expect(svc.getState()).toEqual({ userId: null, entitled: false, syncing: false, cloudReachable: true });
+    expect(svc.getState()).toEqual({ userId: null, entitled: false, syncing: false, cloudReachable: true, confirmed: true });
   });
 });

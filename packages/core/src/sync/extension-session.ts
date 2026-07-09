@@ -376,12 +376,13 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
         const generationAtStart = teardownGeneration;
         await sync.onSignedIn(userId);
         // Write the record from that sign-in's own reconcile — one RevenueCat query, not two.
-        // cloudReachable means the answer was definitive (explicit false included); unreachable
-        // means unknown — no write, the cache rides its TTL (AE6). The F2 guard also applies: a
-        // sign-out racing this sign-in must not have its `entitled: false` purge overwritten.
+        // `confirmed` means the reconcile+read round-trip settled the answer (explicit false
+        // included); unconfirmed/provisional means unknown — no write, the cache rides its TTL
+        // (AE6). The F2 guard also applies: a sign-out racing this sign-in must not have its
+        // `entitled: false` purge overwritten.
         const state = sync.getState();
         if (
-          state.cloudReachable &&
+          state.confirmed &&
           teardownGeneration === generationAtStart &&
           (await auth.currentUserId()) === userId
         ) {
