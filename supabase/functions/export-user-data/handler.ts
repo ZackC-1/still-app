@@ -1,5 +1,5 @@
 import { verifyJwt } from "../_shared/jwt.ts";
-import { jsonResponse } from "../_shared/store.ts";
+import { jsonResponse, optionsResponse } from "../_shared/store.ts";
 import { isUuid } from "../_shared/types.ts";
 import type { AccountDeps } from "../delete-user/handler.ts";
 
@@ -7,6 +7,7 @@ import type { AccountDeps } from "../delete-user/handler.ts";
 // verified JWT subject. The Apple purchase record persists with Apple/RevenueCat (restore re-links).
 
 export async function handleExport(req: Request, deps: AccountDeps): Promise<Response> {
+  if (req.method === "OPTIONS") return optionsResponse();
   if (req.method !== "POST") return jsonResponse(405, { error: "method_not_allowed" });
   const match = /^Bearer (.+)$/.exec(req.headers.get("Authorization") ?? "");
   if (!match) return jsonResponse(401, { error: "unauthorized" });

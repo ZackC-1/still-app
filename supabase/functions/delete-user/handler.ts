@@ -1,5 +1,5 @@
 import { type ExpectedClaims, verifyJwt } from "../_shared/jwt.ts";
-import { jsonResponse } from "../_shared/store.ts";
+import { jsonResponse, optionsResponse } from "../_shared/store.ts";
 import { isUuid } from "../_shared/types.ts";
 import type { UserStore } from "../_shared/user-store.ts";
 
@@ -17,6 +17,7 @@ export interface AccountDeps {
 }
 
 export async function handleDeleteUser(req: Request, deps: AccountDeps): Promise<Response> {
+  if (req.method === "OPTIONS") return optionsResponse();
   if (req.method !== "POST") return jsonResponse(405, { error: "method_not_allowed" });
   const match = /^Bearer (.+)$/.exec(req.headers.get("Authorization") ?? "");
   if (!match) return jsonResponse(401, { error: "unauthorized" });

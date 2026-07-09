@@ -1,6 +1,6 @@
 import { type ExpectedClaims, verifyJwt } from "../_shared/jwt.ts";
 import { type RevenueCatClient, stillProActive } from "../_shared/revenuecat.ts";
-import { type EntitlementStore, jsonResponse } from "../_shared/store.ts";
+import { type EntitlementStore, jsonResponse, optionsResponse } from "../_shared/store.ts";
 import { isUuid } from "../_shared/types.ts";
 
 // Reconcile (verify_jwt=true). The subject UUID is taken ONLY from the verified JWT (auth.uid()),
@@ -19,6 +19,7 @@ export interface ReconcileDeps {
 }
 
 export async function handleReconcile(req: Request, deps: ReconcileDeps): Promise<Response> {
+  if (req.method === "OPTIONS") return optionsResponse();
   if (req.method !== "POST") return jsonResponse(405, { error: "method_not_allowed" });
 
   const match = /^Bearer (.+)$/.exec(req.headers.get("Authorization") ?? "");

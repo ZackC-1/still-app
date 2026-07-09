@@ -1,6 +1,6 @@
 import { type ExpectedClaims, verifyJwt } from "../_shared/jwt.ts";
 import { type RevenueCatClient, stillProActive } from "../_shared/revenuecat.ts";
-import { jsonResponse } from "../_shared/store.ts";
+import { jsonResponse, optionsResponse } from "../_shared/store.ts";
 import { isUuid } from "../_shared/types.ts";
 import type { WebBillingClient } from "../_shared/web-billing.ts";
 
@@ -22,6 +22,7 @@ export async function handleCreateWebCheckout(
   req: Request,
   deps: CreateWebCheckoutDeps,
 ): Promise<Response> {
+  if (req.method === "OPTIONS") return optionsResponse();
   if (req.method !== "POST") return jsonResponse(405, { error: "method_not_allowed" });
 
   const match = /^Bearer (.+)$/.exec(req.headers.get("Authorization") ?? "");
