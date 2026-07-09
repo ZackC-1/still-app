@@ -70,6 +70,11 @@ export default defineConfig({
                 // submission time (plan risk note).
                 data_collection_permissions: { required: ["authenticationInfo"] },
               },
+              // Without gecko_android the add-on is desktop-only on AMO — but the release gate
+              // (docs/release/06-mobile-blocking-validation.md) requires validating on Firefox for
+              // Android, and m.youtube.com Shorts removal ships specifically for mobile. Same 140
+              // floor as desktop: the consent UI requirement applies there too.
+              gecko_android: { strict_min_version: "140.0" },
             },
           }
         : {
