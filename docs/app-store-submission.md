@@ -38,8 +38,10 @@ These are the things App Review rejects content-blocker / IAP apps for. Where it
 ```
 Still is a Safari web-extension content blocker that removes short-form video (YouTube Shorts,
 Instagram Reels, TikTok, Facebook Reels) from Safari. The host app is the settings/onboarding UI;
-all blocking is done by the bundled Safari extension. The core blocking is 100% FREE — no account,
-no purchase, and NO demo account is required to evaluate it.
+all blocking is done by the bundled Safari extension. YouTube Shorts blocking is FREE — no account
+and no purchase required. Instagram Reels, Facebook Reels, and TikTok blocking are part of the
+"Still Pro" in-app purchase (sandbox-testable — see STEP 4). No demo account is needed: sign-in
+uses any email you control (a 6-digit code is emailed).
 
 IMPORTANT: The Safari extension must be manually enabled and granted per-site permission. This is
 expected iOS behavior (an Apple security boundary), not a bug — the app cannot auto-enable it. Our
@@ -54,18 +56,23 @@ STEP 2 — GRANT PERMISSION ON THE 4 SITES
   Under the Still extension, set Permissions to "Allow" for youtube.com, instagram.com, tiktok.com,
   facebook.com — choose "Always Allow" for each.
 
-STEP 3 — VERIFY BLOCKING (in Safari)
+STEP 3 — VERIFY FREE BLOCKING (in Safari — no account, no purchase)
   • youtube.com → the Shorts shelf is removed (toggle the extension OFF + reload to see it reappear)
-  • instagram.com → Reels removed
-  • facebook.com → Reels removed
-  • tiktok.com → the whole site shows a "This site is blocked" page
+  (Instagram/Facebook/TikTok blocking is Pro-only and will NOT be active yet — see STEP 4.)
 
-OPTIONAL — NOT NEEDED TO EVALUATE THE APP
-  • Sign-in is optional (email + 6-digit code), used only for Still Pro and settings Sync. Not required for blocking.
-  • One non-consumable IAP: "Still Pro" (product id still_sync), $1.99 — unlocks Reels/TikTok/Facebook blocking + cross-device settings sync.
-    YouTube Shorts blocking does NOT require it. To test: tap "Upgrade to Still Pro" → sign in with
-    any email you control (a 6-digit code is emailed) → purchase with a sandbox Apple ID.
-    "Restore Purchases" is on the paywall.
+STEP 4 — PURCHASE STILL PRO, THEN VERIFY THE PRO SURFACES
+  One non-consumable IAP: "Still Pro" (product id still_sync), $1.99 — unlocks Reels/TikTok/Facebook
+  blocking + cross-device settings sync. To test:
+  • In the app, tap "Upgrade to Still Pro" → sign in with any email you control (a 6-digit code is
+    emailed — no password, no demo account) → purchase with a sandbox Apple ID. If the sandbox
+    Apple ID already owns it, use "Restore Purchases" on the paywall instead.
+  • Then verify in Safari:
+    - instagram.com → Reels removed
+    - facebook.com → Reels removed
+    - tiktok.com → the whole site shows a "This site is blocked" page
+
+NOTE — Sign-in (email + 6-digit code) is used only for Still Pro and settings Sync; the free
+YouTube Shorts blocking never requires an account or purchase.
 
 ACCOUNT DELETION (5.1.1): Account section → "Delete Account" removes the server-side record.
 
@@ -101,7 +108,7 @@ Legend: **[ONE-TIME]** = account/app setup done once · **[PER-RELEASE]** = repe
 > A brand-new app's **first IAP must be submitted *with* the first app version**, or it's stuck at "Missing Metadata" forever and never reviewed.
 - [ ] **Monetization → In-App Purchases → +** → **Non-Consumable**. Reference Name `Still Pro`, **Product ID `still_sync`** (must match the StoreKit code), **Price $1.99**.
 - [ ] Add an **English localization** (display name + description) — without it, status stays "Missing Metadata".
-- [ ] Add the **IAP App Review screenshot** = a capture of the in-app **paywall** (mandatory; #1 "Missing Metadata" cause), plus IAP review notes (blocking is free; this only unlocks Pro + Sync; test via email-code sign-in + sandbox Apple ID).
+- [ ] Add the **IAP App Review screenshot** = a capture of the in-app **paywall** (mandatory; #1 "Missing Metadata" cause), plus IAP review notes (YouTube Shorts blocking is free; this unlocks Instagram/Facebook/TikTok blocking + Sync; test via email-code sign-in + sandbox Apple ID).
 - [ ] On the **version page → In-App Purchases → +** → **attach `still_sync`** so it ships in this submission.
 - [ ] **[PER-RELEASE]** Sandbox-test: buy `still_sync`, confirm Sync unlocks, confirm **Restore Purchases** re-unlocks on a fresh install.
 
