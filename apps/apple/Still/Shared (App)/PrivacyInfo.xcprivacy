@@ -17,9 +17,12 @@
 			<string>NSPrivacyAccessedAPICategoryUserDefaults</string>
 			<key>NSPrivacyAccessedAPITypeReasons</key>
 			<array>
-				<!-- 1C8F.1: UserDefaults shared across the app + extension in the same App Group
-				     (CA92.1 is for app-only UserDefaults, which is not how Still uses it). -->
+				<!-- 1C8F.1: UserDefaults shared across the app + extension in the same App Group. -->
 				<string>1C8F.1</string>
+				<!-- CA92.1: app-only access — OnboardingGate.appGroupDefaults falls back to
+				     UserDefaults.standard when the App Group suite can't open (StillKit
+				     Onboarding.swift), so that path must be declared too. -->
+				<string>CA92.1</string>
 			</array>
 		</dict>
 	</array>
