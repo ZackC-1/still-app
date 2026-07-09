@@ -68,8 +68,14 @@ final class WebBridgeRouter {
         reply(nil, "still: configurePurchases missing appUserID")
         return
       }
-      purchases.configure(appUserID: appUserID)
-      reply(Self.json(["ok": true]), nil)
+      // Await the RevenueCat identity transition before acknowledging: an early ok let the web layer
+      // start a purchase while RevenueCat was still re-keying to a different user. A failed logIn
+      // still replies once the attempt settles (never hang the bridge); PurchaseManager's identity
+      // guards remain the purchase-time gate.
+      Task {
+        await self.purchases.configure(appUserID: appUserID)
+        reply(Self.json(["ok": true]), nil)
+      }
 
     case "purchase":
       Task {
@@ -98,8 +104,11 @@ final class WebBridgeRouter {
     case "signOut":
       // Reset the native RevenueCat identity (logOut + clear the configured user) so nothing here
       // can act against the previous account after sign-out. Pairs with the web SyncService sign-out.
-      purchases.reset()
-      reply(Self.json(["ok": true]), nil)
+      // Awaited before the ok for the same identity-transition reason as configurePurchases above.
+      Task {
+        await self.purchases.reset()
+        reply(Self.json(["ok": true]), nil)
+      }
 
     case "setEntitlement", "getEntitlement":
       // Entitlement mirror: the web layer writes its server-reconciled value into the App Group so

@@ -47,7 +47,11 @@ final class PurchaseManager {
 
   /// Configure RevenueCat for a signed-in user (KTD5: appUserID = Supabase UUID, never anonymous).
   /// Safe to call repeatedly; logs in to re-key on an account switch / restore once configured.
-  func configure(appUserID: String) {
+  /// Awaitable so the bridge only acknowledges once the RevenueCat identity transition has settled —
+  /// replying before `logIn` completes would let the web layer purchase while RevenueCat is still
+  /// keyed to the previous account. Returns even when `logIn` fails (never hangs a caller); the
+  /// `currentAppUserID` + `PurchaseDecision.readiness` guards remain the purchase-time gate.
+  func configure(appUserID: String) async {
     let key = publicAPIKey
     guard !key.isEmpty else {
       NSLog("PurchaseManager: RevenueCat key unset (Config/Secrets.local.xcconfig) — purchase disabled")
@@ -55,7 +59,10 @@ final class PurchaseManager {
     }
     currentAppUserID = appUserID
     if isConfigured {
-      Purchases.shared.logIn(appUserID) { _, _, _ in } // account-switch / restore recovery path
+      // Account-switch / restore recovery path — await the re-key before returning to the caller.
+      await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        Purchases.shared.logIn(appUserID) { _, _, _ in continuation.resume() }
+      }
       return
     }
     Purchases.logLevel = .warn
@@ -66,10 +73,14 @@ final class PurchaseManager {
   /// Reset the RevenueCat identity on sign-out: log out of the current app_user_id and clear it, so
   /// nothing here can act against the previous account until a new session reconfigures. Safe to call
   /// when unconfigured (just clears the id). Pairs with the web sign-out (NativeBridge `signOut`).
-  func reset() {
+  /// Awaitable like `configure` so the bridge acknowledges only after the logOut attempt settles.
+  func reset() async {
     currentAppUserID = nil
     guard isConfigured else { return }
-    Purchases.shared.logOut { _, _ in } // back to an anonymous RevenueCat id; no entitlements
+    // Back to an anonymous RevenueCat id; no entitlements. Awaited so a caller's ok means "settled".
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+      Purchases.shared.logOut { _, _ in continuation.resume() }
+    }
   }
 
   /// Whether Still Pro is active per RevenueCat — the immediate purchase-feedback gate only. Rejects when no
