@@ -37,16 +37,13 @@ export interface ExtensionPurchaseDeps {
   readonly getState: () => Promise<ExtensionSessionState>;
 }
 
-export function createExtensionUiController(
-  currentHost?: string,
-  purchase?: ExtensionPurchaseDeps,
-): UiController {
+export function createExtensionUiController(purchase?: ExtensionPurchaseDeps): UiController {
   const cache = new SettingsCache(new ChromeStorageAdapter());
   void cache.hydrate();
   cache.watch();
   const controller = new UiController({
     cache,
-    host: { canPurchase: purchase !== undefined, currentHost },
+    host: { canPurchase: purchase !== undefined },
     auth: purchase?.auth,
     persistence: purchase?.persistence,
     checkout: purchase?.checkout,

@@ -2,7 +2,6 @@
   import { App } from "@still/core/ui";
   import { createExtensionUiController } from "@still/core/ui";
 
-  // The options page has no single active host, so the per-site pause control is omitted.
   const controller = createExtensionUiController();
 </script>
 

@@ -36,7 +36,7 @@ function makeController(
   });
   const c = new UiController({
     cache,
-    host: { canPurchase: true, currentHost: "youtube.com", ...extra.host },
+    host: { canPurchase: true, ...extra.host },
     auth: extra.auth,
     persistence: extra.persistence,
     checkout: extra.checkout,
@@ -107,13 +107,6 @@ describe("UiController", () => {
     const spy = vi.spyOn(cache, "setGlobalOn");
     c.toggleGlobal();
     expect(spy).toHaveBeenCalledWith(false);
-  });
-
-  it("pauses then resumes the current host", () => {
-    const { c, cache } = makeController();
-    const pause = vi.spyOn(cache, "pauseHost");
-    c.togglePause();
-    expect(pause).toHaveBeenCalledWith("youtube.com");
   });
 
   it("locks Pro services for un-entitled users and unlocks them when entitled", () => {
