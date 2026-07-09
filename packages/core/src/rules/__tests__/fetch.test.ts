@@ -133,7 +133,7 @@ describe("resolveRuleSet", () => {
     const { set } = await signedRow("0.9.0");
     const r = resolveRuleSet({ bundled, cached: null, fetched: set });
     expect(r.source).toBe("bundled");
-    expect(r.ruleSet.version).toBe("1.0.0");
+    expect(r.ruleSet.version).toBe(bundled.version);
   });
 
   it("uses a newer cached set when there is no fetch", async () => {

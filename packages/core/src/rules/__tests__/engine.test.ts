@@ -319,10 +319,15 @@ describe("applyDom", () => {
     document.body.innerHTML = `
       <nav>
         <a id="fb-reels-nav" href="/reels/" aria-label="Reels">Reels</a>
+        <div role="tablist">
+          <div id="fb-mobile-reels-tab" role="tab" aria-label="reels, 4 of 6">0</div>
+          <div id="fb-mobile-home-tab" role="tab" aria-label="home, 1 of 6">915+</div>
+        </div>
         <a id="fb-home-nav" href="/">Home</a>
       </nav>
       <main role="feed">
         <div role="article" id="fb-reel"><a href="/reels/abc">a reel</a></div>
+        <div id="fb-reel-button" role="button" aria-label="View reel video from Wally with 127 thousand views ."></div>
         <div role="article" id="fb-post"><a href="/story.php?story_fbid=1">a status</a></div>
       </main>
     `;
@@ -330,6 +335,9 @@ describe("applyDom", () => {
     expect(document.querySelector("#fb-reel")).toBeNull();
     expect(document.querySelector("#fb-post")).not.toBeNull();
     expect((document.querySelector("#fb-reels-nav") as HTMLElement).style.display).toBe("none");
+    expect(document.querySelector("#fb-mobile-reels-tab")).toBeNull();
+    expect((document.querySelector("#fb-mobile-home-tab") as HTMLElement).style.display).toBe("");
+    expect(document.querySelector("#fb-reel-button")).toBeNull();
     expect((document.querySelector("#fb-home-nav") as HTMLElement).style.display).toBe("");
   });
 

@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
+  "version": "1.0.2",
   "services": {
     "youtube": {
       "matches": [
@@ -239,6 +239,18 @@
           ]
         },
         {
+          "id": "fb-mobile-tabs",
+          "label": "Reels tab in mobile tab bar",
+          "tier": "pro",
+          "requiredCapability": "surface.facebook.reels",
+          "action": "remove",
+          "enabledByDefault": true,
+          "selectors": [
+            "[role=\"tablist\"] > [role=\"tab\"][aria-label*=\"reels\" i]",
+            "[role=\"tab\"][aria-label*=\"reels\" i]"
+          ]
+        },
+        {
           "id": "fb-watch",
           "label": "Reels inside Watch",
           "tier": "pro",
@@ -247,7 +259,8 @@
           "enabledByDefault": true,
           "selectors": [
             "div:has(> a[href*=\"/reel/\"])",
-            "div:has(> a[href*=\"/reels/\"])"
+            "div:has(> a[href*=\"/reels/\"])",
+            "[role=\"button\"][aria-label*=\"reel video\" i]"
           ]
         },
         {
@@ -280,6 +293,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "7c58f020f8d8d3664cc82303c86fb657cb53a2f8c33ff858209397916773829714db3605af217682998f00b55468a54f4a08499c0dedc51605b35e50da1a2a02"
+    "value": "5a5962e5a5ffa70d5d6beddf8b39afe79f271903b4cf666324964e0f80ab37126085a185ea6091df40774b285b0bf249efbd2c9d47955e45cb6fb5832ee56b05"
   }
 }
