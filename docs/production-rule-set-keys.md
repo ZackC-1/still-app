@@ -30,9 +30,12 @@ The production signing key + initial published set are wired up:
   the gitignored secrets file, prints **only** the public key (ready to paste into
   `PRODUCTION_RULE_SET_KEYS`). Default kid `still-prod-1`. Refuses to overwrite an existing key file.
 - `pnpm --filter @still/core sign-prod-set` — sign `rules/seed.json`'s content with the prod key and
-  (re)write `supabase/migrations/0006_prod_rule_set.sql`. Reads the private key from
-  `STILL_PROD_PRIVATE_KEY_HEX` or the secrets file. Env overrides: `STILL_PROD_KID`,
-  `STILL_PROD_VERSION` (default: the seed version with the patch bumped, so it's strictly newer).
+  write a **fresh sequentially-numbered migration**
+  (`supabase/migrations/<NNNN>_prod_rule_set_v<version>.sql`; re-running for the same version
+  overwrites that version's own file — the initial publish lives in `0006_prod_rule_set.sql`).
+  Reads the private key from `STILL_PROD_PRIVATE_KEY_HEX` or the secrets file. Env overrides:
+  `STILL_PROD_KID`, `STILL_PROD_VERSION` (default: the seed version with the patch bumped, so it's
+  strictly newer).
 
 ## Publishing a rule-set update later
 
@@ -40,8 +43,10 @@ When you change the rules (edit `packages/core/rules/seed.json` and `pnpm --filt
 sign-seed` to re-sign the bundled seed at a new version):
 
 1. `STILL_PROD_VERSION=<new-version> pnpm --filter @still/core sign-prod-set` (private key in env or
-   the secrets file restored from your secret manager) — regenerates the migration at the new version.
-2. Commit the regenerated migration, then `supabase db push` (or run the SQL).
+   the secrets file restored from your secret manager) — writes a NEW migration file for the new
+   version. (A new file is required: `supabase db push` records applied migration ids and skips ones
+   it has already run, so a rewritten old file would silently never reach the hosted database.)
+2. Commit the new migration, then `supabase db push` (or run the SQL).
 
 Clients adopt the new set on next fetch because it's strictly newer than what they hold (rollback floor
 is `RULE_SET_MIN_VERSION`).

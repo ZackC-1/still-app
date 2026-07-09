@@ -24,22 +24,22 @@ export function parseSettings(value: unknown): StillSettings | null {
   }
   const services = parseServices(s.services);
   if (!services) return null;
-  // `pauses` is optional for back-compat: a blob that predates the field (or omits it) must default
-  // to [] rather than be discarded — dropping the whole object makes readProfile() return null and
-  // silently wipes the user's synced settings on upgrade. A present-but-malformed pauses is still
-  // rejected, preserving the whitelist guarantee (unknown/forged fields never ride along).
-  let pauses: string[];
-  if (s.pauses === undefined) {
-    pauses = [];
-  } else if (Array.isArray(s.pauses) && s.pauses.every((p) => typeof p === "string")) {
-    pauses = [...s.pauses];
-  } else {
+  // `pauses` is optional for back-compat (a blob that predates the field must not be discarded —
+  // dropping the whole object makes readProfile() return null and silently wipes the user's synced
+  // settings on upgrade), and a present-but-malformed pauses is still rejected, preserving the
+  // whitelist guarantee. But VALID stored pauses are deliberately ignored (normalized to []): the
+  // pause-on-this-site UI was removed 2026-07-06 (PR #42) while the engine and the Chromium DNR
+  // gate still honor stored pauses — so an upgraded user with e.g. youtube.com paused would have
+  // Still silently disabled there with no reachable way to resume it. Ignoring pauses at the ONE
+  // parse choke point neutralizes the orphaned state everywhere (and the next persisted write
+  // clears it). If the pause feature returns, restore `[...s.pauses]` here.
+  if (s.pauses !== undefined && !(Array.isArray(s.pauses) && s.pauses.every((p) => typeof p === "string"))) {
     return null;
   }
   return {
     globalOn: s.globalOn,
     services,
-    pauses,
+    pauses: [],
     updatedAt: s.updatedAt,
   };
 }
@@ -89,13 +89,16 @@ export function parseSyncedSettingsEnvelope(value: unknown): SyncedSettingsEnvel
   return metadata ? { settings, ...metadata } : null;
 }
 
-/** Parse extension/App Group storage. Backward compatible with old settings-only records. */
+/** Parse extension/App Group storage. Backward compatible with old settings-only records. Accepts a
+ * parsed object OR a JSON string — the Swift SettingsBridge replies with the record JSON-encoded, so
+ * the record branch must see through strings exactly like parseSettings does. */
 export function parseStoredSettingsRecord(value: unknown): StoredSettingsRecord | null {
   const direct = parseSettings(value);
   if (direct) return { settings: direct, syncMetadata: null };
 
-  if (!value || typeof value !== "object") return null;
-  const obj = value as { settings?: unknown; syncMetadata?: unknown; metadata?: unknown };
+  const decoded: unknown = typeof value === "string" ? safeParse(value) : value;
+  if (!decoded || typeof decoded !== "object") return null;
+  const obj = decoded as { settings?: unknown; syncMetadata?: unknown; metadata?: unknown };
   const settings = parseSettings(obj.settings);
   if (!settings) return null;
   const rawMetadata = obj.syncMetadata ?? obj.metadata ?? null;

@@ -11,6 +11,17 @@ const STORAGE_KEY = "still:entitlement";
  */
 export const ENTITLEMENT_CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
+/**
+ * The ONE staleness predicate for a stored entitlement stamp, shared by every path that honors a
+ * grant (hydrate read, live storage-change forwarding, the Safari App-Group pull). A missing,
+ * garbage, or non-finite stamp counts as expired — never trust an unbounded grant.
+ */
+export function entitlementStampExpired(updatedAt: unknown, now: number): boolean {
+  return (
+    typeof updatedAt !== "number" || !Number.isFinite(updatedAt) || now - updatedAt > ENTITLEMENT_CACHE_TTL_MS
+  );
+}
+
 interface StoredEntitlement {
   readonly entitled?: unknown;
   readonly userId?: unknown;
@@ -61,7 +72,12 @@ export class ChromeEntitlementAdapter implements EntitlementAdapter, Entitlement
     ): void => {
       if (areaName !== "local") return;
       const stored = changes[STORAGE_KEY]?.newValue as StoredEntitlement | undefined;
-      if (typeof stored?.entitled === "boolean") listener(stored.entitled);
+      if (typeof stored?.entitled !== "boolean") return;
+      // Same TTL discipline as readFresh: a live storage write of an already-expired (or
+      // unstamped) entitled:true record must not unlock Pro in subscribed pages until the next
+      // hydrate corrects it. An entitled:false always forwards — free is the safe default.
+      if (stored.entitled && entitlementStampExpired(stored.updatedAt, this.now())) return;
+      listener(stored.entitled);
     };
     chrome.storage.onChanged.addListener(handler);
     return () => chrome.storage.onChanged.removeListener(handler);
@@ -75,16 +91,10 @@ export class ChromeEntitlementAdapter implements EntitlementAdapter, Entitlement
     const record = await chrome.storage.local.get(STORAGE_KEY);
     const stored = record[STORAGE_KEY] as StoredEntitlement | undefined;
     if (typeof stored?.entitled !== "boolean") return null;
-    if (
-      typeof stored.updatedAt !== "number" ||
-      !Number.isFinite(stored.updatedAt) ||
-      this.now() - stored.updatedAt > ENTITLEMENT_CACHE_TTL_MS
-    ) {
-      return null;
-    }
+    if (entitlementStampExpired(stored.updatedAt, this.now())) return null;
     return {
       entitled: stored.entitled,
-      updatedAt: stored.updatedAt,
+      updatedAt: stored.updatedAt as number,
       ...(typeof stored.userId === "string" ? { userId: stored.userId } : {}),
     };
   }

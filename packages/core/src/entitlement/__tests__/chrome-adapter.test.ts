@@ -93,6 +93,20 @@ describe("ChromeEntitlementAdapter — offline TTL", () => {
     await adapter.set(true);
     expect(seen).toEqual([true, false]);
   });
+
+  it("does not forward an expired (or unstamped) entitled:true storage write to subscribers", async () => {
+    installChrome();
+    const adapter = new ChromeEntitlementAdapter(() => NOW);
+    const seen: boolean[] = [];
+    adapter.subscribe((entitled) => seen.push(entitled));
+    // A raw write of an already-expired grant (e.g. a stale App-Group pull) must not unlock Pro live.
+    await adapter.set(true, NOW - (ENTITLEMENT_CACHE_TTL_MS + 1));
+    await chrome.storage.local.set({ [STORAGE_KEY]: { entitled: true } }); // no timestamp
+    expect(seen).toEqual([]);
+    // An expired revocation still forwards — free is the safe default.
+    await adapter.set(false, NOW - (ENTITLEMENT_CACHE_TTL_MS + 1));
+    expect(seen).toEqual([false]);
+  });
 });
 
 describe("ChromeEntitlementAdapter — identity-bound record store (R7/R8)", () => {

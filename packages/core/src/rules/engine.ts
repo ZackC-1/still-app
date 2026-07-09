@@ -226,6 +226,14 @@ export function generateHideCss(
 export function renderPlaceholder(doc: Document, line: string = STILL_PLACEHOLDER_LINE): void {
   const body = doc.body;
   if (!body) return;
+  // No-op when the placeholder is already up: replaceChildren is itself a childList mutation, so an
+  // unconditional re-render would feed the reapply MutationObserver and spin once per frame.
+  const existing = doc.getElementById("still-placeholder");
+  if (existing) {
+    const msg = existing.querySelector("p");
+    if (msg && msg.textContent !== line) msg.textContent = line;
+    return;
+  }
   const root = doc.createElement("div");
   root.id = "still-placeholder";
   root.setAttribute("role", "status");

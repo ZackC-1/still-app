@@ -42,6 +42,16 @@ describe("parseSettings", () => {
     expect(parsed?.services).not.toHaveProperty("entitlement");
   });
 
+  it("ignores stored pauses while the pause UI is removed — no unreachable dead-site state", () => {
+    // PR #42 removed the pause-on-this-site control, but the engine and the Chromium DNR gate still
+    // honor stored pauses — an upgraded user with youtube.com paused would have Still disabled there
+    // with no way to resume. Valid pauses normalize to []; malformed ones still reject (corruption).
+    expect(parseSettings({ ...valid, pauses: ["youtube.com"] })).toEqual({ ...valid, pauses: [] });
+    expect(
+      parseSettings(JSON.stringify({ ...valid, pauses: ["youtube.com", "tiktok.com"] })),
+    ).toEqual({ ...valid, pauses: [] });
+  });
+
   it("back-compat: absent pauses defaults to [], absent service defaults off (no settings wipe)", () => {
     // A blob that predates the `pauses` field must NOT be discarded — dropping it makes readProfile()
     // return null and silently wipes the user's synced settings on upgrade.
@@ -95,5 +105,28 @@ describe("settings sync envelope parsing", () => {
         lastWriteId: "aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa",
       },
     })?.syncMetadata?.version).toBe(2);
+  });
+
+  it("parses a record delivered as a JSON string (the Swift encodeRecord wire shape)", () => {
+    // The Apple bridge replies with the whole record JSON-encoded; rejecting the string form made
+    // App-Group/WKWebView reads come back null and dropped newer native settings.
+    expect(parseStoredSettingsRecord(JSON.stringify({ settings: valid }))).toEqual({
+      settings: valid,
+      syncMetadata: null,
+    });
+    const withMetadata = parseStoredSettingsRecord(
+      JSON.stringify({
+        settings: valid,
+        syncMetadata: {
+          version: 3,
+          serverUpdatedAt: "2026-07-09T18:00:00.000Z",
+          lastWriteId: null,
+        },
+      }),
+    );
+    expect(withMetadata?.syncMetadata?.version).toBe(3);
+    // Garbage strings still parse to null, never throw.
+    expect(parseStoredSettingsRecord("{not json")).toBeNull();
+    expect(parseStoredSettingsRecord(JSON.stringify({ settings: { globalOn: "yes" } }))).toBeNull();
   });
 });

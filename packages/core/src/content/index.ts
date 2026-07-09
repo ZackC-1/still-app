@@ -43,10 +43,12 @@ export interface ContentScriptDeps {
   /** Override the observer's coalescing scheduler (tests pass a synchronous one). */
   readonly schedule?: Scheduler;
   /**
-   * Safari has no network-layer DNR redirect. Let Safari opt into a synchronous, best-effort
-   * YouTube Shorts redirect using the cache's current snapshot before async storage hydration.
+   * Shared redirect-dedup cell. Entrypoints that also fire earlyShortsRedirect pass the SAME cell
+   * to both, so the early hard-nav redirect and the post-hydration reapply never issue two
+   * location.replace calls for one navigation (the second cancels/restarts the identical pending
+   * navigation — wasted work, and a regression from the old shared-lastRedirect invariant).
    */
-  readonly redirectBeforeHydration?: boolean;
+  readonly redirectDedupe?: RedirectDedupe;
   /**
    * True when the packaged manifest CSS was generated from THIS rule set (source === "bundled"),
    * so every `hide` surface is already owned by the CSS engine and the per-frame reapply only
@@ -69,7 +71,7 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   const blockedLine = deps.blockedLine ?? STILL_BLOCKED_LINE;
 
   let hydrated = false;
-  let lastRedirect: string | null = null;
+  const dedupe = deps.redirectDedupe ?? { lastRedirect: null };
   const teardowns: Array<() => void> = [];
 
   const setRootActive = (active: boolean): void => {
@@ -94,8 +96,8 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     switch (decision.kind) {
       case "redirect":
         setRootProActive(pro);
-        if (lastRedirect !== decision.url) {
-          lastRedirect = decision.url;
+        if (dedupe.lastRedirect !== decision.url) {
+          dedupe.lastRedirect = decision.url;
           redirectPort.replace(decision.url);
         }
         return;
@@ -122,20 +124,8 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     }
   };
 
-  const redirectCurrentShortsUrl = (): void => {
-    const url = new URL(win.location.href);
-    if (!isYouTubeShortsUrl(url)) return;
-    const decision = evaluate(ruleSet, cache.current(), url, { pro: false });
-    if (decision.kind !== "redirect") return;
-    if (lastRedirect === decision.url) return;
-    lastRedirect = decision.url;
-    redirectPort.replace(decision.url);
-  };
-
   return {
     async start(): Promise<void> {
-      if (deps.redirectBeforeHydration) redirectCurrentShortsUrl();
-
       // Install hooks synchronously at document_start; their reapply calls are no-ops until hydrated.
       teardowns.push(installNavigationHooks(win, reapply));
       const observer = createReapplyObserver(win, doc, reapply, deps.schedule);
@@ -163,6 +153,54 @@ function isYouTubeShortsUrl(url: URL): boolean {
   return url.hostname === "youtube.com" || url.hostname.endsWith(".youtube.com")
     ? url.pathname.startsWith("/shorts/")
     : false;
+}
+
+/** Mutable dedup cell shared between earlyShortsRedirect and createContentScript (one per page). */
+export interface RedirectDedupe {
+  lastRedirect: string | null;
+}
+
+export interface EarlyShortsRedirectDeps {
+  readonly win: StillWindow;
+  /** The BUNDLED seed — synchronously available at document_start. The Shorts redirect surface is
+   * always-free and always in the seed, so this path never needs the cached/fetched rule set. */
+  readonly ruleSet: SignedRuleSet;
+  /** The SAME cache instance the content script uses — its hydrate here warms the snapshot too. */
+  readonly cache: SettingsCache;
+  readonly redirectPort?: RedirectPort;
+  /** Pass the SAME cell to createContentScript so early + reapply never double-replace. */
+  readonly redirectDedupe?: RedirectDedupe;
+}
+
+/**
+ * The hard-navigation Shorts redirect for extensions with no network-layer DNR (Safari always;
+ * Firefox, which lacks the regexSubstitution DNR redirect). The entrypoint fires this BEFORE (and
+ * concurrently with) the cached-ruleset storage read, so a direct/cold navigation to
+ * m.youtube.com/shorts/<id> redirects after ONE settings read — well before the page can hydrate
+ * and start playing, and strictly earlier than the ruleset-gated apply path.
+ *
+ * Unlike the pre-hydration variant this replaces, it awaits the persisted settings first: a user
+ * who disabled Still or turned YouTube off must NOT be redirected — that navigation can't be
+ * undone after the fact (Codex findings on PRs #29/#36). (Legacy per-site pauses are neutralized
+ * at the parse choke point since the pause UI was removed, so they never reach this evaluate.)
+ */
+export async function earlyShortsRedirect(deps: EarlyShortsRedirectDeps): Promise<void> {
+  if (!isYouTubeShortsUrl(new URL(deps.win.location.href))) return;
+  await deps.cache.hydrate();
+  // Re-read the URL: an SPA/script navigation during the await means the captured URL is stale,
+  // and firing location.replace from it would be exactly the irreversible-navigation class this
+  // path exists to avoid. The post-hydration reapply owns whatever URL is current now.
+  const url = new URL(deps.win.location.href);
+  if (!isYouTubeShortsUrl(url)) return;
+  const decision = evaluate(deps.ruleSet, deps.cache.current(), url, { pro: false });
+  if (decision.kind !== "redirect") return;
+  const dedupe = deps.redirectDedupe;
+  if (dedupe) {
+    if (dedupe.lastRedirect === decision.url) return;
+    dedupe.lastRedirect = decision.url;
+  }
+  const redirectPort = deps.redirectPort ?? locationRedirectPort(deps.win);
+  redirectPort.replace(decision.url);
 }
 
 export {

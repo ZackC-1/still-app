@@ -46,11 +46,13 @@ export {
 export { serviceHasFreeSurface, proServiceIds, PRO_SERVICE_IDS } from "./tiers.js";
 export {
   ruleSetTrustedKeys,
+  ruleSetTrust,
   ruleSetFetchConfig,
   readCachedRuleSet,
   writeCachedRuleSet,
   refreshRuleSetCache,
   resolveRuleSetForLoad,
   type ReadableArea,
+  type RuleSetTrust,
   type WritableArea,
 } from "./loader.js";

@@ -18,8 +18,9 @@ import type { SyncService, SyncState } from "./service.js";
 //     native purchase — surface a calm retry message instead.
 //   • Local purchase success is feedback, not authority: Pro UI requires the webhook→Supabase→
 //     reconcile round-trip; until it lands the paywall shows "pending".
-//   • Entitlement mirror: only server-confirmed sync states (cloudReachable) are mirrored into the
-//     App Group — an offline cached value must not refresh the Safari extension's 30-day TTL stamp.
+//   • Entitlement mirror: only server-confirmed sync states (state.confirmed) are mirrored into the
+//     App Group — neither an offline cached value nor onSignedIn's provisional pre-reconcile emit
+//     may refresh (or downgrade) the Safari extension's 30-day TTL stamp.
 //   • Teardown parity: sign-out and account deletion both reset the native RevenueCat identity,
 //     best-effort, without ever stranding a live Supabase session (KTD5).
 
@@ -92,9 +93,11 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
       controller.entitled = state.entitled;
       controller.cloudReachable = state.cloudReachable;
       // Mirror the entitlement into the App Group so the Safari extension's content scripts gate
-      // Pro blocking on it. Only server-confirmed states are mirrored (cloudReachable): an offline
-      // cached value must not refresh the App-Group stamp, or the 30-day offline TTL never runs.
-      if (bridge.available && state.cloudReachable) {
+      // Pro blocking on it. Only server-CONFIRMED states are mirrored: onSignedIn's provisional
+      // emit has cloudReachable true but entitled still a cold-resume guess (false), which must not
+      // overwrite a valid cached Pro record before the reconcile answers. And an offline cached
+      // value must not refresh the App-Group stamp, or the 30-day offline TTL never runs.
+      if (bridge.available && state.confirmed && state.cloudReachable) {
         void bridge.setEntitlement(state.entitled).catch(() => {
           /* best-effort — the next sync state change retries */
         });

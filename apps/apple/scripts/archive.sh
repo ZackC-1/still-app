@@ -34,6 +34,11 @@ mkdir -p "$BUILD_DIR"
 
 echo "==> Building the shared web bundle…"
 ( cd "$REPO" && pnpm --filter @still/app-webview build )
+echo "==> Building the Safari extension bundle…"
+# The app targets' "Copy Safari Web Extension Resources" phases hard-fail without
+# packages/ext-safari/dist/safari-mv3/manifest.json — dist/ is gitignored, so a clean checkout
+# archive dies at that phase unless the extension is built first.
+( cd "$REPO" && pnpm --filter @still/ext-safari build )
 
 echo "==> Archiving Still (iOS)…"
 cd "$PROJECT_DIR"

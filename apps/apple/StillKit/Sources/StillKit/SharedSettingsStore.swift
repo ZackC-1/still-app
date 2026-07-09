@@ -89,6 +89,14 @@ public enum StillAppGroup {
   public static let identifier = "group.com.chartash.still"
 }
 
+/// The Darwin notification posted whenever a bridge `set` actually changes the stored settings, so
+/// the sibling App-Group process (app ↔ Safari extension) can refresh without polling. Darwin
+/// notifications are the only broadcast that crosses the App-Group process boundary
+/// (NotificationCenter is per-process); they carry no payload, so observers re-read the store.
+public enum StillSettingsChangedNotification {
+  public static let name = "com.chartash.still.settings-changed"
+}
+
 extension SharedSettingsStore {
   /// The production store backed by the shared App Group container, falling back to an in-memory
   /// backing if the App Group is unavailable (e.g. the entitlement isn't provisioned on this build)

@@ -45,11 +45,12 @@ function harness(opts: {
         entitled: false,
         syncing: false,
         cloudReachable: true,
+        confirmed: true,
         ...opts.onSignedInState,
       });
     }),
     signOut: vi.fn(async () => {
-      session.onSyncState({ userId: null, entitled: false, syncing: false, cloudReachable: true });
+      session.onSyncState({ userId: null, entitled: false, syncing: false, cloudReachable: true, confirmed: true });
     }),
     deleteAccount: vi.fn(async () => {}),
   };
@@ -65,25 +66,33 @@ function harness(opts: {
 describe("AppleSession — sync-state projection + entitlement mirror", () => {
   it("mirrors server-confirmed entitlement into the App Group", () => {
     const { session, bridge } = harness();
-    session.onSyncState({ userId: "u1", entitled: true, syncing: true, cloudReachable: true });
+    session.onSyncState({ userId: "u1", entitled: true, syncing: true, cloudReachable: true, confirmed: true });
     expect(bridge.setEntitlement).toHaveBeenCalledWith(true);
   });
 
   it("never mirrors an offline (non-server-confirmed) state — the 30-day TTL must keep running", () => {
     const { session, bridge } = harness();
-    session.onSyncState({ userId: "u1", entitled: true, syncing: false, cloudReachable: false });
+    session.onSyncState({ userId: "u1", entitled: true, syncing: false, cloudReachable: false, confirmed: true });
+    expect(bridge.setEntitlement).not.toHaveBeenCalled();
+  });
+
+  it("never mirrors onSignedIn's PROVISIONAL emit — a cold resume must not overwrite a cached Pro record", () => {
+    const { session, bridge } = harness();
+    // The provisional pre-reconcile state: cloudReachable true, entitled a cold-start guess (false),
+    // confirmed false. Stamping this into the App Group would downgrade Safari before the server answers.
+    session.onSyncState({ userId: "u1", entitled: false, syncing: false, cloudReachable: true, confirmed: false });
     expect(bridge.setEntitlement).not.toHaveBeenCalled();
   });
 
   it("mirrors the signed-out downgrade (entitled:false) so Safari re-locks", () => {
     const { session, bridge } = harness();
-    session.onSyncState({ userId: null, entitled: false, syncing: false, cloudReachable: true });
+    session.onSyncState({ userId: null, entitled: false, syncing: false, cloudReachable: true, confirmed: true });
     expect(bridge.setEntitlement).toHaveBeenCalledWith(false);
   });
 
   it("an entitled sync state with the paywall CLOSED unlocks quietly — no payoff (U3/R6)", () => {
     const { session, controller } = harness();
-    session.onSyncState({ userId: "u1", entitled: true, syncing: true, cloudReachable: true });
+    session.onSyncState({ userId: "u1", entitled: true, syncing: true, cloudReachable: true, confirmed: true });
     expect(controller.entitled).toBe(true);
     expect(controller.justUnlocked).toBe(false);
     expect(controller.paywallOpen).toBe(false);
@@ -160,6 +169,7 @@ describe("AppleSession — onGet (the purchase flow)", () => {
           entitled: reconciled, // second reconcile (after purchase) sees the webhook's write
           syncing: false,
           cloudReachable: true,
+          confirmed: true,
         });
         reconciled = true;
       });

@@ -1,3 +1,5 @@
+import { entitlementStampExpired } from "@still/core/entitlement";
+
 // The Safari entitlement pull, extracted from the background entrypoint so it is unit-testable with
 // injected deps. The app mirrors its server-reconciled entitlement into the App Group (StillKit
 // EntitlementBridge); the background pulls it via a {kind:"getEntitlement"} native message and
@@ -37,12 +39,17 @@ export interface EntitlementSink {
 
 /** Apply a pulled record to local entitlement storage. A null record is a no-op — never downgrade
  * on "couldn't read" (the storage TTL already bounds staleness); a real revocation arrives as an
- * explicit `entitled:false` record. Returns whether a write happened. */
+ * explicit `entitled:false` record. An `entitled:true` record already OLDER than the 30-day TTL is
+ * also a no-op: the read path would reject it, but the storage-change subscription fires on any
+ * write, so storing it would unlock Pro in live pages until the next hydrate. Returns whether a
+ * write happened. */
 export async function applyNativeEntitlement(
   record: NativeEntitlementRecord | null,
   sink: EntitlementSink,
+  now: () => number = Date.now,
 ): Promise<boolean> {
   if (!record) return false;
+  if (record.entitled && entitlementStampExpired(record.updatedAt, now())) return false;
   await sink.set(record.entitled, record.updatedAt);
   return true;
 }

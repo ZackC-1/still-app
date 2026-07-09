@@ -9,11 +9,13 @@ import { parseSettings, parseStoredSettingsRecord } from "./settings-validation.
 //
 //   web → native:  window.webkit.messageHandlers.still.postMessage({kind,...}) → Promise<reply>
 //                  (native uses WKScriptMessageHandlerWithReply, so postMessage returns a Promise)
-//   native → web:  window.__stillApplyRemote(settings) pushes an external change (e.g. the Safari
+//   native → web:  window.__stillApplyRemote(record) pushes an external change (e.g. the Safari
 //                  extension wrote a newer value) into the already-running UI.
 //
-// Settings cross the bridge as JSON strings so the Swift side decodes them with a plain JSONDecoder
-// straight into StillKit's `StillSettings` Codable — no field-by-field marshalling on the bridge.
+// Payloads cross the bridge as JSON so the Swift side round-trips them with a plain JSONCoder — no
+// field-by-field marshalling. Web → native sends the record as a JSON string; native replies (and
+// pushes) the full StoredSettingsRecord, as an object literal or its JSON-encoded string — the
+// parsers below accept both forms.
 
 /** The WKScriptMessageHandlerWithReply surface: postMessage returns a Promise of the native reply. */
 export interface StillMessagePort {

@@ -70,13 +70,24 @@ Docs: [Create a non-consumable](https://developer.apple.com/help/app-store-conne
 
 ---
 
-## 3. App Privacy → "No Data Collected"
+## 3. App Privacy → declare the account + purchase data
 
-1. [ ] App Store Connect → your app → **App Privacy**.
-2. [ ] Work through the questionnaire and answer **No** to every data category. Apple's definition of
-       "collect" is *transmitting data off the device*; Still's free tier is fully on-device and the app
-       itself ships no analytics SDK, so the label is **"No Data Collected"** — accurate.
-3. [ ] Enter the **Privacy Policy URL** (must be live, HTTP 200) and also link it inside the app.
+1. [ ] App Store Connect → your app → **App Privacy** → "Collect data?" **Yes**.
+2. [ ] Declare exactly four data types (each **Collected = Yes**, **Linked to identity = Yes**,
+       **Used for tracking = No**, **Purpose = App Functionality**) — matches the shipped
+       `PrivacyInfo.xcprivacy` and [`docs/app-store-submission.md`](../app-store-submission.md) §4:
+
+   | Data | Category → type |
+   |---|---|
+   | Email (from email-code sign-in, Supabase auth) | Contact Info → **Email Address** |
+   | User ID (Supabase UUID) | Identifiers → **User ID** |
+   | Purchase history | Purchases → **Purchase History** |
+   | Synced settings (Pro sync stores the settings object in Supabase `profiles.settings`) | Other Data → **Other Data Types** |
+
+3. [ ] Do **not** declare browsing/blocking activity — it stays on-device in the extension and is
+       never transmitted, so under Apple's definition it is not "collected". Result: **"Data Linked
+       to You"** only, no tracking section → no ATT prompt.
+4. [ ] Enter the **Privacy Policy URL** (must be live, HTTP 200) and also link it inside the app.
 
 > If you later add an analytics/crash SDK, you must disclose it **and** that SDK must ship a
 > `PrivacyInfo.xcprivacy` manifest (enforced since 2024). Keep the dependency tree clean.
@@ -118,7 +129,9 @@ To test:
 
 Sandbox tester — email: <your-sandbox@email> / password: <password>
 
-The app collects no data (ITSAppUsesNonExemptEncryption = false). Extension host permissions are
+Data collection is limited to the optional account (email address, user ID, purchase history,
+synced settings) as declared in App Privacy; browsing/blocking activity never leaves the device
+(ITSAppUsesNonExemptEncryption = false). Extension host permissions are
 limited to youtube.com, instagram.com, facebook.com, tiktok.com — never <all_urls>.
 ```
 

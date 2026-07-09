@@ -1,7 +1,9 @@
 import type { SignedRuleSet } from "@still/shared-types";
 import { fetchCurrentRuleSet, resolveRuleSet } from "./fetch.js";
 import type { FetchConfig, ResolvedRuleSet, RuleSetEndpoint } from "./fetch.js";
-import type { TrustedKey } from "./signature.js";
+import { validateRuleSet } from "./schema.js";
+import { verifyRuleSet, type TrustedKey, type VerifyOptions } from "./signature.js";
+import { compareVersions } from "./version.js";
 import {
   DEV_RULE_SET_KEYS,
   PRODUCTION_RULE_SET_KEYS,
@@ -46,11 +48,34 @@ export interface WritableArea {
   set(items: Record<string, unknown>): Promise<void>;
 }
 
-export async function readCachedRuleSet(area: ReadableArea): Promise<SignedRuleSet | null> {
+/** The trust anchor a cached rule set must satisfy before it may beat the bundled seed — the same
+ * shape signature verification takes (alias, not a parallel type, so the two can't drift). */
+export type RuleSetTrust = VerifyOptions;
+
+/** This build's trust anchor: prod keys in prod, the dev key in dev (mirrors ruleSetTrustedKeys). */
+export function ruleSetTrust(prod: boolean): RuleSetTrust {
+  return { allowedKeys: ruleSetTrustedKeys(prod), minVersion: RULE_SET_MIN_VERSION };
+}
+
+/**
+ * Read + RE-VERIFY the cached rule set against THIS build's trust anchor. The write path only
+ * stores verified sets, but extension storage outlives builds: a dev-signed cache surviving a
+ * dev→prod upgrade, a key removed by rotation, or a malformed blob must not beat the bundled seed
+ * by version. Schema-validate and signature-verify on every read; any failure → null (bundled
+ * seed applies).
+ */
+export async function readCachedRuleSet(
+  area: ReadableArea,
+  trust: RuleSetTrust,
+): Promise<SignedRuleSet | null> {
   try {
     const got = await area.get(CACHE_KEY);
     const val = got[CACHE_KEY];
-    return val && typeof val === "object" ? (val as SignedRuleSet) : null;
+    if (!val || typeof val !== "object") return null;
+    const validation = validateRuleSet(val);
+    if (!validation.ok) return null;
+    const verdict = await verifyRuleSet(validation.value, trust);
+    return verdict.ok ? validation.value : null;
   } catch {
     return null; // storage unavailable → bundled seed still applies
   }
@@ -67,26 +92,33 @@ export async function writeCachedRuleSet(area: WritableArea, set: SignedRuleSet)
 /**
  * Background refresh: fetch + verify the current signed set and cache it for the NEXT page load.
  * Returns the verified set, or null on any failure / skip. Never throws — the content script always
- * has the bundled seed regardless.
+ * has the bundled seed regardless. A fetched set is only persisted when STRICTLY newer than the
+ * existing (verified) cache, so a rolled-back or stale deployment can't clobber a newer hotfix.
  */
 export async function refreshRuleSetCache(
   cfg: FetchConfig | null,
-  area: WritableArea,
+  area: ReadableArea & WritableArea,
 ): Promise<SignedRuleSet | null> {
   if (!cfg) return null;
   const fetched = await fetchCurrentRuleSet(cfg);
-  if (fetched) await writeCachedRuleSet(area, fetched);
+  if (!fetched) return null;
+  const cached = await readCachedRuleSet(area, cfg); // FetchConfig carries the trust fields
+  if (!cached || compareVersions(fetched.version, cached.version) > 0) {
+    await writeCachedRuleSet(area, fetched);
+  }
   return fetched;
 }
 
 /**
- * Content-load resolution: the newest of {cached, bundled}. Content never blocks on the network — the
- * background's fetch lands in the cache for the next load, and storage is a fast local read here.
+ * Content-load resolution: the newest of {cached, bundled}, with the cache re-verified against this
+ * build's trust anchor. Content never blocks on the network — the background's fetch lands in the
+ * cache for the next load, and storage is a fast local read here.
  */
 export async function resolveRuleSetForLoad(
   bundled: SignedRuleSet,
   area: ReadableArea,
+  trust: RuleSetTrust,
 ): Promise<ResolvedRuleSet> {
-  const cached = await readCachedRuleSet(area);
+  const cached = await readCachedRuleSet(area, trust);
   return resolveRuleSet({ bundled, cached });
 }

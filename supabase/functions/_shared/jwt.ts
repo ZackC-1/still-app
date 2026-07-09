@@ -210,7 +210,13 @@ export async function verifyEs256(
   if (parts.length !== 3) return null;
   const [header, payload, signature] = parts as [string, string, string];
   const data = utf8(`${header}.${payload}`);
-  const sig = base64urlToBytes(signature);
+  // A malformed base64url signature segment must fail verification (401), not throw (500).
+  let sig: ReturnType<typeof base64urlToBytes>;
+  try {
+    sig = base64urlToBytes(signature);
+  } catch {
+    return null;
+  }
 
   for (const force of [false, true]) {
     const keys = await loadJwks(jwksUrl, force);

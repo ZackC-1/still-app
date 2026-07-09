@@ -11,12 +11,16 @@ until this list is complete. Work top to bottom; the order matters.
       allows ~2-4 emails/hour project-wide — OTP sign-in is unusable without
       this. Blocker for everything below.
 - [ ] **Email templates — BOTH of them**: edit "Magic Link" AND "Confirm signup"
-      to include BOTH `{{ .ConfirmationURL }}` and `{{ .Token }}` (the extension
-      6-digit code). GoTrue sends **"Confirm signup"** — not "Magic Link" — the
-      FIRST time an address signs in via OTP, so missing that template means no
-      new customer can ever complete the code sign-in. Making the two templates
-      identical is correct: users get one consistent email either way.
-      (Verified live 2026-07-06.)
+      to include `{{ .Token }}` ONLY (the extension 6-digit code) — do NOT
+      include `{{ .ConfirmationURL }}`. Warning: link-prefetching mail scanners
+      (Outlook Safe Links etc.) fetch the ConfirmationURL and consume the
+      one-time token server-side, breaking the code before the user can type it
+      (Supabase documents this under auth email templates → email prefetching);
+      the extension flow only needs the code. GoTrue sends **"Confirm signup"**
+      — not "Magic Link" — the FIRST time an address signs in via OTP, so
+      missing that template means no new customer can ever complete the code
+      sign-in. Making the two templates identical is correct: users get one
+      consistent email either way. (Verified live 2026-07-06.)
 - [ ] **Email OTP length = 6** (Auth → Sign In / Providers → Email). The hosted
       project defaulted to 8; the popup's code field accepts exactly 6
       (`supabase/config.toml` pins `otp_length = 6` locally), so an 8-digit code
@@ -24,11 +28,9 @@ until this list is complete. Work top to bottom; the order matters.
 - [ ] **Immediately after the template edits**, verify end-to-end: sign in from
       the extension popup with a BRAND-NEW address, then again with the same
       (now-existing) address — the two requests exercise the two different
-      templates. Click the emailed link once: it must land on the configured
-      **Site URL** (Auth → URL Configuration — set it to the public site, not
-      the localhost default). Note: the shipped Apple app signs in via native
-      Sign in with Apple (no email), so these templates' live consumers are the
-      extension code flow and the link itself.
+      templates. For each, enter the emailed 6-digit code in the popup and
+      confirm sign-in completes (the email contains no link, so there is
+      nothing for a mail scanner to prefetch).
 - [ ] Confirm hosted OTP settings match expectations: 1h OTP expiry, 60s
       resend cooldown (Auth → Rate limits), and note the hosted refresh-token
       timebox for the U7 verification run.

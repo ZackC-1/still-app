@@ -64,6 +64,26 @@ final class BridgeTests: XCTestCase {
     XCTAssertEqual(echoed.settings.updatedAt, 200)
   }
 
+  /// The cross-process change signal fires ONLY when a `set` actually changed the store: an applied
+  /// write notifies once, a stale/echoed write notifies never — the no-ping-pong invariant the app ↔
+  /// extension Darwin bridge relies on. Uses the injected notifier, so no real system-wide Darwin
+  /// notification is posted from tests.
+  func testSetNotifiesOnlyWhenTheStoreActuallyChanged() {
+    let store = SharedSettingsStore(backing: InMemoryBacking())
+    store.save(settings(globalOn: true, updatedAt: 100))
+    var notifications = 0
+    let bridge = SettingsBridge(store: store, notifyChanged: { notifications += 1 })
+
+    _ = bridge.handle(.set(StoredSettingsRecord(settings: settings(globalOn: false, updatedAt: 200), syncMetadata: nil)))
+    XCTAssertEqual(notifications, 1)                   // applied → one broadcast
+
+    _ = bridge.handle(.set(StoredSettingsRecord(settings: settings(globalOn: true, updatedAt: 150), syncMetadata: nil)))
+    XCTAssertEqual(notifications, 1)                   // stale → ignored, no broadcast
+
+    _ = bridge.handle(.get)
+    XCTAssertEqual(notifications, 1)                   // reads never broadcast
+  }
+
   /// A stale `set` (lower updatedAt) is ignored, and the reply hands the web side the newer value the
   /// App Group already held — so the web cache reconciles instead of silently clobbering (KTD4).
   func testSetStaleIsIgnoredAndEchoesTheKeptValue() throws {
