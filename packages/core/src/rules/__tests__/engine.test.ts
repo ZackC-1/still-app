@@ -320,8 +320,8 @@ describe("applyDom", () => {
       <nav>
         <a id="fb-reels-nav" href="/reels/" aria-label="Reels">Reels</a>
         <div role="tablist">
-          <div id="fb-mobile-reels-tab" role="tab" aria-label="reels, 4 of 6">0</div>
-          <div id="fb-mobile-home-tab" role="tab" aria-label="home, 1 of 6">915+</div>
+          <div id="fb-mobile-reels-tab" role="tab" aria-label="reels, 4 of 6"><div id="fb-reels-icon">0</div></div>
+          <div id="fb-mobile-home-tab" role="tab" aria-label="home, 1 of 6"><div id="fb-home-icon">915+</div></div>
         </div>
         <a id="fb-home-nav" href="/">Home</a>
       </nav>
@@ -335,61 +335,53 @@ describe("applyDom", () => {
     expect(document.querySelector("#fb-reel")).toBeNull();
     expect(document.querySelector("#fb-post")).not.toBeNull();
     expect((document.querySelector("#fb-reels-nav") as HTMLElement).style.display).toBe("none");
-    expect(document.querySelector("#fb-mobile-reels-tab")).toBeNull();
+    // Issue #58 semantics: the tab BOX must survive as its own white (bg-s2) cover for the slot —
+    // Facebook pins every tab to precomputed offsets and never reflows siblings, so removing the
+    // tab exposes the ancestor's gray background through the hole. Only its CONTENTS hide.
+    expect(document.querySelector("#fb-mobile-reels-tab")).not.toBeNull();
+    expect((document.querySelector("#fb-reels-icon") as HTMLElement).style.display).toBe("none");
     expect((document.querySelector("#fb-mobile-home-tab") as HTMLElement).style.display).toBe("");
+    expect((document.querySelector("#fb-home-icon") as HTMLElement).style.display).toBe("");
     expect(document.querySelector("#fb-reel-button")).toBeNull();
     expect((document.querySelector("#fb-home-nav") as HTMLElement).style.display).toBe("");
   });
 
-  // Issue #58: on-device, removing only the [role=tab] left a solid gray rectangle in the tab bar —
-  // Facebook wraps each tab in a per-slot container carrying a skeleton-gray background, so the
-  // WRAPPER (the tablist's immediate child containing the reels tab) must be removed, not just the
-  // tab inside it. Sibling slots must survive untouched.
-  it("removes the whole per-slot wrapper around the mobile Facebook Reels tab (issue #58)", () => {
+  // Issue #58 (second round, from live Web Inspector DOM): every tab is pinned to its slot with
+  // precomputed inline offsets (width:67px; margin-left:…) — siblings never reflow, so ANY removal
+  // (tab or wrapper) leaves a hole exposing the ancestor's gray bg-s26. The fix keeps the tab as
+  // its own bg-s2 (white) cover and hides only its children. Modeled on the real MContainer shape.
+  it("keeps the pinned Reels tab as a blank cover — children hidden, box and siblings intact (issue #58)", () => {
     document.body.innerHTML = `
-      <div role="tablist">
-        <div id="slot-home" class="bg-s2"><div role="tab" aria-label="feed, 1 of 6"></div></div>
-        <div id="slot-reels" class="bg-s2"><div role="tab" aria-label="reels, 4 of 6"></div></div>
-        <div id="slot-market" class="bg-s2"><div role="tab" aria-label="marketplace, 6 of 6"></div></div>
+      <div role="tablist" style="height:50px">
+        <div id="tab-feed" role="tab" aria-label="feed, 1 of 6" class="m bg-s2"><div id="feed-icon"></div></div>
+        <div id="tab-reels" role="tab" aria-label="reels, 4 of 6" class="m bg-s2"><div id="reels-icon"></div><div id="reels-badge">3</div></div>
+        <div id="tab-market" role="tab" aria-label="marketplace, 1 new, 6 of 6" class="m bg-s2"><div id="market-icon"></div></div>
       </div>
     `;
     applyDom(ruleSet, allOn, new URL("https://m.facebook.com/"), document, { pro: true });
-    expect(document.querySelector("#slot-reels")).toBeNull(); // the gray slot itself is gone
-    expect(document.querySelector("#slot-home")).not.toBeNull();
-    expect(document.querySelector("#slot-market")).not.toBeNull();
-    expect(document.querySelectorAll("[role=tablist] > *").length).toBe(2);
-  });
-
-  // The wrapper probe is destructive (action:remove on a nav bar), so it must be impossible for it
-  // to match a SHARED container holding other tabs too — otherwise a layout where the tablist has
-  // one child wrapping ALL tabs would lose the entire navigation strip, far worse than the gray
-  // slot. The :not(:has(> [role=tab]:not(reels))) guard pins that.
-  it("never removes a shared container that holds other tabs alongside Reels (issue #58 guard)", () => {
-    document.body.innerHTML = `
-      <div role="tablist">
-        <div id="shared-flat">
-          <div role="tab" aria-label="feed, 1 of 6"></div>
-          <div id="flat-reels-tab" role="tab" aria-label="reels, 4 of 6"></div>
-          <div role="tab" aria-label="marketplace, 6 of 6"></div>
-        </div>
-      </div>
-    `;
-    applyDom(ruleSet, allOn, new URL("https://m.facebook.com/"), document, { pro: true });
-    expect(document.querySelector("#shared-flat")).not.toBeNull(); // the bar survives…
-    expect(document.querySelector("#flat-reels-tab")).toBeNull(); // …the inner tab still goes (fallback)
-    expect(document.querySelectorAll("#shared-flat > [role=tab]").length).toBe(2);
+    // The tab box survives (it IS the slot's white cover) and stays in flow…
+    const reelsTab = document.querySelector("#tab-reels") as HTMLElement;
+    expect(reelsTab).not.toBeNull();
+    expect(reelsTab.style.display).toBe("");
+    // …while everything inside it disappears.
+    expect((document.querySelector("#reels-icon") as HTMLElement).style.display).toBe("none");
+    expect((document.querySelector("#reels-badge") as HTMLElement).style.display).toBe("none");
+    // Sibling tabs and their contents are untouched.
+    expect((document.querySelector("#feed-icon") as HTMLElement).style.display).toBe("");
+    expect((document.querySelector("#market-icon") as HTMLElement).style.display).toBe("");
+    expect(document.querySelectorAll("[role=tablist] > *").length).toBe(3);
   });
 
   it("leaves every Facebook mobile tab-bar surface intact for a FREE user (monetization gate)", () => {
     document.body.innerHTML = `
       <div role="tablist">
-        <div id="slot-reels" class="bg-s2"><div id="free-reels-tab" role="tab" aria-label="reels, 4 of 6"></div></div>
+        <div id="free-reels-tab" role="tab" aria-label="reels, 4 of 6"><div id="free-reels-icon"></div></div>
       </div>
       <div id="free-reel-button" role="button" aria-label="View reel video from Wally ."></div>
     `;
     applyDom(ruleSet, allOn, new URL("https://m.facebook.com/"), document, { pro: false });
-    expect(document.querySelector("#slot-reels")).not.toBeNull();
     expect(document.querySelector("#free-reels-tab")).not.toBeNull();
+    expect((document.querySelector("#free-reels-icon") as HTMLElement).style.display).toBe("");
     expect(document.querySelector("#free-reel-button")).not.toBeNull();
   });
 
