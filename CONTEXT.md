@@ -45,3 +45,8 @@ Names the load-bearing concepts in this codebase. Use these terms in code, comme
   POST-only → Bearer shape → `verifyJwt` (HS256/ES256 + defense-in-depth claims) → UUID subject.
   The subject UUID never comes from the request body (KTD5 IDOR defense); handler bodies receive
   only what the gate proved. `AuthDeps` is the shared auth slice per-function Deps extend.
+- **Design contract** — the visual invariants every distributed UI host (extension popups/options,
+  WKWebView app, native onboarding, docs pages) must share: self-hosted InterVariable, Still Blue,
+  system dark mode, no CSS `zoom`. Enforced as file-content assertions in
+  `core/ui/__tests__/design-contract.test.ts`, not manual parity review. Note "host" here — a
+  rendered UI destination — is distinct from the rule-set **Surface** above (a blocking unit).
