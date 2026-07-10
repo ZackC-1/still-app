@@ -1,5 +1,8 @@
 # Release Testing Checkpoint - 2026-07-09
 
+> Archived historical handoff. It does not describe current repository or store state. See
+> [`../../release/VALIDATION.md`](../../release/VALIDATION.md) for current evidence.
+
 Use this checkpoint to resume release testing after the updated build/parallel sync PR work is ready.
 
 ## Current State
@@ -15,8 +18,8 @@ Use this checkpoint to resume release testing after the updated build/parallel s
   would not stay signed in. Treat this as Apple sandbox auth/device state unless new evidence points to
   app code.
 - Promotional RevenueCat entitlement remains the proven entitlement path for test account:
-  - Email: `zack+sandbox2@cadmuslabs.co`
-  - Supabase user id: `2a592992-74b2-4b6d-b425-cf5db63510a5`
+  - Email: `REDACTED_TEST_ACCOUNT`
+  - Supabase user id: `REDACTED_TEST_USER_ID`
   - App UI showed `Synced across your devices`.
   - Backend row confirmed `public.entitlements.still_sync = true`, `source = reconcile`,
     `updated_at = 2026-07-09 01:16:56.864474+00`.

@@ -19,5 +19,3 @@ overrides:
   shell-quote: 1.9.0
   tmp: 0.2.7
   uuid: 11.1.1
-
-# ext-firefox is a reserved package slot; the current Firefox build is produced from ext-chromium.

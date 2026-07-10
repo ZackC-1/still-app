@@ -1,33 +1,36 @@
 # Fresh Session Prompt - Implement Near-Realtime Settings Sync
 
+> Archived prompt. The feature is implemented; do not use this as current work instructions. See
+> [`../../release/VALIDATION.md`](../../release/VALIDATION.md).
+
 Use this prompt to start a separate Codex session whose only job is to implement the near-realtime
 settings sync spec, open a PR, drive checks to green, and merge it. This work must run in a separate
 git worktree so it does not interfere with the active release-testing session in
-`/Users/zack/Projects/still-app`.
+`REPOSITORY_ROOT`.
 
 ```text
 You are Codex working on the Still app. Your task is to fully implement, test, open a PR for, and
 merge the near-realtime settings sync feature.
 
 Repository:
-- Main checkout: /Users/zack/Projects/still-app
+- Main checkout: REPOSITORY_ROOT
 - GitHub repo: ZackC-1/still-app
 - Default branch: main
 
 Important constraints:
-- Do not work directly in /Users/zack/Projects/still-app. That checkout is being used by a parallel
+- Do not work directly in REPOSITORY_ROOT. That checkout is being used by a parallel
   release-testing session and may have unrelated dirty files.
 - Create and work from a separate git worktree:
-  - cd /Users/zack/Projects/still-app
+  - cd REPOSITORY_ROOT
   - git fetch origin
   - git worktree add ../still-app-sync-pr -b feat/near-realtime-settings-sync origin/main
   - cd ../still-app-sync-pr
 - The spec may currently be uncommitted in the main checkout. Copy it into your worktree before
   implementation:
-  - cp /Users/zack/Projects/still-app/docs/plans/2026-07-09-001-near-realtime-settings-sync-spec.md \
-       /Users/zack/Projects/still-app-sync-pr/docs/plans/2026-07-09-001-near-realtime-settings-sync-spec.md
+  - cp REPOSITORY_ROOT/docs/plans/2026-07-09-001-near-realtime-settings-sync-spec.md \
+       REDACTED_SYNC_WORKTREE/docs/plans/2026-07-09-001-near-realtime-settings-sync-spec.md
 - Preserve unrelated release-testing changes in the main checkout. Never run destructive git commands
-  against /Users/zack/Projects/still-app.
+  against REPOSITORY_ROOT.
 
 Before coding:
 - Read AGENTS.md and obey the project instructions, especially CodeGraph-first rules for code-flow

@@ -149,9 +149,8 @@ Docs: [Identifying customers](https://www.revenuecat.com/docs/customers/identify
 ### July 8, 2026 PT entitlement validation
 
 - [x] Apple offering/product lookup reached the device paywall: `Unlock Pro - $1.99`.
-- [x] RevenueCat dashboard promotional grant for `still_sync` was applied to
-      `zack+sandbox2@cadmuslabs.co` / Supabase user id
-      `2a592992-74b2-4b6d-b425-cf5db63510a5`.
+- [x] RevenueCat dashboard promotional grant for `still_sync` was applied to a dedicated test
+      account. Account identifiers are intentionally omitted from the repository.
 - [x] App reconcile flipped Supabase `public.entitlements.still_sync` to `true` with `source =
       reconcile`.
 - [x] App showed `Synced across your devices`.
@@ -159,8 +158,10 @@ Docs: [Identifying customers](https://www.revenuecat.com/docs/customers/identify
       sandbox Apple Account signed in. The current evidence points to Apple sandbox auth/device
       flakiness, not an offering or Supabase entitlement issue.
 
-### Backend deploy verification (the RLS migration `0008`)
-Before going live, run the deployment-verification checklist (from the PR review). Key checks:
+### Backend deploy verification (migrations `0008` and `0009`)
+Before going live, run the deployment-verification checklist. Migration `0008` gates profile writes
+by entitlement; migration `0009` adds the server-authoritative settings RPC and metadata required by
+current clients. Key checks:
 
 ```sql
 -- after `supabase db push`: confirm 0008 applied and the policies swapped

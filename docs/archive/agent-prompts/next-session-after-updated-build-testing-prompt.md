@@ -1,5 +1,8 @@
 # Fresh Session Prompt - Testing After Updated Build
 
+> Archived prompt. The described work is complete; do not use this as current release guidance. See
+> [`../../release/VALIDATION.md`](../../release/VALIDATION.md).
+
 Use this prompt in a new Codex session after the updated Still build is ready.
 
 ```text
@@ -10,23 +13,23 @@ to click in the app, Safari, App Store Connect, RevenueCat, Supabase, Xcode, Chr
 needed. Use the local repo to inspect/debug issues and make code/doc updates when needed.
 
 Repo:
-- /Users/zack/Projects/still-app
+- REPOSITORY_ROOT
 
 Important:
 - A separate Codex session may be working on near-realtime settings sync in a separate worktree:
-  /Users/zack/Projects/still-app-sync-pr
+  REDACTED_SYNC_WORKTREE
 - Do not touch that worktree unless I explicitly ask.
 - The main release-testing checkout may be dirty. Do not revert unrelated changes.
 - For code-flow questions, follow AGENTS.md and use CodeGraph before reading source files.
 
 Before doing anything, read these files:
-- /Users/zack/Projects/still-app/docs/release/2026-07-09-release-testing-checkpoint.md
-- /Users/zack/Projects/still-app/docs/release/2026-07-09-functional-testing-matrix.md
-- /Users/zack/Projects/still-app/docs/release/01-apple-app-store.md
-- /Users/zack/Projects/still-app/docs/release/04-revenuecat.md
-- /Users/zack/Projects/still-app/docs/release/02-chrome-web-store.md
-- /Users/zack/Projects/still-app/docs/release/03-firefox-amo.md
-- /Users/zack/Projects/still-app/docs/release/06-mobile-blocking-validation.md
+- REPOSITORY_ROOT/docs/release/2026-07-09-release-testing-checkpoint.md
+- REPOSITORY_ROOT/docs/release/2026-07-09-functional-testing-matrix.md
+- REPOSITORY_ROOT/docs/release/01-apple-app-store.md
+- REPOSITORY_ROOT/docs/release/04-revenuecat.md
+- REPOSITORY_ROOT/docs/release/02-chrome-web-store.md
+- REPOSITORY_ROOT/docs/release/03-firefox-amo.md
+- REPOSITORY_ROOT/docs/release/06-mobile-blocking-validation.md
 
 Current known state:
 - iOS App Store version 1.0 was submitted for App Review with build 2 selected.
@@ -46,8 +49,8 @@ Current known state:
 - Apple sandbox purchase is still not proven because the physical device sandbox Apple Account would
   not stay signed in. Treat this as sandbox/device auth unless new evidence points to app code.
 - RevenueCat promotional entitlement has proven the entitlement spine for:
-  - `zack+sandbox2@cadmuslabs.co`
-  - Supabase user id `2a592992-74b2-4b6d-b425-cf5db63510a5`
+  - `REDACTED_TEST_ACCOUNT`
+  - Supabase user id `REDACTED_TEST_USER_ID`
   - Backend row: `public.entitlements.still_sync = true`, `source = reconcile`,
     `updated_at = 2026-07-09 01:16:56.864474+00`.
 - Restore purchase decision rule is documented:
@@ -119,7 +122,7 @@ Start by updating or confirming the live test matrix, then guide me through this
    - Verify Shorts shelves/tabs are removed while normal videos remain.
 
 As we test:
-- Update /Users/zack/Projects/still-app/docs/release/2026-07-09-functional-testing-matrix.md with
+- Update REPOSITORY_ROOT/docs/release/2026-07-09-functional-testing-matrix.md with
   pass/fail/blocker results.
 - Update the relevant release runbooks when results affect launch readiness.
 - If you find a blocker, inspect/debug the local repo and implement a focused fix.

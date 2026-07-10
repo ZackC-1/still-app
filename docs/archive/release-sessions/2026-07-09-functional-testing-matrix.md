@@ -1,5 +1,8 @@
 # Functional Testing Matrix - 2026-07-09
 
+> Archived historical checklist. It does not describe current release status. See
+> [`../../release/VALIDATION.md`](../../release/VALIDATION.md) for the completed matrix.
+
 Live checklist for the post-iOS-submission release validation session.
 
 ## Current Release Priority
@@ -32,7 +35,7 @@ Live checklist for the post-iOS-submission release validation session.
 
 - iOS App Store Connect version 1.0 is submitted for review with build 2 selected.
 - App Store product lookup through RevenueCat resolved `still_sync`; iOS paywall showed `Unlock Pro - $1.99`.
-- RevenueCat promotional entitlement for `zack+sandbox2@cadmuslabs.co` reconciled to Supabase user `2a592992-74b2-4b6d-b425-cf5db63510a5`.
+- RevenueCat promotional entitlement for `REDACTED_TEST_ACCOUNT` reconciled to Supabase user `REDACTED_TEST_USER_ID`.
 - Supabase row confirmed `public.entitlements.still_sync = true`, `source = reconcile`, `updated_at = 2026-07-09 01:16:56.864474+00`.
 - App showed `Synced across your devices` after sign-in.
 - CORS/OPTIONS issue on authenticated Supabase Edge Functions was fixed and deployed.
@@ -68,7 +71,7 @@ Result: Pass for core YouTube free-tier blocking based on user-observed physical
 
 ### 2. Pro Mobile Surfaces on iOS Safari
 
-Use entitled Supabase account `zack+sandbox2@cadmuslabs.co`.
+Use entitled Supabase account `REDACTED_TEST_ACCOUNT`.
 
 - [x] Sign in to Still as the entitled test account.
 - [x] Confirm the app shows Pro/sync state, expected text: `Synced across your devices`.

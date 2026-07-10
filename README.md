@@ -6,6 +6,10 @@ Still removes short-form video surfaces from YouTube, Instagram, Facebook, and T
 
 This repository is public so people who install Still can inspect what runs in the browser, how privacy is handled, how paid unlocks are verified, and how releases are tested.
 
+> **Project status:** Still is in pre-release validation. The current clients and cross-surface sync
+> have passed the release test matrix, but store review and public distribution are intentionally
+> pending. See [release validation](docs/release/VALIDATION.md) for the verified commit and scope.
+
 ## What Still ships
 
 | Surface | What it does |
@@ -34,7 +38,6 @@ packages/
   core/            rule engine, content script, Svelte UI, storage, sync, native bridge adapters
   ext-chromium/    WXT MV3 extension for Chromium; also produces the Firefox build
   ext-safari/      WXT Safari extension resources consumed by the Apple app
-  ext-firefox/     reserved package slot; Firefox currently builds from ext-chromium
 apps/
   apple/           Xcode project for iOS, macOS, Safari extension, and StillKit
 supabase/
@@ -59,6 +62,7 @@ For a deeper map, start with [docs/README.md](docs/README.md) and [docs/ARCHITEC
 - Real secrets are excluded from the repository. Tracked config files contain empty defaults or public client keys only.
 - Store privacy copy lives in [docs/privacy.html](docs/privacy.html), and support copy lives in [docs/support.html](docs/support.html).
 - Security reporting instructions live in [SECURITY.md](SECURITY.md).
+- The current release validation record lives in [docs/release/VALIDATION.md](docs/release/VALIDATION.md).
 
 ## Development
 
@@ -71,7 +75,9 @@ Requirements:
 - Xcode 16+ for Apple targets
 
 ```bash
-pnpm install
+corepack enable
+pnpm install --frozen-lockfile
+pnpm exec playwright install chromium
 pnpm lint
 pnpm typecheck
 pnpm test
@@ -79,7 +85,15 @@ pnpm build
 pnpm exec playwright test --project=fixtures
 ```
 
-Load the built Chromium extension from `packages/ext-chromium/.output/chrome-mv3`. Build output is generated; do not load the source directory as the extension.
+Load unpacked development builds from:
+
+- Chromium: `packages/ext-chromium/dist/chrome-mv3`
+- Firefox: `packages/ext-chromium/dist/firefox-mv3/manifest.json`
+
+Build output is generated and ignored by Git. Do not load the source directory as an extension.
+Cloud auth, sync, and purchase flows require local environment configuration; blocking and most
+tests work without production credentials. Copy the relevant package-level `.env.example` file and
+use local or development values only.
 
 Apple helpers live in [apps/apple/scripts/README.md](apps/apple/scripts/README.md).
 
@@ -89,7 +103,9 @@ The release runbook starts at [docs/release/README.md](docs/release/README.md). 
 
 ## Contributing
 
-Small fixes and documentation improvements are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a PR, use the issue templates for bugs and feature requests, and keep security-sensitive reports out of public issues.
+Focused fixes and documentation improvements are welcome by prior maintainer agreement. Read
+[CONTRIBUTING.md](CONTRIBUTING.md) before starting work, use the issue templates for bugs and feature
+requests, and keep security-sensitive reports out of public issues.
 
 ## License
 

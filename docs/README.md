@@ -12,8 +12,7 @@ This directory holds the product, architecture, release, and operations notes fo
 | [monetization-design.md](monetization-design.md) | Still Pro entitlement and purchase design. |
 | [production-rule-set-keys.md](production-rule-set-keys.md) | Rule-set signing and production key notes. |
 | [release/README.md](release/README.md) | Store and backend release runbooks. |
-| [plans/2026-07-09-001-near-realtime-settings-sync-spec.md](plans/2026-07-09-001-near-realtime-settings-sync-spec.md) | Proposed server-authoritative near-realtime settings sync spec. |
-| [plans/2026-07-09-002-near-realtime-sync-pr-agent-prompt.md](plans/2026-07-09-002-near-realtime-sync-pr-agent-prompt.md) | Fresh-session prompt for a parallel agent to implement the near-realtime sync spec through PR merge. |
+| [release/VALIDATION.md](release/VALIDATION.md) | Current automated and manual release-validation evidence. |
 
 ## Operational docs
 
@@ -22,6 +21,9 @@ The `release/` directory is the canonical launch checklist. Each file is scoped 
 The `solutions/` directory records durable implementation learnings. These are not status notes; they are reusable decisions and patterns that future maintainers should preserve.
 
 The `plans/` and `brainstorms/` directories are historical planning artifacts. They are useful when reconstructing why a feature exists, but the current behavior should be checked against code, tests, and the release runbooks.
+
+The `archive/` directory contains dated session handoffs and agent prompts retained for historical
+traceability. It is not operational guidance and may describe superseded repository or store state.
 
 ## Public pages
 
