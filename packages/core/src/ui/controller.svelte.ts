@@ -1,6 +1,7 @@
 import type { ServiceId, StillSettings } from "@still/shared-types";
 import { DEFAULT_SETTINGS } from "@still/shared-types";
 import { PRO_SERVICE_IDS } from "../rules/tiers.js";
+import { isValidEmail } from "./email.js";
 import type { SettingsCache } from "../storage/cache.js";
 import type { PurchaseResult } from "../native/bridge.js";
 import type {
@@ -702,6 +703,10 @@ export class UiController {
       this.authFlow === "verifying"
     )
       return;
+    // Gate the request on a syntactically valid address so a malformed email never issues a
+    // failing auth call (the sheet disables the button for the same reason; this also covers a
+    // programmatic caller). No-op rather than an error state — nothing was attempted.
+    if (!isValidEmail(email)) return;
     if (this.canUseCode) {
       await this.sendCode(email);
       return;
