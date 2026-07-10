@@ -3,6 +3,7 @@ import { ChromeEntitlementAdapter } from "@still/core/entitlement";
 import { refreshRuleSetCache, ruleSetFetchConfig, type RuleSetEndpoint } from "@still/core/rules";
 import { createAppGroupReconciler } from "../lib/app-group-reconcile.js";
 import { applyNativeEntitlement, parseNativeEntitlement } from "../lib/entitlement-pull.js";
+import { NATIVE_APP, pushSettingsToApp } from "../lib/native-settings.js";
 
 // Safari background — the native App-Group bridge (KTD4). The content/popup/options surfaces read &
 // write settings through browser.storage.local, but the *app's* WKWebView writes them into the
@@ -18,9 +19,9 @@ import { applyNativeEntitlement, parseNativeEntitlement } from "../lib/entitleme
 // so — unlike the Chromium background — this does no redirect gating (the Shorts redirect is the
 // content script's location.replace, KTD1).
 
+// NATIVE_APP + pushSettingsToApp are shared with the popup's direct push (see lib/native-settings).
 // Safari ignores the application identifier (it always routes to the app's SafariWebExtensionHandler),
 // but browser.runtime.sendNativeMessage requires the argument.
-const NATIVE_APP = "com.chartash.still";
 
 /** The signed rule-set RPC endpoint, from the gitignored build-time .env. Absent in CI/dev → null,
  * so the fetch is skipped and the content script applies the bundled seed (the U17 behavior). */
@@ -49,21 +50,11 @@ export default defineBackground(() => {
     }
   }
 
-  async function pushToApp(record: StoredSettingsRecord): Promise<void> {
-    try {
-      await browser.runtime.sendNativeMessage(NATIVE_APP, {
-        kind: "set",
-        settings: JSON.stringify(record),
-      });
-    } catch {
-      /* native host unavailable */
-    }
-  }
 
   // The reconcile + value-based echo guard live in a tested module (lib/app-group-reconcile); it owns
   // the storage subscription that mirrors in-extension edits out to the App Group, suppressing the
   // echo of its own app→local writes by `updatedAt`.
-  const reconciler = createAppGroupReconciler({ pullFromApp, pushToApp, local: adapter });
+  const reconciler = createAppGroupReconciler({ pullFromApp, pushToApp: pushSettingsToApp, local: adapter });
 
   // Entitlement pull: the app mirrors its server-reconciled entitlement into the App Group; we copy
   // it into browser.storage so the content scripts' EntitlementCache gates Pro blocking on it. A
