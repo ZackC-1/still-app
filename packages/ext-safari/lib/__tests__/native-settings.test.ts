@@ -16,17 +16,21 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("pushSettingsToApp", () => {
   it("sends a native `set` message carrying the record as a JSON string", async () => {
-    const sendNativeMessage = vi.fn(() => Promise.resolve({}));
+    const sendNativeMessage = vi.fn(
+      (_app: string, _message: { kind: string; settings: string }) => Promise.resolve({}),
+    );
     vi.stubGlobal("browser", { runtime: { sendNativeMessage } });
 
     await pushSettingsToApp(record);
 
     expect(sendNativeMessage).toHaveBeenCalledTimes(1);
-    const [app, msg] = sendNativeMessage.mock.calls[0]!;
+    const call = sendNativeMessage.mock.calls[0];
+    expect(call).toBeDefined();
+    const [app, msg] = call!;
     expect(app).toBe(NATIVE_APP);
     expect(msg).toEqual({ kind: "set", settings: JSON.stringify(record) });
     // The native handler round-trips this exact shape into the App Group (SafariWebExtensionHandler).
-    expect(JSON.parse((msg as { settings: string }).settings).settings.updatedAt).toBe(42);
+    expect(JSON.parse(msg.settings).settings.updatedAt).toBe(42);
   });
 
   it("swallows a missing native host (extension running outside the app container)", async () => {
