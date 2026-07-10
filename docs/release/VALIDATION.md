@@ -3,6 +3,27 @@
 Current validation record for commit
 `5678e1b4ef683d0ba1857dff68583c9b40437b95` on July 10, 2026.
 
+## Release-candidate addendum — commit `22b2717`, build 3 (July 10, 2026)
+
+Main advanced past the record above by PRs #69 (branding unification + review
+fixes), #70 (Edge Function hardening, migrations 0010–0011), #72 (docs), and
+#73 (Apple build number 2 → 3). Against `22b2717`:
+
+| Area | Result |
+|---|---|
+| GitHub CI on every merged PR (lint, typecheck, unit, build, Deno, Playwright) | Pass |
+| Local full gate: install, build (incl. Firefox variant), lint, typecheck, tests | Pass |
+| Hosted backend: migrations 0001–0011 applied; all six functions redeployed; 401 fail-closed smoke test | Pass |
+| Selector canary: scheduled daily (14:00 GMT) with invocation token; Slack notify wired and delivery-tested | Pass |
+| Store zips (chrome, firefox) + full-monorepo AMO source zip rebuilt; manifests verified | Pass |
+| iOS + macOS archives, version 1.0 build 3, uploaded to App Store Connect | Done |
+
+The manual cross-surface checks recorded below were performed at `5678e1b`;
+the on-device pass for `22b2717` (mobile blocking §A rerun, branding
+spot-checks, sandbox purchase against the rewritten webhook path, and the
+still-outstanding Firefox-Android §B check) is the next gate before any store
+submission.
+
 ## Automated Checks
 
 | Area | Result |
