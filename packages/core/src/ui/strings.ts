@@ -110,6 +110,7 @@ export const STRINGS = {
 
   auth: {
     title: "Sign in to Still",
+    dismissLabel: "Dismiss sign in",
     prompt: "Sync your Still settings across devices and access Still Pro.",
     notNow: "Not now",
     emailLabel: "Email",

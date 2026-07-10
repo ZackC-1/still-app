@@ -41,6 +41,13 @@
   }: Props = $props();
   let sheet = $state<HTMLDivElement>();
 
+  $effect(() => {
+    const previouslyFocused = document.activeElement;
+    return () => {
+      if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus();
+    };
+  });
+
   const busy = $derived(
     purchaseFlow === "purchasing" ||
       purchaseFlow === "opening-checkout" ||
@@ -80,7 +87,9 @@
     }
     if (e.key === "Tab" && sheet) {
       // The stale-pending state's find-my-purchase mailto is an anchor — keep it in the trap.
-      const focusables = [...sheet.querySelectorAll<HTMLElement>("button, a[href]")];
+      const focusables = [
+        ...sheet.querySelectorAll<HTMLElement>("button, a[href]"),
+      ].filter((element) => !element.hasAttribute("disabled"));
       if (focusables.length === 0) return;
       const first = focusables[0]!;
       const last = focusables[focusables.length - 1]!;
@@ -95,7 +104,13 @@
   }
 </script>
 
-<div class="scrim" role="presentation" onclick={onDismiss}></div>
+<button
+  type="button"
+  class="scrim"
+  aria-label={STRINGS.paywall.dismiss}
+  tabindex="-1"
+  onclick={onDismiss}
+></button>
 <div
   class="sheet"
   bind:this={sheet}
@@ -117,26 +132,44 @@
          always one tap away: abandonment must never trap the buyer (U4). -->
     <h2>{STRINGS.paywall.title}</h2>
     <p role="status">
-      {checkoutFlow === "checking" ? STRINGS.paywall.checking : STRINGS.paywall.quietPending}
+      {checkoutFlow === "checking"
+        ? STRINGS.paywall.checking
+        : STRINGS.paywall.quietPending}
     </p>
-    <button class="secondary" onclick={onStartOver}>{STRINGS.paywall.startOver}</button>
-    <button class="dismiss" onclick={onDismiss}>{STRINGS.paywall.dismiss}</button>
+    <button class="secondary" onclick={onStartOver}
+      >{STRINGS.paywall.startOver}</button
+    >
+    <button class="dismiss" onclick={onDismiss}
+      >{STRINGS.paywall.dismiss}</button
+    >
   {:else if checkoutFlow === "stale-pending"}
     <!-- Pending decayed past 24h (U4): the already-decided support path — find-my-purchase mailto
          (docs/monetization-design.md) plus a retry that replaces the flag (409 guards doubles). -->
     <h2>{STRINGS.paywall.title}</h2>
     <p>{STRINGS.paywall.stalePending}</p>
-    <a class="primary linkbutton" href={FIND_MY_PURCHASE_MAILTO}>{STRINGS.paywall.findMyPurchase}</a>
-    <button class="secondary" onclick={onGet}>{STRINGS.paywall.retryCheckout}</button>
-    <button class="dismiss" onclick={onStartOver}>{STRINGS.paywall.startOver}</button>
-    <button class="dismiss" onclick={onDismiss}>{STRINGS.paywall.dismiss}</button>
+    <a class="primary linkbutton" href={FIND_MY_PURCHASE_MAILTO}
+      >{STRINGS.paywall.findMyPurchase}</a
+    >
+    <button class="secondary" onclick={onGet}
+      >{STRINGS.paywall.retryCheckout}</button
+    >
+    <button class="dismiss" onclick={onStartOver}
+      >{STRINGS.paywall.startOver}</button
+    >
+    <button class="dismiss" onclick={onDismiss}
+      >{STRINGS.paywall.dismiss}</button
+    >
   {:else if checkoutFlow === "auth-required"}
     <!-- Session died mid-checkout (U4): re-sign-in is the remedy — the pending flag and the cached
          entitlement both survive (never teardown, never a downgrade). -->
     <h2>{STRINGS.paywall.title}</h2>
     <p>{STRINGS.paywall.authRequired}</p>
-    <button class="primary" onclick={onReSignIn}>{STRINGS.paywall.signInAgain}</button>
-    <button class="dismiss" onclick={onDismiss}>{STRINGS.paywall.dismiss}</button>
+    <button class="primary" onclick={onReSignIn}
+      >{STRINGS.paywall.signInAgain}</button
+    >
+    <button class="dismiss" onclick={onDismiss}
+      >{STRINGS.paywall.dismiss}</button
+    >
   {:else}
     <h2>{STRINGS.paywall.headline}</h2>
     {#if canPurchase}
@@ -153,16 +186,22 @@
         {/if}
       </button>
       <button class="secondary" onclick={onRestore} disabled={busy}>
-        {purchaseFlow === "restoring" ? STRINGS.paywall.restoring : STRINGS.paywall.restore}
+        {purchaseFlow === "restoring"
+          ? STRINGS.paywall.restoring
+          : STRINGS.paywall.restore}
       </button>
       <p class="reassure">{STRINGS.paywall.reassurance}</p>
       {#if status}
-        <p class="status" class:error={purchaseFlow === "failed"} role="status">{status}</p>
+        <p class="status" class:error={purchaseFlow === "failed"} role="status">
+          {status}
+        </p>
       {/if}
     {:else}
       <p>{STRINGS.paywall.nonApple}</p>
     {/if}
-    <button class="dismiss" onclick={onDismiss}>{STRINGS.paywall.dismiss}</button>
+    <button class="dismiss" onclick={onDismiss}
+      >{STRINGS.paywall.dismiss}</button
+    >
   {/if}
 </div>
 
@@ -171,20 +210,28 @@
     position: fixed;
     inset: 0;
     background: rgba(0, 0, 0, 0.4);
+    border: 0;
+    padding: 0;
+    z-index: 100;
   }
   .sheet {
     position: fixed;
     inset-block-end: 0;
     inset-inline: 0;
     margin-inline: auto;
-    max-inline-size: 420px;
+    inline-size: min(100%, 420px);
+    max-block-size: calc(100dvh - env(safe-area-inset-top) - var(--space-3));
     background: var(--surface);
     border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
     border: 1px solid var(--border);
     padding: var(--space-6);
+    padding-block-end: calc(var(--space-6) + env(safe-area-inset-bottom));
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    z-index: 101;
   }
   h2 {
     margin: 0;

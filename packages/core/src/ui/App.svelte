@@ -11,15 +11,17 @@
 
   interface Props {
     controller: UiController;
+    /** Intentional dense treatment for browser popup panels; never scale the whole interface. */
+    compact?: boolean;
     onGet?: () => void;
     onRestore?: () => void;
     /** Deprecated Apple host hook. Kept as a no-op prop so older host wiring cannot surface SIWA. */
     onSignInWithApple?: () => void;
   }
-  let { controller: c, onGet, onRestore }: Props = $props();
+  let { controller: c, compact = false, onGet, onRestore }: Props = $props();
 </script>
 
-<div class="still-ui app">
+<div class="still-ui app" data-density={compact ? "compact" : "comfortable"}>
   <header class="appbar">
     <Logo />
   </header>
@@ -47,6 +49,7 @@
         on={c.settings.globalOn && c.settings.services[service]}
         onchange={() => c.toggleService(service)}
         locked={c.isLocked(service)}
+        disabled={!c.settings.globalOn}
         onLockedTap={() => c.lockedTap()}
       />
     {/each}
@@ -194,17 +197,27 @@
   .app {
     display: flex;
     flex-direction: column;
-    gap: var(--space-3);
-    padding: var(--space-4);
-    min-inline-size: 320px;
-    max-inline-size: 400px;
+    gap: var(--app-gap, var(--space-3));
+    inline-size: 100%;
+    min-inline-size: 0;
+    max-inline-size: 432px;
+    padding: var(--app-padding, var(--space-4));
+    padding-block-start: calc(
+      var(--app-padding, var(--space-4)) + env(safe-area-inset-top)
+    );
+    padding-block-end: calc(
+      var(--app-padding, var(--space-4)) + env(safe-area-inset-bottom)
+    );
     /* Center in hosts wider than the content cap (the 480pt macOS window, the options tab).
        Popups size themselves to the content, so this is a no-op there. */
     margin-inline: auto;
     background: var(--surface);
   }
   .appbar {
-    padding: var(--space-1) var(--space-1) var(--space-2);
+    padding: var(
+      --appbar-padding,
+      var(--space-1) var(--space-1) var(--space-2)
+    );
   }
 
   /* Hero global card */
@@ -213,9 +226,9 @@
     align-items: center;
     gap: var(--space-4);
     background: var(--still-blue);
-    color: #fff;
+    color: var(--on-blue);
     border-radius: var(--radius-sheet);
-    padding: var(--space-6);
+    padding: var(--hero-padding, var(--space-6));
   }
   .hero.off {
     background: var(--surface-raised);
@@ -227,7 +240,7 @@
   }
   .hero h1 {
     margin: 0 0 4px;
-    font-size: 25px;
+    font-size: var(--hero-title-size, 25px);
     font-weight: 700;
     letter-spacing: -0.02em;
   }
@@ -235,7 +248,7 @@
     margin: 0;
     font-size: 14.5px;
     line-height: 1.35;
-    color: rgba(255, 255, 255, 0.82);
+    color: var(--on-blue-secondary);
   }
   .hero.off p {
     color: var(--ink-secondary);
@@ -244,7 +257,7 @@
   .services {
     display: flex;
     flex-direction: column;
-    gap: var(--space-2);
+    gap: var(--services-gap, var(--space-2));
   }
   .services[aria-disabled="true"] {
     opacity: 0.5;
@@ -258,8 +271,8 @@
   .sync {
     display: flex;
     flex-direction: column;
-    gap: var(--space-3);
-    padding: var(--space-4);
+    gap: var(--sync-gap, var(--space-3));
+    padding: var(--sync-padding, var(--space-4));
   }
   .syncrow {
     display: flex;
@@ -307,11 +320,15 @@
   }
   .primary.block {
     inline-size: 100%;
-    padding: var(--space-4);
+    min-block-size: 44px;
+    padding: var(--block-button-padding, var(--space-4));
     font-size: 16px;
   }
   .primary:hover {
     background: var(--still-blue-pressed);
+  }
+  .primary:active {
+    transform: translateY(1px);
   }
   .secondary {
     background: transparent;
@@ -325,8 +342,13 @@
   }
   .secondary.block {
     inline-size: 100%;
-    padding: var(--space-4);
+    min-block-size: 44px;
+    padding: var(--block-button-padding, var(--space-4));
     font-size: 16px;
+  }
+  .secondary:hover {
+    background: var(--surface);
+    border-color: var(--border-strong);
   }
 
   .link {
@@ -341,6 +363,11 @@
   }
   .link.center {
     align-self: center;
+  }
+  .link:hover {
+    color: var(--still-blue-pressed);
+    text-decoration: underline;
+    text-underline-offset: 2px;
   }
   .link:disabled {
     color: var(--ink-secondary);
@@ -377,5 +404,44 @@
     font-weight: 600;
     cursor: pointer;
     align-self: flex-start;
+  }
+  .danger-solid:hover {
+    background: #a91f19;
+  }
+
+  .app[data-density="compact"] {
+    --app-gap: var(--space-2);
+    --app-padding: var(--space-2);
+    --appbar-padding: 0 0 var(--space-1);
+    --hero-padding: var(--space-3);
+    --hero-title-size: 21px;
+    --service-card-padding-block: var(--space-2);
+    --service-card-padding-inline: var(--space-3);
+    --service-icon-size: 36px;
+    --service-name-size: 16px;
+    --service-status-size: 13px;
+    --services-gap: var(--space-1);
+    --sync-gap: var(--space-1);
+    --sync-padding: var(--space-2);
+    --block-button-padding: var(--space-2) var(--space-3);
+    --logo-mark-size: 24px;
+    --logo-word-size: 18px;
+  }
+
+  @media (max-height: 700px) {
+    .app:not([data-density="compact"]) {
+      --app-gap: var(--space-2);
+      --app-padding: var(--space-3);
+      --appbar-padding: 0 0 var(--space-1);
+      --hero-padding: var(--space-4);
+      --hero-title-size: 22px;
+      --service-card-padding-block: var(--space-2);
+      --service-card-padding-inline: var(--space-3);
+      --service-icon-size: 36px;
+      --service-name-size: 16px;
+      --service-status-size: 13px;
+      --sync-gap: var(--space-2);
+      --sync-padding: var(--space-3);
+    }
   }
 </style>

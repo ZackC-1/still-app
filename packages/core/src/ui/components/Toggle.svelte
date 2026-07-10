@@ -3,10 +3,17 @@
     checked: boolean;
     label: string;
     onchange: () => void;
+    disabled?: boolean;
     /** "on-blue" inverts the colors for use on the blue hero card (white track, blue knob). */
     variant?: "default" | "on-blue";
   }
-  let { checked, label, onchange, variant = "default" }: Props = $props();
+  let {
+    checked,
+    label,
+    onchange,
+    disabled = false,
+    variant = "default",
+  }: Props = $props();
 </script>
 
 <button
@@ -16,6 +23,7 @@
   role="switch"
   aria-checked={checked}
   aria-label={label}
+  {disabled}
   onclick={onchange}
 >
   <span class="knob" aria-hidden="true"></span>
@@ -35,6 +43,9 @@
   }
   .toggle.on {
     background: var(--still-blue);
+  }
+  .toggle:disabled {
+    cursor: not-allowed;
   }
   .knob {
     display: block;

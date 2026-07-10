@@ -75,16 +75,19 @@ describe("App", () => {
     render(App, { props: { controller: controller({ globalOn: false }) } });
     const services = document.querySelector(".services");
     expect(services?.getAttribute("aria-disabled")).toBe("true");
-    expect(
-      within(
-        document.querySelector('[data-service="youtube"]') as HTMLElement,
-      ).getByRole("switch"),
-    ).toBeDisabled();
+    const youtubeSwitch = within(
+      document.querySelector('[data-service="youtube"]') as HTMLElement,
+    ).getByRole("switch") as HTMLButtonElement;
+    expect(youtubeSwitch.disabled).toBe(true);
   });
 
   it("un-entitled users see the three Pro rows locked (no silent no-op toggles)", () => {
     render(App, { props: { controller: controller() } });
     expect(document.querySelectorAll(".card.locked").length).toBe(3); // instagram/tiktok/facebook
+    expect(document.querySelectorAll(".card.locked .lock svg").length).toBe(3);
+    expect(
+      document.querySelector(".card.locked .lock")?.textContent?.trim(),
+    ).toBe("");
     expect(
       document.querySelector('[data-service="youtube"].locked'),
     ).toBeNull(); // free stays a toggle
@@ -159,10 +162,12 @@ describe("App", () => {
     render(App, { props: { controller: c } });
     await fireEvent.click(screen.getByText("Sign in to Still"));
 
-    const email = screen.getByLabelText(STRINGS.auth.emailLabel) as HTMLInputElement;
+    const email = screen.getByLabelText(
+      STRINGS.auth.emailLabel,
+    ) as HTMLInputElement;
     expect(email.name).toBe("email");
     expect(email.autocomplete).toBe("email");
-    expect(email.spellcheck).toBe(false);
+    expect(email.getAttribute("spellcheck")).toBe("false");
     expect(email.getAttribute("autocapitalize")).toBe("none");
   });
 

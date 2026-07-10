@@ -27,7 +27,9 @@
 			</array>
 		</dict>
 	</dict>
-	<key>UIUserInterfaceStyle</key>
-	<string>Light</string>
+	<key>UIAppFonts</key>
+	<array>
+		<string>Fonts/InterVariable.ttf</string>
+	</array>
 </dict>
 </plist>

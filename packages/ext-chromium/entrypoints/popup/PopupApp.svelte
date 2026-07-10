@@ -15,13 +15,15 @@
 </script>
 
 <div class="popup">
-  <App {controller} {onRestore} />
+  <App {controller} {onRestore} compact />
   <button class="open-options" onclick={openOptions}>Open settings</button>
 </div>
 
 <style>
   .popup {
-    inline-size: 340px;
+    inline-size: min(380px, 100vw);
+    max-inline-size: 100vw;
+    overflow: clip;
   }
   .open-options {
     display: block;
@@ -33,5 +35,9 @@
     font: inherit;
     padding: var(--space-3);
     cursor: pointer;
+  }
+  .open-options:hover {
+    background: var(--surface-raised);
+    color: var(--still-blue-pressed);
   }
 </style>

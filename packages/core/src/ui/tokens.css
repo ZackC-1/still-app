@@ -1,7 +1,17 @@
-/* Still design tokens (spec §3.3–3.5). Light only — one look across the iOS/macOS app and the
-   Chrome / Firefox / Safari extension popups. Still Blue pinned from the brand assets (#2A47E8). */
+/* Still's shared visual contract. Every web surface is offline-capable, so the brand typeface is
+   bundled rather than fetched at runtime. Native onboarding uses the same variable font. */
+
+@font-face {
+  font-family: "InterVariable";
+  src: url("./assets/InterVariable.woff2") format("woff2-variations");
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+}
 
 :root {
+  color-scheme: light;
+
   --still-blue: #2a47e8;
   --still-blue-pressed: #1e37c2;
   --ink: #0b1430;
@@ -9,7 +19,10 @@
   --surface: #ffffff;
   --surface-raised: #f6f7fb;
   --border: #e3e6f0;
+  --border-strong: #c8cede;
   --on-blue: #ffffff;
+  --on-blue-secondary: rgba(255, 255, 255, 0.82);
+  --focus-ring: #2a47e8;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -23,7 +36,41 @@
   --radius-card: 12px;
   --radius-sheet: 16px;
 
-  --font-ui: "Inter", system-ui, -apple-system, sans-serif;
+  --font-ui:
+    "InterVariable", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+
+  font-family: var(--font-ui);
+  background: var(--surface);
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  min-inline-size: 0;
+  min-block-size: 100%;
+  margin: 0;
+  background: var(--surface);
+}
+
+html,
+body {
+  overflow-x: clip;
+}
+
+button,
+input,
+a {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(42, 71, 232, 0.14);
 }
 
 .still-ui {
@@ -33,4 +80,48 @@
   font-size: 16px;
   line-height: 1.4;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-optical-sizing: auto;
+}
+
+.still-ui :is(button, a, input):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+.still-ui :is(h1, h2) {
+  text-wrap: balance;
+}
+
+.still-ui p {
+  text-wrap: pretty;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+
+    --still-blue: #5a74ff;
+    --still-blue-pressed: #7890ff;
+    --ink: #eef1fa;
+    --ink-secondary: #a7aec8;
+    --surface: #0b0f1a;
+    --surface-raised: #141a2b;
+    --border: #232a40;
+    --border-strong: #3c4664;
+    --on-blue: #0b0f1a;
+    --on-blue-secondary: rgba(11, 15, 26, 0.72);
+    --focus-ring: #8da0ff;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .still-ui *,
+  .still-ui *::before,
+  .still-ui *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }

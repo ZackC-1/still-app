@@ -11,6 +11,13 @@
   let code = $state("");
   let sheet = $state<HTMLDivElement>();
 
+  $effect(() => {
+    const previouslyFocused = document.activeElement;
+    return () => {
+      if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus();
+    };
+  });
+
   // Code-entry (plan U2/R1): one plain input, no segmented boxes. Which states show it, and the
   // calm line for each failure kind (never raw backend text, never the magic-link copy).
   const inCodeEntry = $derived(
@@ -44,11 +51,35 @@
   });
 
   function onKeydown(e: KeyboardEvent): void {
-    if (e.key === "Escape") onDismiss();
+    if (e.key === "Escape") {
+      onDismiss();
+      return;
+    }
+    if (e.key === "Tab" && sheet) {
+      const focusables = [
+        ...sheet.querySelectorAll<HTMLElement>("button, input"),
+      ].filter((element) => !element.hasAttribute("disabled"));
+      if (focusables.length === 0) return;
+      const first = focusables[0]!;
+      const last = focusables[focusables.length - 1]!;
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
   }
 </script>
 
-<div class="scrim" role="presentation" onclick={onDismiss}></div>
+<button
+  type="button"
+  class="scrim"
+  aria-label={STRINGS.auth.dismissLabel}
+  tabindex="-1"
+  onclick={onDismiss}
+></button>
 <div
   class="sheet"
   bind:this={sheet}
@@ -66,12 +97,18 @@
 
   {#if inCodeEntry}
     <p class="sent">{STRINGS.codeAuth.sentTo} {c.codeEmail}</p>
+    <label class="field-label" for="still-code"
+      >{STRINGS.codeAuth.codeLabel}</label
+    >
     <input
+      id="still-code"
       class="code"
+      name="code"
       type="text"
       inputmode="numeric"
       pattern="[0-9]*"
       autocomplete="one-time-code"
+      spellcheck="false"
       maxlength="6"
       bind:value={code}
       oninput={onCodeInput}
@@ -86,7 +123,7 @@
         ? STRINGS.codeAuth.verifying
         : STRINGS.codeAuth.verify}
     </button>
-    {#if codeErrorLine}<p class="error">{codeErrorLine}</p>{/if}
+    {#if codeErrorLine}<p class="error" role="status">{codeErrorLine}</p>{/if}
     <button
       class="link"
       disabled={c.resendCooldown > 0}
@@ -105,12 +142,19 @@
       >{STRINGS.auth.resend}</button
     >
   {:else}
+    <label class="field-label" for="still-email"
+      >{STRINGS.auth.emailLabel}</label
+    >
     <input
+      id="still-email"
       class="email"
       type="email"
+      name="email"
+      autocomplete="email"
+      autocapitalize="none"
+      spellcheck="false"
       bind:value={email}
       placeholder={STRINGS.auth.emailPlaceholder}
-      aria-label={STRINGS.auth.emailLabel}
     />
     <button
       class="primary"
@@ -125,7 +169,7 @@
     </button>
     {#if c.authFlow === "error"}
       <!-- Code hosts get the code-flow line; authError (magic-link hosts only) never renders here. -->
-      <p class="error">
+      <p class="error" role="status">
         {c.canUseCode
           ? STRINGS.codeAuth.sendError
           : (c.authError ?? STRINGS.auth.error)}
@@ -141,19 +185,27 @@
     position: fixed;
     inset: 0;
     background: rgba(11, 20, 48, 0.45);
+    border: 0;
+    padding: 0;
+    z-index: 100;
   }
   .sheet {
     position: fixed;
     inset-block-end: 0;
     inset-inline: 0;
     margin-inline: auto;
-    max-inline-size: 420px;
+    inline-size: min(100%, 420px);
+    max-block-size: calc(100dvh - env(safe-area-inset-top) - var(--space-3));
     background: var(--surface);
     border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
-    padding: var(--space-3) var(--space-6) var(--space-6);
+    padding: var(--space-3) var(--space-6)
+      calc(var(--space-6) + env(safe-area-inset-bottom));
     display: flex;
     flex-direction: column;
     gap: var(--space-3);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    z-index: 101;
   }
   .grip {
     align-self: center;
@@ -173,6 +225,12 @@
     margin: 0;
     color: var(--ink-secondary);
   }
+  .field-label {
+    margin-block-end: calc(var(--space-2) * -1);
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 600;
+  }
   .primary {
     background: var(--still-blue);
     color: var(--on-blue);
@@ -191,6 +249,10 @@
     font: inherit;
     background: var(--surface);
     color: var(--ink);
+  }
+  .email:focus-visible,
+  .code:focus-visible {
+    border-color: var(--still-blue);
   }
   .code {
     letter-spacing: 0.3em;

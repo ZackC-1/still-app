@@ -1,4 +1,8 @@
-import { defineConfig, type IndexHtmlTransformContext, type Plugin } from "vite";
+import {
+  defineConfig,
+  type IndexHtmlTransformContext,
+  type Plugin,
+} from "vite";
 import { svelte } from "@sveltejs/vite-plugin-svelte";
 
 // Builds the one shared Svelte UI (packages/core App.svelte) into a SINGLE self-contained index.html
@@ -55,6 +59,9 @@ export default defineConfig({
     outDir: "dist",
     emptyOutDir: true,
     target: "safari15", // WKWebView on the supported iOS/macOS floor
+    // Keep the bundled Inter variable face inside index.html too; the native host intentionally
+    // ships one self-contained WebUI file so file:// never performs a subresource fetch.
+    assetsInlineLimit: 500_000,
     cssCodeSplit: false,
     modulePreload: { polyfill: false },
     rollupOptions: {
