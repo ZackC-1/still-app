@@ -10,8 +10,8 @@
     "build": "node ../core/scripts/gen-content-css.mjs entrypoints/content && wxt build",
     "build:firefox": "node ../core/scripts/gen-content-css.mjs entrypoints/content && wxt build -b firefox",
     "test": "vitest run",
-    "zip": "wxt zip",
-    "zip:firefox": "wxt zip -b firefox",
+    "zip": "node ../core/scripts/gen-content-css.mjs entrypoints/content && wxt zip",
+    "zip:firefox": "node ../core/scripts/gen-content-css.mjs entrypoints/content && wxt zip -b firefox",
     "typecheck": "wxt prepare && tsc --noEmit",
     "postinstall": "wxt prepare"
   },

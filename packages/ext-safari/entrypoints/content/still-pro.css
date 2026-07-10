@@ -9,3 +9,4 @@ html.still-pro-active a[aria-label="Reels"]{display:none!important}
 html.still-pro-active a[aria-label*="Reels" i]{display:none!important}
 html.still-pro-active a[href*="/reels/"]{display:none!important}
 html.still-pro-active li:has(> a[href*="/reel"]){display:none!important}
+html.still-pro-active [role="tab"][aria-label*="reels" i] > *{display:none!important}
