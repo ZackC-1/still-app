@@ -12,13 +12,16 @@
 </script>
 
 <div class="popup">
-  <App {controller} />
+  <App {controller} compact />
   <button class="open-options" onclick={openOptions}>Open settings</button>
 </div>
 
 <style>
   .popup {
-    inline-size: 340px;
+    inline-size: min(380px, 100vw);
+    max-inline-size: 100vw;
+    margin-inline: auto;
+    overflow: clip;
   }
   .open-options {
     display: block;
@@ -30,5 +33,13 @@
     font: inherit;
     padding: var(--space-3);
     cursor: pointer;
+  }
+  .open-options:hover {
+    background: var(--surface-raised);
+    color: var(--still-blue-pressed);
+  }
+  .open-options:focus-visible {
+    /* Inward: the popup's overflow clip would swallow the outward outline of this flush button. */
+    outline-offset: -3px;
   }
 </style>

@@ -46,6 +46,8 @@
 		D1B0B002000000000000B002 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D1A0A001000000000000A001 /* PrivacyInfo.xcprivacy */; };
 		D1B0B003000000000000B003 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D1A0A002000000000000A002 /* PrivacyInfo.xcprivacy */; };
 		D1B0B004000000000000B004 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = D1A0A002000000000000A002 /* PrivacyInfo.xcprivacy */; };
+		E2B0B001000000000000B001 /* Fonts in Resources */ = {isa = PBXBuildFile; fileRef = E2A0A001000000000000A001 /* Fonts */; };
+		E2B0B002000000000000B002 /* Fonts in Resources */ = {isa = PBXBuildFile; fileRef = E2A0A001000000000000A001 /* Fonts */; };
 		DBF78C86E10C335C5314A6BC /* OnboardingPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D9264E5ACACFF91459C50B7 /* OnboardingPresenter.swift */; };
 		E6B292C152FDCFC6E068A81D /* WebBridgeRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27467FC2A004926ED26C3C69 /* WebBridgeRouter.swift */; };
 		EF90A77143253D4C0DD9BB99 /* WebBridgeRouter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27467FC2A004926ED26C3C69 /* WebBridgeRouter.swift */; };
@@ -128,6 +130,7 @@
 		C2A8A9E27FBD6A951955EFD0 /* Secrets.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; path = Secrets.xcconfig; sourceTree = "<group>"; };
 		D1A0A001000000000000A001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		D1A0A002000000000000A002 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		E2A0A001000000000000A001 /* Fonts */ = {isa = PBXFileReference; lastKnownFileType = folder; path = Fonts; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -209,6 +212,7 @@
 		14DE45682FEC760A0056BB36 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				E2A0A001000000000000A001 /* Fonts */,
 				14DE45692FEC760A0056BB36 /* Main.html */,
 				14DE456B2FEC760A0056BB36 /* Icon.png */,
 				14DE456C2FEC760A0056BB36 /* Style.css */,
@@ -459,6 +463,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E2B0B001000000000000B001 /* Fonts in Resources */,
 				14DE45A62FEC760B0056BB36 /* Icon.png in Resources */,
 				14DE457F2FEC760B0056BB36 /* LaunchScreen.storyboard in Resources */,
 				14DE45A42FEC760B0056BB36 /* Main.html in Resources */,
@@ -474,6 +479,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E2B0B002000000000000B002 /* Fonts in Resources */,
 				14DE45A72FEC760B0056BB36 /* Icon.png in Resources */,
 				14DE45A92FEC760B0056BB36 /* Style.css in Resources */,
 				14DE458E2FEC760B0056BB36 /* Main.storyboard in Resources */,

@@ -28,7 +28,9 @@ struct OnboardingView: View {
   @State private var step = 0
   @State private var status: SafariExtensionStatus = .unknown
 
-  private static let stillBlue = Color(red: 0.23, green: 0.31, blue: 1.0)
+  /// The asset-catalog Still Blue (with its dark variant). Named lookup rather than
+  /// `Color.accentColor`, which macOS remaps to the user's system accent preference.
+  private static let stillBlue = Color("AccentColor")
   private let lastStep = 3
   /// Polls the live extension state while screen 3 is on-screen, so the badge flips to "You're all
   /// set" on its own the moment the user enables Still — no "Check again" tap needed. Real on macOS;
@@ -62,6 +64,7 @@ struct OnboardingView: View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(Color.primary.opacity(0.03).ignoresSafeArea())
+    .cappedDynamicType()
     .onAppear { if step != initialStep { step = initialStep } }
   }
 
@@ -69,11 +72,11 @@ struct OnboardingView: View {
 
   private var welcome: some View {
     VStack(spacing: 20) {
-      glyph("circle.dashed", tint: Self.stillBlue)
+      brandMark
       Text("Still")
-        .font(.system(size: 56, weight: .bold, design: .rounded))
+        .font(.still(size: 52, weight: .bold, relativeTo: .largeTitle))
       Text("The short-form video disappears.\nEverything else stays.")
-        .font(.title3)
+        .font(.still(size: 20, relativeTo: .title3))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
     }
@@ -83,10 +86,10 @@ struct OnboardingView: View {
     VStack(spacing: 20) {
       glyph("scissors", tint: Self.stillBlue)
       Text("Reels, Shorts, and TikTok — gone.")
-        .font(.system(size: 30, weight: .bold, design: .rounded))
+        .font(.still(size: 30, weight: .semibold, relativeTo: .title))
         .multilineTextAlignment(.center)
       Text("The sites you use stay exactly as they were.")
-        .font(.title3)
+        .font(.still(size: 20, relativeTo: .title3))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
     }
@@ -96,9 +99,9 @@ struct OnboardingView: View {
     VStack(spacing: 18) {
       glyph("puzzlepiece.extension.fill", tint: status.isConfirmedEnabled ? .green : Self.stillBlue)
       Text("One quick step.")
-        .font(.system(size: 28, weight: .bold, design: .rounded))
+        .font(.still(size: 28, weight: .semibold, relativeTo: .title))
       Text("Still works through Safari. Turn it on and short-form is gone for good.")
-        .font(.body)
+        .font(.still(size: 16, relativeTo: .body))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
 
@@ -108,11 +111,11 @@ struct OnboardingView: View {
         ForEach(Array(enableSteps.enumerated()), id: \.offset) { index, line in
           HStack(alignment: .firstTextBaseline, spacing: 12) {
             Text("\(index + 1)")
-              .font(.footnote.weight(.bold))
+              .font(.still(size: 13, weight: .bold, relativeTo: .footnote))
               .foregroundColor(.white)
               .frame(width: 22, height: 22)
               .background(Circle().fill(Self.stillBlue))
-            Text(line).font(.callout)
+            Text(line).font(.still(size: 15, relativeTo: .callout))
             Spacer(minLength: 0)
           }
         }
@@ -123,7 +126,7 @@ struct OnboardingView: View {
       Button(action: openEnableLocation) {
         HStack(spacing: 8) {
           Image(systemName: "arrow.up.forward.app.fill")
-          Text(openButtonTitle).fontWeight(.semibold)
+          Text(openButtonTitle).font(.still(size: 16, weight: .semibold, relativeTo: .body))
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 13)
@@ -133,7 +136,7 @@ struct OnboardingView: View {
       .foregroundColor(Self.stillBlue)
 
       Text("Still only reads those four sites to hide short-form — nothing else you browse.")
-        .font(.caption)
+        .font(.still(size: 12, relativeTo: .caption))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
         .fixedSize(horizontal: false, vertical: true)
@@ -150,9 +153,9 @@ struct OnboardingView: View {
     VStack(spacing: 20) {
       glyph("checkmark.seal.fill", tint: .green)
       Text("That's it.")
-        .font(.system(size: 40, weight: .bold, design: .rounded))
+        .font(.still(size: 40, weight: .semibold, relativeTo: .largeTitle))
       Text("Short-form is gone.")
-        .font(.title3)
+        .font(.still(size: 20, relativeTo: .title3))
         .foregroundColor(.secondary)
     }
   }
@@ -164,7 +167,7 @@ struct OnboardingView: View {
       Image(systemName: status.isConfirmedEnabled ? "checkmark.circle.fill" : "circle")
         .foregroundColor(status.isConfirmedEnabled ? .green : .secondary)
       Text(status.headline)
-        .font(.subheadline.weight(.medium))
+        .font(.still(size: 15, weight: .medium, relativeTo: .subheadline))
         .foregroundColor(status.isConfirmedEnabled ? .green : .secondary)
     }
     .padding(.vertical, 6)
@@ -209,7 +212,7 @@ struct OnboardingView: View {
     VStack(spacing: 12) {
       Button(action: advance) {
         Text(primaryTitle)
-          .fontWeight(.semibold)
+          .font(.still(size: 16, weight: .semibold, relativeTo: .body))
           .frame(maxWidth: .infinity)
           .padding(.vertical, 14)
           .background(RoundedRectangle(cornerRadius: 14).fill(Self.stillBlue))
@@ -220,7 +223,7 @@ struct OnboardingView: View {
       if step == 2 {
         Button("Check again") { Task { await refreshStatus() } }
           .buttonStyle(.plain)
-          .font(.footnote)
+          .font(.still(size: 13, relativeTo: .footnote))
           .foregroundColor(.secondary)
       }
     }
@@ -261,5 +264,52 @@ struct OnboardingView: View {
       .font(.system(size: 56))
       .foregroundColor(tint)
       .padding(.bottom, 4)
+  }
+
+  private var brandMark: some View {
+    ZStack {
+      RoundedRectangle(cornerRadius: 18, style: .continuous)
+        .fill(Self.stillBlue)
+        .frame(width: 76, height: 76)
+      Capsule()
+        .fill(Color.white)
+        .frame(width: 48, height: 3)
+        .offset(y: 12)
+      Circle()
+        .fill(Color.white)
+        .frame(width: 12, height: 12)
+        .offset(y: 6)
+    }
+    .accessibilityHidden(true)
+    .padding(.bottom, 4)
+  }
+}
+
+private extension Font {
+  static func still(
+    size: CGFloat,
+    weight: Font.Weight = .regular,
+    relativeTo style: Font.TextStyle
+  ) -> Font {
+    if #available(iOS 16.0, macOS 13.0, *) {
+      return .custom("InterVariable", size: size, relativeTo: style).weight(weight)
+    } else {
+      // `.weight(_:)` is a no-op on a custom Font before iOS 16 / macOS 13 — everything would
+      // render Regular. Keep the system face there so the weight hierarchy survives.
+      return .system(size: size, weight: weight, design: .default)
+    }
+  }
+}
+
+private extension View {
+  /// Caps Dynamic Type at the first accessibility size: the onboarding column is a fixed,
+  /// Spacer-centered VStack with no scrolling, and the ~3.1× accessibility scales would push the
+  /// Continue button off-screen. (macOS 11 predates the API — and has no Dynamic Type to cap.)
+  @ViewBuilder func cappedDynamicType() -> some View {
+    if #available(iOS 15.0, macOS 12.0, *) {
+      dynamicTypeSize(...DynamicTypeSize.accessibility1)
+    } else {
+      self
+    }
   }
 }

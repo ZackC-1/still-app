@@ -49,6 +49,12 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
 
 #if os(iOS)
         self.webView.scrollView.isScrollEnabled = true
+        self.webView.scrollView.alwaysBounceHorizontal = false
+        self.webView.scrollView.showsHorizontalScrollIndicator = false
+        self.view.backgroundColor = .systemBackground
+        self.webView.isOpaque = false
+        self.webView.backgroundColor = .clear
+        self.webView.scrollView.backgroundColor = .clear
 #endif
 
         // Register the request/reply bridge the WKWebViewStorageAdapter posts to. Reply-style so the

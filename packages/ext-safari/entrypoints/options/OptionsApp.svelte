@@ -20,6 +20,6 @@
   .options {
     max-inline-size: 480px;
     margin-inline: auto;
-    padding-block: var(--space-8);
+    padding-block: clamp(var(--space-3), 5vh, var(--space-8));
   }
 </style>

@@ -11,9 +11,17 @@
     /** Pro-gated service for an un-entitled user: the toggle is replaced by a lock that opens the
      * paywall — a flippable toggle here would change nothing on the page (the engine gates it). */
     locked?: boolean;
+    disabled?: boolean;
     onLockedTap?: () => void;
   }
-  let { service, on, onchange, locked = false, onLockedTap }: Props = $props();
+  let {
+    service,
+    on,
+    onchange,
+    locked = false,
+    disabled = false,
+    onLockedTap,
+  }: Props = $props();
   const copy = $derived(STRINGS.services[service]);
 </script>
 
@@ -21,14 +29,48 @@
   <ServiceIcon {service} size={42} />
   <div class="text">
     <span class="name">{copy.name}</span>
-    <span class="status">{locked ? STRINGS.pro.locked : on ? copy.on : copy.off}</span>
+    <span class="status"
+      >{locked ? STRINGS.pro.locked : on ? copy.on : copy.off}</span
+    >
   </div>
   {#if locked}
-    <button class="lock" onclick={onLockedTap} aria-label={`${copy.name} — ${STRINGS.pro.locked}`}>
-      <span aria-hidden="true">🔒</span>
+    <button
+      class="lock"
+      {disabled}
+      onclick={onLockedTap}
+      aria-label={`${copy.name} — ${STRINGS.pro.locked}`}
+    >
+      <svg
+        viewBox="0 0 20 22"
+        width="18"
+        height="20"
+        fill="none"
+        aria-hidden="true"
+      >
+        <rect
+          x="3"
+          y="9"
+          width="14"
+          height="10"
+          rx="3"
+          stroke="currentColor"
+          stroke-width="1.8"
+        />
+        <path
+          d="M6 9V6a4 4 0 0 1 8 0v3"
+          stroke="currentColor"
+          stroke-width="1.8"
+          stroke-linecap="round"
+        />
+      </svg>
     </button>
   {:else}
-    <Toggle checked={on} label={`Still on ${copy.name}`} {onchange} />
+    <Toggle
+      checked={on}
+      label={`Still on ${copy.name}`}
+      {disabled}
+      {onchange}
+    />
   {/if}
 </section>
 
@@ -39,7 +81,8 @@
     gap: var(--space-3);
     background: var(--surface-raised);
     border-radius: var(--radius-card);
-    padding: var(--space-3) var(--space-4);
+    padding: var(--service-card-padding-block, var(--space-3))
+      var(--service-card-padding-inline, var(--space-4));
   }
   .text {
     display: flex;
@@ -49,12 +92,12 @@
     min-inline-size: 0;
   }
   .name {
-    font-size: 17px;
+    font-size: var(--service-name-size, 17px);
     font-weight: 600;
     letter-spacing: -0.01em;
   }
   .status {
-    font-size: 14px;
+    font-size: var(--service-status-size, 14px);
     color: var(--ink-secondary);
   }
   .card.locked .name {
@@ -67,9 +110,13 @@
     line-height: 1;
     padding: var(--space-2);
     cursor: pointer;
-    opacity: 0.55;
+    color: var(--ink-secondary);
+    opacity: 0.72;
   }
   .lock:hover {
-    opacity: 0.85;
+    opacity: 1;
+  }
+  .lock:disabled {
+    cursor: not-allowed;
   }
 </style>
