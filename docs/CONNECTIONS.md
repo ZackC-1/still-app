@@ -55,10 +55,15 @@ Everything else — the monorepo, core, Chromium extension, the entire Supabase 
 
 ## Selector canary (U21)
 
-The `selector-canary` Edge Function flags selector rot. It is invoked on a schedule (not by users).
-Deploy steps: set `SELECTOR_CANARY_NOTIFY_URL` (a Slack/webhook/email-relay URL) via
-`supabase secrets set`, then schedule the function — e.g. a `pg_cron` job that `net.http_post`s the
-function URL daily, or the Supabase dashboard scheduler. Without the notify URL it logs and no-ops.
+The `selector-canary` Edge Function flags selector rot. It is invoked on a schedule (not by users),
+and every invocation must carry `SELECTOR_CANARY_INVOCATION_TOKEN` in the `Authorization` header —
+the function rejects everything else with a 401 (constant-time compare, fail closed when the secret
+is unset), because the schedule alone is not an access boundary.
+Deploy steps: set `SELECTOR_CANARY_NOTIFY_URL` (a Slack/webhook/email-relay URL) and
+`SELECTOR_CANARY_INVOCATION_TOKEN` (any long random string) via `supabase secrets set`, then
+schedule the function — e.g. a `pg_cron` job that `net.http_post`s the function URL daily with
+`headers := jsonb_build_object('Authorization', '<token>')`, or the Supabase dashboard scheduler
+with the same header. Without the notify URL it logs and no-ops.
 Login-walled services (e.g. Instagram) report as *indeterminate*; a persistent-indeterminate streak
 fires its own "needs manual check" alert so they can't rot silently.
 
