@@ -33,6 +33,11 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
     // actions.
     private lazy var router = WebBridgeRouter(settings: settingsBridge)
 
+    // The block-based didBecomeActive observer's token — NotificationCenter retains the block, and
+    // removeObserver(self) does NOT deregister a block observer, so the token is the only handle
+    // that can. Held so deinit can remove it.
+    private var didBecomeActiveToken: NSObjectProtocol?
+
     // The bundled web build's index URL — the only origin trusted to drive privileged native actions
     // and the only navigation we allow (P0 #1). Set once the bundle is located in viewDidLoad.
     private var bundledIndexURL: URL?
@@ -67,7 +72,9 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
             Unmanaged.passUnretained(self).toOpaque(),
             CFNotificationName(StillSettingsChangedNotification.name as CFString),
             nil)
-        NotificationCenter.default.removeObserver(self)
+        if let token = didBecomeActiveToken {
+            NotificationCenter.default.removeObserver(token)
+        }
     }
 
     // Refresh the already-running web UI when another App-Group process writes settings (e.g. the
@@ -104,7 +111,7 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
         #elseif os(macOS)
         let becameActive = NSApplication.didBecomeActiveNotification
         #endif
-        NotificationCenter.default.addObserver(
+        didBecomeActiveToken = NotificationCenter.default.addObserver(
             forName: becameActive, object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in self?.pushStoredSettingsToWeb() }
