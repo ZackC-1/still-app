@@ -67,15 +67,16 @@ export default defineContentScript({
       // the per-frame reapply can skip hide surfaces entirely (CSS owns them) and only run removes.
       manifestCssOwnsHides: source === "bundled",
     });
-    void script.start();
-
     // Nudge the background to pull the App-Group value (the app may have edited settings while the
     // extension was asleep). Repeat on activation/focus and a bounded interval so already-open iOS
     // Safari pages learn app-side setting changes without requiring a relaunch.
     const requestReconcile = (): void => {
       void browser.runtime.sendMessage({ kind: "reconcile" }).catch(() => {});
     };
+
+    void script.start().then(requestReconcile);
     requestReconcile();
+    window.setTimeout(requestReconcile, 500);
     window.addEventListener("focus", requestReconcile);
     window.addEventListener("pageshow", requestReconcile);
     document.addEventListener("visibilitychange", () => {

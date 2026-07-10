@@ -126,6 +126,13 @@ Docs: [Webhooks](https://www.revenuecat.com/docs/integrations/webhooks)
 - **Web:** `create-web-checkout` embeds the JWT-verified UUID in the Purchase Link — no separate call.
 - Because the `still_sync` entitlement is project-scoped, any purchase tied to that UUID makes
   `entitlements["still_sync"].isActive == true` on Apple and web alike.
+- **Restore decision rule:** a Supabase account with `still_sync = true` auto-provisions Pro after
+  sign-in/reconcile and does not need a Restore button. An unentitled signed-in account should see the
+  upgrade path plus a secondary Apple `Restore purchase` button in the paywall. Restore is for Apple
+  receipt recovery: reinstall/new Apple device, or an Apple ID that already owns the non-consumable
+  while the current Supabase account is not yet entitled. If Apple/RevenueCat finds the purchase,
+  reconcile should provision the signed-in Supabase account. Web purchase restore remains sign in →
+  backend reconcile.
 
 Docs: [Identifying customers](https://www.revenuecat.com/docs/customers/identifying-customers)
 
@@ -138,6 +145,19 @@ Docs: [Identifying customers](https://www.revenuecat.com/docs/customers/identify
       entitlement recorded.
 - [ ] **Web:** open the **Sandbox** Purchase Link, pay with Stripe test card `4242 4242 4242 4242` →
       webhook records the entitlement. [sandbox docs](https://www.revenuecat.com/docs/test-and-launch/sandbox)
+
+### July 8, 2026 PT entitlement validation
+
+- [x] Apple offering/product lookup reached the device paywall: `Unlock Pro - $1.99`.
+- [x] RevenueCat dashboard promotional grant for `still_sync` was applied to
+      `zack+sandbox2@cadmuslabs.co` / Supabase user id
+      `2a592992-74b2-4b6d-b425-cf5db63510a5`.
+- [x] App reconcile flipped Supabase `public.entitlements.still_sync` to `true` with `source =
+      reconcile`.
+- [x] App showed `Synced across your devices`.
+- [ ] Real Apple sandbox purchase is still unverified because the physical device could not keep a
+      sandbox Apple Account signed in. The current evidence points to Apple sandbox auth/device
+      flakiness, not an offering or Supabase entitlement issue.
 
 ### Backend deploy verification (the RLS migration `0008`)
 Before going live, run the deployment-verification checklist (from the PR review). Key checks:

@@ -5,6 +5,8 @@
 
   // Push each local edit straight to the App Group (see popup/main.ts — the background reconciler
   // may be asleep on iOS and miss the browser.storage write).
+  void browser.runtime.sendMessage({ kind: "reconcile" }).catch(() => {});
+
   const controller = createExtensionUiController(undefined, {
     onLocalSettingsCommit: (record) => void pushSettingsToApp(record),
   });

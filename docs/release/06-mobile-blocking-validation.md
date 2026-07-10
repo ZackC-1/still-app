@@ -109,3 +109,46 @@ live), confirm the Pro mobile surfaces on the mobile hosts:
 > Record the results honestly in the submission notes. If mobile YouTube blocking is not solid on iOS
 > Safari, that is a **launch-quality issue for the free tier**, not a cosmetic one — fix or explicitly
 > descope (as #28 originally did for v1) before submitting.
+
+## July 9, 2026 PT iOS functional test notes
+
+- iOS app is installed on a physical iPhone and the user reports YouTube blocking is working effectively.
+- Entitled test account shows `Synced across your devices`.
+- Instagram mobile Reels are removed; toggling Still on/off makes Reels reappear/disappear as expected.
+- TikTok mobile is blocked effectively.
+- Facebook mobile Reels route (`m.facebook.com/watch/reels/`) is blocked, but the Reels icon remains
+  visible from the Facebook home screen. Treat as likely mobile selector drift until inspected with
+  Safari Web Inspector.
+- Safari Web Inspector showed the missed Facebook icon renders as
+  `[role="tab"][aria-label="reels, 4 of 6"]`. Added
+  `[role="tab"][aria-label*="reels" i]` to the Facebook Reels hide selectors, bumped the bundled
+  rule-set seed to `1.0.1`, re-signed the dev seed, regenerated Safari/Chromium Pro CSS, and added a
+  regression test. Local verification passed; device retest is pending after reinstall or hosted
+  production rule-set publish.
+- First retest still showed the Facebook home Reels icon because Xcode copies
+  `packages/ext-safari/dist/safari-mv3`, and only the entrypoint CSS had been regenerated. Rebuilt
+  `@still/ext-safari`; the built `content-scripts/content.css` now contains
+  `[role=tab][aria-label*=reels i]`. Updated the Apple Xcode copy phases and
+  `apps/apple/scripts/build.sh` so Safari extension assets are rebuilt before Xcode copies them.
+  Verified with an unsigned iOS simulator Xcode build; physical-device reinstall/retest is pending.
+- Xcode GUI device run initially failed in the Safari extension script phase after adding the rebuild
+  step because GUI-launched Xcode did not inherit Homebrew's `pnpm` path. Added an explicit
+  `/opt/homebrew/bin:/usr/local/bin` PATH and actionable `pnpm not found` error to the Xcode phases;
+  unsigned iOS simulator build passes after the fix.
+- Follow-up retest showed the Facebook Reels route/content is blocked, but the visual result can leave
+  a large gray square. Web Inspector showed the Reels tab is a child of `[role="tablist"]`; earlier
+  inspection also showed mobile Reel tiles can render as `[role="button"][aria-label*="reel video"]`
+  without a `/reel/` link. Added a direct tablist-child hide selector and a button-only reel-video
+  remove selector, re-signed the seed, rebuilt Safari dist, and verified targeted tests.
+- Clean reinstall still left a gray tablist slot, confirming CSS `display:none` was hiding the Reels
+  tab content while Facebook kept a six-slot tablist layout. Moved the mobile Reels tab selector from
+  a CSS hide surface to a JS remove surface (`fb-mobile-tabs`) so the tab node is removed from the DOM.
+  Rebuilt Safari dist; packaged CSS no longer contains the mobile role-tab selector, while the bundled
+  JS rule set does. Device retest pending.
+- Screenshot retest still showed the gray slot. Root cause is likely rule-set precedence: hosted/cached
+  production rules are already version `1.0.1`, and the bundled debug seed was also `1.0.1`; the loader
+  prefers cached rules on version ties. Bumped the bundled seed to `1.0.2`, re-signed, rebuilt Safari
+  dist, and verified the built content script embeds `version: 1.0.2` plus `fb-mobile-tabs`.
+- After another clean reinstall, the gray Facebook tab slot still remained while Reels viewing stayed
+  blocked. Filed follow-up bug: https://github.com/ZackC-1/still-app/issues/58. Do not block the
+  release test pass on this cosmetic Facebook mobile residue; functional blocking is effective.

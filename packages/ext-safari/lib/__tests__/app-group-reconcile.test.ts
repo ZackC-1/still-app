@@ -21,6 +21,17 @@ function record(updatedAt: number, version: number | null = null): StoredSetting
   };
 }
 
+function recordWithMetadata(updatedAt: number, version: number, serverUpdatedAt: string): StoredSettingsRecord {
+  return {
+    settings: settings(updatedAt),
+    syncMetadata: {
+      version,
+      serverUpdatedAt,
+      lastWriteId: null,
+    },
+  };
+}
+
 /** A local store whose set() does NOT notify synchronously — the test fires emit() to model chrome's
  * async storage.onChanged delivery, exercising the value-based echo guard against real timing. */
 function fakeLocal(initial: StoredSettingsRecord | null) {
@@ -128,6 +139,37 @@ describe("createAppGroupReconciler", () => {
     expect(local.value?.syncMetadata?.version).toBe(3);
     expect(pushToApp).toHaveBeenCalledTimes(1);
     expect(pushToApp.mock.calls[0]![0].syncMetadata?.version).toBe(3);
+    r.stop();
+  });
+
+  it("same synced base + newer app updatedAt → applies down to local", async () => {
+    const baseServerTime = "2026-07-10T19:10:57.532Z";
+    const local = fakeLocal(recordWithMetadata(100, 22, baseServerTime));
+    const pushToApp = vi.fn((_record: StoredSettingsRecord) => Promise.resolve());
+    const r = createAppGroupReconciler({
+      pullFromApp: () => Promise.resolve(recordWithMetadata(200, 22, baseServerTime)),
+      pushToApp,
+      local: local.store,
+    });
+    await r.reconcile();
+    expect(local.value?.settings.updatedAt).toBe(200);
+    expect(pushToApp).not.toHaveBeenCalled();
+    r.stop();
+  });
+
+  it("same synced base + newer local updatedAt → pushes up to app", async () => {
+    const baseServerTime = "2026-07-10T19:10:57.532Z";
+    const local = fakeLocal(recordWithMetadata(300, 22, baseServerTime));
+    const pushToApp = vi.fn((_record: StoredSettingsRecord) => Promise.resolve());
+    const r = createAppGroupReconciler({
+      pullFromApp: () => Promise.resolve(recordWithMetadata(200, 22, baseServerTime)),
+      pushToApp,
+      local: local.store,
+    });
+    await r.reconcile();
+    expect(pushToApp).toHaveBeenCalledTimes(1);
+    expect(pushToApp.mock.calls[0]![0].settings.updatedAt).toBe(300);
+    expect(local.value?.settings.updatedAt).toBe(300);
     r.stop();
   });
 });

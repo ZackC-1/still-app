@@ -170,7 +170,15 @@ A rule-set with the YT-Shorts surface untagged still blocks Shorts for free. Uni
   checkout via the authenticated `create-web-checkout` Edge Function. The function derives
   `app_user_id` from the verified Supabase JWT subject and ignores any client-supplied user id/product
   id/price. The client never assembles a checkout URL or passes `app_user_id` directly to RevenueCat.
-- **Restore:** the existing button (3.1.1) covers Apple; cross-platform restore = sign in → backend.
+- **Restore decision rule [clarified 2026-07-09]:** there are two recovery paths, and the UI must not
+  conflate them. A signed-in Supabase account that already has `still_sync = true` should auto-provision
+  Pro through reconcile and does **not** need a visible Restore button. A signed-in account without
+  `still_sync` should see the normal upgrade path (`Unlock Pro - $1.99`) and a secondary Apple
+  `Restore purchase` affordance in the paywall. The Restore button is specifically for Apple receipt
+  recovery: reinstall, new Apple device, or a user whose Apple ID already owns the non-consumable but
+  whose current Supabase account is not yet entitled. Restore asks Apple/RevenueCat whether the current
+  Apple ID owns `still_sync`; if yes, reconcile provisions the signed-in Supabase account. Cross-platform
+  restore for web purchases remains sign in → backend reconcile.
 - **No trial [DECIDED].** Sandbox-test before submit (buy → unlock → restore → cross-platform).
 
 ---
