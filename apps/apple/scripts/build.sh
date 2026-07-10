@@ -9,9 +9,11 @@
 #   ios-device  signed build for the registered iPhone (UDID below); -allowProvisioningUpdates
 #   macos       signed build of the macOS app
 #
-# Always rebuilds the shared web bundle first — the app's Copy-Web-UI phase errors without it.
+# Always rebuilds the shared web bundle and Safari extension first — the Xcode copy phases consume
+# packages/app-webview/dist and packages/ext-safari/dist/safari-mv3.
 #
 set -euo pipefail
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}"
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$HERE/../../.." && pwd)"
@@ -23,6 +25,8 @@ SIM_NAME="${STILL_SIM_NAME:-iPhone 17 Pro}"
 
 echo "==> Building the shared web bundle (packages/app-webview)…"
 ( cd "$REPO" && pnpm --filter @still/app-webview build )
+echo "==> Building the Safari extension bundle (packages/ext-safari)…"
+( cd "$REPO" && pnpm --filter @still/ext-safari build )
 
 cd "$PROJECT_DIR"
 case "$TARGET" in
@@ -33,7 +37,7 @@ case "$TARGET" in
       CODE_SIGNING_ALLOWED=NO
     ;;
   ios-device)
-    echo "==> Building + signing Still (iOS) for device $DEVICE_UDID…"
+    echo "==> Building + signing Still (iOS) for device ${DEVICE_UDID}..."
     xcodebuild build -scheme "Still (iOS)" \
       -destination "id=$DEVICE_UDID" -allowProvisioningUpdates
     ;;

@@ -13,6 +13,7 @@ import PopupApp from "./PopupApp.svelte";
 // popup's browser.storage write — so without this direct push the change reaches the app only on a
 // later content-script reconcile (a Still-covered page load), not on the next app launch.
 function init(): void {
+  void browser.runtime.sendMessage({ kind: "reconcile" }).catch(() => {});
   const controller = createExtensionUiController(undefined, {
     onLocalSettingsCommit: (record) => void pushSettingsToApp(record),
   });

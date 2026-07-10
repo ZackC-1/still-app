@@ -62,7 +62,11 @@ function shouldAppWin(candidate: StoredSettingsRecord, current: StoredSettingsRe
   if (current === null) return true;
   const candidateMeta = candidate.syncMetadata;
   const currentMeta = current.syncMetadata;
-  if (candidateMeta && currentMeta) return compareMetadata(candidateMeta, currentMeta) > 0;
+  if (candidateMeta && currentMeta) {
+    const metadataOrder = compareMetadata(candidateMeta, currentMeta);
+    if (metadataOrder !== 0) return metadataOrder > 0;
+    return candidate.settings.updatedAt > current.settings.updatedAt;
+  }
   if (candidateMeta && !currentMeta) return true;
   if (!candidateMeta && currentMeta) return false;
   return candidate.settings.updatedAt > current.settings.updatedAt;

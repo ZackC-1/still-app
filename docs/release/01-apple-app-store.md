@@ -162,6 +162,18 @@ Each platform archives and submits **separately** (iOS approval is independent o
 
 Docs: [Submitting for review](https://developer.apple.com/help/app-store-connect/manage-submissions-to-app-review/overview-of-submitting-for-review)
 
+### Current submission checkpoint
+
+- [x] iOS version 1.0 was submitted for App Review on July 8, 2026 PT.
+- [x] iOS build 2 selected and saved.
+- [x] `still_sync` attached to the iOS version and `Ready to Submit`.
+- [x] iPhone screenshots accepted.
+- [x] 13-inch iPad screenshot blocker resolved with
+      `docs/release/screenshots/ipad/still-ipad-13-01.jpg`.
+- [x] App Review sign-in requirement handled as not required because the free tier is usable without
+      account sign-in.
+- [ ] macOS version 1.0 still needs build selection/upload, screenshots if required, and submission.
+
 ---
 
 ## Pre-empt the common rejections
@@ -185,3 +197,8 @@ Docs: [Submitting for review](https://developer.apple.com/help/app-store-connect
 - [ ] macOS app **Approved** and released.
 - [ ] A sandbox purchase of `still_sync` unlocks Pro and the RevenueCat → Supabase webhook records the
       entitlement (verify in [`04-revenuecat.md` §6](04-revenuecat.md)).
+
+> July 8, 2026 PT note: StoreKit price loading was verified (`Unlock Pro - $1.99`) and the
+> RevenueCat → Supabase → app entitlement spine was verified with a RevenueCat promotional grant for
+> `zack+sandbox2@cadmuslabs.co`. A real Apple sandbox purchase is still not proven because the test
+> device's sandbox Apple Account would not stay signed in.

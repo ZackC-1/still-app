@@ -12,6 +12,8 @@ This directory holds the product, architecture, release, and operations notes fo
 | [monetization-design.md](monetization-design.md) | Still Pro entitlement and purchase design. |
 | [production-rule-set-keys.md](production-rule-set-keys.md) | Rule-set signing and production key notes. |
 | [release/README.md](release/README.md) | Store and backend release runbooks. |
+| [plans/2026-07-09-001-near-realtime-settings-sync-spec.md](plans/2026-07-09-001-near-realtime-settings-sync-spec.md) | Proposed server-authoritative near-realtime settings sync spec. |
+| [plans/2026-07-09-002-near-realtime-sync-pr-agent-prompt.md](plans/2026-07-09-002-near-realtime-sync-pr-agent-prompt.md) | Fresh-session prompt for a parallel agent to implement the near-realtime sync spec through PR merge. |
 
 ## Operational docs
 

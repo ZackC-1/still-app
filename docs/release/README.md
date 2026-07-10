@@ -14,7 +14,7 @@ and the official URL. Work top-to-bottom; check boxes as you go.
 
 | # | Track | What ships | Pro purchase path | Status today |
 |---|-------|-----------|-------------------|--------------|
-| 1 | **Apple App Store** (iOS + Mac) — [`01-apple-app-store.md`](01-apple-app-store.md) | Native app + Safari extension + **$1.99 IAP** | StoreKit 2 → RevenueCat | Code ready; needs human Xcode/device + ASC steps |
+| 1 | **Apple App Store** (iOS + Mac) — [`01-apple-app-store.md`](01-apple-app-store.md) | Native app + Safari extension + **$1.99 IAP** | StoreKit 2 → RevenueCat | iOS submitted for review; macOS next; full functional testing in progress |
 | 2 | **Chrome Web Store** — [`02-chrome-web-store.md`](02-chrome-web-store.md) | Chromium extension **+ Pro purchase** | RevenueCat **Web Billing** | Purchase spine shipped (PR #34); gated on the deploy checklist |
 | 3 | **Firefox Add-ons (AMO)** — [`03-firefox-amo.md`](03-firefox-amo.md) | Firefox extension (MV3) **+ Pro purchase** | RevenueCat **Web Billing** | Purchase spine shipped (PR #34); manifest declares auth data |
 | 4 | **RevenueCat** — [`04-revenuecat.md`](04-revenuecat.md) | Cross-platform $1.99 entitlement | — | Configure once; powers Apple **and** web Pro |
@@ -35,6 +35,16 @@ the open→pay→entitlement flow. See [`04-revenuecat.md` §3](04-revenuecat.md
 ---
 
 ## Recommended order for a first launch
+
+> **Current checkpoint:** iOS version 1.0 was submitted for App Review on July 8, 2026 PT. Continue
+> from [`2026-07-08-ios-submission-checkpoint.md`](2026-07-08-ios-submission-checkpoint.md). For a
+> fresh Codex session, paste
+> [`next-session-functional-testing-prompt.md`](next-session-functional-testing-prompt.md).
+> After the updated build is ready, resume from
+> [`2026-07-09-release-testing-checkpoint.md`](2026-07-09-release-testing-checkpoint.md) and paste
+> [`next-session-after-updated-build-testing-prompt.md`](next-session-after-updated-build-testing-prompt.md).
+> Record current pass/fail evidence in
+> [`2026-07-09-functional-testing-matrix.md`](2026-07-09-functional-testing-matrix.md).
 
 1. **RevenueCat dashboard config** ([`04`](04-revenuecat.md)) — products, the `still_sync` entitlement,
    Apple `.p8`, Web Billing + Purchase Link, webhook. Nothing monetized works until this exists.

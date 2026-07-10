@@ -18,6 +18,16 @@ export default defineConfig({
     // App-Group container (KTD4). No tab-access permission: the pause-on-this-site control (and
     // its activeTab grant) was removed 2026-07-06.
     permissions: ["storage", "nativeMessaging"],
+    action: {
+      default_title: "Still",
+      default_icon: {
+        16: "icon/16.png",
+        32: "icon/32.png",
+        48: "icon/48.png",
+        96: "icon/96.png",
+        128: "icon/128.png",
+      },
+    },
     host_permissions: [
       "*://*.youtube.com/*",
       "*://*.instagram.com/*",
