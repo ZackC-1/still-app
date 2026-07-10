@@ -1,8 +1,13 @@
 <script lang="ts">
   import { App } from "@still/core/ui";
   import { createExtensionUiController } from "@still/core/ui";
+  import { pushSettingsToApp } from "../../lib/native-settings.js";
 
-  const controller = createExtensionUiController();
+  // Push each local edit straight to the App Group (see popup/main.ts — the background reconciler
+  // may be asleep on iOS and miss the browser.storage write).
+  const controller = createExtensionUiController(undefined, {
+    onLocalSettingsCommit: (record) => void pushSettingsToApp(record),
+  });
 </script>
 
 <main class="options">

@@ -98,6 +98,51 @@ describe("createExtensionUiController — no injection (the Safari pin, AE7/3.1.
   });
 });
 
+describe("createExtensionUiController — onLocalSettingsCommit (Safari App-Group push)", () => {
+  it("fires with the committed record on a LOCAL popup edit", async () => {
+    installChrome();
+    const commits: boolean[] = [];
+    const c = createExtensionUiController(undefined, {
+      onLocalSettingsCommit: (record) => commits.push(record.settings.globalOn),
+    });
+    await flush();
+    const before = c.settings.globalOn;
+
+    c.toggleGlobal(); // a user toggle in this popup → source "local" → must push
+    await flush();
+    expect(commits).toEqual([!before]);
+  });
+
+  it("does NOT re-push an EXTERNAL change that arrived from the shared store", async () => {
+    const { store } = installChrome();
+    const commits: boolean[] = [];
+    createExtensionUiController(undefined, {
+      onLocalSettingsCommit: (record) => commits.push(record.settings.globalOn),
+    });
+    await flush();
+
+    // The app edited via the App Group; the value lands in browser.storage and fans out as an
+    // onChanged (source "external"). It already came FROM the shared store — re-pushing it would be
+    // a wasted echo, so the commit hook must stay silent.
+    await chrome.storage.local.set({
+      "still:settings": {
+        settings: { globalOn: false, services: { youtube: true, instagram: false, tiktok: false, facebook: false }, pauses: [], updatedAt: 9_999_999_999 },
+        syncMetadata: null,
+      },
+    });
+    await flush();
+    void store;
+    expect(commits).toEqual([]);
+  });
+
+  it("is optional — the no-arg wiring omits it without error", async () => {
+    installChrome();
+    const c = createExtensionUiController();
+    await flush();
+    expect(() => c.toggleGlobal()).not.toThrow();
+  });
+});
+
 describe("createExtensionUiController — with the ext-chromium injection (plan U6)", () => {
   it("exposes sign-in, web checkout, delete-account, and the host display price", async () => {
     installChrome();

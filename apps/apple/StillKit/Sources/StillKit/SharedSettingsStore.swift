@@ -71,9 +71,16 @@ public final class SharedSettingsStore {
 
 private func shouldApply(_ incoming: StoredSettingsRecord, over current: StoredSettingsRecord) -> Bool {
   switch (incoming.syncMetadata, current.syncMetadata) {
-  case let (incoming?, current?):
-    if incoming.version != current.version { return incoming.version > current.version }
-    return incoming.serverUpdatedAt > current.serverUpdatedAt
+  case let (incomingMeta?, currentMeta?):
+    if incomingMeta.version != currentMeta.version { return incomingMeta.version > currentMeta.version }
+    if incomingMeta.serverUpdatedAt != currentMeta.serverUpdatedAt {
+      return incomingMeta.serverUpdatedAt > currentMeta.serverUpdatedAt
+    }
+    // Same SERVER base (version + serverUpdatedAt equal) — a local dirty edit stamps only a newer
+    // settings.updatedAt and leaves the metadata untouched, so it must win here or a synced user's
+    // popup/extension edits would be silently rejected. Mirrors the web SettingsCache, which falls
+    // through to settings.updatedAt on an equal-version incoming (cache.ts applyStoredRecord).
+    return incoming.settings.updatedAt > current.settings.updatedAt
   case (.some, .none):
     return true
   case (.none, .some):

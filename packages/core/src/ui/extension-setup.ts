@@ -1,4 +1,5 @@
 import { SettingsCache, ChromeStorageAdapter } from "../storage/index.js";
+import type { StoredSettingsRecord } from "../storage/index.js";
 import { EntitlementCache, ChromeEntitlementAdapter } from "../entitlement/index.js";
 import type { ExtensionSessionState } from "../sync/extension-session.js";
 import {
@@ -37,10 +38,32 @@ export interface ExtensionPurchaseDeps {
   readonly getState: () => Promise<ExtensionSessionState>;
 }
 
-export function createExtensionUiController(purchase?: ExtensionPurchaseDeps): UiController {
+export interface ExtensionUiOptions {
+  /** Called with the freshly-committed record on every LOCAL settings edit made in this
+   * popup/options page (never on external/synced changes arriving from storage). Safari passes a
+   * handler that pushes the record straight to the App Group via a native message, because the
+   * background reconciler — the only other thing that mirrors popup edits to the app — may be
+   * asleep on iOS and never wake for the popup's storage write. Chromium omits it (no App Group;
+   * its background session owns the mirror). */
+  readonly onLocalSettingsCommit?: (record: StoredSettingsRecord) => void;
+}
+
+export function createExtensionUiController(
+  purchase?: ExtensionPurchaseDeps,
+  options?: ExtensionUiOptions,
+): UiController {
   const cache = new SettingsCache(new ChromeStorageAdapter());
   void cache.hydrate();
   cache.watch();
+  if (options?.onLocalSettingsCommit) {
+    const onCommit = options.onLocalSettingsCommit;
+    // Only the user's own edits in THIS page (source "local") need pushing outward; "external" and
+    // "synced" changes already came FROM the shared store, so re-pushing them would be a wasted
+    // (though harmless, LWW-deduped) round-trip.
+    cache.subscribe((_settings, source) => {
+      if (source === "local") onCommit(cache.currentRecord());
+    });
+  }
   const controller = new UiController({
     cache,
     host: { canPurchase: purchase !== undefined },
