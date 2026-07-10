@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { UiController } from "../controller.svelte.js";
+  import { isValidEmail } from "../email.js";
   import { trapFocus } from "../focus-trap.js";
   import { STRINGS } from "../strings.js";
 
@@ -11,6 +12,12 @@
   let email = $state("");
   let code = $state("");
   let sheet = $state<HTMLDivElement>();
+
+  // Gate the send CTA on a syntactically valid address so a malformed email never fires a failing
+  // auth request. The hint only appears once the user has typed something — an empty field just
+  // leaves the button disabled without nagging.
+  const emailValid = $derived(isValidEmail(email));
+  const showEmailHint = $derived(email.trim().length > 0 && !emailValid);
 
   $effect(() =>
     trapFocus({
@@ -134,10 +141,12 @@
       spellcheck="false"
       bind:value={email}
       placeholder={STRINGS.auth.emailPlaceholder}
+      aria-invalid={showEmailHint}
+      aria-describedby={showEmailHint ? "still-email-hint" : undefined}
     />
     <button
       class="primary"
-      disabled={c.authFlow === "sending"}
+      disabled={!emailValid || c.authFlow === "sending"}
       onclick={() => c.signIn(email)}
     >
       {c.authFlow === "sending"
@@ -146,6 +155,11 @@
           ? STRINGS.codeAuth.send
           : STRINGS.auth.send}
     </button>
+    {#if showEmailHint}
+      <p id="still-email-hint" class="hint" role="status">
+        {STRINGS.auth.invalidEmail}
+      </p>
+    {/if}
     {#if c.authFlow === "error"}
       <!-- Code hosts get the code-flow line; authError (magic-link hosts only) never renders here. -->
       <p class="error" role="status">
@@ -245,6 +259,11 @@
   }
   .error {
     color: var(--danger);
+    margin: 0;
+  }
+  .hint {
+    color: var(--ink-secondary);
+    font-size: 14px;
     margin: 0;
   }
   .link {

@@ -8,10 +8,12 @@ import {
   type HtmlMatcher,
   type PageFetcher,
 } from "../_shared/canary.ts";
+import { handleCanaryRequest } from "./handler.ts";
 
-// Entrypoint (config.toml: verify_jwt=false; invoked by schedule — see docs/CONNECTIONS.md). Reads
-// the current rule set, fetches each service's representative page, and alerts on selector rot or
-// persistent unverifiability via the SELECTOR_CANARY_NOTIFY_URL webhook.
+// Entrypoint (config.toml: verify_jwt=false; invoked by schedule — see docs/CONNECTIONS.md). Every
+// invocation is gated on SELECTOR_CANARY_INVOCATION_TOKEN (handler.ts). Reads the current rule
+// set, fetches each service's representative page, and alerts on selector rot or persistent
+// unverifiability via the SELECTOR_CANARY_NOTIFY_URL webhook.
 
 const admin = createClient(
   Deno.env.get("SUPABASE_URL") ?? "",
@@ -105,10 +107,14 @@ const state: CanaryStateStore = {
 
 const notifier = createNotifier(Deno.env.get("SELECTOR_CANARY_NOTIFY_URL") ?? undefined);
 
-Deno.serve(async () => {
-  const { data } = await admin.rpc("get_current_rule_set");
-  const row = Array.isArray(data) ? data[0] : data;
-  const ruleSet = (row?.payload as { services: Record<string, never> } | undefined) ?? { services: {} };
-  const report = await runCanary(ruleSet, { fetcher, matcher, notifier, state });
-  return new Response(JSON.stringify(report), { headers: { "content-type": "application/json" } });
-});
+Deno.serve((req) =>
+  handleCanaryRequest(req, {
+    token: Deno.env.get("SELECTOR_CANARY_INVOCATION_TOKEN") ?? "",
+    async run() {
+      const { data } = await admin.rpc("get_current_rule_set");
+      const row = Array.isArray(data) ? data[0] : data;
+      const ruleSet = (row?.payload as { services: Record<string, never> } | undefined) ?? { services: {} };
+      return await runCanary(ruleSet, { fetcher, matcher, notifier, state });
+    },
+  }),
+);

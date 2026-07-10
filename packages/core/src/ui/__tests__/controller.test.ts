@@ -237,6 +237,27 @@ describe("UiController", () => {
     expect(signIn).toHaveBeenCalledWith("a@b.com");
   });
 
+  it("ignores a syntactically invalid email without issuing a magic-link request", async () => {
+    const signIn = vi.fn(() => Promise.resolve({}));
+    const { c } = makeController({
+      auth: { signIn, signOut: vi.fn(() => Promise.resolve()) },
+    });
+    for (const bad of ["", "  ", "nope", "a@b", "a@b.", "@b.com", "a b@c.com"]) {
+      await c.signIn(bad);
+    }
+    expect(signIn).not.toHaveBeenCalled();
+    expect(c.authFlow).toBe("idle");
+    expect(c.authError).toBeNull();
+  });
+
+  it("ignores a syntactically invalid email without requesting a code (code host)", async () => {
+    const auth = codeAuth();
+    const { c } = makeController({ auth });
+    await c.signIn("not-an-email");
+    expect(auth.requestCode).not.toHaveBeenCalled();
+    expect(c.authFlow).toBe("idle");
+  });
+
   it("surfaces an auth error", async () => {
     const { c } = makeController({
       auth: {

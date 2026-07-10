@@ -2,9 +2,26 @@
 // the Postgres-backed implementation lives in pg-store.ts and connects as the narrow
 // still_entitlement_writer role (KTD5) — never the full service_role key.
 
+/** Claim outcome for a webhook event (idempotency protocol — see revenuecat-webhook/handler.ts). */
+export type EventClaimStatus = "claimed" | "duplicate" | "in_flight";
+
+export interface ClaimResult {
+  readonly status: EventClaimStatus;
+  /** Ownership token passed to completeEvent/releaseEvent; non-null only when status is "claimed". */
+  readonly token: string | null;
+}
+
 export interface EntitlementStore {
-  /** Idempotently record a webhook event. Returns true if newly inserted (process it). */
-  recordEvent(eventId: string, appUserId: string, payload: unknown): Promise<boolean>;
+  /**
+   * Atomically claim a webhook event BEFORE any side effects run. "claimed" → the caller owns it
+   * (reconcile, then complete — or release on failure) and gets the ownership token; "duplicate" →
+   * already fully processed; "in_flight" → another worker holds a live claim.
+   */
+  claimEvent(eventId: string, appUserId: string, payload: unknown): Promise<ClaimResult>;
+  /** Commit a claimed event after successful reconciliation (the duplicate guard from then on). */
+  completeEvent(eventId: string, token: string): Promise<void>;
+  /** Release a claimed event after a failed reconciliation so the sender's retry can re-claim it. */
+  releaseEvent(eventId: string, token: string): Promise<void>;
   /** Write entitlement state via the narrow SECURITY DEFINER RPC. */
   setEntitlement(
     userId: string,
@@ -24,10 +41,15 @@ export function optionsResponse(): Response {
   return new Response(null, { status: 204, headers: corsHeaders });
 }
 
-/** Small JSON Response helper shared by the functions. */
-export function jsonResponse(status: number, body: unknown): Response {
+/** Small JSON Response helper shared by the functions. Extra headers may add fields, but never
+ *  override the CORS set or content-type (those are spread last so they always win). */
+export function jsonResponse(
+  status: number,
+  body: unknown,
+  headers?: Record<string, string>,
+): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "content-type": "application/json" },
+    headers: { ...headers, ...corsHeaders, "content-type": "application/json" },
   });
 }

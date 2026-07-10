@@ -396,8 +396,10 @@ verify_jwt = true
 verify_jwt = true
 
 [functions.selector-canary]
-# Invoked by Supabase cron / scheduled trigger, not by an end user. No user JWT involved;
-# protected by the platform schedule + its own outbound-notify secret.
+# Invoked by Supabase cron / scheduled trigger, not by an end user. No user JWT involved. A schedule
+# is not an access boundary, so every invocation is gated inside the function by a constant-time
+# compare against SELECTOR_CANARY_INVOCATION_TOKEN (fail closed when unset) — the scheduler sends
+# the token in the Authorization header (see docs/CONNECTIONS.md).
 verify_jwt = false
 
 [edge_runtime]

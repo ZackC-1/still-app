@@ -115,6 +115,7 @@ export const STRINGS = {
     notNow: "Not now",
     emailLabel: "Email",
     emailPlaceholder: "you@email.com",
+    invalidEmail: "Enter a valid email address to continue.",
     send: "Email me a link",
     sending: "Sending…",
     sent: "Check your email for a sign-in link.",
