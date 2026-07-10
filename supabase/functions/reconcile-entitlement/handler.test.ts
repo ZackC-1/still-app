@@ -19,7 +19,7 @@ type Write = { userId: string; stillSync: boolean; source: string };
 function mockStore() {
   const writes: Write[] = [];
   const store: EntitlementStore = {
-    claimEvent: () => Promise.resolve("claimed"),
+    claimEvent: () => Promise.resolve({ status: "claimed", token: "t" }),
     completeEvent: () => Promise.resolve(),
     releaseEvent: () => Promise.resolve(),
     setEntitlement(userId, stillSync, source) {

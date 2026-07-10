@@ -201,7 +201,7 @@ Deno.test("over the per-user limit → 429 with Retry-After, no RC or billing ca
   assertEquals(rcCalls, 0);
 });
 
-Deno.test("over the per-IP limit → 429 keyed by the first x-forwarded-for hop", async () => {
+Deno.test("over the per-IP limit → 429 keyed by the Cloudflare client IP", async () => {
   const { billing, calls } = mockBilling();
   const seen: string[] = [];
   const limiter: RateLimiter = {
@@ -216,7 +216,9 @@ Deno.test("over the per-IP limit → 429 keyed by the first x-forwarded-for hop"
     headers: {
       "content-type": "application/json",
       Authorization: `Bearer ${jwt}`,
-      "x-forwarded-for": "203.0.113.9, 10.0.0.1",
+      // A spoofed first x-forwarded-for hop must be ignored in favour of cf-connecting-ip.
+      "x-forwarded-for": "1.1.1.1, 203.0.113.9",
+      "cf-connecting-ip": "203.0.113.9",
     },
     body: "{}",
   });

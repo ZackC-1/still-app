@@ -19,16 +19,37 @@ export interface RateLimitPolicy {
   readonly windowSeconds: number;
 }
 
-/** First client address in x-forwarded-for (set by the Supabase gateway), or null when absent. */
+/**
+ * The trustworthy client IP for a request that reached the Edge Function. Supabase fronts
+ * functions with Cloudflare, which sets cf-connecting-ip to the real socket peer and strips any
+ * client-supplied copy — so it (then x-real-ip) is safe to key on. x-forwarded-for is only a
+ * last resort and we take its LAST hop: a direct caller can PREPEND spoofed hops, but the gateway
+ * appends the true client IP at the end, so the first hop is attacker-controlled and the last is
+ * not. Returns null when no address can be determined (then only the per-user bucket applies).
+ */
 export function clientIp(req: Request): string | null {
-  const first = (req.headers.get("x-forwarded-for") ?? "").split(",")[0]?.trim() ?? "";
-  return first.length > 0 ? first : null;
+  const direct = (req.headers.get("cf-connecting-ip") ?? req.headers.get("x-real-ip") ?? "").trim();
+  if (direct.length > 0) return direct;
+  const hops = (req.headers.get("x-forwarded-for") ?? "")
+    .split(",")
+    .map((hop) => hop.trim())
+    .filter((hop) => hop.length > 0);
+  return hops.length > 0 ? hops[hops.length - 1]! : null;
+}
+
+function tooManyRequests(waitSeconds: number): Response {
+  return jsonResponse(
+    429,
+    { error: "rate_limited", retry_after: waitSeconds },
+    { "retry-after": String(waitSeconds), "access-control-expose-headers": "retry-after" },
+  );
 }
 
 /**
- * Enforce one surface's per-user and per-IP windows. Returns null when the request may proceed,
- * or the finished 429 (with Retry-After) when either bucket is exhausted. A request without a
- * client IP skips only the IP bucket — the user bucket always applies.
+ * Enforce one surface's per-user then per-IP windows. Returns null when the request may proceed,
+ * or the finished 429 (with Retry-After) when either bucket is exhausted. The user bucket is
+ * checked first and short-circuits — an already-limited user never consumes an IP-window slot. A
+ * request without a determinable client IP skips only the IP bucket.
  */
 export async function enforceRateLimit(
   limiter: RateLimiter,
@@ -37,15 +58,13 @@ export async function enforceRateLimit(
   req: Request,
   policy: RateLimitPolicy,
 ): Promise<Response | null> {
-  let wait = await limiter.consume(`${surface}:user:${userId}`, policy.maxPerUser, policy.windowSeconds);
+  const userWait = await limiter.consume(`${surface}:user:${userId}`, policy.maxPerUser, policy.windowSeconds);
+  if (userWait > 0) return tooManyRequests(userWait);
+
   const ip = clientIp(req);
   if (ip !== null) {
-    wait = Math.max(wait, await limiter.consume(`${surface}:ip:${ip}`, policy.maxPerIp, policy.windowSeconds));
+    const ipWait = await limiter.consume(`${surface}:ip:${ip}`, policy.maxPerIp, policy.windowSeconds);
+    if (ipWait > 0) return tooManyRequests(ipWait);
   }
-  if (wait <= 0) return null;
-  return jsonResponse(
-    429,
-    { error: "rate_limited", retry_after: wait },
-    { "retry-after": String(wait), "access-control-expose-headers": "retry-after" },
-  );
+  return null;
 }

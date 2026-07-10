@@ -1,11 +1,11 @@
-import { constantTimeEqual } from "../_shared/token.ts";
+import { requireStaticToken } from "../_shared/token.ts";
 import { jsonResponse } from "../_shared/store.ts";
 
 // Invocation gate for the scheduler-triggered canary (verify_jwt=false). A schedule is NOT an
 // access boundary: without this gate anyone who learns the function URL can trigger admin DB
-// reads and outbound page fetches at will. Same pattern as the RevenueCat webhook (KTD5): the
-// scheduler sends a static token in the Authorization header, compared constant-time; a blank
-// configured token rejects everything (fail closed). The token is never logged.
+// reads and outbound page fetches at will. Gated by the same shared static-token check as the
+// RevenueCat webhook (requireStaticToken) — the scheduler sends the token in the Authorization
+// header; a blank configured token rejects everything (fail closed).
 
 export interface CanaryRequestDeps {
   /** SELECTOR_CANARY_INVOCATION_TOKEN — shared only with the scheduler. */
@@ -18,12 +18,8 @@ export async function handleCanaryRequest(
   req: Request,
   deps: CanaryRequestDeps,
 ): Promise<Response> {
-  if (req.method !== "POST") return jsonResponse(405, { error: "method_not_allowed" });
-
-  const auth = req.headers.get("Authorization") ?? "";
-  if (deps.token.length === 0 || !constantTimeEqual(auth, deps.token)) {
-    return jsonResponse(401, { error: "unauthorized" });
-  }
+  const denied = requireStaticToken(req, deps.token);
+  if (denied) return denied;
 
   try {
     return jsonResponse(200, await deps.run());

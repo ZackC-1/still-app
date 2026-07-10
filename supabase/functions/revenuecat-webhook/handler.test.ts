@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { handleWebhook } from "./handler.ts";
-import type { EntitlementStore, EventClaim } from "../_shared/store.ts";
+import type { ClaimResult, EntitlementStore } from "../_shared/store.ts";
 import type { RevenueCatClient, RcSubscriber } from "../_shared/revenuecat.ts";
 
 const TOKEN = "secret-webhook-token";
@@ -16,26 +16,36 @@ const inactiveSub: RcSubscriber = { entitlements: {} };
 type Write = { userId: string; stillSync: boolean; source: string };
 
 function mockStore() {
-  const events = new Map<string, "processing" | "completed">();
+  // Mirrors migration 0011: a claim carries an ownership token, and complete/release only act when
+  // the token still matches the live 'processing' row (so a stale worker cannot clobber a takeover).
+  const events = new Map<string, { status: "processing" | "completed"; token: string }>();
   const writes: Write[] = [];
   const payloads: unknown[] = [];
   const released: string[] = [];
+  let seq = 0;
   const store: EntitlementStore = {
-    claimEvent(eventId, _appUserId, payload): Promise<EventClaim> {
+    claimEvent(eventId, _appUserId, payload): Promise<ClaimResult> {
       const existing = events.get(eventId);
-      if (existing === "completed") return Promise.resolve("duplicate");
-      if (existing === "processing") return Promise.resolve("in_flight");
-      events.set(eventId, "processing");
+      if (existing?.status === "completed") return Promise.resolve({ status: "duplicate", token: null });
+      if (existing?.status === "processing") return Promise.resolve({ status: "in_flight", token: null });
+      const token = `tok-${seq++}`;
+      events.set(eventId, { status: "processing", token });
       payloads.push(payload);
-      return Promise.resolve("claimed");
+      return Promise.resolve({ status: "claimed", token });
     },
-    completeEvent(eventId) {
-      events.set(eventId, "completed");
+    completeEvent(eventId, token) {
+      const existing = events.get(eventId);
+      if (existing?.status === "processing" && existing.token === token) {
+        events.set(eventId, { status: "completed", token });
+      }
       return Promise.resolve();
     },
-    releaseEvent(eventId) {
-      released.push(eventId);
-      events.delete(eventId);
+    releaseEvent(eventId, token) {
+      const existing = events.get(eventId);
+      if (existing?.status === "processing" && existing.token === token) {
+        released.push(eventId);
+        events.delete(eventId);
+      }
       return Promise.resolve();
     },
     setEntitlement(userId, stillSync, source) {

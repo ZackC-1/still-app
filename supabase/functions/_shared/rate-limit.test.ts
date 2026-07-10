@@ -25,7 +25,7 @@ Deno.test("under both limits → null; user and IP buckets consumed with the pol
     limiter,
     "checkout",
     USER,
-    req({ "x-forwarded-for": "203.0.113.9, 10.0.0.1" }),
+    req({ "cf-connecting-ip": "203.0.113.9" }),
     POLICY,
   );
   assertEquals(res, null);
@@ -33,6 +33,20 @@ Deno.test("under both limits → null; user and IP buckets consumed with the pol
     { key: `checkout:user:${USER}`, max: 5, window: 60 },
     { key: "checkout:ip:203.0.113.9", max: 20, window: 60 },
   ]);
+});
+
+Deno.test("exhausted user bucket short-circuits: the IP bucket is never consumed", async () => {
+  const { limiter, calls } = trackingLimiter({ [`checkout:user:${USER}`]: 30 });
+  const res = await enforceRateLimit(
+    limiter,
+    "checkout",
+    USER,
+    req({ "cf-connecting-ip": "203.0.113.9" }),
+    POLICY,
+  );
+  assertEquals(res?.status, 429);
+  assertEquals(calls.length, 1);
+  assertEquals(calls[0]?.key, `checkout:user:${USER}`);
 });
 
 Deno.test("exhausted user bucket → 429 with Retry-After", async () => {
@@ -49,14 +63,14 @@ Deno.test("exhausted IP bucket → 429 even for a fresh user", async () => {
     limiter,
     "reconcile",
     USER,
-    req({ "x-forwarded-for": "203.0.113.9" }),
+    req({ "cf-connecting-ip": "203.0.113.9" }),
     POLICY,
   );
   assertEquals(res?.status, 429);
   assertEquals(res?.headers.get("retry-after"), "17");
 });
 
-Deno.test("missing x-forwarded-for skips only the IP bucket; the user bucket always applies", async () => {
+Deno.test("no client-IP header skips only the IP bucket; the user bucket always applies", async () => {
   const { limiter, calls } = trackingLimiter();
   const res = await enforceRateLimit(limiter, "checkout", USER, req(), POLICY);
   assertEquals(res, null);
@@ -64,8 +78,15 @@ Deno.test("missing x-forwarded-for skips only the IP bucket; the user bucket alw
   assertEquals(calls[0]?.key, `checkout:user:${USER}`);
 });
 
-Deno.test("clientIp takes the first forwarded hop and trims it", () => {
-  assertEquals(clientIp(req({ "x-forwarded-for": " 198.51.100.7 , 10.0.0.1" })), "198.51.100.7");
+Deno.test("clientIp prefers cf-connecting-ip, then x-real-ip, then the LAST x-forwarded-for hop", () => {
+  // cf-connecting-ip wins even when x-forwarded-for carries a spoofed first hop.
+  assertEquals(
+    clientIp(req({ "cf-connecting-ip": "203.0.113.9", "x-forwarded-for": "1.1.1.1, 203.0.113.9" })),
+    "203.0.113.9",
+  );
+  assertEquals(clientIp(req({ "x-real-ip": " 198.51.100.7 " })), "198.51.100.7");
+  // The trustworthy XFF hop is the last (gateway-appended) one, not the client-controlled first.
+  assertEquals(clientIp(req({ "x-forwarded-for": "1.1.1.1, 10.0.0.1 , 198.51.100.7" })), "198.51.100.7");
   assertEquals(clientIp(req()), null);
   assertEquals(clientIp(req({ "x-forwarded-for": "" })), null);
 });
