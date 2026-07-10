@@ -24,10 +24,14 @@ export function optionsResponse(): Response {
   return new Response(null, { status: 204, headers: corsHeaders });
 }
 
-/** Small JSON Response helper shared by the functions. */
-export function jsonResponse(status: number, body: unknown): Response {
+/** Small JSON Response helper shared by the functions. Extra headers layer over the CORS set. */
+export function jsonResponse(
+  status: number,
+  body: unknown,
+  headers?: Record<string, string>,
+): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "content-type": "application/json" },
+    headers: { ...corsHeaders, "content-type": "application/json", ...headers },
   });
 }

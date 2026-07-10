@@ -2,6 +2,7 @@ import { assertEquals } from "@std/assert";
 import { handleReconcile } from "./handler.ts";
 import { signHs256 } from "../_shared/jwt.ts";
 import { mintEs256, mintHs256, TEST_EXPECTED_CLAIMS } from "../_shared/test-helpers.ts";
+import type { RateLimiter } from "../_shared/rate-limit.ts";
 import type { EntitlementStore } from "../_shared/store.ts";
 import type { RevenueCatClient, RcSubscriber } from "../_shared/revenuecat.ts";
 
@@ -11,6 +12,7 @@ const A = "11111111-1111-1111-1111-111111111111";
 const B = "22222222-2222-2222-2222-222222222222";
 
 const activeSub: RcSubscriber = { entitlements: { still_sync: { expires_date: null } } };
+const allowAll: RateLimiter = { consume: () => Promise.resolve(0) };
 
 type Write = { userId: string; stillSync: boolean; source: string };
 
@@ -44,6 +46,7 @@ Deno.test("valid JWT + active subscriber → writes the JWT subject true", async
     expected: EXPECTED,
     store,
     rc: mockRc({ [A]: activeSub }),
+    limiter: allowAll,
   });
   assertEquals(res.status, 200);
   assertEquals(writes, [{ userId: A, stillSync: true, source: "reconcile" }]);
@@ -58,13 +61,14 @@ Deno.test("subject is taken from the JWT, NOT the request body (IDOR defense)", 
     expected: EXPECTED,
     store,
     rc: mockRc({ [A]: activeSub, [B]: activeSub }),
+    limiter: allowAll,
   });
   assertEquals(writes[0]?.userId, A);
 });
 
 Deno.test("missing JWT → 401, no write", async () => {
   const { store, writes } = mockStore();
-  const res = await handleReconcile(req(null), { jwtSecret: SECRET, expected: EXPECTED, store, rc: mockRc({}) });
+  const res = await handleReconcile(req(null), { jwtSecret: SECRET, expected: EXPECTED, store, rc: mockRc({}), limiter: allowAll });
   assertEquals(res.status, 401);
   assertEquals(writes.length, 0);
 });
@@ -77,6 +81,7 @@ Deno.test("JWT signed with the wrong secret → 401, no write", async () => {
     expected: EXPECTED,
     store,
     rc: mockRc({ [A]: activeSub }),
+    limiter: allowAll,
   });
   assertEquals(res.status, 401);
   assertEquals(writes.length, 0);
@@ -94,6 +99,7 @@ Deno.test("JWT with wrong issuer → 401, no write (defense in depth)", async ()
     expected: EXPECTED,
     store,
     rc: mockRc({ [A]: activeSub }),
+    limiter: allowAll,
   });
   assertEquals(res.status, 401);
   assertEquals(writes.length, 0);
@@ -107,6 +113,7 @@ Deno.test("webhook dropped → login reconcile establishes entitlement true", as
     expected: EXPECTED,
     store,
     rc: mockRc({ [A]: activeSub }),
+    limiter: allowAll,
   });
   assertEquals(writes[0]?.stillSync, true);
 });
@@ -134,10 +141,32 @@ Deno.test("hosted ES256 token verified via JWKS → writes the JWT subject", asy
       expected: EXPECTED,
       store,
       rc: mockRc({ [A]: activeSub }),
+      limiter: allowAll,
     });
     assertEquals(res.status, 200);
     assertEquals(writes, [{ userId: A, stillSync: true, source: "reconcile" }]);
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+Deno.test("over the reconcile limit → 429 with Retry-After, no RC lookup and no write", async () => {
+  const { store, writes } = mockStore();
+  let rcCalls = 0;
+  const rc: RevenueCatClient = {
+    getSubscriber() {
+      rcCalls += 1;
+      return Promise.resolve(activeSub);
+    },
+  };
+  const limiter: RateLimiter = {
+    consume: (key) => Promise.resolve(key.startsWith("reconcile:user:") ? 45 : 0),
+  };
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  const res = await handleReconcile(req(jwt), { jwtSecret: SECRET, expected: EXPECTED, store, rc, limiter });
+  assertEquals(res.status, 429);
+  assertEquals(res.headers.get("retry-after"), "45");
+  assertEquals((await res.json()).error, "rate_limited");
+  assertEquals(rcCalls, 0);
+  assertEquals(writes.length, 0);
 });

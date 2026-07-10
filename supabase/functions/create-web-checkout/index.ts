@@ -1,4 +1,5 @@
 import { authenticatedClaims } from "../_shared/jwt.ts";
+import { PgRateLimiter } from "../_shared/pg-store.ts";
 import { HttpRevenueCatClient } from "../_shared/revenuecat.ts";
 import { RevenueCatWebPurchaseLink } from "../_shared/web-billing.ts";
 import { handleCreateWebCheckout } from "./handler.ts";
@@ -15,4 +16,10 @@ const billing = new RevenueCatWebPurchaseLink(
   Deno.env.get("REVENUECAT_WEB_BILLING_CHECKOUT_URL") ?? "",
 );
 
-Deno.serve((req) => handleCreateWebCheckout(req, { jwtSecret, jwksUrl, expected, billing, rc }));
+// Rate limiting rides the same narrow writer credential as the entitlement stores — the role can
+// only execute its granted RPCs, of which consume_rate_limit is one (0010).
+const limiter = new PgRateLimiter(Deno.env.get("ENTITLEMENT_WRITER_DB_URL") ?? "");
+
+Deno.serve((req) =>
+  handleCreateWebCheckout(req, { jwtSecret, jwksUrl, expected, billing, rc, limiter }),
+);
