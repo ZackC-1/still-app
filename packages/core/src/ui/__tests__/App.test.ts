@@ -58,6 +58,14 @@ function codeCapableAuth(over: Partial<UiAuth> = {}): UiAuth {
 }
 
 describe("App", () => {
+  it("exposes an explicit compact density for constrained extension panels", () => {
+    render(App, { props: { controller: controller(), compact: true } });
+
+    expect(document.querySelector(".app")?.getAttribute("data-density")).toBe(
+      "compact",
+    );
+  });
+
   it("renders a card for each of the four services", () => {
     render(App, { props: { controller: controller() } });
     expect(document.querySelectorAll("[data-service]").length).toBe(4);
@@ -67,6 +75,11 @@ describe("App", () => {
     render(App, { props: { controller: controller({ globalOn: false }) } });
     const services = document.querySelector(".services");
     expect(services?.getAttribute("aria-disabled")).toBe("true");
+    expect(
+      within(
+        document.querySelector('[data-service="youtube"]') as HTMLElement,
+      ).getByRole("switch"),
+    ).toBeDisabled();
   });
 
   it("un-entitled users see the three Pro rows locked (no silent no-op toggles)", () => {
