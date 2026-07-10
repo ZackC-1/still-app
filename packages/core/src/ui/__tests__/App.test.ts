@@ -81,6 +81,14 @@ describe("App", () => {
     expect(youtubeSwitch.disabled).toBe(true);
   });
 
+  it("global off also disables a locked service's lock button", () => {
+    render(App, { props: { controller: controller({ globalOn: false }) } });
+    const lock = document.querySelector(
+      '[data-service="instagram"] .lock',
+    ) as HTMLButtonElement;
+    expect(lock.disabled).toBe(true);
+  });
+
   it("un-entitled users see the three Pro rows locked (no silent no-op toggles)", () => {
     render(App, { props: { controller: controller() } });
     expect(document.querySelectorAll(".card.locked").length).toBe(3); // instagram/tiktok/facebook
@@ -492,6 +500,60 @@ describe("App", () => {
       STRINGS.paywall.openingCheckout,
     ) as HTMLButtonElement;
     expect(cta.disabled).toBe(true); // busy — no duplicate checkout taps
+  });
+
+  // ── modal focus containment (the shared trap in focus-trap.ts) ─────────────────────────────────
+  // jsdom never blurs a control that becomes disabled, so these exercise the trap's
+  // !hasAttribute("disabled") filter directly rather than the real-browser blur behavior.
+
+  it("the paywall Tab cycle skips disabled controls while a purchase is in flight", async () => {
+    const c = controller();
+    c.userId = "u";
+    c.openPaywall();
+    c.purchaseFlow = "purchasing"; // Get + Restore render disabled
+    render(App, { props: { controller: c, onGet: () => {} } });
+    const dialog = screen.getByRole("dialog");
+    const dismiss = within(dialog).getByText(
+      STRINGS.paywall.dismiss,
+    ) as HTMLButtonElement;
+    dismiss.focus();
+    await fireEvent.keyDown(dialog, { key: "Tab" });
+    // Tab from the last control wraps to the first ENABLED focusable — here that is the dismiss
+    // button itself (the only enabled control), never the disabled Get/Restore pair.
+    expect(document.activeElement).toBe(dismiss);
+    expect((document.activeElement as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("the sign-in Tab cycle skips the cooldown-disabled resend control", async () => {
+    const c = controller({ auth: codeCapableAuth() });
+    render(App, { props: { controller: c } });
+    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await c.signIn("a@b.com"); // → code entry; resend disabled behind the 60s cooldown
+    await tick();
+    const dialog = screen.getByRole("dialog");
+    const dismiss = within(dialog).getByText(
+      STRINGS.auth.notNow,
+    ) as HTMLButtonElement;
+    dismiss.focus();
+    await fireEvent.keyDown(dialog, { key: "Tab" });
+    // Wraps to the first ENABLED focusable — the code input — never the disabled verify
+    // (code empty) or resend (cooldown) buttons between them.
+    expect(document.activeElement).toBe(document.querySelector("input.code"));
+    c.dismissSignIn(); // stop the cooldown ticker
+  });
+
+  it("dismissing the paywall restores focus to the trigger that opened it", async () => {
+    const c = controller(); // no auth wired → a locked-row tap opens the paywall directly
+    render(App, { props: { controller: c } });
+    const lock = document.querySelector(".lock") as HTMLButtonElement;
+    lock.focus();
+    await fireEvent.click(lock);
+    expect(c.paywallOpen).toBe(true);
+    await tick();
+    await fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await tick();
+    expect(c.paywallOpen).toBe(false);
+    expect(document.activeElement).toBe(lock);
   });
 });
 

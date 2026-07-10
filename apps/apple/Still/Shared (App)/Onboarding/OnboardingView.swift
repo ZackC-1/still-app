@@ -28,7 +28,9 @@ struct OnboardingView: View {
   @State private var step = 0
   @State private var status: SafariExtensionStatus = .unknown
 
-  private static let stillBlue = Color.accentColor
+  /// The asset-catalog Still Blue (with its dark variant). Named lookup rather than
+  /// `Color.accentColor`, which macOS remaps to the user's system accent preference.
+  private static let stillBlue = Color("AccentColor")
   private let lastStep = 3
   /// Polls the live extension state while screen 3 is on-screen, so the badge flips to "You're all
   /// set" on its own the moment the user enables Still — no "Check again" tap needed. Real on macOS;
@@ -62,6 +64,7 @@ struct OnboardingView: View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity)
     .background(Color.primary.opacity(0.03).ignoresSafeArea())
+    .cappedDynamicType()
     .onAppear { if step != initialStep { step = initialStep } }
   }
 
@@ -288,6 +291,25 @@ private extension Font {
     weight: Font.Weight = .regular,
     relativeTo style: Font.TextStyle
   ) -> Font {
-    .custom("InterVariable", size: size, relativeTo: style).weight(weight)
+    if #available(iOS 16.0, macOS 13.0, *) {
+      return .custom("InterVariable", size: size, relativeTo: style).weight(weight)
+    } else {
+      // `.weight(_:)` is a no-op on a custom Font before iOS 16 / macOS 13 — everything would
+      // render Regular. Keep the system face there so the weight hierarchy survives.
+      return .system(size: size, weight: weight, design: .default)
+    }
+  }
+}
+
+private extension View {
+  /// Caps Dynamic Type at the first accessibility size: the onboarding column is a fixed,
+  /// Spacer-centered VStack with no scrolling, and the ~3.1× accessibility scales would push the
+  /// Continue button off-screen. (macOS 11 predates the API — and has no Dynamic Type to cap.)
+  @ViewBuilder func cappedDynamicType() -> some View {
+    if #available(iOS 15.0, macOS 12.0, *) {
+      dynamicTypeSize(...DynamicTypeSize.accessibility1)
+    } else {
+      self
+    }
   }
 }

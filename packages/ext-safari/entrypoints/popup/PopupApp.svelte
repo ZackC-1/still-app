@@ -20,6 +20,7 @@
   .popup {
     inline-size: min(380px, 100vw);
     max-inline-size: 100vw;
+    margin-inline: auto;
     overflow: clip;
   }
   .open-options {
@@ -36,5 +37,9 @@
   .open-options:hover {
     background: var(--surface-raised);
     color: var(--still-blue-pressed);
+  }
+  .open-options:focus-visible {
+    /* Inward: the popup's overflow clip would swallow the outward outline of this flush button. */
+    outline-offset: -3px;
   }
 </style>

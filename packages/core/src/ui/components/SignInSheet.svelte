@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { UiController } from "../controller.svelte.js";
+  import { trapFocus } from "../focus-trap.js";
   import { STRINGS } from "../strings.js";
 
   interface Props {
@@ -11,12 +12,13 @@
   let code = $state("");
   let sheet = $state<HTMLDivElement>();
 
-  $effect(() => {
-    const previouslyFocused = document.activeElement;
-    return () => {
-      if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus();
-    };
-  });
+  $effect(() =>
+    trapFocus({
+      container: () => sheet,
+      focusable: "button, input",
+      onDismiss: () => onDismiss(),
+    }),
+  );
 
   // Code-entry (plan U2/R1): one plain input, no segmented boxes. Which states show it, and the
   // calm line for each failure kind (never raw backend text, never the magic-link copy).
@@ -49,28 +51,6 @@
     void c.authFlow;
     sheet?.querySelector<HTMLElement>("button, input")?.focus();
   });
-
-  function onKeydown(e: KeyboardEvent): void {
-    if (e.key === "Escape") {
-      onDismiss();
-      return;
-    }
-    if (e.key === "Tab" && sheet) {
-      const focusables = [
-        ...sheet.querySelectorAll<HTMLElement>("button, input"),
-      ].filter((element) => !element.hasAttribute("disabled"));
-      if (focusables.length === 0) return;
-      const first = focusables[0]!;
-      const last = focusables[focusables.length - 1]!;
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    }
-  }
 </script>
 
 <button
@@ -87,7 +67,6 @@
   aria-modal="true"
   aria-label={STRINGS.auth.title}
   tabindex="-1"
-  onkeydown={onKeydown}
 >
   <div class="grip" aria-hidden="true"></div>
   <h2>{STRINGS.auth.title}</h2>
@@ -195,6 +174,8 @@
     inset-inline: 0;
     margin-inline: auto;
     inline-size: min(100%, 420px);
+    /* vh fallback for older WebKit (iOS 15.0–15.3) that drops the dvh declaration below. */
+    max-block-size: calc(100vh - env(safe-area-inset-top) - var(--space-3));
     max-block-size: calc(100dvh - env(safe-area-inset-top) - var(--space-3));
     background: var(--surface);
     border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
@@ -263,7 +244,7 @@
     margin: 0;
   }
   .error {
-    color: #c2261e;
+    color: var(--danger);
     margin: 0;
   }
   .link {

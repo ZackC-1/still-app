@@ -392,7 +392,9 @@ export class UiController {
    * successful sign-in continues to the paywall without re-tapping. Signed-in users open the
    * paywall directly; hosts without a purchase path get the explanatory paywall state. */
   startUpgrade(): void {
-    if (this.entitled) return;
+    // Also a no-op while a purchase/restore is in flight — a second trigger (locked-row tap,
+    // upgrade CTA) must not reset purchaseFlow mid-purchase.
+    if (this.entitled || this.purchaseBusy) return;
     if (this.host.canPurchase && this.canSignIn && !this.userId) {
       this.setPurchaseIntent(true);
       this.openSignIn();
@@ -432,6 +434,7 @@ export class UiController {
   }
 
   openPaywall(): void {
+    if (this.purchaseBusy) return; // re-opening must not reset an in-flight purchase
     this.paywallOpen = true;
     this.purchaseFlow = "idle";
     this.purchaseError = null;

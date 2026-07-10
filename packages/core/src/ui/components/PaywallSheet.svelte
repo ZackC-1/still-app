@@ -1,6 +1,7 @@
 <script lang="ts">
   import { STRINGS } from "../strings.js";
   import { FIND_MY_PURCHASE_MAILTO } from "../config.js";
+  import { trapFocus } from "../focus-trap.js";
   import type { CheckoutFlow, PurchaseFlow } from "../controller.svelte.js";
 
   interface Props {
@@ -41,12 +42,14 @@
   }: Props = $props();
   let sheet = $state<HTMLDivElement>();
 
-  $effect(() => {
-    const previouslyFocused = document.activeElement;
-    return () => {
-      if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus();
-    };
-  });
+  $effect(() =>
+    trapFocus({
+      container: () => sheet,
+      // The stale-pending state's find-my-purchase mailto is an anchor — keep it in the trap.
+      focusable: "button, a[href]",
+      onDismiss: () => onDismiss(),
+    }),
+  );
 
   const busy = $derived(
     purchaseFlow === "purchasing" ||
@@ -79,29 +82,6 @@
     void checkoutFlow;
     sheet?.querySelector<HTMLElement>("button, a[href]")?.focus();
   });
-
-  function onKeydown(e: KeyboardEvent): void {
-    if (e.key === "Escape") {
-      onDismiss();
-      return;
-    }
-    if (e.key === "Tab" && sheet) {
-      // The stale-pending state's find-my-purchase mailto is an anchor — keep it in the trap.
-      const focusables = [
-        ...sheet.querySelectorAll<HTMLElement>("button, a[href]"),
-      ].filter((element) => !element.hasAttribute("disabled"));
-      if (focusables.length === 0) return;
-      const first = focusables[0]!;
-      const last = focusables[focusables.length - 1]!;
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    }
-  }
 </script>
 
 <button
@@ -118,7 +98,6 @@
   aria-modal="true"
   aria-label={STRINGS.paywall.title}
   tabindex="-1"
-  onkeydown={onKeydown}
 >
   {#if justUnlocked}
     <!-- The payoff (U3/R6): one line while the unlocked rows switch on behind the sheet. A button
@@ -220,6 +199,8 @@
     inset-inline: 0;
     margin-inline: auto;
     inline-size: min(100%, 420px);
+    /* vh fallback for older WebKit (iOS 15.0–15.3) that drops the dvh declaration below. */
+    max-block-size: calc(100vh - env(safe-area-inset-top) - var(--space-3));
     max-block-size: calc(100dvh - env(safe-area-inset-top) - var(--space-3));
     background: var(--surface);
     border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
