@@ -33,6 +33,11 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
     // actions.
     private lazy var router = WebBridgeRouter(settings: settingsBridge)
 
+    // The block-based didBecomeActive observer's token — NotificationCenter retains the block, and
+    // removeObserver(self) does NOT deregister a block observer, so the token is the only handle
+    // that can. Held so deinit can remove it.
+    private var didBecomeActiveToken: NSObjectProtocol?
+
     // The bundled web build's index URL — the only origin trusted to drive privileged native actions
     // and the only navigation we allow (P0 #1). Set once the bundle is located in viewDidLoad.
     private var bundledIndexURL: URL?
@@ -67,15 +72,25 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
             Unmanaged.passUnretained(self).toOpaque(),
             CFNotificationName(StillSettingsChangedNotification.name as CFString),
             nil)
+        if let token = didBecomeActiveToken {
+            NotificationCenter.default.removeObserver(token)
+        }
     }
 
     // Refresh the already-running web UI when another App-Group process writes settings (e.g. the
-    // Safari extension reconciles a toggle): StillKit posts a Darwin notification on every applied
-    // settings write — the only notification bus that crosses the extension ↔ app process boundary —
-    // and we push the stored record into the page via window.__stillApplyRemote (the receiver the
-    // WKWebViewStorageAdapter installs). The app's own writes echo through here too; that's harmless
-    // because the web SettingsCache dedupes incoming records by updatedAt/version, so the echo
-    // no-ops and no feedback loop forms.
+    // Safari extension reconciles a toggle):
+    //
+    //   1. Live path — StillKit posts a Darwin notification on every applied settings write (the only
+    //      bus that crosses the extension ↔ app process boundary); we push the stored record into the
+    //      page via window.__stillApplyRemote. This fires only while BOTH processes run at once
+    //      (iPad Split View, macOS) — a suspended process never receives Darwin notifications.
+    //   2. Foreground path — on iPhone the app is SUSPENDED the moment the user switches to Safari to
+    //      change a setting in the extension popup, so it misses the Darwin post entirely. Re-reading
+    //      the App Group when the app becomes active again covers that (the common iPhone case): the
+    //      stored value is already correct (App-Group LWW), only the open view was stale.
+    //
+    // The app's own writes echo through both paths too; harmless, because the web SettingsCache
+    // dedupes incoming records by updatedAt/version, so an unchanged record no-ops (no feedback loop).
     private func observeExternalSettingsChanges() {
         CFNotificationCenterAddObserver(
             CFNotificationCenterGetDarwinNotifyCenter(),
@@ -90,6 +105,17 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
             StillSettingsChangedNotification.name as CFString,
             nil,
             .deliverImmediately)
+
+        #if os(iOS)
+        let becameActive = UIApplication.didBecomeActiveNotification
+        #elseif os(macOS)
+        let becameActive = NSApplication.didBecomeActiveNotification
+        #endif
+        didBecomeActiveToken = NotificationCenter.default.addObserver(
+            forName: becameActive, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.pushStoredSettingsToWeb() }
+        }
     }
 
     /// Push the current App-Group settings record into the page. The record JSON (the same
