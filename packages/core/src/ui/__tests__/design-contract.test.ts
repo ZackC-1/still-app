@@ -38,8 +38,10 @@ describe("cross-platform design contract", () => {
   it("uses the same typeface on the linked privacy and support surfaces", () => {
     const privacy = read("../../docs/privacy.html");
     const support = read("../../docs/support.html");
+    const legalStyles = read("../../docs/assets/legal.css");
 
-    expect(privacy).toContain('font-family: "InterVariable"');
-    expect(support).toContain('font-family: "InterVariable"');
+    expect(privacy).toContain('href="./assets/legal.css"');
+    expect(support).toContain('href="./assets/legal.css"');
+    expect(legalStyles).toContain('font-family: "InterVariable"');
   });
 });
