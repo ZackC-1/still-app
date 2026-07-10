@@ -6,7 +6,7 @@
 
 import postgres from "postgres";
 import type { RateLimiter } from "./rate-limit.ts";
-import type { EntitlementStore } from "./store.ts";
+import type { EntitlementStore, EventClaim } from "./store.ts";
 
 export class PgEntitlementStore implements EntitlementStore {
   private readonly sql: ReturnType<typeof postgres>;
@@ -15,12 +15,21 @@ export class PgEntitlementStore implements EntitlementStore {
     this.sql = postgres(connectionString, { prepare: false });
   }
 
-  async recordEvent(eventId: string, appUserId: string, payload: unknown): Promise<boolean> {
+  async claimEvent(eventId: string, appUserId: string, payload: unknown): Promise<EventClaim> {
     // Pass the payload as a JSON string cast to jsonb — avoids depending on the driver's JSONValue type.
-    const rows = await this.sql<{ inserted: boolean }[]>`
-      select public.record_revenuecat_event(${eventId}, ${appUserId}, ${JSON.stringify(payload)}::jsonb) as inserted
+    const rows = await this.sql<{ claim: EventClaim }[]>`
+      select public.claim_revenuecat_event(${eventId}, ${appUserId}, ${JSON.stringify(payload)}::jsonb) as claim
     `;
-    return rows[0]?.inserted ?? false;
+    // A missing/unknown result reads as a live concurrent claim → 5xx → the sender retries.
+    return rows[0]?.claim ?? "in_flight";
+  }
+
+  async completeEvent(eventId: string): Promise<void> {
+    await this.sql`select public.complete_revenuecat_event(${eventId})`;
+  }
+
+  async releaseEvent(eventId: string): Promise<void> {
+    await this.sql`select public.release_revenuecat_event(${eventId})`;
   }
 
   async setEntitlement(

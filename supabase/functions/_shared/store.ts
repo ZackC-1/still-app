@@ -2,9 +2,20 @@
 // the Postgres-backed implementation lives in pg-store.ts and connects as the narrow
 // still_entitlement_writer role (KTD5) — never the full service_role key.
 
+/** Claim outcome for a webhook event (idempotency protocol — see revenuecat-webhook/handler.ts). */
+export type EventClaim = "claimed" | "duplicate" | "in_flight";
+
 export interface EntitlementStore {
-  /** Idempotently record a webhook event. Returns true if newly inserted (process it). */
-  recordEvent(eventId: string, appUserId: string, payload: unknown): Promise<boolean>;
+  /**
+   * Atomically claim a webhook event BEFORE any side effects run. "claimed" → the caller owns it
+   * (reconcile, then complete — or release on failure); "duplicate" → already fully processed;
+   * "in_flight" → another worker holds a live claim.
+   */
+  claimEvent(eventId: string, appUserId: string, payload: unknown): Promise<EventClaim>;
+  /** Commit a claimed event after successful reconciliation (the duplicate guard from then on). */
+  completeEvent(eventId: string): Promise<void>;
+  /** Release a claimed event after a failed reconciliation so the sender's retry can re-claim it. */
+  releaseEvent(eventId: string): Promise<void>;
   /** Write entitlement state via the narrow SECURITY DEFINER RPC. */
   setEntitlement(
     userId: string,

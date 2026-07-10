@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { handleWebhook } from "./handler.ts";
-import type { EntitlementStore } from "../_shared/store.ts";
+import type { EntitlementStore, EventClaim } from "../_shared/store.ts";
 import type { RevenueCatClient, RcSubscriber } from "../_shared/revenuecat.ts";
 
 const TOKEN = "secret-webhook-token";
@@ -16,22 +16,34 @@ const inactiveSub: RcSubscriber = { entitlements: {} };
 type Write = { userId: string; stillSync: boolean; source: string };
 
 function mockStore() {
-  const events = new Set<string>();
+  const events = new Map<string, "processing" | "completed">();
   const writes: Write[] = [];
   const payloads: unknown[] = [];
+  const released: string[] = [];
   const store: EntitlementStore = {
-    recordEvent(eventId, _appUserId, payload) {
-      if (events.has(eventId)) return Promise.resolve(false);
-      events.add(eventId);
+    claimEvent(eventId, _appUserId, payload): Promise<EventClaim> {
+      const existing = events.get(eventId);
+      if (existing === "completed") return Promise.resolve("duplicate");
+      if (existing === "processing") return Promise.resolve("in_flight");
+      events.set(eventId, "processing");
       payloads.push(payload);
-      return Promise.resolve(true);
+      return Promise.resolve("claimed");
+    },
+    completeEvent(eventId) {
+      events.set(eventId, "completed");
+      return Promise.resolve();
+    },
+    releaseEvent(eventId) {
+      released.push(eventId);
+      events.delete(eventId);
+      return Promise.resolve();
     },
     setEntitlement(userId, stillSync, source) {
       writes.push({ userId, stillSync, source });
       return Promise.resolve();
     },
   };
-  return { store, writes, payloads };
+  return { store, writes, payloads, released };
 }
 
 function mockRc(subs: Record<string, RcSubscriber | null>): RevenueCatClient {
@@ -75,16 +87,27 @@ Deno.test("bad token → 401, no writes", async () => {
   assertEquals(writes.length, 0);
 });
 
-Deno.test("duplicate event id → processed once (idempotent)", async () => {
+Deno.test("duplicate event id → side effects run once, replay short-circuits", async () => {
   const { store, writes } = mockStore();
   const body = { event: { id: "dup", type: "INITIAL_PURCHASE", app_user_id: A } };
   const deps = { token: TOKEN, store, rc: mockRc({ [A]: activeSub }) };
   await handleWebhook(req(body), deps);
   const res2 = await handleWebhook(req(body), deps);
-  // The event is recorded after successful reconcile, so duplicates may harmlessly re-run the
-  // idempotent reconcile before the duplicate commit is noticed.
-  assertEquals(writes.length, 2);
+  // The claim commits before side effects, so a replayed delivery re-runs NOTHING.
+  assertEquals(writes.length, 1);
   assertEquals(((await res2.json()) as { status: string }).status, "duplicate");
+});
+
+Deno.test("concurrent replay while the first claim is live → 503, no side effects", async () => {
+  const { store, writes } = mockStore();
+  await store.claimEvent("racing", "", {});
+  const res = await handleWebhook(
+    req({ event: { id: "racing", type: "INITIAL_PURCHASE", app_user_id: A } }),
+    { token: TOKEN, store, rc: mockRc({ [A]: activeSub }) },
+  );
+  assertEquals(res.status, 503);
+  assertEquals((await res.json()).error, "event_in_flight");
+  assertEquals(writes.length, 0);
 });
 
 Deno.test("out-of-order events collapse to current subscriber state", async () => {
@@ -164,41 +187,55 @@ Deno.test("webhook audit log stores a minimized payload, not raw billing/custome
   });
 });
 
-Deno.test("reconcile failure returns 5xx and does not commit the duplicate guard", async () => {
-  const { store, payloads } = mockStore();
-  const rc: RevenueCatClient = {
+Deno.test("reconcile failure → 5xx, claim released, redelivery of the SAME event succeeds", async () => {
+  const { store, writes, released } = mockStore();
+  const failingRc: RevenueCatClient = {
     getSubscriber: () => Promise.reject(new Error("RevenueCat timeout")),
   };
-  const res = await handleWebhook(
-    req({ event: { id: "retry-me", type: "INITIAL_PURCHASE", app_user_id: A } }),
-    { token: TOKEN, store, rc },
-  );
+  const body = { event: { id: "retry-me", type: "INITIAL_PURCHASE", app_user_id: A } };
+  const res = await handleWebhook(req(body), { token: TOKEN, store, rc: failingRc });
   assertEquals(res.status, 500);
   assertEquals((await res.json()).error, "reconcile_failed");
-  assertEquals(payloads.length, 0);
+  assertEquals(released, ["retry-me"]);
+  assertEquals(writes.length, 0);
+
+  // RevenueCat's retry of the same event must then be processed — not hidden as a duplicate.
+  const retry = await handleWebhook(req(body), { token: TOKEN, store, rc: mockRc({ [A]: activeSub }) });
+  assertEquals(retry.status, 200);
+  assertEquals(((await retry.json()) as { status: string }).status, "ok");
+  assertEquals(writes, [{ userId: A, stillSync: true, source: "webhook" }]);
 });
 
-Deno.test("entitlement DB write failure returns 500 and does not commit the duplicate guard", async () => {
-  // getSubscriber succeeds, but the DB write (setEntitlement) throws — the event must stay retriable,
-  // so no audit row is committed and RevenueCat receives a 5xx to retry.
-  const events = new Set<string>();
-  const payloads: unknown[] = [];
-  const store: EntitlementStore = {
-    recordEvent(eventId, _appUserId, payload) {
-      if (events.has(eventId)) return Promise.resolve(false);
-      events.add(eventId);
-      payloads.push(payload);
-      return Promise.resolve(true);
-    },
+Deno.test("entitlement DB write failure returns 500 and releases the claim", async () => {
+  // getSubscriber succeeds, but the DB write (setEntitlement) throws — the event must stay
+  // retriable, so the claim is released and RevenueCat receives a 5xx to retry.
+  const { store, released } = mockStore();
+  const failing: EntitlementStore = {
+    ...store,
     setEntitlement: () => Promise.reject(new Error("db write failed")),
   };
   const res = await handleWebhook(
     req({ event: { id: "db-fail", type: "INITIAL_PURCHASE", app_user_id: A } }),
-    { token: TOKEN, store, rc: mockRc({ [A]: activeSub }) },
+    { token: TOKEN, store: failing, rc: mockRc({ [A]: activeSub }) },
   );
   assertEquals(res.status, 500);
   assertEquals((await res.json()).error, "reconcile_failed");
-  assertEquals(payloads.length, 0);
+  assertEquals(released, ["db-fail"]);
+});
+
+Deno.test("claim failure → 500 with no side effects (event stays retriable)", async () => {
+  const { store, writes } = mockStore();
+  const failing: EntitlementStore = {
+    ...store,
+    claimEvent: () => Promise.reject(new Error("db down")),
+  };
+  const res = await handleWebhook(
+    req({ event: { id: "no-claim", type: "INITIAL_PURCHASE", app_user_id: A } }),
+    { token: TOKEN, store: failing, rc: mockRc({ [A]: activeSub }) },
+  );
+  assertEquals(res.status, 500);
+  assertEquals((await res.json()).error, "reconcile_failed");
+  assertEquals(writes.length, 0);
 });
 
 Deno.test("malformed JSON body → 400", async () => {

@@ -1,11 +1,12 @@
 import { constantTimeEqual } from "../_shared/token.ts";
 import { type RevenueCatClient, stillProActive } from "../_shared/revenuecat.ts";
-import { type EntitlementStore, jsonResponse } from "../_shared/store.ts";
+import { type EntitlementStore, type EventClaim, jsonResponse } from "../_shared/store.ts";
 import { affectedUuids, isUuid, type RcWebhookBody, type RcWebhookEvent } from "../_shared/types.ts";
 
 // RevenueCat webhook (verify_jwt=false). Gated by a constant-time static-token compare (KTD5),
-// idempotent on the event id, and ALWAYS derives entitlement from a server-side subscriber lookup
-// — never from raw webhook fields or client-posted customerInfo.
+// idempotent on the event id via an atomic claim taken BEFORE side effects, and ALWAYS derives
+// entitlement from a server-side subscriber lookup — never from raw webhook fields or
+// client-posted customerInfo.
 
 export interface WebhookDeps {
   readonly token: string;
@@ -36,10 +37,23 @@ export async function handleWebhook(req: Request, deps: WebhookDeps): Promise<Re
 
   const uuids = affectedUuids(event);
 
+  // Claim the event BEFORE side effects so a replayed delivery cannot re-run the RevenueCat
+  // lookups and entitlement writes (workload idempotency). A failed reconcile RELEASES the claim,
+  // keeping transient failures retriable — the property the old record-after ordering existed
+  // for. The stored payload is minimized; raw RevenueCat webhook bodies may contain
+  // billing/subscriber metadata we do not need for entitlement projection.
+  let claim: EventClaim;
+  try {
+    claim = await deps.store.claimEvent(event.id, uuids[0] ?? "", redactedWebhookAuditPayload(event));
+  } catch (error) {
+    console.error("revenuecat-webhook claim failed:", error);
+    return jsonResponse(500, { error: "reconcile_failed" });
+  }
+  if (claim === "duplicate") return jsonResponse(200, { status: "duplicate" });
+  if (claim === "in_flight") return jsonResponse(503, { error: "event_in_flight" });
+
   try {
     // Reconcile every affected UUID from canonical subscriber state (collapses out-of-order races).
-    // The event is recorded only after successful reconciliation, so a transient RevenueCat/DB
-    // failure remains retriable instead of being permanently hidden behind the duplicate guard.
     for (const uuid of uuids) {
       const subscriber = await deps.rc.getSubscriber(uuid);
       await deps.store.setEntitlement(
@@ -49,13 +63,16 @@ export async function handleWebhook(req: Request, deps: WebhookDeps): Promise<Re
         subscriber?.original_app_user_id ?? null,
       );
     }
-
-    // Idempotency/audit commit. Store only a minimized payload; raw RevenueCat webhook bodies may
-    // contain billing/subscriber metadata we do not need for entitlement projection.
-    const isNew = await deps.store.recordEvent(event.id, uuids[0] ?? "", redactedWebhookAuditPayload(event));
-    if (!isNew) return jsonResponse(200, { status: "duplicate" });
+    await deps.store.completeEvent(event.id);
   } catch (error) {
     console.error("revenuecat-webhook reconcile failed:", error);
+    // Best-effort release so the sender's retry can re-claim immediately; if this also fails, the
+    // stale-claim takeover (5 min, migration 0011) unwedges the event.
+    try {
+      await deps.store.releaseEvent(event.id);
+    } catch (releaseError) {
+      console.error("revenuecat-webhook release failed:", releaseError);
+    }
     return jsonResponse(500, { error: "reconcile_failed" });
   }
   return jsonResponse(200, { status: "ok", reconciled: uuids.length });
