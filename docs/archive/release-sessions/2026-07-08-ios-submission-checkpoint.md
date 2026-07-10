@@ -1,5 +1,8 @@
 # Release Session Checkpoint - 2026-07-08
 
+> Archived historical handoff. It does not describe current repository or store state. See
+> [`../../release/VALIDATION.md`](../../release/VALIDATION.md) for current evidence.
+
 This is the current handoff after the iOS App Store submission walkthrough.
 
 ## Current Focus
@@ -70,11 +73,11 @@ Apple sandbox purchase could not be completed, so RevenueCat's dashboard grant w
 release-critical entitlement spine without charging.
 
 - Test account:
-  - Supabase email: `zack+sandbox2@cadmuslabs.co`
-  - Supabase user id: `2a592992-74b2-4b6d-b425-cf5db63510a5`
+  - Supabase email: `REDACTED_TEST_ACCOUNT`
+  - Supabase user id: `REDACTED_TEST_USER_ID`
 - RevenueCat customer:
-  - Original app user id: `$RCAnonymousID:9d7f621d8c8a4f06883c1437a5bfcbda`
-  - Alias/app user id: `2a592992-74b2-4b6d-b425-cf5db63510a5`
+  - Original app user id: `REDACTED_REVENUECAT_USER_ID`
+  - Alias/app user id: `REDACTED_TEST_USER_ID`
 - RevenueCat promotional entitlement:
   - Entitlement: `still_sync`
   - Product identifier: `rc_promo_still_sync_weekly`
@@ -99,7 +102,7 @@ configuration.
 
 ## Local Repo State
 
-Workspace: `/Users/zack/Projects/still-app`
+Workspace: `REPOSITORY_ROOT`
 
 Known local modifications:
 

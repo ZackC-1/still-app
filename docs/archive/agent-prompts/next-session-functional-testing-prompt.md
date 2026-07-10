@@ -1,5 +1,8 @@
 # Fresh Session Prompt - Functional Testing Across Surfaces
 
+> Archived prompt. The described work is complete; do not use this as current release guidance. See
+> [`../../release/VALIDATION.md`](../../release/VALIDATION.md).
+
 Use this prompt to continue in a fresh Codex session.
 
 ```text
@@ -10,13 +13,13 @@ in the app, Safari, App Store Connect, RevenueCat, Supabase, Xcode, Chrome, and 
 Use the local repo to inspect/debug issues and make code/doc updates when needed.
 
 Repo:
-- /Users/zack/Projects/still-app
+- REPOSITORY_ROOT
 
 Before doing anything, read these files:
-- /Users/zack/Projects/still-app/docs/release/2026-07-08-ios-submission-checkpoint.md
-- /Users/zack/Projects/still-app/docs/release/06-mobile-blocking-validation.md
-- /Users/zack/Projects/still-app/docs/release/01-apple-app-store.md
-- /Users/zack/Projects/still-app/docs/release/04-revenuecat.md
+- REPOSITORY_ROOT/docs/release/2026-07-08-ios-submission-checkpoint.md
+- REPOSITORY_ROOT/docs/release/06-mobile-blocking-validation.md
+- REPOSITORY_ROOT/docs/release/01-apple-app-store.md
+- REPOSITORY_ROOT/docs/release/04-revenuecat.md
 
 Current release state:
 - iOS is first priority; macOS next; Chrome/Firefox after Apple.
@@ -31,8 +34,8 @@ Current release state:
   not stay signed in, even with a newly created sandbox tester. Treat this as a sandbox/device auth
   issue unless new evidence points to the app.
 - RevenueCat dashboard promotional entitlement was granted to test account
-  `zack+sandbox2@cadmuslabs.co` / Supabase user id
-  `2a592992-74b2-4b6d-b425-cf5db63510a5`.
+  `REDACTED_TEST_ACCOUNT` / Supabase user id
+  `REDACTED_TEST_USER_ID`.
 - After sign-in, the app showed `Synced across your devices`.
 - Backend verification confirmed `public.entitlements.still_sync = true`, `source = reconcile`,
   updated at `2026-07-09 01:16:56.864474+00`.

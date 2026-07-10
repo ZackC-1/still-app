@@ -164,7 +164,7 @@ Docs: [Submitting for review](https://developer.apple.com/help/app-store-connect
 
 ### Current submission checkpoint
 
-- [x] iOS version 1.0 was submitted for App Review on July 8, 2026 PT.
+- [ ] App Review submission is intentionally pending while release timing is finalized.
 - [x] iOS build 2 selected and saved.
 - [x] `still_sync` attached to the iOS version and `Ready to Submit`.
 - [x] iPhone screenshots accepted.
@@ -199,6 +199,6 @@ Docs: [Submitting for review](https://developer.apple.com/help/app-store-connect
       entitlement (verify in [`04-revenuecat.md` §6](04-revenuecat.md)).
 
 > July 8, 2026 PT note: StoreKit price loading was verified (`Unlock Pro - $1.99`) and the
-> RevenueCat → Supabase → app entitlement spine was verified with a RevenueCat promotional grant for
-> `zack+sandbox2@cadmuslabs.co`. A real Apple sandbox purchase is still not proven because the test
-> device's sandbox Apple Account would not stay signed in.
+> RevenueCat → Supabase → app entitlement spine was verified with a promotional grant to a dedicated
+> test account. Account identifiers are intentionally omitted. A real Apple sandbox purchase is still
+> not proven because the test device's sandbox Apple Account would not stay signed in.

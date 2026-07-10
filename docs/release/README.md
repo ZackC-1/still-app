@@ -1,4 +1,4 @@
-# Still — Release Runbook (first-time launch)
+# Still — Release Runbook
 
 A follow-along, check-off guide to shipping **Still** to every store. Written for a first
 app release — each step says exactly where to click, the exact value to enter for *this* app,
@@ -14,37 +14,29 @@ and the official URL. Work top-to-bottom; check boxes as you go.
 
 | # | Track | What ships | Pro purchase path | Status today |
 |---|-------|-----------|-------------------|--------------|
-| 1 | **Apple App Store** (iOS + Mac) — [`01-apple-app-store.md`](01-apple-app-store.md) | Native app + Safari extension + **$1.99 IAP** | StoreKit 2 → RevenueCat | iOS submitted for review; macOS next; full functional testing in progress |
-| 2 | **Chrome Web Store** — [`02-chrome-web-store.md`](02-chrome-web-store.md) | Chromium extension **+ Pro purchase** | RevenueCat **Web Billing** | Purchase spine shipped (PR #34); gated on the deploy checklist |
-| 3 | **Firefox Add-ons (AMO)** — [`03-firefox-amo.md`](03-firefox-amo.md) | Firefox extension (MV3) **+ Pro purchase** | RevenueCat **Web Billing** | Purchase spine shipped (PR #34); manifest declares auth data |
-| 4 | **RevenueCat** — [`04-revenuecat.md`](04-revenuecat.md) | Cross-platform $1.99 entitlement | — | Configure once; powers Apple **and** web Pro |
-| 5 | **Mobile blocking validation** — [`06-mobile-blocking-validation.md`](06-mobile-blocking-validation.md) | On-device YouTube-Shorts check (all mobile) | — | **REQUIRED gate** before any store submit — CI can't cover it |
+| 1 | **Apple App Store** (iOS + Mac) — [`01-apple-app-store.md`](01-apple-app-store.md) | Native app + Safari extension + **$1.99 IAP** | StoreKit 2 → RevenueCat | Local/device validation passed; review submission intentionally pending |
+| 2 | **Chrome Web Store** — [`02-chrome-web-store.md`](02-chrome-web-store.md) | Chromium extension **+ Pro purchase** | RevenueCat **Web Billing** | Local functional validation passed; store submission pending |
+| 3 | **Firefox Add-ons (AMO)** — [`03-firefox-amo.md`](03-firefox-amo.md) | Firefox extension (MV3) **+ Pro purchase** | RevenueCat **Web Billing** | Desktop functional validation passed; store submission pending |
+| 4 | **RevenueCat** — [`04-revenuecat.md`](04-revenuecat.md) | Cross-platform $1.99 entitlement | — | Entitlement integration validated; portal operations remain human-gated |
+| 5 | **Mobile blocking validation** — [`06-mobile-blocking-validation.md`](06-mobile-blocking-validation.md) | On-device YouTube-Shorts check (all mobile) | — | Physical-iPhone validation passed; rerun after release changes |
 | — | **Google Play** (future) — [`05-future-google-play.md`](05-future-google-play.md) | — | — | **No Android app exists** — documented as future work |
 
 > **Read [`04-revenuecat.md`](04-revenuecat.md) early.** RevenueCat is the shared spine for Pro on
 > *every* platform. Apple IAP Pro and web Pro both resolve to the same `still_sync` entitlement.
 
-### ⚠️ One thing to verify before web Pro goes live
+## Current validation
 
-The web checkout (`create-web-checkout`) now builds a RevenueCat **Web Purchase Link**
-(`https://pay.rev.cat/<token>/<user-uuid>?package_id=still_sync_web`). The previous code POSTed to a
-checkout API that does not exist and would have 502'd every web purchase — fixed in this PR. You must
-still confirm `REVENUECAT_WEB_BILLING_CHECKOUT_URL` matches your live Purchase Link and sandbox-test
-the open→pay→entitlement flow. See [`04-revenuecat.md` §3](04-revenuecat.md).
+The canonical automated and manual result is [VALIDATION.md](VALIDATION.md). Dated checkpoints and
+agent handoffs are retained under [`../archive/`](../archive/README.md) for history only; they are not
+current release instructions.
+
+Before web Pro goes live, confirm `REVENUECAT_WEB_BILLING_CHECKOUT_URL` matches the live RevenueCat
+Purchase Link and sandbox-test the open → pay → entitlement flow. See
+[`04-revenuecat.md` §3](04-revenuecat.md).
 
 ---
 
 ## Recommended order for a first launch
-
-> **Current checkpoint:** iOS version 1.0 was submitted for App Review on July 8, 2026 PT. Continue
-> from [`2026-07-08-ios-submission-checkpoint.md`](2026-07-08-ios-submission-checkpoint.md). For a
-> fresh Codex session, paste
-> [`next-session-functional-testing-prompt.md`](next-session-functional-testing-prompt.md).
-> After the updated build is ready, resume from
-> [`2026-07-09-release-testing-checkpoint.md`](2026-07-09-release-testing-checkpoint.md) and paste
-> [`next-session-after-updated-build-testing-prompt.md`](next-session-after-updated-build-testing-prompt.md).
-> Record current pass/fail evidence in
-> [`2026-07-09-functional-testing-matrix.md`](2026-07-09-functional-testing-matrix.md).
 
 1. **RevenueCat dashboard config** ([`04`](04-revenuecat.md)) — products, the `still_sync` entitlement,
    Apple `.p8`, Web Billing + Purchase Link, webhook. Nothing monetized works until this exists.
@@ -57,14 +49,11 @@ the open→pay→entitlement flow. See [`04-revenuecat.md` §3](04-revenuecat.md
    on-device gate**: verify YouTube-Shorts blocking on a real iPhone (Safari) and Firefox Android
    *before* submitting any store build. CI runs headless Chromium against fixtures and cannot cover it.
 
-> **The extension Pro purchase now ships (PR #34).** The browser extensions have the full in-product
-> "Unlock Pro" flow — email-OTP sign-in, the RevenueCat Web Billing checkout hand-off, entitlement +
-> settings sync. It is **code-complete**; what remains is human/portal work in
-> [`extension-purchase-deploy-checklist.md`](extension-purchase-deploy-checklist.md) (custom SMTP so
-> OTP emails send, the `{{ .Token }}` email-template line, the Web Billing product/secret, store
-> listing disclosures). Until that portal work is done, an unconfigured build fails safe to the free
-> Shorts remover — so you *can* launch free-first by shipping without the prod `.env`, but the Pro
-> code is there the moment the checklist is complete.
+The browser extensions include the full in-product "Unlock Pro" flow: email-OTP sign-in, the
+RevenueCat Web Billing checkout hand-off, entitlement, and settings sync. Remaining human/portal
+work is tracked in
+[`extension-purchase-deploy-checklist.md`](extension-purchase-deploy-checklist.md). An unconfigured
+build fails safe to the free Shorts remover.
 
 ---
 
@@ -120,10 +109,15 @@ in each track and in `docs/CONNECTIONS.md`.
 
 ---
 
-## Deploy the latest backend before any store testing
+## Deploy the latest backend before client testing
 
-The monetization remediation (PR #24) is merged. Before sandbox-testing purchases, deploy the
-functions and the new RLS migration, and set the two new web-billing secrets:
+Every environment receiving the current clients must include migration
+`0009_profile_settings_server_clock.sql`, which supplies `write_profile_settings` and the profile
+sync metadata columns. Store submission may wait; this database migration may not wait once a client
+is installed in that environment.
+
+Before sandbox-testing purchases, deploy the functions, push migrations, and set the web-billing
+secrets:
 
 ```bash
 supabase secrets set \
@@ -132,7 +126,8 @@ supabase secrets set \
   --project-ref kikpgrreradotvvefdgd
 supabase functions deploy revenuecat-webhook --project-ref kikpgrreradotvvefdgd \
   --import-map supabase/functions/deno.json
-supabase db push --project-ref kikpgrreradotvvefdgd            # applies 0008 RLS (entitled-write gate)
+supabase link --project-ref kikpgrreradotvvefdgd
+supabase db push                                                # includes migration 0009
 supabase functions deploy create-web-checkout --project-ref kikpgrreradotvvefdgd \
   --import-map supabase/functions/deno.json
 ```

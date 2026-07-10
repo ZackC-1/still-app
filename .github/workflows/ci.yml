@@ -42,16 +42,16 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Lint
-        run: pnpm -r --if-present lint
+        run: pnpm lint
 
       - name: Typecheck
-        run: pnpm -r --if-present typecheck
+        run: pnpm typecheck
 
       - name: Unit tests
-        run: pnpm -r --if-present test
+        run: pnpm test
 
       - name: Build (produces both extension dist/ folders)
-        run: pnpm -r --if-present build
+        run: pnpm build
 
   functions:
     name: Supabase Edge Functions (Deno)
@@ -106,7 +106,7 @@ jobs:
 
       - name: Build extensions
         if: steps.detect.outputs.present == 'true'
-        run: pnpm -r --if-present build
+        run: pnpm build
 
       - name: Install Playwright Chromium
         if: steps.detect.outputs.present == 'true'

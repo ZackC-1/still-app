@@ -1,7 +1,7 @@
 # Release Session Checkpoint - 2026-07-07
 
-> Superseded by `docs/release/2026-07-08-ios-submission-checkpoint.md`, which records the iOS
-> submission, Supabase CORS fix, RevenueCat entitlement validation, and next functional-testing plan.
+> Archived historical handoff. It does not describe current repository or store state. See
+> [`../../release/VALIDATION.md`](../../release/VALIDATION.md) for current evidence.
 
 This file captures the exact release state when the walkthrough paused.
 
@@ -56,7 +56,7 @@ Suggested App Review sign-in handling:
 
 - The app uses email code sign-in, not a password.
 - Use reviewer notes to explain: "The app uses email code sign-in. Enter the email, request a code, and use the emailed code to sign in."
-- We need decide whether to use `zchartash@gmail.com` or a dedicated reviewer/demo email.
+- We need decide whether to use `REDACTED_TEST_ACCOUNT` or a dedicated reviewer/demo email.
 - If App Store Connect requires a password value, use a non-secret placeholder such as `Code sent by email`, and explain in Review Notes.
 
 ## RevenueCat State
@@ -86,12 +86,12 @@ Open issue:
 
 - Supabase project ref: `kikpgrreradotvvefdgd`
 - Policies for `profiles` were checked and looked correct.
-- Auth user exists for `zchartash@gmail.com`.
+- Auth user exists for `REDACTED_TEST_ACCOUNT`.
 - `public.entitlements` had no rows when checked.
 
 Open issue:
 
-- On iPhone, after signing in with `zchartash@gmail.com`, Still showed `Sync paused - no connection`.
+- On iPhone, after signing in with `REDACTED_TEST_ACCOUNT`, Still showed `Sync paused - no connection`.
 - Code inspection showed this comes from `SyncService` when:
   - `reconcile-entitlement` throws, or
   - `readEntitlement()` returns `unknown`.
@@ -103,12 +103,12 @@ Open issue:
 - iPhone device was connected and visible to CoreDevice.
 - YouTube Shorts blocking works on iOS with Safari.
 - Instagram/TikTok/Facebook Pro unlock testing is blocked until purchase/entitlement is working.
-- Sandbox tester exists: `zack+1@cadmuslabs.co`.
+- Sandbox tester exists: `REDACTED_SANDBOX_TESTER`.
 - Do not store or rely on old sandbox password values; user said password was reset/ready.
 
 ## Local Repo State
 
-Workspace: `/Users/zack/Projects/still-app`
+Workspace: `REPOSITORY_ROOT`
 
 One local code edit was made:
 

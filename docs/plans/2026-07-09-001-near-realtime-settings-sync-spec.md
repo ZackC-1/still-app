@@ -1,12 +1,15 @@
 ---
 title: "feat: near-realtime settings sync with server-authoritative ordering"
 type: feat
-status: proposed
+status: implemented
 date: 2026-07-09
 owner: autonomous-agent
 ---
 
 # feat: near-realtime settings sync with server-authoritative ordering
+
+> Historical implementation specification. The feature is implemented on `main`; current release
+> evidence is recorded in [`../release/VALIDATION.md`](../release/VALIDATION.md).
 
 ## Summary
 
@@ -533,7 +536,7 @@ Required scenarios:
 
 ## Manual Release Validation
 
-Use the entitled account `zack+sandbox2@cadmuslabs.co`.
+Use a dedicated entitled test account. Do not record its email or user identifier in the repository.
 
 ### iOS to macOS
 
