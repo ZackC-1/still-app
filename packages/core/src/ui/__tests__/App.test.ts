@@ -154,6 +154,36 @@ describe("App", () => {
     expect(document.querySelector("input.email")).toBeTruthy(); // now in the modal
   });
 
+  it("the sign-in form exposes native email metadata and a visible label", async () => {
+    const c = controller({ auth: codeCapableAuth() });
+    render(App, { props: { controller: c } });
+    await fireEvent.click(screen.getByText("Sign in to Still"));
+
+    const email = screen.getByLabelText(STRINGS.auth.emailLabel) as HTMLInputElement;
+    expect(email.name).toBe("email");
+    expect(email.autocomplete).toBe("email");
+    expect(email.spellcheck).toBe(false);
+    expect(email.getAttribute("autocapitalize")).toBe("none");
+  });
+
+  it("the sign-in dialog traps reverse tab navigation and has a semantic backdrop", async () => {
+    const c = controller({ auth: codeCapableAuth() });
+    render(App, { props: { controller: c } });
+    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await tick();
+
+    const dialog = screen.getByRole("dialog");
+    const email = screen.getByLabelText(STRINGS.auth.emailLabel);
+    expect(document.activeElement).toBe(email);
+    await fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(
+      within(dialog).getByText(STRINGS.auth.notNow),
+    );
+    expect(
+      screen.getByRole("button", { name: STRINGS.auth.dismissLabel }),
+    ).toBeTruthy();
+  });
+
   it("a host without auth (the extensions, pre-U10) gets no sign-in CTA — only the explanatory note", () => {
     // A sign-in button with no auth wired behind it would silently do nothing.
     const c = controller({ host: { canPurchase: false } }); // auth: undefined
