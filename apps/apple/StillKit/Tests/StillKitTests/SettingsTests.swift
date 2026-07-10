@@ -50,6 +50,38 @@ final class SettingsTests: XCTestCase {
     XCTAssertFalse(store.current().globalOn)
   }
 
+  /// Issue: a synced user's popup/extension edit stamps a newer settings.updatedAt but keeps the
+  /// same sync metadata (version + serverUpdatedAt). shouldApply must accept it on an equal server
+  /// base, or those edits are silently dropped — matching the web SettingsCache's LWW fallthrough.
+  func testMetadataTieBreaksOnSettingsUpdatedAt() {
+    let store = SharedSettingsStore(backing: InMemoryBacking())
+    let meta = SettingsSyncMetadata(version: 3, serverUpdatedAt: "2026-07-09T18:00:00.000Z", lastWriteId: "w1")
+    store.saveRecord(StoredSettingsRecord(
+      settings: StillSettings(globalOn: true, services: StillServices(), pauses: [], updatedAt: 100),
+      syncMetadata: meta))
+
+    // A local dirty edit: same metadata, newer settings.updatedAt, changed content → must win.
+    let localEdit = StoredSettingsRecord(
+      settings: StillSettings(globalOn: false, services: StillServices(), pauses: [], updatedAt: 200),
+      syncMetadata: meta)
+    XCTAssertTrue(store.applyRecord(localEdit))
+    XCTAssertFalse(store.current().globalOn)
+
+    // An older-timestamped same-metadata write is still ignored.
+    let stale = StoredSettingsRecord(
+      settings: StillSettings(globalOn: true, services: StillServices(), pauses: [], updatedAt: 150),
+      syncMetadata: meta)
+    XCTAssertFalse(store.applyRecord(stale))
+    XCTAssertFalse(store.current().globalOn)
+
+    // A higher server version still wins regardless of settings.updatedAt (server authority).
+    let newerServer = StoredSettingsRecord(
+      settings: StillSettings(globalOn: true, services: StillServices(), pauses: [], updatedAt: 10),
+      syncMetadata: SettingsSyncMetadata(version: 4, serverUpdatedAt: "2026-07-09T17:00:00.000Z", lastWriteId: "w2"))
+    XCTAssertTrue(store.applyRecord(newerServer))
+    XCTAssertTrue(store.current().globalOn)
+  }
+
   /// A web-written JSON blob decodes into the Swift model (interop direction: web → native).
   func testDecodesWebWrittenJSON() throws {
     let json = """
