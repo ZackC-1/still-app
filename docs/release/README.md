@@ -65,7 +65,7 @@ build fails safe to the free Shorts remover.
 | Apple Developer Program ($99/yr) | Track 1 | ✅ Enrolled — team **UM9HVDH3P3** |
 | A Mac with **Xcode 16+** | Track 1 | Required for all App Store uploads (2025+) |
 | A physical iPhone + Mac to test | Tracks 1 & 6 | Safari-extension review + mobile-Shorts validation need real on-device proof |
-| A physical Android device (or emulator) with Firefox | Track 6 | Firefox-Android mobile-Shorts validation ([`06`](06-mobile-blocking-validation.md)) |
+| A physical Android device (or emulator) with Firefox | Future Firefox Android | Not required for the desktop-only launch; validate before adding `gecko_android` ([`06`](06-mobile-blocking-validation.md)) |
 | Chrome Web Store dev account ($5 one-time) | Track 2 | [chrome.google.com/webstore/devconsole](https://chrome.google.com/webstore/devconsole) |
 | Firefox AMO account (free) | Track 3 | [addons.mozilla.org/developers](https://addons.mozilla.org/developers/) |
 | RevenueCat account (**Pro plan** for webhooks) | Track 4 | [app.revenuecat.com](https://app.revenuecat.com) |
