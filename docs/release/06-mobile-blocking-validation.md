@@ -1,13 +1,14 @@
-# Track 6 — Mobile short-form blocking: on-device validation (REQUIRED)
+# Track 6 — Mobile short-form blocking: Safari launch gate + future Firefox Android
 
 Removing **YouTube Shorts is the free-tier core promise**, and mobile is historically Still's
-**weakest surface** — the one place CI can't reach. This checklist is the on-device gate that mobile
-blocking actually works before any store submission. **Do not ship a store build without it.**
+**weakest surface** — the one place CI can't reach. The required launch gate covers iPhone Safari,
+the only mobile surface advertised at launch. Firefox Android is a future validation track and does
+not block the desktop-only AMO submission.
 
 > **Why this can't be skipped.** Every automated test (Playwright fixtures, engine/redirect units)
 > runs in **headless Chromium against synthetic mobile-DOM fixtures**. That proves the selectors and
-> the redirect logic are correct, but it cannot exercise a real iOS Safari or Firefox-Android runtime,
-> where the load-bearing risk lives (a `document_start` content script running late on a direct Short
+> redirect logic are correct, but it cannot exercise a real iOS Safari runtime, where the launch's
+> load-bearing mobile risk lives (a `document_start` content script running late on a direct Short
 > nav, or the mobile DOM having drifted from the seed selectors). This was GitHub issue #28.
 
 **What the code does today** (so you know what "working" looks like):
@@ -26,8 +27,8 @@ blocking actually works before any store submission. **Do not ship a store build
 | Need | For |
 |------|-----|
 | A physical **iPhone** + a **Mac** with Safari | iOS Safari validation (tether for Web Inspector) |
-| A physical **Android** device (or emulator) with **Firefox for Android** | Firefox-Android validation |
-| The build enabled on-device | iOS: the app's Safari extension enabled in Settings; Firefox: the add-on installed |
+| A physical **Android** device (or emulator) with **Firefox for Android** | Future Firefox-Android validation only |
+| The build enabled on-device | iOS: the app's Safari extension enabled in Settings; future Firefox: the add-on installed |
 
 > **Chrome Android is not a surface.** Chrome for Android does not support extensions, so there is no
 > mobile-Chrome YouTube case to validate — the Chrome Web Store build is desktop-only. (Kiwi/other
@@ -67,10 +68,11 @@ Run on a real iPhone with the Still app installed and its Safari extension enabl
 
 ---
 
-## B. Firefox for Android — `m.youtube.com` (free tier; PR #36)
+## B. Firefox for Android — future compatibility gate (not required for launch)
 
 Firefox has **no DNR redirect**, so PR #36 wired `redirectBeforeHydration` on the Firefox build — this
-validates that fix on a real device.
+validates that fix on a real device. Complete this section before adding `gecko_android` to a future
+manifest; the launch AMO build deliberately omits that key and is desktop-only.
 
 1. [ ] Install the add-on on Firefox for Android (from AMO once listed, or a temporary install for a
        pre-submit smoke test).
@@ -79,8 +81,8 @@ validates that fix on a real device.
 3. [ ] **Shelf + nav removed** on the m.youtube.com home feed (same as iOS steps 3–4).
 4. [ ] **Off/paused honored** (same as iOS step 6).
 
-> Firefox-Android is a small surface (most mobile YouTube is the native app, which no extension can
-> touch), but it's the one non-iOS mobile surface Still reaches — validate it once per release.
+> Firefox-Android is not advertised or distributed at launch. Once introduced, validate it on every
+> release that changes blocking, authentication, or extension UI behavior.
 
 ---
 
@@ -101,7 +103,8 @@ live), confirm the Pro mobile surfaces on the mobile hosts:
 
 - [ ] iOS Safari `m.youtube.com`: redirect (direct + in-app), shelf, and nav all verified on a physical
       iPhone; off/paused honored.
-- [ ] Firefox Android `m.youtube.com`: redirect + removal verified on a real device.
+- [ ] Before a future Android-compatible AMO build: Firefox Android `m.youtube.com` redirect + removal
+      verified on a real device.
 - [ ] Pro mobile surfaces (IG/FB/TikTok) verified for an entitled user; free user sees only YouTube gone.
 - [ ] Any selector drift found was fixed via the OTA rule-set and re-tested (no store resubmission
       needed for rule-set-only fixes).

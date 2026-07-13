@@ -7,10 +7,9 @@ extension as Chrome. Whether Pro is live depends only on the build carrying prod
 
 **Build artifact:** `packages/ext-chromium/dist/firefox-mv3` (MV3; **no** declarativeNetRequest —
 Firefox doesn't reliably support DNR regexSubstitution redirects, so the Shorts redirect uses the
-browser-agnostic content-script path, same as Safari). **PR #36** fires that redirect synchronously at
-`document_start` before hydration on Firefox, so a direct nav to `m.youtube.com/shorts/<id>` on
-**Firefox Android** redirects before the Short plays — validate on-device per
-[`06-mobile-blocking-validation.md`](06-mobile-blocking-validation.md) §B.
+browser-agnostic content-script path, same as Safari). The launch manifest deliberately omits
+`browser_specific_settings.gecko_android`, so AMO lists Still for **desktop Firefox only**. Firefox
+for Android remains a future surface that must be validated separately before it is advertised.
 
 ```bash
 pnpm --filter @still/ext-chromium build:firefox   # → packages/ext-chromium/dist/firefox-mv3
@@ -138,14 +137,14 @@ Docs: [Submitting an add-on](https://extensionworkshop.com/documentation/publish
       build instructions above. ✅ (steps provided)
 - [ ] **Permissions too broad** — scoped to the 4 domains, not `<all_urls>`. ✅
 - [ ] **Missing `gecko.id`** — set. ✅
-- [ ] **Missing data-collection consent** — declared `none`. ✅
+- [ ] **Missing data-collection consent** — declares `authenticationInfo` and requires Firefox 140+. ✅
 - [ ] **Minified with no source** — covered by the source upload. ✅
 
 ## Done when
 
 - [ ] Free YouTube Shorts removal verified on a clean **desktop** Firefox profile (load `dist/firefox-mv3`
       via `about:debugging` → "This Firefox" → "Load Temporary Add-on" for a pre-submit smoke test).
-- [ ] **Firefox Android mobile-Shorts validation passed** on a real device (`m.youtube.com` redirect +
-      removal) — [`06-mobile-blocking-validation.md`](06-mobile-blocking-validation.md) §B. This is the
-      surface PR #36 fixed; verify it before submit.
+- [ ] Generated manifest omits `gecko_android`, and AMO shows the launch version as desktop Firefox
+      only. Complete [`06-mobile-blocking-validation.md`](06-mobile-blocking-validation.md) before a
+      future Android-compatible submission.
 - [ ] Add-on **Approved** and live on AMO.

@@ -45,9 +45,10 @@ Purchase Link and sandbox-test the open → pay → entitlement flow. See
 3. **Chrome Web Store** ([`02`](02-chrome-web-store.md)) — fast ($5, no hardware). Ships the Shorts
    remover **plus** the in-extension Pro purchase (OTP sign-in + Web Billing CTA).
 4. **Firefox AMO** ([`03`](03-firefox-amo.md)) — same extension, same Pro purchase path as Chrome.
-5. **Mobile blocking validation** ([`06`](06-mobile-blocking-validation.md)) — the **required
-   on-device gate**: verify YouTube-Shorts blocking on a real iPhone (Safari) and Firefox Android
-   *before* submitting any store build. CI runs headless Chromium against fixtures and cannot cover it.
+5. **Mobile blocking validation** ([`06`](06-mobile-blocking-validation.md)) — the **required launch
+   gate** is a real iPhone running Safari, the only mobile surface advertised at launch. Firefox
+   Android validation is a future gate before adding `gecko_android` to a later AMO build. CI runs
+   headless Chromium against fixtures and cannot cover either real mobile runtime.
 
 The browser extensions include the full in-product "Unlock Pro" flow: email-OTP sign-in, the
 RevenueCat Web Billing checkout hand-off, entitlement, and settings sync. Remaining human/portal
@@ -64,7 +65,7 @@ build fails safe to the free Shorts remover.
 | Apple Developer Program ($99/yr) | Track 1 | ✅ Enrolled — team **UM9HVDH3P3** |
 | A Mac with **Xcode 16+** | Track 1 | Required for all App Store uploads (2025+) |
 | A physical iPhone + Mac to test | Tracks 1 & 6 | Safari-extension review + mobile-Shorts validation need real on-device proof |
-| A physical Android device (or emulator) with Firefox | Track 6 | Firefox-Android mobile-Shorts validation ([`06`](06-mobile-blocking-validation.md)) |
+| A physical Android device (or emulator) with Firefox | Future Firefox Android | Not required for the desktop-only launch; validate before adding `gecko_android` ([`06`](06-mobile-blocking-validation.md)) |
 | Chrome Web Store dev account ($5 one-time) | Track 2 | [chrome.google.com/webstore/devconsole](https://chrome.google.com/webstore/devconsole) |
 | Firefox AMO account (free) | Track 3 | [addons.mozilla.org/developers](https://addons.mozilla.org/developers/) |
 | RevenueCat account (**Pro plan** for webhooks) | Track 4 | [app.revenuecat.com](https://app.revenuecat.com) |

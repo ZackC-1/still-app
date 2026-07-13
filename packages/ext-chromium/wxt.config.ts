@@ -1,5 +1,18 @@
 import { defineConfig } from "wxt";
 
+export const firefoxBrowserSpecificSettings = {
+  gecko: {
+    id: "still@chartash.com",
+    // Firefox's built-in data-collection consent UI only exists on 140+. Since this build declares
+    // data collection, pin the minimum so no one can install on an older desktop Firefox and sign
+    // in or transmit auth/settings data without that consent screen.
+    strict_min_version: "140.0",
+    // Optional Pro sign-in uses an emailed one-time code and persists a Supabase session. Settings
+    // sync carries only the signed-in user's own Still preferences under that account.
+    data_collection_permissions: { required: ["authenticationInfo"] },
+  },
+};
+
 // WebExtension build for Chromium (Chrome/Edge/Brave/Arc) AND Firefox — both MV3, same entrypoints.
 // Build Chromium with `wxt build` (→ dist/chrome-mv3) and Firefox with `wxt build -b firefox`
 // (→ dist/firefox-mv3). Host permissions are limited to the four service domains — never <all_urls>
@@ -52,31 +65,9 @@ export default defineConfig({
       // Firefox requires a stable add-on id; this is PERMANENT once published on AMO.
       ...(isFirefox
         ? {
-            browser_specific_settings: {
-              gecko: {
-                id: "still@chartash.com",
-                // Firefox's built-in data-collection consent UI only exists on 140+. Since this
-                // build declares data collection (below), pin the minimum to 140 so no one can
-                // install on an older Firefox and sign in / transmit auth+settings data WITHOUT a
-                // consent screen — the exact case Mozilla's built-in-consent docs require handling
-                // (min version / disable collection / custom consent), and an AMO-rejection risk
-                // otherwise.
-                strict_min_version: "140.0",
-                // Mandatory AMO data-collection consent (H1 2026, R11). The purchase spine (plan
-                // U5/U6) signs users in with an emailed one-time code and keeps a Supabase session
-                // in extension storage, so the former ["none"] is no longer true: declare
-                // authentication data. Settings sync transmits only the signed-in user's own Still
-                // settings under that same account — no separate AMO category covers app
-                // preferences today. Re-verify category names against AMO's current list at
-                // submission time (plan risk note).
-                data_collection_permissions: { required: ["authenticationInfo"] },
-              },
-              // Without gecko_android the add-on is desktop-only on AMO — but the release gate
-              // (docs/release/06-mobile-blocking-validation.md) requires validating on Firefox for
-              // Android, and m.youtube.com Shorts removal ships specifically for mobile. Same 140
-              // floor as desktop: the consent UI requirement applies there too.
-              gecko_android: { strict_min_version: "140.0" },
-            },
+            // Deliberately omit gecko_android for launch. AMO therefore lists this build for desktop
+            // Firefox only, matching the product promise that mobile support is Safari-only.
+            browser_specific_settings: firefoxBrowserSpecificSettings,
           }
         : {
             declarative_net_request: {
