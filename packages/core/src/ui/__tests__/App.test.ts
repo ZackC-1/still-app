@@ -132,7 +132,7 @@ describe("App", () => {
     c.userId = "u";
     c.entitled = true;
     render(App, { props: { controller: c } });
-    expect(screen.getByText(/Synced across your devices/)).toBeTruthy();
+    expect(screen.getByText(/Synced across supported devices/)).toBeTruthy();
   });
 
   it("non-Apple host shows the explanatory paywall, never a purchasable CTA (R19)", () => {
@@ -244,7 +244,7 @@ describe("App", () => {
     render(App, { props: { controller: c } });
     expect(screen.queryByText("Sign in to Still")).toBeNull();
     expect(screen.queryByText(STRINGS.paywall.upgradeCta)).toBeNull();
-    expect(screen.getByText(/Synced across your devices/)).toBeTruthy();
+    expect(screen.getByText(/Synced across supported devices/)).toBeTruthy();
   });
 
   it("signed-out upgrade records intent and opens email-code sign-in before paywall", async () => {
@@ -394,7 +394,7 @@ describe("App", () => {
       props: { controller: withPrice, onGet: () => {} },
     });
     expect(
-      within(screen.getByRole("dialog")).getByText(/Unlock Pro · £1\.99/),
+      within(screen.getByRole("dialog")).getByText(/Get Still Pro · £1\.99/),
     ).toBeTruthy();
     unmount();
 
@@ -402,7 +402,7 @@ describe("App", () => {
     noPrice.userId = "u";
     noPrice.openPaywall(); // paywallPrice stays null (price not loaded / non-Apple)
     render(App, { props: { controller: noPrice, onGet: () => {} } });
-    const cta = within(screen.getByRole("dialog")).getByText("Unlock Pro");
+    const cta = within(screen.getByRole("dialog")).getByText("Get Still Pro");
     expect(cta.textContent).not.toContain("·"); // no hardcoded/guessed price
   });
 
@@ -414,7 +414,7 @@ describe("App", () => {
     c.paywallPrice = "$1.99";
     render(App, { props: { controller: c, onGet } });
     const dialog = within(screen.getByRole("dialog"));
-    await fireEvent.click(dialog.getByText(/Unlock Pro ·/)); // the paywall CTA (has the price)
+    await fireEvent.click(dialog.getByText(/Get Still Pro ·/)); // the paywall CTA (has the price)
     expect(onGet).toHaveBeenCalledOnce();
     const inFlight = dialog.getByText(
       /Completing your purchase/,
