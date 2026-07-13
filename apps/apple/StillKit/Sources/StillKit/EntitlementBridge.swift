@@ -15,7 +15,13 @@ import Foundation
 // Wire shape:
 //   web/app → native:  { "kind": "setEntitlement", "entitled": Bool }
 //   extension → native: { "kind": "getEntitlement" }
-//   native → caller:   "{\"entitled\":Bool,\"updatedAt\":Int}" or "" when nothing is stored.
+//   native → caller:   "{\"entitled\":Bool|null,\"installId\":String|null,\"updatedAt\":Int|null}"
+//
+// The reply is an ENVELOPE with all three keys always present (explicit JSON null when absent) —
+// the extension distinguishes "no entitlement record but the app has stamped this install"
+// (installId set, entitled null: the post-reinstall state, issue #63) from "nothing at all"
+// (old app build / degraded App Group: every field null). The legacy "" empty reply is gone;
+// the extension's parser treats it, and any malformed reply, as no signal.
 
 public struct EntitlementRecord: Codable, Equatable, Sendable {
   public let entitled: Bool
@@ -59,6 +65,34 @@ public final class SharedEntitlementStore {
   }
 }
 
+/// The reply envelope for both entitlement requests. Distinct from the STORED shape
+/// (`EntitlementRecord`): all fields are optional, and encoding is hand-written because Swift's
+/// synthesized Codable uses `encodeIfPresent` and silently DROPS nil keys — the wire contract
+/// requires explicit `null` so decoders can rely on all three keys being present.
+public struct EntitlementReplyEnvelope: Equatable, Sendable {
+  public let installId: String?
+  public let entitled: Bool?
+  public let updatedAt: Int?
+
+  public init(installId: String?, record: EntitlementRecord?) {
+    self.installId = installId
+    self.entitled = record?.entitled
+    self.updatedAt = record?.updatedAt
+  }
+}
+
+extension EntitlementReplyEnvelope: Encodable {
+  private enum CodingKeys: String, CodingKey { case installId, entitled, updatedAt }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    // `encode` (not `encodeIfPresent`) so nil serializes as an explicit JSON null.
+    try container.encode(installId, forKey: .installId)
+    try container.encode(entitled, forKey: .entitled)
+    try container.encode(updatedAt, forKey: .updatedAt)
+  }
+}
+
 /// A decoded entitlement bridge request.
 public enum EntitlementRequest: Equatable, Sendable {
   case get
@@ -81,28 +115,32 @@ public enum EntitlementRequest: Equatable, Sendable {
 }
 
 /// Processes entitlement requests against a SharedEntitlementStore. `set` stamps `updatedAt` with
-/// the injected clock (tests pass a fixed one); both requests reply with the stored record JSON.
+/// the injected clock (tests pass a fixed one); both requests reply with the envelope JSON carrying
+/// the install-generation id (issue #63). `installId` is injected like `now` so tests stay pure —
+/// production reads the App-Group marker via `InstallGeneration`.
 public struct EntitlementBridge {
   private let store: SharedEntitlementStore
   private let now: () -> Int
+  private let installId: () -> String?
 
   public init(
     store: SharedEntitlementStore,
-    now: @escaping () -> Int = { Int(Date().timeIntervalSince1970 * 1000) }
+    now: @escaping () -> Int = { Int(Date().timeIntervalSince1970 * 1000) },
+    installId: @escaping () -> String? = { InstallGeneration.current(InstallGeneration.appGroupDefaults()) }
   ) {
     self.store = store
     self.now = now
+    self.installId = installId
   }
 
   public func handle(_ request: EntitlementRequest) -> String {
     switch request {
     case .get:
-      guard let stored = store.peek() else { return "" }
-      return Self.encode(stored)
+      return Self.encode(EntitlementReplyEnvelope(installId: installId(), record: store.peek()))
     case .set(let entitled):
       let record = EntitlementRecord(entitled: entitled, updatedAt: now())
       store.save(record)
-      return Self.encode(record)
+      return Self.encode(EntitlementReplyEnvelope(installId: installId(), record: record))
     }
   }
 
@@ -112,8 +150,10 @@ public struct EntitlementBridge {
     return handle(request)
   }
 
-  static func encode(_ record: EntitlementRecord) -> String {
-    guard let data = try? JSONEncoder().encode(record),
+  static func encode(_ envelope: EntitlementReplyEnvelope) -> String {
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = .sortedKeys // deterministic wire output for tests and diffing
+    guard let data = try? encoder.encode(envelope),
           let string = String(data: data, encoding: .utf8)
     else { return "" }
     return string

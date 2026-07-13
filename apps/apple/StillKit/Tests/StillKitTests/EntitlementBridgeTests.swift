@@ -2,15 +2,19 @@ import XCTest
 @testable import StillKit
 
 /// The entitlement lane of the App-Group bridge: parse, set-stamps-updatedAt, get round-trip, and
-/// the empty-store reply. In-memory backing — the same seam BridgeTests uses.
+/// the reply envelope (issue #63 — replies carry the install-generation id, with all keys present
+/// as explicit JSON null when absent). Literal-string assertions are deliberate: a regression to
+/// synthesized Codable's `encodeIfPresent` (which DROPS nil keys) must fail here, not surface as a
+/// silent TS-side contract gap. In-memory backing — the same seam BridgeTests uses.
 final class EntitlementBridgeTests: XCTestCase {
   private func bridge(
     _ stored: EntitlementRecord? = nil,
-    now: Int = 1_000
+    now: Int = 1_000,
+    installId: String? = "install-A"
   ) -> (EntitlementBridge, SharedEntitlementStore) {
     let store = SharedEntitlementStore(backing: InMemoryBacking())
     if let stored { store.save(stored) }
-    return (EntitlementBridge(store: store, now: { now }), store)
+    return (EntitlementBridge(store: store, now: { now }, installId: { installId }), store)
   }
 
   // MARK: parse
@@ -38,25 +42,37 @@ final class EntitlementBridgeTests: XCTestCase {
 
   // MARK: get / set
 
-  func testGetAgainstEmptyStoreRepliesEmpty() {
+  func testGetAgainstEmptyStoreRepliesMarkerOnlyEnvelope() {
+    // The post-reinstall state (issue #63): App Group has the install marker but no entitlement
+    // record. All three keys present, entitlement fields explicit null — literal string so an
+    // encodeIfPresent regression (dropped keys) fails loudly.
     let (bridge, _) = bridge()
-    XCTAssertEqual(bridge.handle(.get), "")
+    XCTAssertEqual(
+      bridge.handle(.get),
+      #"{"entitled":null,"installId":"install-A","updatedAt":null}"#)
   }
 
-  func testSetStampsClockAndPersists() throws {
+  func testGetWithDegradedAppGroupRepliesAllNullEnvelope() {
+    // Old app build / unprovisioned App Group: no marker either. Still a full envelope.
+    let (bridge, _) = bridge(installId: nil)
+    XCTAssertEqual(
+      bridge.handle(.get),
+      #"{"entitled":null,"installId":null,"updatedAt":null}"#)
+  }
+
+  func testSetStampsClockAndPersists() {
     let (bridge, store) = bridge(now: 42_000)
     let reply = bridge.handle(.set(entitled: true))
-    let decoded = try JSONDecoder().decode(EntitlementRecord.self, from: Data(reply.utf8))
-    XCTAssertEqual(decoded, EntitlementRecord(entitled: true, updatedAt: 42_000))
-    XCTAssertEqual(store.peek(), decoded)
+    XCTAssertEqual(reply, #"{"entitled":true,"installId":"install-A","updatedAt":42000}"#)
+    XCTAssertEqual(store.peek(), EntitlementRecord(entitled: true, updatedAt: 42_000))
   }
 
-  func testGetRoundTripsStoredRecord() throws {
+  func testGetRoundTripsStoredRecord() {
     let record = EntitlementRecord(entitled: true, updatedAt: 7)
     let (bridge, _) = bridge(record)
-    let reply = bridge.handle(.get)
-    let decoded = try JSONDecoder().decode(EntitlementRecord.self, from: Data(reply.utf8))
-    XCTAssertEqual(decoded, record)
+    XCTAssertEqual(
+      bridge.handle(.get),
+      #"{"entitled":true,"installId":"install-A","updatedAt":7}"#)
   }
 
   func testRevocationOverwrites() {
@@ -68,6 +84,8 @@ final class EntitlementBridgeTests: XCTestCase {
   func testHandleRawBodyFallsThroughForNonEntitlementMessages() {
     let (bridge, _) = bridge()
     XCTAssertNil(bridge.handle(rawBody: ["kind": "get"]))
-    XCTAssertEqual(bridge.handle(rawBody: ["kind": "getEntitlement"]), "")
+    XCTAssertEqual(
+      bridge.handle(rawBody: ["kind": "getEntitlement"]),
+      #"{"entitled":null,"installId":"install-A","updatedAt":null}"#)
   }
 }
