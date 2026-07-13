@@ -443,6 +443,19 @@ describe("App", () => {
     expect(dialog.getByText(STRINGS.paywall.reassurance)).toBeTruthy();
   });
 
+  it("discloses the Safari-only mobile boundary before purchase", () => {
+    const c = controller();
+    c.userId = "u";
+    c.openPaywall();
+    render(App, { props: { controller: c, onGet: () => {} } });
+    const dialog = within(screen.getByRole("dialog"));
+    expect(
+      dialog.getByText(
+        "On iPhone and iPad, Still works in Safari only. It does not block short-form video inside native apps.",
+      ),
+    ).toBeTruthy();
+  });
+
   // ── success payoff (plan U3/R6) ────────────────────────────────────────────────────────────────
 
   it("the payoff renders as a status line while the rows behind unlock live-and-on", async () => {
