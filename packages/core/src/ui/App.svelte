@@ -138,7 +138,7 @@
             <span class="syncrow-title">{STRINGS.paywall.title}</span>
             <span class="syncrow-sub">{STRINGS.paywall.body}</span>
           </div>
-          <button class="primary" onclick={() => c.startUpgrade()}
+          <button class="primary block" onclick={() => c.startUpgrade()}
             >{STRINGS.paywall.upgradeCta}</button
           >
         </div>
@@ -280,7 +280,8 @@
   }
   .syncrow {
     display: flex;
-    align-items: center;
+    flex-direction: column;
+    align-items: stretch;
     gap: var(--space-3);
   }
   .syncrow-text {
