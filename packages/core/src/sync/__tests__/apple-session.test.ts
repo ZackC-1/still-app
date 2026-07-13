@@ -10,7 +10,7 @@ import type { SyncState } from "../service.js";
 // Ask-to-Buy foreground recheck, entitlement mirroring, and teardown parity.
 //
 // Server-confirmed unlocks resolve through the controller's payoff (U3/R6): the entitled
-// false→true transition with the paywall open shows "Pro unlocked. Enjoy the quiet." and the
+// false→true transition with the paywall open shows the quieter-web success payoff and the
 // controller dismisses after ~2.5s — this module never force-dismisses at those moments.
 
 function makeBridge(over: Partial<AppleSessionBridge> = {}): AppleSessionBridge {

@@ -56,7 +56,7 @@ export const CODE_ATTEMPTS_BEFORE_NEW_CODE = 3;
  * → idle (signed out) | error. */
 export type DeleteFlow = "idle" | "confirming" | "deleting" | "error";
 
-/** How long the "Pro unlocked. Enjoy the quiet." payoff stays before auto-dismissing the paywall
+/** How long the quieter-web success payoff stays before auto-dismissing the paywall
  * (U3/R6): long enough to read one line, short enough that the unlock itself — the rows switching
  * on behind the sheet — is the star. */
 export const PAYOFF_DURATION_MS = 2_500;
@@ -196,7 +196,7 @@ export class UiController {
 
   /** Backing store for the `entitled` accessor pair below (U3/R6 payoff observation). */
   #entitled = $state(false);
-  /** The "Pro unlocked. Enjoy the quiet." payoff (U3/R6): true from the moment entitlement turns
+  /** The quieter-web success payoff (U3/R6): true from the moment entitlement turns
    * on with the paywall open until the payoff dismisses (~2.5s auto, or early on tap/Escape).
    * Never true while `entitled` is false — the setter clears it on any downgrade. */
   justUnlocked = $state(false);

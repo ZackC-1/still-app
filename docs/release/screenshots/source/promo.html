@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <style>
+    @font-face { font-family: Inter; src: url("../../../assets/InterVariable.woff2") format("woff2-variations"); font-weight: 100 900; }
+    :root { --blue: #2948e8; --ink: #101426; }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body { background: #f3f4f9; font-family: Inter, system-ui, sans-serif; }
+    main { width: 100%; height: 100%; padding: 7%; position: relative; display: flex; flex-direction: column; justify-content: space-between; color: var(--ink); isolation: isolate; }
+    main::before { content: ""; position: absolute; z-index: -1; right: -12%; top: -28%; width: 55%; aspect-ratio: 1; border-radius: 50%; background: #dfe4ff; }
+    .brand { display: flex; align-items: center; gap: .58em; color: var(--blue); font-size: clamp(18px, 3.4vw, 54px); font-weight: 700; letter-spacing: -.05em; }
+    .mark { width: 1.25em; height: 1.25em; display: grid; place-items: center; border-radius: .3em; background: var(--blue); }
+    .mark i { width: .72em; height: .32em; border-bottom: .09em solid #fff; position: relative; }
+    .mark i::after { content: ""; width: .13em; height: .13em; position: absolute; left: .29em; bottom: -.1em; border-radius: 50%; background: #fff; }
+    .copy { max-width: 76%; }
+    h1 { max-width: 11ch; margin: 0; font-size: clamp(28px, 7.1vw, 105px); line-height: .95; letter-spacing: -.06em; }
+    p { margin: .7em 0 0; color: #59627c; font-size: clamp(11px, 2.05vw, 30px); font-weight: 560; }
+    body.square main { padding: 10%; color: #fff; background: var(--blue); justify-content: center; align-items: center; text-align: center; }
+    body.square main::before { background: rgba(255,255,255,.08); }
+    body.square .brand { margin-bottom: 12%; color: #fff; font-size: clamp(36px, 6vw, 64px); }
+    body.square .mark { background: #fff; }
+    body.square .mark i { border-color: var(--blue); }
+    body.square .mark i::after { background: var(--blue); }
+    body.square .copy { max-width: 88%; }
+    body.square h1 { max-width: none; font-size: clamp(62px, 9vw, 96px); }
+    body.square p { color: #e1e6ff; font-size: clamp(24px, 3.3vw, 36px); }
+    body.store-promo main { padding: 0; justify-content: center; align-items: center; }
+    body.store-promo .brand { font-size: clamp(54px, 12vw, 150px); }
+    body.store-promo .copy { display: none; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="brand"><span class="mark"><i></i></span><span>st.ll</span></div>
+    <div class="copy"><h1>Open for what you came for.</h1><p>YouTube Shorts free. Still Pro is $1.99 once.</p></div>
+  </main>
+  <script>
+    const type = new URLSearchParams(location.search).get("type") || "promo";
+    if (type === "store-promo") {
+      document.body.classList.add("store-promo");
+    }
+    if (type === "iap") {
+      document.body.classList.add("square");
+      document.querySelector("h1").textContent = "Still Pro";
+      document.querySelector("p").textContent = "One purchase. Every supported screen.";
+    }
+  </script>
+</body>
+</html>

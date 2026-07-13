@@ -9,7 +9,7 @@ export const STRINGS = {
   global: {
     on: "Still is on",
     off: "Still is off",
-    secondary: "Short-form is removed everywhere it appears.",
+    secondary: "Short-form is removed on supported sites.",
   },
 
   services: {
@@ -58,13 +58,15 @@ export const STRINGS = {
   // ext-chromium entrypoint only.
   paywall: {
     title: "Still Pro",
-    headline: "The rest of the noise, gone too",
-    body: "Instagram Reels, TikTok, and Facebook Reels go quiet — with your settings synced on every device.",
-    reassurance: "One payment. Yours forever.",
-    cta: "Unlock Pro",
+    headline: "Make every supported browser feel this quiet",
+    body: "Remove Instagram Reels and Facebook Reels, block the TikTok website, and keep settings synced across supported browsers and devices.",
+    scope:
+      "On iPhone and iPad, Still works in Safari only. It does not block short-form video inside native apps.",
+    reassurance: "One purchase. No subscription.",
+    cta: "Get Still Pro",
     // Home-screen upgrade CTA (signed-out and signed-in-not-entitled states) — routes through
     // UiController.startUpgrade(), never straight to checkout.
-    upgradeCta: "Upgrade to Still Pro",
+    upgradeCta: "Get Still Pro",
     restore: "Restore purchase",
     // Safari only (AE7/3.1.1): its popup has no purchase path — Pro genuinely unlocks by itself
     // via the App-Group entitlement pull once the app purchase lands. Web-purchasable hosts
@@ -86,7 +88,7 @@ export const STRINGS = {
     restoredNone: "No purchase to restore on this account.",
     // Success payoff (R6): rendered only after the entitlement store write has landed — see
     // UiController.justUnlocked for the one transition rule that drives it on every host.
-    unlocked: "Pro unlocked. Enjoy the quiet.",
+    unlocked: "Your quieter web is ready.",
     // Web checkout-pending lifecycle (plan U4/R3): the popup died into the checkout tab and came
     // back to a persisted pending flag. Calm and honest at every stage: a capped fast-poll
     // ("checking"), a between-windows resting line ("quietPending" — reopening starts a fresh
@@ -111,7 +113,8 @@ export const STRINGS = {
   auth: {
     title: "Sign in to Still",
     dismissLabel: "Dismiss sign in",
-    prompt: "Sync your Still settings across devices and access Still Pro.",
+    prompt:
+      "Sign in so your Still Pro purchase and settings can follow you across supported surfaces.",
     notNow: "Not now",
     emailLabel: "Email",
     emailPlaceholder: "you@email.com",
@@ -150,7 +153,7 @@ export const STRINGS = {
 
   sync: {
     pending: "Checking your account…",
-    syncing: "Synced across your devices.",
+    syncing: "Synced across supported devices.",
     unreachable: "Sync paused — no connection.",
     firstSync: "Your settings now match your other devices.",
   },

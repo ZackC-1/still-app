@@ -1,133 +1,172 @@
-# Extension store listing copy — paste-ready
+# Store listing copy — canonical launch version
 
-Drafted 2026-07-10 for the 1.0.0 submissions (release commit `22b2717`). Language mirrors the
-ASC listing so the product reads identically across stores. Trademark caveat (same as ASC):
-"Shorts"/"Reels"/"TikTok" are descriptive use — common in this category, nonzero rejection risk.
+Updated 2026-07-13. This is the paste-ready source of truth for the English U.S./Canada launch.
+The message order is intentional: outcome → free value → Pro value → cross-platform proof → scope →
+privacy. Do not reorder the native-app limitation below the privacy/footer material.
+
+## Shared product language
+
+- Brand promise: **Open for what you came for.**
+- Functional proof: **Still removes short-form video from supported browsers.**
+- Free: **YouTube Shorts are removed free. No account required.**
+- Pro: **$1.99 once. No subscription. Removes Instagram/Facebook Reels, blocks the TikTok website,
+  and syncs settings.**
+- Cross-platform: **One purchase unlocks Still Pro on every supported surface after sign-in with the
+  same email.**
+- Mobile disclosure: **On iPhone and iPad, Still works only in Safari. It does not change native
+  YouTube, Instagram, Facebook, or TikTok apps. Chrome on mobile is not supported.**
+
+Never shorten “every supported surface” to “everywhere.”
 
 ---
 
 ## Chrome Web Store
 
-**Item name (≤45):** `Still: Block Shorts & Reels`
+**Item name (≤45):**
+
+> Still: Block Shorts & Reels
 
 **Short description (≤132):**
 
-> The scroll, gone. Removes YouTube Shorts free — Instagram Reels, TikTok, and Facebook Reels with Still Pro ($1.99 one-time).
+> Block YouTube Shorts free. Pay $1.99 once for Reels, TikTok, and synced settings across supported browsers and devices.
 
-**Category:** Productivity · **Language:** English (US)
+**Category:** Productivity
 
 **Detailed description:**
 
-> Open YouTube — and the endless short-form feed is just… gone. Still quietly removes Shorts,
-> Reels, and TikTok from the sites you already use, so you can open them, do the thing, and get out.
+> OPEN FOR WHAT YOU CAME FOR
 >
-> WHAT STILL DOES — FREE
-> • Removes YouTube Shorts: the Shorts shelf, the Shorts tab, and Shorts links — a Shorts URL
->   opens in the normal video player instead
-> • One switch to turn Still on or off, plus a per-service toggle
-> • Works entirely on your device: the free tier sends no data anywhere
+> You opened the site to do one thing. Still helps it stay one thing.
 >
-> STILL PRO — $1.99, ONE TIME
-> • Removes Instagram Reels, TikTok, and Facebook Reels
-> • Syncs your settings across browsers and devices
-> • Purchased securely on the web (opens in a new tab); no subscription, ever
-> • Optional email sign-in (a 6-digit code — no password) restores Pro anywhere
+> Still removes short-form video from the websites you already use, so a useful visit does not turn
+> into an accidental hour of scrolling. The rest of each site stays available.
+>
+> START FREE
+> • Removes the YouTube Shorts shelf and tab
+> • Opens Shorts links in the normal video player
+> • No account required
+> • Blocking and settings stay on your device
+>
+> STILL PRO — $1.99 ONCE, NO SUBSCRIPTION
+> • Removes Instagram Reels and Facebook Reels
+> • Blocks the TikTok website
+> • Syncs your Still settings across supported browsers and devices
+> • One purchase on any surface unlocks Still Pro on every supported surface after you sign in with
+>   the same email
+>
+> WHERE STILL WORKS
+> • Desktop: Chrome and Firefox
+> • Apple devices: Safari on iPhone, iPad, and Mac
+> • On iPhone and iPad, Still works only while browsing websites in Safari
+>
+> IMPORTANT: Still does not remove or block short-form video inside native mobile apps such as the
+> YouTube, Instagram, Facebook, or TikTok apps. Chrome on mobile does not support Still.
 >
 > PRIVATE BY DESIGN
-> • No ads, no tracking, no selling data
-> • The free tier never transmits anything; Pro sign-in stores only your email address and
->   synced settings
-> • Only runs on youtube.com, instagram.com, tiktok.com, and facebook.com — never your whole
->   browser
+> • No ads, behavioral tracking, or browsing-history analytics
+> • Free blocking runs entirely on your device
+> • Pro sign-in stores only the account, purchase entitlement, and Still settings needed for restore
+>   and sync
+> • Still runs only on youtube.com, instagram.com, tiktok.com, and facebook.com
 >
-> Still is made by Cadmus Labs. Still Pro is sold by Cadmus Labs (not Google) as a one-time
-> web purchase. Support and refund requests: https://zackc-1.github.io/still-app/support/
-> Privacy policy: https://zackc-1.github.io/still-app/privacy/
+> Still Pro checkout opens securely on the web and is sold by Cadmus Labs. Support and refunds:
+> https://zackc-1.github.io/still-app/support.html
 >
-> Less feed. More of your life back.
+> Open for what you came for. Leave with your attention intact.
 
-**Privacy practices tab:**
+**Privacy practices — single purpose:**
 
-- Single purpose: `Still removes short-form video feeds (YouTube Shorts; with Still Pro, Instagram Reels, TikTok, and Facebook Reels) from the supported sites.`
-- Permission justifications:
-  - `declarativeNetRequestWithHostAccess` → `Redirects YouTube Shorts URLs to the standard watch page at the network layer, before the page renders.`
-  - `storage` → `Persists the user's on/off and per-service settings locally.`
-  - Host permissions (youtube/instagram/facebook/tiktok) → `Applies content rules only on the four sites Still supports; the extension never requests access to other sites.`
-- Data usage: check **Authentication information** (email address) and **Website content settings**
-  ("user activity"/"personal communications" are NOT collected — do not check them). Certify: data
-  is not sold, not used for unrelated purposes, not used for creditworthiness. Free tier transmits
-  nothing; disclosure covers the optional Pro sign-in only.
-- Remote code: **No** (MV3, fully bundled).
+> Still removes short-form video feeds from supported websites so users can browse those sites
+> without Shorts, Reels, or TikTok pulling them into an endless feed.
 
-**External payments disclosure (listing + review notes field):**
+**Permission justifications:**
 
-> Still Pro is a $1.99 one-time purchase completed on the web via RevenueCat/Stripe checkout,
-> opened in a new tab from the extension popup. No payment is collected inside the extension.
-> The seller is Cadmus Labs.
+- `declarativeNetRequestWithHostAccess`: Redirects YouTube Shorts URLs to the standard watch page
+  before the Shorts player renders.
+- `storage`: Saves the user's on/off, per-service, pause, sign-in, and entitlement state.
+- Host permissions: Applies Still's blocking rules only on YouTube, Instagram, Facebook, and TikTok.
 
-**Assets needed at upload:** 128×128 icon (in the zip) · ≥1 screenshot 1280×800 · 440×280 small
-promo tile.
+**Data disclosure:** Authentication information is used only for optional Pro sign-in, purchase
+restore, and settings sync. Do not declare browsing history, page content, personal communications,
+or ad data; Still does not collect them. Remote code: **No**.
+
+**External payment disclosure:**
+
+> Still Pro is a $1.99 one-time purchase completed on the web through RevenueCat and Stripe. Checkout
+> opens in a new tab; no payment is collected inside the extension. The seller is Cadmus Labs.
+
+**Recommended asset order:** upload exactly the five numbered screenshots in
+`screenshots/store-ready/chrome/` in numeric order. Chrome accepts no more than five screenshots.
+Also upload the 440x280 small promo tile and the optional 1400x560 marquee tile from that folder.
+Keep screenshot 05; it is the expectation-setting screen that reduces mismatched installs and refunds.
 
 ---
 
 ## Firefox Add-ons (AMO)
 
-**Name:** `Still: Block Shorts & Reels` · **Add-on ID (already in manifest):** `still@chartash.com`
+**Name:**
+
+> Still: Block Shorts & Reels
 
 **Summary (≤250):**
 
-> Removes short-form video. Free: YouTube Shorts are gone — shelf, tab, and Shorts links open in
-> the normal player. Still Pro ($1.99 one-time): also removes Instagram Reels, TikTok, and Facebook
-> Reels, and syncs settings. Private by design.
+> Open for what you came for. Remove YouTube Shorts free; Still Pro ($1.99 once) removes Reels, blocks TikTok, and syncs settings across supported browsers. Desktop Firefox only. On mobile, Still works only in Safari—not native apps.
 
-**Description:** reuse the Chrome detailed description verbatim (AMO renders basic HTML/markdown;
-the bullet blocks paste cleanly).
+**Description:** use the Chrome detailed description above.
 
-**Categories:** Search & Productivity (verify AMO's current category names at submit time).
+**Categories:** Productivity and Privacy & Security, if those exact labels remain available.
 
-**License:** the repository LICENSE (do NOT select All Rights Reserved — the public repo ships a
-license; AMO listing must match).
+**License:** use the repository's actual source-available license selection; do not describe the
+project as open source.
 
-**Data collection (must match manifest `data_collection_permissions: ["authenticationInfo"]`):**
+**Data collection disclosure:**
 
-> The free tier collects no data and makes no network requests with user data. The optional Still
-> Pro sign-in transmits the user's email address (authentication) to our backend (Supabase) solely
-> to restore the purchase and sync settings across devices. No browsing activity is collected.
+> The free tier collects no data and makes no network requests with user data. Optional Still Pro
+> sign-in sends the user's email address to Supabase only to restore the purchase and sync Still
+> settings across supported devices. Still does not collect browsing history or website content.
 
-**Availability:** UNCHECK / disable **Firefox for Android** at submission — desktop-only for 1.0.0
-(Android enablement is gated on the not-yet-run §B device validation,
-`06-mobile-blocking-validation.md`).
+**Payment flag:** Mark that the add-on contains/requires payment for premium functionality while
+stating that YouTube Shorts blocking remains usable for free.
 
-**"Requires payment" flag:** check it (free tier is functional, but the listing advertises a paid
-upgrade).
+**Reviewer note:**
 
-**Notes to Reviewer (paste into the source-submission notes):**
+> This add-on is built from a pnpm monorepo. Reproduce the submitted build with Node 22+ and pnpm
+> 11.9.0: `pnpm install --frozen-lockfile`, then `pnpm --filter @still/ext-chromium exec wxt zip -b
+> firefox`. The free tier removes YouTube Shorts. Still Pro is a $1.99 one-time web purchase that
+> removes Instagram/Facebook Reels, blocks the TikTok website, and syncs settings. Checkout opens in
+> a browser tab; no payment occurs inside the add-on. Optional sign-in uses an emailed 6-digit code.
+> The only user identifier transmitted is the account email declared as authentication information.
+> Host permissions are limited to the four supported websites.
 
-> This add-on is built from a pnpm monorepo; the uploaded source zip is the full repository plus
-> `packages/ext-chromium/.env` (public Supabase URL + anon key — not secrets). Reproduce the
-> exact upload:
->
->   corepack enable && corepack prepare pnpm@11.9.0 --activate   # Node >= 22 (built with v25.4.0)
->   pnpm install --frozen-lockfile
->   pnpm --filter @still/ext-chromium exec wxt zip -b firefox
->
-> Output: packages/ext-chromium/dist/stillext-chromium-1.0.0-firefox.zip — the build is
-> byte-reproducible across machines and paths.
->
-> Functionality: removes YouTube Shorts (free); the paid tier removes Instagram Reels / TikTok /
-> Facebook Reels and syncs settings. The Pro purchase happens on the web (RevenueCat checkout in a
-> new tab); no payment occurs inside the add-on. The optional sign-in is an emailed 6-digit code;
-> the only user data transmitted is the account email (declared as authenticationInfo). Host
-> permissions are limited to the four supported sites.
+**Recommended asset:** upload
+`screenshots/store-ready/firefox/still-firefox-store-01-1280x800.jpg`. It shows the actual add-on UI
+without explanatory text baked into the image, following Mozilla's current listing guidance. Use the
+listing's screenshot-description field for any explanation rather than uploading the annotated
+`screenshots/v2/firefox/` marketing concepts.
 
-**Assets:** screenshots optional but recommended (same composed shots as Chrome work).
+**Screenshot description:**
+
+> Still removes short-form feeds while keeping the useful parts of each site available. YouTube
+> Shorts blocking is free; Still Pro adds Reels, TikTok, and settings sync.
 
 ---
 
-## Open item
+## Response templates for reviews and support
 
-Neither docs page currently states a purchase/refund policy in plain terms. Before or shortly
-after the extension listings go live, add a short "Purchases & refunds" section to
-`docs/support.html` (one paragraph: $1.99 one-time via RevenueCat/Stripe; refund requests via
-zack@cadmuslabs.co "Find my purchase"; deletion-recovery caveat) so the Chrome listing's
-"support and refund requests" link resolves to real policy text.
+**“It does not work in the Instagram/YouTube app.”**
+
+> Thanks for trying Still. On iPhone and iPad, Still works only on websites opened in Safari; Apple
+> does not let a Safari extension modify native social-media apps. We state this on the listing and
+> compatibility screen, but I am sorry it did not match what you expected. Refund instructions are
+> at https://zackc-1.github.io/still-app/support.html.
+
+**“My Pro purchase is missing on another device.”**
+
+> Sign in to Still on both devices with the same email used for the purchase. One purchase unlocks
+> Still Pro on every supported surface tied to that account. If it still does not appear, email the
+> purchase receipt address to zack@cadmuslabs.co and we will reconnect it.
+
+**Positive review response:**
+
+> Thank you for making Still part of your browser. We are glad it helps you open for what you came
+> for and leave with your attention intact.

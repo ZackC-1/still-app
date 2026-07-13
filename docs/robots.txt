@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://zackc-1.github.io/still-app/sitemap.xml

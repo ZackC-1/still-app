@@ -106,12 +106,16 @@
   <section class="sync card" data-state={c.popupState}>
     {#if c.popupState === "signed-out"}
       {#if c.canSignIn}
-        <button class="primary block" onclick={() => c.openSignIn()}>
-          {STRINGS.auth.signInCta}
-        </button>
         {#if c.host.canPurchase}
-          <button class="secondary block" onclick={() => c.startUpgrade()}>
+          <button class="primary block" onclick={() => c.startUpgrade()}>
             {STRINGS.paywall.upgradeCta}
+          </button>
+          <button class="secondary block" onclick={() => c.openSignIn()}>
+            {STRINGS.auth.signInCta}
+          </button>
+        {:else}
+          <button class="primary block" onclick={() => c.openSignIn()}>
+            {STRINGS.auth.signInCta}
           </button>
         {/if}
       {:else}
@@ -167,7 +171,7 @@
 
   <!-- The sheet also opens on hosts without a purchase path (locked-row taps in the extensions):
        it renders its explanatory state there instead of a buy CTA (R19). During the payoff
-       (U3/R6) the sheet stays mounted showing "Pro unlocked" while the service rows above —
+       (U3/R6) the sheet stays mounted showing the success payoff while the service rows above —
        already reactive to c.entitled — render live-and-on behind it. -->
   {#if c.paywallOpen}
     <PaywallSheet
