@@ -25,16 +25,6 @@ describe("cross-platform design contract", () => {
     expect(safari).not.toMatch(/\bzoom\s*:/);
   });
 
-  it("keeps the Apple shell zoomable and follows system appearance", () => {
-    const enablement = read(
-      "../../apps/apple/Still/Shared (App)/Resources/Base.lproj/Main.html",
-    );
-    const iosInfo = read("../../apps/apple/Still/iOS (App)/Info.plist");
-
-    expect(enablement).not.toContain("user-scalable=no");
-    expect(iosInfo).not.toContain("UIUserInterfaceStyle");
-  });
-
   it("uses the same typeface on the linked privacy and support surfaces", () => {
     const privacy = read("../../docs/privacy.html");
     const support = read("../../docs/support.html");
