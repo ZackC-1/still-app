@@ -66,7 +66,7 @@ export const STRINGS = {
     cta: "Get Still Pro",
     // Home-screen upgrade CTA (signed-out and signed-in-not-entitled states) — routes through
     // UiController.startUpgrade(), never straight to checkout.
-    upgradeCta: "Upgrade to Still Pro",
+    upgradeCta: "Get Still Pro",
     restore: "Restore purchase",
     // Safari only (AE7/3.1.1): its popup has no purchase path — Pro genuinely unlocks by itself
     // via the App-Group entitlement pull once the app purchase lands. Web-purchasable hosts

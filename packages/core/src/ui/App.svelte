@@ -106,12 +106,16 @@
   <section class="sync card" data-state={c.popupState}>
     {#if c.popupState === "signed-out"}
       {#if c.canSignIn}
-        <button class="primary block" onclick={() => c.openSignIn()}>
-          {STRINGS.auth.signInCta}
-        </button>
         {#if c.host.canPurchase}
-          <button class="secondary block" onclick={() => c.startUpgrade()}>
+          <button class="primary block" onclick={() => c.startUpgrade()}>
             {STRINGS.paywall.upgradeCta}
+          </button>
+          <button class="secondary block" onclick={() => c.openSignIn()}>
+            {STRINGS.auth.signInCta}
+          </button>
+        {:else}
+          <button class="primary block" onclick={() => c.openSignIn()}>
+            {STRINGS.auth.signInCta}
           </button>
         {/if}
       {:else}
