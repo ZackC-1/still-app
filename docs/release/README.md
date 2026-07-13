@@ -1,5 +1,7 @@
 # Still — Release Runbook
 
+Current operational handoff: [`launch-progress-2026-07-13.md`](launch-progress-2026-07-13.md).
+
 A follow-along, check-off guide to shipping **Still** to every store. Written for a first
 app release — each step says exactly where to click, the exact value to enter for *this* app,
 and the official URL. Work top-to-bottom; check boxes as you go.
@@ -14,9 +16,9 @@ and the official URL. Work top-to-bottom; check boxes as you go.
 
 | # | Track | What ships | Pro purchase path | Status today |
 |---|-------|-----------|-------------------|--------------|
-| 1 | **Apple App Store** (iOS + Mac) — [`01-apple-app-store.md`](01-apple-app-store.md) | Native app + Safari extension + **$1.99 IAP** | StoreKit 2 → RevenueCat | Local/device validation passed; review submission intentionally pending |
-| 2 | **Chrome Web Store** — [`02-chrome-web-store.md`](02-chrome-web-store.md) | Chromium extension **+ Pro purchase** | RevenueCat **Web Billing** | Local functional validation passed; store submission pending |
-| 3 | **Firefox Add-ons (AMO)** — [`03-firefox-amo.md`](03-firefox-amo.md) | Firefox extension (MV3) **+ Pro purchase** | RevenueCat **Web Billing** | Desktop functional validation passed; store submission pending |
+| 1 | **Apple App Store** (iOS + Mac) — [`01-apple-app-store.md`](01-apple-app-store.md) | Native app + Safari extension + **$1.99 IAP** | StoreKit 2 → RevenueCat | iOS and macOS submissions in review |
+| 2 | **Chrome Web Store** — [`02-chrome-web-store.md`](02-chrome-web-store.md) | Chromium extension **+ Pro purchase** | RevenueCat **Web Billing** | Version 1.0.1 submitted for review |
+| 3 | **Firefox Add-ons (AMO)** — [`03-firefox-amo.md`](03-firefox-amo.md) | Firefox extension (MV3) **+ Pro purchase** | RevenueCat **Web Billing** | Version 1.0.0 awaiting review; corrected desktop-only 1.0.2 ready to upload |
 | 4 | **RevenueCat** — [`04-revenuecat.md`](04-revenuecat.md) | Cross-platform $1.99 entitlement | — | Entitlement integration validated; portal operations remain human-gated |
 | 5 | **Mobile blocking validation** — [`06-mobile-blocking-validation.md`](06-mobile-blocking-validation.md) | On-device YouTube-Shorts check (all mobile) | — | Physical-iPhone validation passed; rerun after release changes |
 | — | **Google Play** (future) — [`05-future-google-play.md`](05-future-google-play.md) | — | — | **No Android app exists** — documented as future work |
