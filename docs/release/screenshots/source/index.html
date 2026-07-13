@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    @font-face { font-family: Inter; src: url("../../../assets/InterVariable.woff2") format("woff2-variations"); font-weight: 100 900; }
+    :root { --blue: #2948e8; --ink: #101426; --muted: #626b85; --line: #dfe3ef; --wash: #f0f2f8; }
+    * { box-sizing: border-box; }
+    html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; }
+    body { color: var(--ink); background: #f3f4f9; font-family: Inter, system-ui, -apple-system, sans-serif; }
+    .canvas { width: 100%; height: 100%; padding: 6.2%; position: relative; isolation: isolate; display: flex; flex-direction: column; }
+    .canvas::before { content: ""; position: absolute; z-index: -2; width: 48%; aspect-ratio: 1; right: -15%; top: -25%; border-radius: 50%; background: #e3e7ff; }
+    .canvas::after { content: ""; position: absolute; z-index: -1; width: 22%; aspect-ratio: 1; left: -9%; bottom: -10%; border-radius: 50%; border: max(2px, .18vw) solid #d2d8fa; }
+    .brand { display: flex; align-items: center; gap: .7em; color: var(--blue); font-size: clamp(20px, 2.15vw, 58px); font-weight: 670; letter-spacing: -.05em; }
+    .mark { width: 1.28em; height: 1.28em; display: grid; place-items: center; border-radius: .3em; background: var(--blue); }
+    .mark i { width: .72em; height: .34em; border-bottom: .09em solid #fff; position: relative; }
+    .mark i::after { content: ""; width: .13em; height: .13em; position: absolute; left: .29em; bottom: -.1em; border-radius: 50%; background: #fff; }
+    .copy { max-width: 51%; margin-top: auto; margin-bottom: auto; position: relative; z-index: 2; }
+    .kicker { margin: 0 0 .9em; color: var(--blue); font-size: clamp(12px, 1.12vw, 30px); font-weight: 760; letter-spacing: .13em; text-transform: uppercase; }
+    h1 { max-width: 11ch; margin: 0; font-size: clamp(45px, 5.55vw, 148px); font-weight: 725; letter-spacing: -.06em; line-height: .98; text-wrap: balance; }
+    .sub { max-width: 30em; margin: 1.1em 0 0; color: var(--muted); font-size: clamp(17px, 1.75vw, 47px); line-height: 1.45; text-wrap: balance; }
+    .proof { margin-top: 1.7em; display: inline-flex; align-items: center; gap: .65em; color: var(--ink); font-size: clamp(13px, 1.15vw, 30px); font-weight: 670; }
+    .proof::before { content: "✓"; width: 1.7em; height: 1.7em; display: grid; place-items: center; border-radius: 50%; color: #fff; background: var(--blue); }
+    .device-zone { width: 44%; height: 77%; position: absolute; right: 5.5%; bottom: -5.5%; display: grid; place-items: center; }
+    .device { max-width: 100%; max-height: 100%; padding: clamp(9px, 1.1vw, 30px); border: clamp(5px, .62vw, 18px) solid #121624; border-radius: clamp(24px, 2.8vw, 76px); background: #fff; box-shadow: 0 4vw 8vw rgba(31, 39, 76, .2); overflow: hidden; }
+    .device img { width: 100%; height: 100%; display: block; object-fit: contain; object-position: top center; border-radius: clamp(10px, 1.3vw, 30px); background: #fff; }
+    .browser-device { width: 100%; height: 75%; padding: 0; border-width: clamp(3px, .34vw, 10px); border-radius: clamp(16px, 1.7vw, 42px); }
+    .browser-device::before { content: ""; height: 7.5%; display: block; border-bottom: 1px solid var(--line); background: linear-gradient(90deg, #cfd3df 0 1.3%, transparent 1.3% 2.2%, #cfd3df 2.2% 3.5%, transparent 3.5% 4.4%, #cfd3df 4.4% 5.7%, transparent 5.7%); }
+    .browser-device img { height: 92.5%; border-radius: 0; object-fit: contain; }
+    .scope-card { display: none; position: absolute; right: 5.5%; bottom: 9%; width: 44%; padding: 2.4%; border: 1px solid var(--line); border-radius: clamp(16px, 1.5vw, 42px); background: rgba(255,255,255,.96); box-shadow: 0 3vw 7vw rgba(31, 39, 76, .14); }
+    .scope-row { min-height: clamp(56px, 5.4vw, 145px); display: grid; grid-template-columns: 1.1fr 1.6fr auto; gap: 1em; align-items: center; border-bottom: 1px solid var(--line); font-size: clamp(14px, 1.15vw, 31px); }
+    .scope-row:last-child { border-bottom: 0; }
+    .scope-row span { color: var(--muted); }
+    .scope-row em { color: #15754b; font-size: .78em; font-style: normal; font-weight: 800; text-transform: uppercase; }
+    .scope-row.no em { color: #a44a16; }
+    .scope-row.no { margin-inline: -3%; padding-inline: 3%; background: #fff8f2; }
+    .privacy-visual { display: none; position: absolute; right: 8%; bottom: 13%; width: 37%; aspect-ratio: 1; place-items: center; border-radius: 50%; background: var(--blue); box-shadow: 0 4vw 8vw rgba(41,72,232,.25); }
+    .shield { width: 39%; aspect-ratio: .82; border: clamp(7px, .75vw, 22px) solid #fff; border-radius: 48% 48% 52% 52% / 30% 30% 68% 68%; position: relative; }
+    .shield::after { content: "✓"; position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: clamp(42px, 7vw, 180px); font-weight: 750; }
+    .platform-label { position: absolute; right: 5.8%; top: 6.4%; color: #717a93; font-size: clamp(11px, .95vw, 25px); font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+
+    body[data-scene="2"] .device { transform: translateY(4%) rotate(1.8deg); }
+    body[data-scene="3"] .canvas { color: #fff; background: var(--blue); }
+    body[data-scene="3"] .canvas::before { background: rgba(255,255,255,.08); }
+    body[data-scene="3"] .canvas::after { border-color: rgba(255,255,255,.2); }
+    body[data-scene="3"] .brand, body[data-scene="3"] .kicker { color: #fff; }
+    body[data-scene="3"] .mark { background: #fff; }
+    body[data-scene="3"] .mark i { border-color: var(--blue); }
+    body[data-scene="3"] .mark i::after { background: var(--blue); }
+    body[data-scene="3"] .sub { color: #e3e7ff; }
+    body[data-scene="3"] .proof { color: #fff; }
+    body[data-scene="3"] .proof::before { color: var(--blue); background: #fff; }
+    body[data-scene="4"] .device-zone { right: 7%; bottom: 4%; height: 71%; }
+    body[data-scene="5"] .device-zone { height: 38%; bottom: 43%; }
+    body[data-scene="5"] .scope-card { display: block; bottom: 4%; }
+    body[data-scene="6"] .privacy-visual { display: grid; width: 15%; right: 34%; bottom: 10%; z-index: 3; }
+
+    body.portrait .canvas { padding: 8% 7%; }
+    body.portrait .brand { font-size: clamp(27px, 3.8vw, 56px); }
+    body.portrait .platform-label { top: 8.4%; right: 7%; font-size: clamp(13px, 1.8vw, 25px); }
+    body.portrait .copy { max-width: 100%; margin: 11% 0 0; text-align: center; }
+    body.portrait .kicker { font-size: clamp(15px, 2.2vw, 29px); }
+    body.portrait h1 { max-width: 12ch; margin-inline: auto; font-size: clamp(62px, 9.3vw, 130px); }
+    body.portrait .sub { max-width: 28em; margin-inline: auto; font-size: clamp(25px, 3.3vw, 46px); }
+    body.portrait .proof { justify-content: center; font-size: clamp(18px, 2.4vw, 32px); }
+    body.portrait .device-zone { width: 76%; height: 51%; right: 12%; bottom: -3%; }
+    body.portrait .device { border-radius: clamp(38px, 6vw, 84px); }
+    body.portrait .browser-device { width: 100%; height: 78%; border-radius: clamp(24px, 4vw, 56px); }
+    body.portrait .scope-card { width: 86%; right: 7%; bottom: 9%; padding: 4%; border-radius: clamp(24px, 3vw, 48px); }
+    body.portrait .scope-row { min-height: clamp(94px, 11vw, 160px); grid-template-columns: 1fr auto; font-size: clamp(20px, 2.7vw, 38px); }
+    body.portrait .scope-row span { grid-row: 2; }
+    body.portrait .scope-row em { grid-row: 1; grid-column: 2; }
+    body.portrait .privacy-visual { width: 68%; right: 16%; bottom: 8%; }
+    body.portrait[data-scene="5"] .copy, body.portrait[data-scene="6"] .copy { margin-top: 10%; }
+    body.portrait[data-scene="5"] .device-zone { height: 28%; bottom: 26%; }
+    body.portrait[data-scene="5"] .scope-card { bottom: 3%; }
+    body.portrait[data-scene="6"] .device-zone { height: 43%; bottom: -2%; }
+    body.portrait[data-scene="6"] .privacy-visual { width: 23%; right: 12%; bottom: 8%; }
+
+    body.ipad .copy { margin-top: 7%; }
+    body.ipad .device-zone { height: 54%; bottom: -4%; }
+    body.ipad .device { border-radius: clamp(28px, 4vw, 56px); }
+    body.ipad[data-scene="5"] .device-zone { height: 29%; bottom: 26%; }
+    body.ipad[data-scene="6"] .device-zone { height: 44%; bottom: -2%; }
+
+    body.store-screenshot .brand,
+    body.store-screenshot .copy,
+    body.store-screenshot .platform-label { display: none; }
+    body.store-screenshot .canvas { padding: 0; }
+    body.store-screenshot .device-zone { width: 62%; height: 90%; right: 19%; bottom: 5%; }
+    body.store-screenshot .browser-device { height: 100%; background: #fff; }
+  </style>
+</head>
+<body>
+  <main class="canvas">
+    <div class="brand"><span class="mark"><i></i></span><span>st.ll</span></div>
+    <div class="platform-label"></div>
+    <section class="copy">
+      <p class="kicker"></p>
+      <h1></h1>
+      <p class="sub"></p>
+      <p class="proof"></p>
+    </section>
+    <div class="device-zone"><div class="device"><img alt="Still app interface"></div></div>
+    <div class="scope-card">
+      <div class="scope-row"><strong>iPhone &amp; iPad</strong><span>Safari</span><em>Supported</em></div>
+      <div class="scope-row"><strong>Mac</strong><span>Safari, Chrome, Firefox</span><em>Supported</em></div>
+      <div class="scope-row"><strong>Desktop</strong><span>Chrome, Firefox</span><em>Supported</em></div>
+      <div class="scope-row no"><strong>Native mobile apps</strong><span>YouTube, Instagram, Facebook, TikTok apps</span><em>Not blocked</em></div>
+    </div>
+    <div class="privacy-visual"><div class="shield"></div></div>
+  </main>
+  <script>
+    const scenes = {
+      1: { kicker: "Your attention, uninterrupted", title: "Open for what you came for.", sub: "Keep the useful parts of the web—without the short-form feed pulling you somewhere else.", proof: "Built for a calmer visit" },
+      2: { kicker: "Start free", title: "YouTube Shorts. Gone.", sub: "Remove the Shorts shelf, tab, and feed for free. No account required.", proof: "Free on every supported browser" },
+      3: { kicker: "Still Pro", title: "More sites. One calm web.", sub: "Remove Instagram and Facebook Reels, block the TikTok website, and keep your settings in sync.", proof: "$1.99 once · No subscription" },
+      4: { kicker: "Cross-platform by design", title: "One purchase. Every supported screen.", sub: "Sign in with the same email to unlock Still Pro and sync settings across supported browsers and devices.", proof: "Safari · Chrome · Firefox" },
+      5: { kicker: "Know before you install", title: "Mobile means Safari.", sub: "On iPhone and iPad, Still works only on websites in Safari. It does not change native social-media apps.", proof: "Clear scope. No surprises." },
+      6: { kicker: "Private by design", title: "Still doesn’t need to watch you.", sub: "Blocking happens on your device. No ads, no behavioral tracking, and no browsing-history analytics.", proof: "Your browsing stays yours" },
+    };
+    const params = new URLSearchParams(location.search);
+    const scene = Number(params.get("scene") || 1);
+    const platform = params.get("platform") || "chrome";
+    const orientation = params.get("orientation") || "landscape";
+    const storeScreenshot = params.get("store") === "1";
+    const apple = ["iphone", "ipad", "macos"].includes(platform);
+    document.body.dataset.scene = String(scene);
+    document.body.classList.add(orientation, platform);
+    if (storeScreenshot) document.body.classList.add("store-screenshot");
+    document.querySelector(".kicker").textContent = scenes[scene].kicker;
+    document.querySelector("h1").textContent = scenes[scene].title;
+    document.querySelector(".sub").textContent = scenes[scene].sub;
+    document.querySelector(".proof").textContent = scenes[scene].proof;
+    if (apple && scene === 3) {
+      document.querySelector(".proof").textContent = "One purchase · No subscription";
+    }
+    document.querySelector(".platform-label").textContent = ({ iphone: "iPhone · Safari", ipad: "iPad · Safari", macos: "Mac · Safari", chrome: "Chrome extension", firefox: "Firefox add-on" })[platform];
+    const image = document.querySelector(".device img");
+    if (platform === "chrome" || platform === "firefox") {
+      image.src = "../chrome/raw-popup-v2.png";
+      document.querySelector(".device").classList.add("browser-device");
+    } else if (platform === "iphone") {
+      image.src = "../iphone/raw-main.png";
+    } else if (platform === "ipad" && scene === 1) {
+      image.src = "../ipad/still-ipad-13-01.png";
+    } else {
+      image.src = "../macos/raw-01-main-v2.png";
+    }
+  </script>
+</body>
+</html>
