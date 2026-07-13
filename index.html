@@ -1,37 +1,159 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-US">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Still — calm your browser</title>
-<meta name="description" content="Still removes short-form video — Shorts, Reels, and all of TikTok.">
-<style>
-  :root { --ink:#0b1020; --muted:#5b6478; --blue:#3457d5; --line:#e7e9f0; --bg:#ffffff; }
-  * { box-sizing:border-box; }
-  body { margin:0; font:16px/1.6 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; color:var(--ink); background:var(--bg); }
-  .wrap { max-width:680px; margin:0 auto; padding:64px 22px; }
-  .mark { font-weight:600; font-size:26px; letter-spacing:-0.02em; }
-  .dot { color:var(--blue); }
-  h1 { font-size:34px; letter-spacing:-0.02em; margin:28px 0 10px; }
-  p.lead { font-size:18px; color:var(--muted); margin:0 0 28px; }
-  nav { display:flex; flex-wrap:wrap; gap:14px; margin-top:28px; }
-  nav a { color:var(--blue); text-decoration:none; font-weight:500; border:1px solid var(--line); padding:9px 14px; border-radius:9px; }
-  nav a:hover { background:#f5f7ff; }
-  footer { margin-top:48px; color:var(--muted); font-size:14px; border-top:1px solid var(--line); padding-top:18px; }
-  a { color:var(--blue); }
-</style>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Still — Block Shorts &amp; Reels in Safari, Chrome &amp; Firefox</title>
+  <meta name="description" content="Keep your attention when you browse. Still removes YouTube Shorts free; Still Pro blocks Reels and TikTok and syncs across supported browsers for $1.99 once.">
+  <meta name="theme-color" content="#2948e8">
+  <meta property="og:title" content="Still — Open for what you came for">
+  <meta property="og:description" content="Remove short-form video from supported browsers. YouTube Shorts free. Still Pro is $1.99 once—no subscription.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://zackc-1.github.io/still-app/">
+  <meta property="og:image" content="https://zackc-1.github.io/still-app/release/screenshots/v2/web/still-open-graph-v2-1200x630.jpg">
+  <link rel="canonical" href="https://zackc-1.github.io/still-app/">
+  <link rel="stylesheet" href="./assets/marketing.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Still",
+    "applicationCategory": "ProductivityApplication",
+    "operatingSystem": "iOS, iPadOS, macOS, desktop browsers",
+    "description": "Still removes YouTube Shorts, Instagram and Facebook Reels, and the TikTok website from supported browsers.",
+    "url": "https://zackc-1.github.io/still-app/",
+    "downloadUrl": "https://chromewebstore.google.com/detail/still/midpefhbieafmeboompbboemeahjjnkf",
+    "author": { "@type": "Organization", "name": "Cadmus Labs LLC" },
+    "offers": [
+      { "@type": "Offer", "name": "Still Free", "price": "0", "priceCurrency": "USD" },
+      { "@type": "Offer", "name": "Still Pro", "price": "1.99", "priceCurrency": "USD" }
+    ]
+  }
+  </script>
 </head>
 <body>
-  <div class="wrap">
-    <div class="mark">st<span class="dot">·</span>ll</div>
-    <h1>Calm your browser.</h1>
-    <p class="lead">Still removes short-form video — Shorts, Reels, and all of TikTok — so the web stops pulling at your attention.</p>
-    <nav>
-      <a href="privacy/">Privacy Policy</a>
-      <a href="terms/">Terms &amp; Conditions</a>
-      <a href="support/">Support</a>
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="Still home">
+      <span class="brand-mark" aria-hidden="true"><span></span></span>
+      <span>st.ll</span>
+    </a>
+    <nav aria-label="Main navigation">
+      <a href="#how-it-works">How it works</a>
+      <a href="#where-it-works">Where it works</a>
+      <a href="#pricing">Pricing</a>
     </nav>
-    <footer>© 2026 Cadmus Labs LLC · <a href="mailto:zack@cadmuslabs.co">zack@cadmuslabs.co</a></footer>
-  </div>
+  </header>
+
+  <main id="top">
+    <section class="hero section-shell">
+      <div class="hero-copy">
+        <p class="eyebrow">Short-form video, minus the pull.</p>
+        <h1>Open for what you came for.</h1>
+        <p class="hero-lede">Still removes Shorts, Reels, and TikTok from the websites you already use—so one intentional visit doesn’t become an hour of scrolling.</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="https://chromewebstore.google.com/detail/still/midpefhbieafmeboompbboemeahjjnkf">Get Still for Chrome</a>
+          <a class="button button-secondary" href="#where-it-works">See every platform</a>
+        </div>
+        <p class="price-line"><strong>YouTube Shorts free.</strong> Still Pro is $1.99 once. No subscription.</p>
+      </div>
+
+      <div class="quiet-browser" aria-label="Illustration of a calm browser without a short-form feed">
+        <div class="browser-bar"><i></i><i></i><i></i><span>youtube.com</span></div>
+        <div class="browser-body">
+          <div class="browser-main">
+            <div class="video-placeholder"><span></span></div>
+            <div class="copy-line wide"></div>
+            <div class="copy-line"></div>
+          </div>
+          <aside>
+            <p>Short-form feed</p>
+            <strong>Removed</strong>
+            <span class="still-line"></span>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section class="outcome-section section-shell" aria-labelledby="outcome-title">
+      <p class="eyebrow">A quieter default</p>
+      <h2 id="outcome-title">Keep the useful parts. Lose the part that keeps pulling.</h2>
+      <div class="outcome-grid">
+        <article><span>01</span><h3>Arrive with a purpose</h3><p>Watch the video, check the post, or reply to the message you opened the site for.</p></article>
+        <article><span>02</span><h3>Skip the accidental scroll</h3><p>The short-form entry points and feeds simply aren’t there to catch your attention.</p></article>
+        <article><span>03</span><h3>Leave with a clear mind</h3><p>No timers, shame, streaks, or willpower games. Just a calmer version of the web.</p></article>
+      </div>
+    </section>
+
+    <section id="how-it-works" class="how-section section-shell split-section">
+      <div>
+        <p class="eyebrow">Quiet infrastructure</p>
+        <h2>Still removes the invitation to scroll.</h2>
+        <p>It works as a browser extension on the four supported websites. You keep normal videos, posts, messages, and pages. Still removes the short-form surfaces around them.</p>
+      </div>
+      <ul class="service-list" aria-label="Supported services">
+        <li><span>YouTube</span><strong>Shorts removed</strong></li>
+        <li><span>Instagram</span><strong>Reels removed with Pro</strong></li>
+        <li><span>Facebook</span><strong>Reels removed with Pro</strong></li>
+        <li><span>TikTok</span><strong>Website blocked with Pro</strong></li>
+      </ul>
+    </section>
+
+    <section id="pricing" class="pricing-section section-shell" aria-labelledby="pricing-title">
+      <p class="eyebrow">Simple by design</p>
+      <h2 id="pricing-title">Start free. Pay once when you want every supported surface.</h2>
+      <div class="pricing-grid">
+        <article class="price-card">
+          <p class="plan-name">Still Free</p>
+          <p class="price">$0</p>
+          <p>Remove YouTube Shorts in a supported browser. No account required.</p>
+          <ul><li>Shorts shelf and tab removed</li><li>Shorts links open as normal videos</li><li>Settings stay on your device</li></ul>
+        </article>
+        <article class="price-card pro-card">
+          <p class="plan-name">Still Pro</p>
+          <p class="price">$1.99 <small>once</small></p>
+          <p>Protect your attention across every supported browser and device.</p>
+          <ul><li>Everything in Free</li><li>Instagram and Facebook Reels removed</li><li>TikTok website blocked</li><li>Settings sync after sign-in</li><li>One purchase unlocks supported surfaces</li></ul>
+        </article>
+      </div>
+    </section>
+
+    <section id="where-it-works" class="compatibility-section section-shell" aria-labelledby="compatibility-title">
+      <div class="compatibility-heading">
+        <p class="eyebrow">One purchase. Every supported screen.</p>
+        <h2 id="compatibility-title">Your quieter web follows you.</h2>
+        <p>Buy Still Pro on any surface, then sign in with the same email to unlock Pro and sync your settings everywhere Still is supported.</p>
+      </div>
+      <div class="compatibility-card">
+        <div class="compat-row"><strong>iPhone &amp; iPad</strong><span>Safari</span><em>Supported</em></div>
+        <div class="compat-row"><strong>Mac</strong><span>Safari, Chrome, Firefox</span><em>Supported</em></div>
+        <div class="compat-row"><strong>Desktop</strong><span>Chrome, Firefox</span><em>Supported</em></div>
+        <div class="compat-row limitation"><strong>Native mobile apps</strong><span>Instagram, YouTube, Facebook, TikTok apps</span><em>Not blocked</em></div>
+      </div>
+      <div class="scope-notice">
+        <strong>Important mobile note</strong>
+        <p>On iPhone and iPad, Still works only while you browse in Safari. It cannot remove short-form video inside native social-media apps. Chrome on mobile does not support Still.</p>
+      </div>
+    </section>
+
+    <section class="privacy-section section-shell split-section">
+      <div>
+        <p class="eyebrow">Private by design</p>
+        <h2>Still doesn’t need to watch you.</h2>
+      </div>
+      <div><p>Blocking happens on your device. Still has no ads, no behavioral tracking, and no browsing-history analytics. If you use Pro sync, your account stores only what is needed to restore your entitlement and sync your Still settings.</p><a class="text-link" href="./privacy.html">Read the privacy policy →</a></div>
+    </section>
+
+    <section class="final-cta section-shell">
+      <p class="eyebrow">A small change to your browser</p>
+      <h2>A little more stillness in your day.</h2>
+      <p>Remove the feed before it asks for your attention.</p>
+      <a class="button button-primary" href="https://chromewebstore.google.com/detail/still/midpefhbieafmeboompbboemeahjjnkf">Get YouTube Shorts blocking free</a>
+    </section>
+  </main>
+
+  <footer>
+    <span>© 2026 Cadmus Labs LLC</span>
+    <div><a href="./privacy.html">Privacy</a><a href="./terms/">Terms</a><a href="./support.html">Support</a><a href="mailto:zack@cadmuslabs.co">Contact</a></div>
+  </footer>
 </body>
 </html>

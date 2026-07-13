@@ -16,7 +16,7 @@
 
   <p class="lede"><strong>Short version:</strong> Still does <strong>not</strong> track you, show ads,
   or sell your data. The only data we handle is what's needed to (a) sign you in and (b) sync your
-  settings across your devices — and only if you choose to create an account.</p>
+  settings and restore Still Pro across your devices — and only if you choose to sign in.</p>
 
   <h2>What we collect</h2>
   <p>Still works fully <strong>without an account</strong> — if you never sign in, Still keeps your
@@ -27,10 +27,10 @@
       <tr><th>Data</th><th>Why</th><th>Where it's stored</th></tr>
     </thead>
     <tbody>
-      <tr><td><strong>Email address</strong></td><td>Account identity (from Sign in with Apple or a magic-link email)</td><td>Supabase (our backend)</td></tr>
+      <tr><td><strong>Email address</strong></td><td>Account identity (you sign in with a 6-digit code sent by email)</td><td>Supabase (our backend)</td></tr>
       <tr><td><strong>Account ID</strong></td><td>Links your devices to the same account so settings sync</td><td>Supabase</td></tr>
       <tr><td><strong>Your Still settings</strong></td><td>The features you've turned on/off and per-site pauses, so they match on every device</td><td>Supabase</td></tr>
-      <tr><td><strong>Purchase record</strong></td><td>To unlock "Still Pro" (a one-time in-app purchase) and restore it on your devices</td><td>Apple + RevenueCat</td></tr>
+      <tr><td><strong>Purchase record</strong></td><td>To unlock Still Pro (a one-time purchase) and restore it on supported devices</td><td>Apple or Stripe, and RevenueCat</td></tr>
     </tbody>
   </table>
   <p>We do <strong>not</strong> collect: browsing history, the content of pages you visit, location,
@@ -39,7 +39,8 @@
   <h2>Service providers</h2>
   <p>We share the minimum data above only with the providers that make the app work:</p>
   <ul>
-    <li><strong>Apple</strong> — Sign in with Apple and in-app purchases (StoreKit).</li>
+    <li><strong>Apple</strong> — in-app purchases made in the iPhone, iPad, or Mac app (StoreKit).</li>
+    <li><strong>Stripe</strong> — web purchases started from the Chrome or Firefox extension.</li>
     <li><strong>Supabase</strong> — stores your account and synced settings.</li>
     <li><strong>RevenueCat</strong> — processes and verifies your in-app purchase.</li>
   </ul>
