@@ -15,14 +15,6 @@
 		14DE458E2FEC760B0056BB36 /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 14DE458C2FEC760B0056BB36 /* Main.storyboard */; };
 		14DE45952FEC760B0056BB36 /* Still Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 14DE45942FEC760B0056BB36 /* Still Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		14DE459F2FEC760B0056BB36 /* Still Extension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 14DE459E2FEC760B0056BB36 /* Still Extension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		14DE45A42FEC760B0056BB36 /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = 14DE45692FEC760A0056BB36 /* Main.html */; };
-		14DE45A52FEC760B0056BB36 /* Main.html in Resources */ = {isa = PBXBuildFile; fileRef = 14DE45692FEC760A0056BB36 /* Main.html */; };
-		14DE45A62FEC760B0056BB36 /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 14DE456B2FEC760A0056BB36 /* Icon.png */; };
-		14DE45A72FEC760B0056BB36 /* Icon.png in Resources */ = {isa = PBXBuildFile; fileRef = 14DE456B2FEC760A0056BB36 /* Icon.png */; };
-		14DE45A82FEC760B0056BB36 /* Style.css in Resources */ = {isa = PBXBuildFile; fileRef = 14DE456C2FEC760A0056BB36 /* Style.css */; };
-		14DE45A92FEC760B0056BB36 /* Style.css in Resources */ = {isa = PBXBuildFile; fileRef = 14DE456C2FEC760A0056BB36 /* Style.css */; };
-		14DE45AA2FEC760B0056BB36 /* Script.js in Resources */ = {isa = PBXBuildFile; fileRef = 14DE456D2FEC760A0056BB36 /* Script.js */; };
-		14DE45AB2FEC760B0056BB36 /* Script.js in Resources */ = {isa = PBXBuildFile; fileRef = 14DE456D2FEC760A0056BB36 /* Script.js */; };
 		14DE45AC2FEC760B0056BB36 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DE456E2FEC760A0056BB36 /* ViewController.swift */; };
 		14DE45AD2FEC760B0056BB36 /* ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 14DE456E2FEC760A0056BB36 /* ViewController.swift */; };
 		14DE45AE2FEC760B0056BB36 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 14DE456F2FEC760B0056BB36 /* Assets.xcassets */; };
@@ -99,10 +91,6 @@
 
 /* Begin PBXFileReference section */
 		0A6C60BC10977A15EE498382 /* OnboardingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
-		14DE456A2FEC760A0056BB36 /* Base */ = {isa = PBXFileReference; lastKnownFileType = text.html; name = Base; path = Base.lproj/Main.html; sourceTree = "<group>"; };
-		14DE456B2FEC760A0056BB36 /* Icon.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = Icon.png; sourceTree = "<group>"; };
-		14DE456C2FEC760A0056BB36 /* Style.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = Style.css; sourceTree = "<group>"; };
-		14DE456D2FEC760A0056BB36 /* Script.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = Script.js; sourceTree = "<group>"; };
 		14DE456E2FEC760A0056BB36 /* ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ViewController.swift; sourceTree = "<group>"; };
 		14DE456F2FEC760B0056BB36 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		14DE45712FEC760B0056BB36 /* SafariWebExtensionHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SafariWebExtensionHandler.swift; sourceTree = "<group>"; };
@@ -213,10 +201,6 @@
 			isa = PBXGroup;
 			children = (
 				E2A0A001000000000000A001 /* Fonts */,
-				14DE45692FEC760A0056BB36 /* Main.html */,
-				14DE456B2FEC760A0056BB36 /* Icon.png */,
-				14DE456C2FEC760A0056BB36 /* Style.css */,
-				14DE456D2FEC760A0056BB36 /* Script.js */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -464,14 +448,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				E2B0B001000000000000B001 /* Fonts in Resources */,
-				14DE45A62FEC760B0056BB36 /* Icon.png in Resources */,
 				14DE457F2FEC760B0056BB36 /* LaunchScreen.storyboard in Resources */,
-				14DE45A42FEC760B0056BB36 /* Main.html in Resources */,
-				14DE45AA2FEC760B0056BB36 /* Script.js in Resources */,
 				14DE45AE2FEC760B0056BB36 /* Assets.xcassets in Resources */,
 				D1B0B001000000000000B001 /* PrivacyInfo.xcprivacy in Resources */,
 				14DE45822FEC760B0056BB36 /* Main.storyboard in Resources */,
-				14DE45A82FEC760B0056BB36 /* Style.css in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -480,13 +460,9 @@
 			buildActionMask = 2147483647;
 			files = (
 				E2B0B002000000000000B002 /* Fonts in Resources */,
-				14DE45A72FEC760B0056BB36 /* Icon.png in Resources */,
-				14DE45A92FEC760B0056BB36 /* Style.css in Resources */,
 				14DE458E2FEC760B0056BB36 /* Main.storyboard in Resources */,
-				14DE45AB2FEC760B0056BB36 /* Script.js in Resources */,
 				14DE45AF2FEC760B0056BB36 /* Assets.xcassets in Resources */,
 				D1B0B002000000000000B002 /* PrivacyInfo.xcprivacy in Resources */,
-				14DE45A52FEC760B0056BB36 /* Main.html in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -651,14 +627,6 @@
 /* End PBXTargetDependency section */
 
 /* Begin PBXVariantGroup section */
-		14DE45692FEC760A0056BB36 /* Main.html */ = {
-			isa = PBXVariantGroup;
-			children = (
-				14DE456A2FEC760A0056BB36 /* Base */,
-			);
-			name = Main.html;
-			sourceTree = "<group>";
-		};
 		14DE457D2FEC760B0056BB36 /* LaunchScreen.storyboard */ = {
 			isa = PBXVariantGroup;
 			children = (
