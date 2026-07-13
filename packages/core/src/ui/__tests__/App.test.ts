@@ -227,6 +227,18 @@ describe("App", () => {
     ).toBeTruthy();
   });
 
+  it("makes the signed-out Still Pro path primary while keeping restore sign-in available", () => {
+    const c = controller({ auth: codeCapableAuth() });
+    render(App, { props: { controller: c } });
+    const accountCard = document.querySelector("section.sync");
+    expect(accountCard).toBeTruthy();
+    const buttons = within(accountCard as HTMLElement).getAllByRole("button");
+    expect(buttons[0]?.textContent).toBe(STRINGS.paywall.upgradeCta);
+    expect(buttons[0]?.classList.contains("primary")).toBe(true);
+    expect(buttons[1]?.textContent).toBe(STRINGS.auth.signInCta);
+    expect(buttons[1]?.classList.contains("secondary")).toBe(true);
+  });
+
   it("signed-in non-Pro users see upgrade and account controls", () => {
     const c = controller({ deletable: true });
     c.userId = "u";
