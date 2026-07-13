@@ -35,8 +35,9 @@ export default defineConfig({
   manifest: ({ browser }) => {
     const isFirefox = browser === "firefox";
     return {
-      name: "Still",
-      description: "Removes short-form video — Shorts, Reels, and all of TikTok.",
+      name: "Still: Block Shorts & Reels",
+      description:
+        "Block YouTube Shorts free. Still Pro removes Reels and TikTok and syncs settings across supported browsers.",
       permissions: [
         "storage",
         // DNR is Chromium-only here (see header); Firefox uses the content-script redirect.

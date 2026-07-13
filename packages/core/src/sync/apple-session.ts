@@ -12,7 +12,7 @@ import type { SyncService, SyncState } from "./service.js";
 //     account is already entitled (e.g. bought on the web), never charge again.
 //   • Unlock payoff, not force-dismiss (U3/R6): every server-confirmed unlock lands here as the
 //     controller's `entitled` flipping false→true inside enterSession — with the paywall open,
-//     that transition shows "Pro unlocked. Enjoy the quiet." and the controller owns the dismissal.
+//     that transition shows the quieter-web success payoff and the controller owns the dismissal.
 //     This module no longer calls dismissPaywall() at its entitled call sites.
 //   • Offline guard: a signed-in user whose entitlement can't be checked online must NOT reach the
 //     native purchase — surface a calm retry message instead.

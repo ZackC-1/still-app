@@ -132,7 +132,7 @@ describe("App", () => {
     c.userId = "u";
     c.entitled = true;
     render(App, { props: { controller: c } });
-    expect(screen.getByText(/Synced across your devices/)).toBeTruthy();
+    expect(screen.getByText(/Synced across supported devices/)).toBeTruthy();
   });
 
   it("non-Apple host shows the explanatory paywall, never a purchasable CTA (R19)", () => {
@@ -227,6 +227,18 @@ describe("App", () => {
     ).toBeTruthy();
   });
 
+  it("makes the signed-out Still Pro path primary while keeping restore sign-in available", () => {
+    const c = controller({ auth: codeCapableAuth() });
+    render(App, { props: { controller: c } });
+    const accountCard = document.querySelector("section.sync");
+    expect(accountCard).toBeTruthy();
+    const buttons = within(accountCard as HTMLElement).getAllByRole("button");
+    expect(buttons[0]?.textContent).toBe(STRINGS.paywall.upgradeCta);
+    expect(buttons[0]?.classList.contains("primary")).toBe(true);
+    expect(buttons[1]?.textContent).toBe(STRINGS.auth.signInCta);
+    expect(buttons[1]?.classList.contains("secondary")).toBe(true);
+  });
+
   it("signed-in non-Pro users see upgrade and account controls", () => {
     const c = controller({ deletable: true });
     c.userId = "u";
@@ -244,7 +256,7 @@ describe("App", () => {
     render(App, { props: { controller: c } });
     expect(screen.queryByText("Sign in to Still")).toBeNull();
     expect(screen.queryByText(STRINGS.paywall.upgradeCta)).toBeNull();
-    expect(screen.getByText(/Synced across your devices/)).toBeTruthy();
+    expect(screen.getByText(/Synced across supported devices/)).toBeTruthy();
   });
 
   it("signed-out upgrade records intent and opens email-code sign-in before paywall", async () => {
@@ -394,7 +406,7 @@ describe("App", () => {
       props: { controller: withPrice, onGet: () => {} },
     });
     expect(
-      within(screen.getByRole("dialog")).getByText(/Unlock Pro · £1\.99/),
+      within(screen.getByRole("dialog")).getByText(/Get Still Pro · £1\.99/),
     ).toBeTruthy();
     unmount();
 
@@ -402,7 +414,7 @@ describe("App", () => {
     noPrice.userId = "u";
     noPrice.openPaywall(); // paywallPrice stays null (price not loaded / non-Apple)
     render(App, { props: { controller: noPrice, onGet: () => {} } });
-    const cta = within(screen.getByRole("dialog")).getByText("Unlock Pro");
+    const cta = within(screen.getByRole("dialog")).getByText("Get Still Pro");
     expect(cta.textContent).not.toContain("·"); // no hardcoded/guessed price
   });
 
@@ -414,7 +426,7 @@ describe("App", () => {
     c.paywallPrice = "$1.99";
     render(App, { props: { controller: c, onGet } });
     const dialog = within(screen.getByRole("dialog"));
-    await fireEvent.click(dialog.getByText(/Unlock Pro ·/)); // the paywall CTA (has the price)
+    await fireEvent.click(dialog.getByText(/Get Still Pro ·/)); // the paywall CTA (has the price)
     expect(onGet).toHaveBeenCalledOnce();
     const inFlight = dialog.getByText(
       /Completing your purchase/,
@@ -441,6 +453,19 @@ describe("App", () => {
     const dialog = within(screen.getByRole("dialog"));
     expect(dialog.getByText(STRINGS.paywall.headline)).toBeTruthy();
     expect(dialog.getByText(STRINGS.paywall.reassurance)).toBeTruthy();
+  });
+
+  it("discloses the Safari-only mobile boundary before purchase", () => {
+    const c = controller();
+    c.userId = "u";
+    c.openPaywall();
+    render(App, { props: { controller: c, onGet: () => {} } });
+    const dialog = within(screen.getByRole("dialog"));
+    expect(
+      dialog.getByText(
+        "On iPhone and iPad, Still works in Safari only. It does not block short-form video inside native apps.",
+      ),
+    ).toBeTruthy();
   });
 
   // ── success payoff (plan U3/R6) ────────────────────────────────────────────────────────────────

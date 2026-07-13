@@ -1131,9 +1131,13 @@ describe("ratified paywall copy (plan U3/D6/R10)", () => {
   }
 
   it("carries the ratified lines verbatim (D6)", () => {
-    expect(STRINGS.paywall.headline).toBe("The rest of the noise, gone too");
-    expect(STRINGS.paywall.reassurance).toBe("One payment. Yours forever.");
-    expect(STRINGS.paywall.unlocked).toBe("Pro unlocked. Enjoy the quiet.");
+    expect(STRINGS.paywall.headline).toBe(
+      "Make every supported browser feel this quiet",
+    );
+    expect(STRINGS.paywall.reassurance).toBe(
+      "One purchase. No subscription.",
+    );
+    expect(STRINGS.paywall.unlocked).toBe("Your quieter web is ready.");
     expect(STRINGS.paywall.openingCheckout).toBe("Opening checkout…");
   });
 

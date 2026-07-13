@@ -22,8 +22,8 @@
     /** Localized store price (e.g. "$1.99"), fetched from StoreKit via RevenueCat. Null
      * until loaded or unavailable — the CTA then shows without a price suffix rather than a guess. */
     price?: string | null;
-    /** The success payoff (U3/R6): replaces the sheet's content with "Pro unlocked. Enjoy the
-     * quiet." while the newly unlocked rows switch on behind it. The controller owns its
+    /** The success payoff (U3/R6): replaces the sheet's content with the quieter-web confirmation
+     * while the newly unlocked rows switch on behind it. The controller owns its
      * lifetime (~2.5s auto-dismiss; tap/Escape dismiss early through onDismiss). */
     justUnlocked?: boolean;
   }
@@ -153,6 +153,7 @@
     <h2>{STRINGS.paywall.headline}</h2>
     {#if canPurchase}
       <p>{STRINGS.paywall.body}</p>
+      <p class="scope">{STRINGS.paywall.scope}</p>
       <button class="primary" onclick={onGet} disabled={busy}>
         {#if purchaseFlow === "purchasing"}
           {STRINGS.paywall.purchasing}
@@ -247,6 +248,14 @@
   .reassure {
     font-size: 13.5px;
     text-align: center;
+  }
+  .scope {
+    padding: var(--space-3);
+    border-inline-start: 3px solid var(--still-blue);
+    background: var(--surface-raised);
+    color: var(--ink-secondary);
+    font-size: 13px;
+    line-height: 1.45;
   }
   .status {
     color: var(--ink-secondary);
