@@ -2,7 +2,7 @@ import { ChromeStorageAdapter, parseStoredSettingsRecord, type StoredSettingsRec
 import { ChromeEntitlementAdapter } from "@still/core/entitlement";
 import { refreshRuleSetCache, ruleSetFetchConfig, type RuleSetEndpoint } from "@still/core/rules";
 import { createAppGroupReconciler } from "../lib/app-group-reconcile.js";
-import { applyNativeEntitlement, parseNativeEntitlement } from "../lib/entitlement-pull.js";
+import { BrowserInstallGenerationStore, createEntitlementPull } from "../lib/entitlement-pull.js";
 import { NATIVE_APP, pushSettingsToApp } from "../lib/native-settings.js";
 
 // Safari background — the native App-Group bridge (KTD4). The content/popup/options surfaces read &
@@ -59,15 +59,13 @@ export default defineBackground(() => {
   // Entitlement pull: the app mirrors its server-reconciled entitlement into the App Group; we copy
   // it into browser.storage so the content scripts' EntitlementCache gates Pro blocking on it. A
   // failed/empty pull leaves storage untouched (the TTL in ChromeEntitlementAdapter bounds staleness).
-  const entitlementSink = new ChromeEntitlementAdapter();
-  async function pullEntitlementFromApp(): Promise<void> {
-    try {
-      const reply = await browser.runtime.sendNativeMessage(NATIVE_APP, { kind: "getEntitlement" });
-      await applyNativeEntitlement(parseNativeEntitlement(reply), entitlementSink);
-    } catch {
-      /* native host unavailable (extension running outside the app container) */
-    }
-  }
+  // The pull is single-flighted, compares the app's install-generation id, and purges a stale grant
+  // when the id changes (reinstall detection, issue #63) — all in lib/entitlement-pull.
+  const pullEntitlementFromApp = createEntitlementPull({
+    send: () => browser.runtime.sendNativeMessage(NATIVE_APP, { kind: "getEntitlement" }),
+    sink: new ChromeEntitlementAdapter(),
+    generations: new BrowserInstallGenerationStore(),
+  });
 
   // Reconcile on a content-script nudge (fired at document_start when a page loads).
   browser.runtime.onMessage.addListener((message: unknown) => {

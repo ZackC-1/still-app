@@ -50,3 +50,10 @@ Names the load-bearing concepts in this codebase. Use these terms in code, comme
   system dark mode, no CSS `zoom`. Enforced as file-content assertions in
   `core/ui/__tests__/design-contract.test.ts`, not manual parity review. Note "host" here — a
   rendered UI destination — is distinct from the rule-set **Surface** above (a blocking unit).
+- **Install generation** — the per-install id the app stamps into the App Group on launch
+  (StillKit `InstallGeneration`, idempotent) and returns inside every entitlement-lane reply. The
+  Safari extension purges its cached entitlement only when the id it last saw CHANGES (reinstall
+  detected — Safari's extension storage survives app deletion, issue #63); an absent/unreadable id
+  is never a purge signal (offline never-downgrade), and a null `entitled` in the reply envelope is
+  never read as entitled (it gates a paid feature). The marker key must never be bumped as a soft
+  reset — every device would look reinstalled and mass-relock Pro; migrate the value forward instead.
