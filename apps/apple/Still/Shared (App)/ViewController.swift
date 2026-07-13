@@ -45,6 +45,11 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
     override func viewDidLoad() {
         super.viewDidLoad()
 
+        // Stamp this install's generation id into the App Group before the Safari extension can
+        // pull — the reinstall signal for the entitlement purge (issue #63). Idempotent: an
+        // ordinary relaunch returns the existing id, never a fresh one.
+        InstallGeneration.ensure(InstallGeneration.appGroupDefaults())
+
         self.webView.navigationDelegate = self
 
 #if os(iOS)
