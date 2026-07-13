@@ -118,13 +118,16 @@ describe("applyInstallGeneration", () => {
     expect(generations.set).not.toHaveBeenCalled();
   });
 
-  it("a failing purge write still records the new id (swallow-and-continue)", async () => {
+  it("a failing purge write does NOT record the new id — nothing else is written", async () => {
+    // Recording the id first would mark the generation handled while the stale grant survives,
+    // forfeiting the purge forever. Leave the marker untouched so the next pull retries.
     const s = { set: vi.fn().mockRejectedValue(new Error("storage broke")) };
     const generations = fakeGenerations("A");
     await expect(
       applyInstallGeneration("changed", "B", { sink: s, generations }),
-    ).resolves.toBe(true);
-    expect(generations.set).toHaveBeenCalledWith("B");
+    ).resolves.toBe(false);
+    expect(generations.set).not.toHaveBeenCalled();
+    expect(generations.stored).toBe("A");
   });
 });
 
@@ -279,7 +282,10 @@ describe("createEntitlementPull", () => {
     expect(h.generations.set).not.toHaveBeenCalled();
   });
 
-  it("an unreadable marker store can never cause a purge (worst case: adopt)", async () => {
+  it("an unreadable marker store is 'unknown': no purge, NO marker write, record still applies", async () => {
+    // A failed read must not masquerade as "never recorded an id" — adopting here would overwrite
+    // the REAL stored id with the reply's. Strict no-op on the generation lane; the entitlement
+    // record still lands.
     const writes: Array<[boolean, number | undefined]> = [];
     const sink: EntitlementSink = {
       set: vi.fn(async (entitled: boolean, updatedAt?: number) => {
@@ -297,7 +303,53 @@ describe("createEntitlementPull", () => {
       now: () => NOW,
     });
     await pull();
-    expect(writes).toEqual([[true, NOW - 1]]); // no purge — adopt + apply only
-    expect(generations.set).toHaveBeenCalledWith("B");
+    expect(writes).toEqual([[true, NOW - 1]]); // apply only — no purge write
+    expect(generations.set).not.toHaveBeenCalled();
+  });
+
+  it("changed with failing purge retries on the next pull", async () => {
+    // First pull: the purge write rejects, so the marker must stay at "A". Second pull (storage
+    // healthy again): "changed" re-resolves, the purge lands, and the marker advances.
+    const writes: Array<[boolean, number | undefined]> = [];
+    let failNextSet = true;
+    const sink: EntitlementSink = {
+      set: vi.fn(async (entitled: boolean, updatedAt?: number) => {
+        if (failNextSet) {
+          failNextSet = false;
+          throw new Error("storage broke");
+        }
+        writes.push([entitled, updatedAt]);
+      }),
+    };
+    const generations = fakeGenerations("A");
+    const pull = createEntitlementPull({
+      send: async () => markerOnlyReply("B"),
+      sink,
+      generations,
+      now: () => NOW,
+    });
+    await pull();
+    expect(writes).toEqual([]); // purge failed — nothing landed
+    expect(generations.stored).toBe("A"); // marker unchanged, so the next pull retries
+    await pull();
+    expect(writes).toEqual([[false, NOW]]); // purge landed
+    expect(generations.stored).toBe("B"); // marker advances only after the purge succeeds
+  });
+
+  it("a rejecting sink.set on the apply path does not reject the pull promise", async () => {
+    // Both production call sites are `void pull()` with no catch — a storage failure applying the
+    // record must be swallowed, not surface as an unhandled rejection.
+    const sink: EntitlementSink = {
+      set: vi.fn().mockRejectedValue(new Error("storage broke")),
+    };
+    const generations = fakeGenerations("A");
+    const pull = createEntitlementPull({
+      send: async () => reply(true, NOW - 1, "A"), // same id — apply path only, no purge
+      sink,
+      generations,
+      now: () => NOW,
+    });
+    await expect(pull()).resolves.toBeUndefined();
+    expect(sink.set).toHaveBeenCalledTimes(1);
   });
 });

@@ -8,9 +8,11 @@
 //  SettingsBridge against the shared App-Group container (the same one the app's WKWebView writes),
 //  and reply with { settings: "<json>" } — last-write-wins, so a stale store can't silently win.
 //
-//  A second lane serves the entitlement pull: {kind:"getEntitlement"} replies
-//  { entitlement: "<json {entitled,updatedAt}>" } from the record the app mirrors into the App
-//  Group after each server reconcile — this is how paid Pro blocking reaches Safari's content
+//  A second lane serves the entitlement pull: {kind:"getEntitlement"} replies { entitlement:
+//  "<envelope json>" } — the three-key envelope {"entitled":Bool|null,"installId":String|null,
+//  "updatedAt":Int|null}, all keys always present, explicit null when absent (the legacy ""
+//  reply is gone; EntitlementBridge.swift is the contract). The app mirrors the record into the
+//  App Group after each server reconcile — this is how paid Pro blocking reaches Safari's content
 //  scripts (the extension never computes entitlement itself).
 //
 

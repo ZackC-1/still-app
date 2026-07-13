@@ -103,19 +103,23 @@ export class BrowserInstallGenerationStore implements InstallGenerationStore {
 }
 
 /** Swallow-and-continue, mirroring clearUserScopedState's `attempt`: one storage failure must not
- * strand the rest of the purge. */
-async function attempt(op: () => Promise<unknown>): Promise<void> {
+ * strand the rest of the pull. Returns whether the write actually landed, so callers that must
+ * only proceed on success (the purge → marker ordering) can tell. */
+async function attempt(op: () => Promise<unknown>): Promise<boolean> {
   try {
     await op();
+    return true;
   } catch {
-    /* best-effort */
+    return false; /* best-effort */
   }
 }
 
 /** Act on the install-generation outcome. Only "changed" purges: an explicit `entitled:false`
  * write (never a key removal — storage subscribers only fire on a value change), then the new id
- * is recorded. "adopt" records the id without touching entitlement. Returns whether a purge
- * happened (for tests and logging). */
+ * is recorded. The id is recorded ONLY after the purge write lands: recording it first would mark
+ * the generation as handled while the stale grant survives, forfeiting the purge forever. "adopt"
+ * records the id without touching entitlement. Returns whether a purge happened (for tests and
+ * logging). */
 export async function applyInstallGeneration(
   outcome: InstallGenerationOutcome,
   replyId: string | null,
@@ -123,7 +127,12 @@ export async function applyInstallGeneration(
 ): Promise<boolean> {
   const now = deps.now ?? Date.now;
   if (outcome === "changed" && replyId) {
-    await attempt(() => deps.sink.set(false, now()));
+    const purged = await attempt(() => deps.sink.set(false, now()));
+    // Purge failed: write nothing else — the marker still holds the old id, so the next pull
+    // re-resolves "changed" and retries the purge.
+    if (!purged) return false;
+    // The marker write stays attempt-wrapped: if it fails AFTER a successful purge, the next pull
+    // re-resolves "changed" and re-purges — idempotent, self-healing.
     await attempt(() => deps.generations.set(replyId));
     return true;
   }
@@ -180,14 +189,19 @@ export function createEntitlementPull(deps: EntitlementPullDeps): () => Promise<
     }
     const { record, installId } = parseNativeEntitlement(reply);
     let storedId: string | null = null;
+    let storedIdKnown = true;
     try {
       storedId = await deps.generations.get();
     } catch {
-      /* unreadable marker store: storedId stays null → adopt-at-worst, never a purge */
+      // Unreadable marker store: strict no-op on the generation lane. Treating the failed read as
+      // "no stored id" would resolve to "adopt" and overwrite the REAL stored id with the reply's.
+      storedIdKnown = false;
     }
-    const outcome = resolveInstallGeneration(storedId, installId);
+    const outcome = storedIdKnown ? resolveInstallGeneration(storedId, installId) : "unknown";
     await applyInstallGeneration(outcome, installId, deps);
-    await applyNativeEntitlement(record, deps.sink, deps.now);
+    // Attempt-wrapped like the purge/adopt writes: both production call sites are `void pull()`
+    // with no catch, so a rejecting sink must not surface as an unhandled rejection.
+    await attempt(() => applyNativeEntitlement(record, deps.sink, deps.now));
   }
 
   return () => {

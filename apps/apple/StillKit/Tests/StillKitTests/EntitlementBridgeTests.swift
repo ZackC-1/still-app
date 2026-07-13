@@ -75,6 +75,16 @@ final class EntitlementBridgeTests: XCTestCase {
       #"{"entitled":true,"installId":"install-A","updatedAt":7}"#)
   }
 
+  func testGetWithStoredRecordButNoMarkerRepliesExplicitNullInstallId() {
+    // Record present, marker absent (degraded App Group / pre-marker build): installId must still
+    // appear as explicit null, never a dropped key.
+    let record = EntitlementRecord(entitled: true, updatedAt: 7)
+    let (bridge, _) = bridge(record, installId: nil)
+    XCTAssertEqual(
+      bridge.handle(.get),
+      #"{"entitled":true,"installId":null,"updatedAt":7}"#)
+  }
+
   func testRevocationOverwrites() {
     let (bridge, store) = bridge(EntitlementRecord(entitled: true, updatedAt: 7), now: 9)
     _ = bridge.handle(.set(entitled: false))

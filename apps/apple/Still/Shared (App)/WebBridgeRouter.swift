@@ -18,9 +18,10 @@
 //        { kind:"price" }                     → { price } | {}   (localized store price for the CTA)
 //        { kind:"signOut" }                   → { ok:true }   (KTD5 — reset RC identity on sign-out)
 //
-//    • Entitlement mirror (reply the stored record JSON string):
-//        { kind:"setEntitlement", entitled }  → "{\"entitled\":…,\"updatedAt\":…}"
-//        { kind:"getEntitlement" }            → same, or "" when nothing stored
+//    • Entitlement mirror (reply the envelope JSON string — EntitlementBridge.swift is the contract):
+//        { kind:"setEntitlement", entitled }  → {"entitled":Bool|null,"installId":String|null,"updatedAt":Int|null}
+//        { kind:"getEntitlement" }            → same envelope; all three keys always present,
+//                                               explicit null when absent (the legacy "" reply is gone)
 //      The web SyncService mirrors its server-reconciled entitlement here after every state change;
 //      the Safari extension pulls it from the App Group so paid blocking activates in Safari.
 //
