@@ -157,11 +157,21 @@ struct OnboardingView: View {
       Text("Short-form is gone.")
         .font(.still(size: 20, relativeTo: .title3))
         .foregroundColor(.secondary)
-      Text("Back in Safari, use the Page Menu on iPhone and iPad, or Still’s toolbar button on Mac.")
+      Text(returnToSafariTip)
         .font(.still(size: 15, relativeTo: .body))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
     }
+  }
+
+  /// Platform-specific reminder of where Still lives once the user returns to Safari.
+  private var returnToSafariTip: String {
+    #if os(iOS)
+    return "Back in Safari, use the Page Menu to reach Still."
+    #else
+    return "Back in Safari, click Still’s toolbar button."
+    #endif
   }
 
   // MARK: Screen-3 status
