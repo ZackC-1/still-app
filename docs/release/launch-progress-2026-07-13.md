@@ -1,8 +1,8 @@
 # Launch progress — July 13, 2026 (updated July 14)
 
 This is the operational handoff for the English launch. Apple is configured for the United States,
-Canada, and the United Kingdom; Chrome remains limited to the United States and Canada while version
-1.0.1 is under review. Resume here before changing a store submission. The canonical positioning and
+Canada, and the United Kingdom. Chrome version 1.0.1 is publicly installable in the United States
+and Canada. Resume here before changing a pending store submission. The canonical positioning and
 paste-ready copy remain in
 [`marketing-playbook.md`](marketing-playbook.md) and [`store-listing-copy.md`](store-listing-copy.md).
 
@@ -18,20 +18,21 @@ paste-ready copy remain in
 
 ## Chrome Web Store
 
-Status: **version 1.0.1 submitted for review**.
+Status: **version 1.0.1 published** (verified July 14, 2026).
 
-Completed in the submitted draft:
+Completed in the live listing:
 
 - `1.0.1` package accepted by Chrome.
 - Canonical name, summary, detailed description, five screenshots, small promo tile, and marquee tile.
 - Privacy purpose, permission justifications, remote-code declaration, data disclosures, and
   certifications.
-- Public distribution limited to the United States and Canada.
+- Public distribution currently limited to the United States and Canada.
 - Reviewer test instructions for free Shorts blocking and optional Pro sign-in/checkout.
 
-Do not edit or resubmit while review is pending unless Google requests a change; doing so can restart
-review. The linked privacy policy is live at
-<https://zackc-1.github.io/still-app/privacy.html>.
+The public install URL is
+<https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf>.
+The linked privacy policy is live at <https://zackc-1.github.io/still-app/privacy/>. Keep the current
+listing stable while its first users arrive; make only deliberate metadata or availability changes.
 
 ## Firefox AMO
 
@@ -137,7 +138,14 @@ remain the real in-app paywall.
 
 - The cross-store marketing site, support page, privacy page, terms, sitemap, robots file, and Open
   Graph image are deployed on GitHub Pages.
-- Add direct Apple and Firefox store links only after those listings are publicly available.
+- The Chrome Web Store link is live on the homepage. Add direct Apple and Firefox store links only
+  after those listings are publicly available.
+- The source now includes four organic discovery guides and their sitemap entries. Publish those
+  source changes with the next GitHub Pages update; each guide links only to the live Chrome listing
+  and routes Safari/Firefox visitors to Support until those listings are public.
+- The approved web-purchase refund window is **5 days**. The Support page already says five days;
+  the matching Terms source is prepared in the `gh-pages` worktree and must ship in the same Pages
+  update so the public pages remain aligned.
 
 ## Coordinated approval and release gate
 
@@ -147,8 +155,8 @@ status, then check:
 1. iOS and macOS are both approved and still held for manual release.
 2. Still Pro is approved and attached to the launch version.
 3. Public listing links, privacy, support, purchase, restore, and same-email entitlement restore work.
-4. Chrome and Firefox review outcomes are known. If Chrome is approved, add the United Kingdom to its
-   distribution before announcing UK-wide cross-platform availability.
+4. Chrome is public in the United States and Canada. Add the United Kingdom to its distribution before
+   announcing UK-wide cross-platform availability; wait for Firefox's review outcome before linking it.
 5. The homepage exposes only live store links and repeats the Safari-only/native-app limitation.
 6. Release iOS and macOS together, then run the post-release accessibility evaluation separately on
    iPhone, iPad, and Mac.
