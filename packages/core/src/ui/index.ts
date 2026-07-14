@@ -27,4 +27,5 @@ export {
   type SurfaceGuidance,
 } from "./surface-guidance.js";
 export { default as App } from "./App.svelte";
+export { default as OpenSettingsButton } from "./components/OpenSettingsButton.svelte";
 export { default as Placeholder } from "./components/Placeholder.svelte";

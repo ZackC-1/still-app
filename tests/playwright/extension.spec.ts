@@ -35,10 +35,9 @@ test("the popup keeps every primary control visible without scaling or overflow"
   expect(layout.scrollWidth).toBeLessThanOrEqual(layout.innerWidth);
   expect(layout.scrollHeight).toBeLessThanOrEqual(layout.innerHeight);
   expect(layout.zoom).toBe("1");
+  // Substring match on the stable visible label — the surface-specific aria-label suffix may change.
   await expect(
-    page.getByRole("button", {
-      name: "Open settings and Find Still in your browser",
-    }),
+    page.getByRole("button", { name: "Open settings & setup guide" }),
   ).toBeInViewport();
 });
 
