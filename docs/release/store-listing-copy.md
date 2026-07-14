@@ -70,7 +70,7 @@ Never shorten “every supported surface” to “everywhere.”
 > • Still runs only on youtube.com, instagram.com, tiktok.com, and facebook.com
 >
 > Still Pro checkout opens securely on the web and is sold by Cadmus Labs. Support and refunds:
-> https://zackc-1.github.io/still-app/support.html
+> https://zackc-1.github.io/still-app/support/
 >
 > Open for what you came for. Leave with your attention intact.
 
@@ -158,7 +158,7 @@ listing's screenshot-description field for any explanation rather than uploading
 > Thanks for trying Still. On iPhone and iPad, Still works only on websites opened in Safari; Apple
 > does not let a Safari extension modify native social-media apps. We state this on the listing and
 > compatibility screen, but I am sorry it did not match what you expected. Refund instructions are
-> at https://zackc-1.github.io/still-app/support.html.
+> at https://zackc-1.github.io/still-app/support/.
 
 **“My Pro purchase is missing on another device.”**
 

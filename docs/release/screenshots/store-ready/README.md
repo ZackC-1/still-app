@@ -6,7 +6,11 @@ support material, and future campaigns.
 
 ## Apple App Store — iPhone
 
-Upload all six files in `iphone/` in numeric order to the 6.9-inch iPhone screenshot well.
+Do **not** upload the current six files in `iphone/` to App Store Connect. They are useful marketing
+concepts, but they visibly include third-party service marks and are therefore not the approved
+Apple upload set. Keep the already-submitted, brand-safe Apple screenshots in place while review is
+pending. Before a future Apple metadata update, create and rights-review brand-safe variants that
+show the real Still UI without those marks.
 
 - Format: JPEG
 - Dimensions: 1290x2796 portrait
@@ -17,7 +21,9 @@ Upload all six files in `iphone/` in numeric order to the 6.9-inch iPhone screen
 
 ## Apple App Store — iPad
 
-Upload all six files in `ipad/` in numeric order to the 13-inch iPad screenshot well.
+Do **not** upload the current six files in `ipad/` to App Store Connect for the same third-party
+service-mark reason as the iPhone set. Keep the currently submitted brand-safe screenshots in place
+while review is pending; use rights-reviewed brand-safe variants for any future update.
 
 - Format: JPEG
 - Dimensions: 2064x2752 portrait
@@ -26,7 +32,9 @@ Upload all six files in `ipad/` in numeric order to the 13-inch iPad screenshot 
 
 ## Mac App Store
 
-Upload all six files in `macos/` in numeric order to the Mac screenshot well.
+Do **not** upload the current six files in `macos/` to App Store Connect for the same third-party
+service-mark reason as the iPhone set. Keep the currently submitted brand-safe screenshots in place
+while review is pending; use rights-reviewed brand-safe variants for any future update.
 
 - Format: JPEG
 - Dimensions: 2880x1800 landscape (16:10)
@@ -71,6 +79,9 @@ Still Pro purchase/paywall screen from the submitted build so the item being sol
 ## Rights and accuracy check before each upload
 
 The screenshots reproduce the actual Still interface, including third-party service names and icons.
-Apple requires the publisher to hold the rights needed for every material shown in screenshots.
-Before uploading, confirm the live build still matches the depicted interface and that the service
-marks are being used consistently with their current brand rules.
+Apple requires the publisher to hold the rights needed for every material shown in screenshots. The
+current Apple-family files in this directory are **not** cleared for App Store upload because they
+include those service marks. Before uploading any future Apple screenshots, confirm the live build
+still matches the depicted interface, obtain any required rights clearance, or use brand-safe UI
+crops that do not show the marks. Chrome and AMO assets must also be checked against each store's
+current third-party-rights and accuracy rules.
