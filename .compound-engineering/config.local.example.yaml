@@ -1,0 +1,17 @@
+# Compound Engineering local configuration for Still.
+# Copy this file to config.local.yaml. The local file is ignored by Git.
+# Keep secrets and production credentials out of this file.
+
+# Work delegation is opt-in. Keep it disabled unless the current operator deliberately wants a
+# Compound Engineering workflow to launch another Codex process.
+work_delegate: false
+work_delegate_consent: false
+
+# Product pulse knows the product name, but no analytics provider is configured. Still does not add
+# behavioral analytics merely to populate a report. Configure sources only after a privacy review.
+pulse_product_name: "Still"
+pulse_db_enabled: false
+
+# These outcome metrics remain pending until a privacy-compatible, store-supported measurement path
+# is explicitly approved.
+pulse_pending_metrics: "qualified_downloads,free_activation,pro_conversion,refund_rate"
