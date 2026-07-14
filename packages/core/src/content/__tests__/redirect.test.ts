@@ -185,6 +185,36 @@ describe("content script — redirect + SPA navigation (U7)", () => {
     cs.stop();
   });
 
+  it("uses JS hide sweeps only when manifest CSS does not own the active rule set", async () => {
+    document.body.innerHTML = '<ytd-guide-entry-renderer id="manifest-owned"><a title="Shorts"></a></ytd-guide-entry-renderer>';
+    const bundled = createContentScript({
+      win: makeWin("https://www.youtube.com/feed/subscriptions"),
+      doc: document,
+      ruleSet,
+      cache: cacheWith(null),
+      manifestCssOwnsHides: true,
+      schedule: sync,
+    });
+    await bundled.start();
+    expect((document.querySelector("#manifest-owned") as HTMLElement).style.display).toBe("");
+    bundled.stop();
+
+    for (const [id, manifestCssOwnsHides] of [["fetched-false", false], ["fetched-omitted", undefined]] as const) {
+      document.body.innerHTML = `<ytd-guide-entry-renderer id="${id}"><a title="Shorts"></a></ytd-guide-entry-renderer>`;
+      const fetched = createContentScript({
+        win: makeWin("https://www.youtube.com/feed/subscriptions"),
+        doc: document,
+        ruleSet,
+        cache: cacheWith(null),
+        manifestCssOwnsHides,
+        schedule: sync,
+      });
+      await fetched.start();
+      expect((document.querySelector(`#${id}`) as HTMLElement).style.display).toBe("none");
+      fetched.stop();
+    }
+  });
+
   it("does not resume watching or applying when stopped during hydration", async () => {
     const { cache, release } = gatedCache(null);
     const watch = vi.spyOn(cache, "watch");

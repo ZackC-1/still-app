@@ -1,8 +1,8 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { join, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
-import seed from "@still/core/seed";
-import type { SignedRuleSet } from "@still/shared-types";
 
 const root = resolve(process.cwd(), "../..");
 
@@ -10,21 +10,18 @@ function read(path: string): string {
   return readFileSync(resolve(root, path), "utf8");
 }
 
-/** Mirror of gen-content-css.mjs's bucketing — one drift-detector for the committed artifacts. */
-function expectedCss(tier: "free" | "pro"): string {
-  const rootClass = tier === "free" ? "still-active" : "still-pro-active";
-  const lines: string[] = [];
-  for (const service of Object.values((seed as unknown as SignedRuleSet).services)) {
-    if (!service) continue;
-    for (const surface of service.surfaces) {
-      if (surface.action === "hide" && surface.enabledByDefault && surface.selectors && surface.tier === tier) {
-        for (const selector of surface.selectors) {
-          lines.push(`html.${rootClass} ${selector}{display:none!important}`);
-        }
-      }
-    }
+/** Run the production formatter — the test intentionally has no second bucketing implementation. */
+function generatedCss(): { readonly free: string; readonly pro: string } {
+  const output = mkdtempSync(join(tmpdir(), "still-content-css-"));
+  try {
+    execFileSync(process.execPath, ["packages/core/scripts/gen-content-css.mjs", output], { cwd: root });
+    return {
+      free: readFileSync(join(output, "still.css"), "utf8"),
+      pro: readFileSync(join(output, "still-pro.css"), "utf8"),
+    };
+  } finally {
+    rmSync(output, { recursive: true, force: true });
   }
-  return `/* Generated from packages/core/rules/seed.json — do not edit by hand. */\n${lines.join("\n")}\n`;
 }
 
 describe("generated content CSS monetization gating", () => {
@@ -58,8 +55,9 @@ describe("generated content CSS monetization gating", () => {
     // package being built) — this parity pin turns any future drift into a red test instead of a
     // silently-inert rule set change.
     it(`${target}: committed stylesheets byte-match the generator's output for the current seed`, () => {
-      expect(read(`packages/${target}/entrypoints/content/still.css`)).toBe(expectedCss("free"));
-      expect(read(`packages/${target}/entrypoints/content/still-pro.css`)).toBe(expectedCss("pro"));
+      const expected = generatedCss();
+      expect(read(`packages/${target}/entrypoints/content/still.css`)).toBe(expected.free);
+      expect(read(`packages/${target}/entrypoints/content/still-pro.css`)).toBe(expected.pro);
     });
   }
 });
