@@ -23,20 +23,29 @@ export const WEB_DISPLAY_PRICE = "$1.99";
 
 /** Send one session message and settle to the structured fail-safe on ANY transport failure
  * (unreachable background, dead worker, undefined response) — never a throw into the UI. */
-async function send<A extends SessionAction>(
+export type SessionSender = <A extends SessionAction>(
   request: Extract<SessionRequest, { action: A }>,
-): Promise<SessionResponses[A]> {
-  const action = request.action as A;
-  try {
-    const response = (await browser.runtime.sendMessage(request)) as
-      | SessionResponses[A]
-      | undefined
-      | null;
-    return response ?? unavailableResponse(action);
-  } catch {
-    return unavailableResponse(action);
-  }
+) => Promise<SessionResponses[A]>;
+
+export interface SessionRuntime {
+  sendMessage(request: SessionRequest): Promise<unknown>;
 }
+
+export function createSessionSender(runtime: SessionRuntime): SessionSender {
+  return async function <A extends SessionAction>(
+    request: Extract<SessionRequest, { action: A }>,
+  ): Promise<SessionResponses[A]> {
+    const action = request.action as A;
+    try {
+      const response = (await runtime.sendMessage(request)) as SessionResponses[A] | undefined | null;
+      return response ?? unavailableResponse(action);
+    } catch {
+      return unavailableResponse(action);
+    }
+  };
+}
+
+const send: SessionSender = (request) => createSessionSender(browser.runtime)(request);
 
 /**
  * The ext-chromium injection (undefined when the build has no Supabase config — the plan's
@@ -48,18 +57,23 @@ export function extensionPurchaseDeps(): ExtensionPurchaseDeps | undefined {
     import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined,
   );
   if (config === null) return undefined;
+  return createExtensionPurchaseDeps(send);
+}
+
+/** Build the UI capability injection from a session sender; exported for seam-level translation pins. */
+export function createExtensionPurchaseDeps(sendMessage: SessionSender): ExtensionPurchaseDeps {
   return {
     displayPrice: WEB_DISPLAY_PRICE,
-    getState: () => send({ kind: SESSION_MESSAGE_KIND, action: "getState" }),
+    getState: () => sendMessage({ kind: SESSION_MESSAGE_KIND, action: "getState" }),
     auth: {
-      requestCode: (email) => send({ kind: SESSION_MESSAGE_KIND, action: "requestCode", email }),
+      requestCode: (email) => sendMessage({ kind: SESSION_MESSAGE_KIND, action: "requestCode", email }),
       verifyCode: (email, token) =>
-        send({ kind: SESSION_MESSAGE_KIND, action: "verifyCode", email, token }),
+        sendMessage({ kind: SESSION_MESSAGE_KIND, action: "verifyCode", email, token }),
       signOut: async () => {
-        await send({ kind: SESSION_MESSAGE_KIND, action: "signOut" });
+        await sendMessage({ kind: SESSION_MESSAGE_KIND, action: "signOut" });
       },
       deleteAccount: async () => {
-        const outcome = await send({ kind: SESSION_MESSAGE_KIND, action: "deleteAccount" });
+        const outcome = await sendMessage({ kind: SESSION_MESSAGE_KIND, action: "deleteAccount" });
         // Server-first (R8): a failed delete keeps the session, and the UI surfaces the calm
         // shared line — never raw backend text.
         if (outcome !== "deleted") throw new Error(STRINGS.account.deleteError);
@@ -69,12 +83,12 @@ export function extensionPurchaseDeps(): ExtensionPurchaseDeps | undefined {
       // Fire-and-forget: chrome.storage queues the write even as the popup dies (U2's
       // "synchronously-enough" contract); the background is the single writer of the records.
       setPendingOtp: (pending) =>
-        void send({ kind: SESSION_MESSAGE_KIND, action: "setPendingOtp", pending }),
+        void sendMessage({ kind: SESSION_MESSAGE_KIND, action: "setPendingOtp", pending }),
       setPurchaseIntent: (active) =>
-        void send({ kind: SESSION_MESSAGE_KIND, action: "setPurchaseIntent", active }),
+        void sendMessage({ kind: SESSION_MESSAGE_KIND, action: "setPurchaseIntent", active }),
     },
     checkout: {
-      createCheckout: () => send({ kind: SESSION_MESSAGE_KIND, action: "createCheckout" }),
+      createCheckout: () => sendMessage({ kind: SESSION_MESSAGE_KIND, action: "createCheckout" }),
       openCheckoutTab: async (url) => {
         try {
           const tab = await browser.tabs.create({ url });
@@ -84,9 +98,9 @@ export function extensionPurchaseDeps(): ExtensionPurchaseDeps | undefined {
         }
       },
       setPending: (pending) =>
-        void send({ kind: SESSION_MESSAGE_KIND, action: "setCheckoutPending", pending }),
+        void sendMessage({ kind: SESSION_MESSAGE_KIND, action: "setCheckoutPending", pending }),
       reconcile: async () => {
-        const outcome = await send({ kind: SESSION_MESSAGE_KIND, action: "reconcile" });
+        const outcome = await sendMessage({ kind: SESSION_MESSAGE_KIND, action: "reconcile" });
         // The background's no-session answer maps into the controller's re-sign-in vocabulary
         // (a dead session mid-checkout is the U4 auth-required path, never a teardown).
         return outcome === "signed-out" ? "auth-required" : outcome;
@@ -101,9 +115,9 @@ export function extensionPurchaseDeps(): ExtensionPurchaseDeps | undefined {
  * the background's cache write reaches the controller through the entitlement storage watch and
  * fires the payoff (R6 ordering) — this closure only settles the restore button otherwise.
  */
-export function restoreHandler(controller: UiController): () => void {
+export function restoreHandler(controller: UiController, sendMessage: SessionSender = send): () => void {
   return () => {
-    void send({ kind: SESSION_MESSAGE_KIND, action: "restore" }).then((outcome) => {
+    void sendMessage({ kind: SESSION_MESSAGE_KIND, action: "restore" }).then((outcome) => {
       if (outcome === "entitled") return;
       if (outcome === "not-entitled") {
         controller.setRestoreOutcome(false); // honest: nothing to restore on this account

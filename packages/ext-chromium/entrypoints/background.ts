@@ -19,9 +19,7 @@ import {
 import { AUTH_STORAGE_KEY, clearExtensionAuthStorage, createAuthStorage } from "../lib/auth-storage.js";
 import { createIdentityStore, createSessionStores } from "../lib/session-stores.js";
 import {
-  isSessionRequest,
-  unavailableResponse,
-  type SessionRequest,
+  createSessionMessageRouter,
 } from "../lib/session-messages.js";
 
 // Chromium/Firefox background (Chrome MV3 service worker / Firefox MV3 event page). Three
@@ -91,28 +89,7 @@ export default defineBackground(() => {
   // honor; a promise-returning listener would break on Chrome, where the return value is only the
   // keep-alive flag.
   const extensionOrigin = chrome.runtime.getURL("");
-  chrome.runtime.onMessage.addListener(
-    (
-      message: unknown,
-      sender: chrome.runtime.MessageSender,
-      sendResponse: (response?: unknown) => void,
-    ): boolean => {
-      if (!isSessionRequest(message)) return false;
-      const fromExtensionPage =
-        sender.id === chrome.runtime.id &&
-        typeof sender.url === "string" &&
-        sender.url.startsWith(extensionOrigin);
-      if (!fromExtensionPage) return false;
-      // .catch guards a sendResponse that throws when the requesting popup's port already closed
-      // (the popup dies on focus loss — e.g. right after createCheckout opens a tab, F10).
-      void dispatchSession(session, message)
-        .then(sendResponse)
-        .catch(() => {
-          /* popup port closed before the response landed — nothing to deliver */
-        });
-      return true; // keep the channel open for the async sendResponse
-    },
-  );
+  chrome.runtime.onMessage.addListener(createSessionMessageRouter(session, chrome.runtime.id, extensionOrigin));
 
   // Resume on EVERY background start (R2 hard rule): restart the sync write-through from the
   // CACHED entitlement — no network. A worker that wakes on a settings edit must not drop paid
@@ -194,45 +171,4 @@ function createSessionSpine(cache: SettingsCache): ExtensionSession | null {
     // it on disk for the next wake to resurrect.
     clearAuthStorage: clearExtensionAuthStorage,
   });
-}
-
-/** Dispatch one validated session request. Structured outcomes only — a spine-less build or a
- * torn handler answers the action's unavailable-style outcome, never a throw across the boundary
- * (the session itself never throws; this guards the seam anyway). */
-async function dispatchSession(
-  session: ExtensionSession | null,
-  request: SessionRequest,
-): Promise<unknown> {
-  if (session === null) return unavailableResponse(request.action);
-  try {
-    switch (request.action) {
-      case "getState":
-        return await session.getState();
-      case "requestCode":
-        return await session.requestCode(request.email);
-      case "verifyCode":
-        return await session.verifyCode(request.email, request.token);
-      case "signOut":
-        return await session.signOut();
-      case "deleteAccount":
-        return await session.deleteAccount();
-      case "reconcile":
-        return await session.reconcile();
-      case "restore":
-        return await session.restore();
-      case "createCheckout":
-        return await session.createCheckout();
-      case "setPendingOtp":
-        await session.setPendingOtp(request.pending);
-        return "ok";
-      case "setPurchaseIntent":
-        await session.setPurchaseIntent(request.active);
-        return "ok";
-      case "setCheckoutPending":
-        await session.setCheckoutPending(request.pending);
-        return "ok";
-    }
-  } catch {
-    return unavailableResponse(request.action);
-  }
 }
