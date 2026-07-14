@@ -30,7 +30,13 @@
   <section class="hero" class:off={!c.settings.globalOn}>
     <div class="hero-text">
       <h1>{c.settings.globalOn ? STRINGS.global.on : STRINGS.global.off}</h1>
-      <p>{STRINGS.global.secondary}</p>
+      <p>
+        {c.settings.globalOn
+          ? c.entitled
+            ? STRINGS.global.onPro
+            : STRINGS.global.onFree
+          : STRINGS.global.offSecondary}
+      </p>
     </div>
     <Toggle
       checked={c.settings.globalOn}

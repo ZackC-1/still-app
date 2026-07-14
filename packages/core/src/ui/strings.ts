@@ -9,7 +9,9 @@ export const STRINGS = {
   global: {
     on: "Still is on",
     off: "Still is off",
-    secondary: "Short-form is removed on supported sites.",
+    onFree: "YouTube Shorts are removed. Still Pro adds Reels, TikTok, and sync.",
+    onPro: "Short-form is removed on enabled sites.",
+    offSecondary: "Turn Still on to remove YouTube Shorts.",
   },
 
   services: {

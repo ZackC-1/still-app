@@ -91,6 +91,7 @@ describe("App", () => {
 
   it("un-entitled users see the three Pro rows locked (no silent no-op toggles)", () => {
     render(App, { props: { controller: controller() } });
+    expect(screen.getByText(STRINGS.global.onFree)).toBeTruthy();
     expect(document.querySelectorAll(".card.locked").length).toBe(3); // instagram/tiktok/facebook
     expect(document.querySelectorAll(".card.locked .lock svg").length).toBe(3);
     expect(
@@ -105,7 +106,13 @@ describe("App", () => {
     const c = controller();
     c.entitled = true;
     render(App, { props: { controller: c } });
+    expect(screen.getByText(STRINGS.global.onPro)).toBeTruthy();
     expect(document.querySelectorAll(".card.locked").length).toBe(0);
+  });
+
+  it("global off does not claim that Shorts are currently removed", () => {
+    render(App, { props: { controller: controller({ globalOn: false }) } });
+    expect(screen.getByText(STRINGS.global.offSecondary)).toBeTruthy();
   });
 
   it("tapping a lock on a no-purchase host opens the explanatory paywall sheet", async () => {
