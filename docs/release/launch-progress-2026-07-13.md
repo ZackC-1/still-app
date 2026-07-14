@@ -1,13 +1,15 @@
-# Launch progress — July 13, 2026
+# Launch progress — July 13, 2026 (updated July 14)
 
-This is the operational handoff for the English U.S./Canada launch. Resume here before changing a
-store submission. The canonical positioning and paste-ready copy remain in
+This is the operational handoff for the English launch. Apple is configured for the United States,
+Canada, and the United Kingdom; Chrome remains limited to the United States and Canada while version
+1.0.1 is under review. Resume here before changing a store submission. The canonical positioning and
+paste-ready copy remain in
 [`marketing-playbook.md`](marketing-playbook.md) and [`store-listing-copy.md`](store-listing-copy.md).
 
 ## Repository checkpoint
 
-- Remote and local `main` were synchronized at merge commit `e511b8e` after PR #91 recorded this
-  handoff.
+- Remote and local `main` were synchronized at merge commit `663a898` after PR #92 recorded the
+  corrected Firefox 1.0.2 submission.
 - Browser package version on `main`: `1.0.2`.
 - PR #89 added and deployed the Chrome Web Store Limited Use privacy disclosure.
 - PR #90 made the AMO launch desktop-only by omitting `gecko_android`, added a manifest contract test,
@@ -100,13 +102,56 @@ pnpm --filter @still/ext-chromium zip:firefox
 The WXT command recreates the binary but not the required full-monorepo source archive. Follow
 [`03-firefox-amo.md`](03-firefox-amo.md) §3 to recreate and clean-room verify that archive.
 
-## Apple and website
+## Apple App Store
 
-- iOS and macOS apps remain in App Store review.
+Current portal state (updated July 14, 2026):
+
+- iOS 1.0 build 3: **Waiting for Review**.
+- macOS 1.0 build 3: **Waiting for Review**.
+- `still_sync` / Still Pro non-consumable: **Waiting for Review** at a U.S. base price of $1.99;
+  Canadian and United Kingdom equivalents were checked in App Store Connect.
+- Both platform versions are set to **Manually release this version**. Do not release either version
+  immediately after approval; run the coordinated launch check first.
+- App and IAP availability are limited to the United States, Canada, and the United Kingdom.
+- Shared identity is `Still: Block Shorts & Reels`, subtitle `Keep your attention in Safari`, primary
+  category Productivity, and secondary category Utilities.
+- iOS and macOS promotional text, descriptions, keywords, support URLs, marketing URLs, and App
+  Review instructions use the outcome-first copy and explicitly disclose that mobile support means
+  websites opened in Safari, not native social-video apps.
+- App Privacy declares Email Address, User ID, Purchase History, and Other Data Types (synced
+  settings), all for App Functionality, linked to identity, and not used for tracking.
+- Accessibility Nutrition Labels remain unclaimed. Apple will not publish them before a platform
+  version is released, and each label requires hands-on testing on iPhone, iPad, and Mac after launch.
+- App Store Tags are not currently offered for this app record. No edit control is available; recheck
+  after approval because Apple derives eligible U.S. tags from the app's English (U.S.) metadata.
+- Existing submitted screenshots remain in place. Do not upload the prepared service-logo marketing
+  screenshots until the documented third-party-rights risk is resolved or neutral accurate assets
+  replace them.
+
+Before treating Apple metadata as fully closed, visually confirm that the Still Pro page saved the
+public description `Block Reels and TikTok, and sync across devices.`, the brand-safe 1024-square
+promotional image, and the detailed reviewer notes. The private Review Information screenshot should
+remain the real in-app paywall.
+
+## Website
+
 - The cross-store marketing site, support page, privacy page, terms, sitemap, robots file, and Open
   Graph image are deployed on GitHub Pages.
-- Before uploading Apple screenshots, resolve the documented third-party service-logo rights risk in
-  [`screenshots/store-ready/README.md`](screenshots/store-ready/README.md).
+- Add direct Apple and Firefox store links only after those listings are publicly available.
+
+## Coordinated approval and release gate
+
+When a store status changes, do not immediately alter another pending submission. Record the new
+status, then check:
+
+1. iOS and macOS are both approved and still held for manual release.
+2. Still Pro is approved and attached to the launch version.
+3. Public listing links, privacy, support, purchase, restore, and same-email entitlement restore work.
+4. Chrome and Firefox review outcomes are known. If Chrome is approved, add the United Kingdom to its
+   distribution before announcing UK-wide cross-platform availability.
+5. The homepage exposes only live store links and repeats the Safari-only/native-app limitation.
+6. Release iOS and macOS together, then run the post-release accessibility evaluation separately on
+   iPhone, iPad, and Mac.
 
 ## Safe resume check
 
