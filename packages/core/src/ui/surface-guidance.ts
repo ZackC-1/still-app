@@ -14,10 +14,10 @@ export const CHROMIUM_SURFACE_GUIDANCE: SurfaceGuidance = {
   body: "Open the Extensions menu (the puzzle icon), then pin Still to keep it on your toolbar.",
 };
 
-/** Firefox lets a user move the action later, but new Still installs start in the toolbar. */
+/** Firefox's `default_area` toolbar placement covers new installs only; upgrades keep the user's layout. */
 export const FIREFOX_SURFACE_GUIDANCE: SurfaceGuidance = {
   title: "Find Still in Firefox",
-  body: "Still starts in Firefox’s toolbar. To move it later, open Customize Toolbar and drag Still where you want it.",
+  body: "New installs of Still start in Firefox’s toolbar. If you don’t see it there, or want to move it, open Customize Toolbar and drag Still where you want it.",
 };
 
 /** Safari exposes extensions from its page menu on iPhone/iPad and from its toolbar on macOS. */
