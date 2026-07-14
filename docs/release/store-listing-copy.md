@@ -1,6 +1,6 @@
 # Store listing copy — canonical launch version
 
-Updated 2026-07-13. This is the paste-ready source of truth for the English U.S./Canada launch.
+Updated 2026-07-14. This is the paste-ready source of truth for the English U.S./Canada/U.K. launch.
 The message order is intentional: outcome → free value → Pro value → cross-platform proof → scope →
 privacy. Do not reorder the native-app limitation below the privacy/footer material.
 

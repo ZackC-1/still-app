@@ -51,9 +51,11 @@ Docs: [Add a new app](https://developer.apple.com/help/app-store-connect/create-
 1. [ ] App Store Connect → your app → **Monetization → In-App Purchases** → **(+)**.
 2. [ ] **Type:** Non-Consumable. **Reference Name:** "Still Pro" (internal). **Product ID:**
        **`still_sync`** ← must exactly match the app code; cannot change later.
-3. [ ] **Pricing:** choose **$1.99** (select all territories).
-4. [ ] **Display Name** + **Description** (shown at purchase): e.g. "Still Pro" / "Unlock Reels,
-       TikTok & Facebook blocking + cross-device sync."
+3. [x] **Pricing:** choose a **$1.99** U.S. base price. Launch availability is the United States,
+       Canada, and the United Kingdom; App Store Connect supplies the local equivalents.
+4. [ ] **Display Name** + **Description** (shown at purchase): "Still Pro" / "Block Reels and
+       TikTok, and sync across devices." Visually confirm the revised localization saved while the
+       IAP is waiting for review.
 5. [ ] **Review screenshot:** a shot of the in-app paywall (any 640×920+ image is accepted while testing).
 6. [ ] Add at least the **English (U.S.)** localization. Status should reach **Ready to Submit**.
 
@@ -164,15 +166,27 @@ Docs: [Submitting for review](https://developer.apple.com/help/app-store-connect
 
 ### Current submission checkpoint
 
-- [ ] App Review submission is intentionally pending while release timing is finalized.
-- [x] iOS build 2 selected and saved.
-- [x] `still_sync` attached to the iOS version and `Ready to Submit`.
+- [x] iOS 1.0 build 3 is **Waiting for Review**.
+- [x] macOS 1.0 build 3 is **Waiting for Review**.
+- [x] `still_sync` is attached to the launch submission and **Waiting for Review**.
 - [x] iPhone screenshots accepted.
 - [x] 13-inch iPad screenshot blocker resolved with
       `docs/release/screenshots/ipad/still-ipad-13-01.jpg`.
 - [x] App Review sign-in requirement handled as not required because the free tier is usable without
       account sign-in.
-- [ ] macOS version 1.0 still needs build selection/upload, screenshots if required, and submission.
+- [x] iOS and macOS Review Information explain extension setup, free testing, Pro testing, optional
+      email-code sign-in, privacy, and the Safari-only mobile boundary.
+- [x] Both versions are configured for **manual release** after approval.
+- [x] App availability and IAP availability are the United States, Canada, and the United Kingdom.
+- [x] App Privacy covers four data types: email address, user ID, purchase history, and synced
+      settings; all are App Functionality, linked, and not used for tracking.
+- [ ] After approval, evaluate Accessibility Nutrition Labels on physical iPhone, iPad, and Mac before
+      claiming support. Leave them unclaimed during first-version review.
+- [ ] Recheck U.S. App Store Tags after approval; the edit section is not currently available.
+- [ ] Before release, visually confirm the Still Pro public description, brand-safe promotional image,
+      and detailed reviewer notes saved. Keep the private review screenshot as the real paywall.
+- [ ] Do not replace the submitted screenshots with service-logo marketing compositions until the
+      third-party-rights risk in `screenshots/store-ready/README.md` is resolved.
 
 ---
 

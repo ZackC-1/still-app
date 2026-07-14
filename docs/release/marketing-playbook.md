@@ -1,4 +1,4 @@
-# Still launch marketing system — English U.S. and Canada
+# Still launch marketing system — English U.S., Canada, and United Kingdom
 
 This is the canonical acquisition and conversion plan for the first launch. It covers App Store
 Connect (iOS and macOS), Chrome Web Store, Firefox Add-ons, the homepage, support, product onboarding,
@@ -354,7 +354,8 @@ Do not gate functionality, nag repeatedly, or reward ratings.
 
 - Keep creative stable for two weeks to establish a baseline.
 - Review store search terms, impressions, page views, installs, uninstalls, Pro purchases, refunds, and
-  review themes weekly.
+  review themes weekly. Chrome remains U.S./Canada-only while version 1.0.1 is under review; add the
+  United Kingdom after approval before advertising UK cross-platform availability.
 - Personally answer every support message and substantive review within two business days.
 - Publish the first two high-intent help pages.
 - Fix activation failures before expanding acquisition.
