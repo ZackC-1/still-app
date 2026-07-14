@@ -55,6 +55,13 @@ The blocking engine consumes a signed, versioned JSON rule set. Remote updates a
 
 For a deeper map, start with [docs/README.md](docs/README.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## Agent collaboration
+
+Claude Code, Codex Personal, and Codex Work share repository-backed Compound Engineering knowledge.
+All agents must follow [AGENTS.md](AGENTS.md); Claude imports the same rules through
+[CLAUDE.md](CLAUDE.md). Product direction lives in [STRATEGY.md](STRATEGY.md), and the knowledge
+lifecycle is documented in [docs/SHARED-BRAIN.md](docs/SHARED-BRAIN.md).
+
 ## Trust signals
 
 - CI runs lint, typecheck, unit tests, extension builds, Supabase function checks, and Playwright fixture tests on every PR.

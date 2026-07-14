@@ -42,6 +42,9 @@ xcuserdata/
 .codegraph/
 .cursor/
 
+# Compound Engineering machine-local preferences. The tracked example documents supported values.
+.compound-engineering/config.local.yaml
+
 # Playwright MCP scratch snapshots
 .playwright-mcp/
 
