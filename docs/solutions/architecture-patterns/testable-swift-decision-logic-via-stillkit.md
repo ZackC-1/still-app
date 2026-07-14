@@ -69,7 +69,11 @@ that just adds indirection. The signal is "is there a branch a test could pin?"
 
 ## Related
 
-- The complementary gap: app-target types like `PurchaseManager.reset()`/gate and the SIWA
-  `.inProgress` guard were **not** extracted and remain on-device-only — a follow-up is to either add an
-  app-target XCTest bundle or extract their pure state checks the same way.
+- The purchase-readiness gate was later extracted the same way: `PurchaseDecision.readiness(...)`
+  (`PurchaseDecision.swift` + `PurchaseDecisionTests.swift`), called from
+  `PurchaseManager.purchaseStillPro()`/`restore()`. `OnboardingCopy` (per-OS onboarding enable steps)
+  followed — three production instances of this pattern alongside `BridgeTrust`.
+- Still on-device-only: `PurchaseManager.reset()`'s RevenueCat log-out orchestration (no branch worth
+  pinning) and the SIWA `.inProgress` guard in `SignInWithApple.swift` — a candidate for the same
+  treatment if it ever grows a second branch.
 - `apps/apple/StillKit/Sources/StillKit/BridgeTrust.swift` + `Tests/StillKitTests/BridgeTrustTests.swift`

@@ -92,6 +92,9 @@ on ambiguity would relock paying users on ordinary read hiccups.
 - `docs/solutions/security-issues/supabase-signout-leaves-local-session-on-revoke-failure.md` —
   sibling teardown/purge learning (its teardown-generation guard is the race-protection cousin of
   this doc's single-flight choice).
+- `docs/solutions/design-patterns/structured-outcome-over-cross-language-string.md` — the
+  `InstallGenerationOutcome` union (`unknown`/`adopt`/`same`/`changed`) applies its structured-outcome
+  convention, which `entitlement-pull.ts`'s comments cite by name.
 - `docs/solutions/conventions/mirror-fixes-across-parallel-paths.md` — Chromium/Firefox verified
   structurally immune (no App-Group coupling; profile reinstall wipes `chrome.storage.local`
   atomically).
