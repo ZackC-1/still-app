@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { App, type UiController } from "@still/core/ui";
+  import {
+    App,
+    SAFARI_SURFACE_GUIDANCE,
+    type UiController,
+  } from "@still/core/ui";
 
   interface Props {
     controller: UiController;
@@ -12,7 +16,7 @@
 </script>
 
 <div class="popup">
-  <App {controller} compact />
+  <App {controller} surfaceGuidance={SAFARI_SURFACE_GUIDANCE} compact />
   <button class="open-options" onclick={openOptions}>Open settings</button>
 </div>
 

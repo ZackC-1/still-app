@@ -71,6 +71,23 @@ describe("App", () => {
     expect(document.querySelectorAll("[data-service]").length).toBe(4);
   });
 
+  it("renders host-supplied guidance for finding Still on that surface", () => {
+    render(App, {
+      props: {
+        controller: controller(),
+        surfaceGuidance: {
+          title: "Find Still in a test browser",
+          body: "Use this browser's extension menu.",
+        },
+      },
+    });
+
+    expect(
+      screen.getByRole("heading", { name: "Find Still in a test browser" }),
+    ).toBeTruthy();
+    expect(screen.getByText("Use this browser's extension menu.")).toBeTruthy();
+  });
+
   it("global off visually disables the service group", () => {
     render(App, { props: { controller: controller({ globalOn: false }) } });
     const services = document.querySelector(".services");

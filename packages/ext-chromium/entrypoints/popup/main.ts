@@ -1,7 +1,11 @@
 import { mount } from "svelte";
 import "@still/core/ui/tokens.css";
 import { createExtensionUiController } from "@still/core/ui";
-import { extensionPurchaseDeps, restoreHandler } from "../../lib/purchase-wiring.js";
+import {
+  extensionPurchaseDeps,
+  restoreHandler,
+} from "../../lib/purchase-wiring.js";
+import { surfaceGuidance } from "../../lib/surface-guidance.js";
 import PopupApp from "./PopupApp.svelte";
 
 // Build the controller — with the purchase-spine injection when this build carries Supabase config
@@ -13,7 +17,11 @@ function init(): void {
   const controller = createExtensionUiController(purchase);
   mount(PopupApp, {
     target: document.getElementById("app")!,
-    props: { controller, onRestore: purchase ? restoreHandler(controller) : undefined },
+    props: {
+      controller,
+      onRestore: purchase ? restoreHandler(controller) : undefined,
+      surfaceGuidance,
+    },
   });
 }
 

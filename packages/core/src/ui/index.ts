@@ -20,5 +20,11 @@ export type {
 export { RESEND_COOLDOWN_MS, OTP_TTL_MS, CODE_ATTEMPTS_BEFORE_NEW_CODE } from "./controller.svelte.js";
 export { STRINGS } from "./strings.js";
 export { PRIVACY_POLICY_URL } from "./config.js";
+export {
+  CHROMIUM_SURFACE_GUIDANCE,
+  FIREFOX_SURFACE_GUIDANCE,
+  SAFARI_SURFACE_GUIDANCE,
+  type SurfaceGuidance,
+} from "./surface-guidance.js";
 export { default as App } from "./App.svelte";
 export { default as Placeholder } from "./components/Placeholder.svelte";

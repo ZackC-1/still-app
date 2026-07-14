@@ -157,6 +157,10 @@ struct OnboardingView: View {
       Text("Short-form is gone.")
         .font(.still(size: 20, relativeTo: .title3))
         .foregroundColor(.secondary)
+      Text("Back in Safari, use the Page Menu on iPhone and iPad, or Still’s toolbar button on Mac.")
+        .font(.still(size: 15, relativeTo: .body))
+        .foregroundColor(.secondary)
+        .multilineTextAlignment(.center)
     }
   }
 
