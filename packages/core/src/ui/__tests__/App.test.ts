@@ -88,6 +88,11 @@ describe("App", () => {
     expect(screen.getByText("Use this browser's extension menu.")).toBeTruthy();
   });
 
+  it("renders no guidance card when the host supplies none", () => {
+    render(App, { props: { controller: controller() } });
+    expect(document.querySelector(".guidance")).toBeNull();
+  });
+
   it("global off visually disables the service group", () => {
     render(App, { props: { controller: controller({ globalOn: false }) } });
     const services = document.querySelector(".services");
