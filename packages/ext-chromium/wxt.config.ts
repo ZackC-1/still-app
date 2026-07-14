@@ -13,6 +13,18 @@ export const firefoxBrowserSpecificSettings = {
   },
 };
 
+// WebExtension build for Chromium (Chrome/Edge/Brave/Arc) AND Firefox — both MV3, same entrypoints.
+// Build Chromium with `wxt build` (→ dist/chrome-mv3) and Firefox with `wxt build -b firefox`
+// (→ dist/firefox-mv3). Host permissions are limited to the four service domains — never <all_urls>
+// (R14). No tab-access permission: the popup never reads the active tab (the pause-on-this-site
+// control and its activeTab grant were removed 2026-07-06).
+//
+// Shorts→watch redirect:
+//   • Chromium: a static declarativeNetRequest rule is the PRIMARY path (network-layer, zero paint —
+//     KTD1); the content-script location.replace is the SPA-navigation backstop.
+//   • Firefox: does NOT reliably support DNR regexSubstitution redirects (same constraint as Safari),
+//     so the Firefox build OMITS DNR and relies solely on the document_start content-script redirect,
+//     which is browser-agnostic. The background's DNR wiring no-ops when the API is absent.
 export function stillManifest(browser: string) {
   const isFirefox = browser === "firefox";
   return {
@@ -57,18 +69,6 @@ export function stillManifest(browser: string) {
   };
 }
 
-// WebExtension build for Chromium (Chrome/Edge/Brave/Arc) AND Firefox — both MV3, same entrypoints.
-// Build Chromium with `wxt build` (→ dist/chrome-mv3) and Firefox with `wxt build -b firefox`
-// (→ dist/firefox-mv3). Host permissions are limited to the four service domains — never <all_urls>
-// (R14). No tab-access permission: the popup never reads the active tab (the pause-on-this-site
-// control and its activeTab grant were removed 2026-07-06).
-//
-// Shorts→watch redirect:
-//   • Chromium: a static declarativeNetRequest rule is the PRIMARY path (network-layer, zero paint —
-//     KTD1); the content-script location.replace is the SPA-navigation backstop.
-//   • Firefox: does NOT reliably support DNR regexSubstitution redirects (same constraint as Safari),
-//     so the Firefox build OMITS DNR and relies solely on the document_start content-script redirect,
-//     which is browser-agnostic. The background's DNR wiring no-ops when the API is absent.
 export default defineConfig({
   modules: ["@wxt-dev/module-svelte"],
   svelte: {
