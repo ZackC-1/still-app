@@ -158,7 +158,21 @@ struct OnboardingView: View {
         .font(.still(size: 20, relativeTo: .title3))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
+      Text(returnToSafariTip)
+        .font(.still(size: 15, relativeTo: .body))
+        .foregroundColor(.secondary)
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
     }
+  }
+
+  /// Platform-specific reminder of where Still lives once the user returns to Safari.
+  private var returnToSafariTip: String {
+    #if os(iOS)
+    return "Back in Safari, use the Page Menu to reach Still."
+    #else
+    return "Back in Safari, click Still’s toolbar button."
+    #endif
   }
 
   // MARK: Screen-3 status

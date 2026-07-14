@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { App } from "@still/core/ui";
+  import { App, SAFARI_SURFACE_GUIDANCE } from "@still/core/ui";
   import { createExtensionUiController } from "@still/core/ui";
   import { pushSettingsToApp } from "../../lib/native-settings.js";
 
@@ -13,7 +13,7 @@
 </script>
 
 <main class="options">
-  <App {controller} />
+  <App {controller} surfaceGuidance={SAFARI_SURFACE_GUIDANCE} />
 </main>
 
 <style>
