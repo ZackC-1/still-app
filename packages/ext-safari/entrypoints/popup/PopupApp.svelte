@@ -16,8 +16,14 @@
 </script>
 
 <div class="popup">
-  <App {controller} surfaceGuidance={SAFARI_SURFACE_GUIDANCE} compact />
-  <button class="open-options" onclick={openOptions}>Open settings</button>
+  <App {controller} compact />
+  <button
+    class="open-options"
+    aria-label={`Open settings and ${SAFARI_SURFACE_GUIDANCE.title}`}
+    onclick={openOptions}
+  >
+    Open settings &amp; setup guide
+  </button>
 </div>
 
 <style>

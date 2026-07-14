@@ -16,8 +16,14 @@
 </script>
 
 <div class="popup">
-  <App {controller} {onRestore} {surfaceGuidance} compact />
-  <button class="open-options" onclick={openOptions}>Open settings</button>
+  <App {controller} {onRestore} compact />
+  <button
+    class="open-options"
+    aria-label={`Open settings and ${surfaceGuidance.title}`}
+    onclick={openOptions}
+  >
+    Open settings &amp; setup guide
+  </button>
 </div>
 
 <style>

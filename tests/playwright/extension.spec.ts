@@ -36,7 +36,9 @@ test("the popup keeps every primary control visible without scaling or overflow"
   expect(layout.scrollHeight).toBeLessThanOrEqual(layout.innerHeight);
   expect(layout.zoom).toBe("1");
   await expect(
-    page.getByRole("button", { name: "Open settings" }),
+    page.getByRole("button", {
+      name: "Open settings and Find Still in your browser",
+    }),
   ).toBeInViewport();
 });
 
