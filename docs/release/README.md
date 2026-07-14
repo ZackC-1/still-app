@@ -17,7 +17,7 @@ and the official URL. Work top-to-bottom; check boxes as you go.
 | # | Track | What ships | Pro purchase path | Status today |
 |---|-------|-----------|-------------------|--------------|
 | 1 | **Apple App Store** (iOS + Mac) — [`01-apple-app-store.md`](01-apple-app-store.md) | Native app + Safari extension + **$1.99 IAP** | StoreKit 2 → RevenueCat | iOS and macOS submissions in review |
-| 2 | **Chrome Web Store** — [`02-chrome-web-store.md`](02-chrome-web-store.md) | Chromium extension **+ Pro purchase** | RevenueCat **Web Billing** | Version 1.0.1 submitted for review |
+| 2 | **Chrome Web Store** — [`02-chrome-web-store.md`](02-chrome-web-store.md) | Chromium extension **+ Pro purchase** | RevenueCat **Web Billing** | Version 1.0.1 published in the U.S. and Canada |
 | 3 | **Firefox Add-ons (AMO)** — [`03-firefox-amo.md`](03-firefox-amo.md) | Firefox extension (MV3) **+ Pro purchase** | RevenueCat **Web Billing** | Desktop-only 1.0.2 submitted with full source and awaiting review |
 | 4 | **RevenueCat** — [`04-revenuecat.md`](04-revenuecat.md) | Cross-platform $1.99 entitlement | — | Entitlement integration validated; portal operations remain human-gated |
 | 5 | **Mobile blocking validation** — [`06-mobile-blocking-validation.md`](06-mobile-blocking-validation.md) | On-device YouTube-Shorts check (all mobile) | — | Physical-iPhone validation passed; rerun after release changes |
@@ -31,6 +31,11 @@ and the official URL. Work top-to-bottom; check boxes as you go.
 The canonical automated and manual result is [VALIDATION.md](VALIDATION.md). Dated checkpoints and
 agent handoffs are retained under [`../archive/`](../archive/README.md) for history only; they are not
 current release instructions.
+
+Launch growth and conversion guidance is in
+[`2026-07-14-growth-research.md`](2026-07-14-growth-research.md). Its four organic guides are ready
+under `docs/` and tracked in [`launch-content-pack.md`](launch-content-pack.md). Keep pending store
+submissions unchanged until a reviewer asks for a correction.
 
 Before web Pro goes live, confirm `REVENUECAT_WEB_BILLING_CHECKOUT_URL` matches the live RevenueCat
 Purchase Link and sandbox-test the open → pay → entitlement flow. See
