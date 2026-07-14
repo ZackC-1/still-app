@@ -55,8 +55,12 @@ identity left live). Per-path unit tests don't catch it because each path passes
 
 ## Examples
 
-- The fix: `packages/app-webview/src/main.ts` `signOutEverywhere` + `deleteAccountEverywhere` both run
-  the native reset; `SyncService.deleteAccount` forces `SIGNED_OUT` even if the local sign-out throws.
+- The fix: `signOutEverywhere` + `deleteAccountEverywhere` both run the native reset;
+  `SyncService.deleteAccount` forces `SIGNED_OUT` even if the local sign-out throws. (Since extracted
+  from `packages/app-webview/src/main.ts` into the shared session orchestrator
+  `packages/core/src/sync/apple-session.ts`; `main.ts` now only wires
+  `session.signOutEverywhere()`/`session.deleteAccountEverywhere()` — an even stronger form of routing
+  siblings through one hardened helper.)
 - Related robustness sibling: error handling, too, must mirror — `onGet`/`onRestore` both needed the
   same try/catch so a rejected native call can't strand the purchase CTA in `purchasing`.
 - Sibling application to rendered UI surfaces (extensions/native/docs), where the paths can't share

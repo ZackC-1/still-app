@@ -2,6 +2,7 @@
 title: Free-tier hero copy claims Shorts removal without checking the per-service toggle
 date: 2026-07-14
 category: ui-bugs
+track: bug
 module: packages/core/src/ui
 problem_type: ui_bug
 component: frontend_stimulus
@@ -13,6 +14,7 @@ root_cause: logic_error
 resolution_type: code_fix
 severity: medium
 tags: [entitlement-copy, free-tier, hero-status, svelte, state-axis, code-review, copy-honesty]
+status: active
 ---
 
 # Free-tier hero copy claims Shorts removal without checking the per-service toggle
