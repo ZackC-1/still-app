@@ -50,6 +50,12 @@ Names the load-bearing concepts in this codebase. Use these terms in code, comme
   system dark mode, no CSS `zoom`. Enforced as file-content assertions in
   `core/ui/__tests__/design-contract.test.ts`, not manual parity review. Note "host" here — a
   rendered UI destination — is distinct from the rule-set **Surface** above (a blocking unit).
+- **Hero card** — the global on/off card at the top of the shared core UI (`core/ui/App.svelte`).
+  Its headline says whether Still is on; its secondary line states the current *outcome* and must
+  stay truthful across the full state matrix (globalOn × entitlement × the free tier's YouTube
+  row): a claim is either gated on every axis it asserts or phrased to hedge the axis ("on enabled
+  sites"). All four states are pinned in `core/ui/__tests__/App.test.ts`
+  (`docs/solutions/ui-bugs/free-tier-hero-copy-ignores-service-toggle.md`).
 - **Install generation** — the per-install id the app stamps into the App Group on launch
   (StillKit `InstallGeneration`, idempotent) and returns inside every entitlement-lane reply. The
   Safari extension purges its cached entitlement only when the id it last saw CHANGES (reinstall
