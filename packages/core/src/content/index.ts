@@ -71,6 +71,7 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   const blockedLine = deps.blockedLine ?? STILL_BLOCKED_LINE;
 
   let hydrated = false;
+  let stopped = false;
   const dedupe = deps.redirectDedupe ?? { lastRedirect: null };
   const teardowns: Array<() => void> = [];
 
@@ -84,7 +85,7 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   const reapply = (): void => {
     // Never act on optimistic defaults: until hydration we don't know the user's real toggles, so
     // we add nothing (off/paused users must not see content hidden-then-revealed).
-    if (!hydrated) return;
+    if (stopped || !hydrated) return;
     const url = new URL(win.location.href);
     // Fail CLOSED on the monetization gate: with no entitlement source wired we treat the user as
     // free (Pro surfaces stay visible) rather than granting Pro by default. Both extensions pass an
@@ -126,6 +127,7 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
 
   return {
     async start(): Promise<void> {
+      if (stopped) return;
       // Install hooks synchronously at document_start; their reapply calls are no-ops until hydrated.
       teardowns.push(installNavigationHooks(win, reapply));
       const observer = createReapplyObserver(win, doc, reapply, deps.schedule);
@@ -137,12 +139,14 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       // The one and only async step: hydrate the snapshot, then apply with real settings and keep
       // reacting to external (cross-context / cloud) writes.
       await Promise.all([cache.hydrate(), deps.entitlement?.hydrate()]);
-      cache.watch();
-      deps.entitlement?.watch();
+      if (stopped) return;
+      teardowns.push(cache.watch());
+      if (deps.entitlement) teardowns.push(deps.entitlement.watch());
       hydrated = true;
       reapply();
     },
     stop(): void {
+      stopped = true;
       while (teardowns.length) teardowns.pop()!();
     },
     reapply,

@@ -71,6 +71,30 @@ describe("content script — MutationObserver re-application (U7)", () => {
     expect(document.querySelector("#reel-modal")).toBeNull();
     cs.stop();
   });
+
+  it("does not apply a mutation flush queued before teardown", async () => {
+    let flush: (() => void) | undefined;
+    const cs = createContentScript({
+      win: makeWin("https://www.youtube.com/feed/subscriptions"),
+      doc: document,
+      ruleSet,
+      cache: freshCache(),
+      redirectPort: { replace: vi.fn() },
+      schedule: (callback) => {
+        flush = callback;
+      },
+    });
+    await cs.start();
+    const shelf = document.createElement("ytd-reel-shelf-renderer");
+    shelf.id = "queued-shelf";
+    document.body.appendChild(shelf);
+    await tick();
+
+    cs.stop();
+    flush?.();
+
+    expect(document.querySelector("#queued-shelf")).not.toBeNull();
+  });
 });
 
 describe("createReapplyObserver", () => {

@@ -11,6 +11,7 @@ import { SettingsCache, ChromeStorageAdapter } from "@still/core/storage";
 import seed from "@still/core/seed";
 import type { SignedRuleSet } from "@still/shared-types";
 import { resolveRuleSetForLoad, ruleSetTrust } from "@still/core/rules";
+import { startSafariReconcileNudges } from "../../lib/reconcile-nudge.js";
 
 // The document_start content script for Safari. Same shared engine as Chromium, but on Safari there
 // is no declarativeNetRequest: the Shorts→watch redirect is the content script's own location.replace
@@ -30,7 +31,7 @@ export default defineContentScript({
   ],
   runAt: "document_start",
   cssInjectionMode: "manifest",
-  async main() {
+  async main(ctx) {
     const cache = new SettingsCache(new ChromeStorageAdapter());
     const entitlement = new EntitlementCache(new ChromeEntitlementAdapter());
 
@@ -55,6 +56,7 @@ export default defineContentScript({
       browser.storage.local,
       ruleSetTrust(import.meta.env.PROD),
     );
+    if (ctx.isInvalid) return;
 
     const script = createContentScript({
       win: window as unknown as StillWindow,
@@ -68,22 +70,15 @@ export default defineContentScript({
       manifestCssOwnsHides: source === "bundled",
     });
     // Nudge the background to pull the App-Group value (the app may have edited settings while the
-    // extension was asleep). Repeat on activation/focus and a bounded interval so already-open iOS
-    // Safari pages learn app-side setting changes without requiring a relaunch.
-    const requestReconcile = (): void => {
-      void browser.runtime.sendMessage({ kind: "reconcile" }).catch(() => {});
-    };
-
-    void script.start().then(requestReconcile);
-    requestReconcile();
-    window.setTimeout(requestReconcile, 500);
-    window.addEventListener("focus", requestReconcile);
-    window.addEventListener("pageshow", requestReconcile);
-    document.addEventListener("visibilitychange", () => {
-      if (document.visibilityState === "visible") requestReconcile();
+    // extension was asleep). The WXT context owns every timer/listener and stops the core script on
+    // invalidation, so no per-tab native reconciliation keeps running after teardown.
+    const nudge = startSafariReconcileNudges({
+      lifecycle: ctx,
+      send: () => browser.runtime.sendMessage({ kind: "reconcile" }),
+      script,
+      win: window,
+      doc: document,
     });
-    window.setInterval(() => {
-      if (document.visibilityState === "visible") requestReconcile();
-    }, 15_000);
+    void script.start().then(nudge.request);
   },
 });
