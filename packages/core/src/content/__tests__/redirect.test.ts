@@ -185,6 +185,46 @@ describe("content script — redirect + SPA navigation (U7)", () => {
     cs.stop();
   });
 
+  it("does not resume watching or applying when stopped during hydration", async () => {
+    const { cache, release } = gatedCache(null);
+    const watch = vi.spyOn(cache, "watch");
+    const cs = createContentScript({
+      win: makeWin("https://www.youtube.com/feed/subscriptions"),
+      doc: document,
+      ruleSet,
+      cache,
+      schedule: sync,
+    });
+
+    const pending = cs.start();
+    cs.stop();
+    release();
+    await pending;
+
+    expect(watch).not.toHaveBeenCalled();
+    expect(document.documentElement.classList.contains(ROOT_ACTIVE_CLASS)).toBe(false);
+  });
+
+  it("unsubscribes the external settings watch on stop", async () => {
+    const adapter = new InMemoryStorageAdapter(null);
+    const cache = new SettingsCache(adapter);
+    const cs = createContentScript({
+      win: makeWin("https://www.youtube.com/feed/subscriptions"),
+      doc: document,
+      ruleSet,
+      cache,
+      schedule: sync,
+    });
+
+    await cs.start();
+    expect(document.documentElement.classList.contains(ROOT_ACTIVE_CLASS)).toBe(true);
+    cs.stop();
+    adapter.emitExternal({ ...DEFAULT_SETTINGS, globalOn: false, updatedAt: 1 });
+
+    expect(cache.current().globalOn).toBe(true);
+    expect(document.documentElement.classList.contains(ROOT_ACTIVE_CLASS)).toBe(true);
+  });
+
   it("free user: production content-script path no-ops on a Pro Instagram Reel URL", async () => {
     const win = makeWin("https://www.instagram.com/reel/XYZ/");
     const cs = createContentScript({
