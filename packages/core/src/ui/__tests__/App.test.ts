@@ -18,6 +18,7 @@ function controller(
   opts: {
     host?: Partial<UiHost>;
     globalOn?: boolean;
+    services?: Partial<(typeof DEFAULT_SETTINGS)["services"]>;
     deletable?: boolean;
     auth?: UiAuth;
   } = {},
@@ -25,6 +26,7 @@ function controller(
   const initial = {
     ...DEFAULT_SETTINGS,
     globalOn: opts.globalOn ?? true,
+    services: { ...DEFAULT_SETTINGS.services, ...opts.services },
     updatedAt: 1,
   };
   const cache = new SettingsCache(new InMemoryStorageAdapter(initial), {
@@ -91,6 +93,7 @@ describe("App", () => {
 
   it("un-entitled users see the three Pro rows locked (no silent no-op toggles)", () => {
     render(App, { props: { controller: controller() } });
+    expect(screen.getByText(STRINGS.global.onFree)).toBeTruthy();
     expect(document.querySelectorAll(".card.locked").length).toBe(3); // instagram/tiktok/facebook
     expect(document.querySelectorAll(".card.locked .lock svg").length).toBe(3);
     expect(
@@ -105,7 +108,21 @@ describe("App", () => {
     const c = controller();
     c.entitled = true;
     render(App, { props: { controller: c } });
+    expect(screen.getByText(STRINGS.global.onPro)).toBeTruthy();
     expect(document.querySelectorAll(".card.locked").length).toBe(0);
+  });
+
+  it("global off does not claim that Shorts are currently removed", () => {
+    render(App, { props: { controller: controller({ globalOn: false }) } });
+    expect(screen.getByText(STRINGS.global.offSecondary)).toBeTruthy();
+  });
+
+  it("free user with the YouTube row off does not claim Shorts are removed", () => {
+    render(App, {
+      props: { controller: controller({ services: { youtube: false } }) },
+    });
+    expect(screen.getByText(STRINGS.global.onFreeYoutubeOff)).toBeTruthy();
+    expect(screen.queryByText(STRINGS.global.onFree)).toBeNull();
   });
 
   it("tapping a lock on a no-purchase host opens the explanatory paywall sheet", async () => {

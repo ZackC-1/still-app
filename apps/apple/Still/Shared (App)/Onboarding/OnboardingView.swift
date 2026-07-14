@@ -75,7 +75,7 @@ struct OnboardingView: View {
       brandMark
       Text("Still")
         .font(.still(size: 52, weight: .bold, relativeTo: .largeTitle))
-      Text("The short-form video disappears.\nEverything else stays.")
+      Text("YouTube Shorts disappear.\nEverything else stays.")
         .font(.still(size: 20, relativeTo: .title3))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
@@ -85,10 +85,10 @@ struct OnboardingView: View {
   private var outcome: some View {
     VStack(spacing: 20) {
       glyph("scissors", tint: Self.stillBlue)
-      Text("Reels, Shorts, and TikTok — gone.")
+      Text("YouTube Shorts — gone.")
         .font(.still(size: 30, weight: .semibold, relativeTo: .title))
         .multilineTextAlignment(.center)
-      Text("The sites you use stay exactly as they were.")
+      Text("Normal videos and the rest of YouTube stay right where they are.")
         .font(.still(size: 20, relativeTo: .title3))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
@@ -100,7 +100,7 @@ struct OnboardingView: View {
       glyph("puzzlepiece.extension.fill", tint: status.isConfirmedEnabled ? .green : Self.stillBlue)
       Text("One quick step.")
         .font(.still(size: 28, weight: .semibold, relativeTo: .title))
-      Text("Still works through Safari. Turn it on and short-form is gone for good.")
+      Text("Turn on Still in Safari to remove YouTube Shorts. Still Pro is ready whenever you want Reels and TikTok, too.")
         .font(.still(size: 16, relativeTo: .body))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
@@ -152,11 +152,12 @@ struct OnboardingView: View {
   private var done: some View {
     VStack(spacing: 20) {
       glyph("checkmark.seal.fill", tint: .green)
-      Text("That's it.")
+      Text("You're ready.")
         .font(.still(size: 40, weight: .semibold, relativeTo: .largeTitle))
-      Text("Short-form is gone.")
+      Text("YouTube Shorts are gone. Still Pro adds Reels and TikTok whenever you want it.")
         .font(.still(size: 20, relativeTo: .title3))
         .foregroundColor(.secondary)
+        .multilineTextAlignment(.center)
     }
   }
 
@@ -175,22 +176,16 @@ struct OnboardingView: View {
     .background(Capsule().fill(Color.primary.opacity(0.05)))
   }
 
-  /// Platform-specific guided steps for enabling the extension.
+  /// Platform-specific guided steps for enabling the extension. The copy lives in StillKit
+  /// (`OnboardingCopy`), where `swift test` proves the per-OS variants; this only resolves the OS.
   private var enableSteps: [String] {
     #if os(iOS)
-    return [
-      "Open Settings → Apps → Safari → Extensions",
-      "Turn on Still",
-      "Allow Still on YouTube, Instagram, TikTok, and Facebook",
-      "Close Safari, then reopen it",
-    ]
+    if #available(iOS 18.0, *) {
+      return OnboardingCopy.enableSteps(iOS18OrLater: true)
+    }
+    return OnboardingCopy.enableSteps(iOS18OrLater: false)
     #else
-    return [
-      "Click “Open Safari Settings” below",
-      "In Extensions, switch on Still",
-      "Allow Still on YouTube, Instagram, TikTok, and Facebook",
-      "Quit Safari (⌘Q) and reopen it",
-    ]
+    return OnboardingCopy.macOSEnableSteps
     #endif
   }
 

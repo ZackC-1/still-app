@@ -30,7 +30,18 @@
   <section class="hero" class:off={!c.settings.globalOn}>
     <div class="hero-text">
       <h1>{c.settings.globalOn ? STRINGS.global.on : STRINGS.global.off}</h1>
-      <p>{STRINGS.global.secondary}</p>
+      <p>
+        <!-- The free line claims "Shorts are removed", which is only true while the YouTube row —
+             the free tier's one service — is itself on; row-off gets the truthful sibling line.
+             Pro needs no gate: "on enabled sites" already hedges per-service state. -->
+        {c.settings.globalOn
+          ? c.entitled
+            ? STRINGS.global.onPro
+            : c.settings.services.youtube
+              ? STRINGS.global.onFree
+              : STRINGS.global.onFreeYoutubeOff
+          : STRINGS.global.offSecondary}
+      </p>
     </div>
     <Toggle
       checked={c.settings.globalOn}
