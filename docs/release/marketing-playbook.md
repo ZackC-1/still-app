@@ -169,10 +169,13 @@ the local price.
 > Still is here. Remove YouTube Shorts free, then unlock Still Pro to quiet Reels and TikTok and sync
 > your settings across supported browsers and devices. On mobile, Still works in Safari only.
 
-**Screenshot order:** upload `screenshots/store-ready/iphone/*`,
-`screenshots/store-ready/ipad/*`, and `screenshots/store-ready/macos/*` in numeric order. The first
-three prioritize download and Pro desire; image 05 gives the mobile limitation its own unmissable
-frame. Every Apple screenshot in these folders includes the app in use.
+**Screenshot order:** keep the already-submitted, brand-safe Apple screenshots in place while the
+current review is pending. Do **not** upload the current
+`screenshots/store-ready/iphone/*`, `screenshots/store-ready/ipad/*`, or
+`screenshots/store-ready/macos/*` concepts: they visibly include third-party service marks. Before
+a future Apple metadata update, prepare rights-reviewed, brand-safe variants that retain the first
+three-message order (download outcome → free proof → Pro value) and give the mobile limitation its
+own unmissable frame. Every Apple screenshot must include the app in use.
 
 ## 5. Chrome and Firefox metadata
 
