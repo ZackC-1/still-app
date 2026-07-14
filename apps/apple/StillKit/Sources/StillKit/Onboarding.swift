@@ -30,6 +30,34 @@ public enum SafariExtensionStatus: Equatable, Sendable {
   public var isConfirmedEnabled: Bool { self == .enabled }
 }
 
+/// The guided "enable the extension" steps for onboarding screen 3 — pure copy, extracted from the
+/// app target (which `swift test` cannot reach) so the per-OS variants stay deduplicated and the
+/// iOS 18 Settings-path fork is provable without a device.
+public enum OnboardingCopy {
+  /// The iOS enable steps. Only the Settings path changed in iOS 18 (Settings → Apps → Safari);
+  /// the other three steps are shared verbatim, so they exist exactly once here. A plain `Bool`
+  /// keeps this platform-agnostic — the app target resolves `#available(iOS 18.0, *)` and passes
+  /// the verdict in, so the function itself runs (and tests) under macOS `swift test`.
+  public static func enableSteps(iOS18OrLater: Bool) -> [String] {
+    [
+      "Tap “Open Settings” below, then tap ‹ Settings",
+      iOS18OrLater
+        ? "Go to Apps → Safari → Extensions → Still"
+        : "Go to Safari → Extensions → Still",
+      "Turn on Still, then allow YouTube, Instagram, TikTok, and Facebook",
+      "Close Safari, then reopen it",
+    ]
+  }
+
+  /// The macOS enable steps — one static list; Safari's extension settings have one path on macOS.
+  public static let macOSEnableSteps: [String] = [
+    "Click “Open Safari Settings” below",
+    "In Extensions, switch on Still",
+    "Allow Still on YouTube, Instagram, TikTok, and Facebook",
+    "Quit Safari (⌘Q) and reopen it",
+  ]
+}
+
 /// First-launch gate for the onboarding flow. Persists a "completed" flag in the shared App Group
 /// suite (the same container the settings store uses) so onboarding shows exactly once across
 /// launches and processes. Pure `UserDefaults` so it's unit-testable with an in-memory suite — no

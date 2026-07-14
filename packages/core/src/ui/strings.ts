@@ -9,7 +9,14 @@ export const STRINGS = {
   global: {
     on: "Still is on",
     off: "Still is off",
-    secondary: "Short-form is removed on supported sites.",
+    onFree: "YouTube Shorts are removed. Still Pro adds Reels, TikTok, and sync.",
+    // Free user with the YouTube row itself toggled off: Still is on but removing nothing, so the
+    // hero must not claim removal (it would contradict the row, PR #96 review). Mirrors the row's
+    // own off voice ("Shorts are showing.") and keeps the Pro line.
+    onFreeYoutubeOff:
+      "YouTube Shorts are showing. Still Pro adds Reels, TikTok, and sync.",
+    onPro: "Short-form is removed on enabled sites.",
+    offSecondary: "Turn Still on to remove YouTube Shorts.",
   },
 
   services: {
