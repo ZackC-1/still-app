@@ -6,9 +6,7 @@ import {
   evaluate,
   applyDom,
   applyRemovals,
-  generateHideCss,
   renderPlaceholder,
-  ROOT_ACTIVE_CLASS,
   resolveActiveService,
   isServiceActive,
   isServiceEnabledGlobally,
@@ -389,28 +387,6 @@ describe("applyDom", () => {
     document.body.innerHTML = `<ytd-reel-shelf-renderer id="shelf"></ytd-reel-shelf-renderer>`;
     applyDom(ruleSet, settings({ services: servicesWith("youtube") }), new URL("https://www.youtube.com/"), document);
     expect(document.querySelector("#shelf")).not.toBeNull();
-  });
-});
-
-describe("generateHideCss (KTD2)", () => {
-  const css = generateHideCss(ruleSet);
-  const freeCss = generateHideCss(ruleSet, { pro: false });
-
-  it("scopes every rule under the root active class", () => {
-    expect(css).toContain(`html.${ROOT_ACTIVE_CLASS}`);
-    expect(css).toContain("display:none!important");
-  });
-
-  it("includes hide-surface selectors but not remove/redirect/placeholder ones", () => {
-    expect(css).toContain("ytd-guide-entry-renderer"); // yt-sidebar (hide)
-    expect(css).toContain("ytm-pivot-bar-item-renderer:has(.pivot-shorts)");
-    expect(css).not.toContain("ytd-reel-shelf-renderer"); // remove-only surface
-  });
-
-  it("can generate a free-only stylesheet with no Pro selectors", () => {
-    expect(freeCss).toContain("ytd-guide-entry-renderer");
-    expect(freeCss).not.toContain('a[href="/reels/"]');
-    expect(freeCss).not.toContain('li:has(> a[href*="/reel"])');
   });
 });
 

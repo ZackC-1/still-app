@@ -14,11 +14,12 @@ import {
 // Firefox). The content script applies the newest of {cached, bundled}; the background fetches +
 // verifies + caches the current signed set for the next load. Reuses the U12 fetch/verify/cache
 // machinery verbatim — no new crypto here. Living in core (not per-extension) is what makes the
-// over-the-air selector-hotfix capability reach every store, not just Safari.
+// over-the-air rule-set capability reach every store. Fetched sets use the JS hide sweep because
+// packaged manifest CSS is intentionally owned only by the bundled seed (ADR-0002).
 //
-// Safety with empty production keys: a PRODUCTION build trusts ONLY PRODUCTION_RULE_SET_KEYS (empty
-// until the human publishes them) — so nothing verifies, fetch returns null, and the bundled seed is
-// used. The dev key is NEVER trusted in a production build.
+// Empty-production-key fail-safe: a PRODUCTION build trusts ONLY PRODUCTION_RULE_SET_KEYS. If that
+// list is empty, nothing verifies, fetching is skipped, and the bundled seed is used. The dev key
+// is NEVER trusted in a production build.
 
 const CACHE_KEY = "still:ruleset";
 
@@ -29,7 +30,7 @@ export function ruleSetTrustedKeys(prod: boolean): readonly TrustedKey[] {
 }
 
 /** Build the fetch config, or null when fetching should be skipped: no endpoint configured (CI/dev
- * with no .env), or no trusted keys for this build (a prod build before prod keys are published). */
+ * with no .env), or no trusted keys for this build (the production-key fail-safe). */
 export function ruleSetFetchConfig(input: {
   prod: boolean;
   endpoint: RuleSetEndpoint | null;

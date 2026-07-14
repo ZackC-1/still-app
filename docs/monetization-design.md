@@ -95,10 +95,9 @@ entitlement in **two** places — miss either and gating is incomplete:
    is explicitly always-free.
 2. **Static manifest-CSS path** *(do not forget):* hide-action surfaces are also applied via the packaged
    `still.css` injected at `document_start` (`cssInjectionMode:"manifest"`), scoped under
-   `html.still-active` and generated **tier-unaware** by `generateHideCss`. The new pro hide-surfaces
-   (recs/comments) would hide for **free** users once added to that CSS. Fix: scope pro hide-rules under
-   a **second root class `html.still-pro-active`** that the content script adds *only when entitled*, and
-   split `generateHideCss` / packaged CSS into **free** and **pro** stylesheets.
+   `html.still-active`. The shared build formatter emits free rules there and Pro rules under a
+   **second root class `html.still-pro-active`**, which the content script adds *only when entitled*.
+   This prevents Pro hide surfaces from applying for free users.
 3. **Missing capability/tier defaults to Pro-only** (safe for revenue) — **except** the current
    YouTube-Shorts surfaces, which the engine treats as **always-free regardless of the tag** (principle
    13), so a missing/stale tag can never break the free promise.
@@ -316,7 +315,7 @@ the popup *is* the surface; render it as an overlay, not a content swap.
 
 - **U1 — Surface capability metadata + dynamic engine gating** (+ YT-Shorts always-free regardless of
   tag). `shared-types`, `engine.ts`, seed tags/capabilities, `engine.test.ts`.
-- **U2 — Static-CSS gating.** `still-pro-active` root class + split free/pro stylesheets + `generateHideCss`.
+- **U2 — Static-CSS gating.** `still-pro-active` root class + shared build formatter + split free/pro stylesheets.
 - **U3 — Server-only entitlement store + tri-state read + content-script read.** The security-critical
   store (§6); `parseSettings` strips `entitlement`; never written by `commit`/`writeProfile`.
 - **U4 — Controller `pro` + gated/locked toggles + paywall trigger.** `controller.svelte.ts`, `App.svelte`,

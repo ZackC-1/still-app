@@ -59,7 +59,7 @@ retired key only after the old build is out of the field.
 
 ## Safety properties
 
-- A prod build trusts **only** `PRODUCTION_RULE_SET_KEYS` — never the dev key — enforced by build mode
-  in `packages/ext-safari/lib/rule-set.ts` and asserted in its tests.
+- A prod build trusts **only** `PRODUCTION_RULE_SET_KEYS` — never the dev key — enforced by
+  `packages/core/src/rules/loader.ts` and asserted in the shared loader tests.
 - If the prod key list were ever empty, the fetch is skipped and the bundled seed applies (fail-safe).
 - The payload + signature are public (served to every client); only the private key is secret.

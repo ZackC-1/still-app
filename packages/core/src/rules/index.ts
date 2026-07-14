@@ -26,7 +26,6 @@ export {
   evaluate,
   applyDom,
   applyRemovals,
-  generateHideCss,
   renderPlaceholder,
   isServiceActive,
   isServiceEnabledGlobally,

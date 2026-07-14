@@ -210,30 +210,6 @@ function surfaceEnabledForTier(s: ServiceRules["surfaces"][number], opts: Engine
   return opts.pro !== false;
 }
 
-/**
- * The CSS injected at document_start (manifest css for packaged selectors, runtime-injected for
- * fetched ones). Scoped under `html.still-active` so an off/paused user never has content hidden:
- * the content script adds the root class only when the service is on (KTD2).
- */
-export function generateHideCss(
-  ruleSet: SignedRuleSet,
-  opts: EngineOptions = {},
-  rootClass: string = ROOT_ACTIVE_CLASS,
-): string {
-  const rules: string[] = [];
-  for (const service of Object.values(ruleSet.services)) {
-    if (!service) continue;
-    for (const s of service.surfaces) {
-      if (s.action === "hide" && surfaceEnabledForTier(s, opts) && s.selectors) {
-        for (const sel of s.selectors) {
-          rules.push(`html.${rootClass} ${sel}{display:none!important}`);
-        }
-      }
-    }
-  }
-  return rules.join("\n");
-}
-
 /** Replace the page body with the calm Still placeholder (used for placeholder/blockSite pages). */
 export function renderPlaceholder(doc: Document, line: string = STILL_PLACEHOLDER_LINE): void {
   const body = doc.body;
