@@ -6,7 +6,8 @@ store submission. The canonical positioning and paste-ready copy remain in
 
 ## Repository checkpoint
 
-- Remote and local `main` are synchronized at merge commit `fde2eca` (PR #90).
+- Remote and local `main` were synchronized at merge commit `e511b8e` after PR #91 recorded this
+  handoff.
 - Browser package version on `main`: `1.0.2`.
 - PR #89 added and deployed the Chrome Web Store Limited Use privacy disclosure.
 - PR #90 made the AMO launch desktop-only by omitting `gecko_android`, added a manifest contract test,
@@ -32,13 +33,16 @@ review. The linked privacy policy is live at
 
 ## Firefox AMO
 
-Current portal state:
+Current portal state (updated July 14, 2026):
 
-- Existing `1.0.0`: **Awaiting Review**.
-- `1.0.1`: uploaded only far enough to inspect validation; **do not continue or submit it**. It exposed
-  an unintended Firefox-for-Android compatibility declaration.
-- Corrected `1.0.2`: built, tested, merged, and ready for upload. It is desktop Firefox only, matching
-  the launch promise that mobile support is Safari-only.
+- Corrected `1.0.2`: **Awaiting Review** and shown by AMO as the listed version.
+- The verified full-monorepo source archive is attached to `1.0.2`, together with release notes,
+  reviewer build instructions, warning explanations, and desktop-only testing instructions.
+- Firefox desktop is selected and Firefox for Android is unchecked. The public product page now uses
+  the canonical name, outcome-first copy, paid-upgrade disclosure, support/homepage links, branded
+  icon, and the store-ready Firefox screenshot.
+- `1.0.1` was used only to inspect validation and was never submitted. `1.0.2` superseded the earlier
+  pending `1.0.0`; do not delete the add-on.
 
 ### Final local artifacts
 
@@ -54,15 +58,18 @@ The full-source archive contains the root lockfile/workspace files and only the 
 build variables in `packages/ext-chromium/.env`. A clean extraction was installed and rebuilt, and its
 `dist/firefox-mv3` output matched the binary upload directory exactly.
 
-### Resume AMO submission
+### Submitted AMO package
 
-1. Open Still → **Manage Status & Versions** → **Upload a New Version**.
-2. Upload `stillext-chromium-1.0.2-firefox.zip` as the extension binary.
-3. Expected result: `0 errors`, `2 warnings`, Firefox desktop selected, Firefox for Android not
-   selected. Stop if Android is still selected or a third Android compatibility warning appears.
-4. Select that source code is required and upload
-   `still-amo-sources-full-repo-1.0.2.zip` — never the small WXT-generated `-sources.zip`.
-5. Use these reviewer build instructions:
+AMO accepted the binary with `0 errors` and `3 warnings`. Firefox desktop was selected and Firefox
+for Android was unchecked. The warnings were documented for reviewers:
+
+1. Svelte emits a static template `innerHTML` assignment.
+2. WXT/Vite emits a bundler-controlled dynamic import.
+3. AMO validates the desktop `strict_min_version: 140` against Android's data-consent floor of 142
+   even though `gecko_android` is omitted and Android is unchecked. Mozilla's compatibility rules
+   treat the omitted key as desktop-only.
+
+The attached reviewer build instructions are:
 
    ```text
    Source: full monorepo (public: github.com/ZackC-1/still-app).
@@ -75,14 +82,8 @@ build variables in `packages/ext-chromium/.env`. A clean extraction was installe
    for the submitted build.
    ```
 
-6. Explain the two expected generated-code warnings in reviewer notes: Svelte emits a static template
-   `innerHTML` assignment, and WXT/Vite emits a bundler-controlled dynamic import. Neither consumes
-   user-provided code, downloads executable code, or executes remote code.
-7. Add detailed `1.0.2` release notes and finish the version submission.
-8. Once AMO safely shows `1.0.2` as Awaiting Review, remove the obsolete pending `1.0.0` only if AMO
-   did not supersede it automatically. Never delete the add-on itself.
-9. Update the AMO product page using [`store-listing-copy.md`](store-listing-copy.md), including the
-   desktop-only limitation and the single store-ready Firefox screenshot.
+Neither generated-code warning consumes user-provided code, downloads executable code, or executes
+remote code. While review is pending, do not upload another version unless Mozilla requests a change.
 
 ### Rebuild if the ignored artifacts are lost
 

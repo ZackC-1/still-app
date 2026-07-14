@@ -27,6 +27,12 @@ pnpm --filter @still/ext-chromium zip:firefox      # → an extension .zip AND a
 > `strict_min_version: "140.0"` (Firefox's built-in data-collection consent UI exists only on 140+, so
 > the floor guarantees no older-Firefox user signs in without a consent screen).
 
+> **Observed AMO result (1.0.2, July 14, 2026):** AMO accepted the package with **0 errors and 3
+> warnings**. In addition to Svelte's static `innerHTML` template and WXT/Vite's bundler-controlled
+> dynamic import, AMO checks the desktop `strict_min_version: 140` against Android's data-consent
+> floor of 142. This third warning is expected for this desktop-only package: `gecko_android` is
+> omitted, AMO leaves Firefox for Android unchecked, and the add-on passed validation.
+
 ---
 
 ## 1. Key Firefox manifest facts (already set in `wxt.config.ts`)
