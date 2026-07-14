@@ -25,6 +25,50 @@ export const firefoxBrowserSpecificSettings = {
 //   • Firefox: does NOT reliably support DNR regexSubstitution redirects (same constraint as Safari),
 //     so the Firefox build OMITS DNR and relies solely on the document_start content-script redirect,
 //     which is browser-agnostic. The background's DNR wiring no-ops when the API is absent.
+export function stillManifest(browser: string) {
+  const isFirefox = browser === "firefox";
+  return {
+    name: "Still: Block Shorts & Reels",
+    description:
+      "Block YouTube Shorts free. Still Pro removes Reels and TikTok and syncs settings across supported browsers.",
+    permissions: [
+      "storage",
+      // DNR is Chromium-only here (see header); Firefox uses the content-script redirect.
+      ...(isFirefox ? [] : ["declarativeNetRequestWithHostAccess"]),
+    ],
+    host_permissions: [
+      "*://*.youtube.com/*",
+      "*://*.instagram.com/*",
+      "*://*.facebook.com/*",
+      "*://*.tiktok.com/*",
+    ],
+    action: {
+      default_title: "Still",
+      // MDN documents `default_area` as Firefox-only. It gives new desktop installs a discoverable
+      // toolbar home; Firefox still lets each user move the action in Customize Toolbar.
+      ...(isFirefox ? { default_area: "navbar" } : {}),
+    },
+    // Firefox requires a stable add-on id; this is PERMANENT once published on AMO.
+    ...(isFirefox
+      ? {
+          // Deliberately omit gecko_android for launch. AMO therefore lists this build for desktop
+          // Firefox only, matching the product promise that mobile support is Safari-only.
+          browser_specific_settings: firefoxBrowserSpecificSettings,
+        }
+      : {
+          declarative_net_request: {
+            rule_resources: [
+              {
+                id: "youtube-shorts-redirect",
+                enabled: true,
+                path: "rules/dnr-youtube.json",
+              },
+            ],
+          },
+        }),
+  };
+}
+
 export default defineConfig({
   modules: ["@wxt-dev/module-svelte"],
   svelte: {
@@ -45,37 +89,5 @@ export default defineConfig({
   // Force MV3 for every target (WXT defaults Firefox to MV2). Keeps the Firefox manifest shape
   // aligned with the Chromium and Safari (ext-safari) MV3 builds.
   manifestVersion: 3,
-  manifest: ({ browser }) => {
-    const isFirefox = browser === "firefox";
-    return {
-      name: "Still: Block Shorts & Reels",
-      description:
-        "Block YouTube Shorts free. Still Pro removes Reels and TikTok and syncs settings across supported browsers.",
-      permissions: [
-        "storage",
-        // DNR is Chromium-only here (see header); Firefox uses the content-script redirect.
-        ...(isFirefox ? [] : ["declarativeNetRequestWithHostAccess"]),
-      ],
-      host_permissions: [
-        "*://*.youtube.com/*",
-        "*://*.instagram.com/*",
-        "*://*.facebook.com/*",
-        "*://*.tiktok.com/*",
-      ],
-      // Firefox requires a stable add-on id; this is PERMANENT once published on AMO.
-      ...(isFirefox
-        ? {
-            // Deliberately omit gecko_android for launch. AMO therefore lists this build for desktop
-            // Firefox only, matching the product promise that mobile support is Safari-only.
-            browser_specific_settings: firefoxBrowserSpecificSettings,
-          }
-        : {
-            declarative_net_request: {
-              rule_resources: [
-                { id: "youtube-shorts-redirect", enabled: true, path: "rules/dnr-youtube.json" },
-              ],
-            },
-          }),
-    };
-  },
+  manifest: ({ browser }) => stillManifest(browser),
 });

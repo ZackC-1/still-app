@@ -3,7 +3,7 @@ title: Gate production signing-key trust by build mode, not by key presence
 category: security-issues
 problem_type: security_issue
 track: knowledge
-module: packages/ext-safari
+module: packages/core
 tags: [signing-keys, rule-set, trust, ed25519, fail-safe, extension]
 applies_when: Selecting which signing/trust keys a client honors, where dev and prod keys both exist
 date: 2026-06-24
@@ -21,7 +21,8 @@ exist: `DEV_RULE_SET_KEYS` (the dev-signed seed, for local end-to-end testing) a
 A tempting selection rule is *"use prod keys when non-empty, else fall back to dev keys."* That is a
 **privilege-escalation footgun**: a production build that ships before prod keys are populated would
 fall back to trusting the **dev key** — whose private half lives in a throwaway constant in
-`scripts/sign-seed.mjs`. Anyone could then sign a malicious rule set the production extension accepts.
+`packages/core/scripts/sign-seed.mjs`. Anyone could then sign a malicious rule set the production
+extension accepts.
 
 ## Guidance
 
@@ -61,5 +62,7 @@ fail-safe fallback, never fall through to a weaker set.
 
 ## Examples
 
-- `packages/ext-safari/lib/rule-set.ts` (`ruleSetTrustedKeys`, `ruleSetFetchConfig`).
+- `packages/core/src/rules/loader.ts` (`ruleSetTrustedKeys`, `ruleSetFetchConfig`) — the shared
+  rule-set loader every extension build uses (Safari, Chromium, Firefox); the key sets live in
+  `packages/core/src/rules/trusted-keys.ts`.
 - The deploy procedure that fills the prod gap: `docs/production-rule-set-keys.md`.

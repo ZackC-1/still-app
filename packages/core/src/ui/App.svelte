@@ -8,6 +8,7 @@
   import Logo from "./components/Logo.svelte";
   import { STRINGS } from "./strings.js";
   import { PRIVACY_POLICY_URL } from "./config.js";
+  import type { SurfaceGuidance } from "./surface-guidance.js";
 
   interface Props {
     controller: UiController;
@@ -15,10 +16,18 @@
     compact?: boolean;
     onGet?: () => void;
     onRestore?: () => void;
+    /** Browser- or native-surface-specific directions for finding Still after setup. */
+    surfaceGuidance?: SurfaceGuidance;
     /** Deprecated Apple host hook. Kept as a no-op prop so older host wiring cannot surface SIWA. */
     onSignInWithApple?: () => void;
   }
-  let { controller: c, compact = false, onGet, onRestore }: Props = $props();
+  let {
+    controller: c,
+    compact = false,
+    onGet,
+    onRestore,
+    surfaceGuidance,
+  }: Props = $props();
 </script>
 
 <div class="still-ui app" data-density={compact ? "compact" : "comfortable"}>
@@ -65,6 +74,13 @@
       />
     {/each}
   </div>
+
+  {#if surfaceGuidance}
+    <section class="guidance card" aria-labelledby="surface-guidance-title">
+      <h2 id="surface-guidance-title">{surfaceGuidance.title}</h2>
+      <p>{surfaceGuidance.body}</p>
+    </section>
+  {/if}
 
   <!-- Per-site pause UI removed 2026-07-06 (founder call: popup must fit one panel; feature may
        return). The controller/cache pause mutators went with it (R1) — only the dormant `pauses`
@@ -288,6 +304,20 @@
     flex-direction: column;
     gap: var(--sync-gap, var(--space-3));
     padding: var(--sync-padding, var(--space-4));
+  }
+  .guidance {
+    padding: var(--sync-padding, var(--space-4));
+  }
+  .guidance h2 {
+    margin: 0 0 var(--space-1);
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .guidance p {
+    margin: 0;
+    color: var(--ink-secondary);
+    font-size: 13.5px;
+    line-height: 1.4;
   }
   .syncrow {
     display: flex;

@@ -1,7 +1,7 @@
 import { mount } from "svelte";
 import { createClient, type SupabaseClient, type SupportedStorage } from "@supabase/supabase-js";
 import "@still/core/ui/tokens.css";
-import { App, UiController, type AuthPersistence } from "@still/core/ui";
+import { App, SAFARI_SURFACE_GUIDANCE, UiController, type AuthPersistence } from "@still/core/ui";
 import { SettingsCache, WKWebViewStorageAdapter } from "@still/core/storage";
 import { NativeBridge } from "@still/core/native";
 import {
@@ -169,7 +169,12 @@ if (supabaseUrl && supabaseAnonKey) {
 
 mount(App, {
   target: document.getElementById("app")!,
-  props: { controller, onGet, onRestore },
+  props: {
+    controller,
+    onGet,
+    onRestore,
+    surfaceGuidance: SAFARI_SURFACE_GUIDANCE,
+  },
 });
 
 /** localStorage with an in-memory fallback — WKWebView's file:// origin can refuse persistent storage,

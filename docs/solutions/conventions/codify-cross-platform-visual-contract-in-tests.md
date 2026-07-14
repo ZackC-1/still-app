@@ -65,7 +65,8 @@ String-assertion tests catch cross-surface drift at unit-test speed (millisecond
 They are also intentionally cheap, and the blind spots matter:
 
 - They check that source text is *present*, not that it *resolves* — a broken `url("./assets/InterVariable.woff2")` path still passes.
-- They only guard what they assert: the duplicated branding CSS on the legal pages was found by an ad-hoc diff pass *after* the contract tests were green (session history), and the brand color hex values duplicated across `tokens.css`, the Apple `Style.css`, and `docs/assets/legal.css` are not covered.
+- They only guard what they assert: the duplicated branding CSS on the legal pages was found by an ad-hoc diff pass *after* the contract tests were green (session history), and the brand color hex values duplicated across `tokens.css`, the Apple extension's `Style.css` (a build-time artifact — no committed source to
+  assert against), and `docs/assets/legal.css` are not covered.
 - Actual font loading (e.g. `document.fonts.check("16px InterVariable")`) is verified only for the extension popup, by the Playwright test's font wait — not by this suite.
 
 Treat the contract test as the floor, and extend its assertions whenever a new invariant is worth defending.
