@@ -176,30 +176,16 @@ struct OnboardingView: View {
     .background(Capsule().fill(Color.primary.opacity(0.05)))
   }
 
-  /// Platform-specific guided steps for enabling the extension.
+  /// Platform-specific guided steps for enabling the extension. The copy lives in StillKit
+  /// (`OnboardingCopy`), where `swift test` proves the per-OS variants; this only resolves the OS.
   private var enableSteps: [String] {
     #if os(iOS)
     if #available(iOS 18.0, *) {
-      return [
-        "Tap “Open Settings” below, then tap ‹ Settings",
-        "Go to Apps → Safari → Extensions → Still",
-        "Turn on Still, then allow YouTube, Instagram, TikTok, and Facebook",
-        "Close Safari, then reopen it",
-      ]
+      return OnboardingCopy.enableSteps(iOS18OrLater: true)
     }
-    return [
-      "Tap “Open Settings” below, then tap ‹ Settings",
-      "Go to Safari → Extensions → Still",
-      "Turn on Still, then allow YouTube, Instagram, TikTok, and Facebook",
-      "Close Safari, then reopen it",
-    ]
+    return OnboardingCopy.enableSteps(iOS18OrLater: false)
     #else
-    return [
-      "Click “Open Safari Settings” below",
-      "In Extensions, switch on Still",
-      "Allow Still on YouTube, Instagram, TikTok, and Facebook",
-      "Quit Safari (⌘Q) and reopen it",
-    ]
+    return OnboardingCopy.macOSEnableSteps
     #endif
   }
 
