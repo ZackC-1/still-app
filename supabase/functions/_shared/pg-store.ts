@@ -7,7 +7,12 @@
 
 import postgres from "postgres";
 import type { RateLimiter } from "./rate-limit.ts";
-import type { ClaimResult, EntitlementStore, EventClaimStatus } from "./store.ts";
+import {
+  type ClaimResult,
+  type EntitlementStore,
+  type EventClaimStatus,
+  MissingUserError,
+} from "./store.ts";
 
 type Sql = ReturnType<typeof postgres>;
 
@@ -45,10 +50,32 @@ export class PgEntitlementStore implements EntitlementStore {
     source: string,
     revenueCatSubscriberId: string | null,
   ): Promise<void> {
-    await this.sql`
-      select public.set_entitlement(${userId}::uuid, ${stillSync}, ${source}, ${revenueCatSubscriberId})
-    `;
+    try {
+      await this.sql`
+        select public.set_entitlement(${userId}::uuid, ${stillSync}, ${source}, ${revenueCatSubscriberId})
+      `;
+    } catch (error) {
+      // A foreign-key violation on entitlements.user_id → auth.users means the subject was
+      // account-deleted (e.g. the losing side of a TRANSFER) — surface it as the typed skip
+      // class (R19) so the webhook can continue with the surviving UUIDs. Everything else
+      // rethrows untouched: no other store failure may lose its retriability.
+      if (isMissingUserFkViolation(error)) throw new MissingUserError(userId, { cause: error });
+      throw error;
+    }
   }
+}
+
+/**
+ * True ONLY for the driver error representing the missing-auth-user FK violation. The postgres
+ * driver surfaces the server's error fields on the thrown PostgresError — `code` is the SQLSTATE
+ * (23503 = foreign_key_violation) and `constraint_name` comes from the wire protocol. The match
+ * is deliberately exact (SQLSTATE + constraint) so other FK violations, outages, and permission
+ * failures keep the fail-and-release retry path.
+ */
+function isMissingUserFkViolation(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const fields = error as { code?: unknown; constraint_name?: unknown };
+  return fields.code === "23503" && fields.constraint_name === "entitlements_user_id_fkey";
 }
 
 /** Postgres-backed fixed-window rate limiter (the consume_rate_limit RPC, same narrow role/client). */
