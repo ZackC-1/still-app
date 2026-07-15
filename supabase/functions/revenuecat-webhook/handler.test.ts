@@ -1,6 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { handleWebhook } from "./handler.ts";
-import type { ClaimResult, EntitlementStore } from "../_shared/store.ts";
+import { type ClaimResult, type EntitlementStore, MissingUserError } from "../_shared/store.ts";
 import type { RevenueCatClient, RcSubscriber } from "../_shared/revenuecat.ts";
 
 const TOKEN = "secret-webhook-token";
@@ -15,9 +15,11 @@ const inactiveSub: RcSubscriber = { entitlements: {} };
 
 type Write = { userId: string; stillSync: boolean; source: string };
 
-function mockStore() {
+function mockStore(opts: { readonly missingUsers?: readonly string[] } = {}) {
   // Mirrors migration 0011: a claim carries an ownership token, and complete/release only act when
   // the token still matches the live 'processing' row (so a stale worker cannot clobber a takeover).
+  // `missingUsers` mirrors pg-store's classification of the entitlements_user_id_fkey violation:
+  // setEntitlement for those ids rejects with MissingUserError (a deleted auth.users subject).
   const events = new Map<string, { status: "processing" | "completed"; token: string }>();
   const writes: Write[] = [];
   const payloads: unknown[] = [];
@@ -49,6 +51,9 @@ function mockStore() {
       return Promise.resolve();
     },
     setEntitlement(userId, stillSync, source) {
+      if (opts.missingUsers?.includes(userId)) {
+        return Promise.reject(new MissingUserError(userId));
+      }
       writes.push({ userId, stillSync, source });
       return Promise.resolve();
     },
@@ -252,4 +257,98 @@ Deno.test("malformed JSON body → 400", async () => {
   const { store } = mockStore();
   const res = await handleWebhook(req("not json at all"), { token: TOKEN, store, rc: mockRc({}) });
   assertEquals(res.status, 400);
+});
+
+// ── Per-UUID fault tolerance (R19/AE8) + behavior pins (R20) ─────────────────────────────────────
+
+Deno.test("TRANSFER with a deleted transferred_from user → 200, live side reconciled, event completed", async () => {
+  // AE8: the losing side of the TRANSFER was account-deleted (auth.users row gone), so its
+  // setEntitlement fails as MissingUserError. The surviving side must still reconcile and the
+  // event must COMPLETE — otherwise RevenueCat retries forever against a permanently missing row.
+  const { store, writes, released } = mockStore({ missingUsers: [A] });
+  const body = { event: { id: "t-deleted", type: "TRANSFER", transferred_from: [A], transferred_to: [B] } };
+  const deps = { token: TOKEN, store, rc: mockRc({ [A]: inactiveSub, [B]: activeSub }) };
+  const res = await handleWebhook(req(body), deps);
+  assertEquals(res.status, 200);
+  assertEquals(await res.json(), { status: "ok", reconciled: 1 });
+  assertEquals(writes, [{ userId: B, stillSync: true, source: "webhook" }]);
+  assertEquals(released, []);
+  // Completed, not released: the sender's redelivery short-circuits, so retries terminate.
+  const replay = await handleWebhook(req(body), deps);
+  assertEquals(((await replay.json()) as { status: string }).status, "duplicate");
+});
+
+Deno.test("anonymous-only event → 200 reconciled: 0, claimed and completed", async () => {
+  // R20 pin: no valid UUID among app_user_id/original/aliases → accepted no-op, never retried.
+  const { store, writes } = mockStore();
+  const body = {
+    event: {
+      id: "anon-only",
+      type: "INITIAL_PURCHASE",
+      app_user_id: "$RCAnonymousID:abc",
+      original_app_user_id: "$RCAnonymousID:abc",
+      aliases: ["$RCAnonymousID:def"],
+    },
+  };
+  const deps = { token: TOKEN, store, rc: mockRc({}) };
+  const res = await handleWebhook(req(body), deps);
+  assertEquals(res.status, 200);
+  assertEquals(await res.json(), { status: "ok", reconciled: 0 });
+  assertEquals(writes.length, 0);
+  const replay = await handleWebhook(req(body), deps);
+  assertEquals(((await replay.json()) as { status: string }).status, "duplicate");
+});
+
+Deno.test("TRANSFER from an anonymous id to a UUID reconciles only the UUID side", async () => {
+  const { store, writes } = mockStore();
+  const res = await handleWebhook(
+    req({
+      event: { id: "t-anon", type: "TRANSFER", transferred_from: ["$RCAnonymousID:abc"], transferred_to: [B] },
+    }),
+    { token: TOKEN, store, rc: mockRc({ [B]: activeSub }) },
+  );
+  assertEquals(res.status, 200);
+  assertEquals(await res.json(), { status: "ok", reconciled: 1 });
+  assertEquals(writes, [{ userId: B, stillSync: true, source: "webhook" }]);
+});
+
+Deno.test("transient store error on one TRANSFER side → 500, claim released (event retriable)", async () => {
+  // NOT a missing-user failure: an outage-shaped error on any UUID keeps fail-and-release, even
+  // when another UUID already reconciled.
+  const { store, released } = mockStore();
+  const failing: EntitlementStore = {
+    ...store,
+    setEntitlement: (userId, stillSync, source, sub) =>
+      userId === B
+        ? Promise.reject(new Error("db unavailable"))
+        : store.setEntitlement(userId, stillSync, source, sub),
+  };
+  const res = await handleWebhook(
+    req({ event: { id: "t-transient", type: "TRANSFER", transferred_from: [A], transferred_to: [B] } }),
+    { token: TOKEN, store: failing, rc: mockRc({ [A]: inactiveSub, [B]: activeSub }) },
+  );
+  assertEquals(res.status, 500);
+  assertEquals((await res.json()).error, "reconcile_failed");
+  assertEquals(released, ["t-transient"]);
+});
+
+Deno.test("mixed failure: deleted first UUID skipped, transient error on second → 500, claim released", async () => {
+  // Retriability wins over skip: the skipped-as-deleted UUID must not let a transient failure on
+  // the other UUID complete the event.
+  const { store, writes, released } = mockStore({ missingUsers: [A] });
+  const failing: EntitlementStore = {
+    ...store,
+    setEntitlement: (userId, stillSync, source, sub) =>
+      userId === B
+        ? Promise.reject(new Error("db unavailable"))
+        : store.setEntitlement(userId, stillSync, source, sub),
+  };
+  const res = await handleWebhook(
+    req({ event: { id: "t-mixed", type: "TRANSFER", transferred_from: [A], transferred_to: [B] } }),
+    { token: TOKEN, store: failing, rc: mockRc({ [A]: inactiveSub, [B]: activeSub }) },
+  );
+  assertEquals(res.status, 500);
+  assertEquals((await res.json()).error, "reconcile_failed");
+  assertEquals(released, ["t-mixed"]);
+  assertEquals(writes.length, 0);
 });
