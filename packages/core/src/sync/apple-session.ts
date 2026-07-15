@@ -108,14 +108,19 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
     try {
       const status = await bridge.receiptStatus();
       lastReceiptStatus = status;
-      if (status === "entitled" && controller.purchaseFlow === "pending") {
-        // A pending (Ask-to-Buy) purchase resolved out-of-band — session or not (R18/AE9). Route
-        // to the success screen BEFORE the entitled flip so the payoff rule stays suppressed.
-        controller.showPurchaseSuccess();
+      if (status === "entitled") {
+        if (controller.purchaseFlow === "pending") {
+          // A pending (Ask-to-Buy) purchase resolved out-of-band — session or not (R18/AE9).
+          // Route to the success screen BEFORE the entitled flip so the payoff stays suppressed.
+          controller.showPurchaseSuccess();
+        }
+        controller.receiptEntitled = true;
+      } else if (status === "verifiedNotEntitled") {
+        // Only an AFFIRMATIVE revocation clears the receipt lane. A resolved noSignal (deadline,
+        // unverifiable, malformed reply) is ambiguity and never downgrades — the tri-state
+        // contract (ReceiptStatus.swift, bridge.ts, R6); this mirrors the catch path below.
+        controller.receiptEntitled = false;
       }
-      // verifiedNotEntitled (refund) and noSignal both read as "no receipt Pro" for the UI;
-      // server-derived entitlement is unaffected (the controller merges the two lanes).
-      controller.receiptEntitled = status === "entitled";
       return status;
     } catch {
       // A rejected read is ambiguity: keep the last UI state (never downgrade on noise).
@@ -149,7 +154,14 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
       }
       // Load the localized store price for the paywall CTA (fire-and-forget). The signed-out
       // paywall's price is loaded at boot wiring (main.ts) — this refresh covers re-keying.
-      if (bridge.available) void bridge.price().then((p) => (controller.paywallPrice = p));
+      if (bridge.available) {
+        void bridge
+          .price()
+          .then((p) => (controller.paywallPrice = p))
+          .catch(() => {
+            /* price stays at its last value — the CTA renders without a suffix */
+          });
+      }
     } finally {
       controller.reconciling = false;
     }
@@ -291,11 +303,31 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
       // Always refresh the receipt on foreground (R18): a signed-out Ask-to-Buy approval or a
       // refund that landed while backgrounded is observed here; refreshReceipt itself resolves a
       // pending flow into the success screen.
-      if (bridge.available) void refreshReceipt();
+      if (bridge.available) {
+        void refreshReceipt().then((receipt) => {
+          // Attach self-heal on foreground (R7, review finding): a signed-in account that lacks
+          // the entitlement this device's receipt proves retries the attach here — otherwise one
+          // failed syncPurchases at sign-in strands account Pro on every other surface until a
+          // relaunch. Condition is deliberately narrow (receipt-entitled + signed-in +
+          // server-not-entitled) so ordinary foregrounds never burn a rate-limited reconcile.
+          if (
+            receipt === "entitled" &&
+            controller.userId &&
+            !controller.serverEntitled &&
+            !controller.reconciling
+          ) {
+            void enterSession(controller.userId).catch(() => {
+              /* transient — the next foreground or purchase tap retries */
+            });
+          }
+        });
+      }
       if (controller.purchaseFlow === "pending" && controller.userId && !controller.reconciling) {
-        // A landed approval flips controller.entitled inside enterSession — the false→true
-        // transition with the (pending) paywall open resolves it; controller-owned dismissal.
-        void enterSession(controller.userId);
+        // A landed approval resolves through the purchase-success rule (a rise while the flow is
+        // pending routes to the success screen — controller.applyEntitlementInput).
+        void enterSession(controller.userId).catch(() => {
+          /* transient — the next foreground retries */
+        });
       }
     },
 

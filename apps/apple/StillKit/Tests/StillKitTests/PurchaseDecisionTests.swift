@@ -76,21 +76,33 @@ final class PurchaseDecisionTests: XCTestCase {
   func testAttachEligibleWhenSignedInIdentityMatchesAndPurchased() {
     XCTAssertTrue(
       PurchaseDecision.attachEligible(
-        currentAppUserID: "u", sdkAppUserID: "u", ownershipIsPurchased: true))
+        currentAppUserID: "u", sdkAppUserID: "u", ownershipIsPurchased: true,
+        receiptEntitled: true))
+  }
+
+  func testAttachRefusedForRevokedReceipt() {
+    // A refunded transaction still reads as `purchased` ownership; attaching its dead receipt to
+    // the account would be wrong even with a matching identity (security review pin).
+    XCTAssertFalse(
+      PurchaseDecision.attachEligible(
+        currentAppUserID: "u", sdkAppUserID: "u", ownershipIsPurchased: true,
+        receiptEntitled: false))
   }
 
   func testAttachRefusedSignedOut() {
     // AE13 native half: reset() nulls the user synchronously; a late attach is refused.
     XCTAssertFalse(
       PurchaseDecision.attachEligible(
-        currentAppUserID: nil, sdkAppUserID: "$RCAnonymousID:x", ownershipIsPurchased: true))
+        currentAppUserID: nil, sdkAppUserID: "$RCAnonymousID:x", ownershipIsPurchased: true,
+        receiptEntitled: true))
   }
 
   func testAttachRefusedOnSdkIdentityMismatch() {
     // A timed-out re-key can leave the SDK on a different identity than the app-level session.
     XCTAssertFalse(
       PurchaseDecision.attachEligible(
-        currentAppUserID: "u", sdkAppUserID: "$RCAnonymousID:x", ownershipIsPurchased: true))
+        currentAppUserID: "u", sdkAppUserID: "$RCAnonymousID:x", ownershipIsPurchased: true,
+        receiptEntitled: true))
   }
 
   func testAttachRefusedForFamilySharedTransaction() {
@@ -98,7 +110,8 @@ final class PurchaseDecisionTests: XCTestCase {
     // entitlement via transfer.
     XCTAssertFalse(
       PurchaseDecision.attachEligible(
-        currentAppUserID: "u", sdkAppUserID: "u", ownershipIsPurchased: false))
+        currentAppUserID: "u", sdkAppUserID: "u", ownershipIsPurchased: false,
+        receiptEntitled: true))
   }
 
   func testMissingPackageIsUnavailable() {

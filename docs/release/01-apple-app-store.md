@@ -246,6 +246,10 @@ version).
 - [ ] App Review Information: update the demo-account section — a demo account is no longer needed
       to verify Pro (sandbox purchase works signed out); keep one seeded account documented for
       verifying the OPTIONAL sync feature.
+- [ ] App Privacy label: RevenueCat now configures ANONYMOUSLY at every launch for every user
+      (previously post-sign-in only), so device-scoped anonymous purchase identifiers flow to
+      RevenueCat for free users too — confirm the Purchases/Identifiers declarations and the
+      privacy policy cover this before resubmitting.
 
 ### Review notes (paste + adapt per platform)
 
@@ -285,6 +289,9 @@ top rejection driver; one self-contained script per platform.
   **open the Still app once** (the launch receipt check restamps).
 - Offline reinstall with an unreadable receipt: Safari re-locks until the first ONLINE launch
   restamps — automatic recovery, no support action.
+- Upgraders from build 3 carry a legacy server-source stamp: a refund observed while offline
+  cannot downgrade it through the receipt lane — Safari Pro persists until the first online
+  reconcile or the 30-day TTL (a variant of the refund bound above).
 - Double purchase (web + Apple) refunds: refund Apple → web/account Pro unaffected; refund web →
   device keeps receipt Pro and the account back-fills from the Apple purchase at the next
   reconcile. Transfer history is queryable in `revenuecat_events` (TRANSFER payloads) for

@@ -336,6 +336,15 @@ export class UiController {
     mutate();
     const after = this.entitled;
     const rose = !before && after;
+    // A rise that resolves a PENDING purchase (Ask-to-Buy approval, webhook landing) is a
+    // purchase moment: it routes to the success screen, never the auto-dismissing payoff —
+    // regardless of whether the server reconcile or the receipt read delivered the flip first
+    // (the two race on foreground; adversarial review pin).
+    if (rose && this.purchaseFlow === "pending") {
+      this.showPurchaseSuccess();
+      this.clearCheckoutPending();
+      return;
+    }
     // Payoff only when a paywall surface is open (a quiet background unlock stays quiet, R6).
     // Eligibility is judged BEFORE the pending flag is cleared below — the checkout-pending
     // presentation is exactly what makes a rehydrated paying user eligible (U4).
@@ -370,16 +379,10 @@ export class UiController {
     this.purchaseError = null;
   }
 
-  /** Leave the success screen ("Not now", Escape, or after choosing the account path). */
-  dismissSuccess(): void {
-    this.successScreen = "none";
-    this.paywallOpen = false;
-    this.purchaseFlow = "idle";
-    this.purchaseError = null;
-  }
-
   /** The success screen's account CTA: hand off to the sign-in sheet (the attach happens inside
-   * the session's enterSession once the code verifies — no purchase intent needed; they own Pro). */
+   * the session's enterSession once the code verifies — no purchase intent needed; they own Pro).
+   * Dismissal ("Not now" / Done / Escape) goes through dismissPaywall, which clears the success
+   * screen along with the rest of the sheet state — one dismissal path, no sibling to drift. */
   createAccountFromSuccess(): void {
     this.successScreen = "none";
     this.paywallOpen = false;

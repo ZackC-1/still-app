@@ -39,14 +39,18 @@ public enum PurchaseDecision {
   /// Pure eligibility gate for the attach step (RevenueCat syncPurchases; R7/AE13/AE14): the
   /// receipt may be attached to the signed-in Still account only when an app-level session
   /// exists, the SDK identity matches it (a timed-out re-key can leave them divergent — attaching
-  /// then would transfer the purchase to the wrong customer), and the entitling transaction was
+  /// then would transfer the purchase to the wrong customer), the entitling transaction was
   /// directly purchased (a family-shared transaction attached to a family member's account would
-  /// TRANSFER the buyer's entitlement away).
+  /// TRANSFER the buyer's entitlement away), AND the receipt is currently entitled — a revoked
+  /// (refunded) transaction is still `purchased` ownership, but attaching it would post a dead
+  /// receipt to the account's customer.
   public static func attachEligible(
     currentAppUserID: String?,
     sdkAppUserID: String?,
-    ownershipIsPurchased: Bool
+    ownershipIsPurchased: Bool,
+    receiptEntitled: Bool
   ) -> Bool {
+    guard receiptEntitled else { return false }
     guard let user = normalized(currentAppUserID) else { return false }
     guard normalized(sdkAppUserID) == user else { return false }
     return ownershipIsPurchased

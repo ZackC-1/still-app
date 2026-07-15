@@ -189,6 +189,15 @@ final class EntitlementBridgeTests: XCTestCase {
       store.peek(), EntitlementRecord(entitled: false, updatedAt: 500, source: .receipt))
   }
 
+  func testReadOnlyBridgeRefusesApplyReceipt() {
+    // The receipt lane is app-process-only: a read-only bridge (the extension handler) must
+    // refuse applyReceipt exactly like set proposals (testing review pin).
+    let stored = EntitlementRecord(entitled: true, updatedAt: 7, source: .server)
+    let (bridge, store) = bridge(stored, now: 500, receipt: .entitled, readOnly: true)
+    XCTAssertEqual(bridge.applyReceipt(.entitled), stored)
+    XCTAssertEqual(store.peek(), stored)
+  }
+
   func testApplyReceiptRevocationNeverClobbersServerStamp() {
     // Double-purchase user refunds the Apple side: web-granted (server) Pro survives.
     let stored = EntitlementRecord(entitled: true, updatedAt: 7, source: .server)

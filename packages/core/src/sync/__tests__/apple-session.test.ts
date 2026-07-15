@@ -194,8 +194,9 @@ describe("AppleSession — onGet (the purchase flow)", () => {
     expect(controller.receiptEntitled).toBe(true);
     expect(controller.entitled).toBe(true);
     expect(controller.userId).toBeNull();
-    // "Not now" leaves an entitled, account-free home screen — never a dead buy CTA.
-    controller.dismissSuccess();
+    // "Not now" (wired to dismissPaywall — the one dismissal path) leaves an entitled,
+    // account-free home screen — never a dead buy CTA.
+    controller.dismissPaywall();
     expect(controller.popupState).toBe("pro-no-account");
   });
 
@@ -276,12 +277,14 @@ describe("AppleSession — Ask-to-Buy foreground recheck", () => {
     expect(sync.onSignedIn).not.toHaveBeenCalled();
 
     session.onVisibilityChange("visible");
-    // The rehydrated pending state counts as paywall-open: the landed approval shows the payoff
-    // (controller-owned dismissal thereafter, pinned in the controller suite) — no force-dismiss.
-    await vi.waitFor(() => expect(controller.justUnlocked).toBe(true));
+    // AMENDED (purchase-first): a rise that resolves a PENDING purchase is a purchase moment —
+    // it routes to the success screen (no auto-dismiss), never the quiet payoff, regardless of
+    // whether the reconcile or the receipt read delivers the flip first (adversarial review pin).
+    await vi.waitFor(() => expect(controller.successScreen).toBe("synced"));
+    expect(controller.justUnlocked).toBe(false);
     expect(controller.paywallOpen).toBe(true);
     expect(sync.onSignedIn).toHaveBeenCalledWith("u1");
-    controller.dismissPaywall(); // clear the payoff timer so nothing fires after the test
+    controller.dismissPaywall();
   });
 
   it("does nothing when the purchase isn't pending", () => {
@@ -496,6 +499,44 @@ describe("AppleSession — receipt lane (R6/R17/R18, plan 2026-07-15-001)", () =
     await vi.waitFor(() => expect(controller.successScreen).toBe("account-pitch"));
     expect(controller.receiptEntitled).toBe(true);
     expect(controller.paywallOpen).toBe(true);
+  });
+
+  it("a resolved noSignal never downgrades receipt Pro (tri-state contract)", async () => {
+    const status = vi.fn(async () => "entitled" as const);
+    const { session, controller } = harness({ bridge: { receiptStatus: status } });
+    await session.refreshReceipt();
+    expect(controller.receiptEntitled).toBe(true);
+    status.mockResolvedValue("noSignal" as never); // deadline / unverifiable read — ambiguity
+    await session.refreshReceipt();
+    expect(controller.receiptEntitled).toBe(true); // only an affirmative revocation clears it
+  });
+
+  it("a rejected receipt read resolves to noSignal and keeps UI state (never throws)", async () => {
+    const { session, controller } = harness({
+      bridge: { receiptStatus: vi.fn(async () => Promise.reject(new Error("port died"))) },
+    });
+    controller.receiptEntitled = true;
+    await expect(session.refreshReceipt()).resolves.toBe("noSignal");
+    expect(controller.receiptEntitled).toBe(true);
+  });
+
+  it("foreground retries a failed attach: signed-in + receipt Pro + server not entitled (R7 self-heal)", async () => {
+    const h = harness({
+      bridge: { receiptStatus: vi.fn(async () => "entitled" as const) },
+    });
+    h.controller.userId = "u1";
+    await h.session.refreshReceipt(); // receipt lane known-entitled; server lane still false
+    expect(h.controller.serverEntitled).toBe(false);
+    h.session.onVisibilityChange("visible");
+    await vi.waitFor(() => expect(h.sync.onSignedIn).toHaveBeenCalledWith("u1"));
+  });
+
+  it("foreground does NOT reconcile for a free signed-in user (rate-limit guard)", async () => {
+    const h = harness(); // receipt noSignal
+    h.controller.userId = "u1";
+    h.session.onVisibilityChange("visible");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(h.sync.onSignedIn).not.toHaveBeenCalled();
   });
 
   it("a refund (verifiedNotEntitled) clears receipt Pro in the UI", async () => {

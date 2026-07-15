@@ -270,8 +270,16 @@ final class PurchaseManager {
     // restore machinery — under default transfer semantics a RevenueCat receipt-post from a fresh
     // identity would move the entitlement OFF the account it is attached to.
     if await refreshReceiptStatus() == .entitled { return .purchased }
-    if await hasStillPro() { return .purchased } // already unlocked on this identity; never double-charge
+    // R15 ordering (review finding, 3 independent reviewers): verify the anonymous identity
+    // BEFORE trusting CustomerInfo. A failed prior logOut leaves the SDK keyed to a departed
+    // account; probing hasStillPro() against it would return a false `.purchased` — success
+    // screen, no charge, no receipt, nothing unlocked — and make the staleIdentity retry
+    // permanently unreachable. The CustomerInfo short-circuit is trusted only for a signed-in
+    // session or a VERIFIED anonymous identity.
     let verifiedAnonymous = startingUserID == nil ? await ensureAnonymousIdentity() : false
+    if startingUserID != nil || verifiedAnonymous {
+      if await hasStillPro() { return .purchased } // already unlocked on this identity; never double-charge
+    }
     let package = await stillProPackage()
     switch PurchaseDecision.readiness(
       isConfigured: isConfigured,
@@ -311,8 +319,12 @@ final class PurchaseManager {
   func restore() async -> Bool {
     let startingUserID = currentAppUserID
     if await refreshReceiptStatus() == .entitled { return true }
-    if await hasStillPro() { return true }
+    // Same R15 ordering as purchaseStillPro(): never trust CustomerInfo on an unverified
+    // identity — a stale departed account's Pro would fake a successful restore.
     let verifiedAnonymous = startingUserID == nil ? await ensureAnonymousIdentity() : false
+    if startingUserID != nil || verifiedAnonymous {
+      if await hasStillPro() { return true }
+    }
     guard PurchaseDecision.readiness(
       isConfigured: isConfigured,
       startingAppUserID: startingUserID,
@@ -335,7 +347,8 @@ final class PurchaseManager {
     guard PurchaseDecision.attachEligible(
       currentAppUserID: currentAppUserID,
       sdkAppUserID: Purchases.shared.appUserID,
-      ownershipIsPurchased: read.ownershipIsPurchased
+      ownershipIsPurchased: read.ownershipIsPurchased,
+      receiptEntitled: read.status == .entitled
     ) else { return false }
     let info = try? await Purchases.shared.syncPurchases()
     return info?.entitlements[Self.entitlementID]?.isActive == true

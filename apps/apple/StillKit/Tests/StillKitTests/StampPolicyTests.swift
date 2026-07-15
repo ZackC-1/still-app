@@ -31,6 +31,16 @@ final class StampPolicyTests: XCTestCase {
       .write(proposed))
   }
 
+  func testServerLaneTrueWritesOverReceiptStamp() {
+    // The plan's enumerated cell: server may refresh true over a receipt-source stamp (the
+    // account confirmed what the device already knew; the stamp adopts the server lane).
+    let proposed = record(true, at: 300, source: .server)
+    XCTAssertEqual(
+      StampPolicy.decide(
+        proposed: proposed, receipt: .entitled, current: record(true, at: 100, source: .receipt)),
+      .write(proposed))
+  }
+
   func testEqualValueTrueStillWritesToRefreshUpdatedAt() {
     // The extension's 30-day TTL keys off updatedAt; refreshing an unchanged value is the point.
     let proposed = record(true, at: 200, source: .receipt)

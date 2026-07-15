@@ -698,6 +698,29 @@ describe("UiController", () => {
     expect(c.purchaseIntent).toBe(true); // still mid-unlock — only "Not now" abandons it
   });
 
+  it("createAccountFromSuccess hands the success screen off to the sign-in sheet", () => {
+    const { c } = makeController({ auth: codeAuth() });
+    c.receiptEntitled = true; // the account-pitch state: receipt Pro, no session
+    c.showPurchaseSuccess();
+    expect(c.successScreen).toBe("account-pitch");
+    c.createAccountFromSuccess();
+    expect(c.successScreen).toBe("none");
+    expect(c.paywallOpen).toBe(false);
+    expect(c.signInOpen).toBe(true);
+    expect(c.purchaseIntent).toBe(false); // they already own Pro — no purchase continuation
+  });
+
+  it("a rise resolving a PENDING purchase routes to the success screen, never the payoff", () => {
+    const { c } = makeController({ auth: codeAuth() });
+    c.userId = "u1";
+    c.openPaywall();
+    c.setPurchaseOutcome({ outcome: "pending", entitled: false });
+    c.entitled = true; // the approval lands via the server lane first (race pin)
+    expect(c.successScreen).toBe("synced");
+    expect(c.justUnlocked).toBe(false);
+    expect(c.paywallOpen).toBe(true);
+  });
+
   it("the opening-checkout hand-off counts as busy (duplicate-tap guard, U3→U4 hook)", () => {
     const { c } = makeController();
     c.purchaseFlow = "opening-checkout";
@@ -710,14 +733,16 @@ describe("UiController", () => {
 
 describe("UiController — success payoff (plan U3/R6)", () => {
   it("entitled false→true with the paywall open shows the payoff inside the still-open sheet", () => {
+    // AMENDED (purchase-first): the payoff remains the NON-purchase transition (e.g. a web-bought
+    // account's entitlement landing while the paywall is open). A rise that resolves a PENDING
+    // purchase routes to the success screen instead — pinned separately below.
     const { c } = makeController();
     c.userId = "u";
     c.openPaywall();
-    c.setPurchaseOutcome({ outcome: "pending", entitled: false }); // e.g. Ask-to-Buy just approved
     c.entitled = true; // the entitlement store write landed (storage subscription / sync state)
     expect(c.justUnlocked).toBe(true);
     expect(c.paywallOpen).toBe(true); // payoff renders in place; controller dismisses later
-    expect(c.purchaseFlow).toBe("idle"); // the payoff supersedes any pending/outcome copy
+    expect(c.purchaseFlow).toBe("idle"); // the payoff supersedes any outcome copy
     c.dismissPaywall(); // clear the payoff timer
   });
 

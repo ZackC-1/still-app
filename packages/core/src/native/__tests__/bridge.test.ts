@@ -84,6 +84,40 @@ describe("NativeBridge", () => {
     expect(await bridge.purchaseStatus()).toBe(false);
   });
 
+  it("parses the receipt tri-state, coercing malformed replies to noSignal (never a downgrade signal)", async () => {
+    expect(
+      await new NativeBridge(makeHost({ receiptStatus: { receipt: "entitled" } }).win).receiptStatus(),
+    ).toBe("entitled");
+    expect(
+      await new NativeBridge(
+        makeHost({ receiptStatus: { receipt: "verifiedNotEntitled" } }).win,
+      ).receiptStatus(),
+    ).toBe("verifiedNotEntitled");
+    // Malformed / missing / unknown replies are ambiguity, not a verdict (tri-state contract).
+    expect(
+      await new NativeBridge(makeHost({ receiptStatus: {} }).win).receiptStatus(),
+    ).toBe("noSignal");
+    expect(
+      await new NativeBridge(makeHost({ receiptStatus: { receipt: "banana" } }).win).receiptStatus(),
+    ).toBe("noSignal");
+    expect(await new NativeBridge({} as StillBridgeWindow).receiptStatus()).toBe("noSignal");
+  });
+
+  it("parses attachPurchases, coercing malformed replies to false", async () => {
+    expect(
+      await new NativeBridge(makeHost({ attachPurchases: { entitled: true } }).win).attachPurchases(),
+    ).toBe(true);
+    expect(
+      await new NativeBridge(makeHost({ attachPurchases: {} }).win).attachPurchases(),
+    ).toBe(false);
+    expect(await new NativeBridge({} as StillBridgeWindow).attachPurchases()).toBe(false);
+  });
+
+  it("maps a native staleIdentity purchase reply through the outcome union (R15)", async () => {
+    const host = makeHost({ purchase: { outcome: "staleIdentity", entitled: false } });
+    expect((await new NativeBridge(host.win).purchaseStillPro()).outcome).toBe("staleIdentity");
+  });
+
   it("reads the localized store price, or null when unavailable", async () => {
     expect(await new NativeBridge(makeHost({ price: { price: "$1.99" } }).win).price()).toBe("$1.99");
     // Empty / missing price → null (offering not loaded), so the CTA shows no price rather than a guess.

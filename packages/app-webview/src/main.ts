@@ -167,7 +167,12 @@ if (supabaseUrl && supabaseAnonKey) {
     // localized price (the signed-out paywall CTA shows "· $1.99", loaded here because
     // enterSession — the old only price call site — never runs signed out).
     void session.refreshReceipt();
-    void bridge.price().then((p) => (controller.paywallPrice = p));
+    void bridge
+      .price()
+      .then((p) => (controller.paywallPrice = p))
+      .catch(() => {
+        /* no price → the CTA renders without a suffix; enterSession retries on sign-in */
+      });
   }
 } else {
   controller = new UiController({ cache, host: { canPurchase: true } });

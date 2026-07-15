@@ -71,7 +71,7 @@ export async function handleWebhook(req: Request, deps: WebhookDeps): Promise<Re
         reconciled += 1;
       } catch (error) {
         if (!(error instanceof MissingUserError)) throw error;
-        console.warn(`revenuecat-webhook: skipped deleted user for event ${event.id}`);
+        console.warn(`revenuecat-webhook: skipped deleted user ${uuid} for event ${event.id}`);
       }
     }
     await deps.store.completeEvent(event.id, token);
