@@ -37,7 +37,8 @@ export function clientIp(req: Request): string | null {
   return hops.length > 0 ? hops[hops.length - 1]! : null;
 }
 
-function tooManyRequests(waitSeconds: number): Response {
+/** The one 429 shape: retry_after in the JSON body plus a browser-readable Retry-After header. */
+export function tooManyRequests(waitSeconds: number): Response {
   return jsonResponse(
     429,
     { error: "rate_limited", retry_after: waitSeconds },
