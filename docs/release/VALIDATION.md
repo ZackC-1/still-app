@@ -70,3 +70,47 @@ validated manually.
 The client and backend contract is validated. App Store, TestFlight, Chrome Web Store, and Firefox
 AMO submission remain separate human-gated release actions. Delaying store review does not permit
 delaying migration `0009` in an environment that receives this client build.
+
+## Purchase-first addendum — feat/apple-purchase-first-pro-flow (July 15, 2026)
+
+Validation record for the Guideline 5.1.1(v) purchase-first restructure
+(plan `docs/plans/2026-07-15-001`, ADR 0003), run on the feature branch before merge.
+
+| Area | Result |
+|---|---|
+| Lint (eslint, all packages) | Pass |
+| Typecheck (all 6 packages, svelte-check + tsc) | Pass: 0 errors |
+| Vitest: core 479 · ext-safari 48 · ext-chromium 20 | Pass: 547 tests |
+| StillKit `swift test` (incl. the full StampPolicy matrix) | Pass: 87 tests |
+| Supabase Deno: lint (36 files) · check (6 functions) · tests | Pass: 101 tests |
+| Extension production builds (chrome-mv3, firefox-mv3, safari-mv3) | Pass |
+| Playwright fixtures (free/Pro behavioral contract, 4 services) | Pass: 16 tests |
+| iOS Release compile (unsigned, `Still (iOS)` incl. extension) | Pass: 0 errors |
+| macOS Release compile (unsigned, deployment target now 12.0) | Pass: 0 errors |
+
+### On-device sandbox checklist (human-gated, before releasing build 4)
+
+Run on iOS AND macOS unless marked; sandbox Apple ID; RevenueCat restore behavior = default
+transfer; `still_sync` Family Sharing OFF.
+
+1. AE1 (macOS first — the rejected platform): fresh signed-out install → Get Still Pro → sandbox
+   purchase completes → Reels/TikTok blocking active in Safari with no account; success screen
+   shows Create free account / Not now as two equal-weight buttons and does NOT auto-dismiss.
+2. AE2: sign in on the entitled device (new account) → account gains Pro (check Chrome with the
+   same email); sign out → device keeps Pro; home screen shows "Still Pro is active on this
+   device."
+3. AE4 + AE10 (iOS ONLY — macOS Group Containers survive reinstall, so a plain macOS
+   delete+reinstall passes vacuously; on macOS delete the Group Container manually to exercise
+   the purge): delete + reinstall → launch → Safari regains Pro without an account; no purge
+   window observed on first page load after launch.
+4. AE11: on a device whose purchase is attached to an account, sign out → "Already purchased?
+   Restore" → Pro confirmed; verify in Supabase the account's entitlement is untouched.
+5. AE6 (revocation — StoreKitTest local refund or sandbox `beginRefundRequest`, NOT
+   clear-purchase-history): refund → next launch/foreground re-locks the app and the stamp.
+   Separately: clear purchase history → app re-locks (noSignal cell) while Safari rides the TTL.
+6. AE9 (Ask-to-Buy, `simulatesAskToBuyInSandbox`): purchase signed out → pending → approve →
+   foreground the app → success screen appears, Safari unlocked, still no account.
+7. OTP flow (the 2.1(a) rejection item): sign-in code entry — wrong code shows the calm retry
+   line, expired code offers a new one, resend works after the cooldown.
+
+Store submission remains a human-gated action per the release runbook §7 (resubmission).
