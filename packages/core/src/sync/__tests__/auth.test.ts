@@ -125,3 +125,180 @@ describe("SupabaseAuthPort.verifyCode classification (R1/R5/R7)", () => {
     expect((await verify(verifyOtp)).kind).toBe("verify-failed");
   });
 });
+
+
+// The deterministic App Review sign-in branch (plan 2026-07-15-002, R8–R10/AE7–AE9). The port
+// routes the ONE configured review address through the review-signin function; everyone else —
+// and every address when config is absent — takes the normal GoTrue path. The 404 refusal
+// ("not configured") falls through to GoTrue on BOTH actions so client/server config drift
+// degrades to ordinary OTP end to end instead of bricking the address.
+
+const REVIEW = { email: "review@example.test" };
+
+function reviewClient(fns: {
+  invoke?: ReturnType<typeof vi.fn>;
+  signInWithOtp?: ReturnType<typeof vi.fn>;
+  verifyOtp?: ReturnType<typeof vi.fn>;
+  setSession?: ReturnType<typeof vi.fn>;
+}) {
+  return {
+    auth: {
+      signInWithOtp: fns.signInWithOtp ?? vi.fn(async () => ({ error: null })),
+      verifyOtp: fns.verifyOtp ?? vi.fn(async () => ({ data: {}, error: null })),
+      setSession: fns.setSession ?? vi.fn(async () => ({ data: { user: { id: "u-r" } }, error: null })),
+    },
+    functions: { invoke: fns.invoke ?? vi.fn(async () => ({ data: { ok: true }, error: null })) },
+  } as unknown as SupabaseClient;
+}
+
+/** supabase-js FunctionsHttpError shape: the Response rides on `.context`. */
+function httpError(status: number, body: Record<string, unknown> = {}) {
+  return {
+    data: null,
+    error: { context: new Response(JSON.stringify(body), { status }) },
+  };
+}
+
+function reviewPort(fns: Parameters<typeof reviewClient>[0]) {
+  return new SupabaseAuthPort(reviewClient(fns), undefined, REVIEW);
+}
+
+describe("review sign-in branch — requestCode (AE7/AE9, R9)", () => {
+  it("review address + preflight 200 → sent, and no email is ever dispatched", async () => {
+    const invoke = vi.fn(async () => ({ data: { ok: true }, error: null }));
+    const signInWithOtp = vi.fn(async () => ({ error: null }));
+    const out = await reviewPort({ invoke, signInWithOtp }).requestCode("review@example.test");
+    expect(out).toEqual({ kind: "sent" });
+    expect(invoke).toHaveBeenCalledWith("review-signin", {
+      body: { action: "request", email: "review@example.test" },
+    });
+    expect(signInWithOtp).not.toHaveBeenCalled();
+  });
+
+  it("mixed-case, padded review address still takes the branch (AE8) and is sent normalized", async () => {
+    const invoke = vi.fn(async () => ({ data: { ok: true }, error: null }));
+    const out = await reviewPort({ invoke }).requestCode("  Review@Example.TEST ");
+    expect(out.kind).toBe("sent");
+    expect(invoke.mock.calls[0][1]).toEqual({
+      body: { action: "request", email: "review@example.test" },
+    });
+  });
+
+  it("preflight 429 renders the wait state with the genuine retry-after — never a real email", async () => {
+    const invoke = vi.fn(async () => httpError(429, { retry_after: 37 }));
+    const signInWithOtp = vi.fn(async () => ({ error: null }));
+    const out = await reviewPort({ invoke, signInWithOtp }).requestCode("review@example.test");
+    expect(out).toEqual({ kind: "send-rate-limited", retryAfterSeconds: 37 });
+    expect(signInWithOtp).not.toHaveBeenCalled();
+  });
+
+  it("preflight not-configured (404) falls back to the real OTP send exactly once (AE9)", async () => {
+    const invoke = vi.fn(async () => httpError(404));
+    const signInWithOtp = vi.fn(async () => ({ error: null }));
+    const out = await reviewPort({ invoke, signInWithOtp }).requestCode("review@example.test");
+    expect(out.kind).toBe("sent");
+    expect(signInWithOtp).toHaveBeenCalledTimes(1);
+  });
+
+  it("preflight transport failure (no status) also falls back to the real send", async () => {
+    const invoke = vi.fn(async () => ({ data: null, error: { name: "FunctionsFetchError" } }));
+    const signInWithOtp = vi.fn(async () => ({ error: null }));
+    const out = await reviewPort({ invoke, signInWithOtp }).requestCode("review@example.test");
+    expect(out.kind).toBe("sent");
+    expect(signInWithOtp).toHaveBeenCalledTimes(1);
+  });
+
+  it("a non-review address with config present never touches the function", async () => {
+    const invoke = vi.fn();
+    const signInWithOtp = vi.fn(async () => ({ error: null }));
+    await reviewPort({ invoke, signInWithOtp }).requestCode("someone@else.test");
+    expect(invoke).not.toHaveBeenCalled();
+    expect(signInWithOtp).toHaveBeenCalledTimes(1);
+  });
+
+  it("no review config → even the review address takes the normal path (fail closed)", async () => {
+    const invoke = vi.fn();
+    const signInWithOtp = vi.fn(async () => ({ error: null }));
+    const port = new SupabaseAuthPort(
+      reviewClient({ invoke, signInWithOtp }),
+      undefined,
+      undefined,
+    );
+    await port.requestCode("review@example.test");
+    expect(invoke).not.toHaveBeenCalled();
+    expect(signInWithOtp).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("review sign-in branch — verifyCode (AE7/AE9, R8/R9)", () => {
+  it("200 mints a normal session: setSession gets BOTH tokens, outcome carries the server user id", async () => {
+    const invoke = vi.fn(async () => ({
+      data: { access_token: "at", refresh_token: "rt", user_id: "u-review" },
+      error: null,
+    }));
+    const setSession = vi.fn(async () => ({ data: { user: { id: "u-review" } }, error: null }));
+    const out = await reviewPort({ invoke, setSession }).verifyCode(
+      "review@example.test",
+      "654321",
+    );
+    expect(out).toEqual({ kind: "verified", userId: "u-review" });
+    expect(setSession).toHaveBeenCalledWith({ access_token: "at", refresh_token: "rt" });
+  });
+
+  it("401 (wrong fixed code) → invalid-code; GoTrue verify is never consulted", async () => {
+    const invoke = vi.fn(async () => httpError(401));
+    const verifyOtp = vi.fn();
+    const out = await reviewPort({ invoke, verifyOtp }).verifyCode("review@example.test", "000000");
+    expect(out.kind).toBe("invalid-code");
+    expect(verifyOtp).not.toHaveBeenCalled();
+  });
+
+  it("429 → verify-rate-limited carrying the genuine retry-after", async () => {
+    const invoke = vi.fn(async () => httpError(429, { retry_after: 55 }));
+    const out = await reviewPort({ invoke }).verifyCode("review@example.test", "654321");
+    expect(out).toEqual({ kind: "verify-rate-limited", retryAfterSeconds: 55 });
+  });
+
+  it("not-configured (404) falls through to normal GoTrue verify — full drift recovery (AE9)", async () => {
+    const invoke = vi.fn(async () => httpError(404));
+    const verifyOtp = vi.fn(async () => ({ data: { user: { id: "u-fallback" } }, error: null }));
+    const out = await reviewPort({ invoke, verifyOtp }).verifyCode("review@example.test", "111222");
+    expect(out).toEqual({ kind: "verified", userId: "u-fallback" });
+    expect(verifyOtp).toHaveBeenCalledWith({
+      email: "review@example.test",
+      token: "111222",
+      type: "email",
+    });
+  });
+
+  it("5xx → verify-failed (calm retry), NOT a fall-through to GoTrue", async () => {
+    const invoke = vi.fn(async () => httpError(500, { error: "internal" }));
+    const verifyOtp = vi.fn();
+    const out = await reviewPort({ invoke, verifyOtp }).verifyCode("review@example.test", "654321");
+    expect(out.kind).toBe("verify-failed");
+    expect(verifyOtp).not.toHaveBeenCalled();
+  });
+
+  it("transport failure (no status) falls through to the normal verify while config is present", async () => {
+    const invoke = vi.fn(async () => ({ data: null, error: { name: "FunctionsFetchError" } }));
+    const verifyOtp = vi.fn(async () => ({ data: { user: { id: "u-net" } }, error: null }));
+    const out = await reviewPort({ invoke, verifyOtp }).verifyCode("review@example.test", "111222");
+    expect(out).toEqual({ kind: "verified", userId: "u-net" });
+  });
+
+  it("a 200 missing tokens → verify-failed, never a half-minted session", async () => {
+    const invoke = vi.fn(async () => ({ data: { user_id: "u-review" }, error: null }));
+    const setSession = vi.fn();
+    const out = await reviewPort({ invoke, setSession }).verifyCode("review@example.test", "654321");
+    expect(out.kind).toBe("verify-failed");
+    expect(setSession).not.toHaveBeenCalled();
+  });
+
+  it("the unwired magic-link path is deliberately NOT review-aware (it would send a real email)", async () => {
+    const invoke = vi.fn();
+    const signInWithOtp = vi.fn(async () => ({ error: null }));
+    await reviewPort({ invoke, signInWithOtp }).signInWithMagicLink("review@example.test");
+    expect(invoke).not.toHaveBeenCalled();
+    expect(signInWithOtp).toHaveBeenCalledTimes(1); // pinned: wiring this host-side at the review address is forbidden
+  });
+});
