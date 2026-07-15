@@ -191,6 +191,13 @@ export const STRINGS = {
     verifyError: "Couldn't check the code. Try again.",
     sendError: "Couldn't send the code. Try again.",
     resendError: "Couldn't send a new code. The last one may still work.",
+    // Rate-limit wait copy (R2/R3), split BY VIEW because honesty differs by context: the email
+    // view's first-send block must never claim a code exists (under the hourly cap none was ever
+    // sent); the code view MAY point back at the one already delivered. The verify line never
+    // suggests requesting a new code — that's the worst advice during a verify lockout.
+    sendBlocked: "We can't send a code right now. Wait a minute, then try again.",
+    resendBlocked: "Too many codes requested. The code already in your email still works.",
+    verifyBlocked: "Too many tries. You can enter the code again in", // sheet appends "… 42s"
     resend: "Send a new code",
     resendWait: "Send a new code in", // the sheet appends the live countdown, e.g. "… in 42s"
     differentEmail: "Use a different email",

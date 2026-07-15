@@ -38,16 +38,26 @@ export type AuthFlow =
 
 /** Why the last code-flow step failed — the sheet maps each kind to its own calm line.
  * `wrong`/`expired` come from verify (expired = the request is older than the OTP TTL);
- * `check-failed`/`resend-failed` are network/backend failures, not attempts. */
+ * `check-failed`/`resend-failed` are network/backend failures, not attempts. The rate-limited
+ * kinds (R2/R3) are ALSO not attempts: they render wait copy with the matching affordance locked,
+ * and self-clear when the lock elapses. */
 export type CodeErrorKind =
   | "wrong"
   | "expired"
   | "check-failed"
-  | "resend-failed";
+  | "resend-failed"
+  | "verify-rate-limited"
+  | "resend-rate-limited";
 
 /** Resend is blocked for 60s after each send, with a visible countdown (Supabase's own resend
  * window — resending earlier would fail server-side anyway). */
 export const RESEND_COOLDOWN_MS = 60_000;
+/** UI lock after a rate-limited send or verify (R2/R3): GoTrue's per-user cooldown is 60s, and
+ * its 429 carries no structured retry-after (the seconds live in message TEXT, never parsed), so
+ * a fixed lock is the honest default. Transports that DO know the real wait (review-signin's
+ * rate-limit RPC) override it via `retryAfterSeconds`. Deliberately not persisted across popup
+ * death — the server still enforces; the calm copy simply reappears on a too-early retry. */
+export const RATE_LIMIT_LOCK_MS = 60_000;
 /** Supabase OTP lifetime (project default 1h): past this, a failed verify reads as expired. */
 export const OTP_TTL_MS = 60 * 60_000;
 /** Invalid-code attempts before the sheet foregrounds request-a-new-code (R1: the server
@@ -226,6 +236,13 @@ export class UiController {
   resendCooldown = $state(0);
   codeErrorKind = $state<CodeErrorKind | null>(null);
   codeAttempts = $state(0);
+  /** Seconds until a rate-limited SEND unblocks (R2/R4): locks the email-view CTA and the resend
+   * button, whole seconds, 0 = unlocked. Independent of `codeRequestedAt` by design — that field
+   * doubles as the expiry-classification input, and stamping it on a FAILED send would corrupt
+   * expired-vs-wrong judgment. */
+  sendBlockRemaining = $state(0);
+  /** Seconds until a rate-limited VERIFY unblocks (R3): locks the verify button. */
+  verifyBlockRemaining = $state(0);
   /** Purchase-intent continuation: set by a signed-out locked-row tap so a successful sign-in
    * auto-OPENS the paywall (one confirming tap before money moves — never auto-checkout, AE1). */
   purchaseIntent = $state(false);
@@ -266,6 +283,11 @@ export class UiController {
   /** Ticks the visible countdown once a second while a cooldown runs; self-clears at 0 (the popup
    * dies with the sheet anyway, so no destroy hook is needed). */
   private cooldownTimer: ReturnType<typeof setInterval> | null = null;
+  /** Rate-limit lock deadlines + tickers (R2/R3) — same one-second idiom as cooldownTimer. */
+  private sendBlockedUntil: number | null = null;
+  private sendBlockTimer: ReturnType<typeof setInterval> | null = null;
+  private verifyBlockedUntil: number | null = null;
+  private verifyBlockTimer: ReturnType<typeof setInterval> | null = null;
   /** Auto-dismisses the payoff after PAYOFF_DURATION_MS; cleared on early dismiss (U3/R6). */
   private payoffTimer: ReturnType<typeof setTimeout> | null = null;
   /** The local mirror of the persisted checkout-pending record (U4/R3) — kept so re-invoking
@@ -522,6 +544,9 @@ export class UiController {
     if (this.authFlow === "error" || this.authFlow === "sent")
       this.authFlow = "idle";
     this.authError = null;
+    // An email-view send lock (no code flow entered yet) is UI-only state — clear it with the
+    // sheet for the same reason clearCodeFlow clears the in-flow locks.
+    this.clearSendBlock();
   }
 
   openPaywall(): void {
@@ -799,7 +824,8 @@ export class UiController {
     if (
       !this.auth ||
       this.authFlow === "sending" ||
-      this.authFlow === "verifying"
+      this.authFlow === "verifying" ||
+      this.sendBlockRemaining > 0 // rate-limit lock (R2) — the sheet disables the CTA; this covers programmatic callers
     )
       return;
     // Gate the request on a syntactically valid address so a malformed email never issues a
@@ -826,7 +852,9 @@ export class UiController {
 
   /** Request a code and land on code entry. On failure the shared "error" state renders the
    * code-flow copy (the sheet branches on canUseCode) — authError stays null so no raw backend
-   * text can ever reach the code path. */
+   * text can ever reach the code path. A rate-limited first send (R2 — the state a user hits
+   * under the hourly SMTP cap) additionally locks the email-view CTA: retrying cannot help and
+   * only extends the server window. */
   private async sendCode(email: string): Promise<void> {
     this.authFlow = "sending";
     this.authError = null;
@@ -841,6 +869,8 @@ export class UiController {
       });
     } else {
       this.authFlow = "error";
+      if (outcome.kind === "send-rate-limited")
+        this.startSendBlock(outcome.retryAfterSeconds);
     }
   }
 
@@ -849,7 +879,7 @@ export class UiController {
    * the sheet on code-error for a retype, counting attempts toward request-a-new-code. */
   async verifyCode(code: string): Promise<void> {
     if (!this.auth?.verifyCode || this.codeEmail === null) return;
-    if (this.authFlow === "verifying") return;
+    if (this.authFlow === "verifying" || this.verifyBlockRemaining > 0) return;
     this.authFlow = "verifying";
     this.codeErrorKind = null;
     const expired = this.codeIsExpired(); // judged against the request time, pre-await
@@ -879,6 +909,12 @@ export class UiController {
       this.codeAttempts += 1;
       this.codeErrorKind = expired ? "expired" : "wrong";
       this.authFlow = "code-error";
+    } else if (outcome.kind === "verify-rate-limited") {
+      // Per-IP verify throttle (R3): NOT an attempt (codeAttempts untouched — the code was never
+      // judged), and the verify button locks so the wait can't be extended by hammering.
+      this.codeErrorKind = "verify-rate-limited";
+      this.authFlow = "code-error";
+      this.startVerifyBlock(outcome.retryAfterSeconds);
     } else {
       // Network/backend failure: the code may still be good — not an attempt, calm retry copy.
       this.codeErrorKind = "check-failed";
@@ -893,7 +929,8 @@ export class UiController {
     if (
       this.authFlow === "verifying" ||
       this.resendInFlight ||
-      this.resendRemainingMs() > 0
+      this.resendRemainingMs() > 0 ||
+      this.sendBlockRemaining > 0
     )
       return;
     const email = this.codeEmail;
@@ -908,6 +945,12 @@ export class UiController {
           email,
           requestedAt: this.codeRequestedAt!,
         });
+      } else if (outcome.kind === "send-rate-limited") {
+        // A throttled resend locks the button (R4) — without this it re-enables instantly and two
+        // taps in a row are guaranteed 429s. The prior code (and its expiry classification, via the
+        // untouched codeRequestedAt/pendingOtp) survives: only the newest EMAIL invalidates it.
+        this.codeErrorKind = "resend-rate-limited";
+        this.startSendBlock(outcome.retryAfterSeconds);
       } else {
         // Stay on code entry — the previous code may still work; surface a calm resend line.
         this.codeErrorKind = "resend-failed";
@@ -937,10 +980,15 @@ export class UiController {
   }): void {
     if (!this.canUseCode || this.userId) return;
     const at = pending.requestedAt;
-    this.enterCodeEntry(
-      pending.email,
-      typeof at === "number" && Number.isFinite(at) ? at : null,
-    );
+    const validAt = typeof at === "number" && Number.isFinite(at) ? at : null;
+    this.enterCodeEntry(pending.email, validAt);
+    // A record older than the OTP TTL rehydrates straight into the expired presentation (R6):
+    // landing on a live code form for a dead code invites a wasted attempt against the verify
+    // limit. The resend affordance is already unlocked (the cooldown elapsed long ago).
+    if (validAt !== null && this.now() - validAt > OTP_TTL_MS) {
+      this.codeErrorKind = "expired";
+      this.authFlow = "code-error";
+    }
     this.purchaseIntent = pending.purchaseIntent === true; // already persisted — no seam echo
     this.signInOpen = true;
   }
@@ -953,6 +1001,7 @@ export class UiController {
     this.codeAttempts = 0;
     this.codeErrorKind = null;
     this.authFlow = "code-entry";
+    this.clearSendBlock(); // a send just succeeded — the send window has demonstrably lifted
     this.startResendCooldown();
   }
 
@@ -980,6 +1029,10 @@ export class UiController {
     this.codeErrorKind = null;
     this.stopCooldownTimer();
     this.resendCooldown = 0;
+    // UI locks only — the server window doesn't care about our sheet; a deliberate exit starts the
+    // next open clean and a too-early retry just re-renders the calm wait copy.
+    this.clearSendBlock();
+    this.clearVerifyBlock();
   }
 
   /** Milliseconds until resend unblocks. Clamped to [0, RESEND_COOLDOWN_MS] so a garbage/future
@@ -1011,6 +1064,71 @@ export class UiController {
     if (this.cooldownTimer !== null) {
       clearInterval(this.cooldownTimer);
       this.cooldownTimer = null;
+    }
+  }
+
+  // ── Rate-limit locks (R2/R3/R4) ─────────────────────────────────────────────────────────────────
+  // Fixed 60s unless the transport supplied a genuine retry-after (review-signin does; GoTrue
+  // never does — its seconds live in message text, which is never parsed). On elapse each lock
+  // clears its own presentation so the sheet returns to a clean, retryable state without a stale
+  // error line.
+
+  private startSendBlock(retryAfterSeconds?: number): void {
+    const ms =
+      retryAfterSeconds !== undefined && Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+        ? retryAfterSeconds * 1000
+        : RATE_LIMIT_LOCK_MS;
+    this.sendBlockedUntil = this.now() + ms;
+    if (this.sendBlockTimer !== null) clearInterval(this.sendBlockTimer);
+    this.updateSendBlock();
+    this.sendBlockTimer = setInterval(() => this.updateSendBlock(), 1000);
+  }
+
+  private updateSendBlock(): void {
+    const remaining = this.sendBlockedUntil === null ? 0 : this.sendBlockedUntil - this.now();
+    this.sendBlockRemaining = Math.ceil(Math.max(0, remaining) / 1000);
+    if (this.sendBlockRemaining > 0) return;
+    this.clearSendBlock();
+    // The lock was the only thing the wait presentations conveyed — clear them so the CTA
+    // re-enables into a clean state rather than a stale "can't send" line.
+    if (this.codeErrorKind === "resend-rate-limited") this.codeErrorKind = null;
+    if (this.authFlow === "error" && !this.inCodeFlow) this.authFlow = "idle";
+  }
+
+  private clearSendBlock(): void {
+    this.sendBlockedUntil = null;
+    this.sendBlockRemaining = 0;
+    if (this.sendBlockTimer !== null) {
+      clearInterval(this.sendBlockTimer);
+      this.sendBlockTimer = null;
+    }
+  }
+
+  private startVerifyBlock(retryAfterSeconds?: number): void {
+    const ms =
+      retryAfterSeconds !== undefined && Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0
+        ? retryAfterSeconds * 1000
+        : RATE_LIMIT_LOCK_MS;
+    this.verifyBlockedUntil = this.now() + ms;
+    if (this.verifyBlockTimer !== null) clearInterval(this.verifyBlockTimer);
+    this.updateVerifyBlock();
+    this.verifyBlockTimer = setInterval(() => this.updateVerifyBlock(), 1000);
+  }
+
+  private updateVerifyBlock(): void {
+    const remaining = this.verifyBlockedUntil === null ? 0 : this.verifyBlockedUntil - this.now();
+    this.verifyBlockRemaining = Math.ceil(Math.max(0, remaining) / 1000);
+    if (this.verifyBlockRemaining > 0) return;
+    this.clearVerifyBlock();
+    if (this.codeErrorKind === "verify-rate-limited") this.codeErrorKind = null;
+  }
+
+  private clearVerifyBlock(): void {
+    this.verifyBlockedUntil = null;
+    this.verifyBlockRemaining = 0;
+    if (this.verifyBlockTimer !== null) {
+      clearInterval(this.verifyBlockTimer);
+      this.verifyBlockTimer = null;
     }
   }
 
