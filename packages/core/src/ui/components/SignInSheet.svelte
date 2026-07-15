@@ -36,8 +36,21 @@
         c.authFlow === "code-error"),
   );
   const codeErrorLine = $derived.by(() => {
+    // The verify lock disables the Verify button straight off verifyBlockRemaining, so its
+    // explanation must render whenever the lock is active — checked FIRST, independent of
+    // codeErrorKind. Otherwise a resend that succeeds mid-lock (which nulls codeErrorKind) or a
+    // later resend-rate-limit (which overwrites it) would leave the button silently disabled with
+    // no copy (a resend does NOT lift the server-side per-IP verify throttle, so the button stays
+    // disabled — it just needs its reason shown).
+    if (c.verifyBlockRemaining > 0)
+      return `${STRINGS.codeAuth.verifyBlocked} ${c.verifyBlockRemaining}s`;
     if (c.codeErrorKind === null) return null;
     if (c.codeErrorKind === "expired") return STRINGS.codeAuth.expiredCode;
+    // The rate-limited kinds outrank suggestNewCode (R3): "send a new code" is the worst advice
+    // during a lockout. Both self-clear when their lock elapses (the controller nulls the kind).
+    if (c.codeErrorKind === "verify-rate-limited") return STRINGS.codeAuth.verifyError; // lock already elapsed; kind lingering
+    if (c.codeErrorKind === "resend-rate-limited")
+      return STRINGS.codeAuth.resendBlocked;
     if (c.suggestNewCode) return STRINGS.codeAuth.requestNew;
     return {
       wrong: STRINGS.codeAuth.wrongCode,
@@ -45,6 +58,12 @@
       "resend-failed": STRINGS.codeAuth.resendError,
     }[c.codeErrorKind];
   });
+
+  /** The resend button obeys BOTH windows — the ordinary post-send cooldown and a rate-limit
+   * lock (R4) — showing whichever countdown is longer. */
+  const resendWaitSeconds = $derived(
+    Math.max(c.resendCooldown, c.sendBlockRemaining),
+  );
 
   /** Keep only digits so a full pasted code (even "123 456") fills the field in one go. */
   function onCodeInput(): void {
@@ -102,7 +121,9 @@
     />
     <button
       class="primary"
-      disabled={code.length !== 6 || c.authFlow === "verifying"}
+      disabled={code.length !== 6 ||
+        c.authFlow === "verifying" ||
+        c.verifyBlockRemaining > 0}
       onclick={() => c.verifyCode(code)}
     >
       {c.authFlow === "verifying"
@@ -112,11 +133,11 @@
     {#if codeErrorLine}<p class="error" role="status">{codeErrorLine}</p>{/if}
     <button
       class="link"
-      disabled={c.resendCooldown > 0}
+      disabled={resendWaitSeconds > 0}
       onclick={() => c.resendCode()}
     >
-      {c.resendCooldown > 0
-        ? `${STRINGS.codeAuth.resendWait} ${c.resendCooldown}s`
+      {resendWaitSeconds > 0
+        ? `${STRINGS.codeAuth.resendWait} ${resendWaitSeconds}s`
         : STRINGS.codeAuth.resend}
     </button>
     <button class="link" onclick={() => c.useDifferentEmail()}>
@@ -146,7 +167,9 @@
     />
     <button
       class="primary"
-      disabled={!emailValid || c.authFlow === "sending"}
+      disabled={!emailValid ||
+        c.authFlow === "sending" ||
+        c.sendBlockRemaining > 0}
       onclick={() => c.signIn(email)}
     >
       {c.authFlow === "sending"
@@ -161,11 +184,15 @@
       </p>
     {/if}
     {#if c.authFlow === "error"}
-      <!-- Code hosts get the code-flow line; authError (magic-link hosts only) never renders here. -->
+      <!-- Code hosts get the code-flow line; authError (magic-link hosts only) never renders here.
+           A live send lock (R2) shows the wait copy instead — it must never claim a code exists,
+           because under the hourly cap none was ever sent. The lock's elapse clears this state. -->
       <p class="error" role="status">
-        {c.canUseCode
-          ? STRINGS.codeAuth.sendError
-          : (c.authError ?? STRINGS.auth.error)}
+        {c.sendBlockRemaining > 0
+          ? `${STRINGS.codeAuth.sendBlocked} ${c.sendBlockRemaining}s`
+          : c.canUseCode
+            ? STRINGS.codeAuth.sendError
+            : (c.authError ?? STRINGS.auth.error)}
       </p>
     {/if}
   {/if}

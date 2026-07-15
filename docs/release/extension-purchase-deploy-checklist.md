@@ -35,6 +35,62 @@ until this list is complete. Work top to bottom; the order matters.
       resend cooldown (Auth → Rate limits), and note the hosted refresh-token
       timebox for the U7 verification run.
 
+### 1b. HARD resubmission gates (Apple 1.0 build 4 — plan 2026-07-15-002 R14)
+
+Everything in §1 above is now a HARD gate for the Apple resubmission, not
+best-effort setup: the 2.1(a) rejection ("an error message was displayed when
+we entered the verification code") is most plausibly one of these items, and
+NO client code can compensate for a wrong template or a capped sender — a
+prefetch-consumed token looks like a wrong code to a perfect client. Verify
+each item against the live dashboard immediately before upload; do not trust
+the 2026-07-06 verification note (checkboxes above are still unticked).
+
+Verification methods, per item:
+
+- Dashboard: Auth → SMTP (custom sender active), Auth → Templates (BOTH
+  "Magic Link" and "Confirm signup" contain `{{ .Token }}` and contain NO
+  `{{ .ConfirmationURL }}` or `{{ .TokenHash }}` link), Auth → Providers →
+  Email (`otp_length` 6, expiry 3600), Auth → Rate limits (60s resend).
+- Or the Management API (read-only; needs a personal access token from
+  app.supabase.com/account/tokens):
+
+  ```bash
+  curl -s "https://api.supabase.com/v1/projects/kikpgrreradotvvefdgd/config/auth" \
+    -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+    | jq '{otp_length: .otp_length, otp_exp: .mailer_otp_exp, smtp: .smtp_host,
+           magic_has_link: (.mailer_templates_magic_link_content | test("ConfirmationURL|TokenHash")),
+           confirm_has_link: (.mailer_templates_confirmation_content | test("ConfirmationURL|TokenHash"))}'
+  ```
+
+  Expected: `otp_length` 6, `otp_exp` 3600, `smtp` non-null, both
+  `*_has_link` false.
+- **Client-constant pin (R15):** hosted `otp_expiry` mirrors `OTP_TTL_MS` in
+  `packages/core/src/ui/controller.svelte.ts` and hosted `otp_length` mirrors
+  the sheet's 6-digit input. Changing either hosted value requires changing
+  the client constant in the SAME PR — never portal-only.
+
+### 1c. review-signin deploy + config cross-check (HARD gates, R14/R16)
+
+- [ ] Set the function secrets (values from the private submission record —
+      NEVER committed; the code is a fresh random 6-digit value minted now):
+      `supabase secrets set REVIEW_SIGNIN_EMAIL=<review address> REVIEW_SIGNIN_CODE=<random 6 digits>`
+- [ ] Deploy: `supabase functions deploy review-signin --import-map supabase/functions/deno.json`
+- [ ] **Cross-check (HARD gate):** the Apple build's `VITE_REVIEW_SIGNIN_EMAIL`
+      equals the `REVIEW_SIGNIN_EMAIL` secret exactly. Drift here reproduces
+      the un-reviewable dead end for App Review: the client falls back to a
+      real email that reviewers can never read.
+- [ ] **Post-deploy smoke (HARD gate, R16):** (a) one real-inbox OTP sign-in
+      with a NON-review address end to end (proves normal users are unaffected
+      and the templates/SMTP are right); (b) one fixed-code sign-in with the
+      review address (the only end-to-end proof of the session-mint chain
+      against hosted GoTrue). Both must pass before Organizer upload.
+- [ ] After ALL in-flight platform reviews referencing the code are resolved
+      (approved or withdrawn — macOS and iOS run staggered on ONE shared
+      code): rotate or `supabase secrets unset REVIEW_SIGNIN_CODE` (unsetting
+      disables the whole mechanism server-side; the client falls back to
+      normal OTP with no release). Rotating while any submission is in review
+      requires updating that submission's App Review notes first.
+
 ## 2. RevenueCat (Web Billing)
 
 - [ ] Create the **Web Billing product** `still_sync_web`, one-time, **$1.99**,

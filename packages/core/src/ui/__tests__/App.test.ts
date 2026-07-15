@@ -396,6 +396,66 @@ describe("App", () => {
     expect(screen.getByRole("dialog").textContent).not.toMatch(/link/i); // no "link" in the code path
   });
 
+  it("a rate-limited first send renders wait copy with the CTA locked — never an existing-code claim (AE1)", async () => {
+    const c = controller({
+      auth: codeCapableAuth({
+        requestCode: () => Promise.resolve({ kind: "send-rate-limited" } as const),
+      }),
+    });
+    render(App, { props: { controller: c } });
+    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await c.signIn("a@b.com");
+    await tick();
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByText(new RegExp(STRINGS.codeAuth.sendBlocked.slice(0, 20)))).toBeTruthy();
+    expect(screen.getByRole("dialog").textContent).not.toMatch(/inbox|already/i); // no code exists to point at
+    const send = dialog.getByText(STRINGS.codeAuth.send) as HTMLButtonElement;
+    expect(send.disabled).toBe(true); // locked, not "try again"
+    c.dismissSignIn();
+  });
+
+  it("a rate-limited verify locks the verify button and outranks request-a-new-code (AE3)", async () => {
+    const c = controller({
+      auth: codeCapableAuth({
+        verifyCode: () => Promise.resolve({ kind: "verify-rate-limited" } as const),
+      }),
+    });
+    render(App, { props: { controller: c } });
+    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await c.signIn("a@b.com");
+    await tick();
+    const input = document.querySelector("input.code") as HTMLInputElement;
+    await fireEvent.input(input, { target: { value: "123456" } });
+    await c.verifyCode("123456");
+    await tick();
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByText(new RegExp(STRINGS.codeAuth.verifyBlocked))).toBeTruthy();
+    expect(dialog.queryByText(STRINGS.codeAuth.requestNew)).toBeNull();
+    const verify = dialog.getByText(STRINGS.codeAuth.verify) as HTMLButtonElement;
+    expect(verify.disabled).toBe(true);
+    c.dismissSignIn();
+  });
+
+  it("a rate-limited resend renders the code-view wait copy (the sent code still works) with resend locked (AE2)", async () => {
+    const c = controller({ auth: codeCapableAuth() });
+    render(App, { props: { controller: c } });
+    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await c.signIn("a@b.com");
+    await tick();
+    // Drive the post-429 state directly (the transition itself is pinned in controller.test.ts);
+    // this pin is about the RENDER: the code-view line may reference the already-sent code, and
+    // the resend button obeys the lock countdown.
+    c.codeErrorKind = "resend-rate-limited";
+    c.sendBlockRemaining = 90; // longer than the 60s post-send cooldown — the lock must win the countdown
+    await tick();
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByText(STRINGS.codeAuth.resendBlocked)).toBeTruthy();
+    const resend = dialog.getByText(new RegExp(STRINGS.codeAuth.resendWait)) as HTMLButtonElement;
+    expect(resend.disabled).toBe(true);
+    expect(resend.textContent).toContain("90s");
+    c.dismissSignIn();
+  });
+
   // ── account management (App Store 5.1.1) ──────────────────────────────────────────────────────
 
   it("signed-in (not-entitled) shows the privacy policy link and a Delete account button", () => {

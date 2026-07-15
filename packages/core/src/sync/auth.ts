@@ -7,12 +7,42 @@ import type { AuthPort, CodeAuthPort, RequestCodeOutcome, VerifyCodeOutcome } fr
 // but is currently wired by no one (a WKWebView can never receive the link's browser redirect).
 // The returned user UUID is later used as the RevenueCat app_user_id (KTD5).
 
+/** The deterministic App Review sign-in (plan 2026-07-15-002, R8–R13): when configured, the ONE
+ * designated review address routes send/verify through the review-signin edge function instead of
+ * GoTrue — no email is ever sent; the reviewer types the fixed code from the App Review notes.
+ * Config is Apple-build-only and injected explicitly (gate-production-trust-by-build-mode:
+ * absence → this branch is unreachable and every address gets normal OTP). The address value
+ * never lives in the repo — it arrives via build-time env. */
+export interface ReviewSigninConfig {
+  readonly email: string;
+}
+
+/** Exact-match after the same normalization GoTrue applies — a case/whitespace miss would
+ * silently drop to the normal path and burn the real SMTP budget (AE8). */
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+/** The review-signin 429 body carries the rate-limit RPC's genuine wait seconds. Clamped to the
+ * server's own window ceiling so a buggy/proxied `retry_after` (e.g. 999999) can't wedge the UI
+ * lock for days — legitimate values never exceed the 10-minute rate-limit window. */
+const MAX_RETRY_AFTER_SECONDS = 600;
+function retryAfter(body: Record<string, unknown>): number | undefined {
+  const v = body["retry_after"];
+  if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return undefined;
+  return Math.min(v, MAX_RETRY_AFTER_SECONDS);
+}
+
 export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
   constructor(
     private readonly client: SupabaseClient,
     private readonly emailRedirectTo?: string,
+    private readonly review?: ReviewSigninConfig,
   ) {}
 
+  /** WARNING: deliberately NOT review-aware. This path is wired by no live host; if a future host
+   * wires it, pointing it at the review address would send a REAL magic-link email (and consume
+   * the shared one-per-user token). The review branch exists only on the code flow below. */
   async signInWithMagicLink(email: string): Promise<{ error?: string }> {
     const { error } = await this.client.auth.signInWithOtp({
       email,
@@ -21,24 +51,134 @@ export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
     return error ? { error: error.message } : {};
   }
 
-  /** Code flow: same OTP email, but no redirect option — the user types the code instead of
-   * tapping a link. Structured outcome only; the raw error text never reaches the UI. */
-  async requestCode(email: string): Promise<RequestCodeOutcome> {
-    const { error } = await this.client.auth.signInWithOtp({ email });
-    return error ? { kind: "send-failed" } : { kind: "sent" };
+  private isReviewEmail(email: string): boolean {
+    return (
+      this.review !== undefined &&
+      normalizeEmail(email) === normalizeEmail(this.review.email)
+    );
   }
 
-  /** Exchange the emailed 6-digit code for a session. Supabase reports a wrong token and an
-   * expired token as the same 403 `otp_expired` error, so both map to `invalid-code`; anything
-   * else (offline, 5xx) is `verify-failed` — the code may still be good, so it's not an attempt. */
-  async verifyCode(email: string, token: string): Promise<VerifyCodeOutcome> {
-    const { data, error } = await this.client.auth.verifyOtp({ email, token, type: "email" });
-    if (error) {
-      const invalid = error.code === "otp_expired" || error.status === 403;
-      return invalid ? { kind: "invalid-code" } : { kind: "verify-failed" };
+  /** Invoke the review-signin function and report `{status, body}`; null on transport failure
+   * (network / relay errors carry no status). Uses the supabase-js functions transport — base
+   * URL, anon-key headers, and CORS shape come with the client, so no URL config is needed. */
+  private async invokeReviewSignin(
+    body: Record<string, string>,
+  ): Promise<{ status: number; body: Record<string, unknown> } | null> {
+    try {
+      const { data, error } = await this.client.functions.invoke("review-signin", { body });
+      if (!error) return { status: 200, body: (data ?? {}) as Record<string, unknown> };
+      // FunctionsHttpError carries the Response as `context`; fetch/relay errors do not.
+      const ctx = (error as { context?: unknown }).context;
+      if (ctx instanceof Response) {
+        const parsed = (await ctx.json().catch(() => ({}))) as Record<string, unknown>;
+        return { status: ctx.status, body: parsed };
+      }
+      return null;
+    } catch {
+      return null;
     }
-    const userId = data.user?.id ?? data.session?.user.id;
-    return userId ? { kind: "verified", userId } : { kind: "verify-failed" };
+  }
+
+  /** Code flow: same OTP email, but no redirect option — the user types the code instead of
+   * tapping a link. Structured outcome only; the raw error text never reaches the UI.
+   * Classification is by GoTrue's structured `error.code` exclusively (R1): a 429
+   * `over_email_send_rate_limit` becomes its own wait-state kind instead of the generic
+   * "try again" that invites hammering the very limit that fired. */
+  async requestCode(email: string): Promise<RequestCodeOutcome> {
+    // Review branch (R8/R9): a server PREFLIGHT, not a client-side silent no-op — it proves the
+    // server half of the config exists before rendering "code sent". 429 renders the wait state
+    // (falling through would convert every throttled review request into a real email); the
+    // not-configured refusal (404) and transport failures fall through to the normal send, so
+    // client/server config drift degrades to ordinary OTP instead of stranding the address.
+    if (this.isReviewEmail(email)) {
+      const res = await this.invokeReviewSignin({
+        action: "request",
+        email: normalizeEmail(email),
+      });
+      if (res?.status === 200) return { kind: "sent" };
+      if (res?.status === 429)
+        return { kind: "send-rate-limited", retryAfterSeconds: retryAfter(res.body) };
+      // ONLY a confirmed not-configured refusal (404) degrades to a real OTP send (config drift,
+      // AE9). A transport failure (res === null) or any other status (5xx/400/405) must NOT send a
+      // real email to the review address — the reviewer can't read that inbox — so a calm retry is
+      // the honest outcome. This mirrors the verify side below (symmetry the reviewers required).
+      if (res?.status !== 404) return { kind: "send-failed" };
+    }
+    try {
+      const { error } = await this.client.auth.signInWithOtp({ email });
+      if (!error) return { kind: "sent" };
+      if (error.code === "over_email_send_rate_limit") return { kind: "send-rate-limited" };
+      return { kind: "send-failed" };
+    } catch {
+      return { kind: "send-failed" };
+    }
+  }
+
+  /** Exchange the emailed 6-digit code for a session. GoTrue deliberately reports a wrong token
+   * and an expired token as ONE error (`otp_expired`, anti-enumeration), so both map to
+   * `invalid-code` — expired-vs-wrong presentation is the controller's clock-based call. Every
+   * other error routes by `error.code` alone (R1/R5): the per-IP verify throttle gets its own
+   * non-attempt kind, and anything unrecognized — including non-OTP 403s like `otp_disabled` and
+   * code-absent responses — is `verify-failed` (calm retry, not an attempt), NEVER "wrong code";
+   * the old `status === 403` catch-all dead-ended those as forever-wrong. */
+  async verifyCode(email: string, token: string): Promise<VerifyCodeOutcome> {
+    // Review branch (R8/R9): the function mints a real session (admin generateLink + verifyOtp
+    // server-side) and returns its tokens; setSession makes it indistinguishable from an
+    // OTP-minted session (refresh, sign-out, deletion all behave normally). Status contract is
+    // stable (U3): 401 = wrong fixed code; 429 = rate-limited with a GENUINE retry-after; 404 =
+    // not configured — fall through to normal GoTrue verify so a drift-window fallback email's
+    // real code can still complete (without this, drift bricks the address: the whole reason the
+    // fallback exists). 5xx/network → calm retry.
+    if (this.isReviewEmail(email)) {
+      const res = await this.invokeReviewSignin({
+        action: "verify",
+        email: normalizeEmail(email),
+        code: token,
+      });
+      if (res?.status === 200) {
+        // Narrow each field from the untrusted JSON body before it becomes a real session — a
+        // non-string-but-truthy value must never reach setSession (typeof discipline, matching the
+        // retryAfter() guard above). setSession is wrapped: GoTrueClient can THROW on a malformed
+        // token, and a throw here (outside the try below) would wedge the sheet at "verifying".
+        const at = res.body["access_token"];
+        const rt = res.body["refresh_token"];
+        const uid = res.body["user_id"];
+        if (typeof at === "string" && typeof rt === "string") {
+          try {
+            const { data, error } = await this.client.auth.setSession({
+              access_token: at,
+              refresh_token: rt,
+            });
+            const userId = typeof uid === "string" ? uid : data?.user?.id;
+            if (!error && userId) return { kind: "verified", userId };
+          } catch {
+            // fall to verify-failed below — never leave the flow stuck mid-verify
+          }
+        }
+        return { kind: "verify-failed" };
+      }
+      if (res?.status === 401) return { kind: "invalid-code" };
+      if (res?.status === 429)
+        return { kind: "verify-rate-limited", retryAfterSeconds: retryAfter(res.body) };
+      // ONLY a confirmed 404 (not configured) falls through to normal GoTrue verify (config drift):
+      // a drift-window fallback email's genuine code can then complete. A transport failure
+      // (res === null) or any other status → calm verify-failed; sending the FIXED code to GoTrue
+      // where it can only read as "wrong" (and burn an attempt) is worse than a plain retry.
+      if (res?.status !== 404) return { kind: "verify-failed" };
+      // 404 (not configured): fall through to the normal verify below.
+    }
+    try {
+      const { data, error } = await this.client.auth.verifyOtp({ email, token, type: "email" });
+      if (error) {
+        if (error.code === "otp_expired") return { kind: "invalid-code" };
+        if (error.code === "over_request_rate_limit") return { kind: "verify-rate-limited" };
+        return { kind: "verify-failed" };
+      }
+      const userId = data.user?.id ?? data.session?.user.id;
+      return userId ? { kind: "verified", userId } : { kind: "verify-failed" };
+    } catch {
+      return { kind: "verify-failed" };
+    }
   }
 
   async signOut(): Promise<void> {

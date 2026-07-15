@@ -402,6 +402,10 @@ verify_jwt = true
 # the token in the Authorization header (see docs/CONNECTIONS.md).
 verify_jwt = false
 
+[functions.review-signin]
+# verify_jwt=false is deliberate: gated in-function by the review-email allowlist + constant-time REVIEW_SIGNIN_CODE compare + fail-closed rate limiting (unset secrets refuse everything), not JWT.
+verify_jwt = false
+
 [edge_runtime]
 enabled = true
 # Supported request policies: `oneshot`, `per_worker`.

@@ -67,6 +67,22 @@ with the same header. Without the notify URL it logs and no-ops.
 Login-walled services (e.g. Instagram) report as *indeterminate*; a persistent-indeterminate streak
 fires its own "needs manual check" alert so they can't rot silently.
 
+## review-signin (deterministic App Review sign-in — plan 2026-07-15-002)
+
+The `review-signin` Edge Function lets Apple App Review sign in with a fixed verification code for
+ONE designated review address (no email is ever sent; the code lives in the App Review notes). Gate
+is in-function (`verify_jwt = false`): exact normalized-email allowlist + constant-time code compare
++ per-email/per-IP rate limits through the writer-role `consume_rate_limit` RPC, fail closed on
+every axis — both secrets unset means every request gets the same 404 refusal and the client falls
+back to normal OTP end to end.
+Deploy steps: `supabase secrets set REVIEW_SIGNIN_EMAIL=<review address> REVIEW_SIGNIN_CODE=<random
+6 digits>` then `supabase functions deploy review-signin --import-map supabase/functions/deno.json`.
+The address and code values are NEVER committed anywhere (this repo is public — the address is half
+the two-factor gate); they live in the private submission record and App Store Connect only. The
+Apple build's `VITE_REVIEW_SIGNIN_EMAIL` must equal the secret exactly (hard pre-upload cross-check,
+`docs/release/extension-purchase-deploy-checklist.md` §1c). Rotate/unset only when no submission
+referencing the code is still in review.
+
 ## Secrets
 
 All secrets live in `.env` (gitignored); `.env.example` lists every key by name. Supabase Edge Function secrets are set via `supabase secrets set`. Never commit a real key.

@@ -41,7 +41,15 @@ if (supabaseUrl && supabaseAnonKey) {
   const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
     auth: { persistSession: true, autoRefreshToken: true, storage: sessionStorage },
   });
-  const authPort = new SupabaseAuthPort(supabase);
+  // Deterministic App Review sign-in (plan 2026-07-15-002, R13): Apple-build-only env. Both the
+  // gate and the value are build-time — extension builds never define this, so the review branch
+  // is dead code everywhere else (fail closed; gate-production-trust-by-build-mode).
+  const reviewEmail = import.meta.env.VITE_REVIEW_SIGNIN_EMAIL;
+  const authPort = new SupabaseAuthPort(
+    supabase,
+    undefined,
+    reviewEmail ? { email: reviewEmail } : undefined,
+  );
   const backend = new SupabaseBackendPort(supabase);
 
   // Cross-identity guard (AE5) — parity with the extension: a persisted last-synced Apple identity

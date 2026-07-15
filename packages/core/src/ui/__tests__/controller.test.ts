@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { SettingsCache } from "../../storage/cache.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
 import {
@@ -1206,5 +1206,190 @@ describe("ratified paywall copy (plan U3/D6/R10)", () => {
     )) {
       expect(value.toLowerCase(), path).not.toMatch(/recommendation|comments/);
     }
+  });
+});
+
+
+// Rate-limit wait states (plan 2026-07-15-002 U2, R2/R3/R4): a GoTrue 429 must render a truthful
+// wait with the matching affordance LOCKED — the old collapse into generic "try again" copy
+// invited hammering the very limit that fired (the leading suspects for the 2.1(a) rejection).
+
+describe("rate-limited send/verify wait states (R2/R3/R4)", () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it("a rate-limited FIRST send locks the email view for 60s, then unblocks clean (AE1)", async () => {
+    let t = 1_000_000;
+    const requestCode = vi.fn(() =>
+      Promise.resolve<RequestCodeOutcome>({ kind: "send-rate-limited" }),
+    );
+    const { c } = makeController({ auth: codeAuth({ requestCode }), clock: () => t });
+    await c.signIn("a@b.com");
+    expect(c.authFlow).toBe("error");
+    expect(c.sendBlockRemaining).toBe(60);
+
+    await c.signIn("a@b.com"); // locked — no second network call (programmatic guard, R2)
+    expect(requestCode).toHaveBeenCalledTimes(1);
+
+    t += 60_000;
+    vi.advanceTimersByTime(60_000);
+    expect(c.sendBlockRemaining).toBe(0);
+    expect(c.authFlow).toBe("idle"); // the lock's elapse clears the wait presentation, not a stale error
+
+    requestCode.mockResolvedValueOnce({ kind: "sent" });
+    await c.signIn("a@b.com"); // re-enabled
+    expect(requestCode).toHaveBeenCalledTimes(2);
+    expect(c.authFlow).toBe("code-entry");
+    c.dismissSignIn();
+  });
+
+  it("a rate-limited RESEND locks the resend affordance and never touches expiry state (AE2)", async () => {
+    let t = 1_000_000;
+    const auth = codeAuth();
+    const persistence = mockPersistence();
+    const { c } = makeController({ auth, persistence, clock: () => t });
+    await c.signIn("a@b.com");
+    const persistCalls = (persistence.setPendingOtp as ReturnType<typeof vi.fn>).mock.calls.length;
+
+    t += 60_000;
+    vi.advanceTimersByTime(60_000); // ordinary cooldown elapses
+    (auth.requestCode as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      kind: "send-rate-limited",
+    });
+    await c.resendCode();
+    expect(c.codeErrorKind).toBe("resend-rate-limited");
+    expect(c.sendBlockRemaining).toBe(60);
+    expect(persistence.setPendingOtp).toHaveBeenCalledTimes(persistCalls); // pendingOtp untouched — expiry classification unaffected
+
+    await c.resendCode(); // locked — no instant re-tap 429 (R4)
+    expect(auth.requestCode).toHaveBeenCalledTimes(2);
+
+    t += 60_000;
+    vi.advanceTimersByTime(60_000);
+    expect(c.codeErrorKind).toBe(null); // the lock's elapse clears its own line
+    await c.resendCode();
+    expect(auth.requestCode).toHaveBeenCalledTimes(3);
+    c.dismissSignIn();
+  });
+
+  it("a rate-limited verify is NOT an attempt, outranks suggestNewCode, and locks the button (AE3)", async () => {
+    let t = 1_000_000;
+    const verifyCode = vi.fn(() =>
+      Promise.resolve<VerifyCodeOutcome>({ kind: "invalid-code" }),
+    );
+    const { c } = makeController({ auth: codeAuth({ verifyCode }), clock: () => t });
+    await c.signIn("a@b.com");
+    await c.verifyCode("111111");
+    await c.verifyCode("222222");
+    await c.verifyCode("333333");
+    expect(c.suggestNewCode).toBe(true);
+
+    verifyCode.mockResolvedValueOnce({ kind: "verify-rate-limited" });
+    await c.verifyCode("444444");
+    expect(c.codeErrorKind).toBe("verify-rate-limited"); // the sheet renders this ABOVE requestNew
+    expect(c.codeAttempts).toBe(3); // not an attempt — the code was never judged
+    expect(c.verifyBlockRemaining).toBe(60);
+
+    await c.verifyCode("444444"); // locked — no network call
+    expect(verifyCode).toHaveBeenCalledTimes(4);
+
+    t += 60_000;
+    vi.advanceTimersByTime(60_000);
+    expect(c.verifyBlockRemaining).toBe(0);
+    expect(c.codeErrorKind).toBe(null); // self-clears into a retryable state
+    c.dismissSignIn();
+  });
+
+  it("a transport-supplied retryAfterSeconds drives a genuine countdown (review path)", async () => {
+    let t = 1_000_000;
+    const verifyCode = vi.fn(() =>
+      Promise.resolve<VerifyCodeOutcome>({ kind: "verify-rate-limited", retryAfterSeconds: 5 }),
+    );
+    const { c } = makeController({ auth: codeAuth({ verifyCode }), clock: () => t });
+    await c.signIn("a@b.com");
+    await c.verifyCode("123456");
+    expect(c.verifyBlockRemaining).toBe(5);
+    t += 5_000;
+    vi.advanceTimersByTime(5_000);
+    expect(c.verifyBlockRemaining).toBe(0);
+    c.dismissSignIn();
+  });
+
+  it("dismissing during an ACTIVE verify lock clears the timer — no leak, no lingering countdown", async () => {
+    let t = 1_000_000;
+    const verifyCode = vi.fn(() =>
+      Promise.resolve<VerifyCodeOutcome>({ kind: "verify-rate-limited", retryAfterSeconds: 60 }),
+    );
+    const { c } = makeController({ auth: codeAuth({ verifyCode }), clock: () => t });
+    await c.signIn("a@b.com");
+    await c.verifyCode("123456");
+    expect(c.verifyBlockRemaining).toBe(60);
+    c.dismissSignIn(); // mid-lock
+    expect(c.verifyBlockRemaining).toBe(0);
+    // The interval must be gone: advancing time cannot resurrect a countdown on a dismissed sheet.
+    t += 60_000;
+    vi.advanceTimersByTime(60_000);
+    expect(c.verifyBlockRemaining).toBe(0);
+  });
+
+  it("a fresh code delivered during a verify lock still shows the verify-lock reason (no silent disabled button)", async () => {
+    // The verify lock is a server-side per-IP throttle a resend does NOT lift, so the verify button
+    // stays disabled — but the sheet must keep explaining why even though a successful resend nulled
+    // codeErrorKind. codeErrorKind is cleared; verifyBlockRemaining still drives the copy (sheet-side).
+    let t = 1_000_000;
+    const verifyCode = vi.fn(() =>
+      Promise.resolve<VerifyCodeOutcome>({ kind: "verify-rate-limited", retryAfterSeconds: 60 }),
+    );
+    const { c } = makeController({ auth: codeAuth({ verifyCode }), clock: () => t });
+    await c.signIn("a@b.com");
+    t += 60_000;
+    vi.advanceTimersByTime(60_000); // ordinary resend cooldown elapses (verify lock still ticking below)
+    await c.verifyCode("123456");
+    expect(c.verifyBlockRemaining).toBe(60);
+    await c.resendCode(); // succeeds — a different bucket; nulls codeErrorKind
+    expect(c.codeErrorKind).toBe(null);
+    expect(c.verifyBlockRemaining).toBeGreaterThan(0); // the verify lock is untouched by the resend
+    c.dismissSignIn();
+  });
+
+  it("a send lock resolving after a dismissal does not resurrect the sheet state (F6)", async () => {
+    let resolveSend!: (v: RequestCodeOutcome) => void;
+    const requestCode = vi.fn(
+      () => new Promise<RequestCodeOutcome>((r) => (resolveSend = r)),
+    );
+    const { c } = makeController({ auth: codeAuth({ requestCode }) });
+    const p = c.signIn("a@b.com");
+    c.dismissSignIn();
+    resolveSend({ kind: "send-rate-limited" });
+    await p;
+    // The generation guard drops the stale result entirely: no lock starts and no error state
+    // lands (authFlow may legitimately still read "sending" — dismissal doesn't rewrite it).
+    expect(c.sendBlockRemaining).toBe(0);
+    expect(c.authFlow).not.toBe("error");
+  });
+});
+
+describe("stale pending-OTP rehydration (R6)", () => {
+  it("a record older than the OTP TTL rehydrates into the expired presentation (AE6)", () => {
+    const t = 10_000_000;
+    const { c } = makeController({ auth: codeAuth(), clock: () => t });
+    c.rehydrateCodeEntry({ email: "a@b.com", requestedAt: t - OTP_TTL_MS - 1 });
+    expect(c.authFlow).toBe("code-error");
+    expect(c.codeErrorKind).toBe("expired");
+    expect(c.resendCooldown).toBe(0); // the remedy is immediately available
+    c.dismissSignIn();
+  });
+
+  it("a fresh record still lands on live code entry, and a missing requestedAt stays lenient", () => {
+    const t = 10_000_000;
+    const { c } = makeController({ auth: codeAuth(), clock: () => t });
+    c.rehydrateCodeEntry({ email: "a@b.com", requestedAt: t - 1_000 });
+    expect(c.authFlow).toBe("code-entry");
+    expect(c.codeErrorKind).toBe(null);
+    c.dismissSignIn();
+    c.rehydrateCodeEntry({ email: "a@b.com" }); // no timestamp — email-only rehydrate, never "expired"
+    expect(c.authFlow).toBe("code-entry");
+    expect(c.codeErrorKind).toBe(null);
+    c.dismissSignIn();
   });
 });

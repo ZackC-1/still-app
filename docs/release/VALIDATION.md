@@ -110,7 +110,18 @@ transfer; `still_sync` Family Sharing OFF.
    Separately: clear purchase history → app re-locks (noSignal cell) while Safari rides the TTL.
 6. AE9 (Ask-to-Buy, `simulatesAskToBuyInSandbox`): purchase signed out → pending → approve →
    foreground the app → success screen appears, Safari unlocked, still no account.
-7. OTP flow (the 2.1(a) rejection item): sign-in code entry — wrong code shows the calm retry
-   line, expired code offers a new one, resend works after the cooldown.
+7. OTP flow (the 2.1(a) rejection item, plan 2026-07-15-002): sign-in code entry — wrong code
+   shows the calm retry line, expired code offers a new one, resend works after the cooldown, and
+   a rate-limited send/verify shows wait copy with the button locked (never a "try again" that
+   invites hammering).
+8. Review sign-in (fixed code, on a real device — this is also the first browser-context call
+   into an edge function from the WKWebView's file:// origin, so it doubles as the CORS check):
+   enter the review address → "Email me a code" renders the sent state with NO email dispatched →
+   the fixed code signs in. Then the full reviewer lifecycle in one pass: sandbox purchase →
+   attach lands Pro on the account (check a second surface syncs a toggled setting) → delete the
+   account in-app → sign in again with the SAME address + fixed code (a fresh user id is created)
+   → Restore purchase → reconcile lands the entitlement on the new account.
 
-Store submission remains a human-gated action per the release runbook §7 (resubmission).
+Store submission remains a human-gated action per the release runbook §7 (resubmission). The
+§1b/§1c hosted-config and review-signin gates in `extension-purchase-deploy-checklist.md` are HARD
+pre-upload blockers for build 4.
