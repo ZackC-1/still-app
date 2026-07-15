@@ -4,9 +4,10 @@ category: conventions
 problem_type: logic_error
 track: knowledge
 module: packages/core
-tags: [coupling, sign-out, account-deletion, revenuecat, code-review, anti-pattern]
+tags: [coupling, sign-out, account-deletion, revenuecat, code-review, anti-pattern, extension-entrypoints]
 applies_when: Fixing a teardown/reset/cleanup path that has a sibling path doing similar work
 date: 2026-06-24
+last_updated: 2026-07-14
 status: active
 ---
 
@@ -66,3 +67,8 @@ identity left live). Per-path unit tests don't catch it because each path passes
 - Sibling application to rendered UI surfaces (extensions/native/docs), where the paths can't share
   code: [codify-cross-platform-visual-contract-in-tests](codify-cross-platform-visual-contract-in-tests.md)
   turns the "check the sibling" review prompt into CI-enforced file-content assertions.
+- Extension content entrypoints are another shared-behavior case: Safari and Chromium/Firefox keep
+  their static WXT manifest declarations and genuinely platform-specific nudge seams, while the
+  cache/rule-set/redirect-dedupe/script startup lives in `packages/core/src/content/extension-entry.ts`.
+  The factory tests pin both the bundled-CSS fast path and cached-rule-set JS path so a future
+  platform fix is concentrated in one testable place rather than mirrored between entrypoints.
