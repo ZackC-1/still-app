@@ -4,8 +4,10 @@ import { entitlementStampExpired } from "@still/core/entitlement";
 // injected deps. The app mirrors its server-reconciled entitlement into the App Group (StillKit
 // EntitlementBridge); the background pulls it via a {kind:"getEntitlement"} native message and
 // writes it into browser.storage (`still:entitlement`), where the content scripts' EntitlementCache
-// reads it. The app's `updatedAt` (last server-confirmed time) is preserved so the extension's
-// 30-day offline TTL measures from real server contact, not from the pull.
+// reads it. The app's `updatedAt` (the last time ANY entitlement authority confirmed — server
+// reconcile or the device's StoreKit receipt, ADR 0003) is preserved so the extension's 30-day
+// offline TTL measures from real confirmation, not from the pull. The envelope's `source` field is
+// informational here — the parser ignores keys it doesn't know (pinned in the tolerance suite).
 //
 // Reinstall detection (issue #63): iOS Safari owns browser.storage, so `still:entitlement` survives
 // an app delete/reinstall while the App Group is wiped. The reply envelope therefore carries the

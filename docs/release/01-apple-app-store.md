@@ -216,3 +216,83 @@ Docs: [Submitting for review](https://developer.apple.com/help/app-store-connect
 > RevenueCat → Supabase → app entitlement spine was verified with a promotional grant to a dedicated
 > test account. Account identifiers are intentionally omitted. A real Apple sandbox purchase is still
 > not proven because the test device's sandbox Apple Account would not stay signed in.
+
+---
+
+## 7. Resubmission after the 5.1.1(v) rejection (July 15, 2026 — purchase-first, 1.0 build 4)
+
+The macOS 1.0 (3) rejection cited Guideline 5.1.1(v) (registration required before a
+non-account-based IAP), 2.1(a) twice (demo account needed; an error entering the verification
+code), and 2.3.2 (the IAP promotional image was an app screenshot). The purchase-first flow
+(plan `docs/plans/2026-07-15-001`, ADR 0003) resolves 5.1.1 structurally: purchase and Restore
+work fully signed out, and sign-in is optional. Resubmit BOTH platforms — they are reviewed
+independently against the same guidelines; keep the marketing version on the **1.0 train with
+build 4** (a rejected version accepts a replacement build; only a RELEASED train forces a new
+version).
+
+### Portal checklist before resubmitting (human)
+
+- [ ] `still_sync` shows **"Ready to Submit"** and is attached to the 1.0 version — a rejection
+      often "returns" the IAP with the binary; re-attach it (the attach UI only appears while an
+      IAP is unattached) and name it in the review notes.
+- [ ] **Delete the IAP promotional image** (2.3.2): Apple offers deletion explicitly; replace later
+      with brand-safe non-screenshot artwork at leisure.
+- [ ] RevenueCat dashboard → project **restore behavior = "Transfer to new App User ID"** (the
+      default; the restrictive setting breaks signed-out restore and is itself a rejection vector).
+- [ ] App Store Connect → `still_sync` **Family Sharing stays OFF** (the attach gate assumes
+      directly-purchased ownership; AE14).
+- [ ] TN3186 sandbox pass on the Mac build: Paid Apps agreement active, product loads, sandbox
+      purchase completes (the 2.1(a) OTP error also needs the demo-account update below).
+- [ ] App Review Information: update the demo-account section — a demo account is no longer needed
+      to verify Pro (sandbox purchase works signed out); keep one seeded account documented for
+      verifying the OPTIONAL sync feature.
+- [ ] App Privacy label: RevenueCat now configures ANONYMOUSLY at every launch for every user
+      (previously post-sign-in only), so device-scoped anonymous purchase identifiers flow to
+      RevenueCat for free users too — confirm the Purchases/Identifiers declarations and the
+      privacy policy cover this before resubmitting.
+
+### Review notes (paste + adapt per platform)
+
+```text
+GUIDELINE 5.1.1 RESOLUTION
+We removed the sign-in requirement from the purchase flow. Account creation
+is now entirely optional and is used only for the account-based feature of
+syncing settings and the Still Pro entitlement across devices and browsers.
+
+To verify (no account or demo credentials needed — a sandbox Apple ID is
+sufficient):
+1. Launch the app. All free features (YouTube Shorts removal) work with no
+   sign-in.
+2. Tap "Get Still Pro" and complete the one-time purchase while signed out.
+   Pro features (Instagram/Facebook Reels removal, TikTok blocking in
+   Safari) unlock immediately on this device.
+3. After purchase, an OPTIONAL screen offers "Create free account" to sync
+   across devices. It can be dismissed with "Not now"; the purchase remains
+   fully functional without an account.
+4. "Already purchased? Restore" is available on the same paywall while
+   signed out and restores via the App Store receipt.
+5. If an account is created, it can be deleted in-app (Settings → Delete
+   account).
+
+This build is also reviewed with the still_sync ("Still Pro") in-app
+purchase, currently Waiting for Review.
+```
+
+Keep the existing Safari-extension enablement steps in the same notes — reviewer confusion is the
+top rejection driver; one self-contained script per platform.
+
+### Support notes (staleness bounds — ADR 0003, accepted for v1)
+
+- A refunded user who never opens the app keeps Safari Pro until the stamp's 30-day TTL lapses
+  (the app UI re-locks at the next launch/foreground receipt check).
+- A paid Safari-only user who doesn't launch the app for 30 days re-locks in Safari; remedy:
+  **open the Still app once** (the launch receipt check restamps).
+- Offline reinstall with an unreadable receipt: Safari re-locks until the first ONLINE launch
+  restamps — automatic recovery, no support action.
+- Upgraders from build 3 carry a legacy server-source stamp: a refund observed while offline
+  cannot downgrade it through the receipt lane — Safari Pro persists until the first online
+  reconcile or the 30-day TTL (a variant of the refund bound above).
+- Double purchase (web + Apple) refunds: refund Apple → web/account Pro unaffected; refund web →
+  device keeps receipt Pro and the account back-fills from the Apple purchase at the next
+  reconcile. Transfer history is queryable in `revenuecat_events` (TRANSFER payloads) for
+  "why did my Pro disappear" tickets.

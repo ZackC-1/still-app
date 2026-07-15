@@ -1,6 +1,11 @@
 import { requireStaticToken } from "../_shared/token.ts";
 import { type RevenueCatClient, stillProActive } from "../_shared/revenuecat.ts";
-import { type ClaimResult, type EntitlementStore, jsonResponse } from "../_shared/store.ts";
+import {
+  type ClaimResult,
+  type EntitlementStore,
+  jsonResponse,
+  MissingUserError,
+} from "../_shared/store.ts";
 import { affectedUuids, isUuid, type RcWebhookBody, type RcWebhookEvent } from "../_shared/types.ts";
 
 // RevenueCat webhook (verify_jwt=false). Gated by the shared constant-time static-token check
@@ -47,16 +52,27 @@ export async function handleWebhook(req: Request, deps: WebhookDeps): Promise<Re
   if (claim.status === "in_flight") return jsonResponse(503, { error: "event_in_flight" });
   const token = claim.token!; // status === "claimed" always carries an ownership token
 
+  let reconciled = 0;
   try {
     // Reconcile every affected UUID from canonical subscriber state (collapses out-of-order races).
+    // Each UUID reconciles independently: a subject deleted from auth.users (the losing side of a
+    // TRANSFER after account deletion) can never be written, so retrying would wedge the event
+    // forever — ONLY that class (MissingUserError, R19/AE8) is skipped. Every other failure throws
+    // into the fail-and-release path below, keeping the sender's retry meaningful.
     for (const uuid of uuids) {
       const subscriber = await deps.rc.getSubscriber(uuid);
-      await deps.store.setEntitlement(
-        uuid,
-        stillProActive(subscriber),
-        "webhook",
-        subscriber?.original_app_user_id ?? null,
-      );
+      try {
+        await deps.store.setEntitlement(
+          uuid,
+          stillProActive(subscriber),
+          "webhook",
+          subscriber?.original_app_user_id ?? null,
+        );
+        reconciled += 1;
+      } catch (error) {
+        if (!(error instanceof MissingUserError)) throw error;
+        console.warn(`revenuecat-webhook: skipped deleted user ${uuid} for event ${event.id}`);
+      }
     }
     await deps.store.completeEvent(event.id, token);
   } catch (error) {
@@ -70,7 +86,7 @@ export async function handleWebhook(req: Request, deps: WebhookDeps): Promise<Re
     }
     return jsonResponse(500, { error: "reconcile_failed" });
   }
-  return jsonResponse(200, { status: "ok", reconciled: uuids.length });
+  return jsonResponse(200, { status: "ok", reconciled });
 }
 
 function redactedWebhookAuditPayload(event: RcWebhookEvent): Record<string, unknown> {

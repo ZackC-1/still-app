@@ -353,3 +353,50 @@ describe("createEntitlementPull", () => {
     expect(sink.set).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("envelope tolerance — the four-key purchase-first envelope (plan 2026-07-15-001, U6)", () => {
+  // The native stamp gained a `source` field ("receipt" | "server", ADR 0003). The parser must
+  // treat it as informational: identical behavior with it, without it (legacy build-3 stamps),
+  // and with any future unknown keys. These pins make that tolerance load-bearing.
+  it("parses an envelope carrying source identically to the legacy shape", () => {
+    const withSource = parseNativeEntitlement({
+      entitlement: JSON.stringify({
+        entitled: true,
+        updatedAt: 7,
+        installId: "gen-1",
+        source: "receipt",
+      }),
+    });
+    const legacy = parseNativeEntitlement({
+      entitlement: JSON.stringify({ entitled: true, updatedAt: 7, installId: "gen-1" }),
+    });
+    expect(withSource.record).toEqual(legacy.record);
+    expect(withSource.installId).toBe(legacy.installId);
+  });
+
+  it("a marker-only envelope with an explicit-null source stays a no-signal record", () => {
+    const parsed = parseNativeEntitlement({
+      entitlement: JSON.stringify({
+        entitled: null,
+        updatedAt: null,
+        installId: "gen-1",
+        source: null,
+      }),
+    });
+    expect(parsed.record).toBeNull();
+    expect(parsed.installId).toBe("gen-1");
+  });
+
+  it("unknown future keys are ignored, not a parse failure", () => {
+    const parsed = parseNativeEntitlement({
+      entitlement: JSON.stringify({
+        entitled: false,
+        updatedAt: 9,
+        installId: "gen-1",
+        source: "server",
+        someFutureKey: { nested: true },
+      }),
+    });
+    expect(parsed.record).toEqual({ entitled: false, updatedAt: 9 });
+  });
+});

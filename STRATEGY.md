@@ -56,7 +56,7 @@ downloads that generate refunds and negative reviews.
 | Tier | User outcome | Account requirement |
 |---|---|---|
 | Free | YouTube Shorts surfaces are removed on supported websites. | None. Settings remain local. |
-| Still Pro | Instagram and Facebook Reels are removed, the TikTok website is blocked, and settings sync across supported surfaces. | Same-email sign-in is required for sync and cross-surface restoration. |
+| Still Pro | Instagram and Facebook Reels are removed, the TikTok website is blocked, and settings sync across supported surfaces. | On Apple platforms Pro is purchasable with no account (the receipt is the entitlement). Same-email sign-in is required for sync and cross-surface restoration. |
 
 Still Pro is a $1.99 USD one-time purchase. The immutable internal entitlement identifier is
 `still_sync`. Apple uses a non-consumable in-app purchase; supported browser extensions use

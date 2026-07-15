@@ -9,11 +9,13 @@
 //  and reply with { settings: "<json>" } — last-write-wins, so a stale store can't silently win.
 //
 //  A second lane serves the entitlement pull: {kind:"getEntitlement"} replies { entitlement:
-//  "<envelope json>" } — the three-key envelope {"entitled":Bool|null,"installId":String|null,
-//  "updatedAt":Int|null}, all keys always present, explicit null when absent (the legacy ""
-//  reply is gone; EntitlementBridge.swift is the contract). The app mirrors the record into the
-//  App Group after each server reconcile — this is how paid Pro blocking reaches Safari's content
-//  scripts (the extension never computes entitlement itself).
+//  "<envelope json>" } — the four-key envelope {"entitled":Bool|null,"installId":String|null,
+//  "source":String|null,"updatedAt":Int|null}, all keys always present, explicit null when absent
+//  (the legacy "" reply is gone; EntitlementBridge.swift is the contract). The app writes the
+//  record through StampPolicy from either entitlement authority (server reconcile or the device
+//  receipt — ADR 0003); this is how paid Pro blocking reaches Safari's content scripts. The
+//  extension never computes OR WRITES entitlement itself: this lane is read-only — the extension
+//  process has no receipt oracle, and a writable lane would be an entitlement-forgery surface.
 //
 
 import SafariServices
@@ -23,7 +25,7 @@ import os.log
 class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
 
     private let bridge = SettingsBridge(store: .appGroup())
-    private let entitlementBridge = EntitlementBridge(store: .appGroup())
+    private let entitlementBridge = EntitlementBridge(store: .appGroup(), readOnly: true)
 
     func beginRequest(with context: NSExtensionContext) {
         let request = context.inputItems.first as? NSExtensionItem

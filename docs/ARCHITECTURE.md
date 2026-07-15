@@ -7,7 +7,10 @@ Still is organized around a small number of deep modules with narrow interfaces.
 - Share the blocking engine across Chromium, Firefox, Safari, iOS, and macOS.
 - Keep platform shells thin: each shell adapts storage, auth, purchase, and native messaging into the shared core.
 - Treat remote rule updates as signed data, never executable code.
-- Keep account and entitlement state server-authoritative.
+- Keep account state server-authoritative. Entitlement has two authorities (ADR 0003): the server
+  decides what the account owns; on Apple platforms the device's StoreKit receipt additionally
+  grants device-local Pro, with StillKit's StampPolicy as the single never-downgrade gate on the
+  App Group stamp.
 - Make privacy claims enforceable in code: narrow host permissions, no browsing-history collection, no sync unless the user signs in.
 
 ## Runtime modules

@@ -6,6 +6,7 @@ import App from "../App.svelte";
 import Placeholder from "../components/Placeholder.svelte";
 import {
   UiController,
+  type UiCheckout,
   type UiAuth,
   type UiHost,
 } from "../controller.svelte.js";
@@ -21,6 +22,7 @@ function controller(
     services?: Partial<(typeof DEFAULT_SETTINGS)["services"]>;
     deletable?: boolean;
     auth?: UiAuth;
+    checkout?: UiCheckout;
   } = {},
 ) {
   const initial = {
@@ -36,6 +38,7 @@ function controller(
   return new UiController({
     cache,
     host: { canPurchase: true, ...opts.host },
+    checkout: opts.checkout,
     auth:
       opts.auth ??
       (opts.deletable
@@ -46,6 +49,18 @@ function controller(
           }
         : undefined),
   });
+}
+
+/** A minimal web-checkout seam: its presence is what makes a host "web-shaped" — the sign-in-
+ * first upgrade path applies only to these hosts (the account is the delivery identity there).
+ * Native-purchase hosts (Apple: canPurchase, NO seam) go straight to the paywall (R1). */
+function checkoutStub(): UiCheckout {
+  return {
+    createCheckout: () => Promise.resolve({ kind: "unavailable" } as const),
+    openCheckoutTab: () => Promise.resolve(undefined),
+    setPending: () => {},
+    reconcile: () => Promise.resolve("unknown" as const),
+  };
 }
 
 /** An extension-shaped UiAuth: email-OTP code capability, no magic link (plan U2/R1). */
@@ -298,8 +313,8 @@ describe("App", () => {
     expect(screen.getByText(/Synced across supported devices/)).toBeTruthy();
   });
 
-  it("signed-out upgrade records intent and opens email-code sign-in before paywall", async () => {
-    const c = controller({ auth: codeCapableAuth() });
+  it("signed-out upgrade records intent and opens email-code sign-in before paywall (web-checkout host)", async () => {
+    const c = controller({ auth: codeCapableAuth(), checkout: checkoutStub() });
     render(App, { props: { controller: c } });
     await fireEvent.click(screen.getByText(STRINGS.paywall.upgradeCta));
     expect(c.purchaseIntent).toBe(true);
@@ -308,8 +323,8 @@ describe("App", () => {
     expect(document.querySelector("input.email")).toBeTruthy();
   });
 
-  it("locked Pro rows do not toggle and route signed-out users to sign-in", async () => {
-    const c = controller({ auth: codeCapableAuth() });
+  it("locked Pro rows do not toggle and route signed-out users to sign-in (web-checkout host)", async () => {
+    const c = controller({ auth: codeCapableAuth(), checkout: checkoutStub() });
     render(App, { props: { controller: c } });
     const instagram = document.querySelector('[data-service="instagram"]')!;
     expect(within(instagram as HTMLElement).queryByRole("switch")).toBeNull();
@@ -626,5 +641,72 @@ describe("Placeholder", () => {
     render(Placeholder, { props: {} });
     expect(screen.getByText(/Nothing here/)).toBeTruthy();
     expect(document.querySelectorAll("button").length).toBe(0);
+  });
+});
+
+describe("App — purchase-first surfaces (plan 2026-07-15-001)", () => {
+  it("pro-no-account home state: active copy, Sign in visible, restore link, no buy CTA", () => {
+    const c = controller({ auth: codeCapableAuth() });
+    c.receiptEntitled = true; // receipt-proven Pro, no session
+    render(App, { props: { controller: c } });
+    expect(screen.getByText(STRINGS.proNoAccount.active)).toBeTruthy();
+    expect(screen.getByText(STRINGS.auth.signInCta)).toBeTruthy();
+    expect(screen.getByText(STRINGS.paywall.restoreSignedOut)).toBeTruthy();
+    expect(screen.queryByText(STRINGS.paywall.upgradeCta)).toBeNull();
+  });
+
+  it("success screen (account-pitch): two independent equal-weight CTAs, no auto-dismiss markup", async () => {
+    const c = controller({ auth: codeCapableAuth() });
+    c.showPurchaseSuccess();
+    render(App, { props: { controller: c } });
+    const create = screen.getByText(STRINGS.success.createAccount);
+    const notNow = screen.getByText(STRINGS.success.notNow);
+    // Two real, separately focusable buttons — never nested inside one wrapping payoff button.
+    expect((create as HTMLElement).closest("button")).not.toBe(
+      (notNow as HTMLElement).closest("button"),
+    );
+    expect(screen.getByText(STRINGS.success.reassure)).toBeTruthy();
+    await fireEvent.click(notNow);
+    expect(c.successScreen).toBe("none");
+    expect(c.paywallOpen).toBe(false);
+  });
+
+  it("success screen (synced): sync confirmation, no account CTA at a signed-in buyer", () => {
+    const c = controller({ auth: codeCapableAuth() });
+    c.userId = "u1";
+    c.showPurchaseSuccess();
+    render(App, { props: { controller: c } });
+    expect(screen.getByText(STRINGS.success.synced)).toBeTruthy();
+    expect(screen.queryByText(STRINGS.success.createAccount)).toBeNull();
+  });
+
+  it("pro-device-only: signed-in receipt-only Pro never claims sync (Codex review pin)", () => {
+    const c = controller({ auth: codeCapableAuth() });
+    c.userId = "u1";
+    c.receiptEntitled = true; // server lane false: attach ineligible or webhook not landed
+    render(App, { props: { controller: c } });
+    expect(c.popupState).toBe("pro-device-only");
+    expect(screen.getByText(STRINGS.proNoAccount.active)).toBeTruthy();
+    expect(screen.queryByText(STRINGS.sync.syncing)).toBeNull(); // never "Synced across devices"
+    expect(screen.getByText(STRINGS.auth.signOut)).toBeTruthy();
+  });
+
+  it("stale-identity paywall state: retry CTA label + calm status line (R15)", () => {
+    const c = controller({ auth: codeCapableAuth() });
+    c.openPaywall();
+    c.purchaseFlow = "stale-identity";
+    render(App, { props: { controller: c } });
+    expect(screen.getByText(STRINGS.paywall.staleIdentity)).toBeTruthy();
+    expect(screen.getByText(STRINGS.paywall.retryPurchase)).toBeTruthy();
+  });
+
+  it("signed-out paywall: price on the CTA and the no-account reassurance (R1/R12)", () => {
+    const c = controller({ auth: codeCapableAuth() });
+    c.paywallPrice = "$1.99";
+    c.openPaywall();
+    render(App, { props: { controller: c } });
+    expect(screen.getByText(/Get Still Pro · \$1\.99/)).toBeTruthy();
+    expect(screen.getByText(STRINGS.paywall.noAccountNeeded)).toBeTruthy();
+    expect(screen.getByText(STRINGS.paywall.restoreSignedOut)).toBeTruthy();
   });
 });

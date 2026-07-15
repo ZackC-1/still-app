@@ -9,26 +9,30 @@
 //        { kind:"get" }                       → "<settings json>" | ""
 //        { kind:"set", settings:"<json>" }    → "<resolved settings json>"
 //
-//    • U19 auth + purchase (reply a small JSON object):
+//    • U19 auth + purchase (reply a small JSON object; purchase-first — plan 2026-07-15-001):
 //        { kind:"signInWithApple" }           → { identityToken, nonce, email?, fullName? } | { error }
-//        { kind:"configurePurchases", appUserID } → { ok:true }   (KTD5 — RC keyed to the Supabase UUID)
-//        { kind:"purchase" }                  → { outcome, entitled }
-//        { kind:"restore" }                   → { entitled }
+//        { kind:"configurePurchases", appUserID } → { ok:true }   (KTD5 — RC re-keyed to the Supabase UUID)
+//        { kind:"purchase" }                  → { outcome, entitled }   (works signed out — R1)
+//        { kind:"restore" }                   → { entitled }            (works signed out — R4)
 //        { kind:"purchaseStatus" }            → { entitled }
+//        { kind:"receiptStatus" }             → { receipt: "entitled"|"verifiedNotEntitled"|"noSignal" }
+//        { kind:"attachPurchases" }           → { entitled }   (R7 — attach the receipt to the account)
 //        { kind:"price" }                     → { price } | {}   (localized store price for the CTA)
-//        { kind:"signOut" }                   → { ok:true }   (KTD5 — reset RC identity on sign-out)
+//        { kind:"signOut" }                   → { ok:true }   (reset RC identity on sign-out)
 //
 //    • Entitlement mirror (reply the envelope JSON string — EntitlementBridge.swift is the contract):
-//        { kind:"setEntitlement", entitled }  → {"entitled":Bool|null,"installId":String|null,"updatedAt":Int|null}
-//        { kind:"getEntitlement" }            → same envelope; all three keys always present,
+//        { kind:"setEntitlement", entitled }  → {"entitled":Bool|null,"installId":String|null,
+//                                               "source":String|null,"updatedAt":Int|null}
+//        { kind:"getEntitlement" }            → same envelope; all four keys always present,
 //                                               explicit null when absent (the legacy "" reply is gone)
-//      The web SyncService mirrors its server-reconciled entitlement here after every state change;
-//      the Safari extension pulls it from the App Group so paid blocking activates in Safari.
+//      The web SyncService mirrors its server-reconciled entitlement here after every state change
+//      (a server-lane PROPOSAL — EntitlementBridge routes every write through StampPolicy, R13);
+//      the native receipt lane restamps via applyReceipt around purchase/restore/receiptStatus.
+//      The Safari extension pulls the stamp from the App Group so paid blocking activates there.
 //
-//  The web layer drives sign-in: native returns the Apple credential, the web client calls Supabase
-//  `signInWithIdToken`, then hands the resulting UUID back via `configurePurchases` so RevenueCat is
-//  keyed to the same account the webhook (U14) projects the entitlement onto. The buy CTA only ever
-//  shows after a session exists (KTD5), so this router does not gate that itself.
+//  The web layer drives sign-in: the web client signs in via email code, then hands the resulting
+//  UUID back via `configurePurchases` so RevenueCat is keyed to the same account the webhook (U14)
+//  projects the entitlement onto. Purchase no longer requires a session (Guideline 5.1.1(v)).
 //
 
 import WebKit
@@ -41,9 +45,21 @@ final class WebBridgeRouter {
   private let purchases = PurchaseManager.shared
   private let siwa = SignInWithAppleCoordinator()
 
-  init(settings: SettingsBridge, entitlement: EntitlementBridge = EntitlementBridge(store: .appGroup())) {
+  init(
+    settings: SettingsBridge,
+    entitlement: EntitlementBridge = EntitlementBridge(
+      store: .appGroup(), receiptStatus: { stillReceiptStatusCache.current })
+  ) {
     self.settings = settings
     self.entitlement = entitlement
+  }
+
+  /// Refresh the cached receipt snapshot and route it through the stamp policy (the receipt lane's
+  /// restamp — R5/R16). Called at launch (before install-id publication), on foreground, and after
+  /// purchase/restore so the Safari extension unlocks without any account.
+  func refreshReceiptStamp() async {
+    let status = await purchases.refreshReceiptStatus()
+    _ = entitlement.applyReceipt(status)
   }
 
   func handle(_ body: Any, reply: @escaping (Any?, String?) -> Void) {
@@ -81,18 +97,40 @@ final class WebBridgeRouter {
     case "purchase":
       Task {
         let outcome = await self.purchases.purchaseStillPro()
+        // Restamp from the fresh receipt before acknowledging (R5): Safari unlocks even if the
+        // webview dies right after the sheet. Harmless for cancelled/failed (noSignal no-ops).
+        await self.refreshReceiptStamp()
         reply(Self.json(Self.outcomePayload(outcome)), nil)
       }
 
     case "restore":
       Task {
-        let entitled = await self.purchases.restore()
-        reply(Self.json(["entitled": entitled]), nil)
+        let restored = await self.purchases.restore()
+        await self.refreshReceiptStamp()
+        reply(Self.json(["entitled": restored]), nil)
       }
 
     case "purchaseStatus":
       Task {
         let entitled = await self.purchases.hasStillPro()
+        reply(Self.json(["entitled": entitled]), nil)
+      }
+
+    case "receiptStatus":
+      // The webview's receipt read (R17 — how a signed-out purchaser's UI shows Pro). Reads are
+      // refresh sites: the cache and stamp stay fresh as a side effect.
+      Task {
+        let status = await self.purchases.refreshReceiptStatus()
+        _ = self.entitlement.applyReceipt(status)
+        reply(Self.json(["receipt": status.rawValue]), nil)
+      }
+
+    case "attachPurchases":
+      // R7: attach the device receipt to the signed-in account. PurchaseManager's eligibility
+      // gate (session + SDK identity equality + purchased ownership) refuses the teardown race
+      // (AE13) and family-shared transactions (AE14).
+      Task {
+        let entitled = await self.purchases.attachPurchases()
         reply(Self.json(["entitled": entitled]), nil)
       }
 
@@ -112,11 +150,24 @@ final class WebBridgeRouter {
       }
 
     case "setEntitlement", "getEntitlement":
-      // Entitlement mirror: the web layer writes its server-reconciled value into the App Group so
-      // the Safari extension can read it. Only the bundled web build reaches this handler (the
-      // navigation lockdown in ViewController), the same trust boundary as `purchase` above.
+      // Entitlement mirror: the web layer proposes its server-reconciled value (server lane);
+      // EntitlementBridge routes it through StampPolicy (R13). Only the bundled web build reaches
+      // this handler (the navigation lockdown in ViewController), the same trust boundary as
+      // `purchase` above.
       if let json = entitlement.handle(rawBody: body) {
         reply(json, nil)
+        // Blocked-write re-read (ADR 0003): a false proposal blocked on the CACHED entitled status
+        // could be riding a stale cache across a mid-session refund. Verify with a fresh read and
+        // re-propose through the receipt lane, which may then legitimately clear the stamp.
+        if kind == "setEntitlement", (dict["entitled"] as? Bool) == false,
+           stillReceiptStatusCache.current == .entitled {
+          Task {
+            let fresh = await self.purchases.refreshReceiptStatus()
+            if fresh == .verifiedNotEntitled {
+              _ = self.entitlement.applyReceipt(fresh)
+            }
+          }
+        }
       } else {
         reply(nil, "still: malformed entitlement message")
       }
@@ -147,6 +198,7 @@ final class WebBridgeRouter {
     case .cancelled: return ["outcome": "cancelled", "entitled": false]
     case .pending: return ["outcome": "pending", "entitled": false]
     case .unavailable: return ["outcome": "unavailable", "entitled": false]
+    case .staleIdentity: return ["outcome": "staleIdentity", "entitled": false]
     case .failed(let message): return ["outcome": "failed", "error": message, "entitled": false]
     }
   }

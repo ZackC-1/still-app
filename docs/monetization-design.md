@@ -25,9 +25,18 @@
 5. **Lead with "once."** "$1.99 · one-time, not a subscription."
 6. **Calm, on-brand copy. Surface once. No nagging.**
 7. **No account until needed.** Free use needs none; an account is only for paying / cross-device.
-8. **Sign in *before* purchase (no anonymous purchase — KTD5).** Entitlement is account-bound from tap one.
+8. **Purchase first on Apple; sign in before purchase on the web.** [AMENDED 2026-07-15, plan
+   2026-07-15-001 — App Review 5.1.1(v) forbids required registration for a non-account-based IAP.]
+   On Apple platforms the purchase runs on an anonymous RevenueCat identity, entitlement is granted
+   from the StoreKit receipt, and the optional post-purchase sign-in attaches it to the account
+   (ID-level merge, never email matching). On web-checkout hosts sign-in-first REMAINS correct:
+   there the account is the entitlement's delivery mechanism, not a compliance choice.
 9. **One price everywhere ($1.99 flat).** [DECIDED] Absorb Apple's cut; don't charge Apple users more.
-10. **Entitlement is server-authoritative.** The backend decides "is this account Pro." The client asks.
+10. **Entitlement has two authorities (ADR 0003).** The backend decides "is this ACCOUNT Pro"; the
+    device's StoreKit receipt decides "does this DEVICE own Pro" on Apple platforms. The App Group
+    stamp records whichever authority confirmed last, and StampPolicy (StillKit) is the single
+    never-downgrade gate: ambiguity never downgrades, each lane may downgrade only its own grants,
+    and a live receipt blocks any downgrade.
 11. **Fail generous.** A previously-Pro user keeps Pro from cache when offline; only a *definitive*
     server `false` downgrades (within the TTL ceiling, §6).
 12. **Entitlement lives in a server-only, read-only store the client cannot write or sync** — NEVER in

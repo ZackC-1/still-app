@@ -11,6 +11,19 @@ export interface ClaimResult {
   readonly token: string | null;
 }
 
+/**
+ * Thrown by setEntitlement when the subject no longer exists in auth.users (deleted account —
+ * e.g. the losing side of a TRANSFER). The webhook treats ONLY this class as skip-and-continue
+ * (R19): a deleted user can never be written, so failing the event would loop RevenueCat's
+ * retries forever. Every other store error must keep fail-and-release retriability.
+ */
+export class MissingUserError extends Error {
+  constructor(userId: string, options?: ErrorOptions) {
+    super(`entitlement subject ${userId} no longer exists in auth.users`, options);
+    this.name = "MissingUserError";
+  }
+}
+
 export interface EntitlementStore {
   /**
    * Atomically claim a webhook event BEFORE any side effects run. "claimed" → the caller owns it

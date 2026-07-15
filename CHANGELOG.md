@@ -4,6 +4,11 @@ Still uses descriptive pull request titles and conventional commit-style summari
 
 ## Unreleased
 
+- Apple purchase-first Pro flow (Guideline 5.1.1 resubmission): Still Pro is purchasable on iPhone
+  and Mac with no account — entitlement comes from the Apple receipt, an optional post-purchase
+  sign-in adds cross-surface Pro and settings sync, and Restore Purchases works signed out. The
+  App Group entitlement stamp gained a source-aware never-downgrade policy (ADR 0003); the macOS
+  deployment floor rose to macOS 12.
 - Centralized the extension session protocol and entry wiring shared by the Chromium, Firefox, and Safari builds.
 - Scoped engine rule work per page and removed the unused hide-CSS generation seam.
 - Ignored stale Apple entitlement callbacks and stopped the Safari reconcile nudge after teardown.

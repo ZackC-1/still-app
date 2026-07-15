@@ -121,16 +121,29 @@ describe("UiController", () => {
     expect(c.isLocked("facebook")).toBe(false);
   });
 
-  it("locked tap routes signed-out purchasable users to sign-in first (principle 8)", () => {
+  it("locked tap routes signed-out WEB-checkout users to sign-in first (delivery identity)", () => {
+    // Sign-in-first survives ONLY on web-checkout hosts, where the account is how the entitlement
+    // reaches the extension. Native-purchase hosts go straight to the paywall (purchase-first,
+    // Guideline 5.1.1(v)) — pinned separately below.
     const { c } = makeController({
       auth: {
         signIn: vi.fn(() => Promise.resolve({})),
         signOut: vi.fn(() => Promise.resolve()),
       },
+      checkout: checkoutSeam().seam,
     });
     c.lockedTap();
     expect(c.signInOpen).toBe(true);
     expect(c.paywallOpen).toBe(false);
+  });
+
+  it("locked tap opens the paywall directly on native-purchase hosts, signed out (R1)", () => {
+    // The Apple shape: canPurchase with NO checkout seam. Purchase requires no account.
+    const { c } = makeController({ auth: codeAuth() });
+    c.lockedTap();
+    expect(c.paywallOpen).toBe(true);
+    expect(c.signInOpen).toBe(false);
+    expect(c.purchaseIntent).toBe(false);
   });
 
   it("locked tap opens the paywall for signed-in users", () => {
@@ -153,9 +166,9 @@ describe("UiController", () => {
     expect(c.signInOpen).toBe(false);
   });
 
-  it("signed-out upgrade records purchase intent and opens sign-in", () => {
+  it("signed-out upgrade records purchase intent and opens sign-in (web-checkout host)", () => {
     const persistence = mockPersistence();
-    const { c } = makeController({ auth: codeAuth(), persistence });
+    const { c } = makeController({ auth: codeAuth(), persistence, checkout: checkoutSeam().seam });
     c.startUpgrade();
     expect(c.purchaseIntent).toBe(true);
     expect(persistence.setPurchaseIntent).toHaveBeenCalledWith(true);
@@ -200,7 +213,7 @@ describe("UiController", () => {
         });
       }),
     });
-    const { c } = makeController({ auth, persistence });
+    const { c } = makeController({ auth, persistence, checkout: checkoutSeam().seam });
     ref = c;
     c.startUpgrade(); // signed out on a purchasable host → intent + sign-in
     expect(c.signInOpen).toBe(true);
@@ -645,7 +658,7 @@ describe("UiController", () => {
 
   it("locked-row-tap sign-in continues to the paywall after verify (purchase intent, AE1)", async () => {
     const persistence = mockPersistence();
-    const { c } = makeController({ auth: codeAuth(), persistence });
+    const { c } = makeController({ auth: codeAuth(), persistence, checkout: checkoutSeam().seam });
     c.lockedTap(); // signed out on a purchasable host → sign-in first, intent recorded
     expect(c.signInOpen).toBe(true);
     expect(c.purchaseIntent).toBe(true);
@@ -661,7 +674,7 @@ describe("UiController", () => {
 
   it("'Not now' mid-code-entry clears the pending OTP and the purchase intent", async () => {
     const persistence = mockPersistence();
-    const { c } = makeController({ auth: codeAuth(), persistence });
+    const { c } = makeController({ auth: codeAuth(), persistence, checkout: checkoutSeam().seam });
     c.lockedTap();
     await c.signIn("a@b.com");
     expect(c.authFlow).toBe("code-entry");
@@ -675,7 +688,7 @@ describe("UiController", () => {
 
   it("'use a different email' returns to the email field but keeps the purchase intent", async () => {
     const persistence = mockPersistence();
-    const { c } = makeController({ auth: codeAuth(), persistence });
+    const { c } = makeController({ auth: codeAuth(), persistence, checkout: checkoutSeam().seam });
     c.lockedTap();
     await c.signIn("typo@b.com");
     c.useDifferentEmail();
@@ -683,6 +696,29 @@ describe("UiController", () => {
     expect(c.codeEmail).toBeNull();
     expect(persistence.setPendingOtp).toHaveBeenLastCalledWith(null);
     expect(c.purchaseIntent).toBe(true); // still mid-unlock — only "Not now" abandons it
+  });
+
+  it("createAccountFromSuccess hands the success screen off to the sign-in sheet", () => {
+    const { c } = makeController({ auth: codeAuth() });
+    c.receiptEntitled = true; // the account-pitch state: receipt Pro, no session
+    c.showPurchaseSuccess();
+    expect(c.successScreen).toBe("account-pitch");
+    c.createAccountFromSuccess();
+    expect(c.successScreen).toBe("none");
+    expect(c.paywallOpen).toBe(false);
+    expect(c.signInOpen).toBe(true);
+    expect(c.purchaseIntent).toBe(false); // they already own Pro — no purchase continuation
+  });
+
+  it("a rise resolving a PENDING purchase routes to the success screen, never the payoff", () => {
+    const { c } = makeController({ auth: codeAuth() });
+    c.userId = "u1";
+    c.openPaywall();
+    c.setPurchaseOutcome({ outcome: "pending", entitled: false });
+    c.entitled = true; // the approval lands via the server lane first (race pin)
+    expect(c.successScreen).toBe("synced");
+    expect(c.justUnlocked).toBe(false);
+    expect(c.paywallOpen).toBe(true);
   });
 
   it("the opening-checkout hand-off counts as busy (duplicate-tap guard, U3→U4 hook)", () => {
@@ -697,14 +733,16 @@ describe("UiController", () => {
 
 describe("UiController — success payoff (plan U3/R6)", () => {
   it("entitled false→true with the paywall open shows the payoff inside the still-open sheet", () => {
+    // AMENDED (purchase-first): the payoff remains the NON-purchase transition (e.g. a web-bought
+    // account's entitlement landing while the paywall is open). A rise that resolves a PENDING
+    // purchase routes to the success screen instead — pinned separately below.
     const { c } = makeController();
     c.userId = "u";
     c.openPaywall();
-    c.setPurchaseOutcome({ outcome: "pending", entitled: false }); // e.g. Ask-to-Buy just approved
     c.entitled = true; // the entitlement store write landed (storage subscription / sync state)
     expect(c.justUnlocked).toBe(true);
     expect(c.paywallOpen).toBe(true); // payoff renders in place; controller dismisses later
-    expect(c.purchaseFlow).toBe("idle"); // the payoff supersedes any pending/outcome copy
+    expect(c.purchaseFlow).toBe("idle"); // the payoff supersedes any outcome copy
     c.dismissPaywall(); // clear the payoff timer
   });
 

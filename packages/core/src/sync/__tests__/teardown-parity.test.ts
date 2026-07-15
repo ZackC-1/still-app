@@ -91,7 +91,11 @@ function appleHarness(fail: FailureModes = {}): TeardownHarness {
       : vi.fn(async () => {}),
   };
   // bridge.available false: the native RevenueCat leg is out of scope here — its best-effort
-  // semantics are pinned in apple-session.test.ts (KTD5); this suite pins the shared contract.
+  // semantics are pinned in apple-session.test.ts; this suite pins the shared contract. NOTE the
+  // Apple contract forked with purchase-first (plan 2026-07-15-001): "signed out locally" means
+  // the ACCOUNT-derived state is torn down — a device with receipt-proven Pro legitimately keeps
+  // it (pinned in apple-session.test.ts "receipt Pro survives sign-out"); this harness has no
+  // receipt (noSignal), so the pre-fork predicate still holds verbatim.
   const session = createAppleSession({
     controller,
     sync,
@@ -101,6 +105,8 @@ function appleHarness(fail: FailureModes = {}): TeardownHarness {
       configurePurchases: vi.fn(async () => {}),
       purchaseStillPro: vi.fn(async () => ({ outcome: "purchased" as const, entitled: true })),
       restore: vi.fn(async () => false),
+      receiptStatus: vi.fn(async () => "noSignal" as const),
+      attachPurchases: vi.fn(async () => false),
       price: vi.fn(async () => null),
       signOut: vi.fn(async () => {}),
       setEntitlement: vi.fn(async () => {}),
