@@ -680,6 +680,17 @@ describe("App — purchase-first surfaces (plan 2026-07-15-001)", () => {
     expect(screen.queryByText(STRINGS.success.createAccount)).toBeNull();
   });
 
+  it("pro-device-only: signed-in receipt-only Pro never claims sync (Codex review pin)", () => {
+    const c = controller({ auth: codeCapableAuth() });
+    c.userId = "u1";
+    c.receiptEntitled = true; // server lane false: attach ineligible or webhook not landed
+    render(App, { props: { controller: c } });
+    expect(c.popupState).toBe("pro-device-only");
+    expect(screen.getByText(STRINGS.proNoAccount.active)).toBeTruthy();
+    expect(screen.queryByText(STRINGS.sync.syncing)).toBeNull(); // never "Synced across devices"
+    expect(screen.getByText(STRINGS.auth.signOut)).toBeTruthy();
+  });
+
   it("stale-identity paywall state: retry CTA label + calm status line (R15)", () => {
     const c = controller({ auth: codeCapableAuth() });
     c.openPaywall();

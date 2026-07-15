@@ -203,6 +203,15 @@
         >{STRINGS.auth.signOut}</button
       >
       {@render accountManagement()}
+    {:else if c.popupState === "pro-device-only"}
+      <!-- Signed in with receipt-only Pro: honest copy — the ACCOUNT isn't entitled (attach
+           ineligible, e.g. family-shared, or not yet landed), so never claim sync. Device Pro
+           already unlocks the rows above. -->
+      <p class="synced">{STRINGS.proNoAccount.active}</p>
+      <button class="link" onclick={() => c.signOut()}
+        >{STRINGS.auth.signOut}</button
+      >
+      {@render accountManagement()}
     {:else if c.popupState === "entitlement-pending"}
       <p class="muted">{STRINGS.sync.pending}</p>
     {:else if c.popupState === "entitled-syncing"}

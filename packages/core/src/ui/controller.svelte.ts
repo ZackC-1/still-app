@@ -17,6 +17,7 @@ import type {
 export type PopupState =
   | "signed-out"
   | "pro-no-account" // receipt-entitled with no session (purchase-first, R3): Pro active, sign-in optional
+  | "pro-device-only" // signed in, receipt-entitled, but the ACCOUNT isn't (attach ineligible or not landed)
   | "not-entitled"
   | "entitlement-pending" // reconcile in flight (time-boxed)
   | "entitled-syncing"
@@ -426,6 +427,11 @@ export class UiController {
     if (!this.userId) return this.entitled ? "pro-no-account" : "signed-out";
     if (this.reconciling) return "entitlement-pending";
     if (!this.entitled) return "not-entitled";
+    // Sync-flavored state keys off the SERVER lane: a signed-in user whose Pro is receipt-only
+    // (family-shared receipt is attach-ineligible; or the attach/webhook hasn't landed) is NOT
+    // synced — claiming "Synced across supported devices" would be false, possibly permanently
+    // (Codex review pin). Device Pro still unlocks the rows via the merged `entitled`.
+    if (!this.serverEntitled) return "pro-device-only";
     return "entitled-syncing";
   }
 
