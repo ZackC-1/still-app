@@ -2,13 +2,26 @@
   import { STRINGS } from "../strings.js";
   import { FIND_MY_PURCHASE_MAILTO } from "../config.js";
   import { trapFocus } from "../focus-trap.js";
-  import type { CheckoutFlow, PurchaseFlow } from "../controller.svelte.js";
+  import type {
+    CheckoutFlow,
+    PurchaseFlow,
+    SuccessScreen,
+  } from "../controller.svelte.js";
 
   interface Props {
     canPurchase: boolean;
     onGet?: () => void;
     onRestore?: () => void;
     onDismiss: () => void;
+    /** The post-purchase success screen (R3): replaces the sheet's content with the dedicated
+     * two-choice presentation (account pitch signed out, sync confirmation signed in). NO
+     * auto-dismiss — dismissal is an explicit choice, unlike the 2.5s payoff below. */
+    successScreen?: SuccessScreen;
+    /** The success screen's account CTA (routes to the sign-in sheet). */
+    onCreateAccount?: () => void;
+    /** Signed-out rendering (purchase-first): relabels Restore to the returner's question and
+     * shows the no-account-needed reassurance under the CTA. */
+    signedOut?: boolean;
     /** Purchase/restore flow state — drives the in-flight/outcome UI (P1 #5). */
     purchaseFlow?: PurchaseFlow;
     purchaseError?: string | null;
@@ -32,6 +45,9 @@
     onGet,
     onRestore,
     onDismiss,
+    successScreen = "none",
+    onCreateAccount,
+    signedOut = false,
     purchaseFlow = "idle",
     purchaseError = null,
     checkoutFlow = "none",
@@ -68,6 +84,8 @@
         return purchaseError ?? STRINGS.paywall.failed;
       case "unavailable":
         return STRINGS.paywall.unavailable;
+      case "stale-identity":
+        return STRINGS.paywall.staleIdentity;
       case "restored-none":
         return STRINGS.paywall.restoredNone;
       default:
@@ -76,10 +94,13 @@
   });
 
   $effect(() => {
-    // Re-runs when the content swaps to the payoff or a checkout-pending state (the previously
-    // focused control unmounts): focus must stay inside the sheet so Escape keeps dismissing.
+    // Re-runs when the content swaps to the payoff, the success screen, or a checkout-pending
+    // state (the previously focused control unmounts): focus must stay inside the sheet so Escape
+    // keeps dismissing. On the success screen the first focusable is the account CTA by markup
+    // order — the intended initial focus.
     void justUnlocked;
     void checkoutFlow;
+    void successScreen;
     sheet?.querySelector<HTMLElement>("button, a[href]")?.focus();
   });
 </script>
@@ -99,9 +120,31 @@
   aria-label={STRINGS.paywall.title}
   tabindex="-1"
 >
-  {#if justUnlocked}
+  {#if successScreen !== "none"}
+    <!-- The post-purchase success screen (R3, purchase-first): a dedicated presentation, NOT the
+         auto-dismissing payoff — it persists until an explicit choice. Signed out: the optional-
+         account pitch with two equal-weight, independently focusable actions (the classic 5.1.1
+         re-rejection is a skip that reads as subordinate). Signed in: sync confirmation only. -->
+    <h2 role="status">{STRINGS.success.title}</h2>
+    {#if successScreen === "account-pitch"}
+      <p class="scope">{STRINGS.success.accountPitch}</p>
+      <button class="primary" onclick={onCreateAccount}
+        >{STRINGS.success.createAccount}</button
+      >
+      <button class="secondary" onclick={onDismiss}
+        >{STRINGS.success.notNow}</button
+      >
+      <p class="reassure">{STRINGS.success.reassure}</p>
+    {:else}
+      <p>{STRINGS.success.synced}</p>
+      <button class="primary" onclick={onDismiss}>{STRINGS.success.done}</button
+      >
+    {/if}
+  {:else if justUnlocked}
     <!-- The payoff (U3/R6): one line while the unlocked rows switch on behind the sheet. A button
-         so a tap anywhere on it dismisses early (the controller also auto-dismisses in ~2.5s). -->
+         so a tap anywhere on it dismisses early (the controller also auto-dismisses in ~2.5s).
+         Purchases never land here — they resolve through the success screen above; this remains
+         the quiet path for non-purchase entitlement transitions (web checkout, account sign-in). -->
     <button class="payoff" onclick={onDismiss}>
       <span role="status">{STRINGS.paywall.unlocked}</span>
     </button>
@@ -159,6 +202,8 @@
           {STRINGS.paywall.purchasing}
         {:else if purchaseFlow === "opening-checkout"}
           {STRINGS.paywall.openingCheckout}
+        {:else if purchaseFlow === "stale-identity"}
+          {STRINGS.paywall.retryPurchase}
         {:else if price}
           {STRINGS.paywall.cta} · {price}
         {:else}
@@ -168,9 +213,14 @@
       <button class="secondary" onclick={onRestore} disabled={busy}>
         {purchaseFlow === "restoring"
           ? STRINGS.paywall.restoring
-          : STRINGS.paywall.restore}
+          : signedOut
+            ? STRINGS.paywall.restoreSignedOut
+            : STRINGS.paywall.restore}
       </button>
       <p class="reassure">{STRINGS.paywall.reassurance}</p>
+      {#if signedOut}
+        <p class="reassure">{STRINGS.paywall.noAccountNeeded}</p>
+      {/if}
       {#if status}
         <p class="status" class:error={purchaseFlow === "failed"} role="status">
           {status}

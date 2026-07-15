@@ -643,3 +643,59 @@ describe("Placeholder", () => {
     expect(document.querySelectorAll("button").length).toBe(0);
   });
 });
+
+describe("App — purchase-first surfaces (plan 2026-07-15-001)", () => {
+  it("pro-no-account home state: active copy, Sign in visible, restore link, no buy CTA", () => {
+    const c = controller({ auth: codeCapableAuth() });
+    c.receiptEntitled = true; // receipt-proven Pro, no session
+    render(App, { props: { controller: c } });
+    expect(screen.getByText(STRINGS.proNoAccount.active)).toBeTruthy();
+    expect(screen.getByText(STRINGS.auth.signInCta)).toBeTruthy();
+    expect(screen.getByText(STRINGS.paywall.restoreSignedOut)).toBeTruthy();
+    expect(screen.queryByText(STRINGS.paywall.upgradeCta)).toBeNull();
+  });
+
+  it("success screen (account-pitch): two independent equal-weight CTAs, no auto-dismiss markup", async () => {
+    const c = controller({ auth: codeCapableAuth() });
+    c.showPurchaseSuccess();
+    render(App, { props: { controller: c } });
+    const create = screen.getByText(STRINGS.success.createAccount);
+    const notNow = screen.getByText(STRINGS.success.notNow);
+    // Two real, separately focusable buttons — never nested inside one wrapping payoff button.
+    expect((create as HTMLElement).closest("button")).not.toBe(
+      (notNow as HTMLElement).closest("button"),
+    );
+    expect(screen.getByText(STRINGS.success.reassure)).toBeTruthy();
+    await fireEvent.click(notNow);
+    expect(c.successScreen).toBe("none");
+    expect(c.paywallOpen).toBe(false);
+  });
+
+  it("success screen (synced): sync confirmation, no account CTA at a signed-in buyer", () => {
+    const c = controller({ auth: codeCapableAuth() });
+    c.userId = "u1";
+    c.showPurchaseSuccess();
+    render(App, { props: { controller: c } });
+    expect(screen.getByText(STRINGS.success.synced)).toBeTruthy();
+    expect(screen.queryByText(STRINGS.success.createAccount)).toBeNull();
+  });
+
+  it("stale-identity paywall state: retry CTA label + calm status line (R15)", () => {
+    const c = controller({ auth: codeCapableAuth() });
+    c.openPaywall();
+    c.purchaseFlow = "stale-identity";
+    render(App, { props: { controller: c } });
+    expect(screen.getByText(STRINGS.paywall.staleIdentity)).toBeTruthy();
+    expect(screen.getByText(STRINGS.paywall.retryPurchase)).toBeTruthy();
+  });
+
+  it("signed-out paywall: price on the CTA and the no-account reassurance (R1/R12)", () => {
+    const c = controller({ auth: codeCapableAuth() });
+    c.paywallPrice = "$1.99";
+    c.openPaywall();
+    render(App, { props: { controller: c } });
+    expect(screen.getByText(/Get Still Pro · \$1\.99/)).toBeTruthy();
+    expect(screen.getByText(STRINGS.paywall.noAccountNeeded)).toBeTruthy();
+    expect(screen.getByText(STRINGS.paywall.restoreSignedOut)).toBeTruthy();
+  });
+});

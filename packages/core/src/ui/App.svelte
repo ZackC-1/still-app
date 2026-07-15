@@ -158,6 +158,33 @@
       >
         {STRINGS.account.privacyPolicy}
       </a>
+    {:else if c.popupState === "pro-no-account"}
+      <!-- Receipt-entitled with no session (purchase-first, R3/R9): Pro is ACTIVE — never a buy
+           CTA here (startUpgrade would no-op against it). Sign-in stays visible as the path to
+           the other surfaces, and the settings-row Restore (R4) lives here for returners. -->
+      <p class="synced">{STRINGS.proNoAccount.active}</p>
+      <p class="muted">{STRINGS.proNoAccount.hint}</p>
+      {#if c.canSignIn}
+        <button class="secondary block" onclick={() => c.openSignIn()}>
+          {STRINGS.auth.signInCta}
+        </button>
+      {/if}
+      <button
+        class="link"
+        onclick={() => {
+          if (onRestore && c.beginRestore()) onRestore();
+        }}
+      >
+        {STRINGS.paywall.restoreSignedOut}
+      </button>
+      <a
+        class="link center"
+        href={PRIVACY_POLICY_URL}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        {STRINGS.account.privacyPolicy}
+      </a>
     {:else if c.popupState === "not-entitled"}
       {#if c.host.canPurchase}
         <div class="syncrow">
@@ -192,7 +219,7 @@
     {/if}
   </section>
 
-  {#if c.signInOpen && c.popupState === "signed-out"}
+  {#if c.signInOpen && (c.popupState === "signed-out" || c.popupState === "pro-no-account")}
     <SignInSheet controller={c} onDismiss={() => c.dismissSignIn()} />
   {/if}
 
@@ -208,6 +235,9 @@
       purchaseError={c.purchaseError}
       checkoutFlow={c.checkoutFlow}
       justUnlocked={c.justUnlocked}
+      successScreen={c.successScreen}
+      signedOut={c.userId === null}
+      onCreateAccount={() => c.createAccountFromSuccess()}
       onGet={() => {
         // Web-purchasable hosts (the injected checkout seam, U4/U6) hand off to a checkout tab;
         // Apple hosts keep the native in-place purchase through the host's onGet closure.

@@ -92,7 +92,21 @@ export const STRINGS = {
     failed: "Something went wrong. Please try again.",
     unavailable: "Still Pro isn't available right now. Try again in a moment.",
     restoring: "Restoring…",
-    restoredNone: "No purchase to restore on this account.",
+    // Account-agnostic by design (R4): the signed-out purchase-first flow has no account to blame —
+    // "on this account" would presuppose one the user was never asked to create.
+    restoredNone: "No purchase found on this device.",
+    // Signed-out relabel of the SAME secondary restore button (one affordance, one wording): the
+    // question a signed-out returner is actually asking (R4/AE11).
+    restoreSignedOut: "Already purchased? Restore",
+    // Pre-purchase reassurance on the signed-out paywall (5.1.1 resubmission): tells the buyer the
+    // account option comes later, pre-empting both user and reviewer doubt. Apple-host-only render
+    // (web checkout paywalls are always signed-in by construction).
+    noAccountNeeded: "No account needed — you can add sync later.",
+    // The R15 stale-identity outcome: signed out, but the purchase identity couldn't be verified
+    // anonymous. The remedy is a retry (native reset-then-purchase) — NEVER a sign-out instruction
+    // (the user already is signed out).
+    staleIdentity: "We couldn't start the purchase. Try again.",
+    retryPurchase: "Try again",
     // Success payoff (R6): rendered only after the entitlement store write has landed — see
     // UiController.justUnlocked for the one transition rule that drives it on every host.
     unlocked: "Your quieter web is ready.",
@@ -115,6 +129,30 @@ export const STRINGS = {
     authRequired:
       "You've been signed out. Sign in again to check your purchase.",
     signInAgain: "Sign in again",
+  },
+
+  // The post-purchase success screen (R3, purchase-first — plan 2026-07-15-001). A dedicated
+  // presentation with NO auto-dismiss: two equal-weight choices signed out; a sync confirmation
+  // signed in (never an account pitch at someone with a session). Value copy is launch-real —
+  // only shipped capabilities; supported-surface phrasing per product truths. The reassurance
+  // line mirrors Apple's own sanctioned framing for optional post-purchase registration.
+  success: {
+    title: "You're Pro",
+    accountPitch:
+      "Use Still Pro in Chrome, Firefox, and on your other devices — create a free account to sync your purchase and settings.",
+    createAccount: "Create free account",
+    notNow: "Not now",
+    reassure:
+      "Without an account, your purchase stays with your Apple Account. Restore Purchases brings it back anytime.",
+    synced: "Still Pro is active and synced to your account.",
+    done: "Done",
+  },
+
+  // The receipt-entitled, no-session home state (pro-no-account, R3/R9): Pro is active on this
+  // device; sign-in is the optional path to the other surfaces. Never a buy CTA here.
+  proNoAccount: {
+    active: "Still Pro is active on this device.",
+    hint: "Sign in to use Pro in your other browsers and sync your settings.",
   },
 
   auth: {
