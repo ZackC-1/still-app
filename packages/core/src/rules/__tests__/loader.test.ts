@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { signRuleSet } from "../signature.js";
 import { DEV_RULE_SET_KEYS, PRODUCTION_RULE_SET_KEYS } from "../trusted-keys.js";
 import type { FetchConfig } from "../fetch.js";
@@ -8,6 +8,7 @@ import {
   ruleSetTrustedKeys,
   ruleSetTrust,
   ruleSetFetchConfig,
+  createRuleSetRefresher,
   readCachedRuleSet,
   writeCachedRuleSet,
   refreshRuleSetCache,
@@ -87,6 +88,41 @@ describe("rule-set build gating", () => {
     const cfg = ruleSetFetchConfig({ prod: true, endpoint });
     expect(cfg).not.toBeNull();
     expect(cfg!.allowedKeys).toBe(PRODUCTION_RULE_SET_KEYS);
+  });
+
+  it("captures one endpoint/configuration for repeated background refreshes", async () => {
+    const area = memArea();
+    const refresh = createRuleSetRefresher({
+      prod: false,
+      url: "",
+      anonKey: "",
+      area,
+    });
+    await expect(refresh()).resolves.toBeNull();
+    await expect(refresh()).resolves.toBeNull();
+    expect(area.store.size).toBe(0);
+  });
+
+  it("captures a configured fetcher and caches its verified response on every invocation", async () => {
+    const area = memArea();
+    const fetched = await signedAt("2.0.0");
+    const fetchImpl = vi.fn(fetchReturning(fetched));
+    const refresh = createRuleSetRefresher({
+      prod: false,
+      url: endpoint.url,
+      anonKey: endpoint.anonKey,
+      area,
+      fetchImpl,
+    });
+
+    await expect(refresh()).resolves.toMatchObject({ version: "2.0.0" });
+    await expect(refresh()).resolves.toMatchObject({ version: "2.0.0" });
+    expect((await readCachedRuleSet(area, DEV_TRUST))?.version).toBe("2.0.0");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://test.supabase.co/rest/v1/rpc/get_current_rule_set",
+      expect.objectContaining({ headers: expect.objectContaining({ apikey: "anon-key" }) }),
+    );
   });
 });
 

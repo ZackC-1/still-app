@@ -214,3 +214,9 @@ export {
   type StillWindow,
 } from "./redirect.js";
 export { createReapplyObserver, type ObserverHandle, type Scheduler } from "./observer.js";
+export {
+  createExtensionContentEntry,
+  type ExtensionContentContext,
+  type ExtensionContentEntryDeps,
+  type ExtensionContentNudge,
+} from "./extension-entry.js";

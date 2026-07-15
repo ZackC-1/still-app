@@ -49,6 +49,23 @@ export interface WritableArea {
   set(items: Record<string, unknown>): Promise<void>;
 }
 
+/** Build the one reusable background refresh closure from plain build-time values. Keeping the env
+ * read in each entrypoint leaves core platform-neutral while ensuring cold-start and reconcile
+ * nudges share precisely the same fail-closed fetch configuration. */
+export function createRuleSetRefresher(input: {
+  readonly prod: boolean;
+  readonly url: string | undefined;
+  readonly anonKey: string | undefined;
+  readonly area: ReadableArea & WritableArea;
+  /** Test seam; production uses the platform fetch implementation. */
+  readonly fetchImpl?: typeof fetch;
+}): () => Promise<SignedRuleSet | null> {
+  const endpoint = input.url && input.anonKey ? { url: input.url, anonKey: input.anonKey } : null;
+  const baseCfg = ruleSetFetchConfig({ prod: input.prod, endpoint });
+  const cfg = baseCfg && (input.fetchImpl ? { ...baseCfg, fetchImpl: input.fetchImpl } : baseCfg);
+  return () => refreshRuleSetCache(cfg, input.area);
+}
+
 /** The trust anchor a cached rule set must satisfy before it may beat the bundled seed — the same
  * shape signature verification takes (alias, not a parallel type, so the two can't drift). */
 export type RuleSetTrust = VerifyOptions;

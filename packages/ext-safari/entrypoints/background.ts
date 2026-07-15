@@ -1,6 +1,6 @@
 import { ChromeStorageAdapter, parseStoredSettingsRecord, type StoredSettingsRecord } from "@still/core/storage";
 import { ChromeEntitlementAdapter } from "@still/core/entitlement";
-import { refreshRuleSetCache, ruleSetFetchConfig, type RuleSetEndpoint } from "@still/core/rules";
+import { createRuleSetRefresher } from "@still/core/rules";
 import { createAppGroupReconciler } from "../lib/app-group-reconcile.js";
 import { BrowserInstallGenerationStore, createEntitlementPull } from "../lib/entitlement-pull.js";
 import { NATIVE_APP, pushSettingsToApp } from "../lib/native-settings.js";
@@ -22,14 +22,6 @@ import { NATIVE_APP, pushSettingsToApp } from "../lib/native-settings.js";
 // NATIVE_APP + pushSettingsToApp are shared with the popup's direct push (see lib/native-settings).
 // Safari ignores the application identifier (it always routes to the app's SafariWebExtensionHandler),
 // but browser.runtime.sendNativeMessage requires the argument.
-
-/** The signed rule-set RPC endpoint, from the gitignored build-time .env. Absent in CI/dev → null,
- * so the fetch is skipped and the content script applies the bundled seed (the U17 behavior). */
-function ruleSetEndpointFromEnv(): RuleSetEndpoint | null {
-  const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-  return url && anonKey ? { url, anonKey } : null;
-}
 
 /** Coerce a native `{ settings: "<json>" }` reply into a settings record, or null. Unwraps the envelope,
  * then delegates the JSON parse + shape guard to the shared validator (the single hardening point). */
@@ -83,9 +75,11 @@ export default defineBackground(() => {
   // Refresh the signed rule-set cache for the next page load (P1 #6): fetch → verify against this
   // build's trusted keys → cache. Skipped (no-op) when no endpoint is configured, or on a production
   // build before production keys are published — in both cases the bundled seed keeps applying.
-  const ruleSetCfg = ruleSetFetchConfig({
+  const refreshRuleSet = createRuleSetRefresher({
     prod: import.meta.env.PROD,
-    endpoint: ruleSetEndpointFromEnv(),
+    url: import.meta.env.VITE_SUPABASE_URL as string | undefined,
+    anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined,
+    area: browser.storage.local,
   });
-  void refreshRuleSetCache(ruleSetCfg, browser.storage.local);
+  void refreshRuleSet();
 });

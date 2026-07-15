@@ -1,16 +1,7 @@
 import "./still.css"; // packaged critical CSS (manifest content_scripts css, KTD2)
 import "./still-pro.css"; // packaged Pro CSS gated by html.still-pro-active
-import {
-  createContentScript,
-  earlyShortsRedirect,
-  type RedirectDedupe,
-  type StillWindow,
-} from "@still/core/content";
-import { EntitlementCache, ChromeEntitlementAdapter } from "@still/core/entitlement";
-import { SettingsCache, ChromeStorageAdapter } from "@still/core/storage";
-import seed from "@still/core/seed";
-import type { SignedRuleSet } from "@still/shared-types";
-import { resolveRuleSetForLoad, ruleSetTrust } from "@still/core/rules";
+import { createExtensionContentEntry } from "@still/core/content";
+import type { ContentScriptLifecycle } from "../../lib/reconcile-nudge.js";
 import { startSafariReconcileNudges } from "../../lib/reconcile-nudge.js";
 
 // The document_start content script for Safari. Same shared engine as Chromium, but on Safari there
@@ -32,53 +23,19 @@ export default defineContentScript({
   runAt: "document_start",
   cssInjectionMode: "manifest",
   async main(ctx) {
-    const cache = new SettingsCache(new ChromeStorageAdapter());
-    const entitlement = new EntitlementCache(new ChromeEntitlementAdapter());
-
-    // Safari has no DNR, so this content script owns the hard-nav Shorts redirect (issue #28). Fire
-    // it ahead of the ruleset read below: it awaits only the persisted settings (one storage read),
-    // so a disabled/off user is never redirected, and an on-user redirects before YouTube hydrates.
-    // The shared dedupe cell keeps this and the post-hydration reapply to ONE replace per URL.
-    const redirectDedupe: RedirectDedupe = { lastRedirect: null };
-    earlyShortsRedirect({
-      win: window as unknown as StillWindow,
-      ruleSet: seed as unknown as SignedRuleSet,
-      cache,
-      redirectDedupe,
-    }).catch(() => {}); // storage failure → no early redirect; the hydrated reapply still owns it
-
-    // Apply the newest of {cached, bundled}. The cached set is re-verified against THIS build's
-    // trusted keys on read (storage outlives builds — a stale dev-signed or tampered cache must not
-    // beat the bundled seed); the bundled seed is the trusted offline floor packaged with the signed
-    // extension (P1 #6). A fast local storage read — no network on the apply path.
-    const { ruleSet, source } = await resolveRuleSetForLoad(
-      seed as unknown as SignedRuleSet,
-      browser.storage.local,
-      ruleSetTrust(import.meta.env.PROD),
-    );
-    if (ctx.isInvalid) return;
-
-    const script = createContentScript({
-      win: window as unknown as StillWindow,
-      doc: document,
-      ruleSet,
-      cache,
-      entitlement,
-      redirectDedupe,
-      // The packaged manifest CSS is generated from the bundled seed: when that's what applies,
-      // the per-frame reapply can skip hide surfaces entirely (CSS owns them) and only run removes.
-      manifestCssOwnsHides: source === "bundled",
-    });
-    // Nudge the background to pull the App-Group value (the app may have edited settings while the
-    // extension was asleep). The WXT context owns every timer/listener and stops the core script on
-    // invalidation, so no per-tab native reconciliation keeps running after teardown.
-    const nudge = startSafariReconcileNudges({
-      lifecycle: ctx,
-      send: () => browser.runtime.sendMessage({ kind: "reconcile" }),
-      script,
-      win: window,
-      doc: document,
-    });
-    void script.start().then(nudge.request);
+    await createExtensionContentEntry({
+      storage: browser.storage.local,
+      prod: import.meta.env.PROD,
+      earlyRedirect: true,
+      nudge: {
+        attach: (script, context) => startSafariReconcileNudges({
+          lifecycle: context as ContentScriptLifecycle,
+          send: () => browser.runtime.sendMessage({ kind: "reconcile" }),
+          script,
+          win: window,
+          doc: document,
+        }),
+      },
+    })(ctx);
   },
 });

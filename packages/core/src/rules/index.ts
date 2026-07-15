@@ -48,6 +48,7 @@ export {
   ruleSetTrustedKeys,
   ruleSetTrust,
   ruleSetFetchConfig,
+  createRuleSetRefresher,
   readCachedRuleSet,
   writeCachedRuleSet,
   refreshRuleSetCache,

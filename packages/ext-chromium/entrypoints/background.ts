@@ -4,9 +4,7 @@ import { SettingsCache, ChromeStorageAdapter } from "@still/core/storage";
 import { ChromeEntitlementAdapter } from "@still/core/entitlement";
 import {
   isServiceEnabledGlobally,
-  refreshRuleSetCache,
-  ruleSetFetchConfig,
-  type RuleSetEndpoint,
+  createRuleSetRefresher,
 } from "@still/core/rules";
 import {
   SupabaseAuthPort,
@@ -41,22 +39,16 @@ import {
 //     bails cleanly when the API is absent.
 const RULESET_ID = "youtube-shorts-redirect";
 
-/** The signed rule-set RPC endpoint, from the gitignored build-time .env. Absent in CI/dev → null,
- * so the fetch is skipped and the content script applies the bundled seed. */
-function ruleSetEndpointFromEnv(): RuleSetEndpoint | null {
-  const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-  const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
-  return url && anonKey ? { url, anonKey } : null;
-}
-
 export default defineBackground(() => {
-  const ruleSetCfg = ruleSetFetchConfig({
+  const refreshRuleSet = createRuleSetRefresher({
     prod: import.meta.env.PROD,
-    endpoint: ruleSetEndpointFromEnv(),
+    url: import.meta.env.VITE_SUPABASE_URL as string | undefined,
+    anonKey: import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined,
+    area: chrome.storage.local,
   });
 
   // Refresh on cold start / service-worker wake.
-  void refreshRuleSetCache(ruleSetCfg, chrome.storage.local);
+  void refreshRuleSet();
 
   // ── Auth/purchase session spine (plan U6/R2) ───────────────────────────────────────────────────
   const cache = new SettingsCache(new ChromeStorageAdapter());
@@ -71,7 +63,7 @@ export default defineBackground(() => {
   // staleness/throttle logic lives in core's onNudge).
   chrome.runtime.onMessage.addListener((message: unknown) => {
     if (message && typeof message === "object" && (message as { kind?: string }).kind === "reconcile") {
-      void refreshRuleSetCache(ruleSetCfg, chrome.storage.local);
+      void refreshRuleSet();
       void session?.onNudge();
     }
     return false;
