@@ -119,8 +119,10 @@ with the code that proves it whenever practical.
 - Free Still removes YouTube Shorts on supported web surfaces without an account.
 - Still Pro is a one-time purchase that adds Instagram and Facebook Reels removal, TikTok website
   blocking, and cross-device settings sync on supported surfaces.
-- One entitlement can be restored across supported surfaces when the user signs into the same Still
-  account. Sign-in is required for sync, not for the free tier.
+- Still Pro can be purchased on Apple platforms without an account (entitlement from the Apple
+  receipt; App Review 5.1.1). One entitlement can be restored across supported surfaces when the
+  user signs into the same Still account. Sign-in is required for sync and for Pro in
+  Chrome/Firefox — not for the free tier or for Apple-platform purchase.
 - Mobile support means websites opened in Safari. Still does not block short-form video inside native
   YouTube, Instagram, Facebook, or TikTok apps.
 - Say "every supported surface," never "everywhere."
