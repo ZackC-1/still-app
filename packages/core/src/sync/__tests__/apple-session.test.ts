@@ -269,6 +269,77 @@ describe("AppleSession — Ask-to-Buy foreground recheck", () => {
 });
 
 describe("AppleSession — teardown parity (KTD5)", () => {
+  it("does not re-stamp a late confirmed entitlement after sign-out", async () => {
+    const h = harness();
+    let release!: () => void;
+    const reconcile = new Promise<void>((resolve) => { release = resolve; });
+    h.sync.onSignedIn.mockImplementation(async (userId: string) => {
+      await reconcile;
+      h.session.onSyncState({
+        userId,
+        entitled: true,
+        syncing: true,
+        cloudReachable: true,
+        confirmed: true,
+      });
+    });
+
+    const entering = h.session.enterSession("u1");
+    await Promise.resolve();
+    await h.session.signOutEverywhere();
+    release();
+    await entering;
+
+    expect(h.bridge.setEntitlement).toHaveBeenLastCalledWith(false);
+    expect(h.controller.userId).toBeNull();
+    expect(h.controller.entitled).toBe(false);
+  });
+
+  it("does not re-stamp a late confirmed entitlement after account deletion", async () => {
+    const h = harness();
+    let release!: () => void;
+    const reconcile = new Promise<void>((resolve) => { release = resolve; });
+    h.sync.onSignedIn.mockImplementation(async (userId: string) => {
+      await reconcile;
+      h.session.onSyncState({ userId, entitled: true, syncing: true, cloudReachable: true, confirmed: true });
+    });
+    h.sync.deleteAccount.mockImplementation(async () => {
+      h.session.onSyncState({ userId: null, entitled: false, syncing: false, cloudReachable: true, confirmed: true });
+    });
+
+    const entering = h.session.enterSession("u1");
+    await Promise.resolve();
+    await h.session.deleteAccountEverywhere();
+    release();
+    await entering;
+
+    expect(h.bridge.setEntitlement).toHaveBeenLastCalledWith(false);
+    expect(h.controller.userId).toBeNull();
+    expect(h.controller.entitled).toBe(false);
+  });
+
+  it("does not let an earlier user reclaim a later sign-in after teardown", async () => {
+    const h = harness();
+    let releaseFirst!: () => void;
+    const firstReconcile = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    h.sync.onSignedIn.mockImplementation(async (userId: string) => {
+      if (userId === "u1") await firstReconcile;
+      h.session.onSyncState({ userId, entitled: true, syncing: true, cloudReachable: true, confirmed: true });
+    });
+
+    const first = h.session.enterSession("u1");
+    await Promise.resolve();
+    await h.session.signOutEverywhere();
+    await h.session.enterSession("u2");
+    releaseFirst();
+    await first;
+
+    expect(h.controller.userId).toBe("u2");
+    expect(h.controller.entitled).toBe(true);
+    expect(h.bridge.setEntitlement).toHaveBeenCalledTimes(2); // signed-out false, then u2 true
+    expect(h.bridge.setEntitlement).toHaveBeenLastCalledWith(true);
+  });
+
   it("sign-out clears the Supabase session even when the native RevenueCat reset rejects", async () => {
     const h = harness({ bridge: { signOut: vi.fn(async () => Promise.reject(new Error("native"))) } });
     await h.session.signOutEverywhere();

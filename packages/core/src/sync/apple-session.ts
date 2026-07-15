@@ -73,8 +73,16 @@ export interface AppleSession {
 
 export function createAppleSession(deps: AppleSessionDeps): AppleSession {
   const { controller, sync, bridge } = deps;
+  // A reconcile begun before voluntary teardown may finish after SyncService has emitted its
+  // definitive signed-out state. Keep that stale confirmed callback from re-stamping Pro into the
+  // App Group; the next enterSession adopts the new generation normally.
+  let teardownGeneration = 0;
+  let activeSessionGeneration = 0;
+  let activeSessionUserId: string | null = null;
 
   const enterSession = async (userId: string): Promise<void> => {
+    activeSessionGeneration = teardownGeneration;
+    activeSessionUserId = userId;
     controller.reconciling = true;
     try {
       if (bridge.available) await bridge.configurePurchases(userId);
@@ -89,6 +97,11 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
 
   return {
     onSyncState(state: SyncState): void {
+      if (
+        teardownGeneration !== 0 &&
+        state.userId !== null &&
+        (activeSessionGeneration !== teardownGeneration || state.userId !== activeSessionUserId)
+      ) return;
       controller.userId = state.userId;
       controller.entitled = state.entitled;
       controller.cloudReachable = state.cloudReachable;
@@ -213,6 +226,7 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
     // regardless — the native reset is best-effort so a rejected bridge call can't strand a live
     // session (KTD5).
     async signOutEverywhere(): Promise<void> {
+      teardownGeneration++;
       if (bridge.available) {
         try {
           await bridge.signOut();
@@ -228,6 +242,7 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
     // deleted user's app_user_id isn't left configured.
     async deleteAccountEverywhere(): Promise<void> {
       await sync.deleteAccount();
+      teardownGeneration++;
       if (bridge.available) {
         try {
           await bridge.signOut();
