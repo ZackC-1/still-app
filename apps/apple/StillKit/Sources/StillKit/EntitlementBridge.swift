@@ -7,30 +7,59 @@ import Foundation
 // browser.storage, where the content scripts' EntitlementCache reads it.
 //
 // Deliberately a SEPARATE App-Group key from the settings blob: settings sync is last-write-wins
-// and client-writable, while the entitlement value is only ever written from the app's
-// server-reconciled state (monetization-design §6 — never inside StillSettings). The stored
-// `updatedAt` is the last server-confirmed time; the extension keeps it and applies its 30-day TTL
-// against it, so a device that never reaches the server again downgrades to free on schedule.
+// and client-writable, while the entitlement value is written only through StampPolicy from one
+// of the two entitlement authorities — the app's server-reconciled state or the device's StoreKit
+// receipt (ADR 0003; monetization-design §6 — never inside StillSettings). The stored `updatedAt`
+// is the last time ANY authority confirmed; the extension keeps it and applies its 30-day TTL
+// against it, so a device that never re-confirms downgrades to free on schedule.
 //
 // Wire shape:
-//   web/app → native:  { "kind": "setEntitlement", "entitled": Bool }
-//   extension → native: { "kind": "getEntitlement" }
-//   native → caller:   "{\"entitled\":Bool|null,\"installId\":String|null,\"updatedAt\":Int|null}"
+//   web/app → native:  { "kind": "setEntitlement", "entitled": Bool }   (server-lane proposal)
+//   extension → native: { "kind": "getEntitlement" }                    (read-only lane)
+//   native → caller:   "{\"entitled\":Bool|null,\"installId\":String|null,
+//                        \"source\":String|null,\"updatedAt\":Int|null}"
 //
-// The reply is an ENVELOPE with all three keys always present (explicit JSON null when absent) —
+// The reply is an ENVELOPE with all four keys always present (explicit JSON null when absent) —
 // the extension distinguishes "no entitlement record but the app has stamped this install"
 // (installId set, entitled null: the post-reinstall state, issue #63) from "nothing at all"
-// (old app build / degraded App Group: every field null). The legacy "" empty reply is gone;
-// the extension's parser treats it, and any malformed reply, as no signal.
+// (old app build / degraded App Group: every field null), and ignores keys it doesn't know
+// (`source` is informational on the wire). The legacy "" empty reply is gone; the extension's
+// parser treats it, and any malformed reply, as no signal.
+//
+// Every stamp WRITE routes through StampPolicy (the R13 never-downgrade home): wire `.set`
+// proposals carry the bridge's `proposalSource` lane (the webview only ever mirrors server
+// state), and the native receipt restamp path enters via `applyReceipt`. A read-only bridge
+// (the Safari extension handler's lane) refuses `.set` without writing — the extension process
+// has no receipt oracle and must never write the stamp in either direction.
+
+/// Which entitlement authority a stamp (or a stamp proposal) came from. Legacy build-3 records
+/// carry no `source` key and decode as `.server` — the pre-migration semantics.
+public enum EntitlementSource: String, Codable, Equatable, Sendable {
+  case receipt
+  case server
+}
 
 public struct EntitlementRecord: Codable, Equatable, Sendable {
   public let entitled: Bool
-  /// Milliseconds since epoch of the write (the app writes only after a server reconcile).
+  /// Milliseconds since epoch of the last write by ANY authority (server reconcile or receipt).
   public let updatedAt: Int
+  /// The authority that produced this value. Load-bearing in StampPolicy's downgrade lanes.
+  public let source: EntitlementSource
 
-  public init(entitled: Bool, updatedAt: Int) {
+  public init(entitled: Bool, updatedAt: Int, source: EntitlementSource = .server) {
     self.entitled = entitled
     self.updatedAt = updatedAt
+    self.source = source
+  }
+
+  private enum CodingKeys: String, CodingKey { case entitled, updatedAt, source }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    entitled = try container.decode(Bool.self, forKey: .entitled)
+    updatedAt = try container.decode(Int.self, forKey: .updatedAt)
+    // Absent on build-3 stamps: default to server so pre-migration downgrade semantics hold.
+    source = try container.decodeIfPresent(EntitlementSource.self, forKey: .source) ?? .server
   }
 }
 
@@ -73,16 +102,18 @@ public struct EntitlementReplyEnvelope: Equatable, Sendable {
   public let installId: String?
   public let entitled: Bool?
   public let updatedAt: Int?
+  public let source: EntitlementSource?
 
   public init(installId: String?, record: EntitlementRecord?) {
     self.installId = installId
     self.entitled = record?.entitled
     self.updatedAt = record?.updatedAt
+    self.source = record?.source
   }
 }
 
 extension EntitlementReplyEnvelope: Encodable {
-  private enum CodingKeys: String, CodingKey { case installId, entitled, updatedAt }
+  private enum CodingKeys: String, CodingKey { case installId, entitled, updatedAt, source }
 
   public func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
@@ -90,6 +121,7 @@ extension EntitlementReplyEnvelope: Encodable {
     try container.encode(installId, forKey: .installId)
     try container.encode(entitled, forKey: .entitled)
     try container.encode(updatedAt, forKey: .updatedAt)
+    try container.encode(source, forKey: .source)
   }
 }
 
@@ -114,23 +146,37 @@ public enum EntitlementRequest: Equatable, Sendable {
   }
 }
 
-/// Processes entitlement requests against a SharedEntitlementStore. `set` stamps `updatedAt` with
-/// the injected clock (tests pass a fixed one); both requests reply with the envelope JSON carrying
-/// the install-generation id (issue #63). `installId` is injected like `now` so tests stay pure —
-/// production reads the App-Group marker via `InstallGeneration`.
+/// Processes entitlement requests against a SharedEntitlementStore. `set` proposals stamp
+/// `updatedAt` with the injected clock and route through StampPolicy (R13) with the injected
+/// receipt-status provider — a SYNCHRONOUS closure returning the app target's cached snapshot
+/// (StoreKit reads are async; freshness is owned by the app's refresh sites and the blocked-write
+/// re-read rule, ADR 0003). Both requests reply with the envelope JSON carrying the
+/// install-generation id (issue #63) and the POST-DECISION stored state — a blocked downgrade
+/// replies with the surviving record, not the refused proposal. `installId` is injected like
+/// `now` so tests stay pure. A `readOnly` bridge (the Safari extension handler's lane) refuses
+/// `.set` without writing and replies with current state.
 public struct EntitlementBridge {
   private let store: SharedEntitlementStore
   private let now: () -> Int
   private let installId: () -> String?
+  private let receiptStatus: () -> ReceiptStatus
+  private let proposalSource: EntitlementSource
+  private let readOnly: Bool
 
   public init(
     store: SharedEntitlementStore,
     now: @escaping () -> Int = { Int(Date().timeIntervalSince1970 * 1000) },
-    installId: @escaping () -> String? = { InstallGeneration.current(InstallGeneration.appGroupDefaults()) }
+    installId: @escaping () -> String? = { InstallGeneration.current(InstallGeneration.appGroupDefaults()) },
+    receiptStatus: @escaping () -> ReceiptStatus = { .noSignal },
+    proposalSource: EntitlementSource = .server,
+    readOnly: Bool = false
   ) {
     self.store = store
     self.now = now
     self.installId = installId
+    self.receiptStatus = receiptStatus
+    self.proposalSource = proposalSource
+    self.readOnly = readOnly
   }
 
   public func handle(_ request: EntitlementRequest) -> String {
@@ -138,9 +184,40 @@ public struct EntitlementBridge {
     case .get:
       return Self.encode(EntitlementReplyEnvelope(installId: installId(), record: store.peek()))
     case .set(let entitled):
-      let record = EntitlementRecord(entitled: entitled, updatedAt: now())
+      guard !readOnly else {
+        // The extension process must never write the stamp (no receipt oracle there, and a
+        // writable lane would be an entitlement-forgery surface). Reply with current state.
+        return Self.encode(EntitlementReplyEnvelope(installId: installId(), record: store.peek()))
+      }
+      let proposed = EntitlementRecord(entitled: entitled, updatedAt: now(), source: proposalSource)
+      apply(proposed: proposed)
+      return Self.encode(EntitlementReplyEnvelope(installId: installId(), record: store.peek()))
+    }
+  }
+
+  /// The native receipt lane's entry (launch / foreground / post-purchase / post-restore
+  /// restamps): converts a receipt status into a receipt-lane proposal and routes it through the
+  /// same policy. `noSignal` proposes nothing. Returns the stored record after the decision.
+  @discardableResult
+  public func applyReceipt(_ status: ReceiptStatus) -> EntitlementRecord? {
+    guard !readOnly else { return store.peek() }
+    switch status {
+    case .entitled:
+      apply(proposed: EntitlementRecord(entitled: true, updatedAt: now(), source: .receipt))
+    case .verifiedNotEntitled:
+      apply(proposed: EntitlementRecord(entitled: false, updatedAt: now(), source: .receipt))
+    case .noSignal:
+      break // absence is never a signal
+    }
+    return store.peek()
+  }
+
+  private func apply(proposed: EntitlementRecord) {
+    switch StampPolicy.decide(proposed: proposed, receipt: receiptStatus(), current: store.peek()) {
+    case .write(let record):
       store.save(record)
-      return Self.encode(EntitlementReplyEnvelope(installId: installId(), record: record))
+    case .drop:
+      break
     }
   }
 
