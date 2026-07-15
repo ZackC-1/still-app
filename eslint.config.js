@@ -8,6 +8,9 @@ export default tseslint.config(
     ignores: [
       // Bundled Apple app resources (fonts and licenses) are not lint inputs.
       "apps/apple/Still/Shared (App)/Resources/**",
+      // Harness-managed subagent worktrees (gitignored checkouts of this repo) — linting them
+      // double-reports every file and breaks typescript-eslint's tsconfig root detection.
+      "**/.claude/**",
       "**/dist/**",
       "**/.output/**",
       "**/.wxt/**",
