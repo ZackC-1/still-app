@@ -1,7 +1,7 @@
 ---
 title: "feat: Apple purchase-first Pro flow (Guideline 5.1.1 fix)"
 type: feat
-status: active
+status: completed
 date: 2026-07-15
 deepened: 2026-07-15
 origin: docs/brainstorms/2026-07-15-apple-purchase-first-pro-flow-requirements.md

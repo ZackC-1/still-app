@@ -244,8 +244,14 @@ version).
 - [ ] TN3186 sandbox pass on the Mac build: Paid Apps agreement active, product loads, sandbox
       purchase completes (the 2.1(a) OTP error also needs the demo-account update below).
 - [ ] App Review Information: update the demo-account section — a demo account is no longer needed
-      to verify Pro (sandbox purchase works signed out); keep one seeded account documented for
-      verifying the OPTIONAL sync feature.
+      to verify Pro (sandbox purchase works signed out). For the OPTIONAL sync feature, fill the
+      Username field with the review address and the Password field with the fixed verification
+      code (plan 2026-07-15-002: the `review-signin` mechanism — Apple's own ASC guidance says to
+      provide auth codes "in advance in the Notes field"; the account auto-creates on first
+      sign-in, holds no data, and no email is ever sent). Both values come from the private
+      submission record and must match the deployed `REVIEW_SIGNIN_EMAIL`/`REVIEW_SIGNIN_CODE`
+      secrets EXACTLY — run the §1c cross-check in
+      `docs/release/extension-purchase-deploy-checklist.md` first (hard gate).
 - [ ] App Privacy label: RevenueCat now configures ANONYMOUSLY at every launch for every user
       (previously post-sign-in only), so device-scoped anonymous purchase identifiers flow to
       RevenueCat for free users too — confirm the Purchases/Identifiers declarations and the
@@ -273,6 +279,19 @@ sufficient):
    signed out and restores via the App Store receipt.
 5. If an account is created, it can be deleted in-app (Settings → Delete
    account).
+
+VERIFYING THE OPTIONAL SYNC FEATURE (demo account)
+Sign-in uses an emailed 6-digit code. The demo account below is configured
+with a FIXED verification code for App Review — no email is sent or needed,
+and the code never expires. If an error appears, simply re-enter the code.
+  Email: <review address — fill from the private submission record>
+  Code:  <fixed 6-digit code — fill from the private submission record>
+Steps: tap "Sign in to Still", enter the email above, tap "Email me a code"
+(no email will arrive — this is expected for this account), enter the code
+above, and tap "Verify code". Settings then sync across supported browsers
+and devices signed into the same account. Relaunching the app may require
+signing in again on this platform — that is designed behavior, not a bug.
+The account is a normal, privilege-less user and can be deleted in-app.
 
 This build is also reviewed with the still_sync ("Still Pro") in-app
 purchase, currently Waiting for Review.

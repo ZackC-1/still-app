@@ -4,6 +4,13 @@ Still uses descriptive pull request titles and conventional commit-style summari
 
 ## Unreleased
 
+- Truthful OTP sign-in error handling (Guideline 2.1(a) resubmission): rate-limited sends and
+  verifies now render calm wait states with locked buttons instead of "try again" copy that
+  invited hammering the limit; non-OTP failures no longer dead-end as "wrong code"; a stale
+  reopened code entry lands on the expired presentation directly.
+- Deterministic App Review sign-in: one designated review address accepts a fixed verification
+  code minted server-side by a new guarded `review-signin` edge function (no email is ever sent;
+  fail-closed at every layer; disclosed in App Review notes; normal OTP for everyone else).
 - Apple purchase-first Pro flow (Guideline 5.1.1 resubmission): Still Pro is purchasable on iPhone
   and Mac with no account — entitlement comes from the Apple receipt, an optional post-purchase
   sign-in adds cross-surface Pro and settings sync, and Restore Purchases works signed out. The
