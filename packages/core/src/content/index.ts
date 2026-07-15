@@ -1,8 +1,7 @@
 import type { SignedRuleSet } from "@still/shared-types";
 import {
   evaluate,
-  applyDom,
-  applyRemovals,
+  createEnginePageSession,
   renderPlaceholder,
   ROOT_ACTIVE_CLASS,
   ROOT_PRO_ACTIVE_CLASS,
@@ -42,6 +41,8 @@ export interface ContentScriptDeps {
   readonly blockedLine?: string;
   /** Override the observer's coalescing scheduler (tests pass a synchronous one). */
   readonly schedule?: Scheduler;
+  /** Override URL parsing for a focused hot-path test; production uses the platform URL parser. */
+  readonly urlFactory?: (href: string) => URL;
   /**
    * Shared redirect-dedup cell. Entrypoints that also fire earlyShortsRedirect pass the SAME cell
    * to both, so the early hard-nav redirect and the post-hydration reapply never issue two
@@ -72,7 +73,10 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
 
   let hydrated = false;
   let stopped = false;
+  let lastHref: string | null = null;
+  let lastUrl: URL | null = null;
   const dedupe = deps.redirectDedupe ?? { lastRedirect: null };
+  const pageSession = createEnginePageSession(ruleSet);
   const teardowns: Array<() => void> = [];
 
   const setRootActive = (active: boolean): void => {
@@ -82,18 +86,28 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     doc.documentElement?.classList.toggle(ROOT_PRO_ACTIVE_CLASS, active);
   };
 
+  const currentUrl = (): URL => {
+    const href = win.location.href;
+    if (href !== lastHref) {
+      lastHref = href;
+      lastUrl = deps.urlFactory?.(href) ?? new URL(href);
+    }
+    return lastUrl!;
+  };
+
   const reapply = (): void => {
     // Never act on optimistic defaults: until hydration we don't know the user's real toggles, so
     // we add nothing (off/paused users must not see content hidden-then-revealed).
     if (stopped || !hydrated) return;
-    const url = new URL(win.location.href);
+    const url = currentUrl();
     // Fail CLOSED on the monetization gate: with no entitlement source wired we treat the user as
     // free (Pro surfaces stay visible) rather than granting Pro by default. Both extensions pass an
     // EntitlementCache; the app-webview path gates Pro via UiController.entitled, not here. A caller
     // that genuinely wants all surfaces must pass InMemoryEntitlementAdapter(true) explicitly.
     const pro = deps.entitlement?.current() ?? false;
     const opts = { pro };
-    const decision = evaluate(ruleSet, cache.current(), url, opts);
+    const settings = cache.current();
+    const decision = pageSession.evaluate(settings, url, opts);
     switch (decision.kind) {
       case "redirect":
         setRootProActive(pro);
@@ -110,13 +124,7 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       case "apply":
         setRootActive(true);
         setRootProActive(pro);
-        (deps.manifestCssOwnsHides ? applyRemovals : applyDom)(
-          ruleSet,
-          cache.current(),
-          url,
-          doc,
-          opts,
-        );
+        (deps.manifestCssOwnsHides ? pageSession.applyRemovals : pageSession.applyDom)(settings, url, doc, opts);
         return;
       case "noop":
         setRootActive(false);

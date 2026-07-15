@@ -185,6 +185,29 @@ describe("content script — redirect + SPA navigation (U7)", () => {
     cs.stop();
   });
 
+  it("reuses the parsed URL between same-page reapplications", async () => {
+    const win = makeWin("https://www.youtube.com/feed/subscriptions");
+    const urlFactory = vi.fn((href: string) => new URL(href));
+    const cs = createContentScript({
+      win,
+      doc: document,
+      ruleSet,
+      cache: cacheWith(null),
+      schedule: sync,
+      urlFactory,
+    });
+
+    await cs.start();
+    cs.reapply();
+    cs.reapply();
+    expect(urlFactory).toHaveBeenCalledTimes(1);
+
+    win.setHref("https://www.youtube.com/feed/trending");
+    cs.reapply();
+    expect(urlFactory).toHaveBeenCalledTimes(2);
+    cs.stop();
+  });
+
   it("uses JS hide sweeps only when manifest CSS does not own the active rule set", async () => {
     document.body.innerHTML = '<ytd-guide-entry-renderer id="manifest-owned"><a title="Shorts"></a></ytd-guide-entry-renderer>';
     const bundled = createContentScript({

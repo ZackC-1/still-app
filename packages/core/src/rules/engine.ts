@@ -66,6 +66,57 @@ export interface EngineOptions {
   readonly pro?: boolean;
 }
 
+export interface EnginePageSession {
+  evaluate(settings: StillSettings, url: URL, opts?: EngineOptions): Decision;
+  applyDom(settings: StillSettings, url: URL, doc: Document, opts?: EngineOptions): ApplyResult;
+  applyRemovals(settings: StillSettings, url: URL, doc: Document, opts?: EngineOptions): ApplyResult;
+  debugStats(): { readonly serviceResolutions: number };
+}
+
+/**
+ * Per-document pure engine session. Content scripts keep one for their resolved immutable rule
+ * set; unchanged URL/settings/entitlement inputs reuse the prior navigation decision rather than
+ * resolving match patterns again on every mutation frame.
+ */
+export function createEnginePageSession(ruleSet: SignedRuleSet): EnginePageSession {
+  let lastSettings: StillSettings | null = null;
+  let lastHref: string | null = null;
+  let lastPro: boolean | undefined;
+  let lastDecision: Decision | null = null;
+  let lastService: ServiceRules | null = null;
+  let lastSurfaces: ServiceRules["surfaces"] = [];
+  let serviceResolutions = 0;
+
+  const prepare = (settings: StillSettings, url: URL, opts: EngineOptions): void => {
+    const pro = opts.pro;
+    if (lastSettings === settings && lastHref === url.href && lastPro === pro) return;
+    serviceResolutions++;
+    lastSettings = settings;
+    lastHref = url.href;
+    lastPro = pro;
+    lastService = resolveActiveService(ruleSet, settings, url);
+    lastSurfaces = lastService?.surfaces.filter((surface) => surfaceEnabledForTier(surface, opts)) ?? [];
+    lastDecision = null;
+  };
+
+  return {
+    evaluate(settings, url, opts = {}) {
+      prepare(settings, url, opts);
+      lastDecision ??= evaluatePrepared(lastService, lastSurfaces, url);
+      return lastDecision;
+    },
+    applyDom(settings, url, doc, opts = {}) {
+      prepare(settings, url, opts);
+      return applyPreparedActions(lastService, lastSurfaces, doc, /* includeHide */ true);
+    },
+    applyRemovals(settings, url, doc, opts = {}) {
+      prepare(settings, url, opts);
+      return applyPreparedActions(lastService, lastSurfaces, doc, /* includeHide */ false);
+    },
+    debugStats: () => ({ serviceResolutions }),
+  };
+}
+
 export const ALWAYS_FREE_SURFACE_IDS = new Set([
   "yt-shorts-redirect",
   "yt-sidebar",
@@ -104,10 +155,16 @@ export function evaluate(
   opts: EngineOptions = {},
 ): Decision {
   const service = resolveActiveService(ruleSet, settings, url);
-  if (!service) return { kind: "noop" };
+  const surfaces = service?.surfaces.filter((s) => surfaceEnabledForTier(s, opts)) ?? [];
+  return evaluatePrepared(service, surfaces, url);
+}
 
-  const surfaces = service.surfaces.filter((s) => surfaceEnabledForTier(s, opts));
-  if (surfaces.length === 0) return { kind: "noop" };
+function evaluatePrepared(
+  service: ServiceRules | null,
+  surfaces: ServiceRules["surfaces"],
+  url: URL,
+): Decision {
+  if (!service || surfaces.length === 0) return { kind: "noop" };
   const path = url.pathname;
 
   // 1. Whole-site block (TikTok) — the page is blocked outright, not just cleared.
@@ -146,7 +203,7 @@ export function applyDom(
   doc: Document,
   opts: EngineOptions = {},
 ): ApplyResult {
-  return applyActions(ruleSet, settings, url, doc, opts, /* includeHide */ true);
+  return createEnginePageSession(ruleSet).applyDom(settings, url, doc, opts);
 }
 
 /**
@@ -164,24 +221,21 @@ export function applyRemovals(
   doc: Document,
   opts: EngineOptions = {},
 ): ApplyResult {
-  return applyActions(ruleSet, settings, url, doc, opts, /* includeHide */ false);
+  return createEnginePageSession(ruleSet).applyRemovals(settings, url, doc, opts);
 }
 
-function applyActions(
-  ruleSet: SignedRuleSet,
-  settings: StillSettings,
-  url: URL,
+function applyPreparedActions(
+  service: ServiceRules | null,
+  surfaces: ServiceRules["surfaces"],
   doc: Document,
-  opts: EngineOptions,
   includeHide: boolean,
 ): ApplyResult {
   let hidden = 0;
   let removed = 0;
-  const service = resolveActiveService(ruleSet, settings, url);
   if (!service) return { hidden, removed };
 
-  for (const s of service.surfaces) {
-    if (!surfaceEnabledForTier(s, opts) || !s.selectors) continue;
+  for (const s of surfaces) {
+    if (!s.selectors) continue;
     if (s.action === "hide" && includeHide) {
       for (const sel of s.selectors) {
         for (const el of safeQueryAll(doc, sel)) {

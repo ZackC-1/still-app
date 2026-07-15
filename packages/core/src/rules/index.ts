@@ -26,6 +26,7 @@ export {
   evaluate,
   applyDom,
   applyRemovals,
+  createEnginePageSession,
   renderPlaceholder,
   isServiceActive,
   isServiceEnabledGlobally,
@@ -34,6 +35,7 @@ export {
   STILL_PLACEHOLDER_LINE,
   type Decision,
   type ApplyResult,
+  type EnginePageSession,
 } from "./engine.js";
 export {
   fetchCurrentRuleSet,
