@@ -45,10 +45,22 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        // Stamp this install's generation id into the App Group before the Safari extension can
-        // pull — the reinstall signal for the entitlement purge (issue #63). Idempotent: an
-        // ordinary relaunch returns the existing id, never a fresh one.
-        InstallGeneration.ensure(InstallGeneration.appGroupDefaults())
+        // RevenueCat configures ANONYMOUSLY before the webview loads (purchase-first, R1/R2):
+        // synchronous and first, so a stored-session boot's configurePurchases(uuid) can only ever
+        // take the logIn re-key branch — never a racing second configure.
+        PurchaseManager.shared.configure()
+
+        // Launch ordering (R16, plan 2026-07-15-001): read the device receipt and restamp the App
+        // Group BEFORE publishing this install's generation id. A reinstall wipes the App Group
+        // (iOS); publishing a fresh id first would let a Safari page-load purge the entitlement
+        // while a valid receipt sits unstamped. The read is deadline-bounded (≤8s → noSignal), so
+        // publication is deferred at most one deadline, never indefinitely; the extension treats
+        // the unpublished (null) id as a strict no-op in the meantime. `ensure` is idempotent: an
+        // ordinary relaunch returns the existing id, never a fresh one (issue #63).
+        Task { @MainActor in
+            await self.router.refreshReceiptStamp()
+            InstallGeneration.ensure(InstallGeneration.appGroupDefaults())
+        }
 
         self.webView.navigationDelegate = self
 
@@ -125,7 +137,13 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
         didBecomeActiveToken = NotificationCenter.default.addObserver(
             forName: becameActive, object: nil, queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in self?.pushStoredSettingsToWeb() }
+            Task { @MainActor in
+                self?.pushStoredSettingsToWeb()
+                // Foreground receipt refresh (R13/R18): keeps the cached snapshot and the App
+                // Group stamp current — an Ask-to-Buy approval or refund that landed while the
+                // app was backgrounded is observed here.
+                await self?.router.refreshReceiptStamp()
+            }
         }
     }
 
