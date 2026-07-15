@@ -6,6 +6,7 @@ import App from "../App.svelte";
 import Placeholder from "../components/Placeholder.svelte";
 import {
   UiController,
+  type UiCheckout,
   type UiAuth,
   type UiHost,
 } from "../controller.svelte.js";
@@ -21,6 +22,7 @@ function controller(
     services?: Partial<(typeof DEFAULT_SETTINGS)["services"]>;
     deletable?: boolean;
     auth?: UiAuth;
+    checkout?: UiCheckout;
   } = {},
 ) {
   const initial = {
@@ -36,6 +38,7 @@ function controller(
   return new UiController({
     cache,
     host: { canPurchase: true, ...opts.host },
+    checkout: opts.checkout,
     auth:
       opts.auth ??
       (opts.deletable
@@ -46,6 +49,18 @@ function controller(
           }
         : undefined),
   });
+}
+
+/** A minimal web-checkout seam: its presence is what makes a host "web-shaped" — the sign-in-
+ * first upgrade path applies only to these hosts (the account is the delivery identity there).
+ * Native-purchase hosts (Apple: canPurchase, NO seam) go straight to the paywall (R1). */
+function checkoutStub(): UiCheckout {
+  return {
+    createCheckout: () => Promise.resolve({ kind: "unavailable" } as const),
+    openCheckoutTab: () => Promise.resolve(undefined),
+    setPending: () => {},
+    reconcile: () => Promise.resolve("unknown" as const),
+  };
 }
 
 /** An extension-shaped UiAuth: email-OTP code capability, no magic link (plan U2/R1). */
@@ -298,8 +313,8 @@ describe("App", () => {
     expect(screen.getByText(/Synced across supported devices/)).toBeTruthy();
   });
 
-  it("signed-out upgrade records intent and opens email-code sign-in before paywall", async () => {
-    const c = controller({ auth: codeCapableAuth() });
+  it("signed-out upgrade records intent and opens email-code sign-in before paywall (web-checkout host)", async () => {
+    const c = controller({ auth: codeCapableAuth(), checkout: checkoutStub() });
     render(App, { props: { controller: c } });
     await fireEvent.click(screen.getByText(STRINGS.paywall.upgradeCta));
     expect(c.purchaseIntent).toBe(true);
@@ -308,8 +323,8 @@ describe("App", () => {
     expect(document.querySelector("input.email")).toBeTruthy();
   });
 
-  it("locked Pro rows do not toggle and route signed-out users to sign-in", async () => {
-    const c = controller({ auth: codeCapableAuth() });
+  it("locked Pro rows do not toggle and route signed-out users to sign-in (web-checkout host)", async () => {
+    const c = controller({ auth: codeCapableAuth(), checkout: checkoutStub() });
     render(App, { props: { controller: c } });
     const instagram = document.querySelector('[data-service="instagram"]')!;
     expect(within(instagram as HTMLElement).queryByRole("switch")).toBeNull();

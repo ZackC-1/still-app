@@ -162,6 +162,12 @@ if (supabaseUrl && supabaseAnonKey) {
     document.addEventListener("visibilitychange", () =>
       session.onVisibilityChange(document.visibilityState),
     );
+    // Purchase-first boot (plan 2026-07-15-001, R1/R17): with NO session, the UI still needs the
+    // device's receipt entitlement (a signed-out purchaser's home screen renders Pro) and the
+    // localized price (the signed-out paywall CTA shows "· $1.99", loaded here because
+    // enterSession — the old only price call site — never runs signed out).
+    void session.refreshReceipt();
+    void bridge.price().then((p) => (controller.paywallPrice = p));
   }
 } else {
   controller = new UiController({ cache, host: { canPurchase: true } });

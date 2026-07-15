@@ -20,7 +20,13 @@ export interface AppleCredential {
   readonly fullName?: string;
 }
 
-export type PurchaseOutcome = "purchased" | "cancelled" | "pending" | "unavailable" | "failed";
+export type PurchaseOutcome =
+  | "purchased"
+  | "cancelled"
+  | "pending"
+  | "unavailable"
+  | "staleIdentity" // signed out but the SDK identity isn't verifiably anonymous (R15) — retryable
+  | "failed";
 
 export interface PurchaseResult {
   readonly outcome: PurchaseOutcome;
@@ -28,12 +34,18 @@ export interface PurchaseResult {
   readonly error?: string;
 }
 
+/** The device receipt oracle's tri-state verdict (ADR 0003). `noSignal` is ambiguity (cold cache,
+ * offline, no native host) and never downgrades anything. */
+export type ReceiptStatusValue = "entitled" | "verifiedNotEntitled" | "noSignal";
+
 export type NativeMessage =
   | { readonly kind: "signInWithApple" }
   | { readonly kind: "configurePurchases"; readonly appUserID: string }
   | { readonly kind: "purchase" }
   | { readonly kind: "restore" }
   | { readonly kind: "purchaseStatus" }
+  | { readonly kind: "receiptStatus" }
+  | { readonly kind: "attachPurchases" }
   | { readonly kind: "price" }
   | { readonly kind: "signOut" }
   | { readonly kind: "setEntitlement"; readonly entitled: boolean };
@@ -70,7 +82,8 @@ export class NativeBridge {
     };
   }
 
-  /** Key RevenueCat to the signed-in Supabase UUID (KTD5). Call only after a session exists. */
+  /** Re-key RevenueCat to the signed-in Supabase UUID (KTD5 — the timing moved to sign-in;
+   * purchase itself runs anonymously, plan 2026-07-15-001). Call when a session exists/appears. */
   async configurePurchases(appUserID: string): Promise<void> {
     await this.post({ kind: "configurePurchases", appUserID });
   }
@@ -96,6 +109,21 @@ export class NativeBridge {
     return asObject(await this.post({ kind: "purchaseStatus" }))?.entitled === true;
   }
 
+  /** The device receipt oracle (ADR 0003): identity-independent StoreKit 2 truth, refreshed
+   * natively as a side effect of this read. Malformed/absent replies are `noSignal` — ambiguity
+   * never downgrades. This is how a signed-out purchaser's UI learns it owns Pro (R17). */
+  async receiptStatus(): Promise<ReceiptStatusValue> {
+    const receipt = asObject(await this.post({ kind: "receiptStatus" }))?.receipt;
+    return receipt === "entitled" || receipt === "verifiedNotEntitled" ? receipt : "noSignal";
+  }
+
+  /** Attach the device receipt to the signed-in Still account (R7 — RevenueCat syncPurchases,
+   * natively gated on session + SDK-identity equality + purchased ownership). Returns whether the
+   * entitlement is active on the account identity afterwards. */
+  async attachPurchases(): Promise<boolean> {
+    return asObject(await this.post({ kind: "attachPurchases" }))?.entitled === true;
+  }
+
   /** The localized store price string for Still Pro (e.g. "$1.99"), from StoreKit via RevenueCat, or
    * null when unavailable (offering not loaded, not configured). The paywall shows the real price
    * instead of a hardcoded one. */
@@ -111,9 +139,10 @@ export class NativeBridge {
     await this.post({ kind: "signOut" });
   }
 
-  /** Mirror the server-reconciled entitlement into the App Group. The Safari extension's background
-   * pulls it from there so paid Pro blocking activates in Safari's content scripts. Call only with
-   * server-confirmed values (a cached offline value must not refresh the App-Group TTL stamp). */
+  /** Propose the server-reconciled entitlement into the App Group (a SERVER-LANE proposal — the
+   * native StampPolicy decides; a downgrade over receipt-proven Pro is blocked there, R13). The
+   * Safari extension's background pulls the stamp so paid Pro blocking activates in Safari. Call
+   * only with server-confirmed values (a cached offline value must not refresh the TTL stamp). */
   async setEntitlement(entitled: boolean): Promise<void> {
     await this.post({ kind: "setEntitlement", entitled });
   }
@@ -138,6 +167,7 @@ function isOutcome(value: unknown): value is PurchaseOutcome {
     value === "cancelled" ||
     value === "pending" ||
     value === "unavailable" ||
+    value === "staleIdentity" ||
     value === "failed"
   );
 }

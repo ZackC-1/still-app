@@ -20,6 +20,8 @@ function makeBridge(over: Partial<AppleSessionBridge> = {}): AppleSessionBridge 
     configurePurchases: vi.fn(async () => {}),
     purchaseStillPro: vi.fn(async () => ({ outcome: "purchased" as const, entitled: true })),
     restore: vi.fn(async () => false),
+    receiptStatus: vi.fn(async () => "noSignal" as const),
+    attachPurchases: vi.fn(async () => false),
     price: vi.fn(async () => "$1.99"),
     signOut: vi.fn(async () => {}),
     setEntitlement: vi.fn(async () => {}),
@@ -148,46 +150,68 @@ describe("AppleSession — onGet (the purchase flow)", () => {
     expect(controller.purchaseError).toMatch(/Try again when connected/);
   });
 
-  it("local success but webhook not landed → pending, paywall stays open", async () => {
-    // Reconcile keeps reporting not entitled (the webhook write hasn't landed yet).
-    const { session, controller } = harness();
-    controller.userId = "u1";
-    controller.openPaywall();
-    await session.onGet();
-    expect(controller.purchaseFlow).toBe("pending");
-    expect(controller.paywallOpen).toBe(true);
-  });
-
-  it("server-confirmed success → payoff, then the controller dismisses into Pro", async () => {
+  it("signed-in purchase success → SYNC-flavored success screen, receipt fed, no auto-dismiss", async () => {
+    // AMENDED for purchase-first (plan 2026-07-15-001, R3/R5): the receipt is the device
+    // authority now — a purchased outcome resolves to the success screen immediately, no longer
+    // waiting on the webhook round-trip for the UI moment (previously: "pending" until the
+    // server confirmed). The signed-in branch confirms sync and never pitches an account.
     vi.useFakeTimers();
     try {
-      let reconciled = false;
-      const h = harness({ onSignedInState: {} });
-      h.sync.onSignedIn.mockImplementation(async (userId: string) => {
-        h.session.onSyncState({
-          userId,
-          entitled: reconciled, // second reconcile (after purchase) sees the webhook's write
-          syncing: false,
-          cloudReachable: true,
-          confirmed: true,
-        });
-        reconciled = true;
-      });
-      h.controller.userId = "u1";
-      h.controller.openPaywall();
-      await h.session.onGet();
-      expect(h.controller.entitled).toBe(true);
-      // Payoff shown (never while entitled was still false), no instant force-dismiss (U3/R6)…
-      expect(h.controller.justUnlocked).toBe(true);
-      expect(h.controller.paywallOpen).toBe(true);
-      expect(h.controller.purchaseFlow).toBe("idle"); // the payoff superseded "pending"/outcome copy
-      // …then the controller auto-dismisses after the payoff.
-      vi.advanceTimersByTime(PAYOFF_DURATION_MS);
-      expect(h.controller.paywallOpen).toBe(false);
-      expect(h.controller.justUnlocked).toBe(false);
+      // No receipt until the purchase completes: the pre-purchase reconcile's attach evaluation
+      // sees noSignal (otherwise the double-charge guard correctly resolves without purchasing —
+      // the device already owns Pro).
+      const receiptStatus = vi
+        .fn<() => Promise<"noSignal" | "entitled">>()
+        .mockResolvedValueOnce("noSignal");
+      receiptStatus.mockResolvedValue("entitled");
+      const { session, controller } = harness({ bridge: { receiptStatus } });
+      controller.userId = "u1";
+      controller.openPaywall();
+      await session.onGet();
+      expect(controller.successScreen).toBe("synced");
+      expect(controller.paywallOpen).toBe(true);
+      expect(controller.receiptEntitled).toBe(true);
+      expect(controller.entitled).toBe(true);
+      // NO auto-dismiss (the old 2.5s payoff was a one-liner; the success screen waits for an
+      // explicit choice).
+      vi.advanceTimersByTime(PAYOFF_DURATION_MS * 4);
+      expect(controller.paywallOpen).toBe(true);
+      expect(controller.justUnlocked).toBe(false); // the success screen suppresses the payoff
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("signed-out purchase success → ACCOUNT-PITCH success screen (AE1)", async () => {
+    const { session, controller, bridge } = harness({
+      bridge: { receiptStatus: vi.fn(async () => "entitled" as const) },
+    });
+    controller.openPaywall();
+    await session.onGet();
+    // No session: no enterSession, no reconcile — purchase directly (R1).
+    expect(bridge.configurePurchases).not.toHaveBeenCalled();
+    expect(controller.successScreen).toBe("account-pitch");
+    expect(controller.receiptEntitled).toBe(true);
+    expect(controller.entitled).toBe(true);
+    expect(controller.userId).toBeNull();
+    // "Not now" leaves an entitled, account-free home screen — never a dead buy CTA.
+    controller.dismissSuccess();
+    expect(controller.popupState).toBe("pro-no-account");
+  });
+
+  it("staleIdentity outcome renders its retryable flow state (R15)", async () => {
+    const { session, controller } = harness({
+      bridge: {
+        purchaseStillPro: vi.fn(async () => ({
+          outcome: "staleIdentity" as const,
+          entitled: false,
+        })),
+      },
+    });
+    controller.openPaywall();
+    await session.onGet();
+    expect(controller.purchaseFlow).toBe("stale-identity");
+    expect(controller.paywallOpen).toBe(true);
   });
 
   it("a rejected native purchase resolves to a visible failed state (CTA never stuck)", async () => {
@@ -357,6 +381,132 @@ describe("AppleSession — teardown parity (KTD5)", () => {
     const h = harness();
     await h.session.deleteAccountEverywhere();
     expect(h.bridge.signOut).toHaveBeenCalled();
+  });
+});
+
+describe("AppleSession — receipt lane (R6/R17/R18, plan 2026-07-15-001)", () => {
+  it("receipt Pro SURVIVES sign-out: server lane clears, entitled stays true, no doomed mirror (AE2)", async () => {
+    const { session, controller, bridge } = harness({
+      bridge: { receiptStatus: vi.fn(async () => "entitled" as const) },
+    });
+    await session.refreshReceipt();
+    expect(controller.receiptEntitled).toBe(true);
+    await session.signOutEverywhere();
+    // The server lane cleared; the device receipt keeps Pro (R6).
+    expect(controller.userId).toBeNull();
+    expect(controller.entitled).toBe(true);
+    expect(controller.popupState).toBe("pro-no-account");
+    // The doomed server-lane false proposal is skipped (the native policy would block it anyway).
+    expect(bridge.setEntitlement).not.toHaveBeenCalledWith(false);
+  });
+
+  it("sign-out on a no-receipt device still proposes the downgrade (AE12 — shared-machine invariant)", async () => {
+    const { session, bridge, controller } = harness(); // receiptStatus default: noSignal
+    await session.refreshReceipt();
+    await session.signOutEverywhere();
+    expect(bridge.setEntitlement).toHaveBeenLastCalledWith(false);
+    expect(controller.entitled).toBe(false);
+  });
+
+  it("attach evaluation: server not entitled + receipt entitled → attach → second reconcile (AE3 spine)", async () => {
+    let serverEntitled = false;
+    const h = harness({
+      bridge: {
+        receiptStatus: vi.fn(async () => "entitled" as const),
+        attachPurchases: vi.fn(async () => {
+          serverEntitled = true; // the sync/webhook records it; the next reconcile sees it
+          return true;
+        }),
+      },
+    });
+    h.sync.onSignedIn.mockImplementation(async (userId: string) => {
+      h.session.onSyncState({
+        userId,
+        entitled: serverEntitled,
+        syncing: false,
+        cloudReachable: true,
+        confirmed: true,
+      });
+    });
+    await h.session.enterSession("u1");
+    expect(h.bridge.attachPurchases).toHaveBeenCalledTimes(1);
+    expect(h.sync.onSignedIn).toHaveBeenCalledTimes(2); // reconcile → attach → reconcile again
+    expect(h.controller.serverEntitled).toBe(true);
+  });
+
+  it("attach is idempotent: an already-entitled account never attaches", async () => {
+    const h = harness({
+      onSignedInState: { entitled: true },
+      bridge: { receiptStatus: vi.fn(async () => "entitled" as const) },
+    });
+    await h.session.enterSession("u1");
+    expect(h.bridge.attachPurchases).not.toHaveBeenCalled();
+    expect(h.sync.onSignedIn).toHaveBeenCalledTimes(1);
+  });
+
+  it("no receipt → no attach call (R8: server entitlement flows as today)", async () => {
+    const h = harness(); // receiptStatus: noSignal
+    await h.session.enterSession("u1");
+    expect(h.bridge.attachPurchases).not.toHaveBeenCalled();
+  });
+
+  it("teardown mid-attach-evaluation aborts it: no transfer to the post-sign-out identity (AE13)", async () => {
+    let releaseReceipt!: () => void;
+    const receiptGate = new Promise<void>((resolve) => {
+      releaseReceipt = resolve;
+    });
+    const h = harness({
+      bridge: {
+        receiptStatus: vi.fn(async () => {
+          await receiptGate;
+          return "entitled" as const;
+        }),
+      },
+    });
+    const entering = h.session.enterSession("u1");
+    await Promise.resolve(); // configure + first reconcile land; attach eval blocks on the receipt
+    await h.session.signOutEverywhere();
+    releaseReceipt();
+    await entering;
+    expect(h.bridge.attachPurchases).not.toHaveBeenCalled();
+    expect(h.sync.onSignedIn).toHaveBeenCalledTimes(1); // no second reconcile for the departed user
+  });
+
+  it("signed-out restore resolves from the receipt (AE11/R4)", async () => {
+    const { session, controller } = harness({
+      bridge: {
+        restore: vi.fn(async () => true),
+        receiptStatus: vi.fn(async () => "entitled" as const),
+      },
+    });
+    controller.openPaywall();
+    await session.onRestore();
+    expect(controller.receiptEntitled).toBe(true);
+    expect(controller.purchaseFlow).toBe("idle"); // restored → resolved
+    expect(controller.userId).toBeNull();
+  });
+
+  it("signed-out Ask-to-Buy approval resolves on foreground: pending → success screen (AE9/R18)", async () => {
+    const { session, controller } = harness({
+      bridge: { receiptStatus: vi.fn(async () => "entitled" as const) },
+    });
+    controller.openPaywall();
+    controller.setPurchaseOutcome({ outcome: "pending", entitled: false });
+    session.onVisibilityChange("visible");
+    await vi.waitFor(() => expect(controller.successScreen).toBe("account-pitch"));
+    expect(controller.receiptEntitled).toBe(true);
+    expect(controller.paywallOpen).toBe(true);
+  });
+
+  it("a refund (verifiedNotEntitled) clears receipt Pro in the UI", async () => {
+    const status = vi.fn(async () => "entitled" as const);
+    const { session, controller } = harness({ bridge: { receiptStatus: status } });
+    await session.refreshReceipt();
+    expect(controller.entitled).toBe(true);
+    status.mockResolvedValue("verifiedNotEntitled" as never);
+    await session.refreshReceipt();
+    expect(controller.receiptEntitled).toBe(false);
+    expect(controller.entitled).toBe(false);
   });
 });
 

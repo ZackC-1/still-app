@@ -16,6 +16,7 @@ import type {
 
 export type PopupState =
   | "signed-out"
+  | "pro-no-account" // receipt-entitled with no session (purchase-first, R3): Pro active, sign-in optional
   | "not-entitled"
   | "entitlement-pending" // reconcile in flight (time-boxed)
   | "entitled-syncing"
@@ -71,8 +72,15 @@ export type PurchaseFlow =
   | "cancelled"
   | "failed"
   | "unavailable" // no offering / product not available right now
+  | "stale-identity" // signed out but the purchase identity isn't verifiably anonymous (R15) — retry CTA
   | "restoring"
   | "restored-none"; // restore completed but nothing to restore
+
+/** The post-purchase success screen (R3, purchase-first): a dedicated presentation — NOT the 2.5s
+ * auto-dismissing payoff, which is a single line sized for quiet web unlocks. `account-pitch`
+ * (signed-out) offers the optional account with equal-weight Create/Not-now; `synced` (signed-in)
+ * confirms without an account CTA. Dismissal is always an explicit user choice. */
+export type SuccessScreen = "none" | "account-pitch" | "synced";
 
 // ── Web checkout-pending lifecycle (plan U4/R3/R5) ────────────────────────────────────────────────
 
@@ -194,8 +202,13 @@ export class UiController {
   reconciling = $state(false);
   cloudReachable = $state(true);
 
-  /** Backing store for the `entitled` accessor pair below (U3/R6 payoff observation). */
-  #entitled = $state(false);
+  /** Backing stores for the `entitled` accessor below: the two entitlement lanes (ADR 0003).
+   * Server-derived (reconcile/webhook truth, cleared on teardown) and receipt-derived (the
+   * device's StoreKit receipt, R17 — SURVIVES sign-out/deletion; only a verified revocation or
+   * receipt absence clears it). The UI renders their OR; sync-flavored UI keys off the server
+   * lane specifically. */
+  #serverEntitled = $state(false);
+  #receiptEntitled = $state(false);
   /** The quieter-web success payoff (U3/R6): true from the moment entitlement turns
    * on with the paywall open until the payoff dismisses (~2.5s auto, or early on tap/Escape).
    * Never true while `entitled` is false — the setter clears it on any downgrade. */
@@ -225,6 +238,9 @@ export class UiController {
   deleteError = $state<string | null>(null);
   purchaseFlow = $state<PurchaseFlow>("idle");
   purchaseError = $state<string | null>(null);
+  /** The post-purchase success screen (R3). Suppresses the payoff while active — a purchase
+   * resolves through this dedicated presentation, never the auto-dismissing one-liner. */
+  successScreen = $state<SuccessScreen>("none");
   /** The checkout-pending presentation (plan U4/R3): persisted-flag lifecycle across popup deaths,
    * orthogonal to purchaseFlow (which tracks one tap's in-flight purchase). */
   checkoutFlow = $state<CheckoutFlow>("none");
@@ -283,22 +299,53 @@ export class UiController {
    * on Apple. So observing the controller's own transition IS the after-the-write signal; no extra
    * synchronization is needed here. */
   get entitled(): boolean {
-    return this.#entitled;
+    return this.#serverEntitled || this.#receiptEntitled;
   }
 
+  /** SERVER-LANE setter — existing hosts assign it like a plain property (apple-session's
+   * onSyncState, the extension entitlement-storage subscription). Teardown's `entitled = false`
+   * clears only this lane: receipt-derived Pro survives sign-out by design (R6). */
   set entitled(value: boolean) {
-    const rose = !this.#entitled && value;
-    this.#entitled = value;
+    this.applyEntitlementInput(() => {
+      this.#serverEntitled = value;
+    });
+  }
+
+  /** The server lane alone — sync-flavored UI and the attach evaluation key off this, because the
+   * merged `entitled` is true for a receipt-only device that the ACCOUNT doesn't yet own. */
+  get serverEntitled(): boolean {
+    return this.#serverEntitled;
+  }
+
+  get receiptEntitled(): boolean {
+    return this.#receiptEntitled;
+  }
+
+  /** RECEIPT-LANE setter (R17) — fed from the bridge's receipt reads by the Apple session. */
+  set receiptEntitled(value: boolean) {
+    this.applyEntitlementInput(() => {
+      this.#receiptEntitled = value;
+    });
+  }
+
+  /** One transition rule over the MERGED entitlement, whichever lane moved: payoff on a rise with
+   * a paywall surface open (unless the success screen owns the moment), checkout-pending lifecycle
+   * ends on a rise, and the payoff never renders against a false entitlement. */
+  private applyEntitlementInput(mutate: () => void): void {
+    const before = this.entitled;
+    mutate();
+    const after = this.entitled;
+    const rose = !before && after;
     // Payoff only when a paywall surface is open (a quiet background unlock stays quiet, R6).
     // Eligibility is judged BEFORE the pending flag is cleared below — the checkout-pending
     // presentation is exactly what makes a rehydrated paying user eligible (U4).
     if (rose && this.payoffEligible) this.showPayoff();
-    // Server-confirmed entitlement ends any checkout-pending lifecycle: clear the persisted flag
-    // and stop polling — the payoff (above) fires exactly once, on this edge (U4/R6).
+    // Confirmed entitlement ends any checkout-pending lifecycle: clear the persisted flag and
+    // stop polling — the payoff (above) fires exactly once, on this edge (U4/R6).
     if (rose) this.clearCheckoutPending();
     // Ordering pin: the payoff must never render against a false entitlement — a revocation or
     // teardown mid-payoff clears it immediately.
-    if (!value) this.clearPayoff();
+    if (!after) this.clearPayoff();
   }
 
   /** Whether an entitled false→true transition should celebrate (U3/R6): while the paywall is
@@ -306,7 +353,37 @@ export class UiController {
    * auth-required) is active — that presentation is a paywall-independent rehydration surface,
    * and a paying user must get the payoff, never a quiet unlock. */
   private get payoffEligible(): boolean {
+    // The success screen owns purchase moments (R3): while it is active (or about to be — the
+    // session shows it before feeding the receipt flip), the quiet payoff stays out of the way.
+    if (this.successScreen !== "none") return false;
     return this.paywallOpen || this.checkoutFlow !== "none";
+  }
+
+  /** Resolve a completed purchase into the success screen (R3): signed-out buyers get the
+   * optional-account pitch; signed-in buyers get the sync confirmation. Renders in the paywall
+   * sheet with NO auto-dismiss — leaving is an explicit choice ("Not now" / account CTA). */
+  showPurchaseSuccess(): void {
+    this.clearPayoff();
+    this.successScreen = this.userId === null ? "account-pitch" : "synced";
+    this.paywallOpen = true;
+    this.purchaseFlow = "idle";
+    this.purchaseError = null;
+  }
+
+  /** Leave the success screen ("Not now", Escape, or after choosing the account path). */
+  dismissSuccess(): void {
+    this.successScreen = "none";
+    this.paywallOpen = false;
+    this.purchaseFlow = "idle";
+    this.purchaseError = null;
+  }
+
+  /** The success screen's account CTA: hand off to the sign-in sheet (the attach happens inside
+   * the session's enterSession once the code verifies — no purchase intent needed; they own Pro). */
+  createAccountFromSuccess(): void {
+    this.successScreen = "none";
+    this.paywallOpen = false;
+    this.openSignIn();
   }
 
   /** Show the payoff and schedule its auto-dismiss. The payoff supersedes any in-flight/outcome
@@ -341,7 +418,9 @@ export class UiController {
 
   get popupState(): PopupState {
     if (this.userId && !this.cloudReachable) return "cloud-unreachable";
-    if (!this.userId) return "signed-out";
+    // Receipt-entitled with no session (purchase-first): Pro is ACTIVE — the home screen must not
+    // render a buy CTA that startUpgrade() would silently no-op on. Sign-in stays visible (R3/R9).
+    if (!this.userId) return this.entitled ? "pro-no-account" : "signed-out";
     if (this.reconciling) return "entitlement-pending";
     if (!this.entitled) return "not-entitled";
     return "entitled-syncing";
@@ -388,15 +467,17 @@ export class UiController {
     return !this.entitled && PRO_SERVICE_IDS.has(id);
   }
 
-  /** Start the Pro upgrade path. Signed-out on a purchasable host → sign in first
-   * (sign-in-before-purchase, monetization principle 8), recording purchase intent so a
-   * successful sign-in continues to the paywall without re-tapping. Signed-in users open the
-   * paywall directly; hosts without a purchase path get the explanatory paywall state. */
+  /** Start the Pro upgrade path. NATIVE-purchase hosts (Apple — no checkout seam) open the
+   * paywall directly regardless of session: purchase requires no account (purchase-first,
+   * Guideline 5.1.1(v); plan 2026-07-15-001). WEB-checkout hosts keep sign-in-first — there the
+   * account is the entitlement's delivery mechanism, not a compliance choice — recording purchase
+   * intent so a successful sign-in continues to the paywall without re-tapping. Hosts without a
+   * purchase path get the explanatory paywall state. */
   startUpgrade(): void {
     // Also a no-op while a purchase/restore is in flight — a second trigger (locked-row tap,
     // upgrade CTA) must not reset purchaseFlow mid-purchase.
     if (this.entitled || this.purchaseBusy) return;
-    if (this.host.canPurchase && this.canSignIn && !this.userId) {
+    if (this.canWebCheckout && this.canSignIn && !this.userId) {
       this.setPurchaseIntent(true);
       this.openSignIn();
       return;
@@ -443,8 +524,10 @@ export class UiController {
 
   dismissPaywall(): void {
     // An early tap/Escape ends the payoff too; clearing the timer keeps a stale auto-dismiss from
-    // firing into a later, unrelated paywall session (U3/R6).
+    // firing into a later, unrelated paywall session (U3/R6). Escape on the success screen is an
+    // explicit dismissal (equivalent to "Not now") — never an auto-dismiss.
     this.clearPayoff();
+    this.successScreen = "none";
     this.paywallOpen = false;
     this.purchaseFlow = "idle";
     this.purchaseError = null;
@@ -486,6 +569,13 @@ export class UiController {
         break;
       case "unavailable":
         this.purchaseFlow = "unavailable";
+        break;
+      case "staleIdentity":
+        // Signed out, but the purchase identity couldn't be verified anonymous (R15 — a prior
+        // sign-out's logOut may have failed). The sheet renders a "Try again" CTA that re-runs
+        // the native reset-then-purchase sequence — never a "sign out" instruction (the user
+        // already is).
+        this.purchaseFlow = "stale-identity";
         break;
       case "failed":
         this.purchaseFlow = "failed";
@@ -916,12 +1006,15 @@ export class UiController {
   }
 
   /** Clear all signed-in UI state back to the signed-out baseline. Shared by signOut + delete so a
-   * new field added here can't be forgotten in one path. */
+   * new field added here can't be forgotten in one path. Clears only the SERVER entitlement lane:
+   * receipt-derived Pro belongs to the device's Apple Account and survives teardown (R6) — a
+   * receipt-entitled device lands on `pro-no-account`, not a re-locked home screen. */
   private resetToSignedOut(): void {
     this.userId = null;
-    this.entitled = false;
+    this.entitled = false; // server lane only — the setter never touches #receiptEntitled
     this.authFlow = "idle";
     this.paywallOpen = false;
+    this.successScreen = "none";
     this.purchaseFlow = "idle";
     this.purchaseError = null;
     // Code-flow leftovers must not survive a teardown: no pending code entry, no purchase intent
