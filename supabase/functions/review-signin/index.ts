@@ -14,6 +14,13 @@ import {
 /** GoTrue-admin adapter for the session mint (supported admin APIs only — plan U3 KTD). */
 class GoTrueReviewAdmin implements ReviewAdmin {
   private readonly client: SupabaseClient;
+  /** The single review user's UUID, remembered after the first resolution so later sign-ins use a
+   * direct getUserById instead of re-scanning the whole user list. Without this, findUserByEmail
+   * pages listUsers from page 1 every call and permanently breaks once total auth.users exceeds the
+   * page cap (~20k) — a scaling ceiling on the ONE App-Review-approved sign-in path. Invalidated
+   * when getUserById misses (the reviewer deleted the account mid-lifecycle), falling back to a scan
+   * that re-resolves the freshly-created row. */
+  private cachedUserId: string | null = null;
 
   constructor(url: string, serviceRoleKey: string) {
     this.client = createClient(url, serviceRoleKey, {
@@ -22,14 +29,26 @@ class GoTrueReviewAdmin implements ReviewAdmin {
   }
 
   async findUserByEmail(email: string): Promise<ReviewUser | null> {
-    // The admin JS API has no direct email lookup; page through the list. Bounded in practice:
-    // this path is reachable only for the single review address and rate-limited to 5/email/10min.
+    if (this.cachedUserId !== null) {
+      const { data, error } = await this.client.auth.admin.getUserById(this.cachedUserId);
+      // A confirmed miss (deleted account) invalidates the cache and falls through to a fresh scan;
+      // a transport/API error is surfaced (the outer handler fails it closed to 500).
+      if (!error && data.user && (data.user.email ?? "").trim().toLowerCase() === email) {
+        return { id: data.user.id, emailConfirmed: Boolean(data.user.email_confirmed_at) };
+      }
+      this.cachedUserId = null;
+    }
+    // The admin JS API has no direct email lookup; page through the list. Reachable only for the
+    // single review address and rate-limited, and now only until the UUID is cached above.
     const perPage = 1000;
     for (let page = 1; page <= 20; page++) {
       const { data, error } = await this.client.auth.admin.listUsers({ page, perPage });
       if (error) throw error;
       const match = data.users.find((u) => (u.email ?? "").trim().toLowerCase() === email);
-      if (match) return { id: match.id, emailConfirmed: Boolean(match.email_confirmed_at) };
+      if (match) {
+        this.cachedUserId = match.id;
+        return { id: match.id, emailConfirmed: Boolean(match.email_confirmed_at) };
+      }
       if (data.users.length < perPage) return null;
     }
     throw new Error("auth user list exceeded the review-lookup page cap");
@@ -43,6 +62,7 @@ class GoTrueReviewAdmin implements ReviewAdmin {
       if (error.code === "email_exists" || error.status === 422) return null;
       throw error;
     }
+    this.cachedUserId = data.user.id; // remember the fresh row so the next sign-in skips the scan
     return { id: data.user.id, emailConfirmed: true };
   }
 

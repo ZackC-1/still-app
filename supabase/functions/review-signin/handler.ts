@@ -59,11 +59,13 @@ export interface ReviewSigninDeps {
 }
 
 // Policy pinned by plan U3 (the gate protects a fixed 6-digit code, not an authenticated user's
-// cost): the per-email bucket is the tight gate — at 5/10 min the 10^6 keyspace takes years to
-// half-cover, and the code rotates — while per-IP stays generous because Apple review traffic can
-// egress shared 17.0.0.0/8 NAT addresses and must not 429 the real reviewer. The email plays the
-// "user" role in the shared limiter's bucket keys.
-export const VERIFY_RATE_LIMIT: RateLimitPolicy = { maxPerUser: 5, maxPerIp: 30, windowSeconds: 600 };
+// cost): the per-email bucket is the tight gate while per-IP stays generous because Apple review
+// traffic can egress shared 17.0.0.0/8 NAT addresses and must not 429 the real reviewer. The email
+// plays the "user" role in the shared limiter's bucket keys. maxPerUser is 10, not 5, for
+// hand-transcription headroom: an Apple reviewer typing a 6-digit code from the notes must not
+// lock themselves out on a few fat-fingers (that would reproduce the 2.1(a) rejection). At 10/10min
+// against a 10^6 keyspace with a per-submission-rotating code, brute force is still ~decades away.
+export const VERIFY_RATE_LIMIT: RateLimitPolicy = { maxPerUser: 10, maxPerIp: 30, windowSeconds: 600 };
 /** The request preflight has no side effects; only the per-email window applies (plan U3). */
 export const REQUEST_RATE_LIMIT = { maxRequests: 5, windowSeconds: 600 } as const;
 /** Conservative Retry-After when the limiter RPC itself fails (fail closed — never wave through). */

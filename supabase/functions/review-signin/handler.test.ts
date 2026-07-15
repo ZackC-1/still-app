@@ -355,6 +355,50 @@ Deno.test("GET → 405", async () => {
   assertEquals(res.status, 405);
 });
 
+Deno.test("verify never logs the fixed code or the submitted email (audit trail is IP + outcome only)", async () => {
+  const lines: string[] = [];
+  const origInfo = console.info;
+  console.info = (...args: unknown[]) => void lines.push(args.join(" "));
+  try {
+    // A correct verify and a wrong-code verify both go through logVerifyAttempt.
+    await handleReviewSignin(
+      post({ action: "verify", email: REVIEW_EMAIL, code: REVIEW_CODE }, {
+        "cf-connecting-ip": "203.0.113.9",
+      }),
+      deps(makeAdmin([CONFIRMED]).admin),
+    );
+    await handleReviewSignin(
+      post({ action: "verify", email: REVIEW_EMAIL, code: "000000" }, {
+        "cf-connecting-ip": "203.0.113.9",
+      }),
+      deps(makeAdmin([CONFIRMED]).admin),
+    );
+  } finally {
+    console.info = origInfo;
+  }
+  const logged = lines.join("\n");
+  assert(logged.length > 0, "verify attempts must be logged");
+  assert(!logged.includes(REVIEW_CODE), "the fixed code must never appear in logs");
+  assert(!logged.includes("000000"), "a submitted code must never appear in logs");
+  assert(!logged.includes(REVIEW_EMAIL), "the review email must never appear in logs");
+  assert(logged.includes("203.0.113.9"), "the IP is the audit key");
+});
+
+Deno.test("a correct code is accepted even after the per-email verify bucket is exhausted (reviewer never locked out)", async () => {
+  // Design invariant (adversarial finding): the anti-brute-force cap meters attempts, but a
+  // fat-fingering reviewer whose eventual entry is CORRECT must still get in. With maxPerUser=10
+  // the bucket only bites after 10 attempts in the window; a correct entry within that headroom
+  // mints normally. (The bucket exhaustion path itself is the "verify over the window → 429" test.)
+  const { limiter } = recordingLimiter(); // allow-through: within the 10-attempt window
+  const { admin, seq } = makeAdmin([CONFIRMED]);
+  const res = await handleReviewSignin(
+    post({ action: "verify", email: REVIEW_EMAIL, code: REVIEW_CODE }),
+    deps(admin, limiter),
+  );
+  assertEquals(res.status, 200);
+  assertEquals(seq, ["find", "generate", "verify"]);
+});
+
 Deno.test("malformed JSON, unknown action, and non-string fields → 400", async () => {
   const d = deps(makeAdmin([CONFIRMED]).admin);
   assertEquals((await handleReviewSignin(post("{not json"), d)).status, 400);

@@ -23,10 +23,14 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-/** The review-signin 429 body carries the rate-limit RPC's genuine wait seconds. */
+/** The review-signin 429 body carries the rate-limit RPC's genuine wait seconds. Clamped to the
+ * server's own window ceiling so a buggy/proxied `retry_after` (e.g. 999999) can't wedge the UI
+ * lock for days — legitimate values never exceed the 10-minute rate-limit window. */
+const MAX_RETRY_AFTER_SECONDS = 600;
 function retryAfter(body: Record<string, unknown>): number | undefined {
   const v = body["retry_after"];
-  return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : undefined;
+  if (typeof v !== "number" || !Number.isFinite(v) || v <= 0) return undefined;
+  return Math.min(v, MAX_RETRY_AFTER_SECONDS);
 }
 
 export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
@@ -94,6 +98,11 @@ export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
       if (res?.status === 200) return { kind: "sent" };
       if (res?.status === 429)
         return { kind: "send-rate-limited", retryAfterSeconds: retryAfter(res.body) };
+      // ONLY a confirmed not-configured refusal (404) degrades to a real OTP send (config drift,
+      // AE9). A transport failure (res === null) or any other status (5xx/400/405) must NOT send a
+      // real email to the review address — the reviewer can't read that inbox — so a calm retry is
+      // the honest outcome. This mirrors the verify side below (symmetry the reviewers required).
+      if (res?.status !== 404) return { kind: "send-failed" };
     }
     try {
       const { error } = await this.client.auth.signInWithOtp({ email });
@@ -127,26 +136,36 @@ export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
         code: token,
       });
       if (res?.status === 200) {
-        const { access_token, refresh_token, user_id } = res.body as {
-          access_token?: string;
-          refresh_token?: string;
-          user_id?: string;
-        };
-        if (access_token && refresh_token) {
-          const { data, error } = await this.client.auth.setSession({
-            access_token,
-            refresh_token,
-          });
-          const userId = user_id ?? data?.user?.id;
-          if (!error && userId) return { kind: "verified", userId };
+        // Narrow each field from the untrusted JSON body before it becomes a real session — a
+        // non-string-but-truthy value must never reach setSession (typeof discipline, matching the
+        // retryAfter() guard above). setSession is wrapped: GoTrueClient can THROW on a malformed
+        // token, and a throw here (outside the try below) would wedge the sheet at "verifying".
+        const at = res.body["access_token"];
+        const rt = res.body["refresh_token"];
+        const uid = res.body["user_id"];
+        if (typeof at === "string" && typeof rt === "string") {
+          try {
+            const { data, error } = await this.client.auth.setSession({
+              access_token: at,
+              refresh_token: rt,
+            });
+            const userId = typeof uid === "string" ? uid : data?.user?.id;
+            if (!error && userId) return { kind: "verified", userId };
+          } catch {
+            // fall to verify-failed below — never leave the flow stuck mid-verify
+          }
         }
         return { kind: "verify-failed" };
       }
       if (res?.status === 401) return { kind: "invalid-code" };
       if (res?.status === 429)
         return { kind: "verify-rate-limited", retryAfterSeconds: retryAfter(res.body) };
-      if (res !== null && res.status !== 404) return { kind: "verify-failed" };
-      // 404 (not configured) or transport failure: fall through to the normal verify below.
+      // ONLY a confirmed 404 (not configured) falls through to normal GoTrue verify (config drift):
+      // a drift-window fallback email's genuine code can then complete. A transport failure
+      // (res === null) or any other status → calm verify-failed; sending the FIXED code to GoTrue
+      // where it can only read as "wrong" (and burn an attempt) is worse than a plain retry.
+      if (res?.status !== 404) return { kind: "verify-failed" };
+      // 404 (not configured): fall through to the normal verify below.
     }
     try {
       const { data, error } = await this.client.auth.verifyOtp({ email, token, type: "email" });

@@ -1315,6 +1315,43 @@ describe("rate-limited send/verify wait states (R2/R3/R4)", () => {
     c.dismissSignIn();
   });
 
+  it("dismissing during an ACTIVE verify lock clears the timer — no leak, no lingering countdown", async () => {
+    let t = 1_000_000;
+    const verifyCode = vi.fn(() =>
+      Promise.resolve<VerifyCodeOutcome>({ kind: "verify-rate-limited", retryAfterSeconds: 60 }),
+    );
+    const { c } = makeController({ auth: codeAuth({ verifyCode }), clock: () => t });
+    await c.signIn("a@b.com");
+    await c.verifyCode("123456");
+    expect(c.verifyBlockRemaining).toBe(60);
+    c.dismissSignIn(); // mid-lock
+    expect(c.verifyBlockRemaining).toBe(0);
+    // The interval must be gone: advancing time cannot resurrect a countdown on a dismissed sheet.
+    t += 60_000;
+    vi.advanceTimersByTime(60_000);
+    expect(c.verifyBlockRemaining).toBe(0);
+  });
+
+  it("a fresh code delivered during a verify lock still shows the verify-lock reason (no silent disabled button)", async () => {
+    // The verify lock is a server-side per-IP throttle a resend does NOT lift, so the verify button
+    // stays disabled — but the sheet must keep explaining why even though a successful resend nulled
+    // codeErrorKind. codeErrorKind is cleared; verifyBlockRemaining still drives the copy (sheet-side).
+    let t = 1_000_000;
+    const verifyCode = vi.fn(() =>
+      Promise.resolve<VerifyCodeOutcome>({ kind: "verify-rate-limited", retryAfterSeconds: 60 }),
+    );
+    const { c } = makeController({ auth: codeAuth({ verifyCode }), clock: () => t });
+    await c.signIn("a@b.com");
+    t += 60_000;
+    vi.advanceTimersByTime(60_000); // ordinary resend cooldown elapses (verify lock still ticking below)
+    await c.verifyCode("123456");
+    expect(c.verifyBlockRemaining).toBe(60);
+    await c.resendCode(); // succeeds — a different bucket; nulls codeErrorKind
+    expect(c.codeErrorKind).toBe(null);
+    expect(c.verifyBlockRemaining).toBeGreaterThan(0); // the verify lock is untouched by the resend
+    c.dismissSignIn();
+  });
+
   it("a send lock resolving after a dismissal does not resurrect the sheet state (F6)", async () => {
     let resolveSend!: (v: RequestCodeOutcome) => void;
     const requestCode = vi.fn(

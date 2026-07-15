@@ -36,14 +36,19 @@
         c.authFlow === "code-error"),
   );
   const codeErrorLine = $derived.by(() => {
+    // The verify lock disables the Verify button straight off verifyBlockRemaining, so its
+    // explanation must render whenever the lock is active — checked FIRST, independent of
+    // codeErrorKind. Otherwise a resend that succeeds mid-lock (which nulls codeErrorKind) or a
+    // later resend-rate-limit (which overwrites it) would leave the button silently disabled with
+    // no copy (a resend does NOT lift the server-side per-IP verify throttle, so the button stays
+    // disabled — it just needs its reason shown).
+    if (c.verifyBlockRemaining > 0)
+      return `${STRINGS.codeAuth.verifyBlocked} ${c.verifyBlockRemaining}s`;
     if (c.codeErrorKind === null) return null;
     if (c.codeErrorKind === "expired") return STRINGS.codeAuth.expiredCode;
     // The rate-limited kinds outrank suggestNewCode (R3): "send a new code" is the worst advice
     // during a lockout. Both self-clear when their lock elapses (the controller nulls the kind).
-    if (c.codeErrorKind === "verify-rate-limited")
-      return c.verifyBlockRemaining > 0
-        ? `${STRINGS.codeAuth.verifyBlocked} ${c.verifyBlockRemaining}s`
-        : STRINGS.codeAuth.verifyError;
+    if (c.codeErrorKind === "verify-rate-limited") return STRINGS.codeAuth.verifyError; // lock already elapsed; kind lingering
     if (c.codeErrorKind === "resend-rate-limited")
       return STRINGS.codeAuth.resendBlocked;
     if (c.suggestNewCode) return STRINGS.codeAuth.requestNew;
@@ -184,7 +189,7 @@
            because under the hourly cap none was ever sent. The lock's elapse clears this state. -->
       <p class="error" role="status">
         {c.sendBlockRemaining > 0
-          ? `${STRINGS.codeAuth.sendBlocked} (${c.sendBlockRemaining}s)`
+          ? `${STRINGS.codeAuth.sendBlocked} ${c.sendBlockRemaining}s`
           : c.canUseCode
             ? STRINGS.codeAuth.sendError
             : (c.authError ?? STRINGS.auth.error)}

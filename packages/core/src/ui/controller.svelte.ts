@@ -541,7 +541,14 @@ export class UiController {
     // Reset terminal auth states so reopening the sheet starts fresh at the email field — otherwise a
     // lingering "sent" lands on a Resend that fires with an empty email (the sheet's local input is
     // unmounted on close), and a lingering "error" shows a stale message.
-    if (this.authFlow === "error" || this.authFlow === "sent")
+    // Reset "sending" too: the generation bump above discards the in-flight send continuation, so a
+    // dismissal mid-first-send would otherwise leave the reopened sheet stuck on a disabled
+    // "Sending…" CTA (no reset path on the long-lived Apple webview short of an app relaunch).
+    if (
+      this.authFlow === "error" ||
+      this.authFlow === "sent" ||
+      this.authFlow === "sending"
+    )
       this.authFlow = "idle";
     this.authError = null;
     // An email-view send lock (no code flow entered yet) is UI-only state — clear it with the
