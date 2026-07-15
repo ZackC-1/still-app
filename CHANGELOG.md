@@ -4,6 +4,10 @@ Still uses descriptive pull request titles and conventional commit-style summari
 
 ## Unreleased
 
+- Centralized the extension session protocol and entry wiring shared by the Chromium, Firefox, and Safari builds.
+- Scoped engine rule work per page and removed the unused hide-CSS generation seam.
+- Ignored stale Apple entitlement callbacks and stopped the Safari reconcile nudge after teardown.
+- Staged the post-approval release versions: browser stores 1.0.3 and Apple 1.0.3 (build 4).
 - Added server-authoritative near-realtime settings sync across browser and Apple surfaces.
 - Hardened Safari App Group reconciliation and extension wake paths.
 - Added signed macOS and iOS build validation plus a current cross-surface release test record.

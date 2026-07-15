@@ -10,7 +10,19 @@ paste-ready copy remain in
 
 - Remote and local `main` were synchronized at merge commit `663a898` after PR #92 recorded the
   corrected Firefox 1.0.2 submission.
-- Browser package version on `main`: `1.0.2`.
+- July 14: the architecture PRs #97–#109 merged to `main` (session-protocol registry, extension
+  entry factory, hide-CSS seam removal, engine page session, two Apple/Safari race fixes). A full
+  release validation of the merged `main` (`da6922a`) passed every automated gate on every surface:
+  workspace gate, 16 Playwright fixtures, StillKit Swift tests, Supabase Deno checks, iOS + macOS
+  Release compiles, `web-ext lint` (0 errors), and a byte-identical clean-room AMO rebuild.
+- **Decision (July 14): pending store reviews ride unchanged.** Do not upload new packages while
+  AMO 1.0.2 and Apple 1.0 (3) are in review. The merged architecture work ships as **1.0.3**
+  (browser stores) and **Apple 1.0.3 build 4** immediately after the current submissions are
+  approved and released. The version bumps are staged on `main`; verified 1.0.3 artifacts and
+  hashes are recorded below.
+- Browser package version on `main`: `1.0.3` (manifest versions: Chrome/Firefox/Safari all 1.0.3;
+  Apple marketing version 1.0.3, build 4). If Apple instead **rejects** 1.0 (3), resubmit the fixed
+  1.0 train by setting `MARKETING_VERSION` back to 1.0 (keep build 4) before archiving.
 - PR #89 added and deployed the Chrome Web Store Limited Use privacy disclosure.
 - PR #90 made the AMO launch desktop-only by omitting `gecko_android`, added a manifest contract test,
   and aligned the release documentation.
@@ -54,12 +66,21 @@ repository history.
 
 | Purpose | Path | SHA-256 |
 |---|---|---|
-| AMO binary upload | `packages/ext-chromium/dist/stillext-chromium-1.0.2-firefox.zip` | `e9e8241d681e0d64b6fd46920e1a3bf5ca116e53197ffb5ae45c136bb17db091` |
-| AMO full source upload | `packages/ext-chromium/dist/still-amo-sources-full-repo-1.0.2.zip` | `c65909fee73444dad1cbf0edaa517d821614de52cf9778f0f73c8a3e25a3190f` |
+| AMO full source upload (submitted 1.0.2) | `packages/ext-chromium/dist/still-amo-sources-full-repo-1.0.2.zip` | `c65909fee73444dad1cbf0edaa517d821614de52cf9778f0f73c8a3e25a3190f` |
+| Staged 1.0.3 Chrome upload | `packages/ext-chromium/dist/stillext-chromium-1.0.3-chrome.zip` | `3deefe77c11de7bbb9f4df0356573c15b13e3f58bb5fa78871f5c616c69700b3` |
+| Staged 1.0.3 AMO binary upload | `packages/ext-chromium/dist/stillext-chromium-1.0.3-firefox.zip` | `946b45f6410282d1ad7aa29f6e0eba7b39a41a2fca6eaf5cd96330b69b90ae94` |
+| Staged 1.0.3 AMO full source upload | `packages/ext-chromium/dist/still-amo-sources-full-repo-1.0.3.zip` | `d013a4f76bb7e50e6cf844bf864b963b725d673cec423a79995a6e99e673ebfd` |
 
-The full-source archive contains the root lockfile/workspace files and only the two public extension
-build variables in `packages/ext-chromium/.env`. A clean extraction was installed and rebuilt, and its
-`dist/firefox-mv3` output matched the binary upload directory exactly.
+⚠️ The July 13 local copy of the **submitted** `stillext-chromium-1.0.2-firefox.zip`
+(`e9e8241d…b091`) was overwritten on July 14 by a validation rebuild from post-architecture `main`
+under the same filename, and was then superseded by the 1.0.3 zips above. AMO retains the canonical
+submitted binary; the hash-verified 1.0.2 source archive above reproduces its `dist/firefox-mv3`
+contents exactly (rebuild from commit `663a898` or the archive itself).
+
+Each full-source archive contains the root lockfile/workspace files and only the two public extension
+build variables in `packages/ext-chromium/.env`. For both 1.0.2 and staged 1.0.3, a clean extraction
+was installed and rebuilt, and its `dist/firefox-mv3` output matched the corresponding binary zip
+exactly (the 1.0.3 check extracted both zips and diffed rebuild against binary, byte for byte).
 
 ### Submitted AMO package
 
@@ -160,6 +181,10 @@ status, then check:
 5. The homepage exposes only live store links and repeats the Safari-only/native-app limitation.
 6. Release iOS and macOS together, then run the post-release accessibility evaluation separately on
    iPhone, iPad, and Mac.
+7. After the launch versions are live, upload the staged 1.0.3 packages (hashes above) to Chrome and
+   AMO, and archive/upload Apple 1.0.3 build 4 from `main`. Rerun the on-device checks in
+   [`06-mobile-blocking-validation.md`](06-mobile-blocking-validation.md) and the `VALIDATION.md`
+   manual cross-surface passes against build 4 before releasing it.
 
 ## Safe resume check
 
@@ -170,8 +195,9 @@ git pull --ff-only origin main
 git status --short --branch
 node -p "require('./packages/ext-chromium/package.json').version"
 shasum -a 256 \
-  packages/ext-chromium/dist/stillext-chromium-1.0.2-firefox.zip \
-  packages/ext-chromium/dist/still-amo-sources-full-repo-1.0.2.zip
+  packages/ext-chromium/dist/stillext-chromium-1.0.3-chrome.zip \
+  packages/ext-chromium/dist/stillext-chromium-1.0.3-firefox.zip \
+  packages/ext-chromium/dist/still-amo-sources-full-repo-1.0.3.zip
 ```
 
-Expected: clean `main`, version `1.0.2`, and the two hashes recorded above.
+Expected: clean `main`, version `1.0.3`, and the three staged-1.0.3 hashes recorded above.
