@@ -22,23 +22,41 @@ export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
   }
 
   /** Code flow: same OTP email, but no redirect option — the user types the code instead of
-   * tapping a link. Structured outcome only; the raw error text never reaches the UI. */
+   * tapping a link. Structured outcome only; the raw error text never reaches the UI.
+   * Classification is by GoTrue's structured `error.code` exclusively (R1): a 429
+   * `over_email_send_rate_limit` becomes its own wait-state kind instead of the generic
+   * "try again" that invites hammering the very limit that fired. */
   async requestCode(email: string): Promise<RequestCodeOutcome> {
-    const { error } = await this.client.auth.signInWithOtp({ email });
-    return error ? { kind: "send-failed" } : { kind: "sent" };
+    try {
+      const { error } = await this.client.auth.signInWithOtp({ email });
+      if (!error) return { kind: "sent" };
+      if (error.code === "over_email_send_rate_limit") return { kind: "send-rate-limited" };
+      return { kind: "send-failed" };
+    } catch {
+      return { kind: "send-failed" };
+    }
   }
 
-  /** Exchange the emailed 6-digit code for a session. Supabase reports a wrong token and an
-   * expired token as the same 403 `otp_expired` error, so both map to `invalid-code`; anything
-   * else (offline, 5xx) is `verify-failed` — the code may still be good, so it's not an attempt. */
+  /** Exchange the emailed 6-digit code for a session. GoTrue deliberately reports a wrong token
+   * and an expired token as ONE error (`otp_expired`, anti-enumeration), so both map to
+   * `invalid-code` — expired-vs-wrong presentation is the controller's clock-based call. Every
+   * other error routes by `error.code` alone (R1/R5): the per-IP verify throttle gets its own
+   * non-attempt kind, and anything unrecognized — including non-OTP 403s like `otp_disabled` and
+   * code-absent responses — is `verify-failed` (calm retry, not an attempt), NEVER "wrong code";
+   * the old `status === 403` catch-all dead-ended those as forever-wrong. */
   async verifyCode(email: string, token: string): Promise<VerifyCodeOutcome> {
-    const { data, error } = await this.client.auth.verifyOtp({ email, token, type: "email" });
-    if (error) {
-      const invalid = error.code === "otp_expired" || error.status === 403;
-      return invalid ? { kind: "invalid-code" } : { kind: "verify-failed" };
+    try {
+      const { data, error } = await this.client.auth.verifyOtp({ email, token, type: "email" });
+      if (error) {
+        if (error.code === "otp_expired") return { kind: "invalid-code" };
+        if (error.code === "over_request_rate_limit") return { kind: "verify-rate-limited" };
+        return { kind: "verify-failed" };
+      }
+      const userId = data.user?.id ?? data.session?.user.id;
+      return userId ? { kind: "verified", userId } : { kind: "verify-failed" };
+    } catch {
+      return { kind: "verify-failed" };
     }
-    const userId = data.user?.id ?? data.session?.user.id;
-    return userId ? { kind: "verified", userId } : { kind: "verify-failed" };
   }
 
   async signOut(): Promise<void> {

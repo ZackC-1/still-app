@@ -25,7 +25,13 @@ export interface AuthPort {
 /** Outcome of asking the backend to email a 6-digit sign-in code. */
 export type RequestCodeOutcome =
   | { readonly kind: "sent" }
-  /** Rate limit, offline, or any backend failure — the UI shows one calm retry line. */
+  /** GoTrue `over_email_send_rate_limit` (both the 60s per-user cooldown AND the hourly SMTP cap
+   * share this one code) — the UI renders a wait state and locks the send affordance instead of
+   * inviting retries. `retryAfterSeconds` is only present when the transport genuinely knows it
+   * (the review-signin function returns one; GoTrue puts it in message TEXT, which is never
+   * parsed — structured-outcome doctrine). */
+  | { readonly kind: "send-rate-limited"; readonly retryAfterSeconds?: number }
+  /** Offline or any other backend failure — the UI shows one calm retry line. */
   | { readonly kind: "send-failed" };
 
 /** Outcome of verifying an entered code. */
@@ -33,6 +39,10 @@ export type VerifyCodeOutcome =
   | { readonly kind: "verified"; readonly userId: string }
   /** Wrong or expired token — the server reports both as one error, so they share a kind. */
   | { readonly kind: "invalid-code" }
+  /** GoTrue `over_request_rate_limit` (per-IP verify throttle): NOT a code attempt, and the UI
+   * must not suggest "send a new code" during the lockout. Same `retryAfterSeconds` semantics as
+   * send-rate-limited above. */
+  | { readonly kind: "verify-rate-limited"; readonly retryAfterSeconds?: number }
   /** Offline / unexpected failure: the code may still be good, so this is not an attempt. */
   | { readonly kind: "verify-failed" };
 
