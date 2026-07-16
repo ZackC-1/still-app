@@ -75,14 +75,19 @@ Verification methods, per item:
 
 ### 1c. review-signin deploy + config cross-check (HARD gates, R14/R16)
 
-- [ ] Set the function secrets (values from the private submission record —
-      NEVER committed; the code is a fresh random 6-digit value minted now):
-      `supabase secrets set REVIEW_SIGNIN_EMAIL=<review address> REVIEW_SIGNIN_CODE=<random 6 digits>`
-- [ ] Deploy: `supabase functions deploy review-signin --import-map supabase/functions/deno.json`
-- [ ] **Cross-check (HARD gate):** the Apple build's `VITE_REVIEW_SIGNIN_EMAIL`
+- [x] Set the function secrets (values from the private submission record —
+      NEVER committed; the code is a fresh random 6-digit CSPRNG value minted
+      into the gitignored `packages/app-webview/.env.review-signin`, never
+      printed): `supabase secrets set --env-file packages/app-webview/.env.review-signin`
+      — DONE 2026-07-16 (count 2). Update the private submission record from
+      that file before filling the ASC fields.
+- [x] Deploy: `supabase functions deploy review-signin --import-map supabase/functions/deno.json`
+      — DONE 2026-07-16 (version 1, ACTIVE, verify_jwt=false).
+- [x] **Cross-check (HARD gate):** the Apple build's `VITE_REVIEW_SIGNIN_EMAIL`
       equals the `REVIEW_SIGNIN_EMAIL` secret exactly. Drift here reproduces
       the un-reviewable dead end for App Review: the client falls back to a
-      real email that reviewers can never read.
+      real email that reviewers can never read. — PASS 2026-07-16
+      (byte-identical file compare; hosted URL + anon key also verified).
 - [ ] **Post-deploy smoke (HARD gate, R16):** (a) real-inbox OTP sign-ins with
       TWO non-review addresses — one BRAND-NEW and one existing (they exercise
       the two different GoTrue templates; "Confirm signup" fires for first-time
@@ -93,6 +98,10 @@ Verification methods, per item:
       actually rejects). All must pass before Organizer upload. Record results
       as pass/fail + date ONLY — never raw codes, request/response bodies, or
       session tokens (this file is committed).
+      Status 2026-07-16: (b) PASS — fixed code 200, wrong code 401, non-review
+      address 404, against the hosted function. (a) OPEN — real-inbox OTP with
+      a brand-new AND an existing address still requires a human with real
+      inboxes; do not upload before it passes.
 - [ ] After ALL in-flight platform reviews referencing the code are resolved
       (approved or withdrawn — macOS and iOS run staggered on ONE shared
       code): rotate or `supabase secrets unset REVIEW_SIGNIN_CODE` (unsetting
