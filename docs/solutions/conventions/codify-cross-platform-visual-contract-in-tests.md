@@ -87,5 +87,6 @@ Treat the contract test as the floor, and extend its assertions whenever a new i
 ## Related
 
 - [mirror-fixes-across-parallel-paths](../conventions/mirror-fixes-across-parallel-paths.md) — the manual "check the sibling path" discipline this convention automates for rendered surfaces. Neither supersedes the other: that doc's fix is a shared code path; this one's is a CI-enforced contract for codebases that cannot share code.
+- [codify-store-asset-compliance-in-tests](codify-store-asset-compliance-in-tests.md) — the same pattern extended to a non-UI surface: an App Store asset governed by an *external* compliance spec (Apple Guideline 2.3.2) rather than internal cross-surface consistency. Answers this doc's own "extend to a real rendering check when the property cannot be verified from source alone."
 - `packages/core/src/ui/__tests__/design-contract.test.ts` — the contract test.
 - `tests/playwright/extension.spec.ts` — the rendered-outcome backstop.

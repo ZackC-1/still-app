@@ -142,6 +142,10 @@ The through-line of all four findings is **enforce the boundary, don't assume it
 
 - [gate-production-trust-by-build-mode](gate-production-trust-by-build-mode.md) — same fail-safe
   principle (enforce trust, never assume it) applied to signing-key selection.
+- [keep-secrets-out-of-cli-args-and-transcripts](keep-secrets-out-of-cli-args-and-transcripts.md) —
+  the operator/agent workflow around the same `supabase secrets set` deploy step: mint into a
+  gitignored env file, push with `--env-file`, set secrets *before* deploying, and smoke-test on
+  status codes only.
 - [supabase-signout-leaves-local-session-on-revoke-failure](supabase-signout-leaves-local-session-on-revoke-failure.md)
   — related Supabase auth fail-safe behavior.
 - [mirror-fixes-across-parallel-paths](../conventions/mirror-fixes-across-parallel-paths.md) — why
