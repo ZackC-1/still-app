@@ -22,6 +22,21 @@ const targets = [
 // rights-reviewed upload set (see ../store-ready/README.md) — scope reruns to what changed.
 const only = process.argv[2];
 
+const promos = [
+  { name: "chrome/still-chrome-promo-v2-440x280.jpg", width: 440, height: 280, type: "store-promo", storeReady: true },
+  { name: "chrome/still-chrome-marquee-v2-1400x560.jpg", width: 1400, height: 560, type: "store-promo", storeReady: true },
+  { name: "web/still-open-graph-v2-1200x630.jpg", width: 1200, height: 630, type: "promo" },
+  { name: "apple/still-pro-iap-v3-1024x1024.jpg", width: 1024, height: 1024, type: "iap", storeReady: true },
+];
+
+// A typo'd filter must fail loudly BEFORE any rendering: a silent zero-match run exits 0 and
+// leaves the previously rendered JPEGs in place looking freshly regenerated.
+const knownTypes = new Set(promos.map((p) => p.type));
+if (only && !knownTypes.has(only)) {
+  console.error(`Unknown filter "${only}" — valid types: ${[...knownTypes].join(", ")}`);
+  process.exit(1);
+}
+
 const browser = await chromium.launch({ headless: true });
 for (const target of only ? [] : targets) {
   const outputDir = resolve(outputRoot, target.platform);
@@ -58,13 +73,8 @@ if (!only) {
   await page.close();
 }
 
-const promos = [
-  { name: "chrome/still-chrome-promo-v2-440x280.jpg", width: 440, height: 280, type: "store-promo", storeReady: true },
-  { name: "chrome/still-chrome-marquee-v2-1400x560.jpg", width: 1400, height: 560, type: "store-promo", storeReady: true },
-  { name: "web/still-open-graph-v2-1200x630.jpg", width: 1200, height: 630, type: "promo" },
-  { name: "apple/still-pro-iap-v3-1024x1024.jpg", width: 1024, height: 1024, type: "iap", storeReady: true },
-];
-for (const promo of only ? promos.filter((p) => p.type === only) : promos) {
+const selectedPromos = only ? promos.filter((p) => p.type === only) : promos;
+for (const promo of selectedPromos) {
   const output = resolve(outputRoot, promo.name);
   await mkdir(dirname(output), { recursive: true });
   const page = await browser.newPage({ viewport: { width: promo.width, height: promo.height }, deviceScaleFactor: 1 });
@@ -79,3 +89,4 @@ for (const promo of only ? promos.filter((p) => p.type === only) : promos) {
   await page.close();
 }
 await browser.close();
+if (only) console.log(`Rendered ${selectedPromos.length} "${only}" promo(s).`);

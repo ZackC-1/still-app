@@ -75,19 +75,27 @@ Verification methods, per item:
 
 ### 1c. review-signin deploy + config cross-check (HARD gates, R14/R16)
 
-- [x] Set the function secrets (values from the private submission record —
+- [ ] Set the function secrets (values from the private submission record —
       NEVER committed; the code is a fresh random 6-digit CSPRNG value minted
       into the gitignored `packages/app-webview/.env.review-signin`, never
-      printed): `supabase secrets set --env-file packages/app-webview/.env.review-signin`
-      — DONE 2026-07-16 (count 2). Update the private submission record from
-      that file before filling the ASC fields.
-- [x] Deploy: `supabase functions deploy review-signin --import-map supabase/functions/deno.json`
-      — DONE 2026-07-16 (version 1, ACTIVE, verify_jwt=false).
-- [x] **Cross-check (HARD gate):** the Apple build's `VITE_REVIEW_SIGNIN_EMAIL`
+      printed):
+      `supabase secrets set --env-file packages/app-webview/.env.review-signin --project-ref kikpgrreradotvvefdgd`
+      (explicit `--project-ref` — do not rely on a gitignored local `supabase link`).
+      Update the private submission record from that file before filling the
+      ASC fields.
+      Status 2026-07-16: DONE for the current cycle (count 2).
+- [ ] Deploy:
+      `supabase functions deploy review-signin --import-map supabase/functions/deno.json --project-ref kikpgrreradotvvefdgd`
+      Status 2026-07-16: DONE for the current cycle (version 1, ACTIVE, verify_jwt=false).
+- [ ] **Cross-check (HARD gate):** the Apple build's `VITE_REVIEW_SIGNIN_EMAIL`
       equals the `REVIEW_SIGNIN_EMAIL` secret exactly. Drift here reproduces
       the un-reviewable dead end for App Review: the client falls back to a
-      real email that reviewers can never read. — PASS 2026-07-16
-      (byte-identical file compare; hosted URL + anon key also verified).
+      real email that reviewers can never read.
+      Status 2026-07-16: PASS for the current cycle (byte-identical file
+      compare; hosted URL + anon key also verified).
+      The boxes above stay unchecked by design: they are per-cycle gates, and
+      the step-10 rotation (runbook §7) invalidates them — when rotating or
+      unsetting the code, clear these status lines in the same commit.
 - [ ] **Post-deploy smoke (HARD gate, R16):** (a) real-inbox OTP sign-ins with
       TWO non-review addresses — one BRAND-NEW and one existing (they exercise
       the two different GoTrue templates; "Confirm signup" fires for first-time
@@ -98,6 +106,18 @@ Verification methods, per item:
       actually rejects). All must pass before Organizer upload. Record results
       as pass/fail + date ONLY — never raw codes, request/response bodies, or
       session tokens (this file is committed).
+      Reproducible invocation (values come from the gitignored env file via
+      shell expansion — never inline; no auth headers are needed because the
+      function pins `verify_jwt = false` in `supabase/config.toml`, and a
+      positive-path 200 also proves headers are not the issue for the 401 leg):
+
+      ```bash
+      set -a; source packages/app-webview/.env.review-signin; set +a
+      URL="https://kikpgrreradotvvefdgd.supabase.co/functions/v1/review-signin"
+      curl -s -o /dev/null -w '%{http_code}\n' -X POST "$URL" -H 'Content-Type: application/json' \
+        --data "{\"action\":\"verify\",\"email\":\"$REVIEW_SIGNIN_EMAIL\",\"code\":\"$REVIEW_SIGNIN_CODE\"}"   # expect 200
+      # wrong code → expect 401; non-review address → expect 404 (same body shape)
+      ```
       Status 2026-07-16: (b) PASS — fixed code 200, wrong code 401, non-review
       address 404, against the hosted function. (a) OPEN — real-inbox OTP with
       a brand-new AND an existing address still requires a human with real

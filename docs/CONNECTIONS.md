@@ -75,8 +75,12 @@ is in-function (`verify_jwt = false`): exact normalized-email allowlist + consta
 + per-email/per-IP rate limits through the writer-role `consume_rate_limit` RPC, fail closed on
 every axis — both secrets unset means every request gets the same 404 refusal and the client falls
 back to normal OTP end to end.
-Deploy steps: `supabase secrets set REVIEW_SIGNIN_EMAIL=<review address> REVIEW_SIGNIN_CODE=<random
-6 digits>` then `supabase functions deploy review-signin --import-map supabase/functions/deno.json`.
+Deploy steps: mint both values into a gitignored env file without printing them (convention:
+`packages/app-webview/.env.review-signin`), then
+`supabase secrets set --env-file <file> --project-ref kikpgrreradotvvefdgd` and
+`supabase functions deploy review-signin --import-map supabase/functions/deno.json --project-ref kikpgrreradotvvefdgd`
+(never pass the values inline on the CLI — shell history and agent transcripts persist them; full
+procedure in `docs/release/extension-purchase-deploy-checklist.md` §1c).
 The address and code values are NEVER committed anywhere (this repo is public — the address is half
 the two-factor gate); they live in the private submission record and App Store Connect only. The
 Apple build's `VITE_REVIEW_SIGNIN_EMAIL` must equal the secret exactly (hard pre-upload cross-check,

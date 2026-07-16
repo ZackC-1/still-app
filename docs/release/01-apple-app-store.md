@@ -166,8 +166,8 @@ Docs: [Submitting for review](https://developer.apple.com/help/app-store-connect
 
 ### Current submission checkpoint
 
-- [x] iOS 1.0 build 3 is **Waiting for Review**.
-- [x] macOS 1.0 build 3 is **Waiting for Review**.
+- [x] iOS 1.0 build 3 was submitted — REJECTED July 16 (2.3.2 × 2, promoted-IAP image; see §7).
+- [x] macOS 1.0 build 3 was submitted — REJECTED July 15 (5.1.1(v), 2.1(a) × 2, 2.3.2; see §7).
 - [x] `still_sync` is attached to the launch submission and **Waiting for Review**.
 - [x] iPhone screenshots accepted.
 - [x] 13-inch iPad screenshot blocker resolved with
@@ -343,8 +343,12 @@ in App Store Connect · `[device]` human on hardware.
 1. `[repo]` v3 image + contract test + build-number bump to 5 — landed in the fix PR.
 2. `[CLI]` review-signin backend live, in this exact order (details + hard gates:
    `extension-purchase-deploy-checklist.md` §1c): mint a fresh CSPRNG 6-digit code into a
-   gitignored env file (values never printed anywhere) → `supabase secrets set --env-file …` →
-   `supabase functions deploy review-signin …` → curl smoke recording HTTP statuses only
+   gitignored env file (values never printed anywhere) →
+   `supabase secrets set --env-file <file> --project-ref kikpgrreradotvvefdgd` →
+   `supabase functions deploy review-signin --import-map supabase/functions/deno.json --project-ref kikpgrreradotvvefdgd`
+   (the explicit `--project-ref` matters: without it the commands depend on a gitignored local
+   `supabase link`, which a fresh clone or another worktree does not have) → curl smoke recording
+   HTTP statuses only — the exact reproducible invocation lives in the deploy checklist §1c —
    (fixed code → 200; wrong code → 401; non-review address → 404). ALL before any archive upload.
 3. `[CLI]` §1c cross-check: `VITE_REVIEW_SIGNIN_EMAIL` in `packages/app-webview/.env` equals the
    deployed `REVIEW_SIGNIN_EMAIL` byte-for-byte (file-compare exit code, values never printed);
@@ -361,7 +365,10 @@ in App Store Connect · `[device]` human on hardware.
      `pnpm --filter @still/app-webview build` and `pnpm --filter @still/ext-safari build`;
      the Xcode targets only COPY prebuilt `dist/`, so a GUI archive without the prebuild ships a
      stale bundle with no review branch and no error (silent no-op — highest-consequence failure
-     in this flow).
+     in this flow). Binding check: `shasum packages/app-webview/dist/assets/index-*.js`
+     immediately before Product → Archive, then compare against the same file inside the produced
+     `.xcarchive` (Show Package Contents → the app's webview resources) — a mismatch means the
+     archive picked up a stale bundle.
    - Upload both (Organizer/Transporter/`UPLOAD=1` for iOS).
 6. `[ASC]` Portal pass, both platform tabs:
    - Replace the promotional image: Apps → Still → Monetization → In-App Purchases →
@@ -381,21 +388,29 @@ in App Store Connect · `[device]` human on hardware.
      notes (the template above) — they already explain that no email arrives for this account.
 7. `[ASC+CLI]` Credentials read-back gate (LAST portal step before resubmit): copy the email and
    code back OUT of the saved ASC fields on BOTH tabs and re-run the §1c fixed-code curl with
-   exactly those strings → must return 200. Any code re-mint re-triggers this gate on both
-   platforms. This is the only check that proves the string pair the reviewer will actually type.
+   exactly those strings → must return 200. If ASC masks the saved password field, read the code
+   back from the review-notes text instead (the template carries it verbatim). Any code re-mint
+   re-triggers this gate on both platforms. This is the only check that proves the string pair
+   the reviewer will actually type. A 429 during this gate or the next step is the per-email
+   verify limiter (10 attempts / 10 min, fail-closed) — wait out Retry-After and continue; do
+   NOT re-mint the code for a 429 (a re-mint triggers the change-coupling cascade below).
 8. `[device]` On-device pass BEFORE resubmitting: VALIDATION.md items 7–8 (OTP error paths;
    review sign-in lifecycle — type the credentials from the ASC field text, not the private
    record), then the full sandbox checklist items 1–6. Include an iPad or iPad simulator for
    items 7–8: the rejection's review device was an iPad.
 9. `[ASC]` Resubmit both platforms on the SAME open submission.
-10. `[CLI]` After BOTH platform reviews resolve: rotate or unset `REVIEW_SIGNIN_CODE` (§1c
-    rotation gate — do not skip; the mechanism should not outlive the review).
+10. `[CLI]` After BOTH platform reviews resolve: rotate or unset `REVIEW_SIGNIN_CODE`
+    (`supabase secrets unset REVIEW_SIGNIN_CODE --project-ref kikpgrreradotvvefdgd`; §1c
+    rotation gate — do not skip; the mechanism should not outlive the review). In the same
+    pass: remove `VITE_REVIEW_SIGNIN_EMAIL` from `packages/app-webview/.env` (a populated value
+    silently bakes the review branch into every future Apple archive and re-arms if a later
+    cycle sets a code) and clear the §1c status lines per the checklist's rotation note.
 
 **Change-coupling matrix** (what a late change invalidates):
 
 | Change | Requires |
 |---|---|
-| Review **email** value | Re-archive BOTH platforms (build-time env) + update ASC fields/notes both tabs + redo steps 3, 5–8 |
+| Review **email** value | Update the U5 env file + re-run `supabase secrets set --env-file … --project-ref kikpgrreradotvvefdgd` (no code re-mint) + re-archive BOTH platforms (build-time env) + update ASC fields/notes both tabs + redo steps 3, 5–8 |
 | Review **code** value | Update ASC fields/notes on BOTH tabs FIRST, then the secret; NO rebuild (server-side only); redo step 7 |
 | Promotional **image** | ASC upload only (step 6); independent of the binary |
 | Any binary change | New build number; redo steps 5–8 |
