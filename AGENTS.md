@@ -77,6 +77,8 @@ perform the read-first check and capture reusable learning after non-trivial wor
 Repository files, not chat transcripts, are the source of shared memory.
 
 - `STRATEGY.md` records durable product direction and outcome priorities.
+- `CONCEPTS.md` records the project's shared domain vocabulary — the agreed names for entities,
+  named processes, and status concepts. Use these names; map synonyms back to them.
 - `docs/ARCHITECTURE.md` records the current runtime map and module boundaries.
 - `docs/adr/` records accepted architectural decisions.
 - `docs/solutions/` records verified, reusable learnings from solved problems.
