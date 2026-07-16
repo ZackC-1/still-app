@@ -64,6 +64,10 @@ Verification methods, per item:
 
   Expected: `otp_length` 6, `otp_exp` 3600, `smtp` non-null, both
   `*_has_link` false.
+
+  NOTE: the Management API read above does NOT cover the 60s resend cooldown —
+  that gate is dashboard-only (Auth → Rate limits). Check it by eye even when
+  the curl passes; a passing curl marks §1b only four-fifths verified.
 - **Client-constant pin (R15):** hosted `otp_expiry` mirrors `OTP_TTL_MS` in
   `packages/core/src/ui/controller.svelte.ts` and hosted `otp_length` mirrors
   the sheet's 6-digit input. Changing either hosted value requires changing
@@ -79,11 +83,16 @@ Verification methods, per item:
       equals the `REVIEW_SIGNIN_EMAIL` secret exactly. Drift here reproduces
       the un-reviewable dead end for App Review: the client falls back to a
       real email that reviewers can never read.
-- [ ] **Post-deploy smoke (HARD gate, R16):** (a) one real-inbox OTP sign-in
-      with a NON-review address end to end (proves normal users are unaffected
-      and the templates/SMTP are right); (b) one fixed-code sign-in with the
-      review address (the only end-to-end proof of the session-mint chain
-      against hosted GoTrue). Both must pass before Organizer upload.
+- [ ] **Post-deploy smoke (HARD gate, R16):** (a) real-inbox OTP sign-ins with
+      TWO non-review addresses — one BRAND-NEW and one existing (they exercise
+      the two different GoTrue templates; "Confirm signup" fires for first-time
+      addresses, so a one-address smoke leaves the template every new customer
+      hits unproven); (b) one fixed-code sign-in with the review address (the
+      only end-to-end proof of the session-mint chain against hosted GoTrue)
+      PLUS one wrong-code attempt that must return 401 (proves the gate
+      actually rejects). All must pass before Organizer upload. Record results
+      as pass/fail + date ONLY — never raw codes, request/response bodies, or
+      session tokens (this file is committed).
 - [ ] After ALL in-flight platform reviews referencing the code are resolved
       (approved or withdrawn — macOS and iOS run staggered on ONE shared
       code): rotate or `supabase secrets unset REVIEW_SIGNIN_CODE` (unsetting

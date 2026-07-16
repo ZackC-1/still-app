@@ -219,7 +219,7 @@ Docs: [Submitting for review](https://developer.apple.com/help/app-store-connect
 
 ---
 
-## 7. Resubmission after the 5.1.1(v) rejection (July 15, 2026 — purchase-first, 1.0 build 4)
+## 7. Resubmission after the 5.1.1(v) rejection (July 15, 2026 — purchase-first; now 1.0 build 5)
 
 The macOS 1.0 (3) rejection cited Guideline 5.1.1(v) (registration required before a
 non-account-based IAP), 2.1(a) twice (demo account needed; an error entering the verification
@@ -227,16 +227,21 @@ code), and 2.3.2 (the IAP promotional image was an app screenshot). The purchase
 (plan `docs/plans/2026-07-15-001`, ADR 0003) resolves 5.1.1 structurally: purchase and Restore
 work fully signed out, and sign-in is optional. Resubmit BOTH platforms — they are reviewed
 independently against the same guidelines; keep the marketing version on the **1.0 train with
-build 4** (a rejected version accepts a replacement build; only a RELEASED train forces a new
-version).
+build 5** (bumped from 4 on July 16 so the upload can never collide with the locally-archived —
+possibly uploaded — build 4; a rejected version accepts a replacement build; only a RELEASED
+train forces a new version). See the July 16 iOS runbook below for the ordered resubmission
+steps — it applies to both platforms.
 
 ### Portal checklist before resubmitting (human)
 
 - [ ] `still_sync` shows **"Ready to Submit"** and is attached to the 1.0 version — a rejection
       often "returns" the IAP with the binary; re-attach it (the attach UI only appears while an
       IAP is unattached) and name it in the review notes.
-- [ ] **Delete the IAP promotional image** (2.3.2): Apple offers deletion explicitly; replace later
-      with brand-safe non-screenshot artwork at leisure.
+- [ ] **Replace the IAP promotional image with v3** (2.3.2): upload
+      `docs/release/screenshots/store-ready/apple/still-pro-iap-v3-1024x1024.jpg` — see the
+      July 16 runbook below for the click path, the edit-while-open fallback, and the
+      verify-after-save step. Compliance rules are canonical in
+      `screenshots/store-ready/README.md`; do not upload v1/v2-era art.
 - [ ] RevenueCat dashboard → project **restore behavior = "Transfer to new App User ID"** (the
       default; the restrictive setting breaks signed-out restore and is itself a rejection vector).
 - [ ] App Store Connect → `still_sync` **Family Sharing stays OFF** (the attach gate assumes
@@ -315,3 +320,82 @@ top rejection driver; one self-contained script per platform.
   device keeps receipt Pro and the account back-fills from the Apple purchase at the next
   reconcile. Transfer history is queryable in `revenuecat_events` (TRANSFER payloads) for
   "why did my Pro disappear" tickets.
+
+### July 16, 2026 — iOS 1.0 (3) rejected: 2.3.2 × 2 (promoted-IAP image) — ordered resubmission runbook
+
+Apple's iOS review (submission `d8784a58`, review device iPad Air 11-inch M3) raised two
+findings, both against the `still_sync` promotional image: it is an app screenshot with text too
+small to read, and it references the price. Remediation plan: `docs/plans/2026-07-16-001`. The
+compliant v3 artwork is `docs/release/screenshots/store-ready/apple/still-pro-iap-v3-1024x1024.jpg`
+(rules canonical in `screenshots/store-ready/README.md`, pinned in CI by
+`tests/playwright/store-assets.spec.ts`).
+
+Facts that shape the order (per Apple docs, cited in the origin brainstorm): a metadata rejection
+alone needs NO new binary — the same submission stays open, you fix the metadata in ASC and
+resubmit. This resubmission nevertheless ships build 5 on both platforms because the 2.1(a)
+defense (review-signin) must be live and baked in before a reviewer next attempts sign-in.
+Promoted-IAP metadata changes can take ~24h to propagate to public placements; that does not
+block resubmission.
+
+Tags: `[repo]` in the fix PR (agent) · `[CLI]` agent-run against hosted Supabase · `[ASC]` human
+in App Store Connect · `[device]` human on hardware.
+
+1. `[repo]` v3 image + contract test + build-number bump to 5 — landed in the fix PR.
+2. `[CLI]` review-signin backend live, in this exact order (details + hard gates:
+   `extension-purchase-deploy-checklist.md` §1c): mint a fresh CSPRNG 6-digit code into a
+   gitignored env file (values never printed anywhere) → `supabase secrets set --env-file …` →
+   `supabase functions deploy review-signin …` → curl smoke recording HTTP statuses only
+   (fixed code → 200; wrong code → 401; non-review address → 404). ALL before any archive upload.
+3. `[CLI]` §1c cross-check: `VITE_REVIEW_SIGNIN_EMAIL` in `packages/app-webview/.env` equals the
+   deployed `REVIEW_SIGNIN_EMAIL` byte-for-byte (file-compare exit code, values never printed);
+   also confirm `VITE_SUPABASE_URL`/anon key point at the hosted project — a stale value builds a
+   clean archive pointed at nothing.
+4. `[human dashboard]` §1b hosted-config hard gates against the LIVE dashboard (SMTP, both
+   templates token-only, otp_length 6, expiry 3600) — note the 60s resend cooldown is
+   dashboard-only (Auth → Rate limits); the Management-API curl does not cover it. Real-inbox OTP
+   smoke with BOTH a brand-new and an existing non-review address (two GoTrue templates).
+5. `[device/human]` Archives with the review env baked in, build 5:
+   - iOS: `apps/apple/scripts/archive.sh` (rebuilds the web bundle + ext-safari first; needs the
+     ASC API key env) or Xcode GUI.
+   - macOS: NO script exists — before Xcode GUI Product → Archive you MUST run
+     `pnpm --filter @still/app-webview build` and `pnpm --filter @still/ext-safari build`;
+     the Xcode targets only COPY prebuilt `dist/`, so a GUI archive without the prebuild ships a
+     stale bundle with no review branch and no error (silent no-op — highest-consequence failure
+     in this flow).
+   - Upload both (Organizer/Transporter/`UPLOAD=1` for iOS).
+6. `[ASC]` Portal pass, both platform tabs:
+   - Replace the promotional image: Apps → Still → Monetization → In-App Purchases →
+     `still_sync` → App Store Image → Choose File → upload v3. Then RE-OPEN the IAP page and
+     confirm the saved image renders as v3 (a silent keep-of-old-image otherwise goes unnoticed).
+     If the field is locked while the submission is open: remove `still_sync` from the
+     submission → edit → re-attach (the attach UI only appears while unattached) → confirm
+     "Ready to Submit".
+   - Scrub price references from promoted metadata: display name ≤ 30 chars, description
+     ≤ 45 chars, neither mentioning price (the store shows localized pricing itself).
+   - Attach build 5 on EACH platform tab, replacing whatever build is currently attached — iOS
+     shows 3; macOS may show 3 or 4 (a local build-4 archive existed; upload state unknown). Do
+     not resubmit either tab until it displays build 5. A metadata-style resubmit that leaves an
+     old build selected silently discards the entire backend bundle.
+   - App Review Information: enable the sign-in toggle; Username = review address, Password =
+     fixed code (both from the private submission record / U5 env file); paste the §7 review
+     notes (the template above) — they already explain that no email arrives for this account.
+7. `[ASC+CLI]` Credentials read-back gate (LAST portal step before resubmit): copy the email and
+   code back OUT of the saved ASC fields on BOTH tabs and re-run the §1c fixed-code curl with
+   exactly those strings → must return 200. Any code re-mint re-triggers this gate on both
+   platforms. This is the only check that proves the string pair the reviewer will actually type.
+8. `[device]` On-device pass BEFORE resubmitting: VALIDATION.md items 7–8 (OTP error paths;
+   review sign-in lifecycle — type the credentials from the ASC field text, not the private
+   record), then the full sandbox checklist items 1–6. Include an iPad or iPad simulator for
+   items 7–8: the rejection's review device was an iPad.
+9. `[ASC]` Resubmit both platforms on the SAME open submission.
+10. `[CLI]` After BOTH platform reviews resolve: rotate or unset `REVIEW_SIGNIN_CODE` (§1c
+    rotation gate — do not skip; the mechanism should not outlive the review).
+
+**Change-coupling matrix** (what a late change invalidates):
+
+| Change | Requires |
+|---|---|
+| Review **email** value | Re-archive BOTH platforms (build-time env) + update ASC fields/notes both tabs + redo steps 3, 5–8 |
+| Review **code** value | Update ASC fields/notes on BOTH tabs FIRST, then the secret; NO rebuild (server-side only); redo step 7 |
+| Promotional **image** | ASC upload only (step 6); independent of the binary |
+| Any binary change | New build number; redo steps 5–8 |
