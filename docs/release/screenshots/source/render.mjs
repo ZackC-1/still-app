@@ -17,8 +17,13 @@ const targets = [
   { platform: "ipad", width: 2064, height: 2752, orientation: "portrait" },
 ];
 
+// Optional positional filter: `node render.mjs iap` renders only promos of that type and skips
+// every screenshot target. An unscoped run regenerates all store-ready screenshots, which is a
+// rights-reviewed upload set (see ../store-ready/README.md) — scope reruns to what changed.
+const only = process.argv[2];
+
 const browser = await chromium.launch({ headless: true });
-for (const target of targets) {
+for (const target of only ? [] : targets) {
   const outputDir = resolve(outputRoot, target.platform);
   await mkdir(outputDir, { recursive: true });
   const page = await browser.newPage({ viewport: { width: target.width, height: target.height }, deviceScaleFactor: 1 });
@@ -42,7 +47,7 @@ for (const target of targets) {
   await page.close();
 }
 
-{
+if (!only) {
   const output = resolve(storeReadyRoot, "firefox/still-firefox-store-01-1280x800.jpg");
   await mkdir(dirname(output), { recursive: true });
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1 });
@@ -57,9 +62,9 @@ const promos = [
   { name: "chrome/still-chrome-promo-v2-440x280.jpg", width: 440, height: 280, type: "store-promo", storeReady: true },
   { name: "chrome/still-chrome-marquee-v2-1400x560.jpg", width: 1400, height: 560, type: "store-promo", storeReady: true },
   { name: "web/still-open-graph-v2-1200x630.jpg", width: 1200, height: 630, type: "promo" },
-  { name: "apple/still-pro-iap-v2-1024x1024.jpg", width: 1024, height: 1024, type: "iap", storeReady: true },
+  { name: "apple/still-pro-iap-v3-1024x1024.jpg", width: 1024, height: 1024, type: "iap", storeReady: true },
 ];
-for (const promo of promos) {
+for (const promo of only ? promos.filter((p) => p.type === only) : promos) {
   const output = resolve(outputRoot, promo.name);
   await mkdir(dirname(output), { recursive: true });
   const page = await browser.newPage({ viewport: { width: promo.width, height: promo.height }, deviceScaleFactor: 1 });

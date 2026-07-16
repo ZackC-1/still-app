@@ -17,15 +17,24 @@
     .copy { max-width: 76%; }
     h1 { max-width: 11ch; margin: 0; font-size: clamp(28px, 7.1vw, 105px); line-height: .95; letter-spacing: -.06em; }
     p { margin: .7em 0 0; color: #59627c; font-size: clamp(11px, 2.05vw, 30px); font-weight: 560; }
-    body.square main { padding: 10%; color: #fff; background: var(--blue); justify-content: center; align-items: center; text-align: center; }
+    .screens { display: none; }
+    /* v3 promoted-IAP composition (2.3.2): no icon badge or wordmark (Apple composites the real
+       app icon into the lower-left of search placements — repeating its motif is the "confusable
+       with your app icon" failure), a non-text device-trio motif so the art is not a text card,
+       "Still Pro" as the sole text at ≥12% canvas height, upper-anchored so nothing can grow into
+       the bottom-left 30% x 30% safe zone. Canonical rules: ../store-ready/README.md. */
+    body.square main { padding: 8% 10%; color: #fff; background: var(--blue); justify-content: flex-start; align-items: center; text-align: center; }
     body.square main::before { background: rgba(255,255,255,.08); }
-    body.square .brand { margin-bottom: 12%; color: #fff; font-size: clamp(36px, 6vw, 64px); }
-    body.square .mark { background: #fff; }
-    body.square .mark i { border-color: var(--blue); }
-    body.square .mark i::after { background: var(--blue); }
-    body.square .copy { max-width: 88%; }
-    body.square h1 { max-width: none; font-size: clamp(62px, 9vw, 96px); }
-    body.square p { color: #e1e6ff; font-size: clamp(24px, 3.3vw, 36px); }
+    body.square .brand { display: none; }
+    body.square .screens { display: flex; align-items: flex-end; justify-content: center; gap: 44px; margin-top: 30px; }
+    body.square .screen { display: block; width: 300px; height: 216px; padding: 26px; border: 6px solid rgba(255,255,255,.55); border-radius: 28px; background: rgba(255,255,255,.1); }
+    body.square .screen.mid { width: 210px; height: 250px; }
+    body.square .screen.slim { width: 128px; height: 236px; border-radius: 24px; }
+    body.square .screen b { display: block; height: 14px; border-radius: 7px; background: rgba(255,255,255,.4); margin: 0 0 14px; }
+    body.square .screen b:nth-child(2) { width: 68%; opacity: .55; }
+    body.square .screen b:nth-child(3) { width: 42%; opacity: .25; }
+    body.square .copy { max-width: none; }
+    body.square h1 { max-width: none; margin-top: 64px; font-size: 168px; letter-spacing: -.05em; }
     body.store-promo main { padding: 0; justify-content: center; align-items: center; }
     body.store-promo .brand { font-size: clamp(54px, 12vw, 150px); }
     body.store-promo .copy { display: none; }
@@ -34,6 +43,7 @@
 <body>
   <main>
     <div class="brand"><span class="mark"><i></i></span><span>st.ll</span></div>
+    <div class="screens" aria-hidden="true"><i class="screen wide"><b></b><b></b><b></b></i><i class="screen mid"><b></b><b></b><b></b></i><i class="screen slim"><b></b><b></b><b></b></i></div>
     <div class="copy"><h1>Open for what you came for.</h1><p>YouTube Shorts free. Still Pro is $1.99 once.</p></div>
   </main>
   <script>
@@ -44,7 +54,7 @@
     if (type === "iap") {
       document.body.classList.add("square");
       document.querySelector("h1").textContent = "Still Pro";
-      document.querySelector("p").textContent = "One purchase. Every supported screen.";
+      document.querySelector("p").remove();
     }
   </script>
 </body>
