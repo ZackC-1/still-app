@@ -183,8 +183,9 @@ Docs: [Submitting for review](https://developer.apple.com/help/app-store-connect
 - [ ] After approval, evaluate Accessibility Nutrition Labels on physical iPhone, iPad, and Mac before
       claiming support. Leave them unclaimed during first-version review.
 - [ ] Recheck U.S. App Store Tags after approval; the edit section is not currently available.
-- [ ] Before release, visually confirm the Still Pro public description, brand-safe promotional image,
-      and detailed reviewer notes saved. Keep the private review screenshot as the real paywall.
+- [ ] Before release, visually confirm the Still Pro public description and detailed reviewer notes
+      saved. The promotional image field is intentionally EMPTY (see §7 step 6); re-add v3 only
+      after approval. Keep the private review screenshot as the real paywall.
 - [ ] Do not replace the submitted screenshots with service-logo marketing compositions until the
       third-party-rights risk in `screenshots/store-ready/README.md` is resolved.
 
@@ -237,11 +238,13 @@ steps — it applies to both platforms.
 - [ ] `still_sync` shows **"Ready to Submit"** and is attached to the 1.0 version — a rejection
       often "returns" the IAP with the binary; re-attach it (the attach UI only appears while an
       IAP is unattached) and name it in the review notes.
-- [ ] **Replace the IAP promotional image with v3** (2.3.2): upload
-      `docs/release/screenshots/store-ready/apple/still-pro-iap-v3-1024x1024.jpg` — see the
-      July 16 runbook below for the click path, the edit-while-open fallback, and the
-      verify-after-save step. Compliance rules are canonical in
-      `screenshots/store-ready/README.md`; do not upload v1/v2-era art.
+- [x] **IAP promotional image DELETED** (2.3.2) — resolved 2026-07-16. The v3 replacement was
+      built and is compliant, but App Store Connect would not process the asset (see the
+      July 16 runbook below). Deletion is Apple's own offered remedy and removes the 2.3.2
+      surface entirely. The image field is **Optional**; Still Pro remains purchasable. Re-add
+      `docs/release/screenshots/store-ready/apple/still-pro-iap-v3-1024x1024.jpg` AFTER approval
+      (promoted-IAP metadata is version-independent). Compliance rules stay canonical in
+      `screenshots/store-ready/README.md`; never upload v1/v2-era art.
 - [ ] RevenueCat dashboard → project **restore behavior = "Transfer to new App User ID"** (the
       default; the restrictive setting breaks signed-out restore and is itself a rejection vector).
 - [ ] App Store Connect → `still_sync` **Family Sharing stays OFF** (the attach gate assumes
@@ -371,12 +374,24 @@ in App Store Connect · `[device]` human on hardware.
      archive picked up a stale bundle.
    - Upload both (Organizer/Transporter/`UPLOAD=1` for iOS).
 6. `[ASC]` Portal pass, both platform tabs:
-   - Replace the promotional image: Apps → Still → Monetization → In-App Purchases →
-     `still_sync` → App Store Image → Choose File → upload v3. Then RE-OPEN the IAP page and
-     confirm the saved image renders as v3 (a silent keep-of-old-image otherwise goes unnoticed).
-     If the field is locked while the submission is open: remove `still_sync` from the
-     submission → edit → re-attach (the attach UI only appears while unattached) → confirm
-     "Ready to Submit".
+   - **Promotional image — DELETED for this submission (2026-07-16).** The v3 art was built and
+     verified compliant, but ASC would not process the upload: the thumbnail rendered as a broken
+     placeholder showing only the filename, in **both JPEG and PNG**, across **Chrome, Chrome
+     Incognito, and Safari**. Ruled out first, in order: the file itself (1024×1024, baseline
+     JPEG, sRGB, no alpha, 72 dpi — every published spec met), browser extensions (Incognito
+     reproduced it), and the network (Apple's `*.mzstatic.com` CDN resolved and responded, DNS
+     clean, no `/etc/hosts` entries). Conclusion: an ASC-side asset-processing failure with no
+     surfaced error. Submitting with a half-processed asset risks a repeat 2.3.2 on an image
+     nobody can inspect, so the image was deleted — Apple's rejection letter explicitly offers
+     this remedy ("If you have no future plans on promoting this In-App Purchase product, you can
+     delete the associated promotional image in App Store Connect"), the field is labeled
+     Optional, and App Store Promotion was never configured, so the image only ever reached
+     offer-code redemptions. Deleting removes the 2.3.2 surface entirely: no image, nothing to
+     reject. **After approval**, retry the v3 upload (Apps → Still → Monetization → In-App
+     Purchases → `still_sync` → App Store Image → Choose File), then RE-OPEN the page and confirm
+     it actually renders before trusting it. If the field is locked while a submission is open:
+     remove `still_sync` from the submission → edit → re-attach (the attach UI only appears while
+     unattached) → confirm "Ready to Submit".
    - Scrub price references from promoted metadata: display name ≤ 30 chars, description
      ≤ 45 chars, neither mentioning price (the store shows localized pricing itself).
    - Attach build 5 on EACH platform tab, replacing whatever build is currently attached — iOS
