@@ -64,14 +64,27 @@ Upload only `firefox/still-firefox-store-01-1280x800.jpg`.
 
 ## Still Pro in-app purchase image
 
-Use `apple/still-pro-iap-v2-1024x1024.jpg` only in the public promotional **Image** field for the
-in-app purchase.
+Use `apple/still-pro-iap-v3-1024x1024.jpg` only in the public promotional **Image** field for the
+in-app purchase. This section is the CANONICAL statement of the compliance rules — the release
+runbook §7 references it rather than restating it.
 
-- Format: JPEG
-- Dimensions: 1024x1024
-- Color: RGB
-- Density: 72 dpi
-- Flattened with square image corners
+- Format: JPEG, RGB, 1024x1024, 72 dpi, flattened with square image corners
+- Rejection history: v1 (an app paywall screenshot showing the price) was rejected under
+  Guideline 2.3.2 on July 16, 2026 — a screenshot with small text AND a price reference. v2 (brand
+  card with a small subline) was never uploaded and is retired; git history preserves both.
+- Compliance rules — the SOURCE-level rules are pinned in CI by
+  `tests/playwright/store-assets.spec.ts` (which also checks the committed JPEG's dimensions);
+  the shipped JPEG's visual content still requires the human render + sign-off step in runbook §7:
+  - Unique artwork: never an app screenshot, and never resembling the app icon — Apple composites
+    the real app icon into the lower-left of search placements, so repeating its motif reads as
+    "confusable with your app icon."
+  - No price text or price-shaped strings anywhere in the image.
+  - Text limited to the product name at ≥ 12% of the canvas height, so it survives the ~120px
+    thumbnail scale Apple renders in search.
+  - The bottom-left 30% × 30% of the canvas stays content-free (internal convention — Apple
+    publishes no exact figure — reserving the icon-composite region).
+  - Regenerate ONLY via `node render.mjs iap` from `../source/` — an unscoped run rewrites the
+    rights-reviewed screenshot sets above.
 
 This is not the **App Review Screenshot**. For that separate review-only field, capture the real
 Still Pro purchase/paywall screen from the submitted build so the item being sold is visible.

@@ -215,6 +215,11 @@ The deterministic source is `screenshots/source/index.html`; regenerate with:
 node docs/release/screenshots/source/render.mjs
 ```
 
+CAUTION: the unscoped command above rewrites the rights-reviewed `store-ready/` upload sets. For
+promo-only work, scope the run by type (e.g. `node docs/release/screenshots/source/render.mjs iap`
+for the App Store IAP image) — the canonical rules and warning live in
+[`screenshots/store-ready/README.md`](screenshots/store-ready/README.md).
+
 This is intentionally HTML/CSS composition over the real UI captures. Generative imagery is a poor
 fit for store screenshots because it can distort UI, misspell copy, or imply unsupported behavior.
 
