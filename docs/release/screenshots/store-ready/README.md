@@ -68,6 +68,14 @@ Use `apple/still-pro-iap-v3-1024x1024.jpg` only in the public promotional **Imag
 in-app purchase. This section is the CANONICAL statement of the compliance rules — the release
 runbook §7 references it rather than restating it.
 
+> **Status 2026-07-16: NOT currently uploaded — the field is empty by choice.** App Store Connect
+> would not process this asset (broken-placeholder thumbnail in both JPEG and PNG, across Chrome,
+> Incognito, and Safari; file, extensions, and network all ruled out). The image is Optional and
+> Apple's rejection letter offers deletion as a remedy, so the field was cleared to get a clean
+> 2.3.2 resolution rather than ship a half-processed asset. v3 is staged here for a post-approval
+> retry — promoted-IAP metadata is version-independent, so re-adding it costs no review cycle.
+> Full detail: `docs/release/01-apple-app-store.md` §7 step 6.
+
 - Format: JPEG, RGB, 1024x1024, 72 dpi, flattened with square image corners
 - Rejection history: v1 (an app paywall screenshot showing the price) was rejected under
   Guideline 2.3.2 on July 16, 2026 — a screenshot with small text AND a price reference. v2 (brand
