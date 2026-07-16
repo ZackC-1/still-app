@@ -7,9 +7,9 @@ until this list is complete. Work top to bottom; the order matters.
 
 ## 1. Supabase (hosted project `kikpgrreradotvvefdgd`)
 
-- [ ] **Custom SMTP** on the hosted project (Auth → SMTP). The built-in sender
+- [x] **Custom SMTP** on the hosted project (Auth → SMTP). The built-in sender
       allows ~2-4 emails/hour project-wide — OTP sign-in is unusable without
-      this. Blocker for everything below.
+      this. Blocker for everything below. — VERIFIED live 2026-07-16.
 - [ ] **Email templates — BOTH of them**: edit "Magic Link" AND "Confirm signup"
       to include `{{ .Token }}` ONLY (the extension 6-digit code) — do NOT
       include `{{ .ConfirmationURL }}`. Warning: link-prefetching mail scanners
@@ -20,20 +20,26 @@ until this list is complete. Work top to bottom; the order matters.
       — not "Magic Link" — the FIRST time an address signs in via OTP, so
       missing that template means no new customer can ever complete the code
       sign-in. Making the two templates identical is correct: users get one
-      consistent email either way. (Verified live 2026-07-06.)
-- [ ] **Email OTP length = 6** (Auth → Sign In / Providers → Email). The hosted
+      consistent email either way. ⚠️ The 2026-07-06 "verified live" note was
+      WRONG or the template later regressed: on 2026-07-16 the live "Confirm
+      signup" template still carried `{{ .ConfirmationURL }}` — the §1b
+      don't-trust-old-notes rule caught it. FIXED 2026-07-16: both templates
+      are now token-only and were re-verified end-to-end the same day.
+- [x] **Email OTP length = 6** (Auth → Sign In / Providers → Email). The hosted
       project defaulted to 8; the popup's code field accepts exactly 6
       (`supabase/config.toml` pins `otp_length = 6` locally), so an 8-digit code
-      cannot be entered at all.
-- [ ] **Immediately after the template edits**, verify end-to-end: sign in from
+      cannot be entered at all. — VERIFIED 2026-07-16 (length 6, expiry 3600).
+- [x] **Immediately after the template edits**, verify end-to-end: sign in from
       the extension popup with a BRAND-NEW address, then again with the same
       (now-existing) address — the two requests exercise the two different
       templates. For each, enter the emailed 6-digit code in the popup and
       confirm sign-in completes (the email contains no link, so there is
-      nothing for a mail scanner to prefetch).
-- [ ] Confirm hosted OTP settings match expectations: 1h OTP expiry, 60s
+      nothing for a mail scanner to prefetch). — PASS 2026-07-16: both address
+      types received token-only emails and signed in end-to-end.
+- [x] Confirm hosted OTP settings match expectations: 1h OTP expiry, 60s
       resend cooldown (Auth → Rate limits), and note the hosted refresh-token
-      timebox for the U7 verification run.
+      timebox for the U7 verification run. — VERIFIED 2026-07-16 (expiry 3600,
+      60s resend).
 
 ### 1b. HARD resubmission gates (Apple 1.0 build 4 — plan 2026-07-15-002 R14)
 
@@ -119,9 +125,11 @@ Verification methods, per item:
       # wrong code → expect 401; non-review address → expect 404 (same body shape)
       ```
       Status 2026-07-16: (b) PASS — fixed code 200, wrong code 401, non-review
-      address 404, against the hosted function. (a) OPEN — real-inbox OTP with
-      a brand-new AND an existing address still requires a human with real
-      inboxes; do not upload before it passes.
+      address 404, against the hosted function. (a) PASS (later same day) —
+      brand-new address (Confirm signup template) and existing address (Magic
+      Link template) both received token-only emails and signed in end-to-end,
+      after the ConfirmationURL regression above was fixed. All §1b/§1c
+      software gates are now green; uploads unblocked.
 - [ ] After ALL in-flight platform reviews referencing the code are resolved
       (approved or withdrawn — macOS and iOS run staggered on ONE shared
       code): rotate or `supabase secrets unset REVIEW_SIGNIN_CODE` (unsetting
