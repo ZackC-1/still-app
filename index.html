@@ -22,7 +22,7 @@
     "operatingSystem": "iOS, iPadOS, macOS, desktop browsers",
     "description": "Still removes YouTube Shorts, Instagram and Facebook Reels, and the TikTok website from supported browsers.",
     "url": "https://zackc-1.github.io/still-app/",
-    "downloadUrl": "https://chromewebstore.google.com/detail/still/midpefhbieafmeboompbboemeahjjnkf",
+    "downloadUrl": "https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf",
     "author": { "@type": "Organization", "name": "Cadmus Labs LLC" },
     "offers": [
       { "@type": "Offer", "name": "Still Free", "price": "0", "priceCurrency": "USD" },
@@ -41,6 +41,7 @@
       <a href="#how-it-works">How it works</a>
       <a href="#where-it-works">Where it works</a>
       <a href="#pricing">Pricing</a>
+      <a href="#get-still">Get Still</a>
     </nav>
   </header>
 
@@ -51,27 +52,30 @@
         <h1>Open for what you came for.</h1>
         <p class="hero-lede">Still removes Shorts, Reels, and TikTok from the websites you already use—so one intentional visit doesn’t become an hour of scrolling.</p>
         <div class="hero-actions">
-          <a class="button button-primary" href="https://chromewebstore.google.com/detail/still/midpefhbieafmeboompbboemeahjjnkf">Get Still for Chrome</a>
+          <a class="button button-primary" href="#get-still">Get Still</a>
           <a class="button button-secondary" href="#where-it-works">See every platform</a>
         </div>
         <p class="price-line"><strong>YouTube Shorts free.</strong> Still Pro is $1.99 once. No subscription.</p>
       </div>
 
-      <div class="quiet-browser" aria-label="Illustration of a calm browser without a short-form feed">
-        <div class="browser-bar"><i></i><i></i><i></i><span>youtube.com</span></div>
-        <div class="browser-body">
-          <div class="browser-main">
-            <div class="video-placeholder"><span></span></div>
-            <div class="copy-line wide"></div>
-            <div class="copy-line"></div>
-          </div>
-          <aside>
-            <p>Short-form feed</p>
-            <strong>Removed</strong>
-            <span class="still-line"></span>
-          </aside>
-        </div>
-      </div>
+      <figure class="hero-media">
+        <video class="hero-video" id="hero-video" autoplay muted loop playsinline
+               preload="metadata" poster="./assets/still-launch-poster.jpg"
+               aria-label="Still removing the short-form feed from a website">
+          <source src="./assets/still-launch.mp4" type="video/mp4">
+        </video>
+        <button type="button" class="sound-toggle is-muted" id="sound-toggle"
+                aria-pressed="false" aria-label="Turn video sound on">
+          <svg class="icon-muted" viewBox="0 0 24 24" aria-hidden="true" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M11 5 6 9H2v6h4l5 4z"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/>
+          </svg>
+          <svg class="icon-unmuted" viewBox="0 0 24 24" aria-hidden="true" fill="none"
+               stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a9 9 0 0 1 0 14"/>
+          </svg>
+        </button>
+      </figure>
     </section>
 
     <section class="outcome-section section-shell" aria-labelledby="outcome-title">
@@ -135,6 +139,27 @@
       </div>
     </section>
 
+    <section id="get-still" class="get-still-section section-shell" aria-labelledby="get-still-title">
+      <p class="eyebrow">Get Still</p>
+      <h2 id="get-still-title">Add Still to the browser you use.</h2>
+      <p class="get-still-lede">Free YouTube Shorts removal on every supported surface. One $1.99 purchase adds Instagram and Facebook Reels, the TikTok website block, and settings sync.</p>
+      <div class="store-grid">
+        <a class="store-btn" href="https://apps.apple.com/app/id6784061138">
+          <span class="store-name">App Store</span>
+          <span class="store-surface">iPhone, iPad &amp; Mac — Safari</span>
+        </a>
+        <a class="store-btn" href="https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf">
+          <span class="store-name">Chrome</span>
+          <span class="store-surface">Desktop</span>
+        </a>
+        <a class="store-btn" href="https://addons.mozilla.org/en-US/firefox/addon/still-free-yourself/">
+          <span class="store-name">Firefox</span>
+          <span class="store-surface">Desktop</span>
+        </a>
+      </div>
+      <p class="store-note">Free on every supported surface. Still Pro is a one-time $1.99 unlock — no subscription, no account required to buy on Apple platforms.</p>
+    </section>
+
     <section class="privacy-section section-shell split-section">
       <div>
         <p class="eyebrow">Private by design</p>
@@ -147,13 +172,36 @@
       <p class="eyebrow">A small change to your browser</p>
       <h2>A little more stillness in your day.</h2>
       <p>Remove the feed before it asks for your attention.</p>
-      <a class="button button-primary" href="https://chromewebstore.google.com/detail/still/midpefhbieafmeboompbboemeahjjnkf">Get YouTube Shorts blocking free</a>
+      <a class="button button-primary" href="#get-still">Get Still — it's free</a>
     </section>
   </main>
 
   <footer>
     <span>© 2026 Cadmus Labs LLC</span>
-    <div><a href="./privacy.html">Privacy</a><a href="./terms/">Terms</a><a href="./support.html">Support</a><a href="mailto:zack@cadmuslabs.co">Contact</a></div>
+    <div><a href="./guides.html">Guides</a><a href="./privacy.html">Privacy</a><a href="./terms/">Terms</a><a href="./support.html">Support</a><a href="mailto:zack@cadmuslabs.co">Contact</a></div>
   </footer>
+
+  <script>
+    (function () {
+      var video = document.getElementById('hero-video');
+      var toggle = document.getElementById('sound-toggle');
+      if (!video || !toggle) return;
+      // Respect reduced-motion preferences: don't autoplay the animation, show the poster.
+      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        video.removeAttribute('autoplay');
+        video.pause();
+      }
+      toggle.addEventListener('click', function () {
+        video.muted = !video.muted;
+        if (!video.muted) {
+          var played = video.play();
+          if (played && played.catch) played.catch(function () {});
+        }
+        toggle.classList.toggle('is-muted', video.muted);
+        toggle.setAttribute('aria-pressed', String(!video.muted));
+        toggle.setAttribute('aria-label', video.muted ? 'Turn video sound on' : 'Turn video sound off');
+      });
+    })();
+  </script>
 </body>
 </html>
