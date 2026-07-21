@@ -145,17 +145,27 @@ rough likelihood order — but the reviewer notes are authoritative:
 
 ## Blockers and human gates
 
-- **The rejection text itself** — receiver must obtain it from the user before acting.
-- Archiving, uploading, on-device validation, and ASC portal actions are all human-gated.
+- ~~The rejection text itself — receiver must obtain it~~ — **obtained** (5.1.1(v), see top). The
+  remaining human step is capturing the Mac screen recording and replying in Resolution Center.
+- ASC portal actions (the reply + recording attachment) are human-gated.
 - Secret values live only in the gitignored env file — read locally, never commit or print.
 
-## Next safe action
+## Next safe action (updated 2026-07-21 — diagnosis resolved; steps below supersede the original)
 
-1. Get the macOS rejection guideline + reviewer notes from the user.
-2. Re-query the ASC API to confirm current state (macOS may have moved; iOS may have resolved).
-3. Run the read-back gate on the macOS credentials — the cheapest thing that could explain a
-   macOS-only 2.1(a).
-4. Then plan the fix scoped to macOS only. **Leave the iOS submission untouched while IN_REVIEW.**
+The credential-read-back path is **SUPERSEDED**. The rejection is **5.1.1(v) account-deletion
+discoverability** (see "✅ RESOLVED DIAGNOSIS" at the top); account deletion already ships in build
+1.0(5). Resolution is **reply + screen recording, NO rebuild, iOS untouched**:
+
+1. Capture a screen recording on a Mac: launch → **"Sign in to Still"** → demo account (email + fixed
+   code from the ASC review notes) → **"Delete account"** → confirm → deleted. Reply text + click-by-
+   click script were drafted (reproduce from the RESOLVED DIAGNOSIS section).
+2. Reply in the macOS Resolution Center (submission `88d2bcb0`) with the recording attached;
+   optionally add the account-deletion note to the macOS App Review Information for future submissions.
+3. Do **NOT** rebuild and do **NOT** touch the iOS submission. If iOS later bounces on the same
+   guideline, the identical recording resolves it.
+
+The original steps (obtain rejection text → read-back gate → plan a macOS binary fix) no longer
+apply — the rejection text is in hand and the cause is not a credential mismatch.
 
 ## Relevant references
 
