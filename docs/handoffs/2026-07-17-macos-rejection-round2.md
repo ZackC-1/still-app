@@ -13,7 +13,29 @@ intended_receiver: "any"
 Heal whatever Apple flagged on the **macOS** 1.0 build 5 resubmission and get it back into review.
 iOS is progressing independently and must not be disturbed.
 
-## ⚠️ FIRST STEP — the rejection reason is not yet known
+## ✅ RESOLVED DIAGNOSIS (2026-07-17 pm) — rejection reason obtained + root-caused
+
+The rejection is **Guideline 5.1.1(v) — Data Collection and Storage (account deletion)**, NOT a
+credential/sign-in failure. Apple: "The app supports account creation but does not include an
+option to initiate account deletion." This was a NEW finding ("upon further review"), distinct
+from the 5.1.1(v) sign-in-before-purchase item PR #111 already fixed. **The prime suspect below
+(read-back gate / sign-in failure) was WRONG** — kept for the record, but do not chase it.
+
+**Root cause = discoverability, not missing code.** Account deletion is fully implemented and IS
+in build 1.0(5): `App.svelte` renders a "Delete account" button → "Delete your account?" confirm
+→ `delete-user` edge function, in every signed-in state (`not-entitled`, `pro-device-only`,
+`entitled-syncing`). The control is signed-in-only; Still's purchase-first flow never requires
+sign-in, so the reviewer bought/loaded without signing in and never reached the account screen.
+`docs/privacy.html` already documents the path.
+
+**Resolution chosen (Path A): reply + screen recording — NO rebuild.** Apple's own Next Steps
+offer this ("or if it is already in place, reply … with a screen recording"). Paste-ready reply,
+App-Review-Notes addition, and click-by-click recording script were drafted (this session's
+scratchpad `macos-5.1.1v-reply.md`). Human steps remaining: capture the recording on a Mac, then
+reply in the macOS Resolution Center with it attached. No version bump, no queue reset, iOS
+untouched. If iOS later bounces on the same guideline, the identical recording resolves it.
+
+## ⚠️ Original FIRST STEP (superseded — kept for history)
 
 This handoff was written right after the user learned macOS was rejected again; **the actual
 rejection text was not captured**. The receiving session's first action is to get it from the user:
