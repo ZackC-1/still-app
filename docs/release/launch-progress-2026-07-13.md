@@ -1,10 +1,73 @@
-# Launch progress — July 13, 2026 (updated July 14)
+# Launch progress — July 13, 2026 (updated July 21)
 
 This is the operational handoff for the English launch. Apple is configured for the United States,
 Canada, and the United Kingdom. Chrome version 1.0.1 is publicly installable in the United States
 and Canada. Resume here before changing a pending store submission. The canonical positioning and
 paste-ready copy remain in
 [`marketing-playbook.md`](marketing-playbook.md) and [`store-listing-copy.md`](store-listing-copy.md).
+
+## 2026-07-21 — Launch state (CURRENT; supersedes the July 13–14 snapshot below)
+
+The July 13–14 "1.0(3) coordinated launch" plan below was overtaken by the App Store rejection cycle
+(2.3.2 → 2.1(a) → 5.1.1(v)) that moved Apple to **1.0 build 5**. Current live truth:
+
+| Surface | State (2026-07-21) |
+|---|---|
+| **iOS 1.0 (5)** | ✅ **LIVE** — `READY_FOR_SALE` (released manually) |
+| **Still Pro IAP `still_sync`** | ✅ Approved |
+| **Chrome** | ✅ **LIVE** — 1.0.1 public; **1.0.3 update submitted for review** |
+| **Firefox (AMO)** | ✅ **LIVE at 1.0.3** — slug `still-free-yourself`, status public |
+| **macOS 1.0 (5)** | ⏳ **REJECTED / UNRESOLVED_ISSUES** — 5.1.1(v); fix sent, awaiting re-review |
+| **Website source (`main`)** | ✅ Updated (PR #122, `0fec5d1`) |
+| **Website LIVE** | ⚠️ **NOT yet published** — see the Pages gap below |
+
+**macOS 5.1.1(v) account deletion.** Discoverability finding, not missing code — in-app account
+deletion IS in build 5 (`App.svelte` "Delete account" → confirm → `delete-user`), but it is
+signed-in-only and the reviewer (no-sign-in purchase flow) never reached it. Resolution = **reply +
+Mac screen recording of the delete flow, no rebuild** (Apple's offered remedy); sent to the macOS
+Resolution Center. A reply does not flip the API state to IN_REVIEW — macOS stays REJECTED until a
+reviewer re-engages (~1–3 days).
+
+**⚠️ GitHub Pages publishing gap (IMPORTANT).** The live site is served from the **`gh-pages` branch**
+(`source: gh-pages`, path `/`), **published manually** — there is no CI that syncs `docs/` → `gh-pages`.
+`gh-pages` was last published **2026-07-13** and is stale: its `index.html` still shows the old
+Chrome-only CTA and it never received the four discovery guides. **Merging website changes to
+`main`/`docs/` does NOT make them live.** To publish, the updated `docs/` content (new homepage +
+launch video + `#get-still` hub + guide pages) must be copied into `gh-pages` and pushed, **preserving
+the hand-maintained items that live only on `gh-pages`**: `terms.html` + `terms/`, and the
+`privacy/` `support/` clean-URL directories + `.html` redirect stubs.
+
+**Browser 1.0.3 REBUILT from `main` on 2026-07-21** — the July-14 "staged 1.0.3" zips in the table
+further below are **superseded** (they predated PR #112's shared-UI changes that the extension
+bundles). Fresh, Pro-enabled, clean-room-verified artifacts (Firefox rebuild byte-identical to the
+uploaded binary):
+
+| Purpose | Path | SHA-256 |
+|---|---|---|
+| Chrome 1.0.3 | `packages/ext-chromium/dist/stillext-chromium-1.0.3-chrome.zip` | `f144bc61a9dba862fa03da9817428211f65d34dc7d33ea0bfbe0e8c52517f27b` |
+| Firefox 1.0.3 binary | `packages/ext-chromium/dist/stillext-chromium-1.0.3-firefox.zip` | `09cc4428070811f5ffc569cc7b43366d2f9a226d5f7ee2aed7418aedc5aa43aa` |
+| AMO full source 1.0.3 | `packages/ext-chromium/dist/still-amo-sources-full-repo-1.0.3.zip` | `9dce5491717673d8b21cbfd6679821872bd1379a06c3f827d60c09614beb94d9` |
+
+**Website change (PR #122).** Hero **launch video** (`docs/assets/still-launch.mp4`, 1.4 MB
+H.264/faststart + poster; autoplay/muted/loop + accessible sound toggle) replaced the `.quiet-browser`
+mockup; new **`#get-still` download hub** links the App Store (`apps.apple.com/app/id6784061138` —
+covers iPhone/iPad/Mac Safari), Chrome, and Firefox; the stale "coming soon / Chrome-only" copy was
+retired across the homepage + 5 guide pages. **Mac is advertised as available per an explicit owner
+decision** (App Store button covers Mac via Universal Purchase and resolves for Mac the instant Apple
+approves the pending build). Product-truth wording uses "every **supported** surface."
+
+**Remaining actions (all human):**
+1. **Publish the website to `gh-pages`** (see the Pages gap above) — this is what makes the new site live.
+2. **macOS** — click **Release This Version** when Apple approves (manual release, like iOS).
+3. **Chrome** — confirm 1.0.3 is set to auto-publish on approval.
+4. **After macOS approval only** — rotate/unset `REVIEW_SIGNIN_CODE` + clear `VITE_REVIEW_SIGNIN_EMAIL`
+   from `.env` (the macOS review still relies on that code — never rotate mid-review); optional: re-add
+   the v3 IAP promo image + fix the "andTikTok" spacing typo in the App Store promotional text.
+5. **Recommended, never done** — on-device mobile-blocking validation on a physical iPhone (Safari) and
+   Firefox for Android ([`06-mobile-blocking-validation.md`](06-mobile-blocking-validation.md)); the
+   free-tier core promise CI cannot cover.
+
+---
 
 ## Repository checkpoint
 
