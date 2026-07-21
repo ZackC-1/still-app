@@ -13,7 +13,29 @@ intended_receiver: "any"
 Heal whatever Apple flagged on the **macOS** 1.0 build 5 resubmission and get it back into review.
 iOS is progressing independently and must not be disturbed.
 
-## ⚠️ FIRST STEP — the rejection reason is not yet known
+## ✅ RESOLVED DIAGNOSIS (2026-07-17 pm) — rejection reason obtained + root-caused
+
+The rejection is **Guideline 5.1.1(v) — Data Collection and Storage (account deletion)**, NOT a
+credential/sign-in failure. Apple: "The app supports account creation but does not include an
+option to initiate account deletion." This was a NEW finding ("upon further review"), distinct
+from the 5.1.1(v) sign-in-before-purchase item PR #111 already fixed. **The prime suspect below
+(read-back gate / sign-in failure) was WRONG** — kept for the record, but do not chase it.
+
+**Root cause = discoverability, not missing code.** Account deletion is fully implemented and IS
+in build 1.0(5): `App.svelte` renders a "Delete account" button → "Delete your account?" confirm
+→ `delete-user` edge function, in every signed-in state (`not-entitled`, `pro-device-only`,
+`entitled-syncing`). The control is signed-in-only; Still's purchase-first flow never requires
+sign-in, so the reviewer bought/loaded without signing in and never reached the account screen.
+`docs/privacy.html` already documents the path.
+
+**Resolution chosen (Path A): reply + screen recording — NO rebuild.** Apple's own Next Steps
+offer this ("or if it is already in place, reply … with a screen recording"). Paste-ready reply,
+App-Review-Notes addition, and click-by-click recording script were drafted (this session's
+scratchpad `macos-5.1.1v-reply.md`). Human steps remaining: capture the recording on a Mac, then
+reply in the macOS Resolution Center with it attached. No version bump, no queue reset, iOS
+untouched. If iOS later bounces on the same guideline, the identical recording resolves it.
+
+## ⚠️ Original FIRST STEP (superseded — kept for history)
 
 This handoff was written right after the user learned macOS was rejected again; **the actual
 rejection text was not captured**. The receiving session's first action is to get it from the user:
@@ -123,17 +145,27 @@ rough likelihood order — but the reviewer notes are authoritative:
 
 ## Blockers and human gates
 
-- **The rejection text itself** — receiver must obtain it from the user before acting.
-- Archiving, uploading, on-device validation, and ASC portal actions are all human-gated.
+- ~~The rejection text itself — receiver must obtain it~~ — **obtained** (5.1.1(v), see top). The
+  remaining human step is capturing the Mac screen recording and replying in Resolution Center.
+- ASC portal actions (the reply + recording attachment) are human-gated.
 - Secret values live only in the gitignored env file — read locally, never commit or print.
 
-## Next safe action
+## Next safe action (updated 2026-07-21 — diagnosis resolved; steps below supersede the original)
 
-1. Get the macOS rejection guideline + reviewer notes from the user.
-2. Re-query the ASC API to confirm current state (macOS may have moved; iOS may have resolved).
-3. Run the read-back gate on the macOS credentials — the cheapest thing that could explain a
-   macOS-only 2.1(a).
-4. Then plan the fix scoped to macOS only. **Leave the iOS submission untouched while IN_REVIEW.**
+The credential-read-back path is **SUPERSEDED**. The rejection is **5.1.1(v) account-deletion
+discoverability** (see "✅ RESOLVED DIAGNOSIS" at the top); account deletion already ships in build
+1.0(5). Resolution is **reply + screen recording, NO rebuild, iOS untouched**:
+
+1. Capture a screen recording on a Mac: launch → **"Sign in to Still"** → demo account (email + fixed
+   code from the ASC review notes) → **"Delete account"** → confirm → deleted. Reply text + click-by-
+   click script were drafted (reproduce from the RESOLVED DIAGNOSIS section).
+2. Reply in the macOS Resolution Center (submission `88d2bcb0`) with the recording attached;
+   optionally add the account-deletion note to the macOS App Review Information for future submissions.
+3. Do **NOT** rebuild and do **NOT** touch the iOS submission. If iOS later bounces on the same
+   guideline, the identical recording resolves it.
+
+The original steps (obtain rejection text → read-back gate → plan a macOS binary fix) no longer
+apply — the rejection text is in hand and the cause is not a credential mismatch.
 
 ## Relevant references
 
