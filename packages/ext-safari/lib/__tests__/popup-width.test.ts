@@ -30,7 +30,9 @@ describe("popup sizing", () => {
   });
 
   it("never uses viewport units to size the popup (they collapse to a sliver)", () => {
-    expect(styleBlock).not.toMatch(/\d+vw\b/);
-    expect(styleBlock).not.toMatch(/\d+vh\b/);
+    // The WHOLE viewport-unit family collapses a popup, not just vw/vh: vmin/vmax and the
+    // dynamic/small/large variants (dvw, svw, lvw, dvh, …) and vi/vb all resolve against a
+    // viewport that is ~0 during the popup's content-measurement pass. Reject any of them.
+    expect(styleBlock).not.toMatch(/\d\s*[sdl]?v(?:w|h|i|b|min|max)\b/i);
   });
 });
