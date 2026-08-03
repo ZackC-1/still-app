@@ -18,9 +18,9 @@
   "devDependencies": {
     "@types/chrome": "^0.2.2",
     "@wxt-dev/module-svelte": "^2.0.5",
-    "svelte": "^5.56.5",
+    "svelte": "^5.56.8",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10",
-    "wxt": "^0.20.27"
+    "wxt": "^0.21.2"
   }
 }
