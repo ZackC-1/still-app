@@ -56,3 +56,6 @@ apps/apple/build/
 
 # Production rule-set signing PRIVATE key — deploy-only secret (KTD8), never commit
 packages/core/.secrets/
+
+# Local build working notes, never published
+docs/build/
