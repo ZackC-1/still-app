@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { SERVICE_IDS } from "@still/shared-types";
+  import { PAID_TIER_ENABLED, SERVICE_IDS } from "@still/shared-types";
   import type { UiController } from "./controller.svelte.js";
   import Toggle from "./components/Toggle.svelte";
   import ServiceCard from "./components/ServiceCard.svelte";
@@ -133,7 +133,7 @@
   <section class="sync card" data-state={c.popupState}>
     {#if c.popupState === "signed-out"}
       {#if c.canSignIn}
-        {#if c.host.canPurchase}
+        {#if PAID_TIER_ENABLED && c.host.canPurchase}
           <button class="primary block" onclick={() => c.startUpgrade()}>
             {STRINGS.paywall.upgradeCta}
           </button>
@@ -186,7 +186,7 @@
         {STRINGS.account.privacyPolicy}
       </a>
     {:else if c.popupState === "not-entitled"}
-      {#if c.host.canPurchase}
+      {#if PAID_TIER_ENABLED && c.host.canPurchase}
         <div class="syncrow">
           <div class="syncrow-text">
             <span class="syncrow-title">{STRINGS.paywall.title}</span>
@@ -236,7 +236,7 @@
        it renders its explanatory state there instead of a buy CTA (R19). During the payoff
        (U3/R6) the sheet stays mounted showing the success payoff while the service rows above —
        already reactive to c.entitled — render live-and-on behind it. -->
-  {#if c.paywallOpen}
+  {#if PAID_TIER_ENABLED && c.paywallOpen}
     <PaywallSheet
       canPurchase={c.host.canPurchase}
       price={c.paywallPrice}

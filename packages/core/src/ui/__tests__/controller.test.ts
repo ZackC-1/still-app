@@ -21,6 +21,10 @@ import type {
   WebCheckoutOutcome,
 } from "../../sync/ports.js";
 import { STRINGS } from "../strings.js";
+import { PAID_TIER_ENABLED } from "@still/shared-types";
+
+const paidTierIt = it.runIf(PAID_TIER_ENABLED);
+const includedAccessIt = it.runIf(!PAID_TIER_ENABLED);
 
 function makeController(
   extra: {
@@ -109,7 +113,21 @@ describe("UiController", () => {
     expect(spy).toHaveBeenCalledWith(false);
   });
 
-  it("locks Pro services for un-entitled users and unlocks them when entitled", () => {
+  includedAccessIt("keeps all service rows unlocked and refuses the upgrade path while the paid tier is off", () => {
+    expect(PAID_TIER_ENABLED).toBe(false);
+    const { c } = makeController({ auth: codeAuth(), checkout: checkoutSeam().seam });
+    expect(c.isLocked("youtube")).toBe(false);
+    expect(c.isLocked("instagram")).toBe(false);
+    expect(c.isLocked("tiktok")).toBe(false);
+    expect(c.isLocked("facebook")).toBe(false);
+
+    c.startUpgrade();
+    expect(c.paywallOpen).toBe(false);
+    expect(c.signInOpen).toBe(false);
+    expect(c.purchaseIntent).toBe(false);
+  });
+
+  paidTierIt("locks Pro services for un-entitled users and unlocks them when entitled", () => {
     const { c } = makeController();
     expect(c.isLocked("youtube")).toBe(false); // free service is never locked
     expect(c.isLocked("instagram")).toBe(true);
@@ -121,7 +139,7 @@ describe("UiController", () => {
     expect(c.isLocked("facebook")).toBe(false);
   });
 
-  it("locked tap routes signed-out WEB-checkout users to sign-in first (delivery identity)", () => {
+  paidTierIt("locked tap routes signed-out WEB-checkout users to sign-in first (delivery identity)", () => {
     // Sign-in-first survives ONLY on web-checkout hosts, where the account is how the entitlement
     // reaches the extension. Native-purchase hosts go straight to the paywall (purchase-first,
     // Guideline 5.1.1(v)) — pinned separately below.
@@ -137,7 +155,7 @@ describe("UiController", () => {
     expect(c.paywallOpen).toBe(false);
   });
 
-  it("locked tap opens the paywall directly on native-purchase hosts, signed out (R1)", () => {
+  paidTierIt("locked tap opens the paywall directly on native-purchase hosts, signed out (R1)", () => {
     // The Apple shape: canPurchase with NO checkout seam. Purchase requires no account.
     const { c } = makeController({ auth: codeAuth() });
     c.lockedTap();
@@ -146,7 +164,7 @@ describe("UiController", () => {
     expect(c.purchaseIntent).toBe(false);
   });
 
-  it("locked tap opens the paywall for signed-in users", () => {
+  paidTierIt("locked tap opens the paywall for signed-in users", () => {
     const { c } = makeController({
       auth: {
         signIn: vi.fn(() => Promise.resolve({})),
@@ -159,14 +177,14 @@ describe("UiController", () => {
     expect(c.signInOpen).toBe(false);
   });
 
-  it("locked tap opens the (explanatory) paywall on hosts without a purchase path", () => {
+  paidTierIt("locked tap opens the (explanatory) paywall on hosts without a purchase path", () => {
     const { c } = makeController({ host: { canPurchase: false } }); // extension shape: no auth either
     c.lockedTap();
     expect(c.paywallOpen).toBe(true);
     expect(c.signInOpen).toBe(false);
   });
 
-  it("signed-out upgrade records purchase intent and opens sign-in (web-checkout host)", () => {
+  paidTierIt("signed-out upgrade records purchase intent and opens sign-in (web-checkout host)", () => {
     const persistence = mockPersistence();
     const { c } = makeController({ auth: codeAuth(), persistence, checkout: checkoutSeam().seam });
     c.startUpgrade();
@@ -176,7 +194,7 @@ describe("UiController", () => {
     expect(c.paywallOpen).toBe(false);
   });
 
-  it("signed-in upgrade opens the paywall directly", () => {
+  paidTierIt("signed-in upgrade opens the paywall directly", () => {
     const { c } = makeController({ auth: codeAuth() });
     c.userId = "u";
     c.startUpgrade();
@@ -198,7 +216,7 @@ describe("UiController", () => {
     expect(persistence.setPurchaseIntent).not.toHaveBeenCalled();
   });
 
-  it("upgrade continuation skips the buy sheet when sign-in already unlocked Pro", async () => {
+  paidTierIt("upgrade continuation skips the buy sheet when sign-in already unlocked Pro", async () => {
     // A signed-out but already-Pro account taps Upgrade → sign-in. On the Apple host the awaited
     // verifyCode reconciles entitlement before returning, so the purchase-intent continuation
     // must not open a paywall the user has nothing to buy from.
@@ -656,7 +674,7 @@ describe("UiController", () => {
     expect(signIn).toHaveBeenCalledWith("a@b.com");
   });
 
-  it("locked-row-tap sign-in continues to the paywall after verify (purchase intent, AE1)", async () => {
+  paidTierIt("locked-row-tap sign-in continues to the paywall after verify (purchase intent, AE1)", async () => {
     const persistence = mockPersistence();
     const { c } = makeController({ auth: codeAuth(), persistence, checkout: checkoutSeam().seam });
     c.lockedTap(); // signed out on a purchasable host → sign-in first, intent recorded
@@ -672,7 +690,7 @@ describe("UiController", () => {
     expect(persistence.setPurchaseIntent).toHaveBeenLastCalledWith(false);
   });
 
-  it("'Not now' mid-code-entry clears the pending OTP and the purchase intent", async () => {
+  paidTierIt("'Not now' mid-code-entry clears the pending OTP and the purchase intent", async () => {
     const persistence = mockPersistence();
     const { c } = makeController({ auth: codeAuth(), persistence, checkout: checkoutSeam().seam });
     c.lockedTap();
@@ -686,7 +704,7 @@ describe("UiController", () => {
     expect(c.purchaseIntent).toBe(false);
   });
 
-  it("'use a different email' returns to the email field but keeps the purchase intent", async () => {
+  paidTierIt("'use a different email' returns to the email field but keeps the purchase intent", async () => {
     const persistence = mockPersistence();
     const { c } = makeController({ auth: codeAuth(), persistence, checkout: checkoutSeam().seam });
     c.lockedTap();
@@ -809,7 +827,7 @@ describe("UiController — success payoff (plan U3/R6)", () => {
     c.dismissPaywall();
   });
 
-  it("locked rows become live toggles the moment the transition lands, previously-on services on", () => {
+  paidTierIt("locked rows become live toggles the moment the transition lands, previously-on services on", () => {
     const { c } = makeController();
     c.openPaywall();
     expect(c.isLocked("instagram")).toBe(true);
@@ -1103,7 +1121,7 @@ describe("UiController — web checkout flow (plan U4/R3/R5)", () => {
     }
   });
 
-  it("signed-out purchase tap still routes sign-in → paywall with the checkout seam present (AE1)", async () => {
+  paidTierIt("signed-out purchase tap still routes sign-in → paywall with the checkout seam present (AE1)", async () => {
     const persistence = mockPersistence();
     const { seam } = checkoutSeam();
     const { c } = makeController({

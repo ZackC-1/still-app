@@ -17,6 +17,10 @@
 //      SyncService. A purchase acknowledges success at once; account-linked authority follows once
 //      the (optional) sign-in attaches the receipt and the webhook lands.
 //
+//  RevenueCat remains configured while the paid tier is dormant. WebBridgeRouter refuses only the
+//  native purchase and restore actions; identity, receipt observation, and entitlement stamping
+//  stay live so a future switch change does not require rebuilding this integration.
+//
 
 import Foundation
 import RevenueCat

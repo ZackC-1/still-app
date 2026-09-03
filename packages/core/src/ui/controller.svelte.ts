@@ -1,5 +1,5 @@
 import type { ServiceId, StillSettings } from "@still/shared-types";
-import { DEFAULT_SETTINGS } from "@still/shared-types";
+import { DEFAULT_SETTINGS, PAID_TIER_ENABLED } from "@still/shared-types";
 import { PRO_SERVICE_IDS } from "../rules/tiers.js";
 import { isValidEmail } from "./email.js";
 import type { SettingsCache } from "../storage/cache.js";
@@ -495,7 +495,7 @@ export class UiController {
   /** True when a service's surfaces are Pro-gated and this user isn't entitled — the row renders
    * locked (🔒 → paywall) instead of a toggle that would flip without blocking anything. */
   isLocked(id: ServiceId): boolean {
-    return !this.entitled && PRO_SERVICE_IDS.has(id);
+    return PAID_TIER_ENABLED && !this.entitled && PRO_SERVICE_IDS.has(id);
   }
 
   /** Start the Pro upgrade path. NATIVE-purchase hosts (Apple — no checkout seam) open the
@@ -505,6 +505,7 @@ export class UiController {
    * intent so a successful sign-in continues to the paywall without re-tapping. Hosts without a
    * purchase path get the explanatory paywall state. */
   startUpgrade(): void {
+    if (!PAID_TIER_ENABLED) return;
     // Also a no-op while a purchase/restore is in flight — a second trigger (locked-row tap,
     // upgrade CTA) must not reset purchaseFlow mid-purchase.
     if (this.entitled || this.purchaseBusy) return;

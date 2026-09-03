@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/svelte";
 import { tick } from "svelte";
-import { DEFAULT_SETTINGS } from "@still/shared-types";
+import { DEFAULT_SETTINGS, PAID_TIER_ENABLED } from "@still/shared-types";
 import App from "../App.svelte";
 import Placeholder from "../components/Placeholder.svelte";
 import {
@@ -14,6 +14,9 @@ import { STRINGS } from "../strings.js";
 import { PRIVACY_POLICY_URL } from "../config.js";
 import { SettingsCache } from "../../storage/cache.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
+
+const paidTierIt = it.runIf(PAID_TIER_ENABLED);
+const includedAccessIt = it.runIf(!PAID_TIER_ENABLED);
 
 function controller(
   opts: {
@@ -75,6 +78,15 @@ function codeCapableAuth(over: Partial<UiAuth> = {}): UiAuth {
 }
 
 describe("App", () => {
+  includedAccessIt("shows live toggles and no upgrade CTA while the paid tier is off", () => {
+    expect(PAID_TIER_ENABLED).toBe(false);
+    render(App, { props: { controller: controller({ auth: codeCapableAuth() }) } });
+
+    expect(document.querySelectorAll(".card.locked")).toHaveLength(0);
+    expect(screen.queryByText(STRINGS.paywall.upgradeCta)).toBeNull();
+    expect(screen.getByText(STRINGS.auth.signInCta)).toBeTruthy();
+  });
+
   it("exposes an explicit compact density for constrained extension panels", () => {
     render(App, { props: { controller: controller(), compact: true } });
 
@@ -120,7 +132,7 @@ describe("App", () => {
     expect(youtubeSwitch.disabled).toBe(true);
   });
 
-  it("global off also disables a locked service's lock button", () => {
+  paidTierIt("global off also disables a locked service's lock button", () => {
     render(App, { props: { controller: controller({ globalOn: false }) } });
     const lock = document.querySelector(
       '[data-service="instagram"] .lock',
@@ -128,7 +140,7 @@ describe("App", () => {
     expect(lock.disabled).toBe(true);
   });
 
-  it("un-entitled users see the three Pro rows locked (no silent no-op toggles)", () => {
+  paidTierIt("un-entitled users see the three Pro rows locked (no silent no-op toggles)", () => {
     render(App, { props: { controller: controller() } });
     expect(screen.getByText(STRINGS.global.onFree)).toBeTruthy();
     expect(document.querySelectorAll(".card.locked").length).toBe(3); // instagram/tiktok/facebook
@@ -162,7 +174,7 @@ describe("App", () => {
     expect(screen.queryByText(STRINGS.global.onFree)).toBeNull();
   });
 
-  it("tapping a lock on a no-purchase host opens the explanatory paywall sheet", async () => {
+  paidTierIt("tapping a lock on a no-purchase host opens the explanatory paywall sheet", async () => {
     const c = controller({ host: { canPurchase: false } });
     render(App, { props: { controller: c } });
     await fireEvent.click(document.querySelector(".lock")!);
@@ -172,7 +184,7 @@ describe("App", () => {
     expect(dialog.queryByText(STRINGS.paywall.cta)).toBeNull();
   });
 
-  it("not-entitled + can-purchase shows the upgrade CTA and it opens the paywall", async () => {
+  paidTierIt("not-entitled + can-purchase shows the upgrade CTA and it opens the paywall", async () => {
     const c = controller();
     c.userId = "u";
     render(App, { props: { controller: c } });
@@ -269,7 +281,7 @@ describe("App", () => {
     expect(screen.queryByText(STRINGS.auth.title)).toBeNull(); // the modal title is absent
   });
 
-  it("signed-out home screen shows sign-in and upgrade, with auth copy only in the sheet", async () => {
+  paidTierIt("signed-out home screen shows sign-in and upgrade, with auth copy only in the sheet", async () => {
     const c = controller({ auth: codeCapableAuth() });
     render(App, { props: { controller: c } });
     expect(screen.getByText("Sign in to Still")).toBeTruthy();
@@ -281,7 +293,7 @@ describe("App", () => {
     ).toBeTruthy();
   });
 
-  it("makes the signed-out Still Pro path primary while keeping restore sign-in available", () => {
+  paidTierIt("makes the signed-out Still Pro path primary while keeping restore sign-in available", () => {
     const c = controller({ auth: codeCapableAuth() });
     render(App, { props: { controller: c } });
     const accountCard = document.querySelector("section.sync");
@@ -293,7 +305,7 @@ describe("App", () => {
     expect(buttons[1]?.classList.contains("secondary")).toBe(true);
   });
 
-  it("signed-in non-Pro users see upgrade and account controls", () => {
+  paidTierIt("signed-in non-Pro users see upgrade and account controls", () => {
     const c = controller({ deletable: true });
     c.userId = "u";
     render(App, { props: { controller: c } });
@@ -313,7 +325,7 @@ describe("App", () => {
     expect(screen.getByText(/Synced across supported devices/)).toBeTruthy();
   });
 
-  it("signed-out upgrade records intent and opens email-code sign-in before paywall (web-checkout host)", async () => {
+  paidTierIt("signed-out upgrade records intent and opens email-code sign-in before paywall (web-checkout host)", async () => {
     const c = controller({ auth: codeCapableAuth(), checkout: checkoutStub() });
     render(App, { props: { controller: c } });
     await fireEvent.click(screen.getByText(STRINGS.paywall.upgradeCta));
@@ -323,7 +335,7 @@ describe("App", () => {
     expect(document.querySelector("input.email")).toBeTruthy();
   });
 
-  it("locked Pro rows do not toggle and route signed-out users to sign-in (web-checkout host)", async () => {
+  paidTierIt("locked Pro rows do not toggle and route signed-out users to sign-in (web-checkout host)", async () => {
     const c = controller({ auth: codeCapableAuth(), checkout: checkoutStub() });
     render(App, { props: { controller: c } });
     const instagram = document.querySelector('[data-service="instagram"]')!;
@@ -501,7 +513,7 @@ describe("App", () => {
 
   // ── paywall purchase outcomes (P1 #5) ──────────────────────────────────────────────────────────
 
-  it("a non-purchased outcome keeps the sheet open with a message", () => {
+  paidTierIt("a non-purchased outcome keeps the sheet open with a message", () => {
     const c = controller();
     c.userId = "u";
     c.openPaywall();
@@ -511,7 +523,7 @@ describe("App", () => {
     expect(screen.getByText("Purchase cancelled.")).toBeTruthy();
   });
 
-  it("the buy CTA shows the localized store price when loaded, and no price otherwise", () => {
+  paidTierIt("the buy CTA shows the localized store price when loaded, and no price otherwise", () => {
     const withPrice = controller();
     withPrice.userId = "u";
     withPrice.openPaywall();
@@ -532,7 +544,7 @@ describe("App", () => {
     expect(cta.textContent).not.toContain("·"); // no hardcoded/guessed price
   });
 
-  it("the Get button is disabled while a purchase is in flight (duplicate-tap guard)", async () => {
+  paidTierIt("the Get button is disabled while a purchase is in flight (duplicate-tap guard)", async () => {
     const onGet = vi.fn();
     const c = controller();
     c.userId = "u";
@@ -550,7 +562,7 @@ describe("App", () => {
     expect(onGet).toHaveBeenCalledOnce(); // second tap ignored (button disabled)
   });
 
-  it("pending purchase keeps the sheet open with the Ask-to-Buy note", () => {
+  paidTierIt("pending purchase keeps the sheet open with the Ask-to-Buy note", () => {
     const c = controller();
     c.userId = "u";
     c.openPaywall();
@@ -559,7 +571,7 @@ describe("App", () => {
     expect(screen.getByText(/Waiting for approval/)).toBeTruthy();
   });
 
-  it("the paywall leads with the ratified headline and reassurance (D6)", () => {
+  paidTierIt("the paywall leads with the ratified headline and reassurance (D6)", () => {
     const c = controller();
     c.userId = "u";
     c.openPaywall();
@@ -569,7 +581,7 @@ describe("App", () => {
     expect(dialog.getByText(STRINGS.paywall.reassurance)).toBeTruthy();
   });
 
-  it("discloses the Safari-only mobile boundary before purchase", () => {
+  paidTierIt("discloses the Safari-only mobile boundary before purchase", () => {
     const c = controller();
     c.userId = "u";
     c.openPaywall();
@@ -584,7 +596,7 @@ describe("App", () => {
 
   // ── success payoff (plan U3/R6) ────────────────────────────────────────────────────────────────
 
-  it("the payoff renders as a status line while the rows behind unlock live-and-on", async () => {
+  paidTierIt("the payoff renders as a status line while the rows behind unlock live-and-on", async () => {
     const c = controller();
     c.userId = "u";
     c.openPaywall();
@@ -605,7 +617,7 @@ describe("App", () => {
     c.dismissPaywall(); // clear the payoff auto-dismiss timer
   });
 
-  it("a tap on the payoff dismisses it early", async () => {
+  paidTierIt("a tap on the payoff dismisses it early", async () => {
     const c = controller();
     c.userId = "u";
     c.openPaywall();
@@ -617,7 +629,7 @@ describe("App", () => {
     expect(c.justUnlocked).toBe(false);
   });
 
-  it("Escape dismisses the payoff early", async () => {
+  paidTierIt("Escape dismisses the payoff early", async () => {
     const c = controller();
     c.userId = "u";
     c.openPaywall();
@@ -629,7 +641,7 @@ describe("App", () => {
     expect(c.justUnlocked).toBe(false);
   });
 
-  it("the web checkout hand-off renders the transitional line with the CTA disabled (U3→U4 hook)", () => {
+  paidTierIt("the web checkout hand-off renders the transitional line with the CTA disabled (U3→U4 hook)", () => {
     const c = controller();
     c.userId = "u";
     c.openPaywall();
@@ -645,7 +657,7 @@ describe("App", () => {
   // jsdom never blurs a control that becomes disabled, so these exercise the trap's
   // !hasAttribute("disabled") filter directly rather than the real-browser blur behavior.
 
-  it("the paywall Tab cycle skips disabled controls while a purchase is in flight", async () => {
+  paidTierIt("the paywall Tab cycle skips disabled controls while a purchase is in flight", async () => {
     const c = controller();
     c.userId = "u";
     c.openPaywall();
@@ -681,7 +693,7 @@ describe("App", () => {
     c.dismissSignIn(); // stop the cooldown ticker
   });
 
-  it("dismissing the paywall restores focus to the trigger that opened it", async () => {
+  paidTierIt("dismissing the paywall restores focus to the trigger that opened it", async () => {
     const c = controller(); // no auth wired → a locked-row tap opens the paywall directly
     render(App, { props: { controller: c } });
     const lock = document.querySelector(".lock") as HTMLButtonElement;
@@ -715,7 +727,7 @@ describe("App — purchase-first surfaces (plan 2026-07-15-001)", () => {
     expect(screen.queryByText(STRINGS.paywall.upgradeCta)).toBeNull();
   });
 
-  it("success screen (account-pitch): two independent equal-weight CTAs, no auto-dismiss markup", async () => {
+  paidTierIt("success screen (account-pitch): two independent equal-weight CTAs, no auto-dismiss markup", async () => {
     const c = controller({ auth: codeCapableAuth() });
     c.showPurchaseSuccess();
     render(App, { props: { controller: c } });
@@ -731,7 +743,7 @@ describe("App — purchase-first surfaces (plan 2026-07-15-001)", () => {
     expect(c.paywallOpen).toBe(false);
   });
 
-  it("success screen (synced): sync confirmation, no account CTA at a signed-in buyer", () => {
+  paidTierIt("success screen (synced): sync confirmation, no account CTA at a signed-in buyer", () => {
     const c = controller({ auth: codeCapableAuth() });
     c.userId = "u1";
     c.showPurchaseSuccess();
@@ -751,7 +763,7 @@ describe("App — purchase-first surfaces (plan 2026-07-15-001)", () => {
     expect(screen.getByText(STRINGS.auth.signOut)).toBeTruthy();
   });
 
-  it("stale-identity paywall state: retry CTA label + calm status line (R15)", () => {
+  paidTierIt("stale-identity paywall state: retry CTA label + calm status line (R15)", () => {
     const c = controller({ auth: codeCapableAuth() });
     c.openPaywall();
     c.purchaseFlow = "stale-identity";
@@ -760,7 +772,7 @@ describe("App — purchase-first surfaces (plan 2026-07-15-001)", () => {
     expect(screen.getByText(STRINGS.paywall.retryPurchase)).toBeTruthy();
   });
 
-  it("signed-out paywall: price on the CTA and the no-account reassurance (R1/R12)", () => {
+  paidTierIt("signed-out paywall: price on the CTA and the no-account reassurance (R1/R12)", () => {
     const c = controller({ auth: codeCapableAuth() });
     c.paywallPrice = "$1.99";
     c.openPaywall();
