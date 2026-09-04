@@ -25,6 +25,10 @@ export type SettingsListener = (settings: StillSettings, source: SettingsChangeS
 export class SettingsCache {
   private snapshot: StillSettings;
   private syncMetadata: SettingsSyncMetadata | null = null;
+  // Which account this browser profile is pointed at, counted rather than named. See
+  // StoredSettingsRecord.syncEpoch: it is what lets every context in the browser accept a reconcile
+  // that resets the server version, instead of each one arbitrating a shared browser for itself.
+  private syncEpoch = 0;
   private readonly now: () => number;
   private readonly listeners = new Set<SettingsListener>();
   private unwatch: (() => void) | null = null;
@@ -48,7 +52,9 @@ export class SettingsCache {
   }
 
   currentRecord(): StoredSettingsRecord {
-    return { settings: this.snapshot, syncMetadata: this.syncMetadata };
+    // Always stamped, even at zero, because that is what lets another context tell a peer that has
+    // not seen the reconcile yet from a store that does not speak epochs at all.
+    return { settings: this.snapshot, syncMetadata: this.syncMetadata, syncEpoch: this.syncEpoch };
   }
 
   /** Load persisted settings once at startup. LWW so a newer in-memory edit isn't clobbered. */
@@ -100,23 +106,16 @@ export class SettingsCache {
     return true;
   }
 
+  /** Steady state: take an envelope only when it is a later version of the row this cache is on. */
   applySyncedEnvelope(envelope: SyncedSettingsEnvelope): boolean {
     const incomingMetadata = metadataFromEnvelope(envelope);
     if (!shouldApplySyncedMetadata(incomingMetadata, this.syncMetadata)) return false;
-
-    const settingsChanged = !sameSettings(this.snapshot, envelope.settings);
-    const metadataChanged = !sameMetadata(this.syncMetadata, incomingMetadata);
-    if (!settingsChanged && !metadataChanged) return false;
-
-    this.snapshot = envelope.settings;
-    this.syncMetadata = incomingMetadata;
-    void this.persist();
-    if (settingsChanged) this.notify("synced");
-    return settingsChanged || metadataChanged;
+    return this.takeEnvelope(envelope, incomingMetadata, false);
   }
 
   /**
-   * Take an envelope as this device's truth, whatever version the cache is carrying.
+   * Take an envelope as this device's truth, whatever version the cache is carrying, and record
+   * that this browser profile has been repointed at a different account.
    *
    * `applySyncedEnvelope` above deliberately refuses anything that is not a later version than
    * what this device already has, which is what stops a late realtime message dragging the steady
@@ -124,16 +123,31 @@ export class SettingsCache {
    * with an account, because the version it is carrying may not be comparable at all: on a shared
    * browser it belongs to the previous person's profile row. So the reconcile in SyncService, and
    * only the reconcile, adopts unconditionally once it has decided the account is the newer side.
-   * Returns true when anything changed.
+   *
+   * Bumping the epoch is what carries that decision to every other context in the browser. Without
+   * it the background would hold the new account's settings and the popup the person is looking at
+   * would keep showing the previous person's, because the popup's own copy of this cache would
+   * refuse the lower version as stale. Returns true when anything changed.
    */
   adoptSyncedEnvelope(envelope: SyncedSettingsEnvelope): boolean {
-    const incomingMetadata = metadataFromEnvelope(envelope);
+    return this.takeEnvelope(envelope, metadataFromEnvelope(envelope), true);
+  }
+
+  /** The shared body of the two envelope paths above: assign, persist, and notify once. */
+  private takeEnvelope(
+    envelope: SyncedSettingsEnvelope,
+    incomingMetadata: SettingsSyncMetadata,
+    repoint: boolean,
+  ): boolean {
     const settingsChanged = !sameSettings(this.snapshot, envelope.settings);
     const metadataChanged = !sameMetadata(this.syncMetadata, incomingMetadata);
     if (!settingsChanged && !metadataChanged) return false;
 
     this.snapshot = envelope.settings;
     this.syncMetadata = incomingMetadata;
+    // Only a reconcile that actually moved this device bumps the epoch, so a background start that
+    // finds the account exactly where it left it costs no needless write to every other context.
+    if (repoint) this.syncEpoch += 1;
     void this.persist();
     if (settingsChanged) this.notify("synced");
     return true;
@@ -164,7 +178,33 @@ export class SettingsCache {
     return stamped;
   }
 
+  /**
+   * Take what the shared store now holds, which is how one context in the browser learns what
+   * another wrote. The order is epoch first, then server version, then the local timestamp.
+   *
+   * The epoch comes first because it answers a question the version cannot: whether the record is
+   * even counting the same account. A reconcile that repoints this browser at a different account
+   * bumps it, and every other context accepts the reset rather than reading the lower version as a
+   * stale echo of its own. Within one epoch the version test stands unchanged: it is what keeps two
+   * contexts writing at the same moment converging on the later write instead of trading places.
+   *
+   * A record with NO epoch is judged by the version rules alone, exactly as before this existed.
+   * That is the Apple App Group's records, whose Swift coder drops the field, and anything written
+   * by an older build. Refusing those would break settings coming back the other way across the
+   * bridge for the sake of a counter they were never able to carry.
+   */
   private applyStoredRecord(record: StoredSettingsRecord, source: SettingsChangeSource): boolean {
+    const incomingEpoch = record.syncEpoch;
+    if (incomingEpoch !== undefined && incomingEpoch !== this.syncEpoch) {
+      if (incomingEpoch < this.syncEpoch) return false; // a peer that has not seen the reconcile
+      this.syncEpoch = incomingEpoch;
+      const settingsChanged = !sameSettings(this.snapshot, record.settings);
+      const metadataChanged = !sameMetadata(this.syncMetadata, record.syncMetadata);
+      this.snapshot = record.settings;
+      this.syncMetadata = record.syncMetadata;
+      if (settingsChanged) this.notify(source);
+      return settingsChanged || metadataChanged;
+    }
     const metadata = record.syncMetadata;
     if (metadata) {
       if (this.syncMetadata) {

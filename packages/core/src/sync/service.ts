@@ -23,8 +23,12 @@ import type { AuthPort, BackendPort, EntitlementRead } from "./ports.js";
 /**
  * Persists the last userId a settings sync ran for, so `onSignedIn` can tell a same-user
  * re-sign-in (seed-from-local allowed) from an identity switch (cloud wins). Storage-backed in
- * real wiring, in-memory in tests. Optional: without it the service behaves exactly as before —
- * existing hosts keep today's same-user seed semantics.
+ * real wiring, in-memory in tests. There is deliberately no way to erase it: the shared-browser
+ * rule exists for the moment after someone signs out, so the record has to outlast them.
+ *
+ * Optional only so a host can be wired up without it. A host that omits it gives up the
+ * shared-browser rule entirely, because the first of the three rules in `deviceWins` can never
+ * fire, and every reconcile falls through to the clock or the version counter.
  */
 export interface LastSyncedIdentityStore {
   /** The last userId a sync started for, or null when none was ever recorded. */
@@ -57,6 +61,9 @@ const SIGNED_OUT: SyncState = {
   confirmed: true, // a deliberate sign-out is definitive — hosts may clear native stamps on it
 };
 
+/** Which side of a reconcile won, or that it gave up because the session ended under it. */
+type ReconcileOutcome = "device" | "account" | "abandoned";
+
 export class SyncService {
   private state: SyncState = SIGNED_OUT;
   private unsubCache: (() => void) | null = null;
@@ -68,8 +75,8 @@ export class SyncService {
   private pendingWrite: StillSettings | null = null;
   private retryLatestOnReconnect = false;
   // The start-up catch-up read, and the one edit held behind it. Publishing during that read would
-  // overwrite whatever it is about to bring down, so the edit waits and goes up on top instead.
-  private catchingUp: Promise<void> | null = null;
+  // overwrite whatever it is about to bring down, so the edit waits for the reconcile to decide.
+  private catchingUp: Promise<ReconcileOutcome> | null = null;
   private heldWrite: StillSettings | null = null;
 
   constructor(
@@ -204,43 +211,64 @@ export class SyncService {
    * The initial cloud mirror plus write-through for a newly signed-in user, shared by `onSignedIn`
    * and `onEntitlementConfirmed`.
    *
-   * The identity is recorded only once a sync actually starts, so a sign-in that never got that
-   * far cannot claim this device's settings for that account.
+   * A reconcile that gave up because the session ended arms nothing. Signing out while a sign-in is
+   * still in flight would otherwise leave a realtime subscription open for a signed-out user, after
+   * the sign-out's own teardown has already run, so nothing would ever close it and the next person
+   * to sign in would get no subscription at all.
    */
   private async mirrorAndStartWriteThrough(userId: string): Promise<void> {
-    await this.reconcileWithAccount(userId);
+    if ((await this.reconcileWithAccount(userId)) === "abandoned") return;
     this.startWriteThrough();
     this.startRealtime(userId);
-    await this.identity?.set(userId);
   }
 
   /**
    * Reconcile this device with its account: decide ONCE which side is the newer, then act on that
    * one decision and nothing else. Both moments where the two can be out of step come through
    * here, the mirror a sign-in runs and the catch-up a background start runs, so there is one
-   * answer rather than one per entry point.
+   * answer rather than one per entry point. The answer is returned so that nothing downstream has
+   * to guess which way it went.
    */
-  private async reconcileWithAccount(userId: string): Promise<void> {
+  private async reconcileWithAccount(userId: string): Promise<ReconcileOutcome> {
     // Never judge a device by a cache that has not finished loading. Until hydration lands,
     // `current()` is the bundled defaults and the sync metadata is null, so the device would read
     // as brand new and could publish defaults over settings someone has been using.
     await this.cache.whenHydrated();
     const lastSynced = this.identity === undefined ? null : await this.identity.get();
     const cloud = await this.backend.readProfile();
-    // A sign-out or an account switch during those reads makes this answer about a session that no
-    // longer exists, and acting on it would move one account's settings under another.
-    if (this.state.userId !== userId) return;
+    // A sign-out or an account switch during any await here makes the answer below about a session
+    // that no longer exists, and acting on it would move one account's settings under another. The
+    // test is repeated after the identity write for that reason.
+    if (this.state.userId !== userId) return "abandoned";
+    // Reaching the account is the moment this browser could start carrying settings between two
+    // accounts, so that is when it records whose settings it holds, before anything is published
+    // or adopted. Recording it afterwards left a gap: a write that failed, or a worker that died
+    // mid-reconcile, left a browser that HAD synced still claiming nobody had ever synced on it,
+    // and the shared-browser rule cannot fire on a browser like that.
+    await this.identity?.set(userId);
+    if (this.state.userId !== userId) return "abandoned";
     if (this.deviceWins(cloud, lastSynced, userId)) {
       // The write returns the new envelope, which is how the cache learns the server version that
       // every later edit has to build on.
       await this.writeAndApply(this.cache.current());
-      return;
+      return "device";
     }
-    // The account is the newer side, so it is adopted whatever version this device happens to be
-    // carrying. On a shared browser that version belongs to the previous person's profile row and
-    // comparing the two would mean nothing, which is why this cannot go through the steady-state
-    // `applySyncedEnvelope` and its version test. Nothing goes up on this path, by any route.
-    if (cloud !== null) this.cache.adoptSyncedEnvelope(cloud);
+    // The account is the newer side. Nothing goes up on this path, by any route.
+    if (cloud !== null) {
+      if (lastSynced === userId && this.cache.currentSyncMetadata() !== null) {
+        // The two counters count the same profile row, so the steady-state rule is the right one:
+        // it is what stops a realtime message that arrived while this read was in flight being
+        // overwritten by the older snapshot the read is holding.
+        this.cache.applySyncedEnvelope(cloud);
+      } else {
+        // The counters are not comparable at all: on a shared browser the version on this device
+        // belongs to the previous person's profile row, and on a device that has never synced
+        // there is no counter to compare. The account is taken whole, and every other context in
+        // the browser is told the row changed.
+        this.cache.adoptSyncedEnvelope(cloud);
+      }
+    }
+    return "account";
   }
 
   /**
@@ -325,8 +353,8 @@ export class SyncService {
    * subscription only ever delivers writes made while it is connected, so a browser that was
    * closed while another device changed something would never learn about it, and its first local
    * edit would publish the stale snapshot over the newer one. The catch-up closes that. It is on no
-   * blocking path, and outgoing writes are held until it settles so an edit made in that window is
-   * published on top of what came down rather than under it.
+   * blocking path, and outgoing writes are held until it settles so that the reconcile, not the
+   * accident of when someone clicked, decides which side is published.
    *
    * Everything that arms the session happens synchronously before the returned promise, so a
    * caller that does not await still gets write-through restarted immediately.
@@ -366,16 +394,25 @@ export class SyncService {
    * its cached settings until the realtime reconnect refresh retries.
    */
   private catchUpWithAccount(userId: string): Promise<void> {
-    const settled = this.reconcileWithAccount(userId).catch(() => {
+    const settled = this.reconcileWithAccount(userId).catch((): ReconcileOutcome => {
       this.realtimeStale = true; // the existing reconnect refresh is the retry
+      return "abandoned";
     });
     this.catchingUp = settled;
-    return settled.then(() => {
+    return settled.then((outcome) => {
       if (this.catchingUp !== settled) return; // superseded by a later session entry
       this.catchingUp = null;
       const held = this.heldWrite;
       this.heldWrite = null;
-      if (held === null || this.state.userId !== userId || !this.canSync) return;
+      if (held === null) return;
+      // The one decision has to hold here too. When the account was the newer side, this edit was
+      // made on top of what the device held BEFORE the account's settings arrived, so publishing
+      // it would put that pre-download state back over everything just adopted, and the profile
+      // write is a full overwrite: the other device's change would be gone everywhere. The edit is
+      // dropped instead, which is exactly what happens to the same edit made a moment earlier,
+      // before write-through arms.
+      if (outcome !== "device") return;
+      if (this.state.userId !== userId || !this.canSync) return;
       // Skip when the reconcile already published this exact edit, which is what happens when it
       // decided this device was the newer side after the edit had landed in the cache.
       if (sameSettings(held, this.cache.current())) return;
