@@ -395,6 +395,9 @@ export class UiController {
    * optional-account pitch; signed-in buyers get the sync confirmation. Renders in the paywall
    * sheet with NO auto-dismiss — leaving is an explicit choice ("Not now" / account CTA). */
   showPurchaseSuccess(): void {
+    // Dormant paid tier: see openPaywall below. Nothing can be purchased, so there is no purchase
+    // to celebrate, and the success screen only exists inside the sheet that no longer mounts.
+    if (!PAID_TIER_ENABLED) return;
     this.clearPayoff();
     this.successScreen = this.userId === null ? "account-pitch" : "synced";
     this.paywallOpen = true;
@@ -562,6 +565,11 @@ export class UiController {
   }
 
   openPaywall(): void {
+    // The paid tier is dormant behind PAID_TIER_ENABLED, and the sheet this opens is not rendered
+    // while it is. Refusing here, at the funnel rather than at the render, is what stops the
+    // machinery behind the sheet from running against UI nobody can see or dismiss: the payoff
+    // timer, the success screen, and the checkout poll window all key off paywallOpen.
+    if (!PAID_TIER_ENABLED) return;
     if (this.purchaseBusy) return; // re-opening must not reset an in-flight purchase
     this.paywallOpen = true;
     this.purchaseFlow = "idle";
@@ -720,6 +728,15 @@ export class UiController {
     pending: { startedAt?: number; tabId?: number } | null | undefined,
   ): void {
     if (!this.checkout || pending === null || pending === undefined) return;
+    // A checkout that can no longer complete is moot while the paid tier is dormant behind
+    // PAID_TIER_ENABLED, so clear the record instead of presenting it. Presenting would start a
+    // repeating entitlement poll behind a sheet that does not render, and the only control that
+    // cancels it ("I didn't finish checkout") lives inside that sheet. Clearing is what frees a
+    // user carrying a stale flag from an older install: it happens once, and never again.
+    if (!PAID_TIER_ENABLED) {
+      this.setCheckoutPending(null);
+      return;
+    }
     if (this.entitled) {
       this.setCheckoutPending(null);
       return;

@@ -67,6 +67,49 @@ describe("UiController", () => {
     expect(c.isLocked("instagram")).toBe(false);
   });
 
+  includedAccessIt("refuses every route into the paywall while the paid tier is dormant", () => {
+    // Hiding the sheet is not enough. The routes that open it also start the machinery behind it,
+    // so they are refused at the entry point rather than at the render.
+    const { c } = makeController({ auth: codeAuth() });
+    c.openPaywall();
+    expect(c.paywallOpen).toBe(false);
+    c.showPurchaseSuccess();
+    expect(c.paywallOpen).toBe(false);
+    expect(c.successScreen).toBe("none");
+  });
+
+  includedAccessIt("clears a leftover checkout-pending record instead of polling behind a hidden sheet", () => {
+    // The defect this pins: a user who abandoned a checkout on an older build would otherwise
+    // start a repeating entitlement check on every popup open, with no visible way to stop it,
+    // for a purchase that can no longer complete.
+    const { seam } = checkoutSeam();
+    const now = 1_700_000_000_000;
+    const { c } = makeController({ checkout: seam, clock: () => now });
+    c.userId = "u";
+    c.rehydrateCheckoutPending({ startedAt: now });
+    expect(c.checkoutFlow).toBe("none");
+    expect(c.paywallOpen).toBe(false);
+    expect(seam.setPending).toHaveBeenCalledWith(null); // cleared for good, not just this session
+    expect(seam.reconcile).not.toHaveBeenCalled(); // and no network call was made to notice it
+  });
+
+  includedAccessIt("an entitlement rise arms no payoff timer while the paid tier is dormant", () => {
+    vi.useFakeTimers();
+    try {
+      const { seam } = checkoutSeam();
+      const now = 1_700_000_000_000;
+      const { c } = makeController({ checkout: seam, clock: () => now });
+      c.userId = "u";
+      c.rehydrateCheckoutPending({ startedAt: now }); // the old route to an armed payoff
+      c.openPaywall();
+      c.entitled = true;
+      expect(c.justUnlocked).toBe(false);
+      expect(vi.getTimerCount()).toBe(0); // nothing scheduled against UI nobody can see
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   paidTierIt("locks Pro services for un-entitled users and unlocks them when entitled", () => {
     const { c } = makeController();
     expect(c.isLocked("youtube")).toBe(false); // free service is never locked
