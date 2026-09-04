@@ -1209,6 +1209,60 @@ describe("SyncService", () => {
     expect(cache.current().services.instagram).toBe(false);
   });
 
+  /** Hold the reconcile's own profile WRITE open, so a test can act inside the round trip it is
+   * waiting on. The window an edit can be lost in is that round trip, not the read: the write
+   * carries what the cache held when it started and its reply is applied to the cache. */
+  function holdProfileWrite(backend: BackendPort): () => void {
+    const inner = backend.writeProfile.bind(backend);
+    let release: () => void = () => {};
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held = false;
+    backend.writeProfile = async (s, writeId) => {
+      if (held) return inner(s, writeId);
+      held = true;
+      await blocked;
+      return inner(s, writeId);
+    };
+    return () => release();
+  }
+
+  it("a setting changed while a sign-in's own write is in flight is published, not undone by it", async () => {
+    // The same protection the background start has, on the route a sign-in takes. It matters most
+    // in the Apple app, where entering a session runs at every launch and on qualifying returns
+    // while the settings screen is on screen. This device edited something while it was signed
+    // out, so the reconcile decides it is the newer side and sends that up; the person taps
+    // another switch before that write lands; the write's own reply is then applied to the cache
+    // and takes the tap back out of it. Held instead: the tap waits for the decision and goes up
+    // straight after it.
+    const account = settings({ globalOn: true, updatedAt: SERVER_MS });
+    const edited = settings({ globalOn: false, updatedAt: SERVER_MS + 1_000 });
+    const cache = syncedCache(edited, 5);
+    await cache.hydrate();
+    const backend = mockBackend({ entitled: true, cloud: envelopeStampedAt(account, SERVER_MS, 5) });
+    const release = holdProfileWrite(backend.backend);
+    const svc = new SyncService(
+      cache,
+      mockAuth().auth,
+      backend.backend,
+      undefined,
+      identityStore(USER).store,
+      () => DEVICE_NOW,
+    );
+
+    const signIn = svc.onSignedIn(USER);
+    await drain();
+    await cache.setService("instagram", false); // tapped while the reconcile's write is in flight
+    release();
+    await signIn;
+    await drain();
+
+    expect(cache.current().services.instagram).toBe(false); // the tap survived on this device
+    expect(backend.writes.at(-1)!.services.instagram).toBe(false); // and reached the account
+    expect(backend.writes.at(-1)!.globalOn).toBe(false); // carrying the offline edit with it
+  });
+
   it("a realtime message that lands during the start-up read is not undone by it", async () => {
     // The read is holding version 9. While it is in flight another device writes version 10 and the
     // subscription delivers it. The reconcile must not walk the device back to 9: the two counters
