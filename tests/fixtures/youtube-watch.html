@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>YouTube — watch page fixture (desktop and mobile up-next rails)</title>
+  </head>
+  <body>
+    <!--
+      The watch page, with both rails in one document because the same rule set runs on the desktop
+      and mobile watch page and both put a Shorts shelf in the recommendations. The player and every
+      ordinary recommendation must be untouched: ids starting "keep-" are the controls.
+    -->
+    <div id="keep-player"><video></video></div>
+    <h1 id="keep-title">A real long-form video</h1>
+
+    <!-- Desktop up-next rail. -->
+    <ytd-watch-next-secondary-results-renderer id="keep-desktop-rail">
+      <ytd-reel-shelf-renderer id="watch-shorts-shelf">
+        <h2>Shorts</h2>
+        <a href="/shorts/abc123">a related short</a>
+      </ytd-reel-shelf-renderer>
+      <ytd-compact-video-renderer id="keep-desktop-next">
+        <a href="/watch?v=long456">The next long-form video</a>
+      </ytd-compact-video-renderer>
+    </ytd-watch-next-secondary-results-renderer>
+
+    <!-- Mobile up-next rail. -->
+    <ytm-item-section-renderer id="keep-mobile-rail">
+      <ytm-shorts-lockup-view-model id="watch-mobile-short">
+        <a class="shortsLockupViewModelHostEndpoint" href="/shorts/def456">a related mobile short</a>
+      </ytm-shorts-lockup-view-model>
+      <ytm-video-with-context-renderer id="keep-mobile-next">
+        <ytm-media-item>
+          <a class="media-item-thumbnail-container" href="/watch?v=long789">The next long-form mobile video</a>
+        </ytm-media-item>
+      </ytm-video-with-context-renderer>
+    </ytm-item-section-renderer>
+  </body>
+</html>

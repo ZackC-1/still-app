@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>YouTube — m.youtube.com search results fixture</title>
+  </head>
+  <body>
+    <!--
+      m.youtube.com search results. Mobile serves the same grid-shelf-view-model Shorts shelf as
+      desktop plus single Shorts results wrapped in ytm-video-with-context-renderer. The card-level
+      test is the card's own thumbnail anchor, not "contains a link to a Short anywhere", which is
+      what used to take ordinary results with it. Ids starting "keep-" are the controls.
+    -->
+    <ytm-app id="app">
+      <ytm-search>
+        <ytm-section-list-renderer>
+          <ytm-item-section-renderer class="fullbleed">
+            <ytm-video-with-context-renderer id="keep-mobile-first-result" class="item">
+              <ytm-media-item>
+                <a class="media-item-thumbnail-container" href="/watch?v=long123">A real long-form mobile result</a>
+              </ytm-media-item>
+            </ytm-video-with-context-renderer>
+
+            <ytm-video-with-context-renderer id="mobile-shorts-result" class="item">
+              <ytm-media-item class="big-shorts-singleton">
+                <a class="media-item-thumbnail-container" href="/shorts/abc123">a mobile Shorts result</a>
+                <div class="media-item-details"><a href="/shorts/abc123">same short again</a></div>
+              </ytm-media-item>
+            </ytm-video-with-context-renderer>
+
+            <!-- Over-blocking control: a long-form result whose channel row links to a Short. -->
+            <ytm-video-with-context-renderer id="keep-mobile-result-linking-to-short" class="item">
+              <ytm-media-item>
+                <a class="media-item-thumbnail-container" href="/watch?v=long456">A long-form result that mentions a short</a>
+                <div class="media-channel"><a class="media-item-extra-endpoint" href="/shorts/def456">a short by the same channel</a></div>
+              </ytm-media-item>
+            </ytm-video-with-context-renderer>
+
+            <!-- The mobile Shorts shelf, header and all. -->
+            <grid-shelf-view-model id="mobile-shorts-shelf" class="ytGridShelfViewModelHost item">
+              <yt-shelf-header-layout><h2>Shorts</h2><button>Show more</button></yt-shelf-header-layout>
+              <div class="ytGridShelfViewModelGridShelfRow">
+                <div class="ytGridShelfViewModelGridShelfItem">
+                  <ytm-shorts-lockup-view-model class="shortsLockupViewModelHost">
+                    <a class="shortsLockupViewModelHostEndpoint" href="/shorts/ghi789">a shelf short</a>
+                  </ytm-shorts-lockup-view-model>
+                </div>
+              </div>
+            </grid-shelf-view-model>
+
+            <!-- Over-blocking control: an ordinary mobile grid shelf with no Shorts in it. -->
+            <grid-shelf-view-model id="keep-mobile-normal-shelf" class="ytGridShelfViewModelHost item">
+              <yt-shelf-header-layout><h2>People also watched</h2></yt-shelf-header-layout>
+              <div class="ytGridShelfViewModelGridShelfRow">
+                <div class="ytGridShelfViewModelGridShelfItem">
+                  <yt-lockup-view-model><a href="/watch?v=shelf123">A long-form shelf item</a></yt-lockup-view-model>
+                </div>
+              </div>
+            </grid-shelf-view-model>
+          </ytm-item-section-renderer>
+        </ytm-section-list-renderer>
+      </ytm-search>
+    </ytm-app>
+  </body>
+</html>
