@@ -1002,6 +1002,138 @@ describe("SyncService", () => {
     expect(popup.current().globalOn).toBe(true);
   });
 
+  // ── two accounts sitting on the same version number ─────────────────────────────────────────────
+  // A version counts the writes made inside ONE account, so it proves nothing across two. Both of
+  // these arrive at the same state: this browser names the person now signed in, and still holds
+  // the previous person's settings anchored to the previous person's row. The first gets there
+  // through a sign-out landing inside the reconcile; the second needs no timing at all.
+
+  /** A's row and B's row, both saved exactly once, which for two light users is the likeliest pair
+   * of numbers there is. Same version, different rows: different server stamps, different writes. */
+  const A_ROW: SettingsSyncMetadata = {
+    version: 1,
+    serverUpdatedAt: new Date(SERVER_MS).toISOString(),
+    lastWriteId: "0a0a0a0a-0000-4000-8000-00000000000a",
+  };
+  const B_ROW = envelopeStampedAt(settings({ globalOn: true, updatedAt: 7 }), SERVER_MS + 60_000, 1);
+  const B_ROW_ENVELOPE: SyncedSettingsEnvelope = {
+    ...B_ROW,
+    lastWriteId: "0b0b0b0b-0000-4000-8000-00000000000b",
+  };
+
+  it("two accounts at the same version: a sign-out inside the reconcile does not hand B's account A's settings", async () => {
+    // Person A synced once on this browser with everything switched off. A signed out and person B
+    // signed in, so the reconcile recorded B as the person this browser last synced for. B signed
+    // out on that exact write, so the reconcile gave up and nothing was adopted: the browser now
+    // names B and still holds A's settings, anchored to A's row.
+    const { background, popup } = twoContexts({
+      settings: settings({ globalOn: false, updatedAt: SERVER_MS + 1_000 }),
+      syncMetadata: A_ROW,
+    });
+    await background.hydrate();
+    background.watch();
+    await popup.hydrate();
+    popup.watch();
+
+    const backend = mockBackend({ entitled: true, cloud: B_ROW_ENVELOPE });
+    const identity = identityStore(OTHER_USER); // A is who this browser last synced for
+    let releaseIdentityWrite: () => void = () => {};
+    const identityWritten = new Promise<void>((resolve) => {
+      releaseIdentityWrite = resolve;
+    });
+    const heldIdentity: LastSyncedIdentityStore = {
+      get: () => identity.store.get(),
+      set: async (userId) => {
+        await identity.store.set(userId);
+        await identityWritten; // the sign-out lands here, on the write that names B
+      },
+    };
+    const svc = new SyncService(
+      background,
+      mockAuth().auth,
+      backend.backend,
+      undefined,
+      heldIdentity,
+      () => DEVICE_NOW,
+    );
+
+    const signIn = svc.onSignedIn(USER);
+    await drain();
+    await svc.signOut();
+    releaseIdentityWrite();
+    await signIn;
+    await drain();
+
+    expect(backend.writes.length).toBe(0);
+    expect(identity.current()).toBe(USER); // this browser names B
+    expect(background.currentSyncMetadata()?.lastWriteId).toBe(A_ROW.lastWriteId); // on A's row
+    expect(background.current().globalOn).toBe(false); // holding A's settings
+
+    // The next ordinary start. Both rows are at version 1, and matching those two numbers is not
+    // proof that this is the row this browser left off on.
+    const restarted = new SyncService(
+      background,
+      mockAuth().auth,
+      backend.backend,
+      undefined,
+      identity.store,
+      () => DEVICE_NOW,
+    );
+    await restarted.resume(USER, true);
+    await drain();
+
+    expect(backend.writes.length).toBe(0); // A's settings never reach B's account
+    expect(background.current().globalOn).toBe(true); // B is looking at B's own settings
+    expect(popup.current().globalOn).toBe(true); // in the popup as well as the worker
+    expect(background.currentSyncMetadata()?.lastWriteId).toBe(B_ROW_ENVELOPE.lastWriteId);
+  });
+
+  it("two accounts at the same version, reached with no timing at all: a browser quit mid sign-in", async () => {
+    // The same state, without any race to win. The record of who last synced here is written and
+    // waited for; the settings are written without waiting. A worker killed in between, which is
+    // ordinary on Chromium, leaves exactly this on disk. The rule has to hold on what is on disk,
+    // not on how it got there.
+    const cache = new SettingsCache(
+      new InMemoryStorageAdapter({
+        settings: settings({ globalOn: false, updatedAt: SERVER_MS + 1_000 }),
+        syncMetadata: A_ROW,
+      }),
+      { now: () => SERVER_MS },
+    );
+    await cache.hydrate();
+    const { svc, writes } = reconcileService(cache, B_ROW_ENVELOPE, USER);
+
+    await svc.resume(USER, true);
+    await drain();
+
+    expect(writes.length).toBe(0);
+    expect(cache.current().globalOn).toBe(true);
+    expect(cache.currentSyncMetadata()?.lastWriteId).toBe(B_ROW_ENVELOPE.lastWriteId);
+  });
+
+  it("the same row, with its timestamp spelled two ways, is still the same row", async () => {
+    // The row state a device is anchored to arrives through three transports: the reply to its own
+    // write, the start-up read, and the live stream. Nothing makes all three spell an instant the
+    // same way. Reading two spellings as two rows would quietly stop this device publishing edits
+    // it made while it was offline, which is the one thing this rule exists to allow.
+    const spelledDifferently = new Date(SERVER_MS).toISOString().replace("Z", "+00:00");
+    const cache = new SettingsCache(
+      new InMemoryStorageAdapter({
+        settings: settings({ globalOn: false, updatedAt: SERVER_MS + 1_000 }),
+        syncMetadata: { version: 5, serverUpdatedAt: spelledDifferently, lastWriteId: null },
+      }),
+      { now: () => SERVER_MS },
+    );
+    await cache.hydrate();
+    const cloud = envelopeStampedAt(settings({ globalOn: true, updatedAt: 7 }), SERVER_MS, 5);
+    const { svc, writes } = reconcileService(cache, cloud, USER);
+
+    await svc.resume(USER, true);
+    await drain();
+
+    expect(writes.map((w) => w.globalOn)).toEqual([false]); // the edit made offline still goes up
+  });
+
   // ── the start-up catch-up: what happens to an edit made while the read is in flight ─────────────
 
   /** Hold the profile read open, so a test can act inside the window a start-up read is in flight. */
