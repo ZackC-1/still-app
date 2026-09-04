@@ -5,16 +5,27 @@
     <title>Facebook — fixture</title>
   </head>
   <body>
-    <!-- Left menu: a Reels shortcut (fb-left-menu, hide) + a normal item (must survive) -->
+    <!-- Left menu: a Reels shortcut (fb-left-menu, hide) + normal items (must survive) -->
     <nav id="left-menu">
-      <a href="/" id="home-link">Home</a>
-      <a href="/reel/" id="reels-shortcut" aria-label="Reels">Reels</a>
+      <ul>
+        <li id="keep-menu-home"><a href="/" id="home-link">Home</a></li>
+        <li id="menu-reels"><a href="/reel/" id="reels-shortcut" aria-label="Reels">Reels</a></li>
+        <!--
+          Over-blocking control: a Page whose name begins with the letters "reel". Facebook's own
+          Reels URLs are always /reel/<id> or /reels/..., so the trailing slash is what tells a Reel
+          apart from a Page called "Reel Estate".
+        -->
+        <li id="keep-menu-lookalike"><a href="/reelestate">Reel Estate Group</a></li>
+      </ul>
     </nav>
 
-    <!-- Feed: a Reel article (fb-feed, remove) + a normal post (must survive) -->
-    <main>
+    <!-- Feed: a Reel article (fb-feed, remove) + normal posts (must survive) -->
+    <main role="feed">
       <div role="article" id="reel-article"><a href="/reel/123">a reel</a></div>
       <div role="article" id="keep-article">A normal status update</div>
+      <div role="article" id="keep-lookalike-article">
+        <a href="/reeling-in-the-years/posts/1">Reeling In The Years posted an update</a>
+      </div>
     </main>
   </body>
 </html>

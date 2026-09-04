@@ -249,6 +249,10 @@ test("facebook: Pro user removes a Reel article + hides the Reels shortcut, keep
   await expect(page.locator("#reel-article")).toHaveCount(0);
   await expect(page.locator("#keep-article")).toBeVisible();
   await expect(page.locator("#reels-shortcut")).toBeHidden();
+  // A Page whose name starts with the letters "reel" is not a Reel.
+  await expect(page.locator("#keep-lookalike-article")).toBeVisible();
+  await expect(page.locator("#keep-menu-lookalike")).toBeVisible();
+  await expect(page.locator("#keep-menu-home")).toBeVisible();
 });
 
 test("facebook mobile: Pro user blocks Reels routes and removes mobile Reels sections", async ({ context, extensionId }) => {
@@ -260,6 +264,12 @@ test("facebook mobile: Pro user blocks Reels routes and removes mobile Reels sec
   await expect(page.locator("#fb-mobile-reel")).toHaveCount(0);
   await expect(page.locator("#fb-mobile-post")).toBeVisible();
   await expect(page.locator("#fb-mobile-reels")).toBeHidden();
+  await expect(page.locator("#keep-fb-mobile-lookalike")).toBeVisible();
+  // The tab node keeps its slot in the tablist so the bar does not gain a grey gap (issue #58);
+  // only its contents are hidden.
+  await expect(page.locator("#fb-mobile-reels-tab")).toHaveCount(1);
+  await expect(page.locator("#fb-mobile-reels-tab span")).toBeHidden();
+  await expect(page.locator("#keep-fb-mobile-home-tab")).toBeVisible();
 
   await page.goto("https://m.facebook.com/watch/reels/");
   await expect(page.locator("#still-placeholder")).toBeVisible();

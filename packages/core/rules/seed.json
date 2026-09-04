@@ -1,5 +1,5 @@
 {
-  "version": "1.1.0",
+  "version": "1.1.1",
   "services": {
     "youtube": {
       "matches": [
@@ -229,7 +229,7 @@
           "selectors": [
             "div[role=\"article\"]:has(a[href*=\"/reel/\"])",
             "div[role=\"article\"]:has(a[href*=\"/reels/\"])",
-            "[role=\"feed\"] [role=\"article\"]:has(a[href*=\"/reel\"])"
+            "[role=\"feed\"] [role=\"article\"]:has(a[href*=\"/reel/\"], a[href*=\"/reels/\"])"
           ]
         },
         {
@@ -243,7 +243,7 @@
             "a[aria-label=\"Reels\"]",
             "a[aria-label*=\"Reels\" i]",
             "a[href*=\"/reels/\"]",
-            "li:has(> a[href*=\"/reel\"])"
+            "li:has(> a[href*=\"/reel/\"], > a[href*=\"/reels/\"])"
           ]
         },
         {
@@ -300,6 +300,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "5ca24ca37fd92aec35f3194066cf4149033df039da8f103039c877a85d1c7a5cc0ad33f99aaa207add2bbdd519080deb7005fe18e75b6442ad9ce9ced46e080b"
+    "value": "57e3ae94605a0b63f5cc62e6ee2f627061caac41588babd8bcafcf2c0957f103dc9d8d20b1aa3f87401f25337f8349895b590dc878bf296067a228d96d877e02"
   }
 }
