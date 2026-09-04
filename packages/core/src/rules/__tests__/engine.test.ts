@@ -122,6 +122,62 @@ describe("evaluate — navigation decisions", () => {
     expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reelestate/")).kind).toBe("apply");
   });
 
+  it("leaves Facebook's own sections alone when their address ends in the word reels", () => {
+    // "/<name>/reels" is a Page's Reels tab only when <name> is a Page. Facebook reserves its own
+    // first path segment for sections like groups and hashtag, so /groups/reels is a real group
+    // about fishing rods, reels and tackle, and /hashtag/reels is the hashtag feed. Both render
+    // ordinary content and neither is short-form video, so Still must not cover them.
+    for (const path of [
+      "/groups/reels",
+      "/groups/reels/",
+      "/hashtag/reels",
+      "/marketplace/reels",
+      "/gaming/reels",
+      "/games/reels",
+      "/live/reels",
+      "/events/reels",
+      "/pages/reels",
+      "/people/reels",
+      "/stories/reels",
+      "/search/reels",
+      "/help/reels",
+      "/business/reels",
+      "/settings/reels",
+      "/messages/reels",
+      "/notifications/reels",
+      "/bookmarks/reels",
+      "/friends/reels",
+      "/saved/reels",
+      "/ads/reels",
+      "/photo/reels",
+      "/policies/reels",
+      "/legal/reels",
+      "/careers/reels",
+      "/login/reels",
+      "/privacy/reels",
+    ]) {
+      expect(evaluate(ruleSet, allOn, new URL(`https://www.facebook.com${path}`)).kind).toBe("apply");
+      expect(evaluate(ruleSet, allOn, new URL(`https://m.facebook.com${path}`)).kind).toBe("apply");
+    }
+
+    // Narrowing must not give back the Reels addresses this rule exists to cover: a Page whose
+    // vanity name merely begins with a section name is still a Page.
+    for (const path of [
+      "/reel/123",
+      "/reels/",
+      "/watch/reels/",
+      "/somepage/reels",
+      "/somepage/reels/",
+      "/100064860875397/reels",
+      "/groupsofpeople/reels",
+      "/liveband/reels",
+    ]) {
+      expect(evaluate(ruleSet, allOn, new URL(`https://www.facebook.com${path}`)).kind).toBe(
+        "placeholder",
+      );
+    }
+  });
+
   it("is a no-op on an unknown domain", () => {
     expect(evaluate(ruleSet, allOn, new URL("https://example.com/")).kind).toBe("noop");
   });

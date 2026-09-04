@@ -293,7 +293,48 @@ test("facebook page: the Reels tab goes, the other Page tabs stay", async ({ con
   await expect(page.locator("#keep-page-posts-tab")).toBeVisible();
   await expect(page.locator("#keep-page-photos-tab")).toBeVisible();
   // The rule keys on the tab, not on the word: an ordinary link to a Page called "reels_tab" stays.
-  await expect(page.locator("#keep-menu-reels-tab-page")).toBeVisible();
+  // Assert on the link itself, because the list item around it keeps its box either way.
+  await expect(page.locator("#keep-menu-reels-tab-page a")).toBeVisible();
+});
+
+// Facebook's own sections live in the first path segment, so "/<name>/reels" is a Page's Reels tab
+// only when <name> is a Page. facebook.com/groups/reels is a live group that auctions fishing rods,
+// reels and tackle, and facebook.com/hashtag/reels is the hashtag feed. Neither is short-form video.
+test("facebook: a Facebook section whose address ends in the word reels is not a Reels tab", async ({
+  context,
+  extensionId,
+}) => {
+  await setEntitled(context, extensionId, true);
+  const page = await context.newPage();
+  await serve(page, "**://*.facebook.com/**", fixture("facebook.html"));
+
+  for (const path of [
+    "/groups/reels",
+    "/groups/reels/",
+    "/hashtag/reels",
+    "/marketplace/reels",
+    "/gaming/reels",
+    "/events/reels",
+    "/pages/reels",
+    "/people/reels",
+    "/stories/reels",
+    "/help/reels",
+    "/business/reels",
+    "/settings/reels",
+  ]) {
+    await page.goto(`https://www.facebook.com${path}`);
+    await expect(page.locator("#still-placeholder")).toHaveCount(0);
+    await expect(page.locator("#keep-section-page")).toBeVisible();
+    await expect(page.locator("#keep-section-title")).toBeVisible();
+    await expect(page.locator("#keep-section-post")).toBeVisible();
+  }
+
+  // A Page's Reels tab is still covered, including a Page whose vanity name merely begins with the
+  // name of a section, and a Page addressed by its numeric id.
+  for (const path of ["/stillapp/reels/", "/groupsofpeople/reels", "/100064860875397/reels"]) {
+    await page.goto(`https://www.facebook.com${path}`);
+    await expect(page.locator("#still-placeholder")).toBeVisible();
+  }
 });
 
 test("facebook mobile: Pro user blocks Reels routes and removes mobile Reels sections", async ({ context, extensionId }) => {
@@ -321,6 +362,11 @@ test("facebook mobile: Pro user blocks Reels routes and removes mobile Reels sec
 
   // A Page's other sections are long-form video and photos, which Still leaves alone.
   await page.goto("https://m.facebook.com/stillapp/videos");
+  await expect(page.locator("#still-placeholder")).toHaveCount(0);
+  await expect(page.locator("#fb-mobile-post")).toBeVisible();
+
+  // And a Facebook section whose address ends in the word reels is not a Page's Reels tab.
+  await page.goto("https://m.facebook.com/groups/reels");
   await expect(page.locator("#still-placeholder")).toHaveCount(0);
   await expect(page.locator("#fb-mobile-post")).toBeVisible();
 });

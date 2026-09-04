@@ -36,6 +36,18 @@
       <a role="tab" href="https://www.facebook.com/stillapp/photos" id="keep-page-photos-tab">Photos</a>
     </div>
 
+    <!--
+      Over-blocking control for the address rule. Facebook keeps its own sections in the first path
+      segment, so an address like /groups/reels or /hashtag/reels is a section of Facebook rather
+      than a Page's Reels tab. facebook.com/groups/reels is a live group that auctions fishing rods,
+      reels and tackle. Those addresses must load exactly as they do with Still switched off, so the
+      tests navigate to them and expect this block, not Still's page.
+    -->
+    <section id="keep-section-page">
+      <h1 id="keep-section-title">Fishing rods, reels and tackle</h1>
+      <div role="article" id="keep-section-post">A rod and reel auction listing</div>
+    </section>
+
     <!-- Feed: a Reel article (fb-feed, remove) + normal posts (must survive) -->
     <main role="feed">
       <div role="article" id="reel-article"><a href="/reel/123">a reel</a></div>
