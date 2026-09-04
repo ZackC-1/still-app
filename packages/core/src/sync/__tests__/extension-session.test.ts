@@ -250,9 +250,10 @@ describe("ExtensionSession — verifyCode (the sign-in money path)", () => {
     await h.session.verifyCode("a@still.app", "123456");
     expect(h.recordWrites).toHaveLength(0);
     // Nothing was written because the answer was unknown, not because the sign-in fell over: the
-    // person is signed in and their settings are syncing regardless of the entitlement answer.
+    // person is signed in either way. What sync then does with an unanswered entitlement differs
+    // by tier, so it is asserted where the tier is stated, not here.
     expect(h.persistedSession()).toBe("u1");
-    expect(h.sync.getState()).toMatchObject({ userId: "u1", syncing: true });
+    expect(await h.session.getState()).toMatchObject({ userId: "u1" });
   });
 
   it("reconcile throwing during sign-in: no record write, outcome still verified", async () => {
