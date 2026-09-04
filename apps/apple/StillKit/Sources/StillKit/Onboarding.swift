@@ -6,14 +6,17 @@ import Foundation
 // display mapping and the first-launch gate with no device, signing, or Safari.
 
 /// Whether Still's Safari Web Extension is currently enabled — the live state shown on onboarding
-/// screen 3 ("Enable the extension"). `SFSafariExtensionManager` can report this on **macOS**; iOS
-/// has no public API to read a Safari extension's enabled state from the containing app, so the iOS
-/// onboarding is instructional and reports `.unknown`. Keeping the enum and its copy here (out of
-/// SafariServices) makes the display mapping unit-testable.
+/// screen 3 ("Enable the extension"). `SFSafariExtensionManager` can report this on **macOS**.
+/// Across the iPhone versions this build supports, back to iOS 15, a containing app cannot read a
+/// Safari extension's enabled state, so the iOS onboarding is instructional and reports `.unknown`.
+/// (`SFSafariExtensionManager` reached iOS in 26.2, which is far ahead of the deployment target.)
+/// Keeping the enum and its copy here (out of SafariServices) makes the display mapping
+/// unit-testable.
 public enum SafariExtensionStatus: Equatable, Sendable {
   case enabled
   case disabled
-  /// State is not knowable from the app (iOS), or hasn't been probed yet.
+  /// State is not knowable from the app on the iPhone versions this build targets, or has not been
+  /// probed yet.
   case unknown
 
   /// The headline screen 3 shows for each state (brainstorm copy: "Not on yet" → "You're all set").
@@ -41,10 +44,12 @@ public enum EnableLocation: Equatable, Sendable {
   /// through `SFSafariApplication.showPreferencesForExtension`. The reader arrives where the toggle
   /// is and has nothing to navigate.
   case safariExtensionSettings
-  /// The Settings app, opened on Still's own page. This is everything iOS offers a containing app:
-  /// `UIApplication.openSettingsURLString` is the only entry point and there is no public deep link
-  /// to a Safari extension's toggle. The reader lands one screen away from Safari and has to walk
-  /// the rest, which is what the steps are for.
+  /// The Settings app, opened on Still's own page, through `UIApplication.openSettingsURLString`.
+  /// That is the only entry point a containing app has across the iPhone versions this build
+  /// supports, which reach back to iOS 15: iOS gained a deep link to an extension's own settings
+  /// only in 26.2, with `SFSafariSettings.openExtensionsSettings(forIdentifiers:)`, and reaching it
+  /// would take an availability fork this build does not make. So the reader lands one screen away
+  /// from Safari and has to walk the rest, which is what the steps are for.
   case settingsAppStillPage
 }
 

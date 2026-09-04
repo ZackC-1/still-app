@@ -60,6 +60,36 @@ describe("AppleSession — enterSession", () => {
     expect(controller.paywallPrice).toBe("$1.99");
   });
 
+  it("does not finish entering a session before the purchase SDK is keyed to that account", async () => {
+    // main.ts states this as a contract: a verified code awaits the FULL session entry, so every
+    // continuation that runs after it (the purchase-intent paywall, Restore) runs against a
+    // purchase SDK keyed to the account that just signed in, never to whoever was signed in
+    // before. Attaching a purchase under the wrong identity would move it onto the wrong customer.
+    // An account the server already says is entitled skips the attach evaluation, which is the
+    // only other place the re-key is waited on, so the entry has to wait for it in its own right.
+    let keyed: () => void = () => {};
+    const rekeyed = new Promise<void>((resolve) => {
+      keyed = resolve;
+    });
+    const h = harness({
+      bridge: { configurePurchases: vi.fn(async () => { await rekeyed; }) },
+      onSignedInState: { entitled: true },
+    });
+
+    let entered = false;
+    const entering = h.session.enterSession("u1").then(() => {
+      entered = true;
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(h.controller.serverEntitled).toBe(true); // the branch that skips the attach evaluation
+    expect(entered).toBe(false); // …and the entry is still waiting on the re-key
+
+    keyed();
+    await entering;
+    expect(entered).toBe(true);
+    expect(h.bridge.configurePurchases).toHaveBeenCalledWith("u1");
+  });
+
   it("clears reconciling even when reconcile throws", async () => {
     const { session, controller, sync } = harness();
     sync.onSignedIn.mockRejectedValueOnce(new Error("net"));

@@ -69,9 +69,9 @@ final class OnboardingTests: XCTestCase {
   func testTheButtonLabelDescribesWhereThatButtonActuallyGoes() {
     // Matching the step is not enough. The pair agreed once on a phrase that was false: on iOS the
     // button runs UIApplication.openSettingsURLString, which opens Still's own page in the Settings
-    // app, because the OS offers no way into a Safari extension's toggle from the containing app.
-    // A label naming Safari there promises a screen nothing opens, and makes the step that follows
-    // it ("then tap ‹ Settings") read as nonsense.
+    // app, because that is as close as a containing app can get on the iPhone versions this build
+    // supports. A label naming Safari there promises a screen nothing opens, and makes the step
+    // that follows it ("then tap ‹ Settings") read as nonsense.
     XCTAssertFalse(
       OnboardingCopy.openButtonTitle(for: .settingsAppStillPage).lowercased().contains("safari"),
       "the Settings-app button cannot claim to open anything in Safari"
