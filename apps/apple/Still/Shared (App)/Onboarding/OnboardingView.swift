@@ -21,6 +21,9 @@ struct OnboardingView: View {
   var checkStatus: () async -> SafariExtensionStatus = { .unknown }
   /// Open where the user enables the extension: Safari settings on macOS, the Settings app on iOS.
   var openEnableLocation: () -> Void = {}
+  /// Where the closure above lands, declared by whoever implements it. The button's label and the
+  /// steps are both written from this, so neither can describe a screen the button does not open.
+  var enableLocation: EnableLocation = .safariExtensionSettings
   /// Called when the user finishes — the presenter marks the gate complete and dismisses.
   var onComplete: () -> Void = {}
   /// Starting screen — 0 in production; the presenter overrides it only under a DEBUG launch arg so
@@ -128,7 +131,7 @@ struct OnboardingView: View {
       Button(action: openEnableLocation) {
         HStack(spacing: 8) {
           Image(systemName: "arrow.up.forward.app.fill")
-          Text(OnboardingCopy.openButtonTitle)
+          Text(OnboardingCopy.openButtonTitle(for: enableLocation))
             .font(.still(size: 16, weight: .semibold, relativeTo: .body))
         }
         .frame(maxWidth: .infinity)
@@ -201,8 +204,8 @@ struct OnboardingView: View {
   }
 
   /// Platform-specific guided steps for enabling the extension. The copy lives in StillKit
-  /// (`OnboardingCopy`), where `swift test` proves the per-OS variants and that step 1 still names
-  /// the button below it; this only resolves the OS.
+  /// (`OnboardingCopy`), where `swift test` proves the per-OS variants, that step 1 still names the
+  /// button below it, and that the name matches where that button goes; this only resolves the OS.
   private var enableSteps: [String] {
     #if os(iOS)
     if #available(iOS 18.0, *) {
