@@ -127,6 +127,21 @@ describe("UiController", () => {
     expect(c.purchaseIntent).toBe(false);
   });
 
+  includedAccessIt("still resolves an earlier purchaser's entitlement while the paid tier is off", () => {
+    // Nothing about an existing purchase is revoked, migrated, or cleaned up by the switch: the
+    // receipt lane and the server lane keep answering, so the account states the UI shows for a
+    // buyer are exactly what they were.
+    const { c } = makeController({ auth: codeAuth() });
+    c.receiptEntitled = true;
+    expect(c.entitled).toBe(true);
+    expect(c.popupState).toBe("pro-no-account");
+
+    c.userId = "u";
+    c.entitled = true;
+    expect(c.popupState).toBe("entitled-syncing");
+    expect(c.isLocked("instagram")).toBe(false);
+  });
+
   paidTierIt("locks Pro services for un-entitled users and unlocks them when entitled", () => {
     const { c } = makeController();
     expect(c.isLocked("youtube")).toBe(false); // free service is never locked
