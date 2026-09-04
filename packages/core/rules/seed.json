@@ -217,7 +217,7 @@
           "requiredCapability": "surface.facebook.reels",
           "action": "placeholder",
           "enabledByDefault": true,
-          "urlMatch": "^/(?:reels?|watch/reels|(?!(?:groups|hashtag|events|pages|people|marketplace|gaming|games|live|stories|search|help|business|settings|messages|notifications|bookmarks|friends|saved|ads|photo|policies|legal|careers|login|privacy)/)[^/]+/reels)(/|$)"
+          "urlMatch": "^/(?:reels?|(?!(?:groups|hashtag|events|pages|people|marketplace|gaming|games|live|stories|search|help|business|settings|messages|notifications|bookmarks|friends|saved|ads|photo|policies|legal|careers|login|privacy|public)/)[^/]+/reels)(/|$)"
         },
         {
           "id": "fb-feed",
@@ -312,6 +312,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "3076ae50de3b96e8e20635d90d51475d2e2cea9cb403f6ef120321a8c8b64b2f6b9338ca14a1172f5ea8319444338faf8f0dc72bccb91414c564927bcd468d00"
+    "value": "f0c63af1b27b3f777bde017258e5e8fe11c0ee86522bfc815c9a5e16090250400a2ec366c68579b8d8605c7992bb18af6436f6f7f286a6874b1dde465ea1410d"
   }
 }

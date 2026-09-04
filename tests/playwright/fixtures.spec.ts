@@ -299,7 +299,9 @@ test("facebook page: the Reels tab goes, the other Page tabs stay", async ({ con
 
 // Facebook's own sections live in the first path segment, so "/<name>/reels" is a Page's Reels tab
 // only when <name> is a Page. facebook.com/groups/reels is a live group that auctions fishing rods,
-// reels and tackle, and facebook.com/hashtag/reels is the hashtag feed. Neither is short-form video.
+// reels and tackle, facebook.com/hashtag/reels is the hashtag feed, and facebook.com/public/reels
+// is the people directory, which lists everyone whose name contains "Reels". None is short-form
+// video, and all three load without an account.
 test("facebook: a Facebook section whose address ends in the word reels is not a Reels tab", async ({
   context,
   extensionId,
@@ -321,6 +323,7 @@ test("facebook: a Facebook section whose address ends in the word reels is not a
     "/help/reels",
     "/business/reels",
     "/settings/reels",
+    "/public/reels",
   ]) {
     await page.goto(`https://www.facebook.com${path}`);
     await expect(page.locator("#still-placeholder")).toHaveCount(0);
@@ -331,7 +334,14 @@ test("facebook: a Facebook section whose address ends in the word reels is not a
 
   // A Page's Reels tab is still covered, including a Page whose vanity name merely begins with the
   // name of a section, and a Page addressed by its numeric id.
-  for (const path of ["/stillapp/reels/", "/groupsofpeople/reels", "/100064860875397/reels"]) {
+  for (const path of [
+    "/stillapp/reels/",
+    "/groupsofpeople/reels",
+    "/100064860875397/reels",
+    // "watch" is not a reserved word, so the general "<name>/reels" alternative covers Facebook's
+    // own Reels feed without the pattern naming it.
+    "/watch/reels",
+  ]) {
     await page.goto(`https://www.facebook.com${path}`);
     await expect(page.locator("#still-placeholder")).toBeVisible();
   }
