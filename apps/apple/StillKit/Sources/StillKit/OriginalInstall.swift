@@ -36,7 +36,7 @@ public enum OriginalAppVersionKind: String, Codable, Sendable {
 /// one dated today, which silently moves the entire existing install base into whatever cohort is
 /// current on the day that build ships. That is exactly the permanent misclassification this
 /// record exists to prevent, arriving through the back door, and it has already happened once on a
-/// development machine during this work. So, without exception:
+/// development machine while this release was being built. So, without exception:
 ///
 ///   * Add a new field as an optional, or give it a default in `init(from:)` below. Never decode a
 ///     new field with a plain required `decode`, because every record written before it existed

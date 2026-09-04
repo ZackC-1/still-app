@@ -247,7 +247,8 @@ final class OriginalInstallTests: XCTestCase {
     XCTAssertEqual(
       written as? NSDictionary,
       literal as? NSDictionary,
-      "the stored shape changed: read the compatibility rules on OriginalInstallRecord, then update the literal above"
+      "the stored shape changed: read the compatibility rules on OriginalInstallRecord, "
+        + "then update the literal above"
     )
   }
 }
