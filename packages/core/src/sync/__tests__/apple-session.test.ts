@@ -1,13 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import { harness } from "./support/apple-session-harness.js";
 
-// The money-flow branches that used to live untested in the app-webview entrypoint: double-charge
-// guard, offline guard, pending-vs-payoff after purchase/restore, rejected-native recovery,
-// Ask-to-Buy foreground recheck, entitlement mirroring, and teardown parity.
+// What this module does with a sync state, and what it does and does not stamp into the App Group:
+// the entitlement mirror, entering and tearing down a session, the receipt lane, and the email-code
+// sign-in entry. All of it runs with the paid tier as it ships.
 //
-// Server-confirmed unlocks resolve through the controller's payoff (U3/R6): the entitled
-// false→true transition with the paywall open shows the quieter-web success payoff and the
-// controller dismisses after ~2.5s — this module never force-dismisses at those moments.
+// The money flows are in apple-session-purchase-flows.test.ts, not here and not deleted: the
+// double-charge guard, the offline guard, pending-versus-payoff after a purchase or restore,
+// rejected-native recovery, and the Ask-to-Buy foreground recheck. They need the paid-tier switch
+// mocked on to be reachable at all, which is a whole-file setting in Vitest, so they moved to their
+// own file rather than going dark. Both files build their subject through the same harness in
+// ./support/, so there is one of it and the two halves cannot drift apart.
 
 describe("AppleSession — sync-state projection + entitlement mirror", () => {
   it("mirrors server-confirmed entitlement into the App Group", () => {

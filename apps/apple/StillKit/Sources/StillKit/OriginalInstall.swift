@@ -28,7 +28,32 @@ public enum OriginalAppVersionKind: String, Codable, Sendable {
 ///     available on newer systems and only when Apple will hand it over. In the sandbox and in
 ///     TestFlight, Apple documents both of its values as placeholders rather than real data, so a
 ///     record captured on a test build is not evidence of anything.
+///
+/// ## Changing this record later, which is the part that can go permanently wrong
+///
+/// Every record already on a device must keep decoding on every future build. `OriginalInstall`
+/// reports a record it cannot decode as no record at all, and the next launch then writes a fresh
+/// one dated today, which silently moves the entire existing install base into whatever cohort is
+/// current on the day that build ships. That is exactly the permanent misclassification this
+/// record exists to prevent, arriving through the back door, and it has already happened once on a
+/// development machine during this work. So, without exception:
+///
+///   * Add a new field as an optional, or give it a default in `init(from:)` below. Never decode a
+///     new field with a plain required `decode`, because every record written before it existed
+///     would stop decoding.
+///   * Never rename or repurpose an existing field. A rename is a removal plus an addition, and
+///     the removal is what breaks the old records.
+///   * Raise `OriginalInstall.currentSchemaVersion` when the MEANING of a field changes, and read
+///     `schemaVersion` before interpreting it. A record with no `schemaVersion` is version 1.
+///
+/// `OriginalInstallTests` pins all of this: a record in the exact shape this build writes is
+/// decoded from raw bytes there, and that test fails the moment a change would make an existing
+/// record unreadable.
 public struct OriginalInstallRecord: Codable, Equatable, Sendable {
+  /// Which shape of this record was written, so a later build can tell what it is reading. Absent
+  /// in a record written before this field existed, which is version 1.
+  public let schemaVersion: Int
+
   /// When this record was written: the first launch of a Still build that records it. On a new
   /// install that is the install date. On a device updating from an earlier Still it is the update
   /// date, which is still enough to place someone inside the included-access era. Means exactly the
@@ -45,7 +70,9 @@ public struct OriginalInstallRecord: Codable, Equatable, Sendable {
   /// version.
   public let applicationVersion: String?
 
-  /// Which namespace `applicationVersion` is in. Nil exactly when `applicationVersion` is nil.
+  /// Which namespace `applicationVersion` is in. Nil when `applicationVersion` is nil, and also
+  /// when a later build wrote a namespace this build has never heard of. Either way the answer is
+  /// the same: do not compare `applicationVersion` against anything.
   public let applicationVersionKind: OriginalAppVersionKind?
 
   /// Apple's verified original purchase date: when this Apple Account first obtained Still, on any
@@ -59,16 +86,44 @@ public struct OriginalInstallRecord: Codable, Equatable, Sendable {
     applicationVersionKind: OriginalAppVersionKind? = nil,
     originalPurchaseDate: Date? = nil
   ) {
+    // Anything this code writes is in the shape this build knows. Only decoding can produce an
+    // older one.
+    self.schemaVersion = OriginalInstall.currentSchemaVersion
     self.firstRecordedAt = firstRecordedAt
     self.firstRecordedAppVersion = firstRecordedAppVersion
     self.applicationVersion = applicationVersion
     self.applicationVersionKind = applicationVersionKind
     self.originalPurchaseDate = originalPurchaseDate
   }
+
+  /// Written out by hand, and deliberately forgiving, for the reason in this type's documentation:
+  /// a record that fails to decode is treated as no record and gets overwritten with today's date.
+  /// Fields a later build added are ignored, and an optional field that cannot be understood
+  /// becomes nil instead of taking the whole record down with it. Only the two local facts are
+  /// required, because a record without them says nothing at all.
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    self.firstRecordedAt = try container.decode(Date.self, forKey: .firstRecordedAt)
+    self.firstRecordedAppVersion = try container.decode(
+      String.self, forKey: .firstRecordedAppVersion)
+    self.schemaVersion = (try? container.decodeIfPresent(Int.self, forKey: .schemaVersion)) ?? 1
+    self.applicationVersion = try? container.decodeIfPresent(
+      String.self, forKey: .applicationVersion)
+    let namespace: String? = try? container.decodeIfPresent(
+      String.self, forKey: .applicationVersionKind)
+    self.applicationVersionKind = namespace.flatMap { OriginalAppVersionKind(rawValue: $0) }
+    self.originalPurchaseDate = try? container.decodeIfPresent(
+      Date.self, forKey: .originalPurchaseDate)
+  }
 }
 
 public enum OriginalInstall {
   static let storageKey = "still:originalInstall"
+
+  /// The shape written today. Raise this only when the meaning of an existing field changes; adding
+  /// an optional field does not need a new version. See `OriginalInstallRecord` for the rules that
+  /// keep records already on devices readable.
+  public static let currentSchemaVersion = 1
 
   /// How many times a device may ask Apple for its app transaction before giving up for good.
   ///
@@ -149,6 +204,9 @@ public enum OriginalInstall {
     return filled
   }
 
+  /// The stored record, or nil when there is none. Nil also covers a record this build cannot
+  /// decode, and `ensure` replaces nil with a record dated today, which is why
+  /// `OriginalInstallRecord`'s decoding is forgiving and why its compatibility rules matter.
   public static func current(_ defaults: UserDefaults) -> OriginalInstallRecord? {
     guard let data = defaults.data(forKey: storageKey) else { return nil }
     return try? JSONDecoder().decode(OriginalInstallRecord.self, from: data)

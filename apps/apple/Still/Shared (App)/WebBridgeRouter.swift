@@ -48,6 +48,16 @@ final class WebBridgeRouter {
   private let purchases = PurchaseManager.shared
   private let siwa = SignInWithAppleCoordinator()
 
+  /// At most one ask for Apple's purchase history per launch. `refreshReceiptStamp` runs at launch
+  /// AND every time the app becomes active, and on a cold launch both of those happen before
+  /// anything is backgrounded, so without this the first launch alone would spend two of the three
+  /// attempts and could hold two `AppTransaction` requests open at once. Two chances of an App
+  /// Store sign-in sheet, on an app that sells nothing, is the shape to avoid: the ceiling is meant
+  /// to bound distinct launches, not overlapping asks inside one. Never cleared, so the next
+  /// attempt waits for the next launch. Everything here is main-actor isolated, so reading and
+  /// setting it cannot interleave and no lock is needed.
+  private var hasAskedAppleForPurchaseHistoryThisLaunch = false
+
   init(
     settings: SettingsBridge,
     entitlement: EntitlementBridge = EntitlementBridge(
@@ -65,8 +75,9 @@ final class WebBridgeRouter {
     _ = entitlement.applyReceipt(status)
     // Cohort capture rides along on the same moments the receipt is read, but is deliberately NOT
     // awaited: launch defers publishing the install-generation id until this method returns, and
-    // asking Apple for the app transaction has no time bound at all. It is idempotent, so the
-    // overlapping calls from launch, foreground, purchase, and restore are harmless.
+    // asking Apple for the app transaction has no time bound at all. It is idempotent and asks
+    // Apple at most once per launch, so the overlapping calls from launch, foreground, purchase,
+    // and restore are harmless.
     Task { await self.captureOriginalInstall() }
   }
 
@@ -210,8 +221,9 @@ final class WebBridgeRouter {
   /// bundle, needs nothing from Apple, and works on every OS version Still supports. The verified
   /// half comes from Apple's app transaction, is richer, and is entirely optional: it is available
   /// only on newer systems, and asking for it can put an App Store sign-in sheet in front of a free
-  /// app when the transaction is not already cached on the device. So the ask is counted before it
-  /// is made and stops for good after a few attempts, rather than repeating at every launch.
+  /// app when the transaction is not already cached on the device. So the ask happens at most once
+  /// per launch, is counted before it is made, and stops for good after a few attempts, rather than
+  /// repeating at every launch and every return to the app.
   private func captureOriginalInstall() async {
     let defaults = InstallGeneration.appGroupDefaults()
     OriginalInstall.ensure(
@@ -220,7 +232,9 @@ final class WebBridgeRouter {
       defaults: defaults
     )
     guard #available(iOS 16.0, macOS 13.0, *) else { return }
+    guard !hasAskedAppleForPurchaseHistoryThisLaunch else { return }
     guard OriginalInstall.shouldRequestVerifiedValues(defaults) else { return }
+    hasAskedAppleForPurchaseHistoryThisLaunch = true
     OriginalInstall.countVerifiedAttempt(defaults)
     guard let result = try? await AppTransaction.shared,
           case .verified(let transaction) = result

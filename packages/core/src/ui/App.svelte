@@ -131,10 +131,12 @@
 
   <!-- Sync / account section: renders the popup state matrix. The PAID_TIER_ENABLED checks in this
        section hide the buy and restore calls to action while the paid tier is dormant, leaving
-       sign-in as the only thing this card offers. Each one wraps a branch rather than joining its
-       condition, so that hiding a purchase affordance shows nothing in its place instead of
-       falling through to the sibling branch, which was written for a different audience. The
-       branches themselves are preserved, not deleted. -->
+       sign-in as the only thing this card offers. Where the alternative branch was written for a
+       different audience, the check wraps that whole branch, so hiding a purchase affordance shows
+       nothing in its place rather than falling through to a line meant for somebody else. The
+       signed-out check just below joins its condition instead, because both sides of that one read
+       correctly for a free user: with no purchase to offer, sign-in becomes the primary button.
+       The branches themselves are preserved, not deleted. -->
   <section class="sync card" data-state={c.popupState}>
     {#if c.popupState === "signed-out"}
       {#if c.canSignIn}
