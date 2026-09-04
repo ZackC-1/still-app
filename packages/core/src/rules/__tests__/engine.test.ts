@@ -102,12 +102,24 @@ describe("evaluate — navigation decisions", () => {
     expect(d).not.toMatchObject({ blocked: true }); // a cleared URL, not a site block
     expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reels/")).kind).toBe("placeholder");
     expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/someuser/reels/")).kind).toBe("placeholder");
+    // Instagram serves the same Reel at two addresses. The root one was blocked and the profile one
+    // was not, so a Reel opened from a profile or a shared link still played.
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/someuser/reel/XYZ/")).kind).toBe("placeholder");
+    // An ordinary profile, and a username that merely begins with the letters "reel", are not Reels.
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/someuser/")).kind).toBe("apply");
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reelmaker/")).kind).toBe("apply");
   });
 
   it("placeholders a direct Facebook Reel URL", () => {
     expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reel/123")).kind).toBe("placeholder");
     expect(evaluate(ruleSet, allOn, new URL("https://m.facebook.com/reels/")).kind).toBe("placeholder");
     expect(evaluate(ruleSet, allOn, new URL("https://m.facebook.com/watch/reels/")).kind).toBe("placeholder");
+    // A Page's own Reels tab, which is where the hidden tab used to lead.
+    expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/somepage/reels/")).kind).toBe("placeholder");
+    // A Page's ordinary sections are long-form video and photos, which Still leaves alone.
+    expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/somepage/videos")).kind).toBe("apply");
+    expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/somepage/")).kind).toBe("apply");
+    expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reelestate/")).kind).toBe("apply");
   });
 
   it("is a no-op on an unknown domain", () => {

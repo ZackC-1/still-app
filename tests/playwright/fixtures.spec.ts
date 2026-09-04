@@ -236,6 +236,16 @@ test("instagram mobile: Pro user blocks Reels routes and removes mobile Reels su
 
   await page.goto("https://www.instagram.com/someuser/reels/");
   await expect(page.locator("#still-placeholder")).toBeVisible();
+
+  // The same Reel is served at /reel/<id>/ and at /<username>/reel/<id>/. Only the first was
+  // blocked, so a Reel opened from a profile or a shared link still played.
+  await page.goto("https://www.instagram.com/someuser/reel/ABC123/");
+  await expect(page.locator("#still-placeholder")).toBeVisible();
+
+  // An ordinary profile is not a Reels route.
+  await page.goto("https://www.instagram.com/someuser/");
+  await expect(page.locator("#still-placeholder")).toHaveCount(0);
+  await expect(page.locator("#ig-mobile-post")).toBeVisible();
 });
 
 test("facebook: free-user Reels behavior follows the paid-tier switch", async ({ context }) => {
@@ -304,6 +314,15 @@ test("facebook mobile: Pro user blocks Reels routes and removes mobile Reels sec
 
   await page.goto("https://m.facebook.com/watch/reels/");
   await expect(page.locator("#still-placeholder")).toBeVisible();
+
+  // Where the Page's hidden Reels tab leads. Typing the address reached it before.
+  await page.goto("https://m.facebook.com/stillapp/reels/");
+  await expect(page.locator("#still-placeholder")).toBeVisible();
+
+  // A Page's other sections are long-form video and photos, which Still leaves alone.
+  await page.goto("https://m.facebook.com/stillapp/videos");
+  await expect(page.locator("#still-placeholder")).toHaveCount(0);
+  await expect(page.locator("#fb-mobile-post")).toBeVisible();
 });
 
 test("tiktok: free-user whole-site blocking follows the paid-tier switch", async ({ context }) => {

@@ -1,5 +1,5 @@
 {
-  "version": "1.1.2",
+  "version": "1.1.3",
   "services": {
     "youtube": {
       "matches": [
@@ -124,7 +124,7 @@
           "requiredCapability": "surface.instagram.reels",
           "action": "placeholder",
           "enabledByDefault": true,
-          "urlMatch": "^/(?:reels?|[^/]+/reels)(/|$)"
+          "urlMatch": "^/(?:reels?|[^/]+/reels?)(/|$)"
         },
         {
           "id": "ig-nav",
@@ -217,7 +217,7 @@
           "requiredCapability": "surface.facebook.reels",
           "action": "placeholder",
           "enabledByDefault": true,
-          "urlMatch": "^/(?:reels?|watch/reels)(/|$)"
+          "urlMatch": "^/(?:reels?|watch/reels|[^/]+/reels)(/|$)"
         },
         {
           "id": "fb-feed",
@@ -312,6 +312,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "c2ff090b499a46fbe6018decc94a27d6fe614eaea632f2c61b7943c636ef53979187d30cdf362800dbd4bd6c3e35862eb8967291a51d9e03d75f8ab1692f1a08"
+    "value": "c2464fdda68dcf6c570eaf41de0c0b0360668f0fc98a719a9718951b707b8e02b71feda3a4c79a3b90b62e718876d44765ff26ad8776b5638a7b8f79186fcc05"
   }
 }
