@@ -18,6 +18,7 @@ export type {
   CheckoutReconcileOutcome,
 } from "./controller.svelte.js";
 export { RESEND_COOLDOWN_MS, OTP_TTL_MS, CODE_ATTEMPTS_BEFORE_NEW_CODE } from "./controller.svelte.js";
+export type { EmailConsent } from "./email-consent.js";
 export { STRINGS } from "./strings.js";
 export { PRIVACY_POLICY_URL } from "./config.js";
 export {

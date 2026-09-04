@@ -12,6 +12,12 @@
   let email = $state("");
   let code = $state("");
   let sheet = $state<HTMLDivElement>();
+  // Firefox asks for an affirmative yes, not just an acknowledgement, so the checkbox gates its
+  // Continue button. Sheet-local: it means nothing once the step is past.
+  let agreedToShareEmail = $state(false);
+  const consentSatisfied = $derived(
+    c.emailConsent === "opt-in" ? agreedToShareEmail : true,
+  );
 
   // Gate the send CTA on a syntactically valid address so a malformed email never fires a failing
   // auth request. The hint only appears once the user has typed something — an empty field just
@@ -35,6 +41,13 @@
         c.authFlow === "verifying" ||
         c.authFlow === "code-error"),
   );
+  /** The consent step's own title, which differs in voice: Chrome states a fact, Firefox asks. */
+  const consentTitle = $derived(
+    c.emailConsent === "opt-in"
+      ? STRINGS.emailConsent.optInTitle
+      : STRINGS.emailConsent.disclosureTitle,
+  );
+
   const codeErrorLine = $derived.by(() => {
     // The verify lock disables the Verify button straight off verifyBlockRemaining, so its
     // explanation must render whenever the lock is active — checked FIRST, independent of
@@ -74,7 +87,9 @@
     // Track authFlow so focus re-lands when the view swaps (email → code entry): reading only the
     // stable `sheet` ref would run the effect once and never again, leaving focus on document.body,
     // which also breaks Escape-to-dismiss via bubbling (F8 — mirrors PaywallSheet's swap tracking).
+    // The consent step is a third view, so its exit has to move focus too.
     void c.authFlow;
+    void c.needsEmailConsent;
     sheet?.querySelector<HTMLElement>("button, input")?.focus();
   });
 </script>
@@ -95,12 +110,32 @@
   tabindex="-1"
 >
   <div class="grip" aria-hidden="true"></div>
-  <h2>{STRINGS.auth.title}</h2>
+  <h2>{c.needsEmailConsent ? consentTitle : STRINGS.auth.title}</h2>
   <p class="body">
-    {inCodeEntry ? STRINGS.codeAuth.prompt : STRINGS.auth.prompt}
+    {#if c.needsEmailConsent}
+      {STRINGS.emailConsent.body}
+    {:else}
+      {inCodeEntry ? STRINGS.codeAuth.prompt : STRINGS.auth.prompt}
+    {/if}
   </p>
 
-  {#if inCodeEntry}
+  {#if c.needsEmailConsent}
+    <!-- Nothing below this point renders until the surface's own rule is satisfied, which is the
+         point: the email field does not exist yet, so no address can be typed, pasted, or sent. -->
+    {#if c.emailConsent === "opt-in"}
+      <label class="agree">
+        <input type="checkbox" bind:checked={agreedToShareEmail} />
+        <span>{STRINGS.emailConsent.agree}</span>
+      </label>
+    {/if}
+    <button
+      class="primary"
+      disabled={!consentSatisfied}
+      onclick={() => c.acceptEmailConsent()}
+    >
+      {STRINGS.emailConsent.proceed}
+    </button>
+  {:else if inCodeEntry}
     <p class="sent">{STRINGS.codeAuth.sentTo} {c.codeEmail}</p>
     <label class="field-label" for="still-code"
       >{STRINGS.codeAuth.codeLabel}</label
@@ -197,7 +232,11 @@
     {/if}
   {/if}
 
-  <button class="dismiss" onclick={onDismiss}>{STRINGS.auth.cancel}</button>
+  <button class="dismiss" onclick={onDismiss}>
+    {c.needsEmailConsent && c.emailConsent === "opt-in"
+      ? STRINGS.emailConsent.notNow
+      : STRINGS.auth.cancel}
+  </button>
 </div>
 
 <style>
@@ -246,6 +285,18 @@
   .body {
     margin: 0;
     color: var(--ink-secondary);
+  }
+  .agree {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-2);
+    font-size: 14px;
+    line-height: 1.4;
+    color: var(--ink);
+  }
+  .agree input {
+    margin-block-start: 2px;
+    flex: none;
   }
   .field-label {
     margin-block-end: calc(var(--space-2) * -1);

@@ -9,6 +9,7 @@ import {
   type UiAuth,
   type UiCheckout,
 } from "./controller.svelte.js";
+import type { EmailConsent } from "./email-consent.js";
 
 // The ONE popup/options wiring every extension build shares (Safari maps the WebExtension storage
 // API — Safari 16+ exposes the `chrome` namespace, so the Chrome adapters serve both). The optional
@@ -40,6 +41,10 @@ export interface ExtensionPurchaseDeps {
 }
 
 export interface ExtensionUiOptions {
+  /** What this browser's add-on store requires before an email address may be collected. Declared
+   * by the entrypoint because only the build knows which browser it is for; defaults to "none",
+   * which is right for the Safari build, whose popup has no sign-in path at all. */
+  readonly emailConsent?: EmailConsent;
   /** Called with the freshly-committed record on every LOCAL settings edit made in this
    * popup/options page (never on external/synced changes arriving from storage). Safari passes a
    * handler that pushes the record straight to the App Group via a native message, because the
@@ -67,7 +72,7 @@ export function createExtensionUiController(
   }
   const controller = new UiController({
     cache,
-    host: { canPurchase: purchase !== undefined },
+    host: { canPurchase: purchase !== undefined, emailConsent: options?.emailConsent },
     auth: purchase?.auth,
     persistence: purchase?.persistence,
     checkout: purchase?.checkout,
