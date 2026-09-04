@@ -31,7 +31,10 @@ import type { LastSyncedIdentityStore, SyncService } from "./service.js";
 //     intent/nudge-stamp cleared, the recorded checkout tab closed best-effort. The last-synced
 //     identity is the one thing the purge does NOT touch: see ExtensionIdentityStore.
 //   • Identity switch (AE5): verifyCode as a different user purges the previous account's grant
-//     and pending state BEFORE anything of the new user's lands — through the same purge helper.
+//     and pending state BEFORE anything of the new user's lands — through the same purge helper,
+//     minus its one leaving-only step, the removal of the persisted session. Verifying the code
+//     has already put the new person's session under that key, so removing it there would delete
+//     the session the sign-in just created.
 //   • Wake resumes, never re-reconciles (R2 hard rule): resume() restarts the sync write-through
 //     from the CACHED entitlement record and spends no purchase-service query; live reconcile
 //     stays on the R4 triggers (popup open, qualifying nudge). It does read the account's settings
@@ -166,6 +169,19 @@ export type NudgeOutcome = "no-op" | "throttled" | "reconciled";
 
 export type ResumeOutcome = "signed-out" | "resumed-entitled" | "resumed-free";
 
+/**
+ * Why the purge of a previous account's state is running. The two callers want all of it but one
+ * step, so the reason is passed in rather than guessed at inside the helper.
+ *
+ * "user-leaving" is a voluntary sign-out or an account deletion: nobody is signed in afterwards,
+ * and the persisted Supabase session has to go with them.
+ *
+ * "identity-switch" is a code verified for a DIFFERENT account than the one this browser last
+ * synced for. Everything bound to the previous account still has to go, but the session does not:
+ * verifying the code already replaced it with the new person's, under the same storage key.
+ */
+type PurgeReason = "user-leaving" | "identity-switch";
+
 export type SignOutSessionOutcome = "signed-out";
 
 /** delete-failed keeps the session AND local state intact (server-first, apple-session parity). */
@@ -271,8 +287,11 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
    * The entitlement write is an explicit `entitled: false`, never a key removal (subscribers only
    * fire on a value, so content scripts re-lock immediately); every step is individually guarded
    * so one storage failure cannot strand the rest of the purge.
+   *
+   * Every step below is safe on both routes except the last, which is why the caller says which
+   * route this is. See PurgeReason.
    */
-  const clearUserScopedState = async (): Promise<void> => {
+  const clearUserScopedState = async (reason: PurgeReason): Promise<void> => {
     teardownGeneration += 1; // invalidate any reconcile write in flight across its network await (F2)
     await attempt(() => records.setRecord({ entitled: false, updatedAt: now() }));
     const pending = await readCheckoutPending();
@@ -287,9 +306,15 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
     // The last-synced identity stays. It is what tells the NEXT person to sign in on this browser
     // that the settings sitting here are not theirs, and forgetting it at sign-out would mean the
     // shared-machine rule only ever applied between a sign-in and the next sign-out.
-    // Drop the persisted Supabase session too (offline-proof sign-out, F1) — without this a failed
-    // remote revoke leaves the session on disk and the next wake resurrects the signed-out user.
-    if (clearAuthStorage) await attempt(clearAuthStorage);
+    // Drop the persisted Supabase session too, but ONLY when the user is leaving (offline-proof
+    // sign-out, F1) — without this a failed remote revoke leaves the session on disk and the next
+    // wake resurrects the signed-out user. On an identity switch there is no old session left to
+    // drop: verifying the code stored the new person's under the same key before this ran, so
+    // removing it here would delete the session that sign-in just created. It would not even wait
+    // for the next start to bite, because the auth client keeps no session in memory and re-reads
+    // storage on every call, so the second person to sign in on a shared browser would be signed
+    // out again before their first setting could travel.
+    if (reason === "user-leaving" && clearAuthStorage) await attempt(clearAuthStorage);
   };
 
   /**
@@ -376,7 +401,7 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
         const lastSynced = await identity.get();
         const record = await records.getRecord();
         const previous = lastSynced ?? record?.userId ?? null;
-        if (previous !== null && previous !== userId) await clearUserScopedState();
+        if (previous !== null && previous !== userId) await clearUserScopedState("identity-switch");
         // The code is consumed: the persisted OTP record (and the intent riding it — the popup
         // continues the purchase from its own in-memory flag now) is done.
         stagedIntent = false;
@@ -433,7 +458,7 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
       } catch {
         /* proceed with the local purge regardless */
       }
-      await clearUserScopedState();
+      await clearUserScopedState("user-leaving");
       return "signed-out";
     },
 
@@ -445,7 +470,7 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
       } catch {
         return "delete-failed";
       }
-      await clearUserScopedState();
+      await clearUserScopedState("user-leaving");
       return "deleted";
     },
 
