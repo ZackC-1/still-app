@@ -86,8 +86,10 @@ export class SyncService {
   private writing = false;
   private pendingWrite: StillSettings | null = null;
   private retryLatestOnReconnect = false;
-  // The start-up catch-up read, and the one edit held behind it. Publishing during that read would
-  // overwrite whatever it is about to bring down, so the edit waits for the reconcile to decide.
+  // The reconcile in flight, and the one edit held behind it. Publishing during a reconcile would
+  // overwrite whatever it is about to bring down, and the reconcile's own write would come back
+  // and apply over the edit, so the edit waits for the reconcile to decide. Both ways into a
+  // session set this: a background start and a sign-in.
   private catchingUp: Promise<ReconcileOutcome> | null = null;
   private heldWrite: StillSettings | null = null;
 
@@ -233,15 +235,75 @@ export class SyncService {
    * The initial cloud mirror plus write-through for a newly signed-in user, shared by `onSignedIn`
    * and `onEntitlementConfirmed`.
    *
-   * A reconcile that gave up because the session ended arms nothing. Signing out while a sign-in is
-   * still in flight would otherwise leave a realtime subscription open for a signed-out user, after
-   * the sign-out's own teardown has already run, so nothing would ever close it and the next person
-   * to sign in would get no subscription at all.
+   * A reconcile that gave up because the session ended opens no live connection. Signing out while
+   * a sign-in is still in flight would otherwise leave a realtime subscription open for a
+   * signed-out user, after the sign-out's own teardown has already run, so nothing would ever
+   * close it and the next person to sign in would get no subscription at all. Write-through is
+   * armed ahead of the reconcile rather than after it, for the reason below, and that teardown
+   * closes it in the same breath: it runs after this method has armed, not before.
    */
   private async mirrorAndStartWriteThrough(userId: string): Promise<void> {
-    if ((await this.reconcileWithAccount(userId)) === "abandoned") return;
+    // Write-through is armed BEFORE the reconcile, because the hold that protects an edit made
+    // during it can only see edits once the cache subscription exists. Arming afterwards left the
+    // sign-in route with no equivalent of the protection the background start already had: a
+    // switch flipped while the reconcile was in flight was undone a moment later by that
+    // reconcile's own write coming back, and never published. That window is open at every launch
+    // of the Apple app, where entering a session is what runs this.
     this.startWriteThrough();
+    if ((await this.reconcileHoldingWrites(userId)) === "abandoned") return;
     this.startRealtime(userId);
+  }
+
+  /**
+   * Run a reconcile with this device's outgoing writes held until it decides, then publish the one
+   * edit made during it if, and only if, it decided this device was the newer side.
+   *
+   * Both ways into a session share this: the mirror a sign-in runs and the catch-up a background
+   * start runs. Publishing during the reconcile would overwrite whatever it is about to bring
+   * down, and leaving the edit alone would lose it, because the reconcile's own write returns the
+   * account's envelope and applies it over the cache the edit just landed in.
+   *
+   * A reconcile that rejects releases the hold exactly as one the account won does, dropping the
+   * held edit, and then re-raises: a start-up read failing offline is ordinary and absorbed, while
+   * a sign-in mirror failing is what tells someone the cloud is out of reach, and only the caller
+   * knows which of the two this is.
+   */
+  private async reconcileHoldingWrites(userId: string): Promise<ReconcileOutcome> {
+    const reconcile = this.reconcileWithAccount(userId);
+    // What the hold watches must always settle, including on a rejection, or every later edit
+    // would queue behind a hold that is never released.
+    const settled = reconcile.then(
+      (outcome) => outcome,
+      (): ReconcileOutcome => "abandoned",
+    );
+    this.catchingUp = settled;
+    this.releaseHeldWrite(userId, settled, await settled);
+    return reconcile; // the same outcome, or the original rejection for the caller to interpret
+  }
+
+  /** The end of the hold: the edit made during a reconcile is published, or deliberately not. */
+  private releaseHeldWrite(
+    userId: string,
+    settled: Promise<ReconcileOutcome>,
+    outcome: ReconcileOutcome,
+  ): void {
+    if (this.catchingUp !== settled) return; // superseded by a later session entry
+    this.catchingUp = null;
+    const held = this.heldWrite;
+    this.heldWrite = null;
+    if (held === null) return;
+    // The one decision has to hold here too. When the account was the newer side, this edit was
+    // made on top of what the device held BEFORE the account's settings arrived, so publishing
+    // it would put that pre-download state back over everything just adopted, and the profile
+    // write is a full overwrite: the other device's change would be gone everywhere. The edit is
+    // dropped instead, which is exactly what happens to the same edit made a moment earlier,
+    // before write-through arms.
+    if (outcome !== "device") return;
+    if (this.state.userId !== userId || !this.canSync) return;
+    // Skip when the reconcile already published this exact edit, which is what happens when it
+    // decided this device was the newer side after the edit had landed in the cache.
+    if (sameSettings(held, this.cache.current())) return;
+    this.enqueueWrite(held);
   }
 
   /**
@@ -478,30 +540,12 @@ export class SyncService {
    * its cached settings until the realtime reconnect refresh retries.
    */
   private catchUpWithAccount(userId: string): Promise<void> {
-    const settled = this.reconcileWithAccount(userId).catch((): ReconcileOutcome => {
-      this.realtimeStale = true; // the existing reconnect refresh is the retry
-      return "abandoned";
-    });
-    this.catchingUp = settled;
-    return settled.then((outcome) => {
-      if (this.catchingUp !== settled) return; // superseded by a later session entry
-      this.catchingUp = null;
-      const held = this.heldWrite;
-      this.heldWrite = null;
-      if (held === null) return;
-      // The one decision has to hold here too. When the account was the newer side, this edit was
-      // made on top of what the device held BEFORE the account's settings arrived, so publishing
-      // it would put that pre-download state back over everything just adopted, and the profile
-      // write is a full overwrite: the other device's change would be gone everywhere. The edit is
-      // dropped instead, which is exactly what happens to the same edit made a moment earlier,
-      // before write-through arms.
-      if (outcome !== "device") return;
-      if (this.state.userId !== userId || !this.canSync) return;
-      // Skip when the reconcile already published this exact edit, which is what happens when it
-      // decided this device was the newer side after the edit had landed in the cache.
-      if (sameSettings(held, this.cache.current())) return;
-      this.enqueueWrite(held);
-    });
+    return this.reconcileHoldingWrites(userId).then(
+      () => undefined,
+      () => {
+        this.realtimeStale = true; // the existing reconnect refresh is the retry
+      },
+    );
   }
 
   async signOut(): Promise<void> {
