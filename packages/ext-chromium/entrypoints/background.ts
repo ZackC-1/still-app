@@ -15,6 +15,7 @@ import {
   type ExtensionSession,
 } from "@still/core/sync";
 import { AUTH_STORAGE_KEY, clearExtensionAuthStorage, createAuthStorage } from "../lib/auth-storage.js";
+import { createOriginalInstallStore, ensureOriginalInstall } from "../lib/original-install.js";
 import { createIdentityStore, createSessionStores } from "../lib/session-stores.js";
 import {
   createSessionMessageRouter,
@@ -37,6 +38,10 @@ import {
 //     isServiceActive composes (R2), so this gate can't drift from the content script's. The
 //     Firefox build ships no DNR ruleset (it redirects via the content script), so that wiring
 //     bails cleanly when the API is absent.
+//
+// Plus one write that happens once in the life of an install: the record of when this browser
+// first ran Still and on which version (lib/original-install.ts). It is local, never transmitted,
+// and it is how the people who installed while everything was included can be recognised later.
 const RULESET_ID = "youtube-shorts-redirect";
 
 export default defineBackground(() => {
@@ -49,6 +54,15 @@ export default defineBackground(() => {
 
   // Refresh on cold start / service-worker wake.
   void refreshRuleSet();
+
+  // Record when this browser first ran Still, once, locally. Fire and forget on purpose: it is a
+  // single storage read that usually finds an existing record, nothing waits on it, and a failure
+  // costs one cohort signal rather than a working extension.
+  void ensureOriginalInstall({
+    store: createOriginalInstallStore(),
+    now: Date.now,
+    appVersion: browser.runtime.getManifest().version,
+  });
 
   // ── Auth/purchase session spine (plan U6/R2) ───────────────────────────────────────────────────
   const cache = new SettingsCache(new ChromeStorageAdapter());
