@@ -495,6 +495,8 @@ export class UiController {
   /** True when a service's surfaces are Pro-gated and this user isn't entitled — the row renders
    * locked (🔒 → paywall) instead of a toggle that would flip without blocking anything. */
   isLocked(id: ServiceId): boolean {
+    // Nothing is locked while the paid tier is dormant behind PAID_TIER_ENABLED: every row is a
+    // live toggle for everyone, and the lock returns with the switch.
     return PAID_TIER_ENABLED && !this.entitled && PRO_SERVICE_IDS.has(id);
   }
 
@@ -505,6 +507,8 @@ export class UiController {
    * intent so a successful sign-in continues to the paywall without re-tapping. Hosts without a
    * purchase path get the explanatory paywall state. */
   startUpgrade(): void {
+    // The upgrade path is preserved and unreachable while the paid tier is dormant behind
+    // PAID_TIER_ENABLED. There is nothing to buy, so every entry point into it is a no-op.
     if (!PAID_TIER_ENABLED) return;
     // Also a no-op while a purchase/restore is in flight — a second trigger (locked-row tap,
     // upgrade CTA) must not reset purchaseFlow mid-purchase.

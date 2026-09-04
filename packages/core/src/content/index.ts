@@ -100,9 +100,11 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     // we add nothing (off/paused users must not see content hidden-then-revealed).
     if (stopped || !hydrated) return;
     const url = currentUrl();
-    // The included-access switch is synchronous and comes before the cached entitlement read, so
-    // blocking never waits for an account or network response. With paid gating enabled, a missing
-    // entitlement source still fails closed exactly as before.
+    // The paid tier is dormant behind PAID_TIER_ENABLED, so every surface applies for everyone.
+    // The switch is read synchronously, before the cached entitlement, so blocking never waits on
+    // an account, a receipt, or a network answer. Turn the switch on and the original behavior
+    // returns: a missing entitlement source fails CLOSED to free rather than granting Pro, because
+    // the app-webview path gates Pro through UiController.entitled instead of here.
     const pro = !PAID_TIER_ENABLED || (deps.entitlement?.current() ?? false);
     const opts = { pro };
     const settings = cache.current();

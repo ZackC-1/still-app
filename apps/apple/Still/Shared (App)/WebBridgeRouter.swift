@@ -14,6 +14,8 @@
 //        { kind:"configurePurchases", appUserID } → { ok:true }   (KTD5 — RC re-keyed to the Supabase UUID)
 //        { kind:"purchase" }                  → { outcome, entitled }   (works signed out — R1)
 //        { kind:"restore" }                   → { entitled }            (works signed out — R4)
+//      purchase and restore are refused while MonetizationConfig.paidTierEnabled is false: they
+//      reply "unavailable" / not entitled without reaching StoreKit. Nothing else here changes.
 //        { kind:"purchaseStatus" }            → { entitled }
 //        { kind:"receiptStatus" }             → { receipt: "entitled"|"verifiedNotEntitled"|"noSignal" }
 //        { kind:"attachPurchases" }           → { entitled }   (R7 — attach the receipt to the account)
@@ -101,6 +103,11 @@ final class WebBridgeRouter {
       }
 
     case "purchase":
+      // The paid tier is dormant behind MonetizationConfig.paidTierEnabled, so the two actions that
+      // could put a price in front of someone are refused here, at the native boundary. That holds
+      // even for an older web bundle that still knows how to ask. Everything else on this router,
+      // including the receipt read and the App Group entitlement stamp, keeps running so a customer
+      // who already bought stays entitled and a later switch flip needs no rebuild of this path.
       guard MonetizationConfig.paidTierEnabled else {
         reply(Self.json(["outcome": "unavailable", "entitled": false]), nil)
         return
@@ -114,6 +121,9 @@ final class WebBridgeRouter {
       }
 
     case "restore":
+      // Refused for the same reason as purchase. This does not strand a customer who already
+      // bought: refreshReceiptStamp still reads the receipt at launch, on foreground, and here, so
+      // the device keeps proving its own entitlement without the restore round trip.
       guard MonetizationConfig.paidTierEnabled else {
         reply(Self.json(["entitled": false]), nil)
         return

@@ -129,7 +129,9 @@
     </div>
   {/snippet}
 
-  <!-- Sync / account section: renders the popup state matrix -->
+  <!-- Sync / account section: renders the popup state matrix. The two PAID_TIER_ENABLED checks in
+       this section hide the buy calls to action while the paid tier is dormant, leaving sign-in as
+       the only thing this card offers. The branches themselves are preserved, not deleted. -->
   <section class="sync card" data-state={c.popupState}>
     {#if c.popupState === "signed-out"}
       {#if c.canSignIn}
@@ -235,7 +237,10 @@
   <!-- The sheet also opens on hosts without a purchase path (locked-row taps in the extensions):
        it renders its explanatory state there instead of a buy CTA (R19). During the payoff
        (U3/R6) the sheet stays mounted showing the success payoff while the service rows above —
-       already reactive to c.entitled — render live-and-on behind it. -->
+       already reactive to c.entitled — render live-and-on behind it.
+       The whole sheet is kept and left unreachable while the paid tier is dormant behind
+       PAID_TIER_ENABLED. This is the last gate: any other route that sets paywallOpen, such as a
+       purchase intent left over from an older install, still renders nothing. -->
   {#if PAID_TIER_ENABLED && c.paywallOpen}
     <PaywallSheet
       canPurchase={c.host.canPurchase}
