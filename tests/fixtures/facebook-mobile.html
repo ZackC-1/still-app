@@ -10,9 +10,20 @@
       <a href="/reels/" id="fb-mobile-reels" aria-label="Reels">Reels</a>
     </nav>
 
+    <!-- The mobile tab bar keeps a fixed number of slots, so the Reels tab's contents are hidden
+         rather than the tab itself, which would otherwise leave a grey gap (issue #58). -->
+    <div role="tablist" id="fb-mobile-tablist">
+      <div role="tab" id="keep-fb-mobile-home-tab" aria-label="Home, 1 of 6">Home</div>
+      <div role="tab" id="fb-mobile-reels-tab" aria-label="Reels, 4 of 6"><span>Reels</span></div>
+    </div>
+
     <main role="feed">
       <div role="article" id="fb-mobile-reel"><a href="/reels/mobile123/">a mobile reel</a></div>
       <div role="article" id="fb-mobile-post"><a href="/story.php?story_fbid=1">A normal mobile status</a></div>
+      <!-- Over-blocking control: a post from a Page whose name begins with the letters "reel". -->
+      <div role="article" id="keep-fb-mobile-lookalike">
+        <a href="/reelestate/posts/2">Reel Estate Group posted an update</a>
+      </div>
     </main>
   </body>
 </html>

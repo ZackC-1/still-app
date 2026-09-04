@@ -209,6 +209,21 @@ test("instagram: Pro user removes an inline Reel + hides the Reels nav, keeps a 
   await expect(page.locator("#reels-link")).toBeHidden();
 });
 
+test("instagram profile: grid Reels go, ordinary grid posts stay", async ({ context, extensionId }) => {
+  await setEntitled(context, extensionId, true);
+  const page = await context.newPage();
+  await serve(page, "**://*.instagram.com/**", fixture("instagram.html"));
+  await page.goto("https://www.instagram.com/someuser/");
+
+  // A profile's own Reels live at /<username>/reel/<id>/, so a rule anchored to the start of the
+  // address never matched them and eleven of them stayed on a real captured profile.
+  await expect(page.locator("#profile-reel-tile")).toHaveCount(0);
+
+  await expect(page.locator("#keep-profile-post-tile")).toBeVisible();
+  // A username that merely begins with the letters "reel" is not a Reel.
+  await expect(page.locator("#keep-profile-lookalike")).toBeVisible();
+});
+
 test("instagram mobile: Pro user blocks Reels routes and removes mobile Reels surfaces", async ({ context, extensionId }) => {
   await setEntitled(context, extensionId, true);
   const page = await context.newPage();
@@ -221,6 +236,16 @@ test("instagram mobile: Pro user blocks Reels routes and removes mobile Reels su
 
   await page.goto("https://www.instagram.com/someuser/reels/");
   await expect(page.locator("#still-placeholder")).toBeVisible();
+
+  // The same Reel is served at /reel/<id>/ and at /<username>/reel/<id>/. Only the first was
+  // blocked, so a Reel opened from a profile or a shared link still played.
+  await page.goto("https://www.instagram.com/someuser/reel/ABC123/");
+  await expect(page.locator("#still-placeholder")).toBeVisible();
+
+  // An ordinary profile is not a Reels route.
+  await page.goto("https://www.instagram.com/someuser/");
+  await expect(page.locator("#still-placeholder")).toHaveCount(0);
+  await expect(page.locator("#ig-mobile-post")).toBeVisible();
 });
 
 test("facebook: free-user Reels behavior follows the paid-tier switch", async ({ context }) => {
@@ -249,6 +274,77 @@ test("facebook: Pro user removes a Reel article + hides the Reels shortcut, keep
   await expect(page.locator("#reel-article")).toHaveCount(0);
   await expect(page.locator("#keep-article")).toBeVisible();
   await expect(page.locator("#reels-shortcut")).toBeHidden();
+  // A Page whose name starts with the letters "reel" is not a Reel.
+  await expect(page.locator("#keep-lookalike-article")).toBeVisible();
+  await expect(page.locator("#keep-menu-lookalike")).toBeVisible();
+  await expect(page.locator("#keep-menu-home")).toBeVisible();
+});
+
+test("facebook page: the Reels tab goes, the other Page tabs stay", async ({ context, extensionId }) => {
+  await setEntitled(context, extensionId, true);
+  const page = await context.newPage();
+  await serve(page, "**://*.facebook.com/**", fixture("facebook.html"));
+  await page.goto("https://www.facebook.com/stillapp");
+
+  // Every Page carries a Reels tab. It was only ever hidden by accident, by an Instagram rule that
+  // used to load on Facebook, so scoping the packaged stylesheets by service brought it back.
+  await expect(page.locator("#page-reels-tab")).toBeHidden();
+
+  await expect(page.locator("#keep-page-posts-tab")).toBeVisible();
+  await expect(page.locator("#keep-page-photos-tab")).toBeVisible();
+  // The rule keys on the tab, not on the word: an ordinary link to a Page called "reels_tab" stays.
+  // Assert on the link itself, because the list item around it keeps its box either way.
+  await expect(page.locator("#keep-menu-reels-tab-page a")).toBeVisible();
+});
+
+// Facebook's own sections live in the first path segment, so "/<name>/reels" is a Page's Reels tab
+// only when <name> is a Page. facebook.com/groups/reels is a live group that auctions fishing rods,
+// reels and tackle, facebook.com/hashtag/reels is the hashtag feed, and facebook.com/public/reels
+// is the people directory, which lists everyone whose name contains "Reels". None is short-form
+// video, and all three load without an account.
+test("facebook: a Facebook section whose address ends in the word reels is not a Reels tab", async ({
+  context,
+  extensionId,
+}) => {
+  await setEntitled(context, extensionId, true);
+  const page = await context.newPage();
+  await serve(page, "**://*.facebook.com/**", fixture("facebook.html"));
+
+  for (const path of [
+    "/groups/reels",
+    "/groups/reels/",
+    "/hashtag/reels",
+    "/marketplace/reels",
+    "/gaming/reels",
+    "/events/reels",
+    "/pages/reels",
+    "/people/reels",
+    "/stories/reels",
+    "/help/reels",
+    "/business/reels",
+    "/settings/reels",
+    "/public/reels",
+  ]) {
+    await page.goto(`https://www.facebook.com${path}`);
+    await expect(page.locator("#still-placeholder")).toHaveCount(0);
+    await expect(page.locator("#keep-section-page")).toBeVisible();
+    await expect(page.locator("#keep-section-title")).toBeVisible();
+    await expect(page.locator("#keep-section-post")).toBeVisible();
+  }
+
+  // A Page's Reels tab is still covered, including a Page whose vanity name merely begins with the
+  // name of a section, and a Page addressed by its numeric id.
+  for (const path of [
+    "/stillapp/reels/",
+    "/groupsofpeople/reels",
+    "/100064860875397/reels",
+    // "watch" is not a reserved word, so the general "<name>/reels" alternative covers Facebook's
+    // own Reels feed without the pattern naming it.
+    "/watch/reels",
+  ]) {
+    await page.goto(`https://www.facebook.com${path}`);
+    await expect(page.locator("#still-placeholder")).toBeVisible();
+  }
 });
 
 test("facebook mobile: Pro user blocks Reels routes and removes mobile Reels sections", async ({ context, extensionId }) => {
@@ -260,9 +356,29 @@ test("facebook mobile: Pro user blocks Reels routes and removes mobile Reels sec
   await expect(page.locator("#fb-mobile-reel")).toHaveCount(0);
   await expect(page.locator("#fb-mobile-post")).toBeVisible();
   await expect(page.locator("#fb-mobile-reels")).toBeHidden();
+  await expect(page.locator("#keep-fb-mobile-lookalike")).toBeVisible();
+  // The tab node keeps its slot in the tablist so the bar does not gain a grey gap (issue #58);
+  // only its contents are hidden.
+  await expect(page.locator("#fb-mobile-reels-tab")).toHaveCount(1);
+  await expect(page.locator("#fb-mobile-reels-tab span")).toBeHidden();
+  await expect(page.locator("#keep-fb-mobile-home-tab")).toBeVisible();
 
   await page.goto("https://m.facebook.com/watch/reels/");
   await expect(page.locator("#still-placeholder")).toBeVisible();
+
+  // Where the Page's hidden Reels tab leads. Typing the address reached it before.
+  await page.goto("https://m.facebook.com/stillapp/reels/");
+  await expect(page.locator("#still-placeholder")).toBeVisible();
+
+  // A Page's other sections are long-form video and photos, which Still leaves alone.
+  await page.goto("https://m.facebook.com/stillapp/videos");
+  await expect(page.locator("#still-placeholder")).toHaveCount(0);
+  await expect(page.locator("#fb-mobile-post")).toBeVisible();
+
+  // And a Facebook section whose address ends in the word reels is not a Page's Reels tab.
+  await page.goto("https://m.facebook.com/groups/reels");
+  await expect(page.locator("#still-placeholder")).toHaveCount(0);
+  await expect(page.locator("#fb-mobile-post")).toBeVisible();
 });
 
 test("tiktok: free-user whole-site blocking follows the paid-tier switch", async ({ context }) => {

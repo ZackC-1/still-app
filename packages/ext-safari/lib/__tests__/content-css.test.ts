@@ -42,7 +42,7 @@ describe("generated content CSS monetization gating", () => {
       expect(freeCss).not.toContain('a[aria-label="Reels"]');
       expect(freeCss).not.toContain('a[href$="/reels/"]');
       expect(freeCss).not.toContain('a[aria-label="Reels"]');
-      expect(freeCss).not.toContain('li:has(> a[href*="/reel"])');
+      expect(freeCss).not.toContain('li:has(> a[href*="/reel/"], > a[href*="/reels/"])');
       expect(freeCss).not.toContain("still-pro-active");
     });
 
@@ -51,11 +51,14 @@ describe("generated content CSS monetization gating", () => {
       expect(proCss).toContain("html.still-pro-active");
       expect(proCss).toContain('a[href="/reels/"]');
       expect(proCss).toContain('a[aria-label="Reels"]');
-      expect(proCss).toContain('li:has(> a[href*="/reel"])');
+      expect(proCss).toContain('li:has(> a[href*="/reel/"], > a[href*="/reels/"])');
       // Issue #58's tab-slot cover MUST ship in the packaged CSS: the manifest-CSS fast path
       // (manifestCssOwnsHides) skips hide surfaces in JS, so a stylesheet that drifted from the
       // seed silently never applies this rule.
       expect(proCss).toContain('[role="tab"][aria-label*="reels" i] > *');
+      // Same reasoning for the Facebook Page tab: it is a hide surface, so the packaged stylesheet
+      // is the only thing that applies it on a real page.
+      expect(proCss).toContain('a[role="tab"][href*="/reels_tab"]');
     });
 
     // The committed stylesheets are GENERATED artifacts of the seed. PR #64's review caught the

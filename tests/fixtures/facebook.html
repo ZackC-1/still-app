@@ -5,16 +5,56 @@
     <title>Facebook — fixture</title>
   </head>
   <body>
-    <!-- Left menu: a Reels shortcut (fb-left-menu, hide) + a normal item (must survive) -->
+    <!-- Left menu: a Reels shortcut (fb-left-menu, hide) + normal items (must survive) -->
     <nav id="left-menu">
-      <a href="/" id="home-link">Home</a>
-      <a href="/reel/" id="reels-shortcut" aria-label="Reels">Reels</a>
+      <ul>
+        <li id="keep-menu-home"><a href="/" id="home-link">Home</a></li>
+        <li id="menu-reels"><a href="/reel/" id="reels-shortcut" aria-label="Reels">Reels</a></li>
+        <!--
+          Over-blocking control: a Page whose name begins with the letters "reel". Facebook's own
+          Reels URLs are always /reel/<id> or /reels/..., so the trailing slash is what tells a Reel
+          apart from a Page called "Reel Estate".
+        -->
+        <li id="keep-menu-lookalike"><a href="/reelestate">Reel Estate Group</a></li>
+        <!--
+          Over-blocking control for the Page-tab rule below: an ordinary link to a Page whose vanity
+          address happens to be "reels_tab". The rule keys on the tab, not on the word, so this link
+          survives.
+        -->
+        <li id="keep-menu-reels-tab-page"><a href="/reels_tab">Reels Tab Productions</a></li>
+      </ul>
     </nav>
 
-    <!-- Feed: a Reel article (fb-feed, remove) + a normal post (must survive) -->
-    <main>
+    <!--
+      Page profile tabs. Every Facebook Page carries a Reels tab pointing at /<page>/reels_tab
+      (fb-page-tabs, hide); the other tabs must survive. Copied from a signed-out capture of
+      facebook.com/facebook, where the tab is an <a role="tab"> with an absolute address.
+    -->
+    <div role="tablist" id="page-tabs">
+      <a role="tab" href="https://www.facebook.com/stillapp/" id="keep-page-posts-tab">Posts</a>
+      <a role="tab" href="https://www.facebook.com/stillapp/reels_tab" id="page-reels-tab">Reels</a>
+      <a role="tab" href="https://www.facebook.com/stillapp/photos" id="keep-page-photos-tab">Photos</a>
+    </div>
+
+    <!--
+      Over-blocking control for the address rule. Facebook keeps its own sections in the first path
+      segment, so an address like /groups/reels or /hashtag/reels is a section of Facebook rather
+      than a Page's Reels tab. facebook.com/groups/reels is a live group that auctions fishing rods,
+      reels and tackle. Those addresses must load exactly as they do with Still switched off, so the
+      tests navigate to them and expect this block, not Still's page.
+    -->
+    <section id="keep-section-page">
+      <h1 id="keep-section-title">Fishing rods, reels and tackle</h1>
+      <div role="article" id="keep-section-post">A rod and reel auction listing</div>
+    </section>
+
+    <!-- Feed: a Reel article (fb-feed, remove) + normal posts (must survive) -->
+    <main role="feed">
       <div role="article" id="reel-article"><a href="/reel/123">a reel</a></div>
       <div role="article" id="keep-article">A normal status update</div>
+      <div role="article" id="keep-lookalike-article">
+        <a href="/reeling-in-the-years/posts/1">Reeling In The Years posted an update</a>
+      </div>
     </main>
   </body>
 </html>

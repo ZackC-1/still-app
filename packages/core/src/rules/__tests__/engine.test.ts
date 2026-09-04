@@ -102,12 +102,86 @@ describe("evaluate — navigation decisions", () => {
     expect(d).not.toMatchObject({ blocked: true }); // a cleared URL, not a site block
     expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reels/")).kind).toBe("placeholder");
     expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/someuser/reels/")).kind).toBe("placeholder");
+    // Instagram serves the same Reel at two addresses. The root one was blocked and the profile one
+    // was not, so a Reel opened from a profile or a shared link still played.
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/someuser/reel/XYZ/")).kind).toBe("placeholder");
+    // An ordinary profile, and a username that merely begins with the letters "reel", are not Reels.
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/someuser/")).kind).toBe("apply");
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reelmaker/")).kind).toBe("apply");
   });
 
   it("placeholders a direct Facebook Reel URL", () => {
     expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reel/123")).kind).toBe("placeholder");
     expect(evaluate(ruleSet, allOn, new URL("https://m.facebook.com/reels/")).kind).toBe("placeholder");
     expect(evaluate(ruleSet, allOn, new URL("https://m.facebook.com/watch/reels/")).kind).toBe("placeholder");
+    // A Page's own Reels tab, which is where the hidden tab used to lead.
+    expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/somepage/reels/")).kind).toBe("placeholder");
+    // A Page's ordinary sections are long-form video and photos, which Still leaves alone.
+    expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/somepage/videos")).kind).toBe("apply");
+    expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/somepage/")).kind).toBe("apply");
+    expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reelestate/")).kind).toBe("apply");
+  });
+
+  it("leaves Facebook's own sections alone when their address ends in the word reels", () => {
+    // "/<name>/reels" is a Page's Reels tab only when <name> is a Page. Facebook reserves its own
+    // first path segment for sections like groups and hashtag, so /groups/reels is a real group
+    // about fishing rods, reels and tackle, /hashtag/reels is the hashtag feed, and /public/reels
+    // is the people directory listing everyone whose name contains "Reels". All render ordinary
+    // content and none is short-form video, so Still must not cover them.
+    for (const path of [
+      "/groups/reels",
+      "/groups/reels/",
+      "/hashtag/reels",
+      "/marketplace/reels",
+      "/gaming/reels",
+      "/games/reels",
+      "/live/reels",
+      "/events/reels",
+      "/pages/reels",
+      "/people/reels",
+      "/stories/reels",
+      "/search/reels",
+      "/help/reels",
+      "/business/reels",
+      "/settings/reels",
+      "/messages/reels",
+      "/notifications/reels",
+      "/bookmarks/reels",
+      "/friends/reels",
+      "/saved/reels",
+      "/ads/reels",
+      "/photo/reels",
+      "/policies/reels",
+      "/legal/reels",
+      "/careers/reels",
+      "/login/reels",
+      "/privacy/reels",
+      "/public/reels",
+    ]) {
+      expect(evaluate(ruleSet, allOn, new URL(`https://www.facebook.com${path}`)).kind).toBe("apply");
+      expect(evaluate(ruleSet, allOn, new URL(`https://m.facebook.com${path}`)).kind).toBe("apply");
+    }
+
+    // Narrowing must not give back the Reels addresses this rule exists to cover: a Page whose
+    // vanity name merely begins with a section name is still a Page.
+    for (const path of [
+      "/reel/123",
+      "/reels/",
+      // "watch" is deliberately not a reserved word above, because /watch/reels is a real Reels
+      // surface, so the general "<name>/reels" alternative covers it and the pattern needs no
+      // separate one. Anyone who ever reserves "watch" must restore that alternative.
+      "/watch/reels",
+      "/watch/reels/",
+      "/somepage/reels",
+      "/somepage/reels/",
+      "/100064860875397/reels",
+      "/groupsofpeople/reels",
+      "/liveband/reels",
+    ]) {
+      expect(evaluate(ruleSet, allOn, new URL(`https://www.facebook.com${path}`)).kind).toBe(
+        "placeholder",
+      );
+    }
   });
 
   it("is a no-op on an unknown domain", () => {
