@@ -544,24 +544,6 @@ describe("App", () => {
     expect(cta.textContent).not.toContain("·"); // no hardcoded/guessed price
   });
 
-  paidTierIt("the Get button is disabled while a purchase is in flight (duplicate-tap guard)", async () => {
-    const onGet = vi.fn();
-    const c = controller();
-    c.userId = "u";
-    c.openPaywall();
-    c.paywallPrice = "$1.99";
-    render(App, { props: { controller: c, onGet } });
-    const dialog = within(screen.getByRole("dialog"));
-    await fireEvent.click(dialog.getByText(/Get Still Pro ·/)); // the paywall CTA (has the price)
-    expect(onGet).toHaveBeenCalledOnce();
-    const inFlight = dialog.getByText(
-      /Completing your purchase/,
-    ) as HTMLButtonElement;
-    expect(inFlight.disabled).toBe(true);
-    await fireEvent.click(inFlight);
-    expect(onGet).toHaveBeenCalledOnce(); // second tap ignored (button disabled)
-  });
-
   paidTierIt("pending purchase keeps the sheet open with the Ask-to-Buy note", () => {
     const c = controller();
     c.userId = "u";
@@ -617,63 +599,11 @@ describe("App", () => {
     c.dismissPaywall(); // clear the payoff auto-dismiss timer
   });
 
-  paidTierIt("a tap on the payoff dismisses it early", async () => {
-    const c = controller();
-    c.userId = "u";
-    c.openPaywall();
-    render(App, { props: { controller: c, onGet: () => {} } });
-    c.entitled = true;
-    await tick();
-    await fireEvent.click(screen.getByText(STRINGS.paywall.unlocked));
-    expect(c.paywallOpen).toBe(false);
-    expect(c.justUnlocked).toBe(false);
-  });
-
-  paidTierIt("Escape dismisses the payoff early", async () => {
-    const c = controller();
-    c.userId = "u";
-    c.openPaywall();
-    render(App, { props: { controller: c, onGet: () => {} } });
-    c.entitled = true;
-    await tick();
-    await fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-    expect(c.paywallOpen).toBe(false);
-    expect(c.justUnlocked).toBe(false);
-  });
-
-  paidTierIt("the web checkout hand-off renders the transitional line with the CTA disabled (U3→U4 hook)", () => {
-    const c = controller();
-    c.userId = "u";
-    c.openPaywall();
-    c.purchaseFlow = "opening-checkout";
-    render(App, { props: { controller: c, onGet: () => {} } });
-    const cta = within(screen.getByRole("dialog")).getByText(
-      STRINGS.paywall.openingCheckout,
-    ) as HTMLButtonElement;
-    expect(cta.disabled).toBe(true); // busy — no duplicate checkout taps
-  });
-
   // ── modal focus containment (the shared trap in focus-trap.ts) ─────────────────────────────────
-  // jsdom never blurs a control that becomes disabled, so these exercise the trap's
-  // !hasAttribute("disabled") filter directly rather than the real-browser blur behavior.
-
-  paidTierIt("the paywall Tab cycle skips disabled controls while a purchase is in flight", async () => {
-    const c = controller();
-    c.userId = "u";
-    c.openPaywall();
-    c.purchaseFlow = "purchasing"; // Get + Restore render disabled
-    render(App, { props: { controller: c, onGet: () => {} } });
-    const dialog = screen.getByRole("dialog");
-    const dismiss = within(dialog).getByText(
-      STRINGS.paywall.dismiss,
-    ) as HTMLButtonElement;
-    dismiss.focus();
-    await fireEvent.keyDown(dialog, { key: "Tab" });
-    // Tab from the last control wraps to the first ENABLED focusable — here that is the dismiss
-    // button itself (the only enabled control), never the disabled Get/Restore pair.
-    expect(document.activeElement).toBe(dismiss);
-    expect((document.activeElement as HTMLButtonElement).disabled).toBe(false);
-  });
+  // jsdom never blurs a control that becomes disabled, so this exercises the trap's
+  // !hasAttribute("disabled") filter directly rather than the real-browser blur behavior. The
+  // paywall sheet's own focus cases live in paid-tier-paywall-sheet.test.ts, which mocks the
+  // switch on so they keep running while the paid tier is dormant.
 
   it("the sign-in Tab cycle skips the cooldown-disabled resend control", async () => {
     const c = controller({ auth: codeCapableAuth() });
@@ -691,20 +621,6 @@ describe("App", () => {
     // (code empty) or resend (cooldown) buttons between them.
     expect(document.activeElement).toBe(document.querySelector("input.code"));
     c.dismissSignIn(); // stop the cooldown ticker
-  });
-
-  paidTierIt("dismissing the paywall restores focus to the trigger that opened it", async () => {
-    const c = controller(); // no auth wired → a locked-row tap opens the paywall directly
-    render(App, { props: { controller: c } });
-    const lock = document.querySelector(".lock") as HTMLButtonElement;
-    lock.focus();
-    await fireEvent.click(lock);
-    expect(c.paywallOpen).toBe(true);
-    await tick();
-    await fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-    await tick();
-    expect(c.paywallOpen).toBe(false);
-    expect(document.activeElement).toBe(lock);
   });
 });
 

@@ -63,6 +63,7 @@ function makePurchase(over: { state?: ExtensionSessionState } = {}) {
   const createCheckout = vi.fn(() =>
     Promise.resolve<WebCheckoutOutcome>({ kind: "checkout-url", url: CHECKOUT_URL }),
   );
+  const setCheckoutPending = vi.fn();
   const deps: ExtensionPurchaseDeps = {
     displayPrice: "$1.99",
     getState: vi.fn(() => Promise.resolve(over.state ?? snapshot())),
@@ -75,9 +76,14 @@ function makePurchase(over: { state?: ExtensionSessionState } = {}) {
       deleteAccount: vi.fn(() => Promise.resolve()),
     },
     persistence: { setPendingOtp: vi.fn(), setPurchaseIntent: vi.fn() },
-    checkout: { createCheckout, openCheckoutTab, setPending: vi.fn(), reconcile },
+    checkout: {
+      createCheckout,
+      openCheckoutTab,
+      setPending: setCheckoutPending,
+      reconcile,
+    },
   };
-  return { deps, openCheckoutTab, reconcile, createCheckout };
+  return { deps, openCheckoutTab, reconcile, createCheckout, setCheckoutPending };
 }
 
 describe("createExtensionUiController — no injection (the Safari pin, AE7/3.1.1)", () => {
