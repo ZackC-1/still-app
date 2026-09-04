@@ -535,3 +535,91 @@ describe("applyRemovals — YouTube Shorts surfaces against live markup", () => 
     });
   });
 });
+
+// The sweep runs on every mutation frame of an infinite feed, so it queries the document once per
+// action rather than once per selector. Two behaviours follow, and both are load bearing.
+describe("applyRemovals — one query per action", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    document.documentElement.className = "";
+  });
+
+  it("walks the document once per action, not once per selector", () => {
+    const calls: string[] = [];
+    const original = Document.prototype.querySelectorAll;
+    Document.prototype.querySelectorAll = function (this: Document, selector: string) {
+      calls.push(selector);
+      return original.call(this, selector) as never;
+    } as typeof original;
+    try {
+      applyRemovals(ruleSet, allOn, new URL("https://m.youtube.com/"), document, { pro: false });
+    } finally {
+      Document.prototype.querySelectorAll = original;
+    }
+    expect(calls).toHaveLength(1);
+    // The one query carries every distinct remove selector of the active service, deduplicated
+    // across surfaces that share a shelf.
+    const youtube = ruleSet.services.youtube!;
+    const authored = new Set(
+      youtube.surfaces
+        .filter((s) => s.action === "remove" && s.selectors)
+        .flatMap((s) => [...s.selectors!]),
+    );
+    expect(calls[0]!.split(",")).toHaveLength(authored.size);
+  });
+
+  it("removes a wrapper and its contents whatever order the selectors are authored in", () => {
+    // Authored inner-first, which used to leave the wrapper behind as an empty box because the
+    // wrapper's :has() test named a child an earlier selector had already removed.
+    const innerFirst: SignedRuleSet = {
+      ...ruleSet,
+      services: {
+        youtube: {
+          matches: ["*://*.youtube.com/*"],
+          surfaces: [
+            {
+              id: "yt-home-shelf",
+              label: "test",
+              tier: "free",
+              action: "remove",
+              enabledByDefault: true,
+              selectors: ["ytm-reel-shelf-renderer", "ytm-rich-section-renderer:has(ytm-reel-shelf-renderer)"],
+            },
+          ],
+        },
+      },
+    };
+    document.body.innerHTML = `
+      <ytm-rich-section-renderer id="section">
+        <ytm-reel-shelf-renderer id="shelf"></ytm-reel-shelf-renderer>
+      </ytm-rich-section-renderer>`;
+    applyRemovals(innerFirst, allOn, new URL("https://m.youtube.com/"), document, { pro: false });
+    expect(document.querySelector("#section")).toBeNull();
+  });
+
+  it("falls back to one query per selector when the browser rejects the list", () => {
+    const withUnsupported: SignedRuleSet = {
+      ...ruleSet,
+      services: {
+        youtube: {
+          matches: ["*://*.youtube.com/*"],
+          surfaces: [
+            {
+              id: "yt-home-shelf",
+              label: "test",
+              tier: "free",
+              action: "remove",
+              enabledByDefault: true,
+              // A selector this engine cannot parse must not cost us the one beside it.
+              selectors: ["ytd-reel-shelf-renderer:unsupported-by-this-browser", "ytd-reel-shelf-renderer"],
+            },
+          ],
+        },
+      },
+    };
+    document.body.innerHTML = `<ytd-reel-shelf-renderer id="shelf"></ytd-reel-shelf-renderer>`;
+    const res = applyRemovals(withUnsupported, allOn, new URL("https://www.youtube.com/"), document, { pro: false });
+    expect(document.querySelector("#shelf")).toBeNull();
+    expect(res.removed).toBe(1);
+  });
+});

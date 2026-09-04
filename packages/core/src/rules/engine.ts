@@ -107,6 +107,7 @@ export function createEnginePageSession(ruleSet: SignedRuleSet): EnginePageSessi
   let lastServiceId: ServiceId | null = null;
   let lastService: ServiceRules | null = null;
   let lastSurfaces: ServiceRules["surfaces"] = [];
+  let lastSweep: SweepPlan = EMPTY_SWEEP;
   let serviceResolutions = 0;
 
   const prepare = (settings: StillSettings, url: URL, opts: EngineOptions): void => {
@@ -120,6 +121,7 @@ export function createEnginePageSession(ruleSet: SignedRuleSet): EnginePageSessi
     lastServiceId = entry?.serviceId ?? null;
     lastService = entry?.rules ?? null;
     lastSurfaces = lastService?.surfaces.filter((surface) => surfaceEnabledForTier(surface, opts)) ?? [];
+    lastSweep = planSweep(lastSurfaces);
     lastDecision = null;
   };
 
@@ -131,14 +133,57 @@ export function createEnginePageSession(ruleSet: SignedRuleSet): EnginePageSessi
     },
     applyDom(settings, url, doc, opts = {}) {
       prepare(settings, url, opts);
-      return applyPreparedActions(lastService, lastSurfaces, doc, /* includeHide */ true);
+      return applyPreparedActions(lastService, lastSweep, doc, /* includeHide */ true);
     },
     applyRemovals(settings, url, doc, opts = {}) {
       prepare(settings, url, opts);
-      return applyPreparedActions(lastService, lastSurfaces, doc, /* includeHide */ false);
+      return applyPreparedActions(lastService, lastSweep, doc, /* includeHide */ false);
     },
     activeServiceId: () => lastServiceId,
     debugStats: () => ({ serviceResolutions }),
+  };
+}
+
+/**
+ * The selectors of the active surfaces, deduplicated and grouped into one selector list per action.
+ *
+ * Built once per navigation, because the DOM sweep runs on every mutation frame of an infinite feed
+ * and the selectors cannot change in between. One `querySelectorAll` per action walks the document
+ * once instead of once per selector: YouTube's surfaces alone carry twenty-two selectors, and the
+ * same shelf selector is authored under three surfaces because a shelf appears on three kinds of
+ * page.
+ *
+ * Grouping also removes an ordering trap. Run one at a time against the live DOM, a wrapper
+ * selector such as `ytm-rich-section-renderer:has(ytm-reel-shelf-renderer)` stops matching once an
+ * earlier selector has removed the child it names, so the wrapper survives as an empty box. One
+ * combined query matches everything against the document as it stands before anything is removed,
+ * so the authored order no longer changes the outcome.
+ */
+interface SweepPlan {
+  readonly hide: readonly string[];
+  readonly remove: readonly string[];
+  readonly hideList: string;
+  readonly removeList: string;
+}
+
+const EMPTY_SWEEP: SweepPlan = { hide: [], remove: [], hideList: "", removeList: "" };
+
+function planSweep(surfaces: ServiceRules["surfaces"]): SweepPlan {
+  const hide = new Set<string>();
+  const remove = new Set<string>();
+  for (const surface of surfaces) {
+    if (!surface.selectors) continue;
+    const target = surface.action === "hide" ? hide : surface.action === "remove" ? remove : null;
+    if (!target) continue;
+    for (const selector of surface.selectors) target.add(selector);
+  }
+  const hideSelectors = [...hide];
+  const removeSelectors = [...remove];
+  return {
+    hide: hideSelectors,
+    remove: removeSelectors,
+    hideList: hideSelectors.join(","),
+    removeList: removeSelectors.join(","),
   };
 }
 
@@ -261,7 +306,7 @@ export function applyRemovals(
 
 function applyPreparedActions(
   service: ServiceRules | null,
-  surfaces: ServiceRules["surfaces"],
+  sweep: SweepPlan,
   doc: Document,
   includeHide: boolean,
 ): ApplyResult {
@@ -269,25 +314,38 @@ function applyPreparedActions(
   let removed = 0;
   if (!service) return { hidden, removed };
 
-  for (const s of surfaces) {
-    if (!s.selectors) continue;
-    if (s.action === "hide" && includeHide) {
-      for (const sel of s.selectors) {
-        for (const el of safeQueryAll(doc, sel)) {
-          (el as HTMLElement).style?.setProperty("display", "none", "important");
-          hidden++;
-        }
-      }
-    } else if (s.action === "remove") {
-      for (const sel of s.selectors) {
-        for (const el of safeQueryAll(doc, sel)) {
-          el.remove();
-          removed++;
-        }
-      }
+  if (includeHide && sweep.hideList) {
+    for (const el of queryGroup(doc, sweep.hideList, sweep.hide)) {
+      (el as HTMLElement).style?.setProperty("display", "none", "important");
+      hidden++;
+    }
+  }
+  if (sweep.removeList) {
+    for (const el of queryGroup(doc, sweep.removeList, sweep.remove)) {
+      el.remove();
+      removed++;
     }
   }
   return { hidden, removed };
+}
+
+/**
+ * One query for the whole selector list, falling back to one query per selector if the browser
+ * rejects the list. A selector list is invalid as a whole if any single selector in it is, so a
+ * rule set carrying a selector this browser does not understand must not cost us the rest.
+ */
+function queryGroup(doc: Document, list: string, selectors: readonly string[]): Element[] {
+  try {
+    return Array.from(doc.querySelectorAll(list));
+  } catch {
+    // Deduplicated so an element matched by two selectors is still counted once, as the combined
+    // query would have counted it.
+    const found = new Set<Element>();
+    for (const selector of selectors) {
+      for (const el of safeQueryAll(doc, selector)) found.add(el);
+    }
+    return [...found];
+  }
 }
 
 function surfaceEnabledForTier(s: ServiceRules["surfaces"][number], opts: EngineOptions): boolean {
