@@ -1,69 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
-import { SettingsCache } from "../../storage/cache.js";
-import { InMemoryStorageAdapter } from "../../storage/adapter.js";
-import { PAYOFF_DURATION_MS, UiController } from "../../ui/controller.svelte.js";
-import { createAppleSession, type AppleSessionBridge, type AppleSessionDeps } from "../apple-session.js";
-import type { SyncState } from "../service.js";
+import { harness } from "./support/apple-session-harness.js";
 
-// The money-flow branches that used to live untested in the app-webview entrypoint: double-charge
-// guard, offline guard, pending-vs-payoff after purchase/restore, rejected-native recovery,
-// Ask-to-Buy foreground recheck, entitlement mirroring, and teardown parity.
+// What this module does with a sync state, and what it does and does not stamp into the App Group:
+// the entitlement mirror, entering and tearing down a session, the receipt lane, and the email-code
+// sign-in entry. All of it runs with the paid tier as it ships.
 //
-// Server-confirmed unlocks resolve through the controller's payoff (U3/R6): the entitled
-// false→true transition with the paywall open shows the quieter-web success payoff and the
-// controller dismisses after ~2.5s — this module never force-dismisses at those moments.
-
-function makeBridge(over: Partial<AppleSessionBridge> = {}): AppleSessionBridge {
-  return {
-    available: true,
-    signInWithApple: vi.fn(async () => ({ identityToken: "tok", nonce: "n" })),
-    configurePurchases: vi.fn(async () => {}),
-    purchaseStillPro: vi.fn(async () => ({ outcome: "purchased" as const, entitled: true })),
-    restore: vi.fn(async () => false),
-    receiptStatus: vi.fn(async () => "noSignal" as const),
-    attachPurchases: vi.fn(async () => false),
-    price: vi.fn(async () => "$1.99"),
-    signOut: vi.fn(async () => {}),
-    setEntitlement: vi.fn(async () => {}),
-    ...over,
-  };
-}
-
-function harness(opts: {
-  bridge?: Partial<AppleSessionBridge>;
-  /** What the (fake) reconcile lands in the controller when enterSession runs. */
-  onSignedInState?: Partial<SyncState>;
-  exchange?: AppleSessionDeps["exchangeAppleCredential"];
-} = {}) {
-  const cache = new SettingsCache(new InMemoryStorageAdapter(null), { now: () => Date.now() });
-  const controller = new UiController({ cache, host: { canPurchase: true } });
-  const bridge = makeBridge(opts.bridge);
-  // A fake SyncService: onSignedIn projects the configured post-reconcile state through the same
-  // onSyncState path the real service drives.
-  const sync = {
-    onSignedIn: vi.fn(async (userId: string) => {
-      session.onSyncState({
-        userId,
-        entitled: false,
-        syncing: false,
-        cloudReachable: true,
-        confirmed: true,
-        ...opts.onSignedInState,
-      });
-    }),
-    signOut: vi.fn(async () => {
-      session.onSyncState({ userId: null, entitled: false, syncing: false, cloudReachable: true, confirmed: true });
-    }),
-    deleteAccount: vi.fn(async () => {}),
-  };
-  const session = createAppleSession({
-    controller,
-    sync,
-    bridge,
-    exchangeAppleCredential: opts.exchange ?? (async () => ({ userId: "u1" })),
-  });
-  return { session, controller, bridge, sync };
-}
+// The money flows are in apple-session-purchase-flows.test.ts, not here and not deleted: the
+// double-charge guard, the offline guard, pending-versus-payoff after a purchase or restore,
+// rejected-native recovery, and the Ask-to-Buy foreground recheck. They need the paid-tier switch
+// mocked on to be reachable at all, which is a whole-file setting in Vitest, so they moved to their
+// own file rather than going dark. Both files build their subject through the same harness in
+// ./support/, so there is one of it and the two halves cannot drift apart.
 
 describe("AppleSession — sync-state projection + entitlement mirror", () => {
   it("mirrors server-confirmed entitlement into the App Group", () => {
@@ -119,182 +66,6 @@ describe("AppleSession — enterSession", () => {
     expect(controller.reconciling).toBe(false);
   });
 });
-
-describe("AppleSession — onGet (the purchase flow)", () => {
-  it("double-charge guard: already entitled after the fresh online check → payoff, never purchase (AE4)", async () => {
-    vi.useFakeTimers();
-    try {
-      const { session, controller, bridge } = harness({ onSignedInState: { entitled: true } });
-      controller.userId = "u1";
-      controller.openPaywall();
-      await session.onGet();
-      expect(bridge.purchaseStillPro).not.toHaveBeenCalled();
-      // The cross-device restore case reads as success, not a silent dismiss: the entitled
-      // transition shows the payoff, then the controller dismisses on its own (U3/R6).
-      expect(controller.justUnlocked).toBe(true);
-      expect(controller.paywallOpen).toBe(true);
-      vi.advanceTimersByTime(PAYOFF_DURATION_MS);
-      expect(controller.paywallOpen).toBe(false);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("offline guard: signed-in but unreachable → calm failure, never purchase", async () => {
-    const { session, controller, bridge } = harness({ onSignedInState: { cloudReachable: false } });
-    controller.userId = "u1";
-    controller.openPaywall();
-    await session.onGet();
-    expect(bridge.purchaseStillPro).not.toHaveBeenCalled();
-    expect(controller.purchaseFlow).toBe("failed");
-    expect(controller.purchaseError).toMatch(/Try again when connected/);
-  });
-
-  it("signed-in purchase success → SYNC-flavored success screen, receipt fed, no auto-dismiss", async () => {
-    // AMENDED for purchase-first (plan 2026-07-15-001, R3/R5): the receipt is the device
-    // authority now — a purchased outcome resolves to the success screen immediately, no longer
-    // waiting on the webhook round-trip for the UI moment (previously: "pending" until the
-    // server confirmed). The signed-in branch confirms sync and never pitches an account.
-    vi.useFakeTimers();
-    try {
-      // No receipt until the purchase completes: the pre-purchase reconcile's attach evaluation
-      // sees noSignal (otherwise the double-charge guard correctly resolves without purchasing —
-      // the device already owns Pro).
-      const receiptStatus = vi
-        .fn<() => Promise<"noSignal" | "entitled">>()
-        .mockResolvedValueOnce("noSignal");
-      receiptStatus.mockResolvedValue("entitled");
-      const { session, controller } = harness({ bridge: { receiptStatus } });
-      controller.userId = "u1";
-      controller.openPaywall();
-      await session.onGet();
-      expect(controller.successScreen).toBe("synced");
-      expect(controller.paywallOpen).toBe(true);
-      expect(controller.receiptEntitled).toBe(true);
-      expect(controller.entitled).toBe(true);
-      // NO auto-dismiss (the old 2.5s payoff was a one-liner; the success screen waits for an
-      // explicit choice).
-      vi.advanceTimersByTime(PAYOFF_DURATION_MS * 4);
-      expect(controller.paywallOpen).toBe(true);
-      expect(controller.justUnlocked).toBe(false); // the success screen suppresses the payoff
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("signed-out purchase success → ACCOUNT-PITCH success screen (AE1)", async () => {
-    const { session, controller, bridge } = harness({
-      bridge: { receiptStatus: vi.fn(async () => "entitled" as const) },
-    });
-    controller.openPaywall();
-    await session.onGet();
-    // No session: no enterSession, no reconcile — purchase directly (R1).
-    expect(bridge.configurePurchases).not.toHaveBeenCalled();
-    expect(controller.successScreen).toBe("account-pitch");
-    expect(controller.receiptEntitled).toBe(true);
-    expect(controller.entitled).toBe(true);
-    expect(controller.userId).toBeNull();
-    // "Not now" (wired to dismissPaywall — the one dismissal path) leaves an entitled,
-    // account-free home screen — never a dead buy CTA.
-    controller.dismissPaywall();
-    expect(controller.popupState).toBe("pro-no-account");
-  });
-
-  it("staleIdentity outcome renders its retryable flow state (R15)", async () => {
-    const { session, controller } = harness({
-      bridge: {
-        purchaseStillPro: vi.fn(async () => ({
-          outcome: "staleIdentity" as const,
-          entitled: false,
-        })),
-      },
-    });
-    controller.openPaywall();
-    await session.onGet();
-    expect(controller.purchaseFlow).toBe("stale-identity");
-    expect(controller.paywallOpen).toBe(true);
-  });
-
-  it("a rejected native purchase resolves to a visible failed state (CTA never stuck)", async () => {
-    const { session, controller } = harness({
-      bridge: { purchaseStillPro: vi.fn(async () => Promise.reject(new Error("boom"))) },
-    });
-    controller.openPaywall();
-    controller.beginPurchase();
-    await session.onGet();
-    expect(controller.purchaseFlow).toBe("failed");
-    expect(controller.purchaseError).toBe("boom");
-  });
-});
-
-describe("AppleSession — onRestore", () => {
-  it("nothing to restore → restored-none note, sheet stays open", async () => {
-    const { session, controller } = harness();
-    controller.openPaywall();
-    await session.onRestore();
-    expect(controller.purchaseFlow).toBe("restored-none");
-    expect(controller.paywallOpen).toBe(true);
-  });
-
-  it("restored + server-confirmed → payoff, then the controller dismisses into Pro", async () => {
-    vi.useFakeTimers();
-    try {
-      const { session, controller } = harness({
-        bridge: { restore: vi.fn(async () => true) },
-        onSignedInState: { entitled: true },
-      });
-      controller.userId = "u1";
-      controller.openPaywall();
-      await session.onRestore();
-      expect(controller.justUnlocked).toBe(true); // payoff instead of an instant dismiss (U3/R6)
-      expect(controller.paywallOpen).toBe(true);
-      vi.advanceTimersByTime(PAYOFF_DURATION_MS);
-      expect(controller.paywallOpen).toBe(false);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("a rejected restore unsticks the CTA", async () => {
-    const { session, controller } = harness({
-      bridge: { restore: vi.fn(async () => Promise.reject(new Error("no"))) },
-    });
-    controller.openPaywall();
-    controller.beginRestore();
-    await session.onRestore();
-    expect(controller.purchaseFlow).toBe("restored-none");
-  });
-});
-
-describe("AppleSession — Ask-to-Buy foreground recheck", () => {
-  it("re-enters the session only when visible + pending + signed-in + not reconciling", async () => {
-    const { session, controller, sync } = harness({ onSignedInState: { entitled: true } });
-    controller.userId = "u1";
-    controller.openPaywall();
-    controller.setPurchaseOutcome({ outcome: "pending", entitled: false });
-
-    session.onVisibilityChange("hidden");
-    expect(sync.onSignedIn).not.toHaveBeenCalled();
-
-    session.onVisibilityChange("visible");
-    // AMENDED (purchase-first): a rise that resolves a PENDING purchase is a purchase moment —
-    // it routes to the success screen (no auto-dismiss), never the quiet payoff, regardless of
-    // whether the reconcile or the receipt read delivers the flip first (adversarial review pin).
-    await vi.waitFor(() => expect(controller.successScreen).toBe("synced"));
-    expect(controller.justUnlocked).toBe(false);
-    expect(controller.paywallOpen).toBe(true);
-    expect(sync.onSignedIn).toHaveBeenCalledWith("u1");
-    controller.dismissPaywall();
-  });
-
-  it("does nothing when the purchase isn't pending", () => {
-    const { session, sync, controller } = harness();
-    controller.userId = "u1";
-    session.onVisibilityChange("visible");
-    expect(sync.onSignedIn).not.toHaveBeenCalled();
-  });
-});
-
 describe("AppleSession — teardown parity (KTD5)", () => {
   it("does not re-stamp a late confirmed entitlement after sign-out", async () => {
     const h = harness();
@@ -487,18 +258,6 @@ describe("AppleSession — receipt lane (R6/R17/R18, plan 2026-07-15-001)", () =
     expect(controller.receiptEntitled).toBe(true);
     expect(controller.purchaseFlow).toBe("idle"); // restored → resolved
     expect(controller.userId).toBeNull();
-  });
-
-  it("signed-out Ask-to-Buy approval resolves on foreground: pending → success screen (AE9/R18)", async () => {
-    const { session, controller } = harness({
-      bridge: { receiptStatus: vi.fn(async () => "entitled" as const) },
-    });
-    controller.openPaywall();
-    controller.setPurchaseOutcome({ outcome: "pending", entitled: false });
-    session.onVisibilityChange("visible");
-    await vi.waitFor(() => expect(controller.successScreen).toBe("account-pitch"));
-    expect(controller.receiptEntitled).toBe(true);
-    expect(controller.paywallOpen).toBe(true);
   });
 
   it("a resolved noSignal never downgrades receipt Pro (tri-state contract)", async () => {

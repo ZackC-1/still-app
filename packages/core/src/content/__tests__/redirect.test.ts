@@ -1,13 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import seed from "../../../rules/seed.json";
 import type { SignedRuleSet, StillSettings } from "@still/shared-types";
-import { DEFAULT_SETTINGS } from "@still/shared-types";
+import { DEFAULT_SETTINGS, PAID_TIER_ENABLED } from "@still/shared-types";
 import { SettingsCache } from "../../storage/cache.js";
 import { InMemoryStorageAdapter, type StorageAdapter } from "../../storage/adapter.js";
 import { EntitlementCache, InMemoryEntitlementAdapter } from "../../entitlement/index.js";
 import { createContentScript, earlyShortsRedirect } from "../index.js";
 import { ROOT_ACTIVE_CLASS } from "../../rules/engine.js";
 
+const paidTierIt = it.runIf(PAID_TIER_ENABLED);
+const includedAccessIt = it.runIf(!PAID_TIER_ENABLED);
 const ruleSet = seed as unknown as SignedRuleSet;
 const sync = (cb: () => void) => cb();
 
@@ -278,7 +280,7 @@ describe("content script — redirect + SPA navigation (U7)", () => {
     expect(document.documentElement.classList.contains(ROOT_ACTIVE_CLASS)).toBe(true);
   });
 
-  it("free user: production content-script path no-ops on a Pro Instagram Reel URL", async () => {
+  paidTierIt("free user: production content-script path no-ops on a Pro Instagram Reel URL", async () => {
     const win = makeWin("https://www.instagram.com/reel/XYZ/");
     const cs = createContentScript({
       win,
@@ -292,6 +294,22 @@ describe("content script — redirect + SPA navigation (U7)", () => {
     await cs.start();
     expect(document.querySelector("#still-placeholder")).toBeNull();
     expect(document.documentElement.classList.contains(ROOT_ACTIVE_CLASS)).toBe(false);
+    cs.stop();
+  });
+
+  includedAccessIt("paid tier off: production content-script path applies Instagram without entitlement", async () => {
+    expect(PAID_TIER_ENABLED).toBe(false);
+    const win = makeWin("https://www.instagram.com/reel/XYZ/");
+    const cs = createContentScript({
+      win,
+      doc: document,
+      ruleSet,
+      cache: cacheWith(null),
+      redirectPort: { replace: vi.fn() },
+      schedule: sync,
+    });
+    await cs.start();
+    expect(document.querySelector("#still-placeholder")).not.toBeNull();
     cs.stop();
   });
 

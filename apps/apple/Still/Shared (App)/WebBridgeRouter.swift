@@ -14,6 +14,8 @@
 //        { kind:"configurePurchases", appUserID } → { ok:true }   (KTD5 — RC re-keyed to the Supabase UUID)
 //        { kind:"purchase" }                  → { outcome, entitled }   (works signed out — R1)
 //        { kind:"restore" }                   → { entitled }            (works signed out — R4)
+//      purchase and restore are refused while MonetizationConfig.paidTierEnabled is false: they
+//      reply "unavailable" / not entitled without reaching StoreKit. Nothing else here changes.
 //        { kind:"purchaseStatus" }            → { entitled }
 //        { kind:"receiptStatus" }             → { receipt: "entitled"|"verifiedNotEntitled"|"noSignal" }
 //        { kind:"attachPurchases" }           → { entitled }   (R7 — attach the receipt to the account)
@@ -36,6 +38,7 @@
 //
 
 import WebKit
+import StoreKit
 import StillKit
 
 @MainActor
@@ -44,6 +47,16 @@ final class WebBridgeRouter {
   private let entitlement: EntitlementBridge
   private let purchases = PurchaseManager.shared
   private let siwa = SignInWithAppleCoordinator()
+
+  /// At most one ask for Apple's purchase history per launch. `refreshReceiptStamp` runs at launch
+  /// AND every time the app becomes active, and on a cold launch both of those happen before
+  /// anything is backgrounded, so without this the first launch alone would spend two of the three
+  /// attempts and could hold two `AppTransaction` requests open at once. Two chances of an App
+  /// Store sign-in sheet, on an app that sells nothing, is the shape to avoid: the ceiling is meant
+  /// to bound distinct launches, not overlapping asks inside one. Never cleared, so the next
+  /// attempt waits for the next launch. Everything here is main-actor isolated, so reading and
+  /// setting it cannot interleave and no lock is needed.
+  private var hasAskedAppleForPurchaseHistoryThisLaunch = false
 
   init(
     settings: SettingsBridge,
@@ -60,6 +73,12 @@ final class WebBridgeRouter {
   func refreshReceiptStamp() async {
     let status = await purchases.refreshReceiptStatus()
     _ = entitlement.applyReceipt(status)
+    // Cohort capture rides along on the same moments the receipt is read, but is deliberately NOT
+    // awaited: launch defers publishing the install-generation id until this method returns, and
+    // asking Apple for the app transaction has no time bound at all. It is idempotent and asks
+    // Apple at most once per launch, so the overlapping calls from launch, foreground, purchase,
+    // and restore are harmless.
+    Task { await self.captureOriginalInstall() }
   }
 
   func handle(_ body: Any, reply: @escaping (Any?, String?) -> Void) {
@@ -95,6 +114,15 @@ final class WebBridgeRouter {
       }
 
     case "purchase":
+      // The paid tier is dormant behind MonetizationConfig.paidTierEnabled, so the two actions that
+      // could put a price in front of someone are refused here, at the native boundary. That holds
+      // even for an older web bundle that still knows how to ask. Everything else on this router,
+      // including the receipt read and the App Group entitlement stamp, keeps running so a customer
+      // who already bought stays entitled and a later switch flip needs no rebuild of this path.
+      guard MonetizationConfig.paidTierEnabled else {
+        reply(Self.json(["outcome": "unavailable", "entitled": false]), nil)
+        return
+      }
       Task {
         let outcome = await self.purchases.purchaseStillPro()
         // Restamp from the fresh receipt before acknowledging (R5): Safari unlocks even if the
@@ -104,6 +132,14 @@ final class WebBridgeRouter {
       }
 
     case "restore":
+      // Refused for the same reason as purchase. This does not strand a customer who already
+      // bought: the receipt is still read at launch and on every foreground return, and the web
+      // view's own receiptStatus call below restamps too, so the device keeps proving its own
+      // entitlement without the restore round trip.
+      guard MonetizationConfig.paidTierEnabled else {
+        reply(Self.json(["entitled": false]), nil)
+        return
+      }
       Task {
         let restored = await self.purchases.restore()
         await self.refreshReceiptStamp()
@@ -175,6 +211,48 @@ final class WebBridgeRouter {
     default:
       reply(nil, "still: unknown kind \(kind)")
     }
+  }
+
+  /// Record, once per install, when this device first ran a build of Still that keeps a local
+  /// record of it. That is what lets a later paid tier honor everyone who arrived while everything
+  /// was included, without an account and without sending anything anywhere.
+  ///
+  /// Two halves, deliberately. The local half is written first and always: it reads the app's own
+  /// bundle, needs nothing from Apple, and works on every OS version Still supports. The verified
+  /// half comes from Apple's app transaction, is richer, and is entirely optional: it is available
+  /// only on newer systems, and asking for it can put an App Store sign-in sheet in front of a free
+  /// app when the transaction is not already cached on the device. So the ask happens at most once
+  /// per launch, is counted before it is made, and stops for good after a few attempts, rather than
+  /// repeating at every launch and every return to the app.
+  private func captureOriginalInstall() async {
+    let defaults = InstallGeneration.appGroupDefaults()
+    OriginalInstall.ensure(
+      firstRecordedAt: Date(),
+      appVersion: Self.marketingVersion,
+      defaults: defaults
+    )
+    guard #available(iOS 16.0, macOS 13.0, *) else { return }
+    guard !hasAskedAppleForPurchaseHistoryThisLaunch else { return }
+    guard OriginalInstall.shouldRequestVerifiedValues(defaults) else { return }
+    hasAskedAppleForPurchaseHistoryThisLaunch = true
+    OriginalInstall.countVerifiedAttempt(defaults)
+    guard let result = try? await AppTransaction.shared,
+          case .verified(let transaction) = result
+    else { return }
+    // originalAppVersion means different things on iOS and macOS, so the record is tagged with
+    // which one it holds rather than left for a future reader to guess.
+    OriginalInstall.fillVerifiedValues(
+      applicationVersion: transaction.originalAppVersion,
+      kind: OriginalInstall.applicationVersionKindForThisPlatform,
+      originalPurchaseDate: transaction.originalPurchaseDate,
+      defaults: defaults
+    )
+  }
+
+  /// Still's own marketing version (`CFBundleShortVersionString`), which is the same namespace on
+  /// every Apple platform.
+  private static var marketingVersion: String {
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
   }
 
   private func handleSignIn(reply: @escaping (Any?, String?) -> Void) async {

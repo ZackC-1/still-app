@@ -1,4 +1,4 @@
-import type { ServiceId, SignedRuleSet, StillSettings } from "@still/shared-types";
+import { PAID_TIER_ENABLED, type ServiceId, type SignedRuleSet, type StillSettings } from "@still/shared-types";
 import { resolveService, etldPlusOne, applyRedirectTemplate } from "./match.js";
 
 // The framework-agnostic rule engine. Pure functions over a rule set + settings + a DOM, so the
@@ -257,6 +257,9 @@ function applyPreparedActions(
 
 function surfaceEnabledForTier(s: ServiceRules["surfaces"][number], opts: EngineOptions): boolean {
   if (!s.enabledByDefault) return false;
+  // The paid tier is dormant behind PAID_TIER_ENABLED, so every enabled surface applies for
+  // everyone. The tier data below stays authoritative and is what comes back when the switch does.
+  if (!PAID_TIER_ENABLED) return true;
   // Free surfaces always apply: the rule data's `tier: "free"` is authoritative, and the
   // ALWAYS_FREE_SURFACE_IDS safety-net keeps the free YouTube promise even against a fetched rule
   // set with missing/stale tags (monetization principle 13). Everything else is Pro-gated.

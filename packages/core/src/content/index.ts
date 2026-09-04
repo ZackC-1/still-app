@@ -1,4 +1,4 @@
-import type { SignedRuleSet } from "@still/shared-types";
+import { PAID_TIER_ENABLED, type SignedRuleSet } from "@still/shared-types";
 import {
   evaluate,
   createEnginePageSession,
@@ -100,11 +100,12 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     // we add nothing (off/paused users must not see content hidden-then-revealed).
     if (stopped || !hydrated) return;
     const url = currentUrl();
-    // Fail CLOSED on the monetization gate: with no entitlement source wired we treat the user as
-    // free (Pro surfaces stay visible) rather than granting Pro by default. Both extensions pass an
-    // EntitlementCache; the app-webview path gates Pro via UiController.entitled, not here. A caller
-    // that genuinely wants all surfaces must pass InMemoryEntitlementAdapter(true) explicitly.
-    const pro = deps.entitlement?.current() ?? false;
+    // The paid tier is dormant behind PAID_TIER_ENABLED, so every surface applies for everyone.
+    // The switch is read synchronously, before the cached entitlement, so blocking never waits on
+    // an account, a receipt, or a network answer. Turn the switch on and the original behavior
+    // returns: a missing entitlement source fails CLOSED to free rather than granting Pro, because
+    // the app-webview path gates Pro through UiController.entitled instead of here.
+    const pro = !PAID_TIER_ENABLED || (deps.entitlement?.current() ?? false);
     const opts = { pro };
     const settings = cache.current();
     const decision = pageSession.evaluate(settings, url, opts);

@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import seed from "../../../rules/seed.json";
 import type { SignedRuleSet, StillSettings, ServiceId } from "@still/shared-types";
-import { DEFAULT_SETTINGS, SERVICE_IDS } from "@still/shared-types";
+import { DEFAULT_SETTINGS, PAID_TIER_ENABLED, SERVICE_IDS } from "@still/shared-types";
 import {
   evaluate,
   applyDom,
@@ -14,6 +14,8 @@ import {
   STILL_PLACEHOLDER_LINE,
 } from "../engine.js";
 
+const paidTierIt = it.runIf(PAID_TIER_ENABLED);
+const includedAccessIt = it.runIf(!PAID_TIER_ENABLED);
 const ruleSet = seed as unknown as SignedRuleSet;
 const allOn: StillSettings = DEFAULT_SETTINGS;
 
@@ -160,7 +162,7 @@ describe("evaluate — safety model (AE4)", () => {
     expect(document.querySelector("#n")).toBeNull();
   });
 
-  it("defaults a newly-added unlabeled surface to Pro for free users", () => {
+  paidTierIt("defaults a newly-added unlabeled surface to Pro for free users", () => {
     const extended = JSON.parse(JSON.stringify(ruleSet));
     extended.services.youtube.surfaces.push({
       id: "yt-new-premium",
@@ -178,6 +180,16 @@ describe("evaluate — safety model (AE4)", () => {
 });
 
 describe("evaluate/applyDom — monetization gating", () => {
+  includedAccessIt("applies every enabled service without entitlement while the paid tier is off", () => {
+    expect(PAID_TIER_ENABLED).toBe(false);
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reel/XYZ/"), { pro: false }).kind).toBe("placeholder");
+    expect(evaluate(ruleSet, allOn, new URL("https://www.tiktok.com/foryou"), { pro: false })).toMatchObject({
+      kind: "placeholder",
+      blocked: true,
+    });
+    expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reel/123"), { pro: false }).kind).toBe("placeholder");
+  });
+
   it("keeps every current YouTube Shorts surface free", () => {
     const yt = ruleSet.services.youtube!.surfaces;
     // Containment, not exact set-equality: every always-free safety-net id must exist in the seed
@@ -217,7 +229,7 @@ describe("evaluate/applyDom — monetization gating", () => {
     expect(document.querySelector("#mobile-video")).not.toBeNull();
   });
 
-  it("does not apply Pro services for free users", () => {
+  paidTierIt("does not apply Pro services for free users", () => {
     expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reel/XYZ/"), { pro: false }).kind).toBe("noop");
     expect(evaluate(ruleSet, allOn, new URL("https://www.tiktok.com/foryou"), { pro: false }).kind).toBe("noop");
     expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reel/123"), { pro: false }).kind).toBe("noop");
@@ -232,7 +244,7 @@ describe("evaluate/applyDom — monetization gating", () => {
     expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reel/123"), { pro: true }).kind).toBe("placeholder");
   });
 
-  it("gates every non-free surface on the single pro flag (no second gating axis)", () => {
+  paidTierIt("gates every non-free surface on the single pro flag (no second gating axis)", () => {
     // requiredCapability tags in the seed are reserved authored data — the engine must ignore them
     // and gate purely by tier + pro, so tier and capability data can never silently disagree.
     expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reel/XYZ/"), { pro: false }).kind).toBe("noop");
@@ -370,7 +382,7 @@ describe("applyDom", () => {
     expect(document.querySelectorAll("[role=tablist] > *").length).toBe(3);
   });
 
-  it("leaves every Facebook mobile tab-bar surface intact for a FREE user (monetization gate)", () => {
+  paidTierIt("leaves every Facebook mobile tab-bar surface intact for a FREE user (monetization gate)", () => {
     document.body.innerHTML = `
       <div role="tablist">
         <div id="free-reels-tab" role="tab" aria-label="reels, 4 of 6"><div id="free-reels-icon"></div></div>

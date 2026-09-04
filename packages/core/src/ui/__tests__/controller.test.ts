@@ -1,98 +1,27 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { SettingsCache } from "../../storage/cache.js";
-import { InMemoryStorageAdapter } from "../../storage/adapter.js";
-import {
-  UiController,
-  OTP_TTL_MS,
-  PAYOFF_DURATION_MS,
-  CHECKOUT_POLL_INTERVAL_MS,
-  CHECKOUT_POLL_MAX,
-  CHECKOUT_PENDING_TTL_MS,
-  type AuthPersistence,
-  type CheckoutPending,
-  type CheckoutReconcileOutcome,
-  type UiAuth,
-  type UiCheckout,
-  type UiHost,
-} from "../controller.svelte.js";
+import { OTP_TTL_MS, type UiAuth, type UiController } from "../controller.svelte.js";
 import type {
   RequestCodeOutcome,
   VerifyCodeOutcome,
-  WebCheckoutOutcome,
 } from "../../sync/ports.js";
 import { STRINGS } from "../strings.js";
+import { PAID_TIER_ENABLED } from "@still/shared-types";
+import {
+  makeController,
+  codeAuth,
+  mockPersistence,
+  checkoutSeam,
+} from "./support/controller-fixtures.js";
 
-function makeController(
-  extra: {
-    host?: Partial<UiHost>;
-    auth?: UiAuth;
-    persistence?: AuthPersistence;
-    checkout?: UiCheckout;
-    clock?: () => number;
-  } = {},
-) {
-  const cache = new SettingsCache(new InMemoryStorageAdapter(null), {
-    now: () => Date.now(),
-  });
-  const c = new UiController({
-    cache,
-    host: { canPurchase: true, ...extra.host },
-    auth: extra.auth,
-    persistence: extra.persistence,
-    checkout: extra.checkout,
-    clock: extra.clock,
-  });
-  return { c, cache };
-}
+// The paid tier ships dormant, so the controller refuses to open the paywall and the tests that
+// drive it cannot run here. `paidTierIt` is how those cases are held rather than deleted: they are
+// skipped in this run and come back the moment the switch flips. The purchase machinery they used
+// to share this file with now lives in paid-tier-purchase-flows.test.ts, which mocks the switch on
+// so that coverage keeps running every day. Anything still marked `paidTierIt` below is genuinely
+// dark until the flip.
+const paidTierIt = it.runIf(PAID_TIER_ENABLED);
+const includedAccessIt = it.runIf(!PAID_TIER_ENABLED);
 
-/** An extension-shaped UiAuth: code capability, no magic link (plan U2/R1). */
-function codeAuth(over: Partial<UiAuth> = {}): UiAuth {
-  return {
-    signOut: vi.fn(() => Promise.resolve()),
-    requestCode: vi.fn(() =>
-      Promise.resolve<RequestCodeOutcome>({ kind: "sent" }),
-    ),
-    verifyCode: vi.fn(() =>
-      Promise.resolve<VerifyCodeOutcome>({
-        kind: "verified",
-        userId: "user-1",
-      }),
-    ),
-    ...over,
-  };
-}
-
-function mockPersistence() {
-  return { setPendingOtp: vi.fn(), setPurchaseIntent: vi.fn() };
-}
-
-const CHECKOUT_URL = "https://pay.rev.cat/tok/user-uuid";
-
-/** An in-memory UiCheckout seam (plan U4): `order` records the persist/open sequence so tests can
- * pin persisted-BEFORE-opened (the popup dies the moment the tab takes focus). */
-function checkoutSeam(over: Partial<UiCheckout> = {}) {
-  const order: string[] = [];
-  const seam = {
-    createCheckout: vi.fn(() =>
-      Promise.resolve<WebCheckoutOutcome>({
-        kind: "checkout-url",
-        url: CHECKOUT_URL,
-      }),
-    ),
-    openCheckoutTab: vi.fn((url: string) => {
-      order.push(`open:${url}`);
-      return Promise.resolve<number | undefined>(42);
-    }),
-    setPending: vi.fn((pending: CheckoutPending | null) => {
-      order.push(pending === null ? "clear-pending" : "persist-pending");
-    }),
-    reconcile: vi.fn(() =>
-      Promise.resolve<CheckoutReconcileOutcome>("unknown"),
-    ),
-    ...over,
-  };
-  return { seam, order };
-}
 
 describe("UiController", () => {
   it("toggles a service through the cache", () => {
@@ -109,7 +38,79 @@ describe("UiController", () => {
     expect(spy).toHaveBeenCalledWith(false);
   });
 
-  it("locks Pro services for un-entitled users and unlocks them when entitled", () => {
+  includedAccessIt("keeps all service rows unlocked and refuses the upgrade path while the paid tier is off", () => {
+    expect(PAID_TIER_ENABLED).toBe(false);
+    const { c } = makeController({ auth: codeAuth(), checkout: checkoutSeam().seam });
+    expect(c.isLocked("youtube")).toBe(false);
+    expect(c.isLocked("instagram")).toBe(false);
+    expect(c.isLocked("tiktok")).toBe(false);
+    expect(c.isLocked("facebook")).toBe(false);
+
+    c.startUpgrade();
+    expect(c.paywallOpen).toBe(false);
+    expect(c.signInOpen).toBe(false);
+    expect(c.purchaseIntent).toBe(false);
+  });
+
+  includedAccessIt("still resolves an earlier purchaser's entitlement while the paid tier is off", () => {
+    // Nothing about an existing purchase is revoked, migrated, or cleaned up by the switch: the
+    // receipt lane and the server lane keep answering, so the account states the UI shows for a
+    // buyer are exactly what they were.
+    const { c } = makeController({ auth: codeAuth() });
+    c.receiptEntitled = true;
+    expect(c.entitled).toBe(true);
+    expect(c.popupState).toBe("pro-no-account");
+
+    c.userId = "u";
+    c.entitled = true;
+    expect(c.popupState).toBe("entitled-syncing");
+    expect(c.isLocked("instagram")).toBe(false);
+  });
+
+  includedAccessIt("refuses every route into the paywall while the paid tier is dormant", () => {
+    // Hiding the sheet is not enough. The routes that open it also start the machinery behind it,
+    // so they are refused at the entry point rather than at the render.
+    const { c } = makeController({ auth: codeAuth() });
+    c.openPaywall();
+    expect(c.paywallOpen).toBe(false);
+    c.showPurchaseSuccess();
+    expect(c.paywallOpen).toBe(false);
+    expect(c.successScreen).toBe("none");
+  });
+
+  includedAccessIt("clears a leftover checkout-pending record instead of polling behind a hidden sheet", () => {
+    // The defect this pins: a user who abandoned a checkout on an older build would otherwise
+    // start a repeating entitlement check on every popup open, with no visible way to stop it,
+    // for a purchase that can no longer complete.
+    const { seam } = checkoutSeam();
+    const now = 1_700_000_000_000;
+    const { c } = makeController({ checkout: seam, clock: () => now });
+    c.userId = "u";
+    c.rehydrateCheckoutPending({ startedAt: now });
+    expect(c.checkoutFlow).toBe("none");
+    expect(c.paywallOpen).toBe(false);
+    expect(seam.setPending).toHaveBeenCalledWith(null); // cleared for good, not just this session
+    expect(seam.reconcile).not.toHaveBeenCalled(); // and no network call was made to notice it
+  });
+
+  includedAccessIt("an entitlement rise arms no payoff timer while the paid tier is dormant", () => {
+    vi.useFakeTimers();
+    try {
+      const { seam } = checkoutSeam();
+      const now = 1_700_000_000_000;
+      const { c } = makeController({ checkout: seam, clock: () => now });
+      c.userId = "u";
+      c.rehydrateCheckoutPending({ startedAt: now }); // the old route to an armed payoff
+      c.openPaywall();
+      c.entitled = true;
+      expect(c.justUnlocked).toBe(false);
+      expect(vi.getTimerCount()).toBe(0); // nothing scheduled against UI nobody can see
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  paidTierIt("locks Pro services for un-entitled users and unlocks them when entitled", () => {
     const { c } = makeController();
     expect(c.isLocked("youtube")).toBe(false); // free service is never locked
     expect(c.isLocked("instagram")).toBe(true);
@@ -121,7 +122,7 @@ describe("UiController", () => {
     expect(c.isLocked("facebook")).toBe(false);
   });
 
-  it("locked tap routes signed-out WEB-checkout users to sign-in first (delivery identity)", () => {
+  paidTierIt("locked tap routes signed-out WEB-checkout users to sign-in first (delivery identity)", () => {
     // Sign-in-first survives ONLY on web-checkout hosts, where the account is how the entitlement
     // reaches the extension. Native-purchase hosts go straight to the paywall (purchase-first,
     // Guideline 5.1.1(v)) — pinned separately below.
@@ -137,7 +138,7 @@ describe("UiController", () => {
     expect(c.paywallOpen).toBe(false);
   });
 
-  it("locked tap opens the paywall directly on native-purchase hosts, signed out (R1)", () => {
+  paidTierIt("locked tap opens the paywall directly on native-purchase hosts, signed out (R1)", () => {
     // The Apple shape: canPurchase with NO checkout seam. Purchase requires no account.
     const { c } = makeController({ auth: codeAuth() });
     c.lockedTap();
@@ -146,7 +147,7 @@ describe("UiController", () => {
     expect(c.purchaseIntent).toBe(false);
   });
 
-  it("locked tap opens the paywall for signed-in users", () => {
+  paidTierIt("locked tap opens the paywall for signed-in users", () => {
     const { c } = makeController({
       auth: {
         signIn: vi.fn(() => Promise.resolve({})),
@@ -159,14 +160,14 @@ describe("UiController", () => {
     expect(c.signInOpen).toBe(false);
   });
 
-  it("locked tap opens the (explanatory) paywall on hosts without a purchase path", () => {
+  paidTierIt("locked tap opens the (explanatory) paywall on hosts without a purchase path", () => {
     const { c } = makeController({ host: { canPurchase: false } }); // extension shape: no auth either
     c.lockedTap();
     expect(c.paywallOpen).toBe(true);
     expect(c.signInOpen).toBe(false);
   });
 
-  it("signed-out upgrade records purchase intent and opens sign-in (web-checkout host)", () => {
+  paidTierIt("signed-out upgrade records purchase intent and opens sign-in (web-checkout host)", () => {
     const persistence = mockPersistence();
     const { c } = makeController({ auth: codeAuth(), persistence, checkout: checkoutSeam().seam });
     c.startUpgrade();
@@ -176,7 +177,7 @@ describe("UiController", () => {
     expect(c.paywallOpen).toBe(false);
   });
 
-  it("signed-in upgrade opens the paywall directly", () => {
+  paidTierIt("signed-in upgrade opens the paywall directly", () => {
     const { c } = makeController({ auth: codeAuth() });
     c.userId = "u";
     c.startUpgrade();
@@ -198,7 +199,7 @@ describe("UiController", () => {
     expect(persistence.setPurchaseIntent).not.toHaveBeenCalled();
   });
 
-  it("upgrade continuation skips the buy sheet when sign-in already unlocked Pro", async () => {
+  paidTierIt("upgrade continuation skips the buy sheet when sign-in already unlocked Pro", async () => {
     // A signed-out but already-Pro account taps Upgrade → sign-in. On the Apple host the awaited
     // verifyCode reconciles entitlement before returning, so the purchase-intent continuation
     // must not open a paywall the user has nothing to buy from.
@@ -408,17 +409,6 @@ describe("UiController", () => {
     expect(c.purchaseFlow).toBe("restored-none");
     c.beginRestore();
     c.setRestoreOutcome(true);
-    expect(c.purchaseFlow).toBe("idle");
-  });
-
-  it("opening / dismissing the paywall resets the purchase flow", () => {
-    const { c } = makeController();
-    c.setPurchaseOutcome({ outcome: "failed", entitled: false, error: "x" });
-    c.openPaywall();
-    expect(c.purchaseFlow).toBe("idle");
-    expect(c.purchaseError).toBeNull();
-    c.setPurchaseOutcome({ outcome: "cancelled", entitled: false });
-    c.dismissPaywall();
     expect(c.purchaseFlow).toBe("idle");
   });
 
@@ -656,7 +646,7 @@ describe("UiController", () => {
     expect(signIn).toHaveBeenCalledWith("a@b.com");
   });
 
-  it("locked-row-tap sign-in continues to the paywall after verify (purchase intent, AE1)", async () => {
+  paidTierIt("locked-row-tap sign-in continues to the paywall after verify (purchase intent, AE1)", async () => {
     const persistence = mockPersistence();
     const { c } = makeController({ auth: codeAuth(), persistence, checkout: checkoutSeam().seam });
     c.lockedTap(); // signed out on a purchasable host → sign-in first, intent recorded
@@ -672,7 +662,7 @@ describe("UiController", () => {
     expect(persistence.setPurchaseIntent).toHaveBeenLastCalledWith(false);
   });
 
-  it("'Not now' mid-code-entry clears the pending OTP and the purchase intent", async () => {
+  paidTierIt("'Not now' mid-code-entry clears the pending OTP and the purchase intent", async () => {
     const persistence = mockPersistence();
     const { c } = makeController({ auth: codeAuth(), persistence, checkout: checkoutSeam().seam });
     c.lockedTap();
@@ -686,7 +676,7 @@ describe("UiController", () => {
     expect(c.purchaseIntent).toBe(false);
   });
 
-  it("'use a different email' returns to the email field but keeps the purchase intent", async () => {
+  paidTierIt("'use a different email' returns to the email field but keeps the purchase intent", async () => {
     const persistence = mockPersistence();
     const { c } = makeController({ auth: codeAuth(), persistence, checkout: checkoutSeam().seam });
     c.lockedTap();
@@ -698,29 +688,6 @@ describe("UiController", () => {
     expect(c.purchaseIntent).toBe(true); // still mid-unlock — only "Not now" abandons it
   });
 
-  it("createAccountFromSuccess hands the success screen off to the sign-in sheet", () => {
-    const { c } = makeController({ auth: codeAuth() });
-    c.receiptEntitled = true; // the account-pitch state: receipt Pro, no session
-    c.showPurchaseSuccess();
-    expect(c.successScreen).toBe("account-pitch");
-    c.createAccountFromSuccess();
-    expect(c.successScreen).toBe("none");
-    expect(c.paywallOpen).toBe(false);
-    expect(c.signInOpen).toBe(true);
-    expect(c.purchaseIntent).toBe(false); // they already own Pro — no purchase continuation
-  });
-
-  it("a rise resolving a PENDING purchase routes to the success screen, never the payoff", () => {
-    const { c } = makeController({ auth: codeAuth() });
-    c.userId = "u1";
-    c.openPaywall();
-    c.setPurchaseOutcome({ outcome: "pending", entitled: false });
-    c.entitled = true; // the approval lands via the server lane first (race pin)
-    expect(c.successScreen).toBe("synced");
-    expect(c.justUnlocked).toBe(false);
-    expect(c.paywallOpen).toBe(true);
-  });
-
   it("the opening-checkout hand-off counts as busy (duplicate-tap guard, U3→U4 hook)", () => {
     const { c } = makeController();
     c.purchaseFlow = "opening-checkout";
@@ -729,421 +696,6 @@ describe("UiController", () => {
   });
 });
 
-// ── success payoff (plan U3/R6): one transition rule drives every host ──────────────────────────
-
-describe("UiController — success payoff (plan U3/R6)", () => {
-  it("entitled false→true with the paywall open shows the payoff inside the still-open sheet", () => {
-    // AMENDED (purchase-first): the payoff remains the NON-purchase transition (e.g. a web-bought
-    // account's entitlement landing while the paywall is open). A rise that resolves a PENDING
-    // purchase routes to the success screen instead — pinned separately below.
-    const { c } = makeController();
-    c.userId = "u";
-    c.openPaywall();
-    c.entitled = true; // the entitlement store write landed (storage subscription / sync state)
-    expect(c.justUnlocked).toBe(true);
-    expect(c.paywallOpen).toBe(true); // payoff renders in place; controller dismisses later
-    expect(c.purchaseFlow).toBe("idle"); // the payoff supersedes any outcome copy
-    c.dismissPaywall(); // clear the payoff timer
-  });
-
-  it("entitled false→true with the paywall closed unlocks quietly — no payoff", () => {
-    const { c } = makeController();
-    c.entitled = true;
-    expect(c.justUnlocked).toBe(false);
-    expect(c.paywallOpen).toBe(false); // a quiet background unlock never pops a sheet
-  });
-
-  it("ordering pin: the payoff never renders while entitled is false", () => {
-    const { c } = makeController();
-    c.openPaywall();
-    expect(c.justUnlocked).toBe(false); // nothing before the entitlement write lands
-    c.entitled = true;
-    expect(c.justUnlocked).toBe(true);
-    c.entitled = false; // revocation / teardown mid-payoff
-    expect(c.justUnlocked).toBe(false); // cleared immediately — never against a false entitlement
-    c.dismissPaywall();
-  });
-
-  it("auto-dismisses the paywall after ~2.5s", () => {
-    vi.useFakeTimers();
-    try {
-      const { c } = makeController();
-      c.openPaywall();
-      c.entitled = true;
-      vi.advanceTimersByTime(PAYOFF_DURATION_MS - 1);
-      expect(c.justUnlocked).toBe(true); // still celebrating
-      expect(c.paywallOpen).toBe(true);
-      vi.advanceTimersByTime(1);
-      expect(c.justUnlocked).toBe(false);
-      expect(c.paywallOpen).toBe(false);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("dismisses early on tap/Escape, and the cleared timer never fires into a later paywall", () => {
-    vi.useFakeTimers();
-    try {
-      const { c } = makeController();
-      c.openPaywall();
-      c.entitled = true;
-      c.dismissPaywall(); // the sheet routes tap-on-payoff and Escape here
-      expect(c.justUnlocked).toBe(false);
-      expect(c.paywallOpen).toBe(false);
-      c.openPaywall(); // a later, unrelated paywall session
-      vi.advanceTimersByTime(PAYOFF_DURATION_MS * 2);
-      expect(c.paywallOpen).toBe(true); // the stale auto-dismiss was cancelled with the payoff
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("a repeated entitled=true (no false→true edge) never re-triggers the payoff", () => {
-    const { c } = makeController();
-    c.openPaywall();
-    c.entitled = true;
-    c.dismissPaywall();
-    c.openPaywall();
-    c.entitled = true; // same value again (e.g. another sync-state projection)
-    expect(c.justUnlocked).toBe(false);
-    c.dismissPaywall();
-  });
-
-  it("locked rows become live toggles the moment the transition lands, previously-on services on", () => {
-    const { c } = makeController();
-    c.openPaywall();
-    expect(c.isLocked("instagram")).toBe(true);
-    c.entitled = true;
-    expect(c.isLocked("instagram")).toBe(false);
-    expect(c.isLocked("tiktok")).toBe(false);
-    expect(c.isLocked("facebook")).toBe(false);
-    // Entitlement never mutated the settings themselves — the default-on services light up as-is.
-    expect(c.settings.services.instagram).toBe(true);
-    expect(c.settings.services.tiktok).toBe(true);
-    expect(c.settings.services.facebook).toBe(true);
-    c.dismissPaywall();
-  });
-
-  it("sign-out mid-payoff clears it with the rest of the session state", async () => {
-    const { c } = makeController({ auth: codeAuth() });
-    c.userId = "u";
-    c.openPaywall();
-    c.entitled = true;
-    expect(c.justUnlocked).toBe(true);
-    await c.signOut();
-    expect(c.justUnlocked).toBe(false);
-    expect(c.paywallOpen).toBe(false);
-  });
-});
-
-// ── web checkout flow (plan U4/R3/R5) ─────────────────────────────────────────────────────────────
-
-describe("UiController — web checkout flow (plan U4/R3/R5)", () => {
-  it("canWebCheckout requires both a purchasable host and the injected seam (Safari stays free of it)", () => {
-    expect(makeController().c.canWebCheckout).toBe(false); // no seam (default shared wiring)
-    const { seam } = checkoutSeam();
-    expect(makeController({ checkout: seam }).c.canWebCheckout).toBe(true);
-    // A host without a purchase path never web-checkouts even if a seam were wired (R10 pin).
-    expect(
-      makeController({ checkout: seam, host: { canPurchase: false } }).c
-        .canWebCheckout,
-    ).toBe(false);
-  });
-
-  it("checkout-url: pending is persisted BEFORE the tab opens; the flow shows opening-checkout (R3)", async () => {
-    const t = 500_000;
-    const { seam, order } = checkoutSeam();
-    const { c } = makeController({ checkout: seam, clock: () => t });
-    c.userId = "u";
-    c.openPaywall();
-    const inFlight = c.startWebCheckout();
-    expect(c.purchaseFlow).toBe("opening-checkout"); // the hand-off copy, not Apple's "purchasing"
-    await inFlight;
-    // The ordering pin: a flag persisted after tabs.create would die with the popup.
-    expect(order.slice(0, 2)).toEqual([
-      "persist-pending",
-      `open:${CHECKOUT_URL}`,
-    ]);
-    expect(seam.setPending).toHaveBeenNthCalledWith(1, { startedAt: t });
-    // Best-effort tabId enrichment once the opener resolves (popups usually die before this).
-    expect(seam.setPending).toHaveBeenLastCalledWith({
-      startedAt: t,
-      tabId: 42,
-    });
-    // A surviving context (options page) rests in quiet-pending — poll windows start on reopen.
-    expect(c.purchaseFlow).toBe("idle");
-    expect(c.checkoutFlow).toBe("quiet-pending");
-  });
-
-  it("409 already-entitled → reconcile invoked → payoff after the entitled write; never an error (R5/AE4)", async () => {
-    const reconcile = vi.fn(() =>
-      Promise.resolve<CheckoutReconcileOutcome>("entitled"),
-    );
-    const { seam } = checkoutSeam({
-      createCheckout: vi.fn(() =>
-        Promise.resolve<WebCheckoutOutcome>({ kind: "already-entitled" }),
-      ),
-      reconcile,
-    });
-    const { c } = makeController({ checkout: seam });
-    c.userId = "u";
-    c.openPaywall();
-    await c.startWebCheckout();
-    expect(reconcile).toHaveBeenCalledOnce();
-    expect(c.purchaseFlow).not.toBe("failed"); // R5: the restore case is never an error state
-    expect(c.purchaseError).toBeNull();
-    // The reconcile's cache write lands → the entitlement subscription flips the controller:
-    c.entitled = true;
-    expect(c.justUnlocked).toBe(true); // payoff fires only after the write landed (R6 ordering)
-    expect(c.purchaseFlow).toBe("idle");
-    c.dismissPaywall();
-  });
-
-  it("unavailable → calm failure copy with the CTA re-enabled; nothing persisted (R3)", async () => {
-    const { seam } = checkoutSeam({
-      createCheckout: vi.fn(() =>
-        Promise.resolve<WebCheckoutOutcome>({ kind: "unavailable" }),
-      ),
-    });
-    const { c } = makeController({ checkout: seam });
-    c.userId = "u";
-    c.openPaywall();
-    await c.startWebCheckout();
-    expect(c.purchaseFlow).toBe("unavailable"); // STRINGS.paywall.unavailable renders in the sheet
-    expect(c.purchaseBusy).toBe(false); // re-enabled — the user can retry
-    expect(seam.setPending).not.toHaveBeenCalled(); // no tab, no phantom pending flag
-    expect(c.checkoutFlow).toBe("none");
-  });
-
-  it("pending rehydration → checking → poll capped at 10 → quiet-pending; reopening starts a fresh window", async () => {
-    vi.useFakeTimers();
-    try {
-      const t = 1_000_000;
-      const reconcile = vi.fn(() =>
-        Promise.resolve<CheckoutReconcileOutcome>("unknown"),
-      );
-      const { seam } = checkoutSeam({ reconcile });
-      const { c } = makeController({ checkout: seam, clock: () => t });
-      c.rehydrateCheckoutPending({ startedAt: t - 60_000 });
-      expect(c.checkoutFlow).toBe("checking");
-      expect(c.paywallOpen).toBe(true); // the pending presentation is a paywall surface (U3 rule)
-      expect(reconcile).toHaveBeenCalledTimes(1); // the window checks immediately on rehydration
-      await vi.advanceTimersByTimeAsync(
-        CHECKOUT_POLL_INTERVAL_MS * (CHECKOUT_POLL_MAX - 1),
-      );
-      expect(reconcile).toHaveBeenCalledTimes(CHECKOUT_POLL_MAX);
-      expect(c.checkoutFlow).toBe("quiet-pending"); // window exhausted → the calm resting copy
-      await vi.advanceTimersByTimeAsync(CHECKOUT_POLL_INTERVAL_MS * 5);
-      expect(reconcile).toHaveBeenCalledTimes(CHECKOUT_POLL_MAX); // capped — every poll costs an RC query
-      // Reopening the popup rehydrates again → a fresh window (the reopen IS the retry gesture).
-      c.rehydrateCheckoutPending({ startedAt: t - 60_000 });
-      expect(c.checkoutFlow).toBe("checking");
-      expect(reconcile).toHaveBeenCalledTimes(CHECKOUT_POLL_MAX + 1);
-      c.abandonCheckout(); // stop the fresh window's timer before leaving fake timers
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("pending older than 24h rehydrates as find-my-purchase — no polling, no infinite checking", () => {
-    const t = 10_000_000_000;
-    const { seam } = checkoutSeam();
-    const { c } = makeController({ checkout: seam, clock: () => t });
-    c.rehydrateCheckoutPending({ startedAt: t - CHECKOUT_PENDING_TTL_MS - 1 });
-    expect(c.checkoutFlow).toBe("stale-pending");
-    expect(c.paywallOpen).toBe(true);
-    expect(seam.reconcile).not.toHaveBeenCalled();
-  });
-
-  it("garbage or missing startedAt reads as expired-pending — never NaN-comparison limbo", () => {
-    const { seam } = checkoutSeam();
-    for (const startedAt of [
-      Number.NaN,
-      Number.POSITIVE_INFINITY,
-      undefined,
-      "yesterday",
-    ]) {
-      const { c } = makeController({ checkout: seam, clock: () => 5_000 });
-      c.rehydrateCheckoutPending({
-        startedAt: startedAt as number | undefined,
-      });
-      expect(c.checkoutFlow, String(startedAt)).toBe("stale-pending");
-      expect(seam.reconcile).not.toHaveBeenCalled();
-    }
-  });
-
-  it("already entitled on rehydration (the background nudge won, AE3) → the moot flag is cleared quietly", () => {
-    const { seam } = checkoutSeam();
-    const { c } = makeController({ checkout: seam });
-    c.entitled = true;
-    c.rehydrateCheckoutPending({ startedAt: 1 });
-    expect(seam.setPending).toHaveBeenLastCalledWith(null);
-    expect(c.checkoutFlow).toBe("none");
-    expect(c.paywallOpen).toBe(false); // quiet — no sheet pops for an already-done purchase
-  });
-
-  it("reconcile flipping entitled during polling → pending cleared, polling stopped, payoff exactly once", async () => {
-    vi.useFakeTimers();
-    try {
-      const t = 1_000_000;
-      const reconcile = vi.fn(() =>
-        Promise.resolve<CheckoutReconcileOutcome>("unknown"),
-      );
-      const { seam } = checkoutSeam({ reconcile });
-      const { c } = makeController({ checkout: seam, clock: () => t });
-      c.rehydrateCheckoutPending({ startedAt: t - 5_000 });
-      expect(c.checkoutFlow).toBe("checking");
-      // The background reconcile wrote the cache; the entitlement subscription flips the controller:
-      c.entitled = true;
-      expect(c.justUnlocked).toBe(true); // the checking state counts as payoff-eligible (U3/U4)
-      expect(c.paywallOpen).toBe(true);
-      expect(seam.setPending).toHaveBeenLastCalledWith(null); // pending flag cleared on the flip
-      expect(c.checkoutFlow).toBe("none");
-      const polls = reconcile.mock.calls.length;
-      await vi.advanceTimersByTimeAsync(CHECKOUT_POLL_INTERVAL_MS * 3);
-      expect(reconcile.mock.calls.length).toBe(polls); // the poll window died with the pending flag
-      // Exactly once: after the payoff runs its course, repeated entitled=true never re-fires it.
-      vi.advanceTimersByTime(PAYOFF_DURATION_MS);
-      expect(c.justUnlocked).toBe(false);
-      c.entitled = true;
-      expect(c.justUnlocked).toBe(false);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("start-over clears pending immediately; a new checkout while pending REPLACES the flag (no 24h trap)", async () => {
-    vi.useFakeTimers();
-    try {
-      const t = 2_000_000;
-      const { seam } = checkoutSeam();
-      const { c } = makeController({ checkout: seam, clock: () => t });
-      c.rehydrateCheckoutPending({ startedAt: t - 10_000 });
-      expect(c.checkoutFlow).toBe("checking");
-      c.abandonCheckout(); // "I didn't finish checkout — start over"
-      expect(seam.setPending).toHaveBeenLastCalledWith(null);
-      expect(c.checkoutFlow).toBe("none");
-      expect(c.purchaseFlow).toBe("idle"); // CTA usable right away
-      // Re-invoking checkout while an (older) pending flag exists replaces it with a fresh stamp —
-      // the server 409 stays the double-entitlement guard.
-      c.rehydrateCheckoutPending({ startedAt: t - 10_000 });
-      await c.startWebCheckout();
-      expect(seam.setPending).toHaveBeenLastCalledWith({
-        startedAt: t,
-        tabId: 42,
-      });
-      expect(c.checkoutFlow).toBe("quiet-pending");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("auth-required from createCheckout → re-sign-in affordance; pending and cache untouched", async () => {
-    const persistence = mockPersistence();
-    const { seam } = checkoutSeam({
-      createCheckout: vi.fn(() =>
-        Promise.resolve<WebCheckoutOutcome>({ kind: "auth-required" }),
-      ),
-    });
-    const { c } = makeController({
-      checkout: seam,
-      auth: codeAuth(),
-      persistence,
-    });
-    c.userId = "u";
-    c.openPaywall();
-    await c.startWebCheckout();
-    expect(c.checkoutFlow).toBe("auth-required");
-    expect(c.purchaseBusy).toBe(false);
-    expect(seam.setPending).not.toHaveBeenCalled(); // nothing cleared, nothing written
-    expect(c.entitled).toBe(false); // never a downgrade write from an involuntary session death
-    // The affordance: re-sign-in continues the flow instead of dead-ending.
-    c.reSignInFromCheckout();
-    expect(c.userId).toBeNull(); // the dead session is mirrored locally — WITHOUT teardown
-    expect(c.signInOpen).toBe(true);
-    expect(c.purchaseIntent).toBe(true); // sign-in success reopens the paywall (U2 continuation)
-    c.dismissSignIn();
-  });
-
-  it("auth-required during polling → re-sign-in preserves pending; verify resumes the window", async () => {
-    vi.useFakeTimers();
-    try {
-      const t = 3_000_000;
-      const persistence = mockPersistence();
-      const reconcile = vi
-        .fn<() => Promise<CheckoutReconcileOutcome>>()
-        .mockResolvedValueOnce("auth-required")
-        .mockResolvedValue("unknown");
-      const { seam } = checkoutSeam({ reconcile });
-      const { c } = makeController({
-        checkout: seam,
-        auth: codeAuth(),
-        persistence,
-        clock: () => t,
-      });
-      c.userId = "u";
-      c.rehydrateCheckoutPending({ startedAt: t - 5_000 });
-      await vi.advanceTimersByTimeAsync(0); // flush the first poll's outcome
-      expect(c.checkoutFlow).toBe("auth-required");
-      expect(seam.setPending).not.toHaveBeenCalledWith(null); // pending preserved (KTD)
-      expect(c.entitled).toBe(false); // cache untouched — rides out its TTL
-      await vi.advanceTimersByTimeAsync(CHECKOUT_POLL_INTERVAL_MS * 3);
-      expect(reconcile).toHaveBeenCalledTimes(1); // polls stopped — they'd only re-hit the 401
-      // Re-sign-in → the pending presentation resumes with a fresh poll window.
-      c.reSignInFromCheckout();
-      await c.signIn("a@b.com");
-      await c.verifyCode("123456");
-      expect(c.userId).toBe("user-1");
-      expect(c.paywallOpen).toBe(true);
-      expect(c.checkoutFlow).toBe("checking");
-      expect(reconcile).toHaveBeenCalledTimes(2);
-      c.abandonCheckout(); // stop the window before leaving fake timers
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it("signed-out purchase tap still routes sign-in → paywall with the checkout seam present (AE1)", async () => {
-    const persistence = mockPersistence();
-    const { seam } = checkoutSeam();
-    const { c } = makeController({
-      checkout: seam,
-      auth: codeAuth(),
-      persistence,
-    });
-    c.lockedTap(); // signed out on a purchasable host → sign-in first, intent recorded
-    expect(c.signInOpen).toBe(true);
-    expect(c.paywallOpen).toBe(false);
-    await c.signIn("a@b.com");
-    await c.verifyCode("123456");
-    expect(c.paywallOpen).toBe(true); // continues to the paywall — no dead-end at the popup root
-    expect(c.purchaseFlow).toBe("idle"); // one confirming tap before money moves
-    expect(seam.createCheckout).not.toHaveBeenCalled(); // never auto-invokes checkout
-    expect(c.checkoutFlow).toBe("none"); // no pending → no phantom checking state
-    c.dismissPaywall();
-  });
-
-  it("voluntary sign-out ends the checkout-pending lifecycle (unlike auth-required)", async () => {
-    vi.useFakeTimers();
-    try {
-      const t = 4_000_000;
-      const { seam } = checkoutSeam();
-      const { c } = makeController({
-        checkout: seam,
-        auth: codeAuth(),
-        clock: () => t,
-      });
-      c.userId = "u";
-      c.rehydrateCheckoutPending({ startedAt: t - 1_000 });
-      expect(c.checkoutFlow).toBe("checking");
-      await c.signOut();
-      expect(seam.setPending).toHaveBeenLastCalledWith(null); // R8 teardown clears the flag
-      expect(c.checkoutFlow).toBe("none");
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-});
 
 describe("code-flow copy (plan U2/R1)", () => {
   it("never says 'link' anywhere in the code path strings", () => {
