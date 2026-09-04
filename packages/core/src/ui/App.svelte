@@ -40,12 +40,14 @@
     <div class="hero-text">
       <h1>{c.settings.globalOn ? STRINGS.global.on : STRINGS.global.off}</h1>
       <p>
-        <!-- The free line claims "Shorts are removed", which is only true while the YouTube row —
-             the free tier's one service — is itself on; row-off gets the truthful sibling line.
-             Pro needs no gate: "on enabled sites" already hedges per-service state. -->
+        <!-- With every service included there is one line for everyone: "on enabled sites" already
+             hedges per-service state. The two paid-era alternatives below it were written for a
+             free tier that removed YouTube Shorts only, where the hero had to say what the rest
+             cost and had to stop claiming removal when the one included row was itself off. They
+             return with the switch. -->
         {c.settings.globalOn
-          ? c.entitled
-            ? STRINGS.global.onPro
+          ? !PAID_TIER_ENABLED || c.entitled
+            ? STRINGS.global.onSecondary
             : c.settings.services.youtube
               ? STRINGS.global.onFree
               : STRINGS.global.onFreeYoutubeOff
@@ -138,6 +140,11 @@
        correctly for a free user: with no purchase to offer, sign-in becomes the primary button.
        The branches themselves are preserved, not deleted. -->
   <section class="sync card" data-state={c.popupState}>
+    {#if !PAID_TIER_ENABLED}
+      <!-- Naming the section is what keeps the invitation calm: someone reading it can see that
+           this card is about settings following them between devices, and about nothing else. -->
+      <h2 class="sync-title">{STRINGS.sync.sectionTitle}</h2>
+    {/if}
     {#if c.popupState === "signed-out"}
       {#if c.canSignIn}
         {#if PAID_TIER_ENABLED && c.host.canPurchase}
@@ -148,14 +155,20 @@
             {STRINGS.auth.signInCta}
           </button>
         {:else}
+          <p class="muted">{STRINGS.sync.signedOut}</p>
           <button class="primary block" onclick={() => c.openSignIn()}>
             {STRINGS.auth.signInCta}
           </button>
         {/if}
-      {:else}
+      {:else if PAID_TIER_ENABLED}
         <!-- No auth path on this host (the browser extensions, until U10): a sign-in CTA here
              would silently do nothing, so show the quiet explanatory note instead. -->
         <p class="muted">{STRINGS.paywall.nonApple}</p>
+      {:else}
+        <!-- The Safari extension popup, which has no sign-in path of its own and, under App Store
+             Review Guideline 4.4, carries no invitation to create an account either. It states the
+             plain fact; the host app is where signing in is offered. -->
+        <p class="muted">{STRINGS.sync.deviceOnly}</p>
       {/if}
       <a
         class="link center"
@@ -355,6 +368,13 @@
   .card {
     background: var(--surface-raised);
     border-radius: var(--radius-card);
+  }
+  .sync-title {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: var(--ink-secondary);
   }
   .sync {
     display: flex;

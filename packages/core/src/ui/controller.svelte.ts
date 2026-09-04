@@ -445,18 +445,31 @@ export class UiController {
     }
   }
 
+  /**
+   * Which sync card to draw.
+   *
+   * Three of these states exist only to describe what an entitlement did or did not grant, so
+   * while the paid tier is dormant behind PAID_TIER_ENABLED they are unreachable and the card
+   * turns on one fact: whether there is an account. Someone signed out is signed out whether or
+   * not their device carries an old purchase; someone signed in is syncing whether or not they
+   * ever bought anything. The three branches are preserved, not deleted, and each one's condition
+   * returns with the switch.
+   */
   get popupState(): PopupState {
     if (this.userId && !this.cloudReachable) return "cloud-unreachable";
     // Receipt-entitled with no session (purchase-first): Pro is ACTIVE — the home screen must not
     // render a buy CTA that startUpgrade() would silently no-op on. Sign-in stays visible (R3/R9).
-    if (!this.userId) return this.entitled ? "pro-no-account" : "signed-out";
+    if (!this.userId) {
+      return PAID_TIER_ENABLED && this.entitled ? "pro-no-account" : "signed-out";
+    }
     if (this.reconciling) return "entitlement-pending";
-    if (!this.entitled) return "not-entitled";
+    if (PAID_TIER_ENABLED && !this.entitled) return "not-entitled";
     // Sync-flavored state keys off the SERVER lane: a signed-in user whose Pro is receipt-only
     // (family-shared receipt is attach-ineligible; or the attach/webhook hasn't landed) is NOT
-    // synced — claiming "Synced across supported devices" would be false, possibly permanently
-    // (Codex review pin). Device Pro still unlocks the rows via the merged `entitled`.
-    if (!this.serverEntitled) return "pro-device-only";
+    // synced, because claiming a sync that will never happen would be false, possibly permanently
+    // (Codex review pin). Device Pro still unlocks the rows via the merged `entitled`. With the
+    // paid tier dormant this cannot arise: settings sync follows the account, not the receipt.
+    if (PAID_TIER_ENABLED && !this.serverEntitled) return "pro-device-only";
     return "entitled-syncing";
   }
 

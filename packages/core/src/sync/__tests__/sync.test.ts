@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { StillSettings } from "@still/shared-types";
-import { DEFAULT_SETTINGS } from "@still/shared-types";
+import { DEFAULT_SETTINGS, PAID_TIER_ENABLED } from "@still/shared-types";
 import { SettingsCache } from "../../storage/cache.js";
 import { InMemoryStorageAdapter, type SettingsSyncMetadata } from "../../storage/adapter.js";
 import { SyncService, type LastSyncedIdentityStore, type SyncState } from "../service.js";
@@ -72,6 +72,11 @@ function deferredBackend(cloud: SyncedSettingsEnvelope) {
   };
 }
 const drain = () => new Promise<void>((r) => setTimeout(r, 0));
+
+/** Cases that describe the shipped tier, where having an account is the whole sync gate. The
+ * counterparts for a build with the paid tier switched back on live in paid-tier-sync-gate.test.ts,
+ * which mocks the switch rather than skipping. */
+const includedAccessIt = it.runIf(!PAID_TIER_ENABLED);
 
 const USER = "11111111-1111-1111-1111-111111111111";
 const OTHER_USER = "22222222-2222-2222-2222-222222222222";
@@ -300,7 +305,7 @@ describe("SyncService", () => {
     expect(d.unsubscribed()).toBe(true);
   });
 
-  it("having an account is the whole sync gate: a signed-in user who owns nothing syncs", async () => {
+  includedAccessIt("having an account is the whole sync gate: a signed-in user who owns nothing syncs", async () => {
     const cache = makeCache();
     const { backend, writes } = mockBackend({ entitled: false });
     const svc = new SyncService(cache, mockAuth().auth, backend);
@@ -312,7 +317,7 @@ describe("SyncService", () => {
     expect(svc.getState().entitled).toBe(false);
   });
 
-  it("settings sync does not wait on the entitlement round trip, and survives its failure", async () => {
+  includedAccessIt("settings sync does not wait on the entitlement round trip, and survives its failure", async () => {
     const cache = makeCache();
     const { backend, writes, calls } = mockBackend({ entitled: true, reconcileThrows: true });
     const svc = new SyncService(cache, mockAuth().auth, backend);
@@ -325,21 +330,21 @@ describe("SyncService", () => {
     expect(writes.length).toBeGreaterThan(0);
   });
 
-  it("a failing entitlement check does not claim the settings cloud is unreachable", async () => {
+  includedAccessIt("a failing entitlement check does not claim the settings cloud is unreachable", async () => {
     const { backend } = mockBackend({ entitled: true, reconcileThrows: true });
     const svc = new SyncService(makeCache(), mockAuth().auth, backend);
     await svc.onSignedIn(USER);
     expect(svc.getState().cloudReachable).toBe(true);
   });
 
-  it("a failing cloud read DOES mark the cloud unreachable", async () => {
+  includedAccessIt("a failing cloud read DOES mark the cloud unreachable", async () => {
     const { backend } = mockBackend({ entitled: true, readProfileThrows: true });
     const svc = new SyncService(makeCache(), mockAuth().auth, backend);
     await svc.onSignedIn(USER);
     expect(svc.getState().cloudReachable).toBe(false);
   });
 
-  it("unknown entitlement read preserves prior entitlement and leaves it unconfirmed", async () => {
+  includedAccessIt("unknown entitlement read preserves prior entitlement and leaves it unconfirmed", async () => {
     const cache = makeCache();
     const backend = mockBackend({ entitled: true });
     const svc = new SyncService(cache, mockAuth().auth, backend.backend);
@@ -387,7 +392,7 @@ describe("SyncService", () => {
     expect(svc.getState().confirmed).toBe(false);
   });
 
-  it("failed reconcile on an account switch does not inherit the prior user's entitlement", async () => {
+  includedAccessIt("failed reconcile on an account switch does not inherit the prior user's entitlement", async () => {
     const cache = makeCache();
     const backend = mockBackend({ entitled: true });
     const svc = new SyncService(cache, mockAuth().auth, backend.backend);
@@ -539,7 +544,7 @@ describe("SyncService", () => {
     expect(writes.length).toBe(0); // AE5: B's cloud profile never written from A's local settings
   });
 
-  it("records the identity whenever a sync actually starts, entitlement or not", async () => {
+  includedAccessIt("records the identity whenever a sync actually starts, entitlement or not", async () => {
     // The record is what lets the NEXT sign-in on this device recognise a different person, so it
     // has to be written for every account that syncs here, not only for one that owns something.
     const free = identityStore(null);
@@ -566,7 +571,7 @@ describe("SyncService", () => {
     expect(writes.length).toBe(1); // so there is nothing to publish and nothing to adopt
   });
 
-  it("a sign-in whose cloud read fails does not record the identity (no sync ever started)", async () => {
+  includedAccessIt("a sign-in whose cloud read fails does not record the identity (no sync ever started)", async () => {
     const { store, sets } = identityStore(null);
     const { backend } = mockBackend({ entitled: true, readProfileThrows: true });
     const svc = new SyncService(makeCache(), mockAuth().auth, backend, undefined, store);
@@ -588,7 +593,8 @@ describe("SyncService", () => {
     deviceNow = DEVICE_NOW,
   ) {
     const cache = makeCache(local ?? undefined);
-    const backend = mockBackend({ entitled: false, cloud });
+    // Entitled, so these cases exercise the merge rule itself in either era rather than the gate.
+    const backend = mockBackend({ entitled: true, cloud });
     const svc = new SyncService(
       cache,
       mockAuth().auth,
@@ -696,7 +702,7 @@ describe("SyncService", () => {
     const cloud = envelopeStampedAt(settings({ globalOn: false, updatedAt: 7 }), SERVER_MS);
     const cache = makeCache(settings({ globalOn: true, updatedAt: SERVER_MS + 1_000 }));
     await cache.hydrate();
-    const backend = mockBackend({ entitled: false, cloud });
+    const backend = mockBackend({ entitled: true, cloud });
     const svc = new SyncService(
       cache,
       mockAuth().auth,
@@ -1373,7 +1379,7 @@ describe("SyncService", () => {
 
   // ── onEntitlementConfirmed: mirror-on-unlock without a second reconcile (Codex-1 fix) ────────────
 
-  it("an entitlement landing after sign-in costs no second cloud mirror and no reconcile", async () => {
+  includedAccessIt("an entitlement landing after sign-in costs no second cloud mirror and no reconcile", async () => {
     // The mirror now runs at sign-in for everyone, so by the time an entitlement is confirmed the
     // settings are already syncing. What still matters is that confirming it re-arms rather than
     // repeating work, and that it never spends a second purchase-service query.
@@ -1416,7 +1422,7 @@ describe("SyncService", () => {
     expect(svc.getState().syncing).toBe(true);
   });
 
-  it("a false answer no longer stops sync, and still counts as CONFIRMED", async () => {
+  includedAccessIt("a false answer no longer stops sync, and still counts as CONFIRMED", async () => {
     const cache = makeCache();
     await cache.hydrate();
     const d = mockBackend({ entitled: true });

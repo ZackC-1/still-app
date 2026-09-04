@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_SETTINGS } from "@still/shared-types";
+import { DEFAULT_SETTINGS, PAID_TIER_ENABLED } from "@still/shared-types";
 import { InMemoryEntitlementAdapter } from "../../entitlement/adapter.js";
 import type { EntitlementRecord, EntitlementRecordStore } from "../../entitlement/cache.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
@@ -28,6 +28,9 @@ import { SyncService } from "../service.js";
 // settings edit actually reaches writeProfile — not a fake's say-so.
 
 const T0 = 1_700_000_000_000;
+
+/** Cases that describe the shipped tier, where having an account is the whole sync gate. */
+const includedAccessIt = it.runIf(!PAID_TIER_ENABLED);
 
 /** The one key the background's Supabase client persists its session under: the extension's
  * AUTH_STORAGE_KEY, and the key clearExtensionAuthStorage removes. Spelled out here rather than
@@ -236,7 +239,7 @@ describe("ExtensionSession — verifyCode (the sign-in money path)", () => {
     expect(h.backend.writeProfile).toHaveBeenCalledTimes(2);
   });
 
-  it("no entitlement: record written explicit false, and settings sync starts anyway", async () => {
+  includedAccessIt("no entitlement: record written explicit false, and settings sync starts anyway", async () => {
     const h = harness({ sessionUser: null, read: "not-entitled" });
     await h.session.verifyCode("a@still.app", "123456");
     expect(h.recordWrites).toContainEqual({ entitled: false, userId: "u1", updatedAt: T0 });
@@ -424,7 +427,7 @@ describe("ExtensionSession — reconcile / restore", () => {
     expect(h.backend.reconcileEntitlementChecked).not.toHaveBeenCalled();
   });
 
-  it("a purchase landing after sign-in leaves the settings sync it already had", async () => {
+  includedAccessIt("a purchase landing after sign-in leaves the settings sync it already had", async () => {
     // Signing in starts the sync, so by the time a purchase is confirmed there is nothing left to
     // mirror. The reconcile that confirms it must not re-run the initial mirror, and must not
     // interrupt the write-through that is already carrying this user's edits.
@@ -573,7 +576,7 @@ describe("ExtensionSession — resume (background wake, R2 hard rule)", () => {
     expect(h.backend.writeProfile).not.toHaveBeenCalled();
   });
 
-  it("a cached entitlement of false still resumes write-through, and still spends no RC query", async () => {
+  includedAccessIt("a cached entitlement of false still resumes write-through, and still spends no RC query", async () => {
     const h = harness();
     await h.inner.setRecord({ entitled: false, userId: "u1", updatedAt: T0 });
     expect(await h.session.resume()).toBe("resumed-free");

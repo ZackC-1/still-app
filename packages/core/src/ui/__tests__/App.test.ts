@@ -157,7 +157,7 @@ describe("App", () => {
     const c = controller();
     c.entitled = true;
     render(App, { props: { controller: c } });
-    expect(screen.getByText(STRINGS.global.onPro)).toBeTruthy();
+    expect(screen.getByText(STRINGS.global.onSecondary)).toBeTruthy();
     expect(document.querySelectorAll(".card.locked").length).toBe(0);
   });
 
@@ -166,12 +166,25 @@ describe("App", () => {
     expect(screen.getByText(STRINGS.global.offSecondary)).toBeTruthy();
   });
 
-  it("free user with the YouTube row off does not claim Shorts are removed", () => {
+  paidTierIt("free user with the YouTube row off does not claim Shorts are removed", () => {
     render(App, {
       props: { controller: controller({ services: { youtube: false } }) },
     });
     expect(screen.getByText(STRINGS.global.onFreeYoutubeOff)).toBeTruthy();
     expect(screen.queryByText(STRINGS.global.onFree)).toBeNull();
+  });
+
+  includedAccessIt("one hero line covers everyone, whichever rows are on", () => {
+    // "On enabled sites" is already true of any combination of rows, so there is no state where
+    // the hero has to hedge or name a service someone cannot have.
+    for (const youtube of [true, false]) {
+      const view = render(App, {
+        props: { controller: controller({ services: { youtube } }) },
+      });
+      expect(screen.getByText(STRINGS.global.onSecondary)).toBeTruthy();
+      expect(screen.queryByText(/Still Pro/)).toBeNull();
+      view.unmount();
+    }
   });
 
   paidTierIt("tapping a lock on a no-purchase host opens the explanatory paywall sheet", async () => {
@@ -193,12 +206,22 @@ describe("App", () => {
     expect(c.signInOpen).toBe(false); // signed in: straight to the paywall, no re-auth detour
   });
 
-  it("entitled shows the synced state", () => {
+  it("a signed-in user is told their settings are syncing", () => {
     const c = controller();
     c.userId = "u";
     c.entitled = true;
     render(App, { props: { controller: c } });
-    expect(screen.getByText(/Synced across supported devices/)).toBeTruthy();
+    expect(screen.getByText(STRINGS.sync.syncing)).toBeTruthy();
+  });
+
+  includedAccessIt("signing in is offered as what it is: settings sync, and optional", () => {
+    render(App, { props: { controller: controller({ auth: codeCapableAuth() }) } });
+    expect(screen.getByText(STRINGS.sync.sectionTitle)).toBeTruthy();
+    expect(screen.getByText(STRINGS.sync.signedOut)).toBeTruthy();
+    expect(screen.getByText(STRINGS.auth.signInCta)).toBeTruthy();
+    // Nothing here may imply that blocking depends on it.
+    expect(screen.queryByText(STRINGS.paywall.upgradeCta)).toBeNull();
+    expect(document.querySelectorAll(".card.locked")).toHaveLength(0);
   });
 
   paidTierIt("non-Apple host shows the explanatory paywall, never a purchasable CTA (R19)", () => {
@@ -217,9 +240,10 @@ describe("App", () => {
       const c = controller({ host: { canPurchase }, auth: codeCapableAuth() });
       c.userId = "u";
       const view = render(App, { props: { controller: c } });
-      expect(c.popupState).toBe("not-entitled");
+      expect(c.popupState).toBe("entitled-syncing"); // signed in is signed in; nothing is gated
       expect(screen.queryByText(STRINGS.paywall.upgradeCta)).toBeNull();
       expect(screen.queryByText(/Unlock Pro in the Still app/)).toBeNull();
+      expect(screen.getByText(STRINGS.sync.syncing)).toBeTruthy();
       expect(screen.getByText(STRINGS.auth.signOut)).toBeTruthy();
       view.unmount();
     }
@@ -230,7 +254,7 @@ describe("App", () => {
     const c = controller({ auth: codeCapableAuth() });
     render(App, { props: { controller: c, onSignInWithApple } });
     expect(screen.queryByText("Sign in with Apple")).toBeNull();
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
     expect(c.signInOpen).toBe(true);
     expect(document.querySelector("input.email")).toBeTruthy();
     expect(screen.queryByText("Sign in with Apple")).toBeNull();
@@ -242,7 +266,7 @@ describe("App", () => {
     render(App, { props: { controller: c } });
     expect(document.querySelector("input.email")).toBeNull(); // not inline in the main UI
     expect(screen.queryByText("Sign in with Apple")).toBeNull();
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
     expect(c.signInOpen).toBe(true);
     expect(document.querySelector("input.email")).toBeTruthy(); // now in the modal
   });
@@ -250,7 +274,7 @@ describe("App", () => {
   it("the sign-in form exposes native email metadata and a visible label", async () => {
     const c = controller({ auth: codeCapableAuth() });
     render(App, { props: { controller: c } });
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
 
     const email = screen.getByLabelText(
       STRINGS.auth.emailLabel,
@@ -264,7 +288,7 @@ describe("App", () => {
   it("the sign-in dialog traps reverse tab navigation and has a semantic backdrop", async () => {
     const c = controller({ auth: codeCapableAuth() });
     render(App, { props: { controller: c } });
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
     await tick();
 
     const dialog = screen.getByRole("dialog");
@@ -272,20 +296,24 @@ describe("App", () => {
     expect(document.activeElement).toBe(email);
     await fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
     expect(document.activeElement).toBe(
-      within(dialog).getByText(STRINGS.auth.notNow),
+      within(dialog).getByText(STRINGS.auth.cancel),
     );
     expect(
       screen.getByRole("button", { name: STRINGS.auth.dismissLabel }),
     ).toBeTruthy();
   });
 
-  it("a host without auth (the extensions, pre-U10) gets no sign-in CTA — only the explanatory note", () => {
-    // A sign-in button with no auth wired behind it would silently do nothing.
+  it("a host without auth gets no sign-in CTA, only a plain note about where settings live", () => {
+    // The Safari extension popup. A sign-in button with no auth wired behind it would silently do
+    // nothing, and App Store Review Guideline 4.4 keeps an invitation to create an account out of
+    // an extension, so the note states the fact and the host app carries the invitation.
     const c = controller({ host: { canPurchase: false } }); // auth: undefined
     render(App, { props: { controller: c } });
-    expect(screen.queryByText("Sign in to Still")).toBeNull();
+    expect(screen.queryByText(STRINGS.auth.signInCta)).toBeNull();
     expect(screen.queryByText("Sign in with Apple")).toBeNull();
-    expect(screen.getByText(STRINGS.paywall.nonApple)).toBeTruthy();
+    expect(
+      screen.getByText(PAID_TIER_ENABLED ? STRINGS.paywall.nonApple : STRINGS.sync.deviceOnly),
+    ).toBeTruthy();
     expect(screen.getByText("Privacy policy")).toBeTruthy(); // store-required link stays reachable
   });
 
@@ -300,10 +328,10 @@ describe("App", () => {
   paidTierIt("signed-out home screen shows sign-in and upgrade, with auth copy only in the sheet", async () => {
     const c = controller({ auth: codeCapableAuth() });
     render(App, { props: { controller: c } });
-    expect(screen.getByText("Sign in to Still")).toBeTruthy();
+    expect(screen.getByText(STRINGS.auth.signInCta)).toBeTruthy();
     expect(screen.getByText(STRINGS.paywall.upgradeCta)).toBeTruthy();
     expect(screen.queryByText(STRINGS.auth.prompt)).toBeNull();
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
     expect(
       within(screen.getByRole("dialog")).getByText(STRINGS.auth.prompt),
     ).toBeTruthy();
@@ -331,14 +359,14 @@ describe("App", () => {
     expect(screen.getByText("Delete account")).toBeTruthy();
   });
 
-  it("Pro users do not see sign-in or upgrade CTAs", () => {
+  it("a signed-in user is not asked to sign in again, or to buy anything", () => {
     const c = controller({ auth: codeCapableAuth(), deletable: true });
     c.userId = "u";
     c.entitled = true;
     render(App, { props: { controller: c } });
-    expect(screen.queryByText("Sign in to Still")).toBeNull();
+    expect(screen.queryByText(STRINGS.auth.signInCta)).toBeNull();
     expect(screen.queryByText(STRINGS.paywall.upgradeCta)).toBeNull();
-    expect(screen.getByText(/Synced across supported devices/)).toBeTruthy();
+    expect(screen.getByText(STRINGS.sync.syncing)).toBeTruthy();
   });
 
   paidTierIt("signed-out upgrade records intent and opens email-code sign-in before paywall (web-checkout host)", async () => {
@@ -367,7 +395,7 @@ describe("App", () => {
   it("code host: sending a code lands on ONE plain one-time-code input (no segmented boxes)", async () => {
     const c = controller({ auth: codeCapableAuth() });
     render(App, { props: { controller: c } });
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
     const dialog = within(screen.getByRole("dialog"));
     expect(dialog.getByText(STRINGS.codeAuth.send)).toBeTruthy(); // "Email me a code", not a link
     await c.signIn("a@b.com");
@@ -391,7 +419,7 @@ describe("App", () => {
   it("code host: the verify button only enables at 6 digits", async () => {
     const c = controller({ auth: codeCapableAuth() });
     render(App, { props: { controller: c } });
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
     await c.signIn("a@b.com");
     await tick();
     const dialog = within(screen.getByRole("dialog"));
@@ -415,7 +443,7 @@ describe("App", () => {
       }),
     });
     render(App, { props: { controller: c } });
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
     await c.signIn("a@b.com");
     await tick();
     const dialog = within(screen.getByRole("dialog"));
@@ -431,7 +459,7 @@ describe("App", () => {
       }),
     });
     render(App, { props: { controller: c } });
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
     await c.signIn("a@b.com");
     await tick();
     const dialog = within(screen.getByRole("dialog"));
@@ -449,7 +477,7 @@ describe("App", () => {
       }),
     });
     render(App, { props: { controller: c } });
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
     await c.signIn("a@b.com");
     await tick();
     const input = document.querySelector("input.code") as HTMLInputElement;
@@ -467,7 +495,7 @@ describe("App", () => {
   it("a rate-limited resend renders the code-view wait copy (the sent code still works) with resend locked (AE2)", async () => {
     const c = controller({ auth: codeCapableAuth() });
     render(App, { props: { controller: c } });
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
     await c.signIn("a@b.com");
     await tick();
     // Drive the post-429 state directly (the transition itself is pinned in controller.test.ts);
@@ -515,8 +543,8 @@ describe("App", () => {
     c.userId = "u";
     render(App, { props: { controller: c } });
     await fireEvent.click(screen.getByText("Delete account"));
-    expect(screen.getByText(/permanently deletes your account/)).toBeTruthy();
-    expect(screen.getByText("Cancel")).toBeTruthy();
+    expect(screen.getByText(STRINGS.account.deleteConfirmBody)).toBeTruthy();
+    expect(screen.getByText(STRINGS.account.deleteCancel)).toBeTruthy();
   });
 
   it("host without deleteAccount shows privacy link but no Delete button", () => {
@@ -624,12 +652,12 @@ describe("App", () => {
   it("the sign-in Tab cycle skips the cooldown-disabled resend control", async () => {
     const c = controller({ auth: codeCapableAuth() });
     render(App, { props: { controller: c } });
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
     await c.signIn("a@b.com"); // → code entry; resend disabled behind the 60s cooldown
     await tick();
     const dialog = screen.getByRole("dialog");
     const dismiss = within(dialog).getByText(
-      STRINGS.auth.notNow,
+      STRINGS.auth.cancel,
     ) as HTMLButtonElement;
     dismiss.focus();
     await fireEvent.keyDown(dialog, { key: "Tab" });
@@ -649,30 +677,23 @@ describe("Placeholder", () => {
 });
 
 describe("App — purchase-first surfaces (plan 2026-07-15-001)", () => {
-  it("pro-no-account home state: active copy, Sign in visible, no buy CTA", () => {
-    const c = controller({ auth: codeCapableAuth() });
-    c.receiptEntitled = true; // receipt-proven Pro, no session
-    render(App, { props: { controller: c } });
-    expect(screen.getByText(STRINGS.proNoAccount.active)).toBeTruthy();
-    expect(screen.getByText(STRINGS.auth.signInCta)).toBeTruthy();
-    expect(screen.queryByText(STRINGS.paywall.upgradeCta)).toBeNull();
-  });
+  // The two receipt-flavoured card states (`pro-no-account` and `pro-device-only`) exist only to
+  // describe what a purchase granted. With every service included they are unreachable, and their
+  // cases run with the switch mocked on in paid-tier-sync-card.test.ts rather than going dark.
 
-  paidTierIt("pro-no-account offers Restore for a returning purchaser", () => {
+  includedAccessIt("an earlier purchase changes nothing about the signed-out card", () => {
+    // The receipt still resolves and `entitled` is still true, which is what a returning purchaser
+    // needs. It simply no longer selects a different card, because there is nothing left to say
+    // about a purchase that grants what everybody already has.
     const c = controller({ auth: codeCapableAuth() });
     c.receiptEntitled = true;
     render(App, { props: { controller: c } });
-    expect(screen.getByText(STRINGS.paywall.restoreSignedOut)).toBeTruthy();
-  });
-
-  includedAccessIt("pro-no-account hides Restore, which would have nothing to say", () => {
-    // An earlier purchaser still shows as Pro here, from the receipt on the device. Restore is
-    // hidden rather than left tappable because its answer only renders inside the paywall sheet.
-    const c = controller({ auth: codeCapableAuth() });
-    c.receiptEntitled = true;
-    render(App, { props: { controller: c } });
-    expect(screen.getByText(STRINGS.proNoAccount.active)).toBeTruthy();
+    expect(c.entitled).toBe(true);
+    expect(c.popupState).toBe("signed-out");
+    expect(screen.queryByText(STRINGS.proNoAccount.active)).toBeNull();
     expect(screen.queryByText(STRINGS.paywall.restoreSignedOut)).toBeNull();
+    expect(screen.getByText(STRINGS.sync.signedOut)).toBeTruthy();
+    expect(screen.getByText(STRINGS.auth.signInCta)).toBeTruthy();
   });
 
   paidTierIt("success screen (account-pitch): two independent equal-weight CTAs, no auto-dismiss markup", async () => {
@@ -700,14 +721,17 @@ describe("App — purchase-first surfaces (plan 2026-07-15-001)", () => {
     expect(screen.queryByText(STRINGS.success.createAccount)).toBeNull();
   });
 
-  it("pro-device-only: signed-in receipt-only Pro never claims sync (Codex review pin)", () => {
+  includedAccessIt("a signed-in device with a receipt-only purchase still syncs its settings", () => {
+    // The old warning here was that a receipt-only purchase does not buy sync, so the card must
+    // not promise it. Sync now follows the account rather than the purchase, so the promise is
+    // true for this person and the separate state is gone.
     const c = controller({ auth: codeCapableAuth() });
     c.userId = "u1";
     c.receiptEntitled = true; // server lane false: attach ineligible or webhook not landed
     render(App, { props: { controller: c } });
-    expect(c.popupState).toBe("pro-device-only");
-    expect(screen.getByText(STRINGS.proNoAccount.active)).toBeTruthy();
-    expect(screen.queryByText(STRINGS.sync.syncing)).toBeNull(); // never "Synced across devices"
+    expect(c.serverEntitled).toBe(false);
+    expect(c.popupState).toBe("entitled-syncing");
+    expect(screen.getByText(STRINGS.sync.syncing)).toBeTruthy();
     expect(screen.getByText(STRINGS.auth.signOut)).toBeTruthy();
   });
 

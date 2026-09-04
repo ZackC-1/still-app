@@ -12,7 +12,7 @@
 //
 // It lives in the sync suite because the subject is what an account does, not how blocking works.
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_SETTINGS, type SignedRuleSet } from "@still/shared-types";
+import { DEFAULT_SETTINGS, PAID_TIER_ENABLED, type SignedRuleSet } from "@still/shared-types";
 import seed from "../../../rules/seed.json";
 import { createContentScript } from "../../content/index.js";
 import { EntitlementCache, InMemoryEntitlementAdapter } from "../../entitlement/index.js";
@@ -84,6 +84,10 @@ async function blockingResultFrom(href: string, entitlement: InMemoryEntitlement
   return result;
 }
 
+/** Every case here is a statement about the shipped tier. With the paid tier switched back on an
+ * account decides what blocks again, which is the behaviour paid-tier-switch.test.ts proves. */
+const includedAccessIt = it.runIf(!PAID_TIER_ENABLED);
+
 /** A slot the extension session can persist into, with nothing in it. */
 function emptySlot<T>(): PersistedSlot<T> {
   let value: unknown = null;
@@ -147,20 +151,20 @@ function extensionSession(records: InMemoryEntitlementAdapter) {
 }
 
 describe("signing in gates only settings sync", () => {
-  it("blocks every service with no account at all", async () => {
+  includedAccessIt("blocks every service with no account at all", async () => {
     for (const page of PAID_ERA_PAGES) {
       // `null` is the shape of a surface that carries no entitlement source whatsoever.
       expect(await blockingResult(page, null)).toMatchObject({ placeholder: true });
     }
   });
 
-  it("blocks every service for a signed-in account that owns nothing", async () => {
+  includedAccessIt("blocks every service for a signed-in account that owns nothing", async () => {
     for (const page of PAID_ERA_PAGES) {
       expect(await blockingResult(page, false)).toMatchObject({ placeholder: true });
     }
   });
 
-  it("signing out for real does not degrade blocking", async () => {
+  includedAccessIt("signing out for real does not degrade blocking", async () => {
     // The shared teardown a browser actually runs, into the record every content script reads.
     // Whatever it writes is what blocking has to survive, so nothing here states that value.
     const records = new InMemoryEntitlementAdapter(true);
@@ -178,7 +182,7 @@ describe("signing in gates only settings sync", () => {
     for (const result of before) expect(result).toMatchObject({ placeholder: true });
   });
 
-  it("the Pro stylesheet is active for everyone, so nothing waits on an account to hide", async () => {
+  includedAccessIt("the Pro stylesheet is active for everyone, so nothing waits on an account to hide", async () => {
     // The static stylesheet does the fast, unflickering half of the hiding, and it only applies
     // under this root class. If an account decided the class, a signed-out user would see the
     // content the stylesheet is meant to remove before the script caught up.

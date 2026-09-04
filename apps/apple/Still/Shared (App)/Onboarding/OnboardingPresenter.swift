@@ -49,6 +49,7 @@ enum OnboardingPresenter {
     let view = OnboardingView(
       checkStatus: { await SafariExtensionBridge.currentStatus() },
       openEnableLocation: { SafariExtensionBridge.openEnableLocation() },
+      enableLocation: SafariExtensionBridge.enableLocation,
       onComplete: { [weak host] in
         OnboardingGate.markComplete(defaults)
         Self.dismiss(host)
