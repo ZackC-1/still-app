@@ -153,10 +153,10 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
       // written server truth lands in-session. Idempotent: a second pass finds the server entitled.
       // Skipped when the re-key failed, because attaching under the wrong identity would move a
       // purchase onto the wrong customer.
-      // The two cheap checks come first on purpose. Awaiting the purchase SDK is the expensive
-      // operand, and it is only needed to decide whether attaching is safe, so on the ordinary
-      // path (an entitled account, or no attach to consider) the card stops saying "getting ready"
-      // as soon as the settings mirror is done rather than when RevenueCat answers.
+      // The two cheap checks come first on purpose. An account the server already says is
+      // entitled, or a session torn down under this one, has nothing to attach, and reading the
+      // receipt and calling the store are the expensive steps: this way neither is paid for on a
+      // path that could not use the answer.
       if (
         !controller.serverEntitled &&
         teardownGeneration === generationAtEntry &&
@@ -180,6 +180,14 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
             /* price stays at its last value — the CTA renders without a suffix */
           });
       }
+      // Entering a session is not finished until the purchase SDK is keyed to this account. The
+      // wiring in main.ts says so in terms, and everything that runs after a verified code (the
+      // purchase-intent paywall, Restore) depends on it: attaching a purchase under the wrong
+      // identity puts it on the wrong customer. The attach evaluation above awaits the same
+      // promise, but only on the branch that reaches it, so the guarantee is made here where no
+      // short circuit can skip it. It never rejects (the re-key resolves false on failure), and
+      // awaiting a settled promise a second time costs nothing.
+      await identityReady;
     } finally {
       controller.reconciling = false;
     }

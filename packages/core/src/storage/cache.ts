@@ -196,7 +196,12 @@ export class SettingsCache {
   private applyStoredRecord(record: StoredSettingsRecord, source: SettingsChangeSource): boolean {
     const incomingEpoch = record.syncEpoch;
     if (incomingEpoch !== undefined && incomingEpoch !== this.syncEpoch) {
-      if (incomingEpoch < this.syncEpoch) return false; // a peer that has not seen the reconcile
+      // A peer that has not seen the reconcile yet. Refusing it in memory is what matters, because
+      // it is what stops the previous account's settings being published. The record itself stays
+      // in the shared store until the next write from a context that HAS seen the reconcile, so a
+      // context opening inside that window reads the older settings; the window is the gap between
+      // the reconcile's write and the storage change notification reaching the peer that wrote it.
+      if (incomingEpoch < this.syncEpoch) return false;
       this.syncEpoch = incomingEpoch;
       const settingsChanged = !sameSettings(this.snapshot, record.settings);
       const metadataChanged = !sameMetadata(this.syncMetadata, record.syncMetadata);
