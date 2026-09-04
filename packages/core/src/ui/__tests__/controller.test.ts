@@ -54,12 +54,12 @@ describe("UiController", () => {
 
   includedAccessIt("still resolves an earlier purchaser's entitlement while the paid tier is off", () => {
     // Nothing about an existing purchase is revoked, migrated, or cleaned up by the switch: the
-    // receipt lane and the server lane keep answering, so the account states the UI shows for a
-    // buyer are exactly what they were.
+    // receipt lane and the server lane keep answering. What changed is that the answer no longer
+    // selects a different card, because a purchase now grants what everyone already has.
     const { c } = makeController({ auth: codeAuth() });
     c.receiptEntitled = true;
     expect(c.entitled).toBe(true);
-    expect(c.popupState).toBe("pro-no-account");
+    expect(c.popupState).toBe("signed-out");
 
     c.userId = "u";
     c.entitled = true;
@@ -225,14 +225,17 @@ describe("UiController", () => {
     expect(c.purchaseIntent).toBe(false); // the intent was still consumed
   });
 
-  it("derives the full popup state matrix", () => {
+  it("derives the popup state matrix that the current tier can reach", () => {
+    // With the paid tier dormant the card turns on one fact, whether there is an account, so the
+    // three entitlement-flavoured states are unreachable. paid-tier-sync-card.test.ts walks the
+    // full matrix with the switch mocked on.
     const { c } = makeController();
     expect(c.popupState).toBe("signed-out");
     c.userId = "u";
     c.reconciling = true;
     expect(c.popupState).toBe("entitlement-pending");
     c.reconciling = false;
-    expect(c.popupState).toBe("not-entitled");
+    expect(c.popupState).toBe(PAID_TIER_ENABLED ? "not-entitled" : "entitled-syncing");
     c.entitled = true;
     expect(c.popupState).toBe("entitled-syncing");
     c.cloudReachable = false;

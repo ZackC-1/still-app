@@ -197,7 +197,7 @@
     {/if}
   {/if}
 
-  <button class="dismiss" onclick={onDismiss}>{STRINGS.auth.notNow}</button>
+  <button class="dismiss" onclick={onDismiss}>{STRINGS.auth.cancel}</button>
 </div>
 
 <style>

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { PAID_TIER_ENABLED } from "@still/shared-types";
 import { harness } from "./support/apple-session-harness.js";
 
 // What this module does with a sync state, and what it does and does not stamp into the App Group:
@@ -166,10 +167,13 @@ describe("AppleSession — receipt lane (R6/R17/R18, plan 2026-07-15-001)", () =
     await session.refreshReceipt();
     expect(controller.receiptEntitled).toBe(true);
     await session.signOutEverywhere();
-    // The server lane cleared; the device receipt keeps Pro (R6).
+    // The server lane cleared; the device receipt keeps Pro (R6). Which card that draws depends on
+    // the tier: while everything is included there is nothing left for a purchase to unlock, so a
+    // signed-out purchaser sees the ordinary signed-out card and the receipt-flavoured one is
+    // unreachable. The lane itself is untouched either way, which is what this asserts.
     expect(controller.userId).toBeNull();
     expect(controller.entitled).toBe(true);
-    expect(controller.popupState).toBe("pro-no-account");
+    expect(controller.popupState).toBe(PAID_TIER_ENABLED ? "pro-no-account" : "signed-out");
     // The doomed server-lane false proposal is skipped (the native policy would block it anyway).
     expect(bridge.setEntitlement).not.toHaveBeenCalledWith(false);
   });

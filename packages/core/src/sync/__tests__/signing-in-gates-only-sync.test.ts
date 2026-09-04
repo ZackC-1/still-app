@@ -9,7 +9,7 @@
 //
 // It lives in the sync suite because the subject is what an account does, not how blocking works.
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_SETTINGS, type SignedRuleSet } from "@still/shared-types";
+import { DEFAULT_SETTINGS, PAID_TIER_ENABLED, type SignedRuleSet } from "@still/shared-types";
 import seed from "../../../rules/seed.json";
 import { createContentScript } from "../../content/index.js";
 import { EntitlementCache, InMemoryEntitlementAdapter } from "../../entitlement/index.js";
@@ -72,21 +72,25 @@ async function blockingResult(href: string, entitled: boolean | null) {
   return result;
 }
 
+/** Every case here is a statement about the shipped tier. With the paid tier switched back on an
+ * account decides what blocks again, which is the behaviour paid-tier-switch.test.ts proves. */
+const includedAccessIt = it.runIf(!PAID_TIER_ENABLED);
+
 describe("signing in gates only settings sync", () => {
-  it("blocks every service with no account at all", async () => {
+  includedAccessIt("blocks every service with no account at all", async () => {
     for (const page of PAID_ERA_PAGES) {
       // `null` is the shape of a surface that carries no entitlement source whatsoever.
       expect(await blockingResult(page, null)).toMatchObject({ placeholder: true });
     }
   });
 
-  it("blocks every service for a signed-in account that owns nothing", async () => {
+  includedAccessIt("blocks every service for a signed-in account that owns nothing", async () => {
     for (const page of PAID_ERA_PAGES) {
       expect(await blockingResult(page, false)).toMatchObject({ placeholder: true });
     }
   });
 
-  it("signing out does not degrade blocking", async () => {
+  includedAccessIt("signing out does not degrade blocking", async () => {
     // Signing out writes an explicit `entitled: false` into the record every content script reads
     // (the extension session's shared purge). Blocking must be identical either side of it.
     for (const page of PAID_ERA_PAGES) {
@@ -96,7 +100,7 @@ describe("signing in gates only settings sync", () => {
     }
   });
 
-  it("the Pro stylesheet is active for everyone, so nothing waits on an account to hide", async () => {
+  includedAccessIt("the Pro stylesheet is active for everyone, so nothing waits on an account to hide", async () => {
     // The static stylesheet does the fast, unflickering half of the hiding, and it only applies
     // under this root class. If an account decided the class, a signed-out user would see the
     // content the stylesheet is meant to remove before the script caught up.

@@ -9,34 +9,40 @@ export const STRINGS = {
   global: {
     on: "Still is on",
     off: "Still is off",
+    // The one "Still is on" line everyone sees, because every service is included. "On enabled
+    // sites" already hedges per-service state, so it needs no variant for a row someone turned off.
+    onSecondary: "Short-form video is removed on enabled sites.",
+    // The two lines below belong to the dormant paid tier, where the included set was YouTube
+    // Shorts only and the hero had to say what the rest cost. They return with PAID_TIER_ENABLED.
     onFree: "YouTube Shorts are removed. Still Pro adds Reels, TikTok, and sync.",
     // Free user with the YouTube row itself toggled off: Still is on but removing nothing, so the
     // hero must not claim removal (it would contradict the row, PR #96 review). Mirrors the row's
     // own off voice ("Shorts are showing.") and keeps the Pro line.
     onFreeYoutubeOff:
       "YouTube Shorts are showing. Still Pro adds Reels, TikTok, and sync.",
-    onPro: "Short-form is removed on enabled sites.",
-    offSecondary: "Turn Still on to remove YouTube Shorts.",
+    offSecondary: "Turn Still on to remove short-form video.",
   },
 
+  // Each row is named for what Still removes there rather than for the site, so the same words
+  // appear in the app, on the store listings, and on the website.
   services: {
     youtube: {
-      name: "YouTube",
+      name: "YouTube Shorts",
       on: "Shorts are gone.",
       off: "Shorts are showing.",
     },
     instagram: {
-      name: "Instagram",
+      name: "Instagram Reels",
       on: "Reels are gone.",
       off: "Reels are showing.",
     },
     tiktok: {
-      name: "TikTok",
+      name: "TikTok website",
       on: "TikTok stays closed.",
       off: "TikTok is open.",
     },
     facebook: {
-      name: "Facebook",
+      name: "Facebook Reels",
       on: "Reels are gone.",
       off: "Reels are showing.",
     },
@@ -156,21 +162,23 @@ export const STRINGS = {
   },
 
   auth: {
-    title: "Sign in to Still",
+    title: "Sign in for settings sync",
     dismissLabel: "Dismiss sign in",
+    // Says what an account is for and, in the same breath, that it is not required. Someone who
+    // opened this sheet by accident should be able to close it without wondering what they lost.
     prompt:
-      "Sign in so your Still Pro purchase and settings can follow you across supported surfaces.",
-    notNow: "Not now",
-    emailLabel: "Email",
-    emailPlaceholder: "you@email.com",
+      "Enter your email to get a 6-digit sign-in code. Sign-in is optional. Blocking works without an account.",
+    cancel: "Cancel",
+    emailLabel: "Email address",
+    emailPlaceholder: "you@example.com",
     invalidEmail: "Enter a valid email address to continue.",
     send: "Email me a link",
     sending: "Sending…",
     sent: "Check your email for a sign-in link.",
-    error: "Couldn't send the link. Try again.",
+    error: "We couldn't sign you in. Try again.",
     resend: "Resend link",
     signOut: "Sign out",
-    signInCta: "Sign in to Still",
+    signInCta: "Sign in to sync",
   },
 
   // Email-OTP code entry (plan U2/R1) — the extension popup can't receive a magic-link redirect,
@@ -179,16 +187,16 @@ export const STRINGS = {
   // Every live host (extensions and the Apple app, 2026-07-06) wires the code flow; the magic-link
   // strings stay only for the currently-unwired signIn() path.
   codeAuth: {
-    send: "Email me a code",
+    send: "Send code",
     prompt: "Check your email for a 6-digit code.",
     sentTo: "Sent to",
     codeLabel: "6-digit code",
     verify: "Verify code",
     verifying: "Checking…",
-    wrongCode: "That code didn't match. Check it and try again.",
+    wrongCode: "That code didn't work. Check it and try again.",
     expiredCode: "That code has expired. Send a new one to continue.",
     requestNew: "That code isn't working. Send a new one to continue.",
-    verifyError: "Couldn't check the code. Try again.",
+    verifyError: "We couldn't sign you in. Try again.",
     sendError: "Couldn't send the code. Try again.",
     resendError: "Couldn't send a new code. The last one may still work.",
     // Rate-limit wait copy (R2/R3), split BY VIEW because honesty differs by context: the email
@@ -205,20 +213,30 @@ export const STRINGS = {
     differentEmail: "Use a different email",
   },
 
+  // The settings-sync card. It is the only thing an account changes, so it says so plainly and
+  // never implies that anything else depends on signing in.
   sync: {
-    pending: "Checking your account…",
-    syncing: "Synced across supported devices.",
-    unreachable: "Sync paused — no connection.",
-    firstSync: "Your settings now match your other devices.",
+    sectionTitle: "Settings sync",
+    signedOut: "Sign in to keep your settings the same across your devices.",
+    // Shown where there is no sign-in path at all, which today means the Safari extension popup:
+    // App Store Review Guideline 4.4 keeps promotion out of an extension, so it states the fact
+    // rather than advertising an account (the host app carries the invitation instead).
+    deviceOnly: "Settings are saved on this device.",
+    pending: "Getting Still ready.",
+    syncing: "Syncing your settings.",
+    unreachable:
+      "Your settings are saved on this device. Still will sync them when it reconnects.",
+    firstSync: "Your settings are now the same across your signed-in devices.",
   },
 
   // Account management (App Store Guideline 5.1.1): in-app deletion + a reachable privacy policy.
   account: {
     privacyPolicy: "Privacy policy",
     delete: "Delete account",
-    deleteConfirmTitle: "Delete your account?",
+    deleteConfirmTitle: "Delete account?",
+    // Names the one thing people are most likely to fear losing, and says they will not lose it.
     deleteConfirmBody:
-      "This permanently deletes your account, settings, and purchase record from sync. This can't be undone.",
+      "This permanently deletes your Still account and synced settings. Blocking will keep working on this device.",
     deleteConfirm: "Delete account",
     deleteCancel: "Cancel",
     deleting: "Deleting…",
