@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { DEFAULT_SETTINGS } from "@still/shared-types";
 import { InMemoryEntitlementAdapter } from "../../entitlement/adapter.js";
 import type { EntitlementRecord, EntitlementRecordStore } from "../../entitlement/cache.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
@@ -15,6 +16,7 @@ import type {
   EntitlementRead,
   ReconcileCallOutcome,
   RequestCodeOutcome,
+  SyncedSettingsEnvelope,
   VerifyCodeOutcome,
   WebCheckoutOutcome,
 } from "../ports.js";
@@ -87,7 +89,7 @@ function harness(opts: HarnessOpts = {}) {
       return opts.checked ?? "ok";
     }),
     readEntitlement: vi.fn(async (): Promise<EntitlementRead> => opts.read ?? "entitled"),
-    readProfile: vi.fn(async () => null),
+    readProfile: vi.fn(async (): Promise<SyncedSettingsEnvelope | null> => null),
     writeProfile: vi.fn(async (settings) => ({
       settings,
       version: ++profileVersion,
@@ -122,9 +124,6 @@ function harness(opts: HarnessOpts = {}) {
     get: vi.fn(async () => lastSynced),
     set: vi.fn(async (userId: string) => {
       lastSynced = userId;
-    }),
-    clear: vi.fn(async () => {
-      lastSynced = null;
     }),
   };
 
@@ -248,9 +247,38 @@ describe("ExtensionSession — identity switch (AE5)", () => {
     // A's checkout tab is closed (it still carries A's identity) and the pending flag is gone.
     expect(h.closeTab).toHaveBeenCalledWith(7);
     expect(h.checkoutPending.value).toBe(null);
-    expect(h.identity.clear).toHaveBeenCalled();
     // B's own definitive answer lands after, bound to B.
     expect(h.recordWrites.at(-1)).toEqual({ entitled: true, userId: "B", updatedAt: T0 });
+    // The browser now remembers B as the last person to sync here, replacing A rather than
+    // forgetting everyone: the next person to sign in must still read this browser as not theirs.
+    expect(await h.identity.get()).toBe("B");
+  });
+
+  it("a shared browser: after A signs out, B's account is not overwritten by what A left behind", async () => {
+    // The whole journey, through the real session rather than a hand-fed identity: A signs in,
+    // syncs, changes something, signs out. B then signs in on the same browser.
+    const h = harness({ sessionUser: null });
+    await h.session.verifyCode("a@still.app", "123456"); // A: u1
+    await h.cache.setGlobalOn(false); // A's toggle, published to A's account
+    await h.session.signOut();
+    h.backend.writeProfile.mockClear();
+
+    // B's account happens to sit at the same version number A left on this machine, which is the
+    // case where the version counters cannot tell the two apart: they count different profile rows
+    // and only look comparable. The one thing that still protects B is the record of who last
+    // synced here, so sign-out must not have erased it.
+    h.setSessionUser("B");
+    h.auth.verifyCode.mockResolvedValueOnce({ kind: "verified", userId: "B" });
+    h.backend.readProfile.mockResolvedValueOnce({
+      settings: { ...DEFAULT_SETTINGS, globalOn: true, updatedAt: T0 - 60_000 },
+      version: 2,
+      serverUpdatedAt: new Date(T0 - 60_000).toISOString(),
+      lastWriteId: null,
+    });
+    await h.session.verifyCode("b@still.app", "123456");
+
+    expect(h.backend.writeProfile).not.toHaveBeenCalled(); // nothing of A's travelled
+    expect(h.cache.current().globalOn).toBe(true); // and B sees B's own account
   });
 
   it("a free user re-signing in after an involuntary 401 keeps their own pending purchase (U4 continuation)", async () => {
@@ -262,7 +290,6 @@ describe("ExtensionSession — identity switch (AE5)", () => {
 
     expect(h.checkoutPending.value).toEqual({ startedAt: T0 });
     expect(h.closeTab).not.toHaveBeenCalled();
-    expect(h.identity.clear).not.toHaveBeenCalled();
   });
 });
 
@@ -299,7 +326,6 @@ describe("ExtensionSession — reconcile / restore", () => {
     expect(h.recordWrites).toHaveLength(0);
     expect(h.checkoutPending.value).toEqual({ startedAt: T0 });
     expect(h.auth.signOut).not.toHaveBeenCalled();
-    expect(h.identity.clear).not.toHaveBeenCalled();
   });
 
   it("signed out: signed-out outcome, no backend call", async () => {
@@ -433,16 +459,35 @@ describe("ExtensionSession — resume (background wake, R2 hard rule)", () => {
     const h = harness();
     await h.inner.setRecord({ entitled: true, userId: "u1", updatedAt: T0 });
     expect(await h.session.resume()).toBe("resumed-entitled");
+    h.backend.writeProfile.mockClear(); // the start-up catch-up seeds this empty account first
     await h.cache.setGlobalOn(false);
     expect(h.backend.writeProfile).toHaveBeenCalledTimes(1);
+    // The catch-up reads the account's SETTINGS; it must still spend no purchase-service query.
     expect(h.backend.reconcileEntitlement).not.toHaveBeenCalled();
     expect(h.backend.reconcileEntitlementChecked).not.toHaveBeenCalled();
+  });
+
+  it("the wake pulls the account's settings down before this browser can publish over them", async () => {
+    // The laptop was closed while another device turned YouTube off. Nothing but this read can
+    // tell it: realtime only delivers writes made while the worker is alive.
+    const h = harness();
+    await h.inner.setRecord({ entitled: true, userId: "u1", updatedAt: T0 });
+    h.backend.readProfile.mockResolvedValueOnce({
+      settings: { ...DEFAULT_SETTINGS, globalOn: false, updatedAt: T0 },
+      version: 4,
+      serverUpdatedAt: new Date(T0).toISOString(),
+      lastWriteId: null,
+    });
+    expect(await h.session.resume()).toBe("resumed-entitled");
+    expect(h.cache.current().globalOn).toBe(false);
+    expect(h.backend.writeProfile).not.toHaveBeenCalled();
   });
 
   it("a cached entitlement of false still resumes write-through, and still spends no RC query", async () => {
     const h = harness();
     await h.inner.setRecord({ entitled: false, userId: "u1", updatedAt: T0 });
     expect(await h.session.resume()).toBe("resumed-free");
+    h.backend.writeProfile.mockClear(); // the start-up catch-up seeds this empty account first
     await h.cache.setGlobalOn(false);
     expect(h.backend.writeProfile).toHaveBeenCalledTimes(1);
     expect(h.backend.reconcileEntitlement).not.toHaveBeenCalled();
@@ -470,8 +515,13 @@ describe("ExtensionSession — teardown parity (voluntary sign-out / delete, R8)
     expect(h.checkoutPending.value).toBe(null);
     expect(h.nudgeStamp.value).toBe(null);
     expect(h.closeTab).toHaveBeenCalledWith(7);
-    expect(h.identity.clear).toHaveBeenCalled();
     expect(h.clearAuthStorage).toHaveBeenCalled(); // offline-proof session removal (F1)
+  }
+
+  /** The one thing teardown must NOT erase: who last synced in this browser. A shared machine
+   * needs that answer most after the first person leaves, so it outlives both exits. */
+  async function expectIdentityRemembered(h: ReturnType<typeof harness>): Promise<void> {
+    expect(await h.identity.get()).toBe("u1");
   }
 
   function seededHarness(): ReturnType<typeof harness> {
@@ -490,6 +540,7 @@ describe("ExtensionSession — teardown parity (voluntary sign-out / delete, R8)
     expect(await h.session.signOut()).toBe("signed-out");
     expect(h.auth.signOut).toHaveBeenCalled();
     expectFullTeardown(h);
+    await expectIdentityRemembered(h);
   });
 
   it("signOut with a rejected auth sign-out still lands the local purge (voluntary exit)", async () => {
@@ -497,6 +548,7 @@ describe("ExtensionSession — teardown parity (voluntary sign-out / delete, R8)
     h.auth.signOut.mockRejectedValueOnce(new Error("offline"));
     expect(await h.session.signOut()).toBe("signed-out");
     expectFullTeardown(h);
+    await expectIdentityRemembered(h);
   });
 
   it("deleteAccount: backend delete first, then the SAME purge (parity pin)", async () => {
@@ -505,6 +557,7 @@ describe("ExtensionSession — teardown parity (voluntary sign-out / delete, R8)
     expect(await h.session.deleteAccount()).toBe("deleted");
     expect(h.backend.deleteAccount).toHaveBeenCalled();
     expectFullTeardown(h);
+    await expectIdentityRemembered(h);
   });
 
   it("a failed backend delete keeps the session AND the local state intact (server-first)", async () => {
@@ -514,7 +567,6 @@ describe("ExtensionSession — teardown parity (voluntary sign-out / delete, R8)
     expect(h.recordWrites).toHaveLength(0);
     expect(h.checkoutPending.value).toEqual({ startedAt: T0, tabId: 7 });
     expect(h.auth.signOut).not.toHaveBeenCalled();
-    expect(h.identity.clear).not.toHaveBeenCalled();
   });
 
   it("a sign-out that lands DURING an in-flight reconcile is not overwritten by a stale entitled write (F2)", async () => {
