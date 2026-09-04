@@ -61,8 +61,11 @@ Run on a real iPhone with the Still app installed and its Safari extension enabl
   page. Empty on a `/shorts/` page can mean the redirect fired (good) or the script didn't inject.
 - If the **shelf** isn't hidden: inspect the real element — the mobile Shorts section selector may have
   drifted from the seed (`packages/core/rules/seed.json` → `youtube` → `yt-home-shelf`). Author the
-  current `ytm-*` selector, ship it via the **OTA rule-set** (no store re-review needed — see the
-  signed rule-set path), and re-test.
+  current `ytm-*` selector in the seed, re-sign it, regenerate the packaged CSS, and ship it in an app
+  release. **A selector fix cannot reach Safari over the air today**: the Safari build carries no
+  backend address, so it never fetches a hosted rule set, and the hosted set is older than the bundled
+  one, so no client would apply it even if it did. Treat the bundled seed as the only path to a device
+  until a newer signed set is published and the Safari build is given the endpoint.
 - If the **redirect** doesn't fire on a direct nav: confirm the content script runs at `document_start`
   on that page; the pre-hydration redirect is already wired for Safari (`redirectBeforeHydration`).
 
@@ -86,6 +89,53 @@ manifest; the launch AMO build deliberately omits that key and is desktop-only.
 
 ---
 
+## D. iPhone timing pass: is Still costing the page anything?
+
+Automated tests cannot answer this. Playwright cannot load a Safari extension, and the emulated
+WebKit numbers come from a Mac, so the only real iPhone figures are the ones a person reads off a
+device. Run this whenever the content script, the observer or the YouTube rule set changes.
+
+Two runs of the same three pages, one with the Still extension off and one with it on, so the
+comparison is like for like. Toggle Still in **Settings, Apps, Safari, Extensions, Still**; leave
+everything else alone between runs, including the Wi-Fi network.
+
+Pages, in this order each time:
+
+1. `m.youtube.com`
+2. `m.youtube.com/results?search_query=news`
+3. `m.youtube.com/watch?v=aqz-KE-bpKQ`
+
+For each page, three times:
+
+1. [ ] Close every Safari tab, then open a new one.
+2. [ ] Type the address and start a stopwatch as you tap Go.
+3. [ ] Stop it when the page has stopped moving and the first row of thumbnails is readable.
+4. [ ] Scroll steadily through about ten screens with one finger and note whether the scroll ever
+       stutters, and if so where.
+
+Record the middle of the three times per page per state, and the stutter note. Nine numbers with the
+extension off, nine with it on. What matters is the difference between the two states on the same
+page, not the absolute value.
+
+If the "on" numbers are more than about a second worse than "off" on any page, or scrolling stutters
+with Still on and not with it off, that is a real regression and worth a Web Inspector session:
+tether the iPhone to a Mac, open **Develop, your iPhone, the page**, and use the Timelines tab to see
+where the main thread is going.
+
+For a precise figure rather than a stopwatch, with the iPhone tethered and Web Inspector open, paste
+this into the console on the loaded page and read the two numbers:
+
+```js
+const nav = performance.getEntriesByType("navigation")[0];
+const paint = performance.getEntriesByType("paint").find((p) => p.name === "first-contentful-paint");
+console.log("first paint ms", Math.round(paint?.startTime ?? 0), "load ms", Math.round(nav.loadEventEnd));
+```
+
+Safari implements neither the Long Tasks API nor Total Blocking Time, so there is no equivalent
+one-liner for main-thread blocking on a device. Judge that by whether scrolling stutters.
+
+---
+
 ## C. Pro mobile surfaces (entitled user, all mobile)
 
 After unlocking Still Pro on the device (iOS: IAP; Firefox: web checkout once the deploy checklist is
@@ -106,8 +156,8 @@ live), confirm the Pro mobile surfaces on the mobile hosts:
 - [ ] Before a future Android-compatible AMO build: Firefox Android `m.youtube.com` redirect + removal
       verified on a real device.
 - [ ] Pro mobile surfaces (IG/FB/TikTok) verified for an entitled user; free user sees only YouTube gone.
-- [ ] Any selector drift found was fixed via the OTA rule-set and re-tested (no store resubmission
-      needed for rule-set-only fixes).
+- [ ] Any selector drift found was fixed in the bundled seed, re-signed, and re-tested in a new build.
+- [ ] The timing pass in section D was run and its numbers recorded.
 
 > Record the results honestly in the submission notes. If mobile YouTube blocking is not solid on iOS
 > Safari, that is a **launch-quality issue for the free tier**, not a cosmetic one — fix or explicitly
