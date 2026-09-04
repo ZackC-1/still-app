@@ -157,6 +157,11 @@ export class SyncService {
       // `confirmed` false, which is what stops a host writing an unknown answer into the native
       // record the Safari extension trusts for 30 days.
       if (entitled === null) return;
+      // And a sign-out that landed while this was in flight has already published the signed-out
+      // state, so this answer is about a session that no longer exists. Writing it would leave a
+      // signed-out state carrying a CONFIRMED entitlement, which is exactly what the Apple host
+      // stamps into the App Group for the Safari extension to trust.
+      if (this.state.userId !== userId) return;
       this.setState({ ...this.state, entitled, confirmed: true });
     });
     await mirrored;

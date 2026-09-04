@@ -1137,6 +1137,39 @@ describe("SyncService", () => {
     expect(backend.writes.length).toBe(0);
   });
 
+  it("signing out during a sign-in leaves no confirmed entitlement behind for that account", async () => {
+    // The settings half of a sign-in already gives up when a sign-out lands under it. The
+    // entitlement half has to make the same test, because a signed-out state carrying a CONFIRMED
+    // entitlement is exactly the shape the Apple host stamps into the App Group, and the Safari
+    // extension trusts that record for thirty days.
+    const backend = mockBackend({ entitled: true, cloud: null });
+    let release: () => void = () => {};
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const readEntitlement = backend.backend.readEntitlement.bind(backend.backend);
+    backend.backend.readEntitlement = async () => {
+      await blocked;
+      return readEntitlement();
+    };
+    const svc = new SyncService(
+      makeCache(),
+      mockAuth().auth,
+      backend.backend,
+      undefined,
+      identityStore(null).store,
+    );
+
+    const signIn = svc.onSignedIn(USER);
+    await drain();
+    await svc.signOut();
+    release();
+    await signIn;
+
+    expect(svc.getState().userId).toBeNull();
+    expect(svc.getState().entitled).toBe(false);
+  });
+
   it("a browser that reached the account records it even when the publish then fails", async () => {
     // The shared-browser rule can only protect a browser that knows who last synced on it, so the
     // record is written the moment the account is reached rather than after the settings have moved.
