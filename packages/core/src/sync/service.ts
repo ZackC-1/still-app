@@ -136,6 +136,10 @@ export class SyncService {
 
     if (PAID_TIER_ENABLED) {
       const entitled = await this.reconcileAndReadEntitlement();
+      // A sign-out that landed while the purchase service was answering makes this answer about a
+      // session that no longer exists. Both writes below would put it back over the signed-out
+      // state, and a confirmed entitlement is what the Apple host stamps into the App Group.
+      if (this.state.userId !== userId) return;
       if (entitled === null) {
         this.setState({ ...this.state, cloudReachable: false });
         return;
