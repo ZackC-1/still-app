@@ -1,5 +1,5 @@
 import type { StillSettings } from "@still/shared-types";
-import { PAID_TIER_ENABLED } from "@still/shared-types";
+import { DEFAULT_SETTINGS, PAID_TIER_ENABLED } from "@still/shared-types";
 import type { SettingsCache, SettingsChangeSource } from "../storage/cache.js";
 import type { SyncedSettingsEnvelope } from "../storage/adapter.js";
 import type { AuthPort, BackendPort, EntitlementRead } from "./ports.js";
@@ -13,10 +13,12 @@ import type { AuthPort, BackendPort, EntitlementRead } from "./ports.js";
 //     reconcile itself stays: it is what makes a returning purchaser's entitlement reappear
 //     without anyone contacting support (U13/U14), and reconcile-before-read is still its order.
 //   - A signed-out user stays entirely local; the cache never touches the network.
-//   - Reconciling a device with its account is one decision made in one place, `deviceWins`, and
-//     honoured on both outcomes. The guarantee it makes: this device publishes its settings only
-//     when they are the newest thing that exists, and otherwise adopts the account's, and no path
-//     downstream re-publishes what that decision rejected.
+//   - Reconciling a device with its account is one decision made in one place, `decideReconcile`,
+//     and honoured whichever way it goes. The guarantee it makes: this device publishes its
+//     settings only when they are the newest thing that exists, otherwise it adopts the account's,
+//     and where the account has nothing saved and what is here belongs to somebody else it starts
+//     the account from Still's defaults instead. No path downstream re-publishes what that
+//     decision rejected.
 //   - Steady state: the cloud is the source of truth, local edits write through, and conflicts
 //     resolve by server version and then by last-write-wins.
 
@@ -26,9 +28,11 @@ import type { AuthPort, BackendPort, EntitlementRead } from "./ports.js";
  * real wiring, in-memory in tests. There is deliberately no way to erase it: the shared-browser
  * rule exists for the moment after someone signs out, so the record has to outlast them.
  *
- * Optional only so a host can be wired up without it. A host that omits it gives up the
- * shared-browser rule entirely, because the first of the three rules in `deviceWins` can never
- * fire, and every reconcile falls through to the clock or the version counter.
+ * Optional only so a host can be wired up without it. A host that omits it gives up the direct
+ * half of the shared-browser rule, because the identity test in `decideReconcile` can never fire.
+ * What still protects such a host is the version metadata: settings anchored to a profile row are
+ * not published into an account that has no row. Everything else falls through to the clock or the
+ * version counter.
  */
 export interface LastSyncedIdentityStore {
   /** The last userId a sync started for, or null when none was ever recorded. */
@@ -61,8 +65,16 @@ const SIGNED_OUT: SyncState = {
   confirmed: true, // a deliberate sign-out is definitive — hosts may clear native stamps on it
 };
 
-/** Which side of a reconcile won, or that it gave up because the session ended under it. */
-type ReconcileOutcome = "device" | "account" | "abandoned";
+/**
+ * Which side of a reconcile won, or that it gave up because the session ended under it.
+ *
+ * "freshStart" is the third answer: neither side had a claim, so the account was started from
+ * Still's own defaults. See `startAccountFromDefaults`.
+ */
+type ReconcileOutcome = "device" | "account" | "freshStart" | "abandoned";
+
+/** The three answers the decision itself can give; abandoning is decided around it, not by it. */
+type ReconcileVerdict = Exclude<ReconcileOutcome, "abandoned">;
 
 export class SyncService {
   private state: SyncState = SIGNED_OUT;
@@ -85,8 +97,9 @@ export class SyncService {
     private readonly backend: BackendPort,
     private readonly onState?: (state: SyncState) => void,
     private readonly identity?: LastSyncedIdentityStore,
-    /** Injectable clock, used only to judge whether a stored local timestamp is believable during
-     * the first-sign-in merge below. Date.now in real wiring, a counter in tests. */
+    /** Injectable clock. It judges whether a stored local timestamp is believable during the
+     * first-sign-in merge below, and stamps the defaults a brand new account is started from.
+     * Date.now in real wiring, a counter in tests. */
     private readonly now: () => number = Date.now,
   ) {}
 
@@ -247,13 +260,20 @@ export class SyncService {
     // and the shared-browser rule cannot fire on a browser like that.
     await this.identity?.set(userId);
     if (this.state.userId !== userId) return "abandoned";
-    if (this.deviceWins(cloud, lastSynced, userId)) {
+    const verdict = this.decideReconcile(cloud, lastSynced, userId);
+    if (verdict === "device") {
       // The write returns the new envelope, which is how the cache learns the server version that
       // every later edit has to build on.
       await this.writeAndApply(this.cache.current());
       return "device";
     }
-    // The account is the newer side. Nothing goes up on this path, by any route.
+    if (verdict === "freshStart") {
+      await this.startAccountFromDefaults();
+      return "freshStart";
+    }
+    // The account is the newer side. Nothing goes up on this path, by any route. The null check
+    // below is for the compiler alone: an account with nothing saved cannot reach here, because
+    // the decision sends every empty account down one of the two branches above it.
     if (cloud !== null) {
       if (lastSynced === userId && this.cache.currentSyncMetadata() !== null) {
         // The two counters count the same profile row, so the steady-state rule is the right one:
@@ -272,7 +292,17 @@ export class SyncService {
   }
 
   /**
-   * Which side of a reconcile is the newer one. Three rules, in order.
+   * Which side of a reconcile is the newer one, and what to do when neither side is.
+   *
+   * An account with NOTHING saved is decided first, because it has no settings to adopt and no
+   * version to compare, so neither of the rules below can speak to it. The whole question there is
+   * whether the settings sitting on this device are this person's own. Two things say they are
+   * not, and either is enough. Somebody else was the last to sync on this browser: that record
+   * outlives them signing out, which is the only reason it can protect the next person. Or this
+   * cache is still anchored to a profile row, since an account that has no row cannot be the
+   * account that row belongs to; that one is what still holds on the NEXT browser start, once the
+   * identity has been updated to the person now signed in. Either way the account is started from
+   * Still's defaults rather than from settings the account's owner never chose.
    *
    * A device that last synced for somebody ELSE never publishes (R8/AE5). The local settings may
    * be that person's, and the record of who last synced here survives sign-out for exactly this
@@ -291,25 +321,54 @@ export class SyncService {
    * is what stops a device whose clock runs a few minutes fast republishing its own snapshot over
    * every other device, every single time it starts.
    */
-  private deviceWins(
+  private decideReconcile(
     cloud: SyncedSettingsEnvelope | null,
     lastSynced: string | null,
     userId: string,
-  ): boolean {
-    if (lastSynced !== null && lastSynced !== userId) return false;
+  ): ReconcileVerdict {
+    const anotherPersonSyncedHere = lastSynced !== null && lastSynced !== userId;
     const metadata = this.cache.currentSyncMetadata();
-    if (metadata === null) {
-      return cloud === null || this.localSettingsAreNewer(this.cache.current(), cloud);
+    if (cloud === null) {
+      if (anotherPersonSyncedHere || metadata !== null) return "freshStart";
+      return "device";
     }
-    if (cloud === null) return true; // the account has nothing saved: it starts from this device
-    if (cloud.version !== metadata.version) return false;
-    return !sameSettings(this.cache.current(), cloud.settings);
+    if (anotherPersonSyncedHere) return "account";
+    if (metadata === null) {
+      return this.localSettingsAreNewer(this.cache.current(), cloud) ? "device" : "account";
+    }
+    if (cloud.version !== metadata.version) return "account";
+    return sameSettings(this.cache.current(), cloud.settings) ? "account" : "device";
+  }
+
+  /**
+   * Start an account that has nothing saved from Still's own defaults, and repoint this browser at
+   * the row that creates.
+   *
+   * This is the shared computer where the second person signs up for a brand new account. The
+   * account has never held anything, and the settings sitting in this browser were last reconciled
+   * against a different account, so they are not this person's to publish. Sending them up would
+   * put one person's choices into another person's account and from there onto every device that
+   * account owns, because a settings write replaces the whole document. Leaving them alone is not
+   * enough either: the new person would be looking at the previous person's toggles, and this
+   * browser would still be counting the previous account's version, so nothing the new person
+   * changes on any other device could ever land here. The defaults are the one settings set that
+   * belongs to nobody but Still, and they have every blocking feature switched on, so starting
+   * from them can only ever protect someone more, never less.
+   *
+   * The write goes first and the device adopts only what comes back, so a write that fails leaves
+   * the browser exactly as it was and the next start tries again. Adopting is also what carries
+   * the reset to every other context in this browser, the popup included.
+   */
+  private async startAccountFromDefaults(): Promise<void> {
+    const fresh: StillSettings = { ...DEFAULT_SETTINGS, updatedAt: this.now() };
+    const envelope = await this.backend.writeProfile(fresh, randomWriteId());
+    this.cache.adoptSyncedEnvelope(envelope);
   }
 
   /**
    * Whether the local settings are the more recently changed side of a FIRST sign-in.
    *
-   * Reached only from `deviceWins`, and only on a device that has never synced. That scoping is
+   * Reached only from `decideReconcile`, and only on a device that has never synced. That scoping is
    * load-bearing rather than incidental: a clock comparison is the only tool available before this
    * device and the account share a version counter, and it is the wrong tool afterwards.
    *
