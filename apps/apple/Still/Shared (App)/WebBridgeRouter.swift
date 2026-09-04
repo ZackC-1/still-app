@@ -208,7 +208,7 @@ final class WebBridgeRouter {
   ///
   /// Two halves, deliberately. The local half is written first and always: it reads the app's own
   /// bundle, needs nothing from Apple, and works on every OS version Still supports. The verified
-  /// half comes from Apple's app transaction, is richer, and is entirely optional — it is available
+  /// half comes from Apple's app transaction, is richer, and is entirely optional: it is available
   /// only on newer systems, and asking for it can put an App Store sign-in sheet in front of a free
   /// app when the transaction is not already cached on the device. So the ask is counted before it
   /// is made and stops for good after a few attempts, rather than repeating at every launch.

@@ -31,7 +31,7 @@ function controller() {
   return new UiController({ cache, host: { canPurchase: true } });
 }
 
-describe("PaywallSheet — sheet mechanics with the paid tier on", () => {
+describe("PaywallSheet: sheet mechanics with the paid tier on", () => {
   it("the Get button is disabled while a purchase is in flight (duplicate-tap guard)", async () => {
     const onGet = vi.fn();
     const c = controller();
