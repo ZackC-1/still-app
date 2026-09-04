@@ -1,12 +1,12 @@
 /* Generated from packages/core/rules/seed.json — do not edit by hand. */
-html.still-pro-active a[href="/reels/"]{display:none!important}
-html.still-pro-active a[href^="/reels/"]{display:none!important}
-html.still-pro-active a:has(svg[aria-label="Reels"]){display:none!important}
-html.still-pro-active a[aria-label*="reels" i]{display:none!important}
-html.still-pro-active [role="tablist"] a[href*="/reels"]{display:none!important}
-html.still-pro-active a[href$="/reels/"]{display:none!important}
-html.still-pro-active a[aria-label="Reels"]{display:none!important}
-html.still-pro-active a[aria-label*="Reels" i]{display:none!important}
-html.still-pro-active a[href*="/reels/"]{display:none!important}
-html.still-pro-active li:has(> a[href*="/reel"]){display:none!important}
-html.still-pro-active [role="tab"][aria-label*="reels" i] > *{display:none!important}
+html.still-pro-active.still-service-instagram a[href="/reels/"]{display:none!important}
+html.still-pro-active.still-service-instagram a[href^="/reels/"]{display:none!important}
+html.still-pro-active.still-service-instagram a:has(svg[aria-label="Reels"]){display:none!important}
+html.still-pro-active.still-service-instagram a[aria-label*="reels" i]{display:none!important}
+html.still-pro-active.still-service-instagram [role="tablist"] a[href*="/reels"]{display:none!important}
+html.still-pro-active.still-service-instagram a[href$="/reels/"]{display:none!important}
+html.still-pro-active.still-service-facebook a[aria-label="Reels"]{display:none!important}
+html.still-pro-active.still-service-facebook a[aria-label*="Reels" i]{display:none!important}
+html.still-pro-active.still-service-facebook a[href*="/reels/"]{display:none!important}
+html.still-pro-active.still-service-facebook li:has(> a[href*="/reel"]){display:none!important}
+html.still-pro-active.still-service-facebook [role="tab"][aria-label*="reels" i] > *{display:none!important}

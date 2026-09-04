@@ -1,5 +1,5 @@
 {
-  "version": "1.0.4",
+  "version": "1.1.0",
   "services": {
     "youtube": {
       "matches": [
@@ -43,14 +43,17 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "ytd-reel-shelf-renderer",
             "ytd-rich-section-renderer:has(ytd-rich-shelf-renderer[is-shorts])",
-            "ytm-reel-shelf-renderer",
-            "ytm-rich-section-renderer:has(a[href^=\"/shorts/\"])",
             "ytm-rich-section-renderer:has(ytm-shorts-lockup-view-model)",
-            "ytm-shorts-lockup-view-model",
-            "ytm-video-with-context-renderer:has(a[href^=\"/shorts/\"])",
-            "ytm-rich-item-renderer:has(a[href^=\"/shorts/\"])"
+            "ytm-rich-section-renderer:has(ytm-reel-shelf-renderer)",
+            "ytd-reel-shelf-renderer",
+            "ytm-reel-shelf-renderer",
+            "grid-shelf-view-model:has(ytm-shorts-lockup-view-model)",
+            "ytm-rich-item-renderer:has(ytm-shorts-lockup-view-model)",
+            "ytm-video-with-context-renderer:has(ytm-media-item.big-shorts-singleton)",
+            "ytm-video-with-context-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"])",
+            "ytm-rich-item-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"])",
+            "ytm-shorts-lockup-view-model"
           ]
         },
         {
@@ -62,10 +65,12 @@
           "enabledByDefault": true,
           "selectors": [
             "ytd-reel-shelf-renderer",
-            "ytd-video-renderer:has(a[href^=\"/shorts/\"])",
-            "ytm-shorts-lockup-view-model",
-            "ytm-video-with-context-renderer:has(a[href^=\"/shorts/\"])",
-            "ytm-rich-item-renderer:has(a[href^=\"/shorts/\"])"
+            "grid-shelf-view-model:has(ytm-shorts-lockup-view-model)",
+            "ytd-video-renderer:has(a#thumbnail[href^=\"/shorts/\"])",
+            "ytm-video-with-context-renderer:has(ytm-media-item.big-shorts-singleton)",
+            "ytm-video-with-context-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"])",
+            "ytm-rich-item-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"])",
+            "ytm-shorts-lockup-view-model"
           ]
         },
         {
@@ -76,7 +81,10 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "ytd-reel-shelf-renderer"
+            "grid-shelf-view-model:has(ytm-shorts-lockup-view-model)",
+            "ytd-reel-shelf-renderer",
+            "ytm-reel-shelf-renderer",
+            "ytm-shorts-lockup-view-model"
           ]
         },
         {
@@ -292,6 +300,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "48da761ca2369e911aff7410cb08c897a6956b70969f042189e10a8bb709f72934d366a14c7998246510a5d1a19180d182ef738cd417dc5b0792fdccd4c7c005"
+    "value": "5ca24ca37fd92aec35f3194066cf4149033df039da8f103039c877a85d1c7a5cc0ad33f99aaa207add2bbdd519080deb7005fe18e75b6442ad9ce9ced46e080b"
   }
 }
