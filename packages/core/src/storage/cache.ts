@@ -28,6 +28,7 @@ export class SettingsCache {
   private readonly now: () => number;
   private readonly listeners = new Set<SettingsListener>();
   private unwatch: (() => void) | null = null;
+  private hydration: Promise<StillSettings> | null = null;
 
   constructor(
     private readonly adapter: StorageAdapter,
@@ -51,7 +52,27 @@ export class SettingsCache {
   }
 
   /** Load persisted settings once at startup. LWW so a newer in-memory edit isn't clobbered. */
-  async hydrate(): Promise<StillSettings> {
+  hydrate(): Promise<StillSettings> {
+    const run = this.load();
+    this.hydration ??= run;
+    return run;
+  }
+
+  /**
+   * Resolves once the persisted settings have been loaded, or immediately when nothing ever
+   * started loading them.
+   *
+   * Settings sync waits on this before it compares a device against its account. Until hydration
+   * lands, `current()` is the bundled defaults and `currentSyncMetadata()` is null, so an
+   * unhydrated cache looks exactly like a brand new device and could publish defaults over
+   * settings someone has been using. A failed load resolves rather than rejecting: the caller's
+   * job is to wait for the answer, not to inherit the storage error.
+   */
+  whenHydrated(): Promise<unknown> {
+    return this.hydration === null ? Promise.resolve() : this.hydration.catch(() => undefined);
+  }
+
+  private async load(): Promise<StillSettings> {
     const stored = await this.adapter.get();
     if (stored) void this.applyStoredRecord(stored, "external");
     return this.snapshot;
@@ -92,6 +113,30 @@ export class SettingsCache {
     void this.persist();
     if (settingsChanged) this.notify("synced");
     return settingsChanged || metadataChanged;
+  }
+
+  /**
+   * Take an envelope as this device's truth, whatever version the cache is carrying.
+   *
+   * `applySyncedEnvelope` above deliberately refuses anything that is not a later version than
+   * what this device already has, which is what stops a late realtime message dragging the steady
+   * state backwards. That test is the wrong one at the single moment a device is being reconciled
+   * with an account, because the version it is carrying may not be comparable at all: on a shared
+   * browser it belongs to the previous person's profile row. So the reconcile in SyncService, and
+   * only the reconcile, adopts unconditionally once it has decided the account is the newer side.
+   * Returns true when anything changed.
+   */
+  adoptSyncedEnvelope(envelope: SyncedSettingsEnvelope): boolean {
+    const incomingMetadata = metadataFromEnvelope(envelope);
+    const settingsChanged = !sameSettings(this.snapshot, envelope.settings);
+    const metadataChanged = !sameMetadata(this.syncMetadata, incomingMetadata);
+    if (!settingsChanged && !metadataChanged) return false;
+
+    this.snapshot = envelope.settings;
+    this.syncMetadata = incomingMetadata;
+    void this.persist();
+    if (settingsChanged) this.notify("synced");
+    return true;
   }
 
   subscribe(listener: SettingsListener): () => void {

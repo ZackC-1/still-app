@@ -46,6 +46,23 @@ final class OnboardingTests: XCTestCase {
     )
   }
 
+  func testStepOneNamesTheButtonUnderIt() {
+    // The first thing onboarding asks a person to do is tap the button on the same screen, so the
+    // step has to call it what the button calls itself. These two drifted apart once already, when
+    // the button was renamed to one cross-platform phrase and the steps kept the old iOS and macOS
+    // names, leaving first-launch users and App Review told to tap a control that was not there.
+    for steps in [
+      OnboardingCopy.enableSteps(iOS18OrLater: true),
+      OnboardingCopy.enableSteps(iOS18OrLater: false),
+      OnboardingCopy.macOSEnableSteps,
+    ] {
+      XCTAssertTrue(
+        steps[0].contains(OnboardingCopy.openButtonTitle),
+        "step 1 must name the button as it reads: \(steps[0])"
+      )
+    }
+  }
+
   func testGateShowsUntilMarkedComplete() {
     let defaults = UserDefaults(suiteName: "still.onboarding.tests")!
     OnboardingGate.reset(defaults)

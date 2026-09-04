@@ -34,13 +34,23 @@ public enum SafariExtensionStatus: Equatable, Sendable {
 /// app target (which `swift test` cannot reach) so the per-OS variants stay deduplicated and the
 /// iOS 18 Settings-path fork is provable without a device.
 public enum OnboardingCopy {
+  /// The label on the button that sits directly under the steps below. Both platforms land on the
+  /// place where a Safari extension is turned on: the Settings app on iOS, Safari's own settings on
+  /// macOS. One phrase describes both destinations honestly.
+  ///
+  /// It lives here, next to the steps, because step 1 names the button the reader is looking at.
+  /// Holding both in one place is what stops the sentence and the control drifting apart, which is
+  /// exactly what happened when the button was renamed and the steps were not. `OnboardingTests`
+  /// asserts that step 1 of each list still contains this string.
+  public static let openButtonTitle = "Open Safari extension settings"
+
   /// The iOS enable steps. Only the Settings path changed in iOS 18 (Settings → Apps → Safari);
   /// the other three steps are shared verbatim, so they exist exactly once here. A plain `Bool`
-  /// keeps this platform-agnostic — the app target resolves `#available(iOS 18.0, *)` and passes
+  /// keeps this platform-agnostic: the app target resolves `#available(iOS 18.0, *)` and passes
   /// the verdict in, so the function itself runs (and tests) under macOS `swift test`.
   public static func enableSteps(iOS18OrLater: Bool) -> [String] {
     [
-      "Tap “Open Settings” below, then tap ‹ Settings",
+      "Tap “\(openButtonTitle)” below, then tap ‹ Settings",
       iOS18OrLater
         ? "Go to Apps → Safari → Extensions → Still"
         : "Go to Safari → Extensions → Still",
@@ -49,9 +59,10 @@ public enum OnboardingCopy {
     ]
   }
 
-  /// The macOS enable steps — one static list; Safari's extension settings have one path on macOS.
+  /// The macOS enable steps: one static list, because Safari's extension settings have one path
+  /// on macOS.
   public static let macOSEnableSteps: [String] = [
-    "Click “Open Safari Settings” below",
+    "Click “\(openButtonTitle)” below",
     "In Extensions, switch on Still",
     "Allow Still on YouTube, Instagram, TikTok, and Facebook",
     "Quit Safari (⌘Q) and reopen it",

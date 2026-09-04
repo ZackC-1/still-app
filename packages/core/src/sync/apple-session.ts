@@ -153,10 +153,14 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
       // written server truth lands in-session. Idempotent: a second pass finds the server entitled.
       // Skipped when the re-key failed, because attaching under the wrong identity would move a
       // purchase onto the wrong customer.
+      // The two cheap checks come first on purpose. Awaiting the purchase SDK is the expensive
+      // operand, and it is only needed to decide whether attaching is safe, so on the ordinary
+      // path (an entitled account, or no attach to consider) the card stops saying "getting ready"
+      // as soon as the settings mirror is done rather than when RevenueCat answers.
       if (
-        (await identityReady) &&
         !controller.serverEntitled &&
-        teardownGeneration === generationAtEntry
+        teardownGeneration === generationAtEntry &&
+        (await identityReady)
       ) {
         const receipt = await refreshReceipt();
         if (receipt === "entitled" && teardownGeneration === generationAtEntry) {

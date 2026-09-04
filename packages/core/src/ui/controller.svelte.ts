@@ -466,7 +466,7 @@ export class UiController {
     if (PAID_TIER_ENABLED && !this.entitled) return "not-entitled";
     // Sync-flavored state keys off the SERVER lane: a signed-in user whose Pro is receipt-only
     // (family-shared receipt is attach-ineligible; or the attach/webhook hasn't landed) is NOT
-    // synced — claiming a sync that will never happen would be false, possibly permanently
+    // synced, because claiming a sync that will never happen would be false, possibly permanently
     // (Codex review pin). Device Pro still unlocks the rows via the merged `entitled`. With the
     // paid tier dormant this cannot arise: settings sync follows the account, not the receipt.
     if (PAID_TIER_ENABLED && !this.serverEntitled) return "pro-device-only";

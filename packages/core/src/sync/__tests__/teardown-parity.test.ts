@@ -27,7 +27,9 @@ import { SyncService } from "../service.js";
 //       (never appear signed out while the account still exists);
 //   (b) a VOLUNTARY sign-out completes the local purge/signed-out transition even when the remote
 //       sign-out rejects (the user asked to leave; offline must not trap them signed-in);
-//   (c) neither path throws to its caller-facing surface.
+//   (c) neither path throws to its caller-facing surface;
+//   (d) neither path erases the record of who last synced on this device. The shared-machine rule
+//       exists for the moment AFTER someone signs out, so the two hosts must not drift on it.
 // The orchestrators are NOT merged (their purge mechanics genuinely differ: App-Group mirror vs
 // record store + browser-scoped purges) — only the observable teardown contract is shared, via a
 // per-orchestrator adapter over the same wiring production uses. Each adapter's local-state
@@ -48,6 +50,10 @@ interface TeardownHarness {
   isSignedOutLocally(): boolean;
   /** Session and local grant both survived (what a failed delete must leave behind). */
   sessionIntact(): boolean;
+  /** Who this device records as the last person to sync here, after the teardown ran. Both
+   * orchestrators must still answer "u1": erasing it would let the next person to sign in on a
+   * shared machine carry the previous person's settings into their own account. */
+  lastSyncedIdentity(): Promise<string | null>;
 }
 
 const T0 = 1_700_000_000_000;
@@ -119,12 +125,23 @@ function appleHarness(fail: FailureModes = {}): TeardownHarness {
   controller.userId = "u1";
   controller.entitled = true;
 
+  // The Apple host keeps the last-synced identity in its own storage (app-webview wiring) and hands
+  // it to SyncService; the session never reaches it, which is exactly the property under test.
+  const identity = appleIdentityStore();
+
   return {
     signOut: () => controller.signOut(),
     deleteAccount: () => controller.confirmDeleteAccount(),
     isSignedOutLocally: () => controller.userId === null && !controller.entitled,
     sessionIntact: () => controller.userId === "u1" && controller.entitled,
+    lastSyncedIdentity: () => identity.get(),
   };
+}
+
+/** A stand-in for the Apple host's persisted last-synced identity, seeded as already synced. */
+function appleIdentityStore(): { get(): Promise<string | null> } {
+  const lastSynced: string | null = "u1";
+  return { get: async () => lastSynced };
 }
 
 // ── Extension (Chromium background) ──────────────────────────────────────────────────────────────
@@ -197,14 +214,11 @@ function extensionHarness(fail: FailureModes = {}): TeardownHarness {
     },
   };
 
-  let lastSynced: string | null = "u1"; // a previously-synced identity, so teardown has one to forget
+  let lastSynced: string | null = "u1"; // a previously-synced identity, which teardown must keep
   const identity = {
     get: vi.fn(async () => lastSynced),
     set: vi.fn(async (userId: string) => {
       lastSynced = userId;
-    }),
-    clear: vi.fn(async () => {
-      lastSynced = null;
     }),
   };
 
@@ -236,10 +250,9 @@ function extensionHarness(fail: FailureModes = {}): TeardownHarness {
     deleteAccount: async () => {
       await session.deleteAccount();
     },
-    isSignedOutLocally: () =>
-      purged() && identity.clear.mock.calls.length > 0 && clearAuthStorage.mock.calls.length > 0,
-    sessionIntact: () =>
-      sessionUser === "u1" && !purged() && identity.clear.mock.calls.length === 0,
+    isSignedOutLocally: () => purged() && clearAuthStorage.mock.calls.length > 0,
+    sessionIntact: () => sessionUser === "u1" && !purged(),
+    lastSyncedIdentity: () => identity.get(),
   };
 }
 
@@ -262,6 +275,16 @@ describe.each(orchestrators)("teardown parity — $name", ({ build }) => {
     const h = build({ remoteSignOutRejects: true });
     await expect(h.signOut()).resolves.toBeUndefined(); // (c)
     expect(h.isSignedOutLocally()).toBe(true);
+  });
+
+  it("neither exit forgets who last synced on this device (the shared-machine rule outlives sign-out)", async () => {
+    const signedOut = build();
+    await signedOut.signOut();
+    expect(await signedOut.lastSyncedIdentity()).toBe("u1");
+
+    const deleted = build();
+    await deleted.deleteAccount();
+    expect(await deleted.lastSyncedIdentity()).toBe("u1");
   });
 
   it("baseline: the happy paths reach the same terminal states on both orchestrators", async () => {
