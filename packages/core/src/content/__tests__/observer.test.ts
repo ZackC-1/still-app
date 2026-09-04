@@ -113,3 +113,49 @@ describe("createReapplyObserver", () => {
     expect(reapply.mock.calls.length).toBe(count); // no further calls after disconnect
   });
 });
+
+describe("createReapplyObserver — mutations worth a sweep", () => {
+  it("ignores a batch that added no element", async () => {
+    const host = document.createElement("div");
+    host.textContent = "1,204 views";
+    document.body.appendChild(host);
+
+    const reapply = vi.fn();
+    const obs = createReapplyObserver(window, document, reapply, sync);
+    obs.start();
+    // A running feed rewrites counters and timestamps constantly. Text cannot match a selector, so
+    // walking the document for it is pure cost.
+    host.appendChild(document.createTextNode(" (updated)"));
+    await tick();
+    expect(reapply).not.toHaveBeenCalled();
+    obs.stop();
+  });
+
+  it("ignores a batch that only removed nodes", async () => {
+    const host = document.createElement("div");
+    const child = document.createElement("span");
+    host.appendChild(child);
+    document.body.appendChild(host);
+
+    const reapply = vi.fn();
+    const obs = createReapplyObserver(window, document, reapply, sync);
+    obs.start();
+    host.removeChild(child);
+    await tick();
+    expect(reapply).not.toHaveBeenCalled();
+    obs.stop();
+  });
+
+  it("sweeps when an element arrives alongside text", async () => {
+    const reapply = vi.fn();
+    const obs = createReapplyObserver(window, document, reapply, sync);
+    obs.start();
+    const fragment = document.createDocumentFragment();
+    fragment.appendChild(document.createTextNode("views"));
+    fragment.appendChild(document.createElement("ytd-reel-shelf-renderer"));
+    document.body.appendChild(fragment);
+    await tick();
+    expect(reapply).toHaveBeenCalled();
+    obs.stop();
+  });
+});
