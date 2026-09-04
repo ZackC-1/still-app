@@ -1,3 +1,4 @@
+import { PAID_TIER_ENABLED } from "@still/shared-types";
 import { SettingsCache, ChromeStorageAdapter } from "../storage/index.js";
 import type { StoredSettingsRecord } from "../storage/index.js";
 import { EntitlementCache, ChromeEntitlementAdapter } from "../entitlement/index.js";
@@ -96,7 +97,14 @@ export function createExtensionUiController(
         // refund revokes without ritual. The checkout-pending rehydration above starts its own
         // fast-poll (which reconciles immediately), so only the no-pending open fires here. The
         // entitled flip arrives through the entitlement storage watch — never this return value.
-        if (state.userId !== null && state.checkoutPending === null) {
+        //
+        // Skipped while the paid tier is dormant behind PAID_TIER_ENABLED, because with nothing
+        // for an entitlement to unlock this is a live purchase-service query, on the server, every
+        // time someone opens the popup, whose answer changes nothing anyone can see. Nothing is
+        // lost by waiting: the record it keeps warm is refreshed by the content-script nudge, which
+        // reconciles whenever the cached answer is more than a day old, and the whole path returns
+        // with the switch.
+        if (PAID_TIER_ENABLED && state.userId !== null && state.checkoutPending === null) {
           void purchase.checkout.reconcile();
         }
       })

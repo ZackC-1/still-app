@@ -223,12 +223,22 @@ describe("createExtensionUiController — with the ext-chromium injection (plan 
     expect(reconcile).not.toHaveBeenCalled();
   });
 
-  it("reconciles once on a signed-in popup open with no pending flag (R4)", async () => {
+  paidTierIt("reconciles once on a signed-in popup open with no pending flag (R4)", async () => {
     installChrome();
     const { deps, reconcile } = makePurchase({ state: snapshot({ userId: "user-1" }) });
     createExtensionUiController(deps);
     await flush();
     expect(reconcile).toHaveBeenCalledTimes(1);
+  });
+
+  includedAccessIt("spends no purchase-service query on opening the popup", async () => {
+    // With nothing for an entitlement to unlock, this call would ask the server, which asks the
+    // purchase service, every single time someone opens Still, and change nothing anyone can see.
+    installChrome();
+    const { deps, reconcile } = makePurchase({ state: snapshot({ userId: "user-1" }) });
+    createExtensionUiController(deps);
+    await flush();
+    expect(reconcile).not.toHaveBeenCalled();
   });
 
   it("never reconciles on a signed-out open (no session, nothing to check)", async () => {
