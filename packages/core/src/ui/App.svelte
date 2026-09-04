@@ -129,9 +129,12 @@
     </div>
   {/snippet}
 
-  <!-- Sync / account section: renders the popup state matrix. The two PAID_TIER_ENABLED checks in
-       this section hide the buy calls to action while the paid tier is dormant, leaving sign-in as
-       the only thing this card offers. The branches themselves are preserved, not deleted. -->
+  <!-- Sync / account section: renders the popup state matrix. The PAID_TIER_ENABLED checks in this
+       section hide the buy and restore calls to action while the paid tier is dormant, leaving
+       sign-in as the only thing this card offers. Each one wraps a branch rather than joining its
+       condition, so that hiding a purchase affordance shows nothing in its place instead of
+       falling through to the sibling branch, which was written for a different audience. The
+       branches themselves are preserved, not deleted. -->
   <section class="sync card" data-state={c.popupState}>
     {#if c.popupState === "signed-out"}
       {#if c.canSignIn}
@@ -171,14 +174,20 @@
           {STRINGS.auth.signInCta}
         </button>
       {/if}
-      <button
-        class="link"
-        onclick={() => {
-          if (onRestore && c.beginRestore()) onRestore();
-        }}
-      >
-        {STRINGS.paywall.restoreSignedOut}
-      </button>
+      {#if PAID_TIER_ENABLED}
+        <!-- Restore has nothing to report while the paid tier is dormant: the native action is
+             refused and its answer only ever renders inside the paywall sheet, so the control
+             would look tappable and do nothing at all. The device still proves its own purchase
+             through the receipt read, which runs on its own and is untouched. -->
+        <button
+          class="link"
+          onclick={() => {
+            if (onRestore && c.beginRestore()) onRestore();
+          }}
+        >
+          {STRINGS.paywall.restoreSignedOut}
+        </button>
+      {/if}
       <a
         class="link center"
         href={PRIVACY_POLICY_URL}
@@ -188,18 +197,20 @@
         {STRINGS.account.privacyPolicy}
       </a>
     {:else if c.popupState === "not-entitled"}
-      {#if PAID_TIER_ENABLED && c.host.canPurchase}
-        <div class="syncrow">
-          <div class="syncrow-text">
-            <span class="syncrow-title">{STRINGS.paywall.title}</span>
-            <span class="syncrow-sub">{STRINGS.paywall.body}</span>
+      {#if PAID_TIER_ENABLED}
+        {#if c.host.canPurchase}
+          <div class="syncrow">
+            <div class="syncrow-text">
+              <span class="syncrow-title">{STRINGS.paywall.title}</span>
+              <span class="syncrow-sub">{STRINGS.paywall.body}</span>
+            </div>
+            <button class="primary block" onclick={() => c.startUpgrade()}
+              >{STRINGS.paywall.upgradeCta}</button
+            >
           </div>
-          <button class="primary block" onclick={() => c.startUpgrade()}
-            >{STRINGS.paywall.upgradeCta}</button
-          >
-        </div>
-      {:else}
-        <p class="muted">{STRINGS.paywall.nonApple}</p>
+        {:else}
+          <p class="muted">{STRINGS.paywall.nonApple}</p>
+        {/if}
       {/if}
       <button class="link" onclick={() => c.signOut()}
         >{STRINGS.auth.signOut}</button

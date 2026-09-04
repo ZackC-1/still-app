@@ -201,12 +201,28 @@ describe("App", () => {
     expect(screen.getByText(/Synced across supported devices/)).toBeTruthy();
   });
 
-  it("non-Apple host shows the explanatory paywall, never a purchasable CTA (R19)", () => {
+  paidTierIt("non-Apple host shows the explanatory paywall, never a purchasable CTA (R19)", () => {
     const c = controller({ host: { canPurchase: false } });
     c.userId = "u";
     render(App, { props: { controller: c } });
     expect(screen.queryByText(STRINGS.paywall.upgradeCta)).toBeNull();
     expect(screen.getByText(/Unlock Pro in the Still app/)).toBeTruthy();
+  });
+
+  includedAccessIt("a signed-in free user is never pointed at a purchase, on any host", () => {
+    // The line below was written for a surface that could not sell anything and had to explain
+    // where to buy. With nothing to buy anywhere, it would tell people to go to the app they are
+    // already inside, so this state shows nothing in its place.
+    for (const canPurchase of [true, false]) {
+      const c = controller({ host: { canPurchase }, auth: codeCapableAuth() });
+      c.userId = "u";
+      const view = render(App, { props: { controller: c } });
+      expect(c.popupState).toBe("not-entitled");
+      expect(screen.queryByText(STRINGS.paywall.upgradeCta)).toBeNull();
+      expect(screen.queryByText(/Unlock Pro in the Still app/)).toBeNull();
+      expect(screen.getByText(STRINGS.auth.signOut)).toBeTruthy();
+      view.unmount();
+    }
   });
 
   it("Apple host prop is ignored: shared UI does not render Sign in with Apple", async () => {
@@ -633,14 +649,30 @@ describe("Placeholder", () => {
 });
 
 describe("App — purchase-first surfaces (plan 2026-07-15-001)", () => {
-  it("pro-no-account home state: active copy, Sign in visible, restore link, no buy CTA", () => {
+  it("pro-no-account home state: active copy, Sign in visible, no buy CTA", () => {
     const c = controller({ auth: codeCapableAuth() });
     c.receiptEntitled = true; // receipt-proven Pro, no session
     render(App, { props: { controller: c } });
     expect(screen.getByText(STRINGS.proNoAccount.active)).toBeTruthy();
     expect(screen.getByText(STRINGS.auth.signInCta)).toBeTruthy();
-    expect(screen.getByText(STRINGS.paywall.restoreSignedOut)).toBeTruthy();
     expect(screen.queryByText(STRINGS.paywall.upgradeCta)).toBeNull();
+  });
+
+  paidTierIt("pro-no-account offers Restore for a returning purchaser", () => {
+    const c = controller({ auth: codeCapableAuth() });
+    c.receiptEntitled = true;
+    render(App, { props: { controller: c } });
+    expect(screen.getByText(STRINGS.paywall.restoreSignedOut)).toBeTruthy();
+  });
+
+  includedAccessIt("pro-no-account hides Restore, which would have nothing to say", () => {
+    // An earlier purchaser still shows as Pro here, from the receipt on the device. Restore is
+    // hidden rather than left tappable because its answer only renders inside the paywall sheet.
+    const c = controller({ auth: codeCapableAuth() });
+    c.receiptEntitled = true;
+    render(App, { props: { controller: c } });
+    expect(screen.getByText(STRINGS.proNoAccount.active)).toBeTruthy();
+    expect(screen.queryByText(STRINGS.paywall.restoreSignedOut)).toBeNull();
   });
 
   paidTierIt("success screen (account-pitch): two independent equal-weight CTAs, no auto-dismiss markup", async () => {
