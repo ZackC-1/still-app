@@ -1,7 +1,7 @@
 import type { StillSettings } from "@still/shared-types";
 import { DEFAULT_SETTINGS, PAID_TIER_ENABLED } from "@still/shared-types";
 import type { SettingsCache, SettingsChangeSource } from "../storage/cache.js";
-import type { SyncedSettingsEnvelope } from "../storage/adapter.js";
+import type { SettingsSyncMetadata, SyncedSettingsEnvelope } from "../storage/adapter.js";
 import type { AuthPort, BackendPort, EntitlementRead } from "./ports.js";
 
 // Coordinates auth + entitlement + settings sync (R6/R7/R8). The hard rules:
@@ -256,6 +256,10 @@ export class SyncService {
     // `current()` is the bundled defaults and the sync metadata is null, so the device would read
     // as brand new and could publish defaults over settings someone has been using.
     await this.cache.whenHydrated();
+    // What this device was anchored to before the read, so the branch below can tell whether
+    // anything reached the cache while the read was in flight. Outgoing writes are held for the
+    // duration, so in practice that means the account's own live stream arriving with a later write.
+    const anchorBeforeRead = this.cache.currentSyncMetadata();
     const lastSynced = this.identity === undefined ? null : await this.identity.get();
     const cloud = await this.backend.readProfile();
     // A sign-out or an account switch during any await here makes the answer below about a session
@@ -284,16 +288,21 @@ export class SyncService {
     // below is for the compiler alone: an account with nothing saved cannot reach here, because
     // the decision sends every empty account down one of the two branches above it.
     if (cloud !== null) {
-      if (lastSynced === userId && this.cache.currentSyncMetadata() !== null) {
-        // The two counters count the same profile row, so the steady-state rule is the right one:
-        // it is what stops a realtime message that arrived while this read was in flight being
-        // overwritten by the older snapshot the read is holding.
+      if (!sameProfileRowState(anchorBeforeRead, this.cache.currentSyncMetadata())) {
+        // Something reached this cache while the read was in flight, and it can only have come from
+        // this account's own live stream, so it is later than what the read is holding. The
+        // steady-state rule is the right one here because it keeps whichever is the later version
+        // of the two, rather than walking the device back to the snapshot the read set out with.
         this.cache.applySyncedEnvelope(cloud);
       } else {
-        // The counters are not comparable at all: on a shared browser the version on this device
-        // belongs to the previous person's profile row, and on a device that has never synced
-        // there is no counter to compare. The account is taken whole, and every other context in
-        // the browser is told the row changed.
+        // Nothing has moved this device since the read began, so the read IS what this account
+        // holds and it is taken whole. Unconditionally, because the version sitting on this device
+        // may not be this account's to compare against: on a shared browser it belongs to the
+        // previous person's profile row, and that row can be far ahead of this one. Every other
+        // context in the browser is told the row changed. This used to ask whether the last sync
+        // here was for this same person, which reads as "then the versions are comparable" and is
+        // not the same statement: the record of who synced here is written before the settings
+        // move, so it can already name someone whose settings this cache has never held.
         this.cache.adoptSyncedEnvelope(cloud);
       }
     }
@@ -322,13 +331,20 @@ export class SyncService {
    * nothing saved is filled from this device. That is the first-sign-in rule, and
    * `localSettingsAreNewer` gives the account every tie and every stamp it cannot believe.
    *
-   * A device that HAS synced before is compared by the account's own version counter instead,
-   * which is one monotonic sequence rather than two unrelated clocks. It may publish only when the
-   * account is exactly where this device left it, meaning nothing has been written from anywhere
-   * else since; anything different here is then an edit made while signed out or offline, and it
-   * is the newest thing that exists. The moment the account has moved on, the account wins. That
-   * is what stops a device whose clock runs a few minutes fast republishing its own snapshot over
-   * every other device, every single time it starts.
+   * A device that HAS synced before is compared against the account's own profile row instead of
+   * against a clock. It may publish only when that row is in exactly the state this device was
+   * left holding, meaning nothing has been written from anywhere else since; anything different
+   * here is then an edit made while signed out or offline, and it is the newest thing that exists.
+   * The moment the row has moved on, the account wins. That is what stops a device whose clock
+   * runs a few minutes fast republishing its own snapshot over every other device, every single
+   * time it starts.
+   *
+   * "Exactly the state this device was left holding" is the whole row state and not the version
+   * number alone, and that distinction is the point rather than a detail. A version counts writes
+   * inside ONE account, so it says nothing across two: two people who each use Still lightly both
+   * sit at version 1, and matching those two numbers would tell this browser that a stranger's
+   * account is exactly where it left off. It is the same reasoning as the paragraph above about an
+   * account with no row, applied to an account that has one. See `sameProfileRowState`.
    */
   private decideReconcile(
     cloud: SyncedSettingsEnvelope | null,
@@ -345,7 +361,7 @@ export class SyncService {
     if (metadata === null) {
       return this.localSettingsAreNewer(this.cache.current(), cloud) ? "device" : "account";
     }
-    if (cloud.version !== metadata.version) return "account";
+    if (!sameProfileRowState(metadata, cloud)) return "account";
     return sameSettings(this.cache.current(), cloud.settings) ? "account" : "device";
   }
 
@@ -657,4 +673,35 @@ function randomWriteId(): string {
 
 function sameSettings(a: StillSettings, b: StillSettings): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+/**
+ * Whether two descriptions of a saved settings row describe the same row in the same state.
+ *
+ * The reconcile asks this about a device's anchor and an account's row, and it has to be an answer
+ * about identity rather than about position. The version alone is position: it counts the writes
+ * made inside one account and is a small number for anybody who does not change their settings
+ * often, so two people can very easily be sitting on the same one. Matching those numbers would
+ * mean a browser carrying one person's settings could be told that a different person's account is
+ * exactly where it left off, and publish the first person's settings into it. The whole row state
+ * cannot collide that way: a server timestamp and the id of the write that produced it belong to
+ * one write on one row.
+ *
+ * The timestamp is compared as an instant rather than as text, deliberately. The same row state
+ * reaches this device through three different transports, the write's own reply, the start-up
+ * read, and the live stream, and nothing guarantees that all three spell an instant identically.
+ * Comparing the text would make a row look as though it had moved when it had not, and this device
+ * would then quietly stop publishing edits made while it was offline.
+ *
+ * `SettingsCache` has its own `sameMetadata`, which is a text comparison on purpose: it decides
+ * whether the stored record differs from the one in memory and therefore needs writing back, and
+ * for that question two spellings of one instant genuinely are two different records.
+ */
+function sameProfileRowState(a: SettingsSyncMetadata | null, b: SettingsSyncMetadata | null): boolean {
+  if (a === null || b === null) return a === b;
+  if (a.version !== b.version) return false;
+  if (a.lastWriteId !== b.lastWriteId) return false;
+  if (a.serverUpdatedAt === b.serverUpdatedAt) return true;
+  const left = Date.parse(a.serverUpdatedAt);
+  return Number.isFinite(left) && left === Date.parse(b.serverUpdatedAt);
 }
