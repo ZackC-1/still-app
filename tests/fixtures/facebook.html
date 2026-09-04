@@ -16,8 +16,25 @@
           apart from a Page called "Reel Estate".
         -->
         <li id="keep-menu-lookalike"><a href="/reelestate">Reel Estate Group</a></li>
+        <!--
+          Over-blocking control for the Page-tab rule below: an ordinary link to a Page whose vanity
+          address happens to be "reels_tab". The rule keys on the tab, not on the word, so this link
+          survives.
+        -->
+        <li id="keep-menu-reels-tab-page"><a href="/reels_tab">Reels Tab Productions</a></li>
       </ul>
     </nav>
+
+    <!--
+      Page profile tabs. Every Facebook Page carries a Reels tab pointing at /<page>/reels_tab
+      (fb-page-tabs, hide); the other tabs must survive. Copied from a signed-out capture of
+      facebook.com/facebook, where the tab is an <a role="tab"> with an absolute address.
+    -->
+    <div role="tablist" id="page-tabs">
+      <a role="tab" href="https://www.facebook.com/stillapp/" id="keep-page-posts-tab">Posts</a>
+      <a role="tab" href="https://www.facebook.com/stillapp/reels_tab" id="page-reels-tab">Reels</a>
+      <a role="tab" href="https://www.facebook.com/stillapp/photos" id="keep-page-photos-tab">Photos</a>
+    </div>
 
     <!-- Feed: a Reel article (fb-feed, remove) + normal posts (must survive) -->
     <main role="feed">

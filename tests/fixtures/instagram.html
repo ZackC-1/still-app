@@ -16,5 +16,17 @@
       <article id="reel-post"><a href="/reel/xyz">a reel</a></article>
       <article id="keep-post">A normal photo post</article>
     </main>
+
+    <!--
+      Profile grid. A profile's own Reels are /<username>/reel/<id>/, not /reel/<id>/, so a rule
+      anchored to the start of the address never matched them (ig-explore-search, remove). The tile
+      is a Reel because it carries the Clip badge, which is what tells it apart from a photo post.
+    -->
+    <div id="profile-grid">
+      <a id="profile-reel-tile" href="/someuser/reel/ABC123/"><svg aria-label="Clip"></svg>a profile reel</a>
+      <a id="keep-profile-post-tile" href="/someuser/p/XYZ789/">A normal grid photo</a>
+      <!-- Over-blocking control: a profile whose username merely begins with the letters "reel". -->
+      <a id="keep-profile-lookalike" href="/reelmaker/">Reelmaker</a>
+    </div>
   </body>
 </html>

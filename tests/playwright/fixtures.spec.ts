@@ -209,6 +209,21 @@ test("instagram: Pro user removes an inline Reel + hides the Reels nav, keeps a 
   await expect(page.locator("#reels-link")).toBeHidden();
 });
 
+test("instagram profile: grid Reels go, ordinary grid posts stay", async ({ context, extensionId }) => {
+  await setEntitled(context, extensionId, true);
+  const page = await context.newPage();
+  await serve(page, "**://*.instagram.com/**", fixture("instagram.html"));
+  await page.goto("https://www.instagram.com/someuser/");
+
+  // A profile's own Reels live at /<username>/reel/<id>/, so a rule anchored to the start of the
+  // address never matched them and eleven of them stayed on a real captured profile.
+  await expect(page.locator("#profile-reel-tile")).toHaveCount(0);
+
+  await expect(page.locator("#keep-profile-post-tile")).toBeVisible();
+  // A username that merely begins with the letters "reel" is not a Reel.
+  await expect(page.locator("#keep-profile-lookalike")).toBeVisible();
+});
+
 test("instagram mobile: Pro user blocks Reels routes and removes mobile Reels surfaces", async ({ context, extensionId }) => {
   await setEntitled(context, extensionId, true);
   const page = await context.newPage();
@@ -253,6 +268,22 @@ test("facebook: Pro user removes a Reel article + hides the Reels shortcut, keep
   await expect(page.locator("#keep-lookalike-article")).toBeVisible();
   await expect(page.locator("#keep-menu-lookalike")).toBeVisible();
   await expect(page.locator("#keep-menu-home")).toBeVisible();
+});
+
+test("facebook page: the Reels tab goes, the other Page tabs stay", async ({ context, extensionId }) => {
+  await setEntitled(context, extensionId, true);
+  const page = await context.newPage();
+  await serve(page, "**://*.facebook.com/**", fixture("facebook.html"));
+  await page.goto("https://www.facebook.com/stillapp");
+
+  // Every Page carries a Reels tab. It was only ever hidden by accident, by an Instagram rule that
+  // used to load on Facebook, so scoping the packaged stylesheets by service brought it back.
+  await expect(page.locator("#page-reels-tab")).toBeHidden();
+
+  await expect(page.locator("#keep-page-posts-tab")).toBeVisible();
+  await expect(page.locator("#keep-page-photos-tab")).toBeVisible();
+  // The rule keys on the tab, not on the word: an ordinary link to a Page called "reels_tab" stays.
+  await expect(page.locator("#keep-menu-reels-tab-page")).toBeVisible();
 });
 
 test("facebook mobile: Pro user blocks Reels routes and removes mobile Reels sections", async ({ context, extensionId }) => {

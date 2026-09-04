@@ -56,6 +56,9 @@ describe("generated content CSS monetization gating", () => {
       // (manifestCssOwnsHides) skips hide surfaces in JS, so a stylesheet that drifted from the
       // seed silently never applies this rule.
       expect(proCss).toContain('[role="tab"][aria-label*="reels" i] > *');
+      // Same reasoning for the Facebook Page tab: it is a hide surface, so the packaged stylesheet
+      // is the only thing that applies it on a real page.
+      expect(proCss).toContain('a[role="tab"][href*="/reels_tab"]');
     });
 
     // The committed stylesheets are GENERATED artifacts of the seed. PR #64's review caught the

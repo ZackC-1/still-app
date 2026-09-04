@@ -1,5 +1,5 @@
 {
-  "version": "1.1.1",
+  "version": "1.1.2",
   "services": {
     "youtube": {
       "matches": [
@@ -160,9 +160,9 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "a[href^=\"/reel/\"]:has(span[aria-label*=\"Clip\"])",
-            "a[href^=\"/reel/\"] > div > svg[aria-label=\"Clip\"]",
-            "a[href^=\"/reel/\"]:has(svg[aria-label=\"Clip\"])"
+            "a[href*=\"/reel/\"]:has(span[aria-label*=\"Clip\"])",
+            "a[href*=\"/reel/\"] > div > svg[aria-label=\"Clip\"]",
+            "a[href*=\"/reel/\"]:has(svg[aria-label=\"Clip\"])"
           ]
         },
         {
@@ -247,6 +247,18 @@
           ]
         },
         {
+          "id": "fb-page-tabs",
+          "label": "Reels tab on Page profiles",
+          "tier": "pro",
+          "requiredCapability": "surface.facebook.reels",
+          "action": "hide",
+          "enabledByDefault": true,
+          "selectors": [
+            "a[role=\"tab\"][href*=\"/reels_tab\"]",
+            "[role=\"tablist\"] a[href*=\"/reels_tab\"]"
+          ]
+        },
+        {
           "id": "fb-mobile-tabs",
           "label": "Reels tab contents in mobile tab bar",
           "tier": "pro",
@@ -300,6 +312,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "57e3ae94605a0b63f5cc62e6ee2f627061caac41588babd8bcafcf2c0957f103dc9d8d20b1aa3f87401f25337f8349895b590dc878bf296067a228d96d877e02"
+    "value": "c2ff090b499a46fbe6018decc94a27d6fe614eaea632f2c61b7943c636ef53979187d30cdf362800dbd4bd6c3e35862eb8967291a51d9e03d75f8ab1692f1a08"
   }
 }
