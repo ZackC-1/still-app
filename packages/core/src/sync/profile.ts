@@ -81,8 +81,16 @@ export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, Checke
     return data?.still_sync === true ? "entitled" : "not-entitled";
   }
 
+  /**
+   * The account's saved settings, or null when the account has never saved any.
+   *
+   * The null answer is load-bearing: the reconcile treats an account with nothing in it as one it
+   * may start from scratch, so "there is no row" and "the row could not be read" have to stay
+   * different answers. PostgREST reports no row as data null with no error, so a failure is raised
+   * here rather than being passed on as an empty account.
+   */
   async readProfile(): Promise<SyncedSettingsEnvelope | null> {
-    const { data } = await this.client
+    const { data, error } = await this.client
       .from("profiles")
       .select("settings,settings_version,settings_server_updated_at,settings_last_write_id")
       .maybeSingle<{
@@ -91,6 +99,7 @@ export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, Checke
         settings_server_updated_at: unknown;
         settings_last_write_id: unknown;
       }>();
+    if (error) throw error;
     return parseSyncedSettingsEnvelope(data);
   }
 

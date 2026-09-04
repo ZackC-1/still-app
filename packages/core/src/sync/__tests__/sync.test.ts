@@ -108,6 +108,10 @@ function mockBackend(
     reconcileThrows?: boolean;
     reconcileGrants?: boolean;
     cloud?: SyncedSettingsEnvelope | null;
+    /** Keep what writeProfile wrote, the way the server does, so a later read finds it. Off by
+     * default because several cases pin what happens when the read keeps answering the same
+     * thing. */
+    reflectWrites?: boolean;
     readProfileThrows?: boolean;
     deleteThrows?: boolean;
   } = {},
@@ -115,6 +119,7 @@ function mockBackend(
   const calls: string[] = [];
   const writes: StillSettings[] = [];
   let version = opts.cloud?.version ?? 0;
+  let cloud = opts.cloud ?? null;
   let profileReads = 0;
   let onEnvelope: ((envelope: SyncedSettingsEnvelope) => void) | null = null;
   let onStatus: ((status: "subscribed" | "disconnected" | "error") => void) | null = null;
@@ -137,12 +142,14 @@ function mockBackend(
       calls.push("readProfile");
       profileReads += 1;
       if (opts.readProfileThrows) return Promise.reject(new Error("offline"));
-      return Promise.resolve(opts.cloud ?? null);
+      return Promise.resolve(cloud);
     },
     writeProfile: (s) => {
       calls.push("writeProfile");
       writes.push(s);
-      return Promise.resolve(envelope(s, ++version));
+      const written = envelope(s, ++version);
+      if (opts.reflectWrites) cloud = written;
+      return Promise.resolve(written);
     },
     subscribeToProfile: (_userId, listener, status) => {
       calls.push("subscribeToProfile");
@@ -482,7 +489,10 @@ describe("SyncService", () => {
     const { store } = identityStore(USER); // last synced: user A
     const svc = new SyncService(cache, mockAuth().auth, backend, undefined, store);
     await svc.onSignedIn(OTHER_USER);
-    expect(writes.length).toBe(0); // cloud wins — B's profile never written from A's blob
+    // B's account is started from Still's defaults instead. A's blob never travels: the one write
+    // is the defaults, which have everything switched ON, not A's globalOn false.
+    expect(writes.map((w) => w.globalOn)).toEqual([true]);
+    expect(writes[0]!.services).toEqual(DEFAULT_SETTINGS.services);
     expect(svc.getState().syncing).toBe(true); // sync still starts; write-through covers B's own edits
   });
 
@@ -550,15 +560,15 @@ describe("SyncService", () => {
   });
 
   it("after the switch is recorded, the new user's next re-sign-in behaves as same-user again", async () => {
-    const { backend, writes } = mockBackend({ entitled: true, cloud: null });
+    const { backend, writes } = mockBackend({ entitled: true, cloud: null, reflectWrites: true });
     const { store } = identityStore(USER);
     const cache = makeCache(settings({ updatedAt: 9_000 }));
     await cache.hydrate();
     const svc = new SyncService(cache, mockAuth().auth, backend, undefined, store);
-    await svc.onSignedIn(OTHER_USER); // switch: no seed, identity recorded
-    expect(writes.length).toBe(0);
-    await svc.onSignedIn(OTHER_USER); // same user now — seed allowed again
+    await svc.onSignedIn(OTHER_USER); // the switch: the account is started from the defaults
     expect(writes.length).toBe(1);
+    await svc.onSignedIn(OTHER_USER); // same user now, and the account is where this browser left it
+    expect(writes.length).toBe(1); // so there is nothing to publish and nothing to adopt
   });
 
   includedAccessIt("a sign-in whose cloud read fails does not record the identity (no sync ever started)", async () => {
@@ -835,6 +845,42 @@ describe("SyncService", () => {
     expect(cache.currentSyncMetadata()?.version).toBe(3);
   });
 
+  it("a brand new account on this browser is started from the defaults, not from the leftovers", async () => {
+    // The browser one start after the switch, in the state the first sign-in leaves behind: the
+    // identity now names the person signed in, the settings and the version sitting here are still
+    // the previous person's, and the account is still empty because nothing has filled it yet. The
+    // identity test cannot fire any more, so what protects the account is the other half of the
+    // rule: settings anchored to a profile row are never published into an account that has no row.
+    const cache = syncedCache(settings({ globalOn: false, updatedAt: SERVER_MS + 1_000 }), 99);
+    await cache.hydrate();
+    const { svc, writes } = reconcileService(cache, null, USER);
+
+    await svc.onSignedIn(USER);
+    expect(writes.map((w) => w.globalOn)).toEqual([true]); // the defaults, never the leftover false
+    expect(cache.current().globalOn).toBe(true);
+    expect(cache.currentSyncMetadata()?.version).toBe(1); // and this browser counts the new row now
+  });
+
+  it("an empty account is filled from this browser only when this browser never synced for anyone", async () => {
+    // Two arrangements that look identical from the account's side, and must not be treated alike.
+    // A browser that has never synced has nobody else's settings on it, so what someone has been
+    // using travels into the account they just made, which is the first-sign-in rule. A browser
+    // that last synced for someone else does not get to decide what a new account starts with.
+    const chosen = settings({ globalOn: false, updatedAt: SERVER_MS + 1_000 });
+
+    const neverSynced = makeCache(chosen);
+    await neverSynced.hydrate();
+    const own = reconcileService(neverSynced, null, null);
+    await own.svc.onSignedIn(USER);
+    expect(own.writes.map((w) => w.globalOn)).toEqual([false]); // their own settings, uploaded
+
+    const syncedForSomeoneElse = syncedCache(chosen, 99);
+    await syncedForSomeoneElse.hydrate();
+    const shared = reconcileService(syncedForSomeoneElse, null, OTHER_USER);
+    await shared.svc.onSignedIn(USER);
+    expect(shared.writes.map((w) => w.globalOn)).toEqual([true]); // the defaults, not the leftovers
+  });
+
   it("a sign-in that lands before the settings have loaded waits rather than publishing defaults", async () => {
     // Hydration is started fire-and-forget by every host. A sign-in that arrives first must not
     // read the bundled defaults, decide this is a brand new device, and upload them.
@@ -914,6 +960,46 @@ describe("SyncService", () => {
     expect(backend.writes.length).toBe(1);
     expect(backend.writes.at(-1)!.globalOn).toBe(true);
     expect(backend.writes.at(-1)!.services.instagram).toBe(false);
+  });
+
+  it("a shared browser and a brand new account: the previous person's settings are not what fills it", async () => {
+    // The likeliest shared-computer case there is. Person A synced a lot on this browser, so the
+    // version left behind is 99. A signed out and person B signs UP here, so B's account has never
+    // held anything at all. Refusing to publish A's settings is not enough on its own: there is
+    // nothing to pull down either, so B would sit looking at A's toggles, and the next browser
+    // start would find the identity already updated to B and publish A's settings into B's account
+    // and from there onto every device B owns.
+    const { background, popup } = twoContexts({
+      settings: settings({ globalOn: false, updatedAt: SERVER_MS + 1_000 }),
+      syncMetadata: { version: 99, serverUpdatedAt: new Date(SERVER_MS).toISOString(), lastWriteId: null },
+    });
+    await background.hydrate();
+    background.watch();
+    await popup.hydrate();
+    popup.watch();
+    expect(popup.current().globalOn).toBe(false); // A's leftovers, which is all this browser knows
+
+    const backend = mockBackend({ entitled: true, cloud: null, reflectWrites: true });
+    const svc = new SyncService(
+      background,
+      mockAuth().auth,
+      backend.backend,
+      undefined,
+      identityStore(OTHER_USER).store,
+      () => DEVICE_NOW,
+    );
+
+    await svc.onSignedIn(USER);
+    expect(backend.writes.map((w) => w.globalOn)).toEqual([true]); // the defaults, never A's false
+    expect(background.current().globalOn).toBe(true);
+    expect(popup.current().globalOn).toBe(true); // the screen B is looking at, not just the worker
+
+    // And the next browser start, with the identity now recorded as B, publishes nothing more: the
+    // account holds what B's own sign-in put in it, and this browser is counting B's row.
+    await svc.onSignedIn(USER);
+    expect(backend.writes.map((w) => w.globalOn)).toEqual([true]);
+    expect(background.current().globalOn).toBe(true);
+    expect(popup.current().globalOn).toBe(true);
   });
 
   // ── the start-up catch-up: what happens to an edit made while the read is in flight ─────────────
@@ -1055,6 +1141,39 @@ describe("SyncService", () => {
     expect(backend.calls).not.toContain("subscribeToProfile");
     expect(sets).toEqual([]);
     expect(backend.writes.length).toBe(0);
+  });
+
+  it("signing out during a sign-in leaves no confirmed entitlement behind for that account", async () => {
+    // The settings half of a sign-in already gives up when a sign-out lands under it. The
+    // entitlement half has to make the same test, because a signed-out state carrying a CONFIRMED
+    // entitlement is exactly the shape the Apple host stamps into the App Group, and the Safari
+    // extension trusts that record for thirty days.
+    const backend = mockBackend({ entitled: true, cloud: null });
+    let release: () => void = () => {};
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const readEntitlement = backend.backend.readEntitlement.bind(backend.backend);
+    backend.backend.readEntitlement = async () => {
+      await blocked;
+      return readEntitlement();
+    };
+    const svc = new SyncService(
+      makeCache(),
+      mockAuth().auth,
+      backend.backend,
+      undefined,
+      identityStore(null).store,
+    );
+
+    const signIn = svc.onSignedIn(USER);
+    await drain();
+    await svc.signOut();
+    release();
+    await signIn;
+
+    expect(svc.getState().userId).toBeNull();
+    expect(svc.getState().entitled).toBe(false);
   });
 
   it("a browser that reached the account records it even when the publish then fails", async () => {
