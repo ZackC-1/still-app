@@ -76,6 +76,16 @@ export interface CanaryDeps {
   readonly state: CanaryStateStore;
   /** Consecutive indeterminate runs before firing the manual-check alert. */
   readonly indeterminateThreshold?: number;
+  /**
+   * How often to repeat the manual-check alert while a service stays unverifiable.
+   *
+   * The alert used to fire on the threshold run and never again, so a service behind a permanent
+   * login wall went quiet after one message. Instagram, Facebook and TikTok were unverifiable for
+   * fifty-seven consecutive daily runs on one message, which is the same as no monitoring at all:
+   * if their markup had changed, nothing would have said so. On a daily schedule the default
+   * repeats weekly.
+   */
+  readonly indeterminateRepeatEvery?: number;
 }
 
 export interface CanaryReport {
@@ -87,6 +97,7 @@ export interface CanaryReport {
 /** Run one canary pass over the rule set. Notifies once per newly-broken / newly-unverifiable. */
 export async function runCanary(ruleSet: RuleSetLike, deps: CanaryDeps): Promise<CanaryReport> {
   const threshold = deps.indeterminateThreshold ?? 3;
+  const repeatEvery = deps.indeterminateRepeatEvery ?? 7;
   const report: CanaryReport = { broken: [], unverifiable: [], notifications: [] };
 
   const fire = async (message: string) => {
@@ -101,7 +112,9 @@ export async function runCanary(ruleSet: RuleSetLike, deps: CanaryDeps): Promise
     if (classifyPage(page) === "indeterminate") {
       const streak = (await deps.state.getNumber(svcKey)) + 1;
       await deps.state.setNumber(svcKey, streak);
-      if (streak === threshold) {
+      // Fire on the threshold run, then on every repeatEvery-th run after it, so a service that
+      // stays behind a login wall keeps asking for the manual check instead of going quiet.
+      if (streak === threshold || (streak > threshold && (streak - threshold) % repeatEvery === 0)) {
         report.unverifiable.push({ service: serviceId, runs: streak });
         await fire(`Still canary: '${serviceId}' unverifiable for ${streak} consecutive runs — needs a manual check.`);
       }

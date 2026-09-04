@@ -86,18 +86,41 @@ Deno.test("login-wall HTML → indeterminate, NOT a clean pass", async () => {
   assertEquals(report.broken.length, 0); // must not report selector rot on an unverifiable page
 });
 
-Deno.test("persistent indeterminate past threshold → distinct manual-check alert, fired once", async () => {
+Deno.test("persistent indeterminate past threshold → manual-check alert, then a reminder every Nth run", async () => {
   const msgs: string[] = [];
   const state = memState();
-  const deps = { fetcher: okFetcher(wallPage), matcher: mockMatcher(new Set()), notifier: collect(msgs), state, indeterminateThreshold: 3 };
+  const deps = {
+    fetcher: okFetcher(wallPage),
+    matcher: mockMatcher(new Set()),
+    notifier: collect(msgs),
+    state,
+    indeterminateThreshold: 3,
+    indeterminateRepeatEvery: 4,
+  };
   await runCanary(ruleSet, deps); // streak 1
   await runCanary(ruleSet, deps); // streak 2
   assertEquals(msgs.length, 0);
   const r3 = await runCanary(ruleSet, deps); // streak 3 → alert
   assertEquals(r3.unverifiable, [{ service: "youtube", runs: 3 }]);
   assertEquals(msgs.length, 1);
-  await runCanary(ruleSet, deps); // streak 4 → no re-alert
+  await runCanary(ruleSet, deps); // streak 4 → quiet
+  await runCanary(ruleSet, deps); // streak 5 → quiet
+  await runCanary(ruleSet, deps); // streak 6 → quiet
   assertEquals(msgs.length, 1);
+  const r7 = await runCanary(ruleSet, deps); // streak 7 → reminder
+  assertEquals(r7.unverifiable, [{ service: "youtube", runs: 7 }]);
+  assertEquals(msgs.length, 2);
+});
+
+Deno.test("a service that is unverifiable for a long time keeps asking, instead of going quiet", async () => {
+  // The live state showed fifty-seven consecutive unverifiable runs on a single alert, which is
+  // the same as no monitoring at all. At the shipped default a daily job reminds weekly.
+  const msgs: string[] = [];
+  const state = memState();
+  const deps = { fetcher: okFetcher(wallPage), matcher: mockMatcher(new Set()), notifier: collect(msgs), state };
+  for (let run = 0; run < 57; run++) await runCanary(ruleSet, deps);
+  // Threshold run 3, then runs 10, 17, 24, 31, 38, 45, 52.
+  assertEquals(msgs.length, 8);
 });
 
 Deno.test("notifies once per newly-broken surface (no repeats while still broken)", async () => {
