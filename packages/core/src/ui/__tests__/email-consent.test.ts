@@ -108,13 +108,26 @@ describe("the email-consent step", () => {
   });
 
   it("no request can be issued from the consent step, even by a programmatic caller", async () => {
+    // Asserting that nothing fired on its own would pass against an implementation with no guard
+    // at all, because nothing on the consent step fires anything. So this calls the send action
+    // directly, which is the only way a caller could get past a screen with no email field.
     const requestCode = vi.fn(() => Promise.resolve({ kind: "sent" } as const));
     const c = controller("opt-in", codeCapableAuth({ requestCode }));
     render(App, { props: { controller: c } });
     await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
     expect(c.needsEmailConsent).toBe(true);
     expect(emailField()).toBeNull();
+
+    await c.signIn("someone@example.com");
     expect(requestCode).not.toHaveBeenCalled();
+    expect(c.authFlow).toBe("idle");
+
+    // The same call goes through the moment the surface's own requirement is met, so the guard is
+    // shown to be the reason for the refusal rather than something else in the way.
+    c.acceptEmailConsent();
+    await c.signIn("someone@example.com");
+    expect(requestCode).toHaveBeenCalledWith("someone@example.com");
+    c.dismissSignIn(); // stop the resend cooldown ticker
   });
 
   it("a rehydrated code entry does not ask again: an address was already given, with consent", async () => {

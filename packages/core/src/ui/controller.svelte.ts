@@ -896,11 +896,16 @@ export class UiController {
   /** The sheet's one send action. Code-capable hosts get the code flow (→ code-entry); everyone
    * else keeps the magic link (→ sent). Same button, capability-driven path (plan U2). */
   async signIn(email: string): Promise<void> {
+    // The store's own requirement, enforced here and not only in the sheet. On a surface that has
+    // to disclose or ask before an email address is collected, no address may leave this device
+    // until that step is satisfied, whoever is calling. The sheet does not render an email field
+    // before then, so this covers a programmatic caller rather than a person.
+    if (this.needsEmailConsent) return;
     if (
       !this.auth ||
       this.authFlow === "sending" ||
       this.authFlow === "verifying" ||
-      this.sendBlockRemaining > 0 // rate-limit lock (R2) — the sheet disables the CTA; this covers programmatic callers
+      this.sendBlockRemaining > 0 // rate-limit lock (R2), the sheet disables the CTA; this covers programmatic callers
     )
       return;
     // Gate the request on a syntactically valid address so a malformed email never issues a

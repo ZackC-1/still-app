@@ -106,11 +106,14 @@
   bind:this={sheet}
   role="dialog"
   aria-modal="true"
-  aria-label={STRINGS.auth.title}
+  aria-labelledby="still-signin-title"
   tabindex="-1"
 >
   <div class="grip" aria-hidden="true"></div>
-  <h2>{c.needsEmailConsent ? consentTitle : STRINGS.auth.title}</h2>
+  <!-- The dialog is named by its own heading rather than by a fixed string, because the heading
+       changes on the consent step. A screen reader must not announce "sign in" on the one screen
+       that is asking a question about an email address. -->
+  <h2 id="still-signin-title">{c.needsEmailConsent ? consentTitle : STRINGS.auth.title}</h2>
   <p class="body">
     {#if c.needsEmailConsent}
       {STRINGS.emailConsent.body}
