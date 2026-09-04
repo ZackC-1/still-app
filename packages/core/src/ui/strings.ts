@@ -181,6 +181,21 @@ export const STRINGS = {
     signInCta: "Sign in to sync",
   },
 
+  // What a browser add-on store requires an extension to say, in its own interface, before it
+  // collects an email address. Chrome's program policies want the disclosure at the point of
+  // collection rather than only behind a privacy-policy link; Firefox wants an explicit opt-in
+  // before anything is collected at all. The Apple apps do not show this: their disclosure lives in
+  // the App Store privacy label and the privacy policy, and an extra screen there would be a step
+  // between someone and the thing they came for.
+  emailConsent: {
+    disclosureTitle: "Your email is only for sign-in",
+    optInTitle: "Share your email for settings sync?",
+    body: "Still uses your email address to send a 6-digit code and sync your settings across devices. Still does not collect your browsing history.",
+    agree: "I agree to share my email for sign-in and settings sync.",
+    proceed: "Continue",
+    notNow: "Not now",
+  },
+
   // Email-OTP code entry (plan U2/R1) — the extension popup can't receive a magic-link redirect,
   // so it signs in with an emailed 6-digit code. None of these lines may say "link": the
   // magic-link strings above (auth.send/sent/error/resend) must never render in the code flow.

@@ -2,6 +2,7 @@ import type { ServiceId, StillSettings } from "@still/shared-types";
 import { DEFAULT_SETTINGS, PAID_TIER_ENABLED } from "@still/shared-types";
 import { PRO_SERVICE_IDS } from "../rules/tiers.js";
 import { isValidEmail } from "./email.js";
+import type { EmailConsent } from "./email-consent.js";
 import type { SettingsCache } from "../storage/cache.js";
 import type { PurchaseResult } from "../native/bridge.js";
 import type {
@@ -126,6 +127,17 @@ export const CHECKOUT_PENDING_TTL_MS = 24 * 60 * 60_000;
 export interface UiHost {
   /** false on hosts with no purchase path (non-Apple desktop): explanatory paywall, no CTA (R19). */
   readonly canPurchase: boolean;
+  /**
+   * What this surface must show before an email address may be collected. Declared by the host,
+   * like every other capability here, never sniffed from the user agent.
+   *
+   * The rule is the add-on store's, not ours. Chrome's program policies want the disclosure in the
+   * extension's own interface at the point of collection rather than only behind a privacy-policy
+   * link. Firefox wants an explicit, affirmative opt-in before anything is collected at all. The
+   * Apple apps declare `none`: their disclosure is the App Store privacy label and the privacy
+   * policy, and an extra screen there would only put a step between someone and what they came for.
+   */
+  readonly emailConsent?: EmailConsent;
 }
 
 export interface UiAuth {
@@ -248,6 +260,10 @@ export class UiController {
   purchaseIntent = $state(false);
   /** The sign-in sheet overlays the rest of the UI when the signed-out CTA is tapped. */
   signInOpen = $state(false);
+  /** Set once this run of the sign-in flow has satisfied the surface's email-consent rule. Held in
+   * memory rather than persisted: leaving the flow starts it again from the disclosure, which is
+   * the conservative reading of "before the email is collected", and it costs one tap. */
+  emailConsentGiven = $state(false);
   paywallOpen = $state(false);
   /** Localized store price for the buy CTA (e.g. "$1.99"), set by the host from StoreKit/RevenueCat.
    * Null until loaded / on hosts without a price — the CTA then shows no price rather than a guess. */
@@ -485,6 +501,22 @@ export class UiController {
     return typeof this.auth?.signIn === "function" || this.canUseCode;
   }
 
+  /** What this surface must show before the email field appears, or "none". */
+  get emailConsent(): EmailConsent {
+    return this.host.emailConsent ?? "none";
+  }
+
+  /** Whether the sheet must show its consent step before offering the email field. */
+  get needsEmailConsent(): boolean {
+    return this.emailConsent !== "none" && !this.emailConsentGiven;
+  }
+
+  /** The consent step's one affirmative action. The sheet only enables it once the surface's own
+   * requirement is met, which on Firefox means an explicit yes rather than merely reading. */
+  acceptEmailConsent(): void {
+    this.emailConsentGiven = true;
+  }
+
   /** Whether this host signs in by emailed 6-digit code (plan U2/R1) — capability-driven, never
    * user-agent sniffing. Both methods must be wired for the code-entry UI to render. */
   get canUseCode(): boolean {
@@ -549,6 +581,7 @@ export class UiController {
   dismissSignIn(): void {
     this.authFlowGeneration += 1; // cancel any in-flight send/verify/resend continuation (F6)
     this.signInOpen = false;
+    this.emailConsentGiven = false; // a fresh start asks again before collecting anything
     // A deliberate "Not now" abandons the code flow entirely (unlike popup death, which persists
     // it): clear the pending OTP so the next open starts fresh at the email field (R1).
     if (this.inCodeFlow) {
@@ -863,11 +896,16 @@ export class UiController {
   /** The sheet's one send action. Code-capable hosts get the code flow (→ code-entry); everyone
    * else keeps the magic link (→ sent). Same button, capability-driven path (plan U2). */
   async signIn(email: string): Promise<void> {
+    // The store's own requirement, enforced here and not only in the sheet. On a surface that has
+    // to disclose or ask before an email address is collected, no address may leave this device
+    // until that step is satisfied, whoever is calling. The sheet does not render an email field
+    // before then, so this covers a programmatic caller rather than a person.
+    if (this.needsEmailConsent) return;
     if (
       !this.auth ||
       this.authFlow === "sending" ||
       this.authFlow === "verifying" ||
-      this.sendBlockRemaining > 0 // rate-limit lock (R2) — the sheet disables the CTA; this covers programmatic callers
+      this.sendBlockRemaining > 0 // rate-limit lock (R2), the sheet disables the CTA; this covers programmatic callers
     )
       return;
     // Gate the request on a syntactically valid address so a malformed email never issues a
@@ -1032,6 +1070,10 @@ export class UiController {
       this.authFlow = "code-error";
     }
     this.purchaseIntent = pending.purchaseIntent === true; // already persisted — no seam echo
+    // A pending code means an address was already collected, with consent, before the popup died.
+    // Asking again here would be theatre, and it would sit in front of the code the person is
+    // holding in their other hand.
+    this.emailConsentGiven = true;
     this.signInOpen = true;
   }
 
@@ -1182,6 +1224,7 @@ export class UiController {
     this.userId = null;
     this.entitled = false; // server lane only — the setter never touches #receiptEntitled
     this.authFlow = "idle";
+    this.emailConsentGiven = false;
     this.paywallOpen = false;
     this.successScreen = "none";
     this.purchaseFlow = "idle";
