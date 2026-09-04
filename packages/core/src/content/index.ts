@@ -1,8 +1,9 @@
-import { PAID_TIER_ENABLED, type SignedRuleSet } from "@still/shared-types";
+import { PAID_TIER_ENABLED, type ServiceId, type SignedRuleSet } from "@still/shared-types";
 import {
   evaluate,
   createEnginePageSession,
   renderPlaceholder,
+  rootServiceClass,
   ROOT_ACTIVE_CLASS,
   ROOT_PRO_ACTIVE_CLASS,
   STILL_PLACEHOLDER_LINE,
@@ -85,6 +86,19 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   const setRootProActive = (active: boolean): void => {
     doc.documentElement?.classList.toggle(ROOT_PRO_ACTIVE_CLASS, active);
   };
+  // Names the service whose packaged CSS may apply here. The stylesheets are declared once in the
+  // manifest, so all four services' selectors reach every page; without this class Instagram's
+  // Reels rules hide YouTube results whose title happens to contain "reels".
+  let rootServiceApplied: string | null = null;
+  const setRootService = (serviceId: ServiceId | null): void => {
+    const next = serviceId === null ? null : rootServiceClass(serviceId);
+    if (next === rootServiceApplied) return;
+    const classes = doc.documentElement?.classList;
+    if (!classes) return;
+    if (rootServiceApplied !== null) classes.remove(rootServiceApplied);
+    if (next !== null) classes.add(next);
+    rootServiceApplied = next;
+  };
 
   const currentUrl = (): URL => {
     const href = win.location.href;
@@ -111,6 +125,7 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     const decision = pageSession.evaluate(settings, url, opts);
     switch (decision.kind) {
       case "redirect":
+        setRootService(pageSession.activeServiceId());
         setRootProActive(pro);
         if (dedupe.lastRedirect !== decision.url) {
           dedupe.lastRedirect = decision.url;
@@ -120,9 +135,11 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       case "placeholder":
         setRootActive(false);
         setRootProActive(false);
+        setRootService(null);
         renderPlaceholder(doc, decision.blocked ? blockedLine : placeholderLine);
         return;
       case "apply":
+        setRootService(pageSession.activeServiceId());
         setRootActive(true);
         setRootProActive(pro);
         (deps.manifestCssOwnsHides ? pageSession.applyRemovals : pageSession.applyDom)(settings, url, doc, opts);
@@ -130,6 +147,7 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       case "noop":
         setRootActive(false);
         setRootProActive(false);
+        setRootService(null);
         return;
     }
   };

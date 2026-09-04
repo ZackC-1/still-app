@@ -54,13 +54,53 @@ final class OnboardingTests: XCTestCase {
     for steps in [
       OnboardingCopy.enableSteps(iOS18OrLater: true),
       OnboardingCopy.enableSteps(iOS18OrLater: false),
-      OnboardingCopy.macOSEnableSteps,
     ] {
       XCTAssertTrue(
-        steps[0].contains(OnboardingCopy.openButtonTitle),
+        steps[0].contains(OnboardingCopy.openButtonTitle(for: .settingsAppStillPage)),
         "step 1 must name the button as it reads: \(steps[0])"
       )
     }
+    XCTAssertTrue(
+      OnboardingCopy.macOSEnableSteps[0].contains(OnboardingCopy.openButtonTitle(for: .safariExtensionSettings)),
+      "step 1 must name the button as it reads: \(OnboardingCopy.macOSEnableSteps[0])"
+    )
+  }
+
+  func testTheButtonLabelDescribesWhereThatButtonActuallyGoes() {
+    // Matching the step is not enough. The pair agreed once on a phrase that was false: on iOS the
+    // button runs UIApplication.openSettingsURLString, which opens Still's own page in the Settings
+    // app, because the OS offers no way into a Safari extension's toggle from the containing app.
+    // A label naming Safari there promises a screen nothing opens, and makes the step that follows
+    // it ("then tap ‹ Settings") read as nonsense.
+    XCTAssertFalse(
+      OnboardingCopy.openButtonTitle(for: .settingsAppStillPage).lowercased().contains("safari"),
+      "the Settings-app button cannot claim to open anything in Safari"
+    )
+    // macOS does land in Safari's own settings, at the Extensions pane, through
+    // SFSafariApplication.showPreferencesForExtension, so there the label says so.
+    XCTAssertTrue(
+      OnboardingCopy.openButtonTitle(for: .safariExtensionSettings).lowercased().contains("safari"),
+      "the Safari-settings button should say where it goes"
+    )
+  }
+
+  func testOnlyTheJourneyThroughTheSettingsAppWalksTheReaderToSafari() {
+    // The count of steps is not the point; who has to do the walking is. On iOS the button stops
+    // one screen short, so a step has to carry the reader the rest of the way. On macOS the button
+    // arrives, so no step should be sending them off to find it.
+    for steps in [
+      OnboardingCopy.enableSteps(iOS18OrLater: true),
+      OnboardingCopy.enableSteps(iOS18OrLater: false),
+    ] {
+      XCTAssertTrue(
+        steps.contains { $0.contains("Safari → Extensions") },
+        "the button stops at Still's page in Settings, so the steps have to reach Safari: \(steps)"
+      )
+    }
+    XCTAssertFalse(
+      OnboardingCopy.macOSEnableSteps.contains { $0.contains("Safari → Extensions") },
+      "the button already opened Safari's extension settings, so nothing should navigate there"
+    )
   }
 
   func testGateShowsUntilMarkedComplete() {

@@ -40,8 +40,21 @@ enum SafariExtensionBridge {
     #endif
   }
 
+  /// Where `openEnableLocation()` below actually lands on this platform. Onboarding's button label
+  /// and its steps are both written from this value, so the screen cannot describe a destination
+  /// this file does not open. Changing the call below without changing this is the mistake it
+  /// exists to prevent.
+  static var enableLocation: EnableLocation {
+    #if os(macOS)
+    return .safariExtensionSettings
+    #else
+    return .settingsAppStillPage
+    #endif
+  }
+
   /// Open where the user enables Still: the Safari extensions prefs pane on macOS, the Settings app
-  /// on iOS (the OS offers no deep link straight to a Safari extension's toggle).
+  /// on iOS (the OS offers no deep link straight to a Safari extension's toggle, so this lands on
+  /// Still's own page in Settings and the onboarding steps walk the rest of the way).
   @MainActor static func openEnableLocation() {
     #if os(macOS)
     SFSafariApplication.showPreferencesForExtension(withIdentifier: extensionBundleID) { _ in }

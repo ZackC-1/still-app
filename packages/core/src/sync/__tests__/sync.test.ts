@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { StillSettings } from "@still/shared-types";
 import { DEFAULT_SETTINGS, PAID_TIER_ENABLED } from "@still/shared-types";
 import { SettingsCache } from "../../storage/cache.js";
-import { InMemoryStorageAdapter } from "../../storage/adapter.js";
+import { InMemoryStorageAdapter, type SettingsSyncMetadata } from "../../storage/adapter.js";
 import { SyncService, type LastSyncedIdentityStore, type SyncState } from "../service.js";
 import type { AuthPort, BackendPort, EntitlementRead, SyncedSettingsEnvelope } from "../ports.js";
 
@@ -860,6 +860,216 @@ describe("SyncService", () => {
     await signIn;
     expect(backend.writes.length).toBe(1);
     expect(backend.writes[0]!.globalOn).toBe(false); // the real settings, not the defaults
+  });
+
+  // ── one reconcile, believed by the whole browser ────────────────────────────────────────────────
+  // The background and the popup are two SettingsCache instances over ONE storage area: the
+  // background builds its own, and so does every extension page. A reconcile only the background
+  // believes is not a reconcile, because on Chrome the popup is the only place a person can sign in,
+  // so it is the screen they are looking at while this runs.
+
+  /** The background's cache and a popup's cache over one storage area, as the extension wires them. */
+  function twoContexts(record: { settings: StillSettings; syncMetadata: SettingsSyncMetadata }) {
+    const adapter = new InMemoryStorageAdapter(record);
+    let t = 1000;
+    const background = new SettingsCache(adapter, { now: () => ++t });
+    const popup = new SettingsCache(adapter, { now: () => ++t });
+    return { background, popup };
+  }
+
+  it("a shared browser: the account the background adopts is what the popup shows too", async () => {
+    // Person A synced a lot on this browser, so the version left behind (99) is far ahead of the
+    // account person B is signing into (3). B signs in from the popup, which is the only place they
+    // can. The background adopting B's account is not enough on its own: until the popup agrees,
+    // B is looking at A's toggles, and the next switch B flips is built on A's settings.
+    const { background, popup } = twoContexts({
+      settings: settings({ globalOn: false, updatedAt: SERVER_MS + 1_000 }),
+      syncMetadata: { version: 99, serverUpdatedAt: new Date(SERVER_MS).toISOString(), lastWriteId: null },
+    });
+    await background.hydrate();
+    background.watch();
+    await popup.hydrate();
+    popup.watch();
+    expect(popup.current().globalOn).toBe(false); // A's leftovers, which is all this browser knows
+
+    const cloud = envelopeStampedAt(settings({ globalOn: true, updatedAt: 7 }), SERVER_MS, 3);
+    const backend = mockBackend({ entitled: true, cloud });
+    const svc = new SyncService(
+      background,
+      mockAuth().auth,
+      backend.backend,
+      undefined,
+      identityStore(OTHER_USER).store,
+      () => DEVICE_NOW,
+    );
+
+    await svc.onSignedIn(USER);
+    expect(background.current().globalOn).toBe(true);
+    expect(popup.current().globalOn).toBe(true); // the screen B is looking at, not just the worker
+    expect(popup.currentSyncMetadata()?.version).toBe(3);
+
+    // And the next thing B does builds on B's settings rather than carrying A's into B's account.
+    await popup.setService("instagram", false);
+    await drain();
+    expect(backend.writes.length).toBe(1);
+    expect(backend.writes.at(-1)!.globalOn).toBe(true);
+    expect(backend.writes.at(-1)!.services.instagram).toBe(false);
+  });
+
+  // ── the start-up catch-up: what happens to an edit made while the read is in flight ─────────────
+
+  /** Hold the profile read open, so a test can act inside the window a start-up read is in flight. */
+  function holdProfileRead(backend: BackendPort): () => void {
+    const inner = backend.readProfile.bind(backend);
+    let release: () => void = () => {};
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    backend.readProfile = async () => {
+      await blocked;
+      return inner();
+    };
+    return () => release();
+  }
+
+  it("an edit made during the start-up read never puts the pre-read settings back", async () => {
+    // This browser was closed at version 4. Another device turned TikTok off while it was closed
+    // (version 9). The worker starts, the read is in flight, and the person turns Instagram off in
+    // that window. The reconcile says the account is the newer side, so the held edit goes nowhere:
+    // publishing it would send the whole pre-read snapshot up, and the profile write is a full
+    // overwrite, so the other device's TikTok change would be gone everywhere.
+    const cache = syncedCache(settings({ globalOn: true, updatedAt: SERVER_MS }), 4);
+    await cache.hydrate();
+    const away = settings({
+      globalOn: true,
+      services: { ...DEFAULT_SETTINGS.services, tiktok: false },
+      updatedAt: 8,
+    });
+    const backend = mockBackend({ entitled: true, cloud: envelopeStampedAt(away, SERVER_MS + 5_000, 9) });
+    const release = holdProfileRead(backend.backend);
+    const svc = new SyncService(
+      cache,
+      mockAuth().auth,
+      backend.backend,
+      undefined,
+      identityStore(USER).store,
+      () => DEVICE_NOW,
+    );
+
+    const resumed = svc.resume(USER, true);
+    await drain();
+    await cache.setService("instagram", false);
+    release();
+    await resumed;
+    await drain();
+
+    expect(backend.writes.length).toBe(0);
+    expect(cache.current().services.tiktok).toBe(false); // the other device's change survived
+    expect(cache.current().services.instagram).toBe(true); // and this edit went with the snapshot
+  });
+
+  it("an edit made during the start-up read IS published when this device is the newer side", async () => {
+    // Same window, opposite decision: the account is exactly where this device left it, so nothing
+    // was written anywhere else and the edit is the newest thing that exists.
+    const local = settings({ globalOn: true, updatedAt: SERVER_MS });
+    const cache = syncedCache(local, 5);
+    await cache.hydrate();
+    const backend = mockBackend({ entitled: true, cloud: envelopeStampedAt(local, SERVER_MS, 5) });
+    const release = holdProfileRead(backend.backend);
+    const svc = new SyncService(
+      cache,
+      mockAuth().auth,
+      backend.backend,
+      undefined,
+      identityStore(USER).store,
+      () => DEVICE_NOW,
+    );
+
+    const resumed = svc.resume(USER, true);
+    await drain();
+    await cache.setService("instagram", false);
+    release();
+    await resumed;
+    await drain();
+
+    expect(backend.writes.length).toBe(1);
+    expect(backend.writes.at(-1)!.services.instagram).toBe(false);
+    expect(cache.current().services.instagram).toBe(false);
+  });
+
+  it("a realtime message that lands during the start-up read is not undone by it", async () => {
+    // The read is holding version 9. While it is in flight another device writes version 10 and the
+    // subscription delivers it. The reconcile must not walk the device back to 9: the two counters
+    // count the same account here, so the steady-state version rule is the right one to use.
+    const cache = syncedCache(settings({ globalOn: true, updatedAt: SERVER_MS }), 4);
+    await cache.hydrate();
+    const backend = mockBackend({
+      entitled: true,
+      cloud: envelopeStampedAt(settings({ globalOn: true, updatedAt: 8 }), SERVER_MS + 1_000, 9),
+    });
+    const release = holdProfileRead(backend.backend);
+    const svc = new SyncService(
+      cache,
+      mockAuth().auth,
+      backend.backend,
+      undefined,
+      identityStore(USER).store,
+      () => DEVICE_NOW,
+    );
+
+    const resumed = svc.resume(USER, true);
+    await drain();
+    backend.emitProfile(envelopeStampedAt(settings({ globalOn: false, updatedAt: 9 }), SERVER_MS + 2_000, 10));
+    expect(cache.currentSyncMetadata()?.version).toBe(10);
+    release();
+    await resumed;
+    await drain();
+
+    expect(cache.currentSyncMetadata()?.version).toBe(10);
+    expect(cache.current().globalOn).toBe(false);
+    expect(backend.writes.length).toBe(0);
+  });
+
+  // ── a session that ends while a sign-in is still running ────────────────────────────────────────
+
+  it("signing out during a sign-in arms nothing and claims nothing for that account", async () => {
+    // The reconcile gives up, and everything downstream of it has to give up too. A realtime
+    // subscription opened here would outlive the sign-out's own teardown with nothing left to close
+    // it, and would then block the next person's subscription from opening at all.
+    const backend = mockBackend({
+      entitled: true,
+      cloud: envelopeStampedAt(settings({ globalOn: true, updatedAt: 7 }), SERVER_MS, 3),
+    });
+    const release = holdProfileRead(backend.backend);
+    const { store, sets } = identityStore(null);
+    const svc = new SyncService(makeCache(), mockAuth().auth, backend.backend, undefined, store);
+
+    const signIn = svc.onSignedIn(USER);
+    await drain();
+    await svc.signOut();
+    release();
+    await signIn;
+
+    expect(svc.getState().userId).toBeNull();
+    expect(svc.getState().syncing).toBe(false);
+    expect(backend.calls).not.toContain("subscribeToProfile");
+    expect(sets).toEqual([]);
+    expect(backend.writes.length).toBe(0);
+  });
+
+  it("a browser that reached the account records it even when the publish then fails", async () => {
+    // The shared-browser rule can only protect a browser that knows who last synced on it, so the
+    // record is written the moment the account is reached rather than after the settings have moved.
+    const backend = mockBackend({ entitled: true, cloud: null });
+    backend.backend.writeProfile = () => Promise.reject(new Error("offline"));
+    const { store, sets } = identityStore(null);
+    const svc = new SyncService(makeCache(), mockAuth().auth, backend.backend, undefined, store);
+
+    // A failed publish surfaces differently on either side of the paid-tier switch, and this is
+    // about the identity record either way.
+    await svc.onSignedIn(USER).catch(() => undefined);
+
+    expect(sets).toEqual([USER]);
   });
 
   // ── onEntitlementConfirmed: mirror-on-unlock without a second reconcile (Codex-1 fix) ────────────

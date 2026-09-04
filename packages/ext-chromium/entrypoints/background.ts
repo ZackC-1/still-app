@@ -98,9 +98,11 @@ export default defineBackground(() => {
   chrome.runtime.onMessage.addListener(createSessionMessageRouter(session, chrome.runtime.id, extensionOrigin));
 
   // Resume on EVERY background start (R2 hard rule): restart the sync write-through from the
-  // CACHED entitlement — no network. A worker that wakes on a settings edit must not drop paid
-  // sync, and must not burn a live RevenueCat query per wake; live reconcile stays on the R4
-  // triggers (popup open, qualifying nudge).
+  // CACHED entitlement, with no purchase-service query. A worker that wakes on a settings edit
+  // must not drop paid sync, and must not burn a live RevenueCat query per wake; live reconcile
+  // stays on the R4 triggers (popup open, qualifying nudge). It does make one settings read, so a
+  // browser that was closed while another device changed something learns about it here rather
+  // than publishing over it on its next edit.
   void hydrated.then(() => session?.resume());
 
   // ── DNR gating — Chromium only from here down. ───────────────────────────────────────────────
