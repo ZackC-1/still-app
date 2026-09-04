@@ -59,9 +59,13 @@ final class WebBridgeRouter {
   /// restamp — R5/R16). Called at launch (before install-id publication), on foreground, and after
   /// purchase/restore so the Safari extension unlocks without any account.
   func refreshReceiptStamp() async {
-    await captureOriginalInstall()
     let status = await purchases.refreshReceiptStatus()
     _ = entitlement.applyReceipt(status)
+    // Cohort capture rides along on the same moments the receipt is read, but is deliberately NOT
+    // awaited: launch defers publishing the install-generation id until this method returns, and
+    // AppTransaction can take an unbounded App Store round trip on a cold cache. It is idempotent,
+    // so the overlapping calls from launch, foreground, purchase, and restore are harmless.
+    Task { await self.captureOriginalInstall() }
   }
 
   func handle(_ body: Any, reply: @escaping (Any?, String?) -> Void) {
