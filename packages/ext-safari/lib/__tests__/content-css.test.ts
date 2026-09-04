@@ -42,7 +42,7 @@ describe("generated content CSS monetization gating", () => {
       expect(freeCss).not.toContain('a[aria-label="Reels"]');
       expect(freeCss).not.toContain('a[href$="/reels/"]');
       expect(freeCss).not.toContain('a[aria-label="Reels"]');
-      expect(freeCss).not.toContain('li:has(> a[href*="/reel"])');
+      expect(freeCss).not.toContain('li:has(> a[href*="/reel/"], > a[href*="/reels/"])');
       expect(freeCss).not.toContain("still-pro-active");
     });
 
@@ -51,7 +51,7 @@ describe("generated content CSS monetization gating", () => {
       expect(proCss).toContain("html.still-pro-active");
       expect(proCss).toContain('a[href="/reels/"]');
       expect(proCss).toContain('a[aria-label="Reels"]');
-      expect(proCss).toContain('li:has(> a[href*="/reel"])');
+      expect(proCss).toContain('li:has(> a[href*="/reel/"], > a[href*="/reels/"])');
       // Issue #58's tab-slot cover MUST ship in the packaged CSS: the manifest-CSS fast path
       // (manifestCssOwnsHides) skips hide surfaces in JS, so a stylesheet that drifted from the
       // seed silently never applies this rule.
