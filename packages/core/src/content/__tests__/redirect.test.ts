@@ -6,7 +6,7 @@ import { SettingsCache } from "../../storage/cache.js";
 import { InMemoryStorageAdapter, type StorageAdapter } from "../../storage/adapter.js";
 import { EntitlementCache, InMemoryEntitlementAdapter } from "../../entitlement/index.js";
 import { createContentScript, earlyShortsRedirect } from "../index.js";
-import { ROOT_ACTIVE_CLASS } from "../../rules/engine.js";
+import { ROOT_ACTIVE_CLASS, ROOT_SERVICE_CLASS_PREFIX, rootServiceClass } from "../../rules/engine.js";
 
 const paidTierIt = it.runIf(PAID_TIER_ENABLED);
 const includedAccessIt = it.runIf(!PAID_TIER_ENABLED);
@@ -441,6 +441,77 @@ describe("content script — hydration boundary (U3)", () => {
     release();
     await pending;
     expect(redirectPort.replace).toHaveBeenCalledTimes(1); // one redirect, no storm
+    cs.stop();
+  });
+});
+
+// The packaged stylesheets are declared once in the manifest, so every service's hide selectors
+// load on every service's pages. The root service class is what keeps them apart, so it has to be
+// present exactly when the CSS may act and absent whenever it may not.
+describe("content script — root service class scopes the packaged CSS", () => {
+  const serviceClasses = () =>
+    Array.from(document.documentElement.classList).filter((c) =>
+      c.startsWith(ROOT_SERVICE_CLASS_PREFIX),
+    );
+
+  it("names the page's own service while rules apply", async () => {
+    const cs = createContentScript({
+      win: makeWin("https://m.youtube.com/results?search_query=news"),
+      doc: document,
+      ruleSet,
+      cache: cacheWith(null),
+      schedule: sync,
+    });
+    await cs.start();
+    expect(serviceClasses()).toEqual([rootServiceClass("youtube")]);
+    cs.stop();
+  });
+
+  it("never names two services at once", async () => {
+    const cs = createContentScript({
+      win: makeWin("https://www.instagram.com/someuser/"),
+      doc: document,
+      ruleSet,
+      cache: cacheWith(null),
+      entitlement: entitlementWith(true),
+      schedule: sync,
+    });
+    await cs.start();
+    expect(serviceClasses()).toEqual([rootServiceClass("instagram")]);
+    cs.stop();
+  });
+
+  it("drops the class when the user turns the service off", async () => {
+    const adapter = new InMemoryStorageAdapter(null);
+    const cache = new SettingsCache(adapter);
+    const cs = createContentScript({
+      win: makeWin("https://www.youtube.com/feed/subscriptions"),
+      doc: document,
+      ruleSet,
+      cache,
+      schedule: sync,
+    });
+    await cs.start();
+    expect(serviceClasses()).toEqual([rootServiceClass("youtube")]);
+
+    adapter.emitExternal({ ...DEFAULT_SETTINGS, globalOn: false, updatedAt: Date.now() + 1 });
+    expect(serviceClasses()).toEqual([]);
+    expect(document.documentElement.classList.contains(ROOT_ACTIVE_CLASS)).toBe(false);
+    cs.stop();
+  });
+
+  it("drops the class on a page Still replaces with the placeholder", async () => {
+    const cs = createContentScript({
+      win: makeWin("https://www.tiktok.com/foryou"),
+      doc: document,
+      ruleSet,
+      cache: cacheWith(null),
+      entitlement: entitlementWith(true),
+      schedule: sync,
+    });
+    await cs.start();
+    expect(document.querySelector("#still-placeholder")).not.toBeNull();
+    expect(serviceClasses()).toEqual([]);
     cs.stop();
   });
 });
