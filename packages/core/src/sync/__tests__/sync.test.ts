@@ -17,7 +17,7 @@ function envelope(settingsValue: StillSettings, version = settingsValue.updatedA
   };
 }
 
-/** An envelope whose SERVER timestamp is set explicitly — the first-sign-in merge compares against
+/** An envelope whose SERVER timestamp is set explicitly, because the first-sign-in merge compares against
  * that stamp, so the four merge directions need to state it rather than derive it from a version. */
 function envelopeStampedAt(
   settingsValue: StillSettings,
@@ -704,6 +704,162 @@ describe("SyncService", () => {
     await svc.onSignedIn(USER);
     expect(cache.current().globalOn).toBe(false);
     expect(backend.writes.length).toBe(0);
+  });
+
+  // ── reconciling a device that has ALREADY synced ────────────────────────────────────────────────
+  // Once a device and its account share a version counter, that counter decides and no clock is
+  // consulted. These cases are the ones the clock rule got wrong: they are written so that each
+  // fails if the rule it pins is taken back out.
+
+  /** A cache that has already synced: local settings plus the sync metadata a previous sync left. */
+  function syncedCache(local: StillSettings, version: number, serverMs = SERVER_MS) {
+    let t = 1000;
+    return new SettingsCache(
+      new InMemoryStorageAdapter({
+        settings: local,
+        syncMetadata: {
+          version,
+          serverUpdatedAt: new Date(serverMs).toISOString(),
+          lastWriteId: null,
+        },
+      }),
+      { now: () => ++t },
+    );
+  }
+
+  function reconcileService(
+    cache: SettingsCache,
+    cloud: SyncedSettingsEnvelope | null,
+    lastSynced: string | null = null,
+    deviceNow = DEVICE_NOW,
+  ) {
+    const backend = mockBackend({ entitled: true, cloud });
+    const svc = new SyncService(
+      cache,
+      mockAuth().auth,
+      backend.backend,
+      undefined,
+      identityStore(lastSynced).store,
+      () => deviceNow,
+    );
+    return { svc, writes: backend.writes };
+  }
+
+  it("a device whose clock runs fast stops winning after its first sync, on every later start", async () => {
+    // The phone's clock is five minutes ahead, so every stamp it writes looks newer than the Mac's.
+    // It has synced already (version 6); the Mac has written since (version 7). Restoring the
+    // session must adopt the Mac's write, and must keep adopting it however many times the phone
+    // is opened, or the Mac can never make a change stick.
+    const cache = syncedCache(settings({ globalOn: true, updatedAt: DEVICE_NOW }), 6);
+    await cache.hydrate();
+    const cloud = envelopeStampedAt(settings({ globalOn: false, updatedAt: 7 }), SERVER_MS, 7);
+    const { svc, writes } = reconcileService(cache, cloud);
+
+    await svc.onSignedIn(USER);
+    expect(writes.length).toBe(0);
+    expect(cache.current().globalOn).toBe(false);
+
+    await svc.onSignedIn(USER); // the next launch, and the one after that
+    await svc.onSignedIn(USER);
+    expect(writes.length).toBe(0);
+    expect(cache.current().globalOn).toBe(false);
+  });
+
+  it("the account is adopted even when this device carries a version the steady-state rule would refuse", async () => {
+    // The decision said the account wins. The cache's own rule would refuse this envelope, because
+    // its version is not higher than the one sitting on the device. The decision still has to hold:
+    // the account's settings land, and nothing goes up.
+    const cache = syncedCache(settings({ globalOn: true, updatedAt: DEVICE_NOW }), 9);
+    await cache.hydrate();
+    const cloud = envelopeStampedAt(settings({ globalOn: false, updatedAt: 7 }), SERVER_MS, 4);
+    const { svc, writes } = reconcileService(cache, cloud);
+
+    await svc.onSignedIn(USER);
+    expect(writes.length).toBe(0);
+    expect(cache.current().globalOn).toBe(false);
+    expect(cache.currentSyncMetadata()?.version).toBe(4);
+  });
+
+  it("an edit made while signed out is published when the account has not moved since", async () => {
+    // The founder's own check: sign out, turn something off, sign back in, and it stays off. The
+    // account is still at the version this device left it at, so nothing was written anywhere else
+    // and this edit is the newest thing that exists.
+    const cache = syncedCache(settings({ globalOn: false, updatedAt: SERVER_MS + 1_000 }), 5);
+    await cache.hydrate();
+    const cloud = envelopeStampedAt(settings({ globalOn: true, updatedAt: 7 }), SERVER_MS, 5);
+    const { svc, writes } = reconcileService(cache, cloud);
+
+    await svc.onSignedIn(USER);
+    expect(writes.length).toBe(1);
+    expect(writes[0]!.globalOn).toBe(false);
+    expect(cache.current().globalOn).toBe(false);
+  });
+
+  it("a device that changed nothing since its last sync publishes nothing", async () => {
+    const same = settings({ globalOn: true, updatedAt: SERVER_MS });
+    const cache = syncedCache(same, 5);
+    await cache.hydrate();
+    const { svc, writes } = reconcileService(cache, envelopeStampedAt(same, SERVER_MS, 5));
+
+    await svc.onSignedIn(USER);
+    expect(writes.length).toBe(0);
+  });
+
+  // ── a shared browser: the next person's account is never overwritten ─────────────────────────────
+  // Two independent routes, because they fail through different code. The first is decided by the
+  // timestamps, the second never reaches them at all.
+
+  it("shared browser, by timestamp: the leftover settings are newer, and still do not travel", async () => {
+    const cache = makeCache(settings({ globalOn: false, updatedAt: SERVER_MS + 1_000 }));
+    await cache.hydrate();
+    const cloud = envelopeStampedAt(settings({ globalOn: true, updatedAt: 7 }), SERVER_MS, 3);
+    const { svc, writes } = reconcileService(cache, cloud, OTHER_USER);
+
+    await svc.onSignedIn(USER);
+    expect(writes.length).toBe(0);
+    expect(cache.current().globalOn).toBe(true); // and this person sees their own account
+  });
+
+  it("shared browser, by version: the leftover metadata is ahead of the account, and the account still wins", async () => {
+    // The previous person synced a lot on this browser, so the version left behind is higher than
+    // anything in the account now signing in. Comparing the two would be meaningless: they count
+    // different profile rows. The account is adopted whole.
+    const cache = syncedCache(settings({ globalOn: false, updatedAt: SERVER_MS + 1_000 }), 99);
+    await cache.hydrate();
+    const cloud = envelopeStampedAt(settings({ globalOn: true, updatedAt: 7 }), SERVER_MS, 3);
+    const { svc, writes } = reconcileService(cache, cloud, OTHER_USER);
+
+    await svc.onSignedIn(USER);
+    expect(writes.length).toBe(0);
+    expect(cache.current().globalOn).toBe(true);
+    expect(cache.currentSyncMetadata()?.version).toBe(3);
+  });
+
+  it("a sign-in that lands before the settings have loaded waits rather than publishing defaults", async () => {
+    // Hydration is started fire-and-forget by every host. A sign-in that arrives first must not
+    // read the bundled defaults, decide this is a brand new device, and upload them.
+    const adapter = new InMemoryStorageAdapter(settings({ globalOn: false, updatedAt: 9_000 }));
+    const slowGet = adapter.get.bind(adapter);
+    let releaseStorage: () => void = () => {};
+    const blocked = new Promise<void>((resolve) => {
+      releaseStorage = resolve;
+    });
+    adapter.get = async () => {
+      await blocked;
+      return slowGet();
+    };
+    const cache = new SettingsCache(adapter);
+    void cache.hydrate();
+    const backend = mockBackend({ entitled: true, cloud: null });
+    const svc = new SyncService(cache, mockAuth().auth, backend.backend, undefined, identityStore(null).store);
+
+    const signIn = svc.onSignedIn(USER);
+    await drain();
+    expect(backend.writes.length).toBe(0); // still waiting on storage, nothing published
+    releaseStorage();
+    await signIn;
+    expect(backend.writes.length).toBe(1);
+    expect(backend.writes[0]!.globalOn).toBe(false); // the real settings, not the defaults
   });
 
   // ── onEntitlementConfirmed: mirror-on-unlock without a second reconcile (Codex-1 fix) ────────────

@@ -28,12 +28,15 @@ import type { LastSyncedIdentityStore, SyncService } from "./service.js";
 //     any checkout-pending flag untouched; only voluntary sign-out/delete downgrades.
 //   • Teardown parity: sign-out and account deletion route through ONE shared purge — explicit
 //     `entitled: false` write (subscribers only fire on a value), pendingOtp/checkoutPending/
-//     intent/nudge-stamp cleared, the recorded checkout tab closed best-effort, identity forgotten.
+//     intent/nudge-stamp cleared, the recorded checkout tab closed best-effort. The last-synced
+//     identity is the one thing the purge does NOT touch: see ExtensionIdentityStore.
 //   • Identity switch (AE5): verifyCode as a different user purges the previous account's grant
 //     and pending state BEFORE anything of the new user's lands — through the same purge helper.
 //   • Wake resumes, never re-reconciles (R2 hard rule): resume() restarts the sync write-through
-//     from the CACHED record with no network call; live reconcile stays on the R4 triggers
-//     (popup open, qualifying nudge).
+//     from the CACHED entitlement record and spends no purchase-service query; live reconcile
+//     stays on the R4 triggers (popup open, qualifying nudge). It does read the account's settings
+//     once, which is a different call and the only way a browser that has been closed can learn
+//     what another device changed while it was shut.
 //   • Defensive boot: every persisted record parses garbage as absent — a corrupt slot can never
 //     throw during startup or wedge a pending state (the chrome-adapter garbage-timestamp rule).
 //
@@ -109,17 +112,17 @@ export interface ExtensionSessionStores {
   readonly nudgeStamp: PersistedSlot<number>;
 }
 
-/** The identity seam, widened with `clear` for teardown. It answers one question for the shared
- * machine rule (AE5): who last synced in this browser? A DIFFERENT answer stops this browser's
- * settings being uploaded into the account now signing in. Teardown forgets the answer, which
- * means a browser that has been signed out of reads as nobody's in particular and the next
- * sign-in carries its settings up; the settings in question are the ones anyone using this
- * browser profile can already see and change in the popup without an account, so what travels is
- * a set of toggles rather than anything private. Extends U1's store so the same object feeds
- * SyncService. */
-export interface ExtensionIdentityStore extends LastSyncedIdentityStore {
-  clear(): Promise<void>;
-}
+/** The identity seam. It answers one question for the shared-machine rule (AE5): who last synced
+ * in this browser? A DIFFERENT answer stops this browser's settings being uploaded into the
+ * account now signing in.
+ *
+ * The record deliberately outlives sign-out and account deletion, and there is no way to erase it,
+ * because a shared browser is exactly the case where the protection has to survive the first
+ * person leaving: without it, the next person to sign in would carry the previous person's toggles
+ * into their account and from there onto all of their devices. What is kept is one opaque account
+ * identifier, alongside settings the same browser profile already holds. It is U1's store, used
+ * unchanged so the same object feeds SyncService. */
+export type ExtensionIdentityStore = LastSyncedIdentityStore;
 
 /** The SyncService slice this orchestrator drives (the apple-session seam pattern): the real
  * service in U6 wiring and in the test harness — "sync started" is then a real writeProfile. */
@@ -281,7 +284,9 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
     stagedIntent = false;
     await attempt(() => stores.pendingOtp.set(null));
     await attempt(() => stores.nudgeStamp.set(null)); // the old user's throttle must not mute the next
-    await attempt(() => identity.clear());
+    // The last-synced identity stays. It is what tells the NEXT person to sign in on this browser
+    // that the settings sitting here are not theirs, and forgetting it at sign-out would mean the
+    // shared-machine rule only ever applied between a sign-in and the next sign-out.
     // Drop the persisted Supabase session too (offline-proof sign-out, F1) — without this a failed
     // remote revoke leaves the session on disk and the next wake resurrects the signed-out user.
     if (clearAuthStorage) await attempt(clearAuthStorage);
@@ -318,7 +323,7 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
       // may never reopen (AE3); the plan's sequence is "write cache, clear pending". The tab is
       // NOT closed here: it is showing the purchase-complete page.
       if (entitled) await attempt(() => stores.checkoutPending.set(null));
-      // Settle the sync lifecycle from this same reconcile — no second RevenueCat query. This is
+      // Settle the sync lifecycle from this same reconcile, with no second RevenueCat query. This is
       // now almost always a cheap write-through re-arm, because sign-in already started the sync;
       // the initial cloud mirror it can still run is the safety net for a session that reached
       // this point without one.
@@ -490,7 +495,9 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
         if (userId === null) return "signed-out";
         const record = await records.getRecord(userId); // identity-bound: a mismatch is "no cache" (R8)
         const entitled = record?.entitled === true;
-        sync.resume(userId, entitled);
+        // Awaited so the start-up settings read has landed before this answers: a browser that was
+        // closed while another device changed something learns about it here, not on its next edit.
+        await sync.resume(userId, entitled);
         return entitled ? "resumed-entitled" : "resumed-free";
       } catch {
         return "signed-out"; // a torn boot must never throw; the next reconcile self-heals
