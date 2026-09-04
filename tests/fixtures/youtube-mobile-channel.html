@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>YouTube — m.youtube.com channel page fixture</title>
+  </head>
+  <body>
+    <!--
+      m.youtube.com channel page: the mobile tab strip and a mobile Shorts shelf on the channel
+      home, beside ordinary shelves that must survive. Ids starting "keep-" are the controls.
+    -->
+    <ytm-app id="app">
+      <ytm-browse>
+        <ytm-single-column-browse-results-renderer class="modern-tabs">
+          <div class="single-column-browse-results-tab-bar">
+            <yt-tab-group-shape>
+              <div class="tabGroupShapeTabs" role="tablist">
+                <yt-tab-shape id="keep-mobile-videos-tab" role="tab" tab-title="Videos">Videos</yt-tab-shape>
+                <yt-tab-shape id="mobile-shorts-tab" role="tab" tab-title="Shorts">Shorts</yt-tab-shape>
+              </div>
+            </yt-tab-group-shape>
+          </div>
+
+          <ytm-section-list-renderer>
+            <ytm-item-section-renderer>
+              <ytm-reel-shelf-renderer id="mobile-channel-shorts-shelf" class="item">
+                <h2>Shorts</h2>
+                <div class="reel-shelf-items">
+                  <ytm-shorts-lockup-view-model class="shortsLockupViewModelHost">
+                    <a class="shortsLockupViewModelHostEndpoint" href="/shorts/abc123">a channel short</a>
+                  </ytm-shorts-lockup-view-model>
+                </div>
+              </ytm-reel-shelf-renderer>
+
+              <ytm-shelf-renderer id="keep-mobile-channel-shelf" class="item">
+                <h2>Popular videos</h2>
+                <ytm-video-with-context-renderer id="keep-mobile-channel-video">
+                  <ytm-media-item>
+                    <a class="media-item-thumbnail-container" href="/watch?v=long123">A real long-form upload</a>
+                  </ytm-media-item>
+                </ytm-video-with-context-renderer>
+              </ytm-shelf-renderer>
+            </ytm-item-section-renderer>
+          </ytm-section-list-renderer>
+        </ytm-single-column-browse-results-renderer>
+      </ytm-browse>
+    </ytm-app>
+  </body>
+</html>
