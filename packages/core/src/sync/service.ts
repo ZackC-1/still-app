@@ -245,11 +245,11 @@ export class SyncService {
   }
 
   /**
-   * Reconcile this device with its account: decide ONCE which side is the newer, then act on that
-   * one decision and nothing else. Both moments where the two can be out of step come through
+   * Reconcile this device with its account: decide ONCE what this account should hold, then act on
+   * that one decision and nothing else. Both moments where the two can be out of step come through
    * here, the mirror a sign-in runs and the catch-up a background start runs, so there is one
    * answer rather than one per entry point. The answer is returned so that nothing downstream has
-   * to guess which way it went.
+   * to guess which way it went, including the case where neither side won.
    */
   private async reconcileWithAccount(userId: string): Promise<ReconcileOutcome> {
     // Never judge a device by a cache that has not finished loading. Until hydration lands,
