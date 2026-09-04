@@ -182,17 +182,20 @@ describe("ExtensionSession — verifyCode (the sign-in money path)", () => {
     expect(outcome).toEqual({ kind: "verified", userId: "u1" });
     expect(h.backend.reconcileEntitlement).toHaveBeenCalledTimes(1); // onSignedIn's self-heal
     expect(h.recordWrites).toContainEqual({ entitled: true, userId: "u1", updatedAt: T0 });
-    // Sync started: a local settings edit reaches the cloud through the real SyncService.
-    await h.cache.setGlobalOn(false);
+    // Sign-in seeded the empty account from this browser (the first-ever sign-in rule), so the
+    // edit below is the SECOND write, not the first.
     expect(h.backend.writeProfile).toHaveBeenCalledTimes(1);
+    await h.cache.setGlobalOn(false);
+    expect(h.backend.writeProfile).toHaveBeenCalledTimes(2);
   });
 
-  it("not entitled: record written explicit false, signed in but NO sync (R7/R9)", async () => {
+  it("no entitlement: record written explicit false, and settings sync starts anyway", async () => {
     const h = harness({ sessionUser: null, read: "not-entitled" });
     await h.session.verifyCode("a@still.app", "123456");
     expect(h.recordWrites).toContainEqual({ entitled: false, userId: "u1", updatedAt: T0 });
+    h.backend.writeProfile.mockClear();
     await h.cache.setGlobalOn(false);
-    expect(h.backend.writeProfile).not.toHaveBeenCalled();
+    expect(h.backend.writeProfile).toHaveBeenCalledTimes(1);
   });
 
   it("unknown (offline read): NO record write — never write on couldn't-read (AE6)", async () => {
@@ -305,20 +308,23 @@ describe("ExtensionSession — reconcile / restore", () => {
     expect(h.backend.reconcileEntitlementChecked).not.toHaveBeenCalled();
   });
 
-  it("a web purchase after a free sign-in runs the initial settings sync on unlock (Codex-1)", async () => {
-    // Sign in while NOT entitled — no sync starts (R7). Then the reconcile that confirms the
-    // purchase must run the initial cloud mirror, not just resume() write-through, or the buyer's
-    // settings wouldn't sync until their next edit despite the UI reporting syncing.
+  it("a purchase landing after sign-in leaves the settings sync it already had", async () => {
+    // Signing in starts the sync, so by the time a purchase is confirmed there is nothing left to
+    // mirror. The reconcile that confirms it must not re-run the initial mirror, and must not
+    // interrupt the write-through that is already carrying this user's edits.
     const h = harness({ read: "not-entitled" });
     await h.session.verifyCode("a@still.app", "123456");
-    expect(h.sync.getState().entitled).toBe(false);
+    expect(h.sync.getState()).toMatchObject({ entitled: false, syncing: true });
     h.backend.readProfile.mockClear();
-    h.backend.writeProfile.mockClear();
 
     h.backend.readEntitlement.mockResolvedValue("entitled"); // the purchase landed
     expect(await h.session.reconcile()).toBe("entitled");
-    expect(h.backend.readProfile).toHaveBeenCalled(); // initial mirror ran on unlock
+    expect(h.backend.readProfile).not.toHaveBeenCalled();
     expect(h.sync.getState()).toMatchObject({ entitled: true, syncing: true });
+
+    h.backend.writeProfile.mockClear();
+    await h.cache.setGlobalOn(false);
+    expect(h.backend.writeProfile).toHaveBeenCalledTimes(1);
   });
 
   it("restore() is the same reconcile spine (the web Restore button, R5)", async () => {
@@ -433,12 +439,14 @@ describe("ExtensionSession — resume (background wake, R2 hard rule)", () => {
     expect(h.backend.reconcileEntitlementChecked).not.toHaveBeenCalled();
   });
 
-  it("free cache: resumed without write-through (no RC query either)", async () => {
+  it("a cached entitlement of false still resumes write-through, and still spends no RC query", async () => {
     const h = harness();
     await h.inner.setRecord({ entitled: false, userId: "u1", updatedAt: T0 });
     expect(await h.session.resume()).toBe("resumed-free");
     await h.cache.setGlobalOn(false);
-    expect(h.backend.writeProfile).not.toHaveBeenCalled();
+    expect(h.backend.writeProfile).toHaveBeenCalledTimes(1);
+    expect(h.backend.reconcileEntitlement).not.toHaveBeenCalled();
+    expect(h.backend.reconcileEntitlementChecked).not.toHaveBeenCalled();
   });
 
   it("a record bound to another user reads as no cache (R8): resumes free", async () => {

@@ -82,6 +82,49 @@ final class SettingsTests: XCTestCase {
     XCTAssertTrue(store.current().globalOn)
   }
 
+  /// The first-sign-in merge is decided once, in the shared core, and the app must carry whichever
+  /// side won without re-judging it. Both directions are checked here, because getting one of them
+  /// wrong would leave the app and the Safari extension showing different settings from the web UI
+  /// until the next reconcile.
+  ///
+  /// Direction one: the account was the more recently changed side, so the core hands down the
+  /// account's settings. They land even though their device timestamp is OLDER than what this
+  /// device has stored, which is exactly the case a naive timestamp comparison would reject.
+  func testAnAccountThatWonTheFirstSignInMergeLandsEvenWithAnOlderDeviceTimestamp() {
+    let store = SharedSettingsStore(backing: InMemoryBacking())
+    store.save(StillSettings(globalOn: true, services: StillServices(), pauses: [], updatedAt: 9_000))
+
+    let accountWon = StoredSettingsRecord(
+      settings: StillSettings(globalOn: false, services: StillServices(), pauses: [], updatedAt: 7),
+      syncMetadata: SettingsSyncMetadata(
+        version: 1, serverUpdatedAt: "2026-09-01T10:00:00.000Z", lastWriteId: "w1"))
+
+    XCTAssertTrue(store.applyRecord(accountWon))
+    XCTAssertFalse(store.current().globalOn)
+    XCTAssertEqual(store.currentRecord().syncMetadata?.version, 1)
+  }
+
+  /// Direction two: this device was the more recently changed side, so the core published the
+  /// device's settings and the account echoed them back with server metadata attached. The record
+  /// that lands therefore carries the device's own values, unchanged.
+  func testADeviceThatWonTheFirstSignInMergeKeepsItsOwnSettings() {
+    let store = SharedSettingsStore(backing: InMemoryBacking())
+    let deviceSettings = StillSettings(
+      globalOn: true, services: StillServices(youtube: false, instagram: true, tiktok: true, facebook: true),
+      pauses: [], updatedAt: 9_000)
+    store.save(deviceSettings)
+
+    let publishedAndEchoedBack = StoredSettingsRecord(
+      settings: deviceSettings,
+      syncMetadata: SettingsSyncMetadata(
+        version: 1, serverUpdatedAt: "2026-09-01T10:00:00.000Z", lastWriteId: "w2"))
+
+    XCTAssertTrue(store.applyRecord(publishedAndEchoedBack))
+    XCTAssertTrue(store.current().globalOn)
+    XCTAssertFalse(store.current().services.youtube)
+    XCTAssertEqual(store.currentRecord().syncMetadata?.lastWriteId, "w2")
+  }
+
   /// A web-written JSON blob decodes into the Swift model (interop direction: web → native).
   func testDecodesWebWrittenJSON() throws {
     let json = """

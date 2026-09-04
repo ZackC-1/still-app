@@ -3,7 +3,7 @@
 -- reads. Asserts cross-user isolation, event/rule-set opacity, and write-path narrowness.
 
 begin;
-select plan(32);
+select plan(33);
 
 -- ── seed (as the test superuser) ────────────────────────────────────────────────
 -- A, B: entitled. C: un-entitled (negative write paths). D: entitled (positive INSERT path).
@@ -118,6 +118,9 @@ select ok(
 reset role;
 
 -- ── as un-entitled user C ───────────────────────────────────────────────────────
+-- Settings sync is available to anyone with an account (migration 0012), so C writes through the
+-- RPC even though C owns nothing. The narrowness of the write path is unchanged: the RPC is still
+-- the only route, direct table writes are still denied, and the subject still comes from auth.uid().
 set local role authenticated;
 set local request.jwt.claims to '{"sub":"33333333-3333-3333-3333-333333333333"}';
 
@@ -126,20 +129,18 @@ select throws_ok(
   '42501', NULL, 'authenticated user cannot directly insert a synced profile'
 );
 
-select throws_ok(
+select lives_ok(
   $$ select public.write_profile_settings('{"globalOn":true}'::jsonb, 'cccccccc-cccc-4ccc-cccc-cccccccccccc'::uuid) $$,
-  '42501', NULL, 'un-entitled user cannot write settings through the RPC'
+  'an account with no entitlement can write settings through the RPC'
 );
 
-reset role;
+select is(
+  (select settings_version::int from public.profiles where id = '33333333-3333-3333-3333-333333333333'),
+  1, 'the un-entitled write created C''s profile row rather than being refused'
+);
 
--- Seed C a profile row as superuser (bypasses RLS), then prove an un-entitled UPDATE is denied.
--- Direct UPDATE grants are revoked, so authenticated updates fail before RLS can silently filter.
-insert into public.profiles (id, settings)
-  values ('33333333-3333-3333-3333-333333333333', '{"globalOn":true}'::jsonb);
-
-set local role authenticated;
-set local request.jwt.claims to '{"sub":"33333333-3333-3333-3333-333333333333"}';
+-- C's row now exists because the RPC created it, so nothing is seeded here. Prove that a direct
+-- UPDATE is still denied: direct grants are revoked, so it fails before RLS can silently filter.
 
 -- Data-modifying CTE must sit at the statement top level (can't nest inside the is() argument).
 select throws_ok(

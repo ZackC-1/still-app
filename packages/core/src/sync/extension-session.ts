@@ -109,9 +109,14 @@ export interface ExtensionSessionStores {
   readonly nudgeStamp: PersistedSlot<number>;
 }
 
-/** The identity seam, widened with `clear` for teardown: a forgotten identity makes every later
- * sign-in read as cross-identity, so the cloud always wins over possibly-foreign local settings
- * (AE5). Extends U1's store so the same object feeds SyncService's seed guard. */
+/** The identity seam, widened with `clear` for teardown. It answers one question for the shared
+ * machine rule (AE5): who last synced in this browser? A DIFFERENT answer stops this browser's
+ * settings being uploaded into the account now signing in. Teardown forgets the answer, which
+ * means a browser that has been signed out of reads as nobody's in particular and the next
+ * sign-in carries its settings up; the settings in question are the ones anyone using this
+ * browser profile can already see and change in the popup without an account, so what travels is
+ * a set of toggles rather than anything private. Extends U1's store so the same object feeds
+ * SyncService. */
 export interface ExtensionIdentityStore extends LastSyncedIdentityStore {
   clear(): Promise<void>;
 }
@@ -313,10 +318,10 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
       // may never reopen (AE3); the plan's sequence is "write cache, clear pending". The tab is
       // NOT closed here: it is showing the purchase-complete page.
       if (entitled) await attempt(() => stores.checkoutPending.set(null));
-      // Settle the sync lifecycle from this same reconcile — no second RevenueCat query. Unlike
-      // resume(), this runs the initial cloud mirror on a not-entitled → entitled transition (a web
-      // purchase after a free sign-in), so the buyer's settings sync immediately instead of waiting
-      // for their next edit; the steady state stays a cheap write-through re-arm.
+      // Settle the sync lifecycle from this same reconcile — no second RevenueCat query. This is
+      // now almost always a cheap write-through re-arm, because sign-in already started the sync;
+      // the initial cloud mirror it can still run is the safety net for a session that reached
+      // this point without one.
       await sync.onEntitlementConfirmed(userId, entitled);
       return entitled ? "entitled" : "not-entitled";
     } catch {
@@ -371,8 +376,9 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
         // continues the purchase from its own in-memory flag now) is done.
         stagedIntent = false;
         await attempt(() => stores.pendingOtp.set(null));
-        // The full sign-in flow: reconcile-before-read, cloud-wins mirror, sync only when
-        // entitled (R9 semantics unchanged).
+        // The full sign-in flow: the settings mirror and the entitlement reconcile, started
+        // together. Having an account is the whole sync gate now, so the mirror no longer waits
+        // on, or depends on, the entitlement answer (SyncService.onSignedIn).
         const generationAtStart = teardownGeneration;
         await sync.onSignedIn(userId);
         // Write the record from that sign-in's own reconcile — one RevenueCat query, not two.
