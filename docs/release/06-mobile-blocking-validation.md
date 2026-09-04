@@ -89,6 +89,26 @@ manifest; the launch AMO build deliberately omits that key and is desktop-only.
 
 ---
 
+## C. Pro mobile surfaces (entitled user, all mobile)
+
+After unlocking Still Pro on the device (iOS: IAP; Firefox: web checkout once the deploy checklist is
+live), confirm the Pro mobile surfaces on the mobile hosts:
+
+1. [ ] **`m.instagram.com`** — Reels routes blocked, mobile Reels surfaces removed, normal posts remain.
+       Check both address forms of one Reel, `/reel/<id>/` and `/<username>/reel/<id>/`, and open a
+       public profile: its grid keeps photo posts and loses the tiles with the Reels badge.
+2. [ ] **`m.facebook.com`** — Reels routes blocked and mobile Reels sections removed. Use a
+       `/reel/<id>` address or a Page's own `/<page>/reels/` tab. Do not use `/watch/reels/`:
+       Facebook rewrites that address to `/watch/`, its long-form video feed, which Still leaves
+       alone on purpose, so it looks like nothing happened.
+3. [ ] **Any Facebook Page** — the Reels tab is gone from the Page's tab bar; Posts, About, Photos
+       and Videos are all still there.
+4. [ ] **`m.tiktok.com`** — whole-site block shows the Still "This site is blocked." placeholder.
+5. [ ] **Free user sees none of the above blocked** (Pro-gated) — sanity-check on a signed-out/free
+       device that IG/FB/TikTok are untouched while YouTube Shorts still go.
+
+---
+
 ## D. iPhone timing pass: is Still costing the page anything?
 
 Automated tests cannot answer this. Playwright cannot load a Safari extension, and the emulated
@@ -133,19 +153,6 @@ console.log("first paint ms", Math.round(paint?.startTime ?? 0), "load ms", Math
 
 Safari implements neither the Long Tasks API nor Total Blocking Time, so there is no equivalent
 one-liner for main-thread blocking on a device. Judge that by whether scrolling stutters.
-
----
-
-## C. Pro mobile surfaces (entitled user, all mobile)
-
-After unlocking Still Pro on the device (iOS: IAP; Firefox: web checkout once the deploy checklist is
-live), confirm the Pro mobile surfaces on the mobile hosts:
-
-1. [ ] **`m.instagram.com`** — Reels routes blocked, mobile Reels surfaces removed, normal posts remain.
-2. [ ] **`m.facebook.com`** — Reels routes blocked (`/watch/reels/`), mobile Reels sections removed.
-3. [ ] **`m.tiktok.com`** — whole-site block shows the Still "This site is blocked." placeholder.
-4. [ ] **Free user sees none of the above blocked** (Pro-gated) — sanity-check on a signed-out/free
-       device that IG/FB/TikTok are untouched while YouTube Shorts still go.
 
 ---
 
