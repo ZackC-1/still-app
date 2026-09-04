@@ -65,8 +65,8 @@ final class WebBridgeRouter {
     _ = entitlement.applyReceipt(status)
     // Cohort capture rides along on the same moments the receipt is read, but is deliberately NOT
     // awaited: launch defers publishing the install-generation id until this method returns, and
-    // AppTransaction can take an unbounded App Store round trip on a cold cache. It is idempotent,
-    // so the overlapping calls from launch, foreground, purchase, and restore are harmless.
+    // asking Apple for the app transaction has no time bound at all. It is idempotent, so the
+    // overlapping calls from launch, foreground, purchase, and restore are harmless.
     Task { await self.captureOriginalInstall() }
   }
 
@@ -122,8 +122,9 @@ final class WebBridgeRouter {
 
     case "restore":
       // Refused for the same reason as purchase. This does not strand a customer who already
-      // bought: refreshReceiptStamp still reads the receipt at launch, on foreground, and here, so
-      // the device keeps proving its own entitlement without the restore round trip.
+      // bought: the receipt is still read at launch and on every foreground return, and the web
+      // view's own receiptStatus call below restamps too, so the device keeps proving its own
+      // entitlement without the restore round trip.
       guard MonetizationConfig.paidTierEnabled else {
         reply(Self.json(["entitled": false]), nil)
         return
@@ -201,23 +202,43 @@ final class WebBridgeRouter {
     }
   }
 
-  /// AppTransaction is unavailable on the deployment floors (iOS 15 and macOS 12), so cohort
-  /// capture is best-effort on newer systems. It stays local in the App Group and retries on later
-  /// receipt refreshes until one verified transaction has been recorded.
+  /// Record, once per install, when this device first ran a build of Still that keeps a local
+  /// record of it. That is what lets a later paid tier honor everyone who arrived while everything
+  /// was included, without an account and without sending anything anywhere.
+  ///
+  /// Two halves, deliberately. The local half is written first and always: it reads the app's own
+  /// bundle, needs nothing from Apple, and works on every OS version Still supports. The verified
+  /// half comes from Apple's app transaction, is richer, and is entirely optional — it is available
+  /// only on newer systems, and asking for it can put an App Store sign-in sheet in front of a free
+  /// app when the transaction is not already cached on the device. So the ask is counted before it
+  /// is made and stops for good after a few attempts, rather than repeating at every launch.
   private func captureOriginalInstall() async {
-    guard #available(iOS 16.0, macOS 13.0, *) else { return }
     let defaults = InstallGeneration.appGroupDefaults()
-    guard OriginalInstall.current(defaults) == nil else { return }
+    OriginalInstall.ensure(
+      firstRecordedAt: Date(),
+      appVersion: Self.marketingVersion,
+      defaults: defaults
+    )
+    guard #available(iOS 16.0, macOS 13.0, *) else { return }
+    guard OriginalInstall.shouldRequestVerifiedValues(defaults) else { return }
+    OriginalInstall.countVerifiedAttempt(defaults)
     guard let result = try? await AppTransaction.shared,
           case .verified(let transaction) = result
     else { return }
-    OriginalInstall.recordIfAbsent(
-      OriginalInstallRecord(
-        applicationVersion: transaction.originalAppVersion,
-        originalPurchaseDate: transaction.originalPurchaseDate
-      ),
+    // originalAppVersion means different things on iOS and macOS, so the record is tagged with
+    // which one it holds rather than left for a future reader to guess.
+    OriginalInstall.fillVerifiedValues(
+      applicationVersion: transaction.originalAppVersion,
+      kind: OriginalInstall.applicationVersionKindForThisPlatform,
+      originalPurchaseDate: transaction.originalPurchaseDate,
       defaults: defaults
     )
+  }
+
+  /// Still's own marketing version (`CFBundleShortVersionString`), which is the same namespace on
+  /// every Apple platform.
+  private static var marketingVersion: String {
+    Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
   }
 
   private func handleSignIn(reply: @escaping (Any?, String?) -> Void) async {

@@ -44,14 +44,73 @@ final class MonetizationConfigTests: XCTestCase {
     XCTAssertEqual(MonetizationConfig.paidTierEnabled, sharedSwitch)
   }
 
+  /// Checks the property rather than a count of guards, so that adding an unrelated guard to this
+  /// router later cannot fail this test with a message about purchases.
   func testPurchaseAndRestoreBridgeActionsBothUseTheAppleSwitch() throws {
+    let source = try routerSource()
+    for action in ["purchase", "restore"] {
+      let block = try XCTUnwrap(
+        bridgeActionBody(named: action, in: source),
+        "the router no longer has a \"\(action)\" action"
+      )
+      XCTAssertTrue(
+        block.contains("guard MonetizationConfig.paidTierEnabled else"),
+        "the \"\(action)\" action must be refused while paid access is dormant"
+      )
+    }
+  }
+
+  /// The cohort record is written from this router at first launch and cannot be recreated later,
+  /// so the value it stores has to be interpretable on both platforms. Apple reports
+  /// `originalAppVersion` as a build number on iOS and a marketing version on macOS; asking
+  /// StillKit which one this platform uses is what keeps the two comparable.
+  func testTheCohortRecordTagsApplesVersionNamespaceRatherThanAssumingOne() throws {
+    let source = try routerSource()
+    XCTAssertTrue(
+      source.contains("kind: OriginalInstall.applicationVersionKindForThisPlatform"),
+      "the recorded application version must carry the namespace it was read in"
+    )
+    XCTAssertFalse(
+      source.contains("kind: .buildNumber") || source.contains("kind: .marketingVersion"),
+      "hardcoding one platform's namespace would misclassify the other platform's installs"
+    )
+  }
+
+  /// Asking Apple for the app transaction can raise an App Store sign-in prompt on a device with
+  /// no cached transaction. Still is free, so the ask has to be counted before it is made and has
+  /// to stop, rather than repeating at every launch and every foreground return.
+  func testTheCohortRecordBoundsHowOftenItAsksAppleForPurchaseHistory() throws {
+    let source = try routerSource()
+    let capture = try XCTUnwrap(
+      source.components(separatedBy: "private func captureOriginalInstall() async {").last,
+      "the capture is no longer where this test expects it"
+    )
+    let ask = try XCTUnwrap(
+      capture.range(of: "AppTransaction.shared"),
+      "the capture no longer reads the app transaction"
+    )
+    let beforeTheAsk = String(capture[capture.startIndex..<ask.lowerBound])
+    XCTAssertTrue(
+      beforeTheAsk.contains("OriginalInstall.shouldRequestVerifiedValues"),
+      "the capture must check the attempt ceiling before asking Apple"
+    )
+    XCTAssertTrue(
+      beforeTheAsk.contains("OriginalInstall.countVerifiedAttempt"),
+      "the attempt must be counted before the ask, so a request that never returns still counts"
+    )
+  }
+
+  private func routerSource() throws -> String {
     let routerURL = repositoryRoot
       .appendingPathComponent("apps/apple/Still/Shared (App)/WebBridgeRouter.swift")
-    let source = try String(contentsOf: routerURL, encoding: .utf8)
-    let guardCount = source.components(
-      separatedBy: "guard MonetizationConfig.paidTierEnabled else"
-    ).count - 1
+    return try String(contentsOf: routerURL, encoding: .utf8)
+  }
 
-    XCTAssertEqual(guardCount, 2, "purchase and restore must both be refused while paid access is dormant")
+  /// The body of one `case "<action>":` arm of the router's message switch, up to the next arm.
+  private func bridgeActionBody(named action: String, in source: String) -> String? {
+    guard let start = source.range(of: "case \"\(action)\":") else { return nil }
+    let rest = source[start.upperBound...]
+    guard let next = rest.range(of: "\n    case \"") else { return String(rest) }
+    return String(rest[rest.startIndex..<next.lowerBound])
   }
 }
