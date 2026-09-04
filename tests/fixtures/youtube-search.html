@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>YouTube — desktop search results fixture</title>
+  </head>
+  <body>
+    <!--
+      Desktop youtube.com search results. The Shorts shelf here is a grid-shelf-view-model with its
+      own header, so removing only the lockups inside it left a heading reading "Shorts / Show more"
+      above nothing. The shelf wrapper is what has to go. Ids starting "keep-" are the
+      over-blocking controls.
+    -->
+    <ytd-two-column-search-results-renderer page-subtype="search">
+      <ytd-section-list-renderer>
+        <div id="contents">
+          <ytd-item-section-renderer id="results-section">
+            <div id="contents">
+              <ytd-video-renderer id="keep-first-result">
+                <ytd-thumbnail><a id="thumbnail" href="/watch?v=long123">A real long-form result</a></ytd-thumbnail>
+                <a id="video-title" href="/watch?v=long123" aria-label="A real long-form result">A real long-form result</a>
+              </ytd-video-renderer>
+
+              <!-- A Shorts result rendered as an ordinary video renderer: its own thumbnail is a Short. -->
+              <ytd-video-renderer id="shorts-result">
+                <ytd-thumbnail><a id="thumbnail" href="/shorts/abc123">a Shorts result</a></ytd-thumbnail>
+                <a id="video-title" href="/shorts/abc123" aria-label="a Shorts result">a Shorts result</a>
+              </ytd-video-renderer>
+
+              <!--
+                Over-blocking control: a long-form result whose description links to a Short. Its own
+                thumbnail is a watch page, so the result stays.
+              -->
+              <ytd-video-renderer id="keep-result-linking-to-short">
+                <ytd-thumbnail><a id="thumbnail" href="/watch?v=long456">A long-form result that mentions a short</a></ytd-thumbnail>
+                <div id="description"><a href="/shorts/def456">watch the short version</a></div>
+              </ytd-video-renderer>
+
+              <!-- Over-blocking control: a long-form result whose title contains "reels". -->
+              <ytd-video-renderer id="keep-reels-titled-result">
+                <ytd-thumbnail><a id="thumbnail" href="/watch?v=long789">Best fishing reels of 2026</a></ytd-thumbnail>
+                <a id="video-title" href="/watch?v=long789" aria-label="Best fishing reels of 2026">Best fishing reels of 2026</a>
+              </ytd-video-renderer>
+
+              <!-- The Shorts shelf, header and all. -->
+              <grid-shelf-view-model id="shorts-shelf" class="ytGridShelfViewModelHost">
+                <yt-shelf-header-layout><h2>Shorts</h2><button>Show more</button></yt-shelf-header-layout>
+                <div class="ytGridShelfViewModelGridShelfRow">
+                  <div class="ytGridShelfViewModelGridShelfItem">
+                    <ytm-shorts-lockup-view-model-v2>
+                      <ytm-shorts-lockup-view-model>
+                        <a class="shortsLockupViewModelHostEndpoint" href="/shorts/ghi789">a shelf short</a>
+                      </ytm-shorts-lockup-view-model>
+                    </ytm-shorts-lockup-view-model-v2>
+                  </div>
+                </div>
+              </grid-shelf-view-model>
+
+              <!-- Over-blocking control: an ordinary grid shelf that holds no Shorts. -->
+              <grid-shelf-view-model id="keep-normal-shelf" class="ytGridShelfViewModelHost">
+                <yt-shelf-header-layout><h2>For you</h2></yt-shelf-header-layout>
+                <div class="ytGridShelfViewModelGridShelfRow">
+                  <div class="ytGridShelfViewModelGridShelfItem">
+                    <yt-lockup-view-model><a href="/watch?v=shelf123">A long-form shelf item</a></yt-lockup-view-model>
+                  </div>
+                </div>
+              </grid-shelf-view-model>
+            </div>
+          </ytd-item-section-renderer>
+        </div>
+      </ytd-section-list-renderer>
+    </ytd-two-column-search-results-renderer>
+  </body>
+</html>

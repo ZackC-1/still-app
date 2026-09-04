@@ -134,6 +134,93 @@ describe("SettingsCache", () => {
     expect(seen).toHaveBeenCalledTimes(1);
   });
 
+  // ── two contexts over one store: the reconcile has to reach both ────────────────────────────────
+  // The background worker and every extension page build their own SettingsCache over the same
+  // storage area. `adoptSyncedEnvelope` is the one call that may lower the version, so it is the one
+  // call the other contexts would otherwise read as a stale write and refuse.
+
+  it("a reconcile that repoints the browser is accepted by the other contexts reading the store", () => {
+    const adapter = new InMemoryStorageAdapter(null);
+    const background = new SettingsCache(adapter, { now: () => 1 });
+    const page = new SettingsCache(adapter, { now: () => 1 });
+    page.watch();
+
+    const previous = {
+      settings: settings({ globalOn: false, updatedAt: 10 }),
+      version: 99,
+      serverUpdatedAt: "2026-07-09T18:00:00.000Z",
+      lastWriteId: null,
+    };
+    background.applySyncedEnvelope(previous);
+    expect(page.currentSyncMetadata()?.version).toBe(99);
+
+    background.adoptSyncedEnvelope({
+      settings: settings({ globalOn: true, updatedAt: 11 }),
+      version: 3,
+      serverUpdatedAt: "2026-07-09T18:01:00.000Z",
+      lastWriteId: null,
+    });
+
+    expect(page.current().globalOn).toBe(true);
+    expect(page.currentSyncMetadata()?.version).toBe(3);
+    expect(page.currentRecord().syncEpoch).toBe(1);
+  });
+
+  it("a context that has not seen the reconcile cannot push the previous account's settings back", () => {
+    const { adapter, cache } = makeCache();
+    cache.watch();
+    cache.adoptSyncedEnvelope({
+      settings: settings({ globalOn: true, updatedAt: 11 }),
+      version: 3,
+      serverUpdatedAt: "2026-07-09T18:01:00.000Z",
+      lastWriteId: null,
+    });
+    // A popup that committed an edit before the reconcile's write reached it: the previous person's
+    // settings, on the previous person's version, stamped with the epoch it had at the time.
+    adapter.emitExternal({
+      settings: settings({ globalOn: false, updatedAt: 12 }),
+      syncMetadata: { version: 99, serverUpdatedAt: "2026-07-09T18:00:00.000Z", lastWriteId: null },
+      syncEpoch: 0,
+    });
+    expect(cache.current().globalOn).toBe(true);
+    expect(cache.currentSyncMetadata()?.version).toBe(3);
+  });
+
+  it("a record with no epoch is judged the way it always was, so bridged settings still arrive", () => {
+    // The Apple App Group is coded in Swift and drops fields it does not know, so records coming
+    // back across that bridge carry no epoch at all. Reading that as zero would let a browser that
+    // has reconciled once refuse every later edit made in the app.
+    const { adapter, cache } = makeCache();
+    cache.watch();
+    cache.adoptSyncedEnvelope({
+      settings: settings({ globalOn: true, updatedAt: 11 }),
+      version: 3,
+      serverUpdatedAt: "2026-07-09T18:01:00.000Z",
+      lastWriteId: null,
+    });
+    adapter.emitExternal({
+      settings: settings({ globalOn: false, updatedAt: 12 }),
+      syncMetadata: { version: 3, serverUpdatedAt: "2026-07-09T18:01:00.000Z", lastWriteId: null },
+    });
+    expect(cache.current().globalOn).toBe(false);
+  });
+
+  it("a reconcile that changed nothing does not repoint anything", () => {
+    const { cache } = makeCache();
+    const envelope = {
+      settings: settings({ globalOn: false, updatedAt: 10 }),
+      version: 4,
+      serverUpdatedAt: "2026-07-09T18:00:00.000Z",
+      lastWriteId: null,
+    };
+    expect(cache.adoptSyncedEnvelope(envelope)).toBe(true);
+    expect(cache.currentRecord().syncEpoch).toBe(1);
+    // A background start that finds the account exactly where it left it must not cost every other
+    // context a needless reset.
+    expect(cache.adoptSyncedEnvelope(envelope)).toBe(false);
+    expect(cache.currentRecord().syncEpoch).toBe(1);
+  });
+
   it("device updatedAt skew does not beat a newer server version", () => {
     const { cache } = makeCache(settings({ globalOn: true, updatedAt: 10 }));
     cache.applySyncedEnvelope({
