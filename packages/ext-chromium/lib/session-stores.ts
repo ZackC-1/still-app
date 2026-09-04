@@ -36,8 +36,10 @@ export function createSessionStores(): ExtensionSessionStores {
   };
 }
 
-/** The last-synced-identity seam (U1/R8/AE5): SyncService's seed guard and the session's
- * identity-switch purge both read it. A non-string read is "no identity ever recorded". */
+/** The last-synced-identity seam (U1/R8/AE5): the sync reconcile's shared-machine rule and the
+ * session's identity-switch purge both read it. A non-string read is "no identity ever recorded".
+ * There is no remove: the record is meant to outlive sign-out, which is when a shared browser
+ * needs it most. */
 export function createIdentityStore(): ExtensionIdentityStore {
   return {
     async get(): Promise<string | null> {
@@ -46,9 +48,6 @@ export function createIdentityStore(): ExtensionIdentityStore {
     },
     async set(userId: string): Promise<void> {
       await browser.storage.local.set({ [LAST_IDENTITY_KEY]: userId });
-    },
-    async clear(): Promise<void> {
-      await browser.storage.local.remove(LAST_IDENTITY_KEY);
     },
   };
 }

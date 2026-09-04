@@ -36,6 +36,9 @@ import type { SyncService, SyncState } from "./service.js";
 //     best-effort, without ever stranding a live Supabase session. Receipt-derived Pro SURVIVES
 //     teardown (R6): resetToSignedOut clears only the server lane in the controller, and the
 //     native policy keeps the receipt-source stamp.
+//   • Nothing a user waits for waits on the purchase SDK: entering a session starts the RevenueCat
+//     re-key and the settings mirror together rather than one after the other, so signing in to
+//     sync settings cannot be delayed, or lost, by a purchase service that is slow or down.
 
 /** The slice of NativeBridge this orchestrator drives — a seam so tests inject a fake. */
 export interface AppleSessionBridge {
@@ -66,9 +69,9 @@ export interface AppleSession {
   /** Wire as the SyncService onState callback: projects sync state into the controller and
    * proposes server-confirmed entitlement into the App Group for the Safari extension. */
   onSyncState(state: SyncState): void;
-  /** Establish a session: RevenueCat re-keyed to the UUID, reconcile + mirror via SyncService, the
-   * attach evaluation (R7), paywall price loaded — with the entitlement-pending state shown while
-   * reconcile is in flight. */
+  /** Establish a session: the RevenueCat re-key to the UUID and the SyncService mirror start
+   * together, then the attach evaluation (R7) and the paywall price, with the entitlement-pending
+   * state shown while the mirror is in flight. */
   enterSession(userId: string): Promise<void>;
   /** Refresh the controller's receipt-entitlement input from the bridge (R17/R18). Boot wiring,
    * post-purchase/restore, and foreground returns call this; safe on hosts with no native port. */
@@ -134,15 +137,30 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
     activeSessionUserId = userId;
     controller.reconciling = true;
     try {
-      if (bridge.available) await bridge.configurePurchases(userId);
+      // Re-keying the purchase SDK to this account and mirroring the account's settings are two
+      // independent jobs, so they start together. Settings sync is what signing in buys and it
+      // must not queue behind a purchase SDK that can take seconds or fail outright; the attach
+      // evaluation below is the one step that genuinely needs both, so it waits for both.
+      const identityReady = bridge.available
+        ? bridge
+            .configurePurchases(userId)
+            .then(() => true)
+            .catch(() => false)
+        : Promise.resolve(false);
       await sync.onSignedIn(userId);
       // Attach evaluation (R7): the account lacks the entitlement but this device's receipt proves
       // it → attach (RevenueCat syncPurchases, natively gated) → reconcile again so the webhook-
       // written server truth lands in-session. Idempotent: a second pass finds the server entitled.
+      // Skipped when the re-key failed, because attaching under the wrong identity would move a
+      // purchase onto the wrong customer.
+      // The two cheap checks come first on purpose. An account the server already says is
+      // entitled, or a session torn down under this one, has nothing to attach, and reading the
+      // receipt and calling the store are the expensive steps: this way neither is paid for on a
+      // path that could not use the answer.
       if (
-        bridge.available &&
         !controller.serverEntitled &&
-        teardownGeneration === generationAtEntry
+        teardownGeneration === generationAtEntry &&
+        (await identityReady)
       ) {
         const receipt = await refreshReceipt();
         if (receipt === "entitled" && teardownGeneration === generationAtEntry) {
@@ -162,6 +180,14 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
             /* price stays at its last value — the CTA renders without a suffix */
           });
       }
+      // Entering a session is not finished until the purchase SDK is keyed to this account. The
+      // wiring in main.ts says so in terms, and everything that runs after a verified code (the
+      // purchase-intent paywall, Restore) depends on it: attaching a purchase under the wrong
+      // identity puts it on the wrong customer. The attach evaluation above awaits the same
+      // promise, but only on the branch that reaches it, so the guarantee is made here where no
+      // short circuit can skip it. It never rejects (the re-key resolves false on failure), and
+      // awaiting a settled promise a second time costs nothing.
+      await identityReady;
     } finally {
       controller.reconciling = false;
     }

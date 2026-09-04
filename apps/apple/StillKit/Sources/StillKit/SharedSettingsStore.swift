@@ -3,7 +3,8 @@ import Foundation
 // The shared settings store + its pluggable backing (KTD4). Production uses the App Group container
 // (so the app, the Safari extension, and the WKWebView agree); tests use an in-memory backing.
 // Merge uses server sync metadata when present, falling back to last-write-wins by `updatedAt` for
-// old settings-only records.
+// old settings-only records. The first-sign-in merge itself is decided in the shared core, not
+// here; see the note on `shouldApply`.
 
 public protocol SettingsBacking {
   func read() -> Data?
@@ -82,6 +83,12 @@ private func shouldApply(_ incoming: StoredSettingsRecord, over current: StoredS
     // through to settings.updatedAt on an equal-version incoming (cache.ts applyStoredRecord).
     return incoming.settings.updatedAt > current.settings.updatedAt
   case (.some, .none):
+    // A synced record always lands over a device-only one, and that is deliberate rather than
+    // careless. First sign-in is where a device's own settings meet an account's, and that
+    // comparison is made ONCE, in the shared core, which then hands down whichever side won. By
+    // the time a record with sync metadata reaches this store the decision has already been taken;
+    // re-judging it here on timestamps would reverse it, and the app and the Safari extension
+    // would then disagree until the next reconcile. Do not add a comparison to this case.
     return true
   case (.none, .some):
     return false

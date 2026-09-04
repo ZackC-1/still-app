@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { DEFAULT_SETTINGS } from "@still/shared-types";
 import { InMemoryEntitlementAdapter } from "../../entitlement/adapter.js";
 import type { EntitlementRecord, EntitlementRecordStore } from "../../entitlement/cache.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
@@ -15,6 +16,7 @@ import type {
   EntitlementRead,
   ReconcileCallOutcome,
   RequestCodeOutcome,
+  SyncedSettingsEnvelope,
   VerifyCodeOutcome,
   WebCheckoutOutcome,
 } from "../ports.js";
@@ -26,6 +28,11 @@ import { SyncService } from "../service.js";
 // settings edit actually reaches writeProfile — not a fake's say-so.
 
 const T0 = 1_700_000_000_000;
+
+/** The one key the background's Supabase client persists its session under: the extension's
+ * AUTH_STORAGE_KEY, and the key clearExtensionAuthStorage removes. Spelled out here rather than
+ * imported because core cannot depend on an extension package. */
+const AUTH_STORAGE_KEY = "still:auth";
 
 function makeSlot<T>(initial: unknown = null): PersistedSlot<T> & { value: unknown } {
   const slot = {
@@ -57,7 +64,19 @@ function harness(opts: HarnessOpts = {}) {
     nowMs += ms;
   };
 
-  let sessionUser: string | null = opts.sessionUser === undefined ? "u1" : opts.sessionUser;
+  // The persisted session lives where the real one lives: under one key in browser.storage.local.
+  // The Supabase client keeps no session in memory while it persists one, so it re-reads that key
+  // on every call and anything that removes the key signs the client out on the spot. Modelling it
+  // as a plain variable, with the session-removing dependency as a do-nothing spy, is what let a
+  // sign-in that deleted its own session pass this whole suite: removing the key had no modelled
+  // consequence anywhere.
+  const browserStorage = new Map<string, string>();
+  const persistedSession = (): string | null => browserStorage.get(AUTH_STORAGE_KEY) ?? null;
+  const persistSession = (userId: string | null): void => {
+    if (userId === null) browserStorage.delete(AUTH_STORAGE_KEY);
+    else browserStorage.set(AUTH_STORAGE_KEY, userId);
+  };
+  persistSession(opts.sessionUser === undefined ? "u1" : opts.sessionUser);
 
   // Cross-dependency ordering log — the identity-switch pin asserts A's downgrade lands BEFORE
   // B's reconcile.
@@ -66,15 +85,21 @@ function harness(opts: HarnessOpts = {}) {
   const auth = {
     signInWithMagicLink: vi.fn(async () => ({})),
     signOut: vi.fn(async () => {
-      sessionUser = null;
+      persistSession(null);
     }),
-    currentUserId: vi.fn(async () => sessionUser),
+    currentUserId: vi.fn(async () => persistedSession()),
     requestCode: vi.fn(async (): Promise<RequestCodeOutcome> => ({ kind: "sent" })),
     verifyCode: vi.fn(async (): Promise<VerifyCodeOutcome> => {
       const outcome = opts.verify ?? { kind: "verified", userId: "u1" };
-      if (outcome.kind === "verified") sessionUser = outcome.userId;
+      // A verified code persists the new session immediately, under the same key any previous
+      // person's session used.
+      if (outcome.kind === "verified") persistSession(outcome.userId);
       return outcome;
     }),
+  };
+
+  const requireSession = (): void => {
+    if (persistedSession() === null) throw new Error("no session: the server would answer 401");
   };
 
   let profileVersion = 0;
@@ -87,13 +112,23 @@ function harness(opts: HarnessOpts = {}) {
       return opts.checked ?? "ok";
     }),
     readEntitlement: vi.fn(async (): Promise<EntitlementRead> => opts.read ?? "entitled"),
-    readProfile: vi.fn(async () => null),
-    writeProfile: vi.fn(async (settings) => ({
-      settings,
-      version: ++profileVersion,
-      serverUpdatedAt: new Date(T0 + profileVersion).toISOString(),
-      lastWriteId: null,
-    })),
+    // Both profile calls refuse without a session, the way the server does: the settings row is
+    // reached through a function that derives its subject from the caller's own token, so a client
+    // with no session cannot read or write one. Without that, a browser that had signed itself out
+    // still looked as though its settings were syncing.
+    readProfile: vi.fn(async (): Promise<SyncedSettingsEnvelope | null> => {
+      requireSession();
+      return null;
+    }),
+    writeProfile: vi.fn(async (settings) => {
+      requireSession();
+      return {
+        settings,
+        version: ++profileVersion,
+        serverUpdatedAt: new Date(T0 + profileVersion).toISOString(),
+        lastWriteId: null,
+      };
+    }),
     subscribeToProfile: vi.fn(() => vi.fn()),
     deleteAccount: vi.fn(async () => {}),
     createWebCheckout: vi.fn(
@@ -123,9 +158,6 @@ function harness(opts: HarnessOpts = {}) {
     set: vi.fn(async (userId: string) => {
       lastSynced = userId;
     }),
-    clear: vi.fn(async () => {
-      lastSynced = null;
-    }),
   };
 
   const cache = new SettingsCache(new InMemoryStorageAdapter(null), { now });
@@ -135,7 +167,11 @@ function harness(opts: HarnessOpts = {}) {
   const checkoutPending = makeSlot<CheckoutPendingRecord>(opts.checkoutPendingValue ?? null);
   const nudgeStamp = makeSlot<number>(opts.nudgeStampValue ?? null);
   const closeTab = vi.fn(async () => {});
-  const clearAuthStorage = vi.fn(async () => {});
+  // What clearExtensionAuthStorage really does: remove the session key. Removing it signs this
+  // client out immediately, because currentUserId above reads the same key.
+  const clearAuthStorage = vi.fn(async () => {
+    persistSession(null);
+  });
 
   const session = createExtensionSession({
     auth,
@@ -166,8 +202,19 @@ function harness(opts: HarnessOpts = {}) {
     clearAuthStorage,
     events,
     advance,
+    /** What is on disk under the session key: the whole question "is this browser signed in". */
+    persistedSession,
     setSessionUser: (userId: string | null) => {
-      sessionUser = userId;
+      persistSession(userId);
+    },
+    /** The next code verification is for this person, persisting their session the way a real one
+     * does. Use this rather than resolving verifyCode alone, which would leave the browser
+     * verified for somebody with no session on disk, a state that cannot happen. */
+    nextVerifyIs: (userId: string) => {
+      auth.verifyCode.mockImplementationOnce(async () => {
+        persistSession(userId);
+        return { kind: "verified", userId };
+      });
     },
     seedIdentity: (userId: string) => {
       lastSynced = userId;
@@ -182,23 +229,31 @@ describe("ExtensionSession — verifyCode (the sign-in money path)", () => {
     expect(outcome).toEqual({ kind: "verified", userId: "u1" });
     expect(h.backend.reconcileEntitlement).toHaveBeenCalledTimes(1); // onSignedIn's self-heal
     expect(h.recordWrites).toContainEqual({ entitled: true, userId: "u1", updatedAt: T0 });
-    // Sync started: a local settings edit reaches the cloud through the real SyncService.
-    await h.cache.setGlobalOn(false);
+    // Sign-in seeded the empty account from this browser (the first-ever sign-in rule), so the
+    // edit below is the SECOND write, not the first.
     expect(h.backend.writeProfile).toHaveBeenCalledTimes(1);
+    await h.cache.setGlobalOn(false);
+    expect(h.backend.writeProfile).toHaveBeenCalledTimes(2);
   });
 
-  it("not entitled: record written explicit false, signed in but NO sync (R7/R9)", async () => {
+  it("no entitlement: record written explicit false, and settings sync starts anyway", async () => {
     const h = harness({ sessionUser: null, read: "not-entitled" });
     await h.session.verifyCode("a@still.app", "123456");
     expect(h.recordWrites).toContainEqual({ entitled: false, userId: "u1", updatedAt: T0 });
+    h.backend.writeProfile.mockClear();
     await h.cache.setGlobalOn(false);
-    expect(h.backend.writeProfile).not.toHaveBeenCalled();
+    expect(h.backend.writeProfile).toHaveBeenCalledTimes(1);
   });
 
   it("unknown (offline read): NO record write — never write on couldn't-read (AE6)", async () => {
     const h = harness({ sessionUser: null, read: "unknown" });
     await h.session.verifyCode("a@still.app", "123456");
     expect(h.recordWrites).toHaveLength(0);
+    // Nothing was written because the answer was unknown, not because the sign-in fell over: the
+    // person is signed in either way. What sync then does with an unanswered entitlement differs
+    // by tier, so it is asserted where the tier is stated, not here.
+    expect(h.persistedSession()).toBe("u1");
+    expect(await h.session.getState()).toMatchObject({ userId: "u1" });
   });
 
   it("reconcile throwing during sign-in: no record write, outcome still verified", async () => {
@@ -245,9 +300,72 @@ describe("ExtensionSession — identity switch (AE5)", () => {
     // A's checkout tab is closed (it still carries A's identity) and the pending flag is gone.
     expect(h.closeTab).toHaveBeenCalledWith(7);
     expect(h.checkoutPending.value).toBe(null);
-    expect(h.identity.clear).toHaveBeenCalled();
     // B's own definitive answer lands after, bound to B.
     expect(h.recordWrites.at(-1)).toEqual({ entitled: true, userId: "B", updatedAt: T0 });
+    // The browser now remembers B as the last person to sync here, replacing A rather than
+    // forgetting everyone: the next person to sign in must still read this browser as not theirs.
+    expect(await h.identity.get()).toBe("B");
+  });
+
+  it("a shared browser: after A signs out, B's account is not overwritten by what A left behind", async () => {
+    // The whole journey, through the real session rather than a hand-fed identity: A signs in,
+    // syncs, changes something, signs out. B then signs in on the same browser.
+    const h = harness({ sessionUser: null });
+    await h.session.verifyCode("a@still.app", "123456"); // A: u1
+    await h.cache.setGlobalOn(false); // A's toggle, published to A's account
+    await h.session.signOut();
+    h.backend.writeProfile.mockClear();
+
+    // B's account happens to sit at the same version number A left on this machine, which is the
+    // case where the version counters cannot tell the two apart: they count different profile rows
+    // and only look comparable. The one thing that still protects B is the record of who last
+    // synced here, so sign-out must not have erased it.
+    h.nextVerifyIs("B");
+    h.backend.readProfile.mockResolvedValueOnce({
+      settings: { ...DEFAULT_SETTINGS, globalOn: true, updatedAt: T0 - 60_000 },
+      version: 2,
+      serverUpdatedAt: new Date(T0 - 60_000).toISOString(),
+      lastWriteId: null,
+    });
+    await h.session.verifyCode("b@still.app", "123456");
+
+    expect(h.backend.writeProfile).not.toHaveBeenCalled(); // nothing of A's travelled
+    expect(h.cache.current().globalOn).toBe(true); // and B sees B's own account
+    // Nothing travelled because the reconcile decided it must not, NOT because B's sign-in was
+    // broken and every write failed. B is signed in and their own next edit does reach their
+    // account, which is the difference between a rule working and a session that is not there.
+    expect(await h.session.getState()).toMatchObject({ userId: "B" });
+    expect(h.sync.getState()).toMatchObject({ userId: "B", syncing: true, cloudReachable: true });
+    await h.cache.setGlobalOn(false);
+    expect(h.backend.writeProfile).toHaveBeenCalledTimes(1);
+  });
+
+  it("the SECOND person to sign in on this browser stays signed in, first time (the purge keeps their session)", async () => {
+    // The purge of the previous account runs after the code has been verified, and verifying a
+    // code stores the new person's session under the same key the previous person's used. A purge
+    // that removed it there would delete the session it was handed, and the person would be signed
+    // out again before anything they changed could travel.
+    const h = harness({ sessionUser: null });
+    await h.session.verifyCode("a@still.app", "123456"); // A signs in and syncs on this browser
+    await h.session.signOut();
+
+    h.nextVerifyIs("B");
+    expect(await h.session.verifyCode("b@still.app", "222222")).toEqual({
+      kind: "verified",
+      userId: "B",
+    });
+
+    expect(h.persistedSession()).toBe("B"); // the session the code just created is still on disk
+    expect(await h.session.getState()).toMatchObject({ userId: "B" });
+    // And the rest of B's sign-in completed: their entitlement answer is recorded against them,
+    // their settings sync is running and reaching the cloud, and their own edit publishes.
+    expect(h.recordWrites.at(-1)).toEqual({ entitled: true, userId: "B", updatedAt: T0 });
+    expect(h.sync.getState()).toMatchObject({ userId: "B", syncing: true, cloudReachable: true });
+    h.backend.writeProfile.mockClear();
+    await h.cache.setGlobalOn(false);
+    expect(h.backend.writeProfile).toHaveBeenCalledTimes(1);
+    // The next time the worker wakes it finds B, not a signed-out browser.
+    expect(await h.session.resume()).toBe("resumed-entitled");
   });
 
   it("a free user re-signing in after an involuntary 401 keeps their own pending purchase (U4 continuation)", async () => {
@@ -259,7 +377,9 @@ describe("ExtensionSession — identity switch (AE5)", () => {
 
     expect(h.checkoutPending.value).toEqual({ startedAt: T0 });
     expect(h.closeTab).not.toHaveBeenCalled();
-    expect(h.identity.clear).not.toHaveBeenCalled();
+    // The purge did not run at all here, so the session this sign-in created is untouched.
+    expect(h.persistedSession()).toBe("u1");
+    expect(h.clearAuthStorage).not.toHaveBeenCalled();
   });
 });
 
@@ -296,7 +416,6 @@ describe("ExtensionSession — reconcile / restore", () => {
     expect(h.recordWrites).toHaveLength(0);
     expect(h.checkoutPending.value).toEqual({ startedAt: T0 });
     expect(h.auth.signOut).not.toHaveBeenCalled();
-    expect(h.identity.clear).not.toHaveBeenCalled();
   });
 
   it("signed out: signed-out outcome, no backend call", async () => {
@@ -305,20 +424,23 @@ describe("ExtensionSession — reconcile / restore", () => {
     expect(h.backend.reconcileEntitlementChecked).not.toHaveBeenCalled();
   });
 
-  it("a web purchase after a free sign-in runs the initial settings sync on unlock (Codex-1)", async () => {
-    // Sign in while NOT entitled — no sync starts (R7). Then the reconcile that confirms the
-    // purchase must run the initial cloud mirror, not just resume() write-through, or the buyer's
-    // settings wouldn't sync until their next edit despite the UI reporting syncing.
+  it("a purchase landing after sign-in leaves the settings sync it already had", async () => {
+    // Signing in starts the sync, so by the time a purchase is confirmed there is nothing left to
+    // mirror. The reconcile that confirms it must not re-run the initial mirror, and must not
+    // interrupt the write-through that is already carrying this user's edits.
     const h = harness({ read: "not-entitled" });
     await h.session.verifyCode("a@still.app", "123456");
-    expect(h.sync.getState().entitled).toBe(false);
+    expect(h.sync.getState()).toMatchObject({ entitled: false, syncing: true });
     h.backend.readProfile.mockClear();
-    h.backend.writeProfile.mockClear();
 
     h.backend.readEntitlement.mockResolvedValue("entitled"); // the purchase landed
     expect(await h.session.reconcile()).toBe("entitled");
-    expect(h.backend.readProfile).toHaveBeenCalled(); // initial mirror ran on unlock
+    expect(h.backend.readProfile).not.toHaveBeenCalled();
     expect(h.sync.getState()).toMatchObject({ entitled: true, syncing: true });
+
+    h.backend.writeProfile.mockClear();
+    await h.cache.setGlobalOn(false);
+    expect(h.backend.writeProfile).toHaveBeenCalledTimes(1);
   });
 
   it("restore() is the same reconcile spine (the web Restore button, R5)", async () => {
@@ -427,18 +549,39 @@ describe("ExtensionSession — resume (background wake, R2 hard rule)", () => {
     const h = harness();
     await h.inner.setRecord({ entitled: true, userId: "u1", updatedAt: T0 });
     expect(await h.session.resume()).toBe("resumed-entitled");
+    h.backend.writeProfile.mockClear(); // the start-up catch-up seeds this empty account first
     await h.cache.setGlobalOn(false);
     expect(h.backend.writeProfile).toHaveBeenCalledTimes(1);
+    // The catch-up reads the account's SETTINGS; it must still spend no purchase-service query.
     expect(h.backend.reconcileEntitlement).not.toHaveBeenCalled();
     expect(h.backend.reconcileEntitlementChecked).not.toHaveBeenCalled();
   });
 
-  it("free cache: resumed without write-through (no RC query either)", async () => {
+  it("the wake pulls the account's settings down before this browser can publish over them", async () => {
+    // The laptop was closed while another device turned YouTube off. Nothing but this read can
+    // tell it: realtime only delivers writes made while the worker is alive.
+    const h = harness();
+    await h.inner.setRecord({ entitled: true, userId: "u1", updatedAt: T0 });
+    h.backend.readProfile.mockResolvedValueOnce({
+      settings: { ...DEFAULT_SETTINGS, globalOn: false, updatedAt: T0 },
+      version: 4,
+      serverUpdatedAt: new Date(T0).toISOString(),
+      lastWriteId: null,
+    });
+    expect(await h.session.resume()).toBe("resumed-entitled");
+    expect(h.cache.current().globalOn).toBe(false);
+    expect(h.backend.writeProfile).not.toHaveBeenCalled();
+  });
+
+  it("a cached entitlement of false still resumes write-through, and still spends no RC query", async () => {
     const h = harness();
     await h.inner.setRecord({ entitled: false, userId: "u1", updatedAt: T0 });
     expect(await h.session.resume()).toBe("resumed-free");
+    h.backend.writeProfile.mockClear(); // the start-up catch-up seeds this empty account first
     await h.cache.setGlobalOn(false);
-    expect(h.backend.writeProfile).not.toHaveBeenCalled();
+    expect(h.backend.writeProfile).toHaveBeenCalledTimes(1);
+    expect(h.backend.reconcileEntitlement).not.toHaveBeenCalled();
+    expect(h.backend.reconcileEntitlementChecked).not.toHaveBeenCalled();
   });
 
   it("a record bound to another user reads as no cache (R8): resumes free", async () => {
@@ -462,8 +605,15 @@ describe("ExtensionSession — teardown parity (voluntary sign-out / delete, R8)
     expect(h.checkoutPending.value).toBe(null);
     expect(h.nudgeStamp.value).toBe(null);
     expect(h.closeTab).toHaveBeenCalledWith(7);
-    expect(h.identity.clear).toHaveBeenCalled();
-    expect(h.clearAuthStorage).toHaveBeenCalled(); // offline-proof session removal (F1)
+    // Offline-proof session removal (F1), read off the fake disk rather than off the spy: the
+    // session key is gone, so nothing can resurrect this user on the next wake.
+    expect(h.persistedSession()).toBe(null);
+  }
+
+  /** The one thing teardown must NOT erase: who last synced in this browser. A shared machine
+   * needs that answer most after the first person leaves, so it outlives both exits. */
+  async function expectIdentityRemembered(h: ReturnType<typeof harness>): Promise<void> {
+    expect(await h.identity.get()).toBe("u1");
   }
 
   function seededHarness(): ReturnType<typeof harness> {
@@ -482,6 +632,7 @@ describe("ExtensionSession — teardown parity (voluntary sign-out / delete, R8)
     expect(await h.session.signOut()).toBe("signed-out");
     expect(h.auth.signOut).toHaveBeenCalled();
     expectFullTeardown(h);
+    await expectIdentityRemembered(h);
   });
 
   it("signOut with a rejected auth sign-out still lands the local purge (voluntary exit)", async () => {
@@ -489,6 +640,7 @@ describe("ExtensionSession — teardown parity (voluntary sign-out / delete, R8)
     h.auth.signOut.mockRejectedValueOnce(new Error("offline"));
     expect(await h.session.signOut()).toBe("signed-out");
     expectFullTeardown(h);
+    await expectIdentityRemembered(h);
   });
 
   it("deleteAccount: backend delete first, then the SAME purge (parity pin)", async () => {
@@ -497,6 +649,7 @@ describe("ExtensionSession — teardown parity (voluntary sign-out / delete, R8)
     expect(await h.session.deleteAccount()).toBe("deleted");
     expect(h.backend.deleteAccount).toHaveBeenCalled();
     expectFullTeardown(h);
+    await expectIdentityRemembered(h);
   });
 
   it("a failed backend delete keeps the session AND the local state intact (server-first)", async () => {
@@ -506,7 +659,6 @@ describe("ExtensionSession — teardown parity (voluntary sign-out / delete, R8)
     expect(h.recordWrites).toHaveLength(0);
     expect(h.checkoutPending.value).toEqual({ startedAt: T0, tabId: 7 });
     expect(h.auth.signOut).not.toHaveBeenCalled();
-    expect(h.identity.clear).not.toHaveBeenCalled();
   });
 
   it("a sign-out that lands DURING an in-flight reconcile is not overwritten by a stale entitled write (F2)", async () => {
