@@ -165,6 +165,24 @@ final class SettingsTests: XCTestCase {
     XCTAssertNil(echoed.syncMetadata)
   }
 
+  func testBridgeAcceptsARecordCarryingTheBrowserSideReconcileCounter() throws {
+    // The web side stamps every record it persists with `syncEpoch`, a browser-local counter of
+    // which account that browser profile is pointed at. It is meaningless here and this decoder
+    // drops it, which is exactly what the web side expects: a record that comes back without one
+    // is judged the way it always was. What must not happen is the record being rejected for
+    // carrying it, because that would strand the app's own settings on the far side of the bridge.
+    let store = SharedSettingsStore(backing: InMemoryBacking())
+    let bridge = SettingsBridge(store: store)
+    let json = """
+    { "settings": { "globalOn": true, "services": { "youtube": true, "instagram": true, "tiktok": true, "facebook": true }, "pauses": [], "updatedAt": 10 }, "syncMetadata": null, "syncEpoch": 3 }
+    """
+
+    let reply = try XCTUnwrap(bridge.handle(rawBody: ["kind": "set", "settings": json]))
+    let echoed = try JSONDecoder().decode(StoredSettingsRecord.self, from: Data(reply.utf8))
+    XCTAssertTrue(echoed.settings.services.youtube)
+    XCTAssertEqual(echoed.settings.updatedAt, 10)
+  }
+
   func testBridgeDropsUnknownEntitlementFields() throws {
     let store = SharedSettingsStore(backing: InMemoryBacking())
     let bridge = SettingsBridge(store: store)
