@@ -62,3 +62,6 @@ docs/build/
 
 # Local agent definitions, never published
 .claude/agents/
+
+# Codex CLI session artifacts
+.codex/
