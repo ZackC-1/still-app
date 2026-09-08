@@ -66,7 +66,10 @@ docs/build/
 # Codex CLI session artifacts
 .codex/
 
-# Raw signed-in page captures used to author a fixture. A rendered page from a logged-in session
+# Raw page captures used to author a fixture. A rendered page saved from a logged-in session
 # carries the viewer's own account plus session, csrf and device values in its inline scripts, so
-# the capture stays local and only the hand-extracted fixture beside it is committed.
-tests/fixtures/*signed-in*
+# the capture stays local and only the hand-extracted fixture beside it is committed. Committed
+# fixtures are hand-written, lower-case and hyphenated; a saved page arrives as a .txt, or with the
+# browser's own spaced file name, so those two shapes are the ones ruled out here.
+tests/fixtures/*.txt
+tests/fixtures/* *
