@@ -68,8 +68,21 @@ docs/build/
 
 # Raw page captures used to author a fixture. A rendered page saved from a logged-in session
 # carries the viewer's own account plus session, csrf and device values in its inline scripts, so
-# the capture stays local and only the hand-extracted fixture beside it is committed. Committed
-# fixtures are hand-written, lower-case and hyphenated; a saved page arrives as a .txt, or with the
-# browser's own spaced file name, so those two shapes are the ones ruled out here.
+# the capture stays local and only the hand-extracted fixture beside it is committed.
+#
+# These patterns cover the names a browser gives a saved page. Committed fixtures are hand-written,
+# lower-case and hyphenated, so anything capitalised, spaced, or carrying a save format's extension
+# is a capture rather than a fixture. The sidecar directory matters most: saving as "Webpage,
+# Complete" splits the same session material across many small files, where it is least likely to be
+# noticed in review.
+#
+# A name is a guess, so it is not the only guard. "fixtures stay hand written" in
+# tests/playwright/fixtures.spec.ts fails on any fixture large enough to be a saved page, whatever
+# it is called and wherever a browser decided to put it.
+tests/fixtures/*signed-in*
 tests/fixtures/*.txt
 tests/fixtures/* *
+tests/fixtures/[A-Z]*
+tests/fixtures/*_files/
+tests/fixtures/*.mhtml
+tests/fixtures/*.webarchive

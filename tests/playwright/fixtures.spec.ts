@@ -1,5 +1,7 @@
-import { test, expect, fixture } from "./_extension.js";
+import { test, expect, fixture, fixtureDir } from "./_extension.js";
 import type { BrowserContext, Page } from "@playwright/test";
+import { readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { PAID_TIER_ENABLED } from "../../packages/shared-types/src/entitlement.js";
 
 // Serve a service's fixture HTML for every request to its domain (no real network); the extension's
@@ -21,6 +23,34 @@ async function setEntitled(context: BrowserContext, extensionId: string, entitle
   }, entitled);
   await page.close();
 }
+
+// The one thing that must never land in tests/fixtures/ is a page saved from a browser, because a
+// saved page carries the session of whoever saved it. The .gitignore rules cover the names a browser
+// gives such a file, but a name is a guess and this one is worth more than a guess, so the same
+// hazard is also caught by the property it cannot hide: its size. Every committed fixture is written
+// by hand and is a few kilobytes; the two captures the Instagram fixtures were authored from are
+// 712 KB and 1.8 MB. The ceiling below sits far above the former and far below the latter, so it
+// catches a saved page whatever it is called.
+//
+// The naming check earns its place separately: the ignore rules assume fixtures are lower-case and
+// hyphenated, so a fixture that broke that assumption would be silently ignored rather than
+// committed, and someone would spend an afternoon wondering why their new fixture will not add.
+test("fixtures stay hand written", () => {
+  const MAX_FIXTURE_BYTES = 64 * 1024;
+  const entries = readdirSync(fixtureDir, { withFileTypes: true });
+  expect(entries.length, "no fixtures found, so this test is guarding nothing").toBeGreaterThan(0);
+
+  for (const entry of entries) {
+    expect(entry.isFile(), `${entry.name} is a directory, which is how a saved page stores its parts`).toBe(true);
+    const bytes = statSync(join(fixtureDir, entry.name)).size;
+    expect(bytes, `${entry.name} is ${Math.round(bytes / 1024)} KB, which is the size of a saved page`).toBeLessThan(
+      MAX_FIXTURE_BYTES,
+    );
+    expect(entry.name, `${entry.name} is not lower-case and hyphenated, so .gitignore would hide it`).toMatch(
+      /^[a-z0-9-]+\.html$/,
+    );
+  }
+});
 
 // The YouTube regression matrix. Every fixture carries "keep-" controls copied from live markup,
 // so each case asserts both halves of the promise: Shorts entry points disappear, and everything
