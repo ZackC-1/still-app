@@ -94,14 +94,33 @@ public struct StoredSettingsRecord: Codable, Equatable, Sendable {
   public var settings: StillSettings
   public var syncMetadata: SettingsSyncMetadata?
 
-  public init(settings: StillSettings, syncMetadata: SettingsSyncMetadata?) {
+  /// How many times a sign-in has repointed the device that wrote this record at a different
+  /// account, counted rather than named.
+  ///
+  /// `syncMetadata.version` above orders writes within ONE account's settings row and says nothing
+  /// when the row itself changes, which is exactly what happens when one person signs out of a
+  /// shared iPhone or Mac and the next person signs in: the newcomer's account can sit on a lower
+  /// version than the one left behind. Without this counter the shared store keeps the previous
+  /// person's settings and hands them back, and they end up published into the newcomer's account.
+  ///
+  /// The web layer mints it (`StoredSettingsRecord.syncEpoch` in packages/core) and this record
+  /// carries it across the bridge in both directions, so the app, the Safari extension and the
+  /// shared container all order records the same way.
+  ///
+  /// Absent, rather than zero, on a record written before this field existed. Absent means the
+  /// record has never been repointed, so ordering ranks it exactly where zero ranks.
+  public var syncEpoch: Int?
+
+  public init(settings: StillSettings, syncMetadata: SettingsSyncMetadata?, syncEpoch: Int? = nil) {
     self.settings = settings
     self.syncMetadata = syncMetadata
+    self.syncEpoch = syncEpoch
   }
 
   private enum CodingKeys: String, CodingKey {
     case settings
     case syncMetadata
+    case syncEpoch
   }
 
   public init(from decoder: Decoder) throws {
@@ -109,9 +128,15 @@ public struct StoredSettingsRecord: Codable, Equatable, Sendable {
        container.contains(.settings) {
       settings = try container.decode(StillSettings.self, forKey: .settings)
       syncMetadata = try container.decodeIfPresent(SettingsSyncMetadata.self, forKey: .syncMetadata)
+      // Forgiving on purpose, and on the same terms as the web validator: a counter that is not a
+      // whole number of repoints is read as absent rather than taking the whole record down, which
+      // would strand the settings on the far side of the bridge.
+      let decodedEpoch = try? container.decodeIfPresent(Int.self, forKey: .syncEpoch)
+      syncEpoch = decodedEpoch.flatMap { $0 >= 0 ? $0 : nil }
       return
     }
     settings = try StillSettings(from: decoder)
     syncMetadata = nil
+    syncEpoch = nil
   }
 }

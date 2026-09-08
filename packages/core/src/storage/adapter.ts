@@ -28,10 +28,13 @@ export interface StoredSettingsRecord {
    * this counter whenever it repoints a browser at a different account, so the popup, the options
    * page, and the content scripts all accept the reset instead of each arbitrating for itself.
    *
-   * Absent, rather than zero, on a record that came from a store which does not carry the field:
-   * anything written before this existed, and anything round-tripped through the Apple App Group,
-   * whose Swift coder drops keys it does not know. Absent means "judge this the way you always
-   * did", so a bridged record is never refused for lacking a counter it could not have.
+   * Absent, rather than zero, on any record whose writer never carried the field: a build from
+   * before it existed, a store that has never been repointed, and a bare settings payload, which
+   * parses to settings with no metadata and no counter at all. None of those has been repointed,
+   * which is exactly where zero ranks, and the Apple App Group store and the Safari extension's
+   * reconcile order an absent counter there explicitly, because they arbitrate between two stored
+   * records. The cache below is deliberately softer with one it receives, since it judges an
+   * incoming record against its own live state instead; the reason is recorded there.
    */
   readonly syncEpoch?: number;
 }

@@ -2,7 +2,9 @@ import type { SettingsSyncMetadata, StoredSettingsRecord } from "@still/core/sto
 
 // The App-Group reconcile + echo guard (KTD4), extracted from the background entrypoint so it is unit-
 // testable with injected deps. Reconciles the extension's browser.storage against the app's App-Group
-// container by last-write-wins on `updatedAt`, and mirrors in-extension edits out to the App Group.
+// container, and mirrors in-extension edits out to the App Group. The comparison asks which side has
+// been repointed at a different account most recently, then the server version, then `updatedAt`;
+// `shouldAppWin` explains why the first of those has to come first.
 //
 // Echo guard — VALUE-based, not a transient boolean. After applying an app value locally we remember
 // its `updatedAt`; the push subscription suppresses a push whose `updatedAt` matches the last-applied
@@ -28,7 +30,7 @@ export interface AppGroupReconcilerDeps {
 }
 
 export interface AppGroupReconciler {
-  /** Pull the app value, compare `updatedAt`, and apply-down or push-up the newer side. */
+  /** Pull the app value, compare it with the local one, and apply-down or push-up the winner. */
   reconcile(): Promise<void>;
   /** Tear down the push subscription. */
   stop(): void;
@@ -60,6 +62,26 @@ export function createAppGroupReconciler(deps: AppGroupReconcilerDeps): AppGroup
 
 function shouldAppWin(candidate: StoredSettingsRecord, current: StoredSettingsRecord | null): boolean {
   if (current === null) return true;
+  // The repoint counter is asked before anything else, for the reason set out on
+  // StoredSettingsRecord.syncEpoch: `version` orders writes inside one account's row and cannot
+  // order two different people's rows. When someone signs out of a shared iPhone or Mac and the
+  // next person signs in, the app repoints the shared container at the newcomer's account, which is
+  // routinely on a lower version.
+  //
+  // This extension keeps its own copy of the settings, so it is the second place that has to
+  // understand a repoint. It is not what keeps the newcomer's account safe: a push from here is
+  // judged by the same order on the Swift side and refused. What only this half can stop is this
+  // extension going on serving the previous person's settings to the new person on every page, and
+  // the two stores never converging, because every reconcile would re-push the stale record, be
+  // refused, and leave this side's own later edits refused with it. Both halves are load-bearing,
+  // for different reasons, which is why neither ships without the other.
+  //
+  // A record with no counter has never been repointed and therefore ranks where zero ranks, which
+  // is what keeps a record left behind by a build that predates the counter from winning here.
+  // Same order, same reasoning, as the Swift App Group store. The shared SettingsCache is
+  // deliberately softer with an absent counter, for the reason recorded there.
+  const repointOrder = repointCount(candidate) - repointCount(current);
+  if (repointOrder !== 0) return repointOrder > 0;
   const candidateMeta = candidate.syncMetadata;
   const currentMeta = current.syncMetadata;
   if (candidateMeta && currentMeta) {
@@ -70,6 +92,11 @@ function shouldAppWin(candidate: StoredSettingsRecord, current: StoredSettingsRe
   if (candidateMeta && !currentMeta) return true;
   if (!candidateMeta && currentMeta) return false;
   return candidate.settings.updatedAt > current.settings.updatedAt;
+}
+
+/** How many times a sign-in has repointed the device that wrote this record. See `shouldAppWin`. */
+function repointCount(record: StoredSettingsRecord): number {
+  return record.syncEpoch ?? 0;
 }
 
 function compareMetadata(a: SettingsSyncMetadata, b: SettingsSyncMetadata): number {

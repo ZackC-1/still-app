@@ -27,7 +27,9 @@ public enum OriginalAppVersionKind: String, Codable, Sendable {
 ///     it describes the ORIGINAL purchase rather than this device's first launch, but it is only
 ///     available on newer systems and only when Apple will hand it over. In the sandbox and in
 ///     TestFlight, Apple documents both of its values as placeholders rather than real data, so a
-///     record captured on a test build is not evidence of anything.
+///     record captured on a test build is not evidence of anything. It is also not requested at all
+///     while the paid tier is dormant, because asking can raise an App Store sign-in sheet and
+///     nothing needs the answer; see `shouldRequestVerifiedValues`.
 ///
 /// ## Changing this record later, which is the part that can go permanently wrong
 ///
@@ -130,9 +132,13 @@ public enum OriginalInstall {
   /// Asking is not free: Apple returns the locally cached app transaction when there is one and
   /// otherwise requests it from the App Store, which can require the customer to authenticate. On a
   /// device restored from a backup, handed over from someone else, or simply not signed in to the
-  /// App Store, an unbounded retry would put a sign-in sheet in front of an app that sells nothing,
-  /// at launch, over and over. A small ceiling buys the extra detail where it is available and
-  /// stops asking where it is not. The local half of the record survives either way.
+  /// App Store, an unbounded retry would put a sign-in sheet in front of someone at launch, over
+  /// and over. A small ceiling buys the extra detail where it is available and stops asking where
+  /// it is not. The local half of the record survives either way.
+  ///
+  /// The ceiling belongs to the paid path. While the paid tier is dormant nothing asks at all, so
+  /// no attempt is spent and a device still has all three when the paid path returns. See
+  /// `shouldRequestVerifiedValues`.
   public static let maxVerifiedAttempts = 3
 
   static let verifiedAttemptsKey = "still:originalInstallVerifiedAttempts"
@@ -165,9 +171,38 @@ public enum OriginalInstall {
     return record
   }
 
-  /// True while it is still worth asking Apple for the verified half: no record yet has it, and the
-  /// attempt ceiling has not been reached.
+  /// True while it is still worth asking Apple for the verified half: paid access is switched on,
+  /// no record yet has the verified values, and the attempt ceiling has not been reached.
+  ///
+  /// The paid-tier switch comes first and is the whole of the answer while it is off. Asking Apple
+  /// for the app transaction can raise an App Store sign-in sheet on a device where nobody is
+  /// signed in, and Still currently sells nothing, so there is no purchase to honor, nothing that
+  /// reads the answer, and no reason to put that sheet in front of anybody. The ask is switched off
+  /// beside the rest of the paid tier rather than removed, so the paid path uses it again the day
+  /// the switch comes back, unchanged.
+  ///
+  /// The local half of the record is untouched by this and is written on every launch by `ensure`
+  /// above. It needs no network, no Apple Account and no App Store round trip, and it is the field
+  /// that actually places someone in the era when everything was included. The verified half was
+  /// only ever the richer extra.
   public static func shouldRequestVerifiedValues(_ defaults: UserDefaults) -> Bool {
+    shouldRequestVerifiedValues(defaults, paidTierEnabled: MonetizationConfig.paidTierEnabled)
+  }
+
+  /// The same decision with the paid-tier switch handed in, so everything below the switch can be
+  /// proved on the build that ships. Internal on purpose: nothing outside StillKit can see it, the
+  /// app reaches only the public function above, and the switch is therefore still the whole of
+  /// the answer for every shipped caller while it is off.
+  ///
+  /// The seam exists because of a defect in the tests rather than one in the app. The ceiling
+  /// below used to be reachable from a test only through the public function, which returns false
+  /// on every free-era build long before the ceiling is consulted, so the test meant to prove the
+  /// ceiling compared zero against zero: deleting the ceiling outright left the whole suite green,
+  /// on the one mechanism that stops an App Store sign-in sheet arriving launch after launch once
+  /// purchases return. Anything else switched off for the free era that still has to be proved
+  /// should be made reachable the same way.
+  static func shouldRequestVerifiedValues(_ defaults: UserDefaults, paidTierEnabled: Bool) -> Bool {
+    guard paidTierEnabled else { return false }
     if current(defaults)?.applicationVersion != nil { return false }
     return defaults.integer(forKey: verifiedAttemptsKey) < maxVerifiedAttempts
   }
