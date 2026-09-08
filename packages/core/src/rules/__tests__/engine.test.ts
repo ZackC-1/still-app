@@ -417,15 +417,15 @@ describe("applyDom", () => {
         <section>
           <article id="ig-feed-reel">
             <a role="link" href="/photo_walker/">photo_walker</a>
-            <a role="link" href="/reels/audio/209204686381096/">Big Band</a>
+            <a role="link" href="/reels/audio/111111111111111/">Big Band</a>
             <a role="link" href="/reels/Ca1eXaMpLe02/"><video></video></a>
           </article>
           <article id="ig-feed-music-post">
             <a role="link" href="/photo_walker/">photo_walker</a>
-            <a role="link" href="/p/Ca1eXaMpLe03/">2w</a>
-            <a id="ig-feed-music-credit" role="link" href="/reels/audio/1714050255344127/">Island Chorus</a>
+            <a role="link" href="/p/Ca1eXaMpLe03/">9w</a>
+            <a id="ig-feed-music-credit" role="link" href="/reels/audio/222222222222222/">Island Chorus</a>
           </article>
-          <article id="ig-feed-photo-post"><a role="link" href="/p/Ca1eXaMpLe01/">8w</a></article>
+          <article id="ig-feed-photo-post"><a role="link" href="/p/Ca1eXaMpLe01/">5w</a></article>
         </section>
       </main>
     `;
@@ -451,7 +451,7 @@ describe("applyDom", () => {
         <section id="ig-suggested-reels"><a role="link" href="/reels/Ca1eXaMpLe05/">Suggested reel</a></section>
         <section id="ig-feed-wrapper">
           <article id="ig-wrapped-reel"><a role="link" href="/reels/Ca1eXaMpLe06/"><video></video></a></article>
-          <article id="ig-wrapped-post"><a role="link" href="/p/Ca1eXaMpLe07/">8w</a></article>
+          <article id="ig-wrapped-post"><a role="link" href="/p/Ca1eXaMpLe07/">5w</a></article>
         </section>
       </main>
     `;

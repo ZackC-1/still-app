@@ -9,9 +9,23 @@
 
     Extracted by hand from a real signed-in capture. The capture itself is not committed: a rendered
     Instagram page carries the viewer's own handle plus session, csrf and device values in its inline
-    scripts, none of which belongs in a public repository. What is reproduced here is only what the
-    rules key on, taken verbatim from that capture: the post wrapper element, the class names on the
-    structural wrappers, the nesting, and above all the exact link shapes.
+    scripts, none of which belongs in a public repository.
+
+    That reasoning applies to the values inside the markup as well, so this fixture draws a hard line
+    between the two kinds of thing a capture contains.
+
+    Copied from the capture, because a rule can only be trusted against the shapes it will really
+    meet: the post wrapper element, the class names on the structural wrappers, the nesting, the
+    parameter names on the advertising addresses, and the shape of every link. Instagram's class
+    names are generated for its own stylesheet and are the same for everyone who loads the site, so
+    they identify a layout and not a person.
+
+    Invented, every single one, because it identifies somebody or their session: account handles,
+    post ids, audio ids, track and artist names, hashtags, captions, like and comment counts, post
+    ages, and every value inside an advertising address. The long addresses below are long and opaque
+    on purpose, which is the only property the fixture needs from them, and their contents are
+    repeated filler text. No rule reads any of these values, so none of them is load-bearing. If you
+    add a post here, type the values yourself rather than pasting them from a page.
 
     The two shapes that matter, because for a long time the rules were written against neither:
 
@@ -44,7 +58,7 @@
             <div class="xsag5q8 x2vl965 x1onr9mi">
               <div class="x6s0dn4 x78zum5 x1q0g3np x1nhvcw1 xh8yej3">
                 <a role="link" href="/photo_walker/">photo_walker</a>
-                <a role="link" href="/p/Ca1eXaMpLe01/">8w</a>
+                <a role="link" href="/p/Ca1eXaMpLe01/">5w</a>
                 <div role="button"><svg role="img" aria-label="More options"></svg></div>
               </div>
             </div>
@@ -55,9 +69,9 @@
             </div>
             <section class="x6s0dn4 xrvj5dj x1o61qjw x12nagc x1gslohp">
               <div role="button"><svg role="img" aria-label="Like"></svg></div>
-              <span role="button">63</span>
+              <span role="button">41</span>
               <div role="button"><svg role="img" aria-label="Comment"></svg></div>
-              <span role="button">4</span>
+              <span role="button">7</span>
               <div role="button"><svg role="img" aria-label="Share"></svg></div>
             </section>
             <div class="html-div xdj266r x14z9mp">
@@ -79,8 +93,8 @@
                   <div class="xsag5q8 x2vl965 x1onr9mi">
                     <div class="x6s0dn4 x78zum5 x1q0g3np x1nhvcw1 xh8yej3">
                       <a role="link" href="/photo_walker/">photo_walker</a>
-                      <a role="link" href="/p/Ca1eXaMpLe02/">15w</a>
-                      <a role="link" href="/reels/audio/209204686381096/" id="reel-post-audio"
+                      <a role="link" href="/p/Ca1eXaMpLe02/">44w</a>
+                      <a role="link" href="/reels/audio/111111111111111/" id="reel-post-audio"
                         >Big Band • Thunder Overhead</a
                       >
                     </div>
@@ -100,7 +114,7 @@
             </div>
             <section class="x6s0dn4 xrvj5dj x1o61qjw x12nagc x1gslohp">
               <div role="button"><svg role="img" aria-label="Like"></svg></div>
-              <span role="button">23</span>
+              <span role="button">17</span>
             </section>
           </div>
         </article>
@@ -115,7 +129,7 @@
             <div class="xsag5q8 x2vl965 x1onr9mi">
               <a
                 role="link"
-                href="/trailmix.co/?enable_persistent_cta=true&amp;entry_point=feed&amp;e=1f8c8edf-c467-43d5-a18b-6693ee0c5557&amp;a_mpk=3976122297550500470_7047572494&amp;c[0]=AI%40AQJfyM8QHRNJno0mfRK6K_paLMUhay4WK7kh3gEUQdQXrRP8bpGnGgfRepT06SVvgym21MVoLVwPOjK5Ql0Bg4RL&amp;__tn__=[%7B%22type%22%3A10%7D%2C%7B%22type%22%3A230%7D%2C%7B%22type%22%3A301%7D]"
+                href="/trailmix.co/?enable_persistent_cta=true&amp;entry_point=feed&amp;e=00000000-0000-4000-8000-000000000000&amp;a_mpk=1234567890123456789_9876543210&amp;c[0]=AI%40EXAMPLECLICKCONTEXTEXAMPLECLICKCONTEXTEXAMPLECLICKCONTEXTEXAMPLECLICKCONTEXTEXAMPLECLICK&amp;__tn__=[%7B%22type%22%3A1%7D%2C%7B%22type%22%3A2%7D%2C%7B%22type%22%3A3%7D]"
                 >trailmix.co</a
               >
               <span>Sponsored</span>
@@ -128,12 +142,12 @@
             </div>
             <a
               id="keep-sponsored-post-cta"
-              href="https://www.facebook.com/ads/ig_redirect/?d=Ad8YsrUjOER2YRTs5wXPLQFCu2niY26ezI3x-j3XupYUm5SOfXmH1boxRdSt5nxposmpnYO87l1N1CvkIDCiR-oe_YaiP7GK9rzO_Ob-QS_ZnGKBc1GUdXXXhwPyC96j1iKMNB8_E9uafLTJXpWSXxVcaxRuRT1OgrxkvFqkePP_e9d8JHfgcZDsDprl9pJ82Je430nDsVQ3hur65109eABF82N3HTC7a5GmfEY9jCkX5OzBiU5IuKfPyt0q8Z6BucrT53J96vzRV5dxQDzcf6ZB4Sc1wHysTNozqUkHdpaR8iWvynKzHNgN15ctBNx_Q5b39UQwIvr1owLYRSFkpEYenUtn9hR-1RGZZ4xCQKQ4tv3WKER0zvajdCVdyqW92GETJyBTedHoMUoG_uCobPOccQXG3M31hEKg2Du10oQnfzxCf4HysiWkluOJP4Bm3Qdb6LbvM5anjOQz7bJBT-kNOG9v0_rIom-eRhWuiwFt3CoPGKpamUKhvkw54ztW04sCXcksZ5pmJMtPILl9yy_2BrVBgswshWRnb5YGpalLdlIPBOm8QjAckQEN_F2JaBbxMbYG-k6ZI4pWQ5JmNUatJYIkXzBrSx2sg0BmxVRpt_2h7UETKXDIyxIInzIO2ZNmHZ&amp;a=1&amp;hash=Ad9Ig8_E0wBl_42yk5w&amp;__tn__=*J-R"
+              href="https://www.facebook.com/ads/ig_redirect/?d=ExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampl&amp;a=1&amp;hash=ExampleHashValue123&amp;__tn__=*E-X"
               >Learn more</a
             >
             <section class="x6s0dn4 xrvj5dj x1o61qjw x12nagc x1gslohp">
               <div role="button"><svg role="img" aria-label="Like"></svg></div>
-              <span role="button">30</span>
+              <span role="button">58</span>
             </section>
           </div>
         </article>
@@ -149,9 +163,9 @@
             <div class="xsag5q8 x2vl965 x1onr9mi">
               <div class="x6s0dn4 x78zum5 x1q0g3np x1nhvcw1 xh8yej3">
                 <a role="link" href="/photo_walker/">photo_walker</a>
-                <a role="link" href="/p/Ca1eXaMpLe03/">2w</a>
-                <a role="link" href="/reels/audio/1714050255344127/" id="keep-video-post-audio"
-                  >Island Chorus • Roller Coaster Ride</a
+                <a role="link" href="/p/Ca1eXaMpLe03/">9w</a>
+                <a role="link" href="/reels/audio/222222222222222/" id="keep-video-post-audio"
+                  >Island Chorus • Made Up Melody</a
                 >
               </div>
             </div>
@@ -162,7 +176,7 @@
             </div>
             <section class="x6s0dn4 xrvj5dj x1o61qjw x12nagc x1gslohp">
               <div role="button"><svg role="img" aria-label="Like"></svg></div>
-              <span role="button">22</span>
+              <span role="button">12</span>
             </section>
           </div>
         </article>
@@ -179,8 +193,8 @@
                 <div class="x10l6tqk x13vifvy xh8yej3 x1vjfegm x1cu70dp">
                   <div class="xsag5q8 x2vl965 x1onr9mi">
                     <a role="link" href="/photo_walker/">photo_walker</a>
-                    <a role="link" href="/p/Ca1eXaMpLe04/">36w</a>
-                    <a role="link" href="/reels/audio/1714050255344127/">Island Chorus • Roller Coaster Ride</a>
+                    <a role="link" href="/p/Ca1eXaMpLe04/">27w</a>
+                    <a role="link" href="/reels/audio/222222222222222/">Island Chorus • Made Up Melody</a>
                   </div>
                 </div>
                 <a role="link" href="/reels/Ca1eXaMpLe04/">
@@ -192,8 +206,8 @@
               </div>
             </div>
             <div class="html-div xdj266r x14z9mp">
-              <a role="link" href="/explore/tags/puntalobosbcs/">#puntalobosbcs</a>
-              <a role="link" href="/explore/tags/todossantos/">#todossantos</a>
+              <a role="link" href="/explore/tags/examplebeach/">#examplebeach</a>
+              <a role="link" href="/explore/tags/exampletown/">#exampletown</a>
             </div>
           </div>
         </article>
