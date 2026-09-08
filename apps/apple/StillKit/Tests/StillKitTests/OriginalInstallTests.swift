@@ -91,17 +91,52 @@ final class OriginalInstallTests: XCTestCase {
     XCTAssertNil(OriginalInstall.current(defaults))
   }
 
+  /// Nothing asks Apple about purchases while Still sells nothing.
+  ///
+  /// The ask can raise an App Store sign-in sheet on a device where nobody is signed in. That is
+  /// wrong on an app with no purchase to honor, and it is the kind of thing a store reviewer sees
+  /// first, so the whole ask is switched off beside the rest of the paid tier rather than managed.
+  ///
+  /// Written as an equality against the switch rather than a flat `false`, because the whole suite
+  /// is run in both switch positions before anything about the paid tier ships.
+  func testNothingAsksAppleAboutPurchasesWhileThereIsNothingToBuy() {
+    let defaults = freshDefaults("still.originalInstall.tests.dormant")
+    OriginalInstall.ensure(firstRecordedAt: firstLaunch, appVersion: "2.0.0", defaults: defaults)
+
+    // A fresh install with no verified half yet and every attempt unspent: the only thing that can
+    // be deciding this is the paid-tier switch.
+    XCTAssertEqual(
+      OriginalInstall.shouldRequestVerifiedValues(defaults),
+      MonetizationConfig.paidTierEnabled,
+      "a device asks Apple for its purchase history exactly when there is a purchase to honor"
+    )
+
+    // The half that the cohort is actually read from is written either way. It comes from the app's
+    // own bundle, so it costs no network call and cannot be affected by any of this.
+    XCTAssertEqual(OriginalInstall.current(defaults)?.firstRecordedAt, firstLaunch)
+    XCTAssertEqual(OriginalInstall.current(defaults)?.firstRecordedAppVersion, "2.0.0")
+  }
+
   func testAskingAppleForTheVerifiedHalfStopsAfterAFewAttempts() {
-    // Each ask can raise an App Store sign-in prompt on a device with no cached transaction. Still
-    // is free and sells nothing, so it must stop asking rather than prompt at every launch forever.
+    // Each ask can raise an App Store sign-in prompt on a device with no cached transaction, so a
+    // device has to stop asking rather than prompt at every launch forever. Modelled the way the
+    // app does it: every launch asks whether to ask, and counts an attempt only when told yes.
+    //
+    // While the paid tier is dormant the answer is always no, so a whole free era of launches
+    // spends none of the budget and a device still has all three attempts when paid access returns.
     let defaults = freshDefaults("still.originalInstall.tests.attempts")
     OriginalInstall.ensure(firstRecordedAt: firstLaunch, appVersion: "2.0.0", defaults: defaults)
 
-    for _ in 0..<OriginalInstall.maxVerifiedAttempts {
-      XCTAssertTrue(OriginalInstall.shouldRequestVerifiedValues(defaults))
+    var asks = 0
+    for _ in 0..<(OriginalInstall.maxVerifiedAttempts + 5)
+    where OriginalInstall.shouldRequestVerifiedValues(defaults) {
       OriginalInstall.countVerifiedAttempt(defaults)
+      asks += 1
     }
 
+    let expected = MonetizationConfig.paidTierEnabled ? OriginalInstall.maxVerifiedAttempts : 0
+    XCTAssertEqual(asks, expected)
+    XCTAssertEqual(defaults.integer(forKey: OriginalInstall.verifiedAttemptsKey), expected)
     XCTAssertFalse(OriginalInstall.shouldRequestVerifiedValues(defaults))
     // The install is still identifiable as a free-era one: only the optional half was lost.
     XCTAssertEqual(OriginalInstall.current(defaults)?.firstRecordedAt, firstLaunch)

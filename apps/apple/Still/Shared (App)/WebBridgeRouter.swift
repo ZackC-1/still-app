@@ -52,10 +52,14 @@ final class WebBridgeRouter {
   /// AND every time the app becomes active, and on a cold launch both of those happen before
   /// anything is backgrounded, so without this the first launch alone would spend two of the three
   /// attempts and could hold two `AppTransaction` requests open at once. Two chances of an App
-  /// Store sign-in sheet, on an app that sells nothing, is the shape to avoid: the ceiling is meant
-  /// to bound distinct launches, not overlapping asks inside one. Never cleared, so the next
-  /// attempt waits for the next launch. Everything here is main-actor isolated, so reading and
-  /// setting it cannot interleave and no lock is needed.
+  /// Store sign-in sheet is the shape to avoid: the ceiling is meant to bound distinct launches,
+  /// not overlapping asks inside one. Never cleared, so the next attempt waits for the next launch.
+  /// Everything here is main-actor isolated, so reading and setting it cannot interleave and no
+  /// lock is needed.
+  ///
+  /// Dormant today, and deliberately kept: while paid access is switched off nothing asks Apple at
+  /// all (`OriginalInstall.shouldRequestVerifiedValues`), so this bound only matters again when the
+  /// paid path returns, which is exactly when it will be needed again.
   private var hasAskedAppleForPurchaseHistoryThisLaunch = false
 
   init(
@@ -77,7 +81,8 @@ final class WebBridgeRouter {
     // awaited: launch defers publishing the install-generation id until this method returns, and
     // asking Apple for the app transaction has no time bound at all. It is idempotent and asks
     // Apple at most once per launch, so the overlapping calls from launch, foreground, purchase,
-    // and restore are harmless.
+    // and restore are harmless. While paid access is dormant it asks Apple nothing and only writes
+    // the local record, which touches no network at all.
     Task { await self.captureOriginalInstall() }
   }
 
@@ -224,6 +229,15 @@ final class WebBridgeRouter {
   /// app when the transaction is not already cached on the device. So the ask happens at most once
   /// per launch, is counted before it is made, and stops for good after a few attempts, rather than
   /// repeating at every launch and every return to the app.
+  /// Record which era this device installed Still in. The local half is written first and always:
+  /// it comes from the app's own bundle, needs nothing from Apple, and is the field the cohort is
+  /// actually read from.
+  ///
+  /// Everything after it is the richer half that only Apple can answer, and asking can raise an App
+  /// Store sign-in sheet on a device where nobody is signed in. `shouldRequestVerifiedValues` is
+  /// false for the whole of the free era, so on this build the method stops at the local write and
+  /// this app never asks Apple about purchases at launch. The path stays here, unchanged, for the
+  /// day paid access returns.
   private func captureOriginalInstall() async {
     let defaults = InstallGeneration.appGroupDefaults()
     OriginalInstall.ensure(
