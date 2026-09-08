@@ -241,6 +241,18 @@ final class SettingsTests: XCTestCase {
     XCTAssertTrue(store.applyRecord(laterWriteOnTheSameAccount))
     XCTAssertFalse(store.current().globalOn)
     XCTAssertEqual(store.currentRecord().syncEpoch, 2)
+
+    // And the version is what decides, not the server timestamp beside it. Every other record in
+    // this file moves the two together, so either one alone would carry those assertions; this pair
+    // disagrees on purpose, which leaves the version as the only thing that can answer.
+    let higherVersionWithAnEarlierServerStamp = StoredSettingsRecord(
+      settings: StillSettings(globalOn: true, services: StillServices(), pauses: [], updatedAt: 3),
+      syncMetadata: SettingsSyncMetadata(
+        version: 6, serverUpdatedAt: "2026-08-01T10:00:00.000Z", lastWriteId: "w3"),
+      syncEpoch: 2)
+
+    XCTAssertTrue(store.applyRecord(higherVersionWithAnEarlierServerStamp))
+    XCTAssertEqual(store.currentRecord().syncMetadata?.version, 6)
   }
 
   /// A web-written JSON blob decodes into the Swift model (interop direction: web → native).

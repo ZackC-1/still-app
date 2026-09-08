@@ -221,10 +221,18 @@ describe("createAppGroupReconciler", () => {
   });
 
   // The counter only ever answers "is this the same account". Two records on the same account carry
-  // the same one, and everything below it must keep deciding exactly as it did before.
+  // the same one, and everything below it must keep deciding exactly as it did before. The server
+  // timestamps disagree with the versions on purpose, so the version is the only thing that can
+  // decide this: derived from each other, as everywhere else here, either one alone would do it.
   it("equal repoint counters → the server version still decides", async () => {
-    const older = personRecord({ writeId: "w1", version: 4, updatedAt: 9_000, globalOn: false, repoints: 2 });
-    const newer = personRecord({ writeId: "w2", version: 5, updatedAt: 12, globalOn: true, repoints: 2 });
+    const older = personRecord({
+      writeId: "w1", version: 4, updatedAt: 9_000, globalOn: false, repoints: 2,
+      serverUpdatedAt: "2026-09-01T11:00:00.000Z",
+    });
+    const newer = personRecord({
+      writeId: "w2", version: 5, updatedAt: 12, globalOn: true, repoints: 2,
+      serverUpdatedAt: "2026-09-01T10:00:00.000Z",
+    });
     const local = fakeLocal(older);
     const pushToApp = vi.fn((_record: StoredSettingsRecord) => Promise.resolve());
     const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(newer), pushToApp, local: local.store });
