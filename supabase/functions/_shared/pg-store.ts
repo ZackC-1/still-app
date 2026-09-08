@@ -83,9 +83,18 @@ export class PgRateLimiter implements RateLimiter {
   constructor(private readonly sql: Sql) {}
 
   async consume(bucketKey: string, maxRequests: number, windowSeconds: number): Promise<number> {
-    const rows = await this.sql<{ wait: number }[]>`
-      select public.consume_rate_limit(${bucketKey}, ${maxRequests}, ${windowSeconds}) as wait
-    `;
-    return rows[0]?.wait ?? 0;
+    try {
+      const rows = await this.sql<{ wait: number }[]>`
+        select public.consume_rate_limit(${bucketKey}, ${maxRequests}, ${windowSeconds}) as wait
+      `;
+      const wait = rows[0]?.wait;
+      if (wait === undefined || !Number.isInteger(wait) || wait < 0) {
+        throw new Error("Invalid limiter result");
+      }
+      return wait;
+    } catch {
+      // Driver errors can carry SQL parameters (including IP/email). Keep them out of handler logs.
+      throw new Error("Rate limiter unavailable");
+    }
   }
 }
