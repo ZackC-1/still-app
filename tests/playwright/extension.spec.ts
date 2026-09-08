@@ -1,4 +1,11 @@
+import type { BrowserContext } from "@playwright/test";
 import { test, expect } from "./_extension.js";
+
+// The real geometry of a browser-action popup, used both as the viewport and as the thresholds
+// asserted below so the contract is stated once. Chrome and Firefox both refuse to show a popup
+// taller than 600px and scroll the remainder; Still asks for 380px of the available width.
+const POPUP_INLINE_SIZE = 380;
+const POPUP_MAX_BLOCK_SIZE = 600;
 
 test("the background service worker registers and yields an extension id", async ({
   extensionId,
@@ -20,26 +27,119 @@ test("the popup keeps every primary control visible without scaling or overflow"
   extensionId,
 }) => {
   const page = await context.newPage();
-  await page.setViewportSize({ width: 380, height: 600 });
+  await page.setViewportSize({
+    width: POPUP_INLINE_SIZE,
+    height: POPUP_MAX_BLOCK_SIZE,
+  });
   await page.goto(`chrome-extension://${extensionId}/popup.html`);
   await page.evaluate(() => document.fonts.ready);
 
-  const layout = await page.evaluate(() => ({
-    innerWidth: window.innerWidth,
-    innerHeight: window.innerHeight,
-    scrollWidth: document.documentElement.scrollWidth,
-    scrollHeight: document.documentElement.scrollHeight,
-    zoom: getComputedStyle(document.documentElement).zoom,
-  }));
+  const layout = await page.evaluate(() => {
+    // The furthest bottom edge anything is laid out at, measured from the top of the document.
+    // Clipping does not move boxes, so this still sees content that `overflow: clip` has hidden.
+    const bottoms = [...document.body.querySelectorAll("*")].map((element) => {
+      const box = element.getBoundingClientRect();
+      return box.width > 0 || box.height > 0 ? box.bottom + window.scrollY : 0;
+    });
+    return {
+      innerWidth: window.innerWidth,
+      innerHeight: window.innerHeight,
+      scrollWidth: document.documentElement.scrollWidth,
+      scrollHeight: document.documentElement.scrollHeight,
+      contentBottom: Math.ceil(Math.max(0, ...bottoms)),
+      zoom: getComputedStyle(document.documentElement).zoom,
+    };
+  });
+
+  // The viewport really is the popup's box, so the limits below mean what they say. Without this
+  // a future viewport change could quietly make every height assertion unfalsifiable.
+  expect(layout.innerWidth).toBe(POPUP_INLINE_SIZE);
+  expect(layout.innerHeight).toBe(POPUP_MAX_BLOCK_SIZE);
 
   expect(layout.scrollWidth).toBeLessThanOrEqual(layout.innerWidth);
-  expect(layout.scrollHeight).toBeLessThanOrEqual(layout.innerHeight);
   expect(layout.zoom).toBe("1");
-  // Substring match on the stable visible label — the surface-specific aria-label suffix may change.
+
+  // Height is asserted two ways, because either measure alone can be satisfied by a popup the user
+  // cannot actually use:
+  //   - the document's scroll height catches the popup outgrowing the 600px a browser will show,
+  //     which is the ordinary way this breaks (longer copy, another card, a taller control);
+  //   - the furthest laid-out edge catches the opposite mistake, pinning the popup's height and
+  //     letting `overflow: clip` swallow the surplus, which the first measure reports as a clean
+  //     600 while the content below is both invisible and unreachable.
+  // The rendered content is around 540px today, so roughly 60px of headroom stands between normal
+  // font variation and a red build.
+  expect(layout.scrollHeight).toBeLessThanOrEqual(POPUP_MAX_BLOCK_SIZE);
+  expect(layout.contentBottom).toBeLessThanOrEqual(POPUP_MAX_BLOCK_SIZE);
+
+  // Substring match on the stable visible label: the surface-specific aria-label suffix may change.
+  // No scrolling first, so this asserts the control is wholly visible in the popup as it opens.
   await expect(
     page.getByRole("button", { name: "Open settings & setup guide" }),
-  ).toBeInViewport();
+  ).toBeInViewport({ ratio: 1 });
 });
+
+// The same popup document is Safari's extension sheet on iPhone, where it gets the device width
+// rather than a width of its own choosing. 375pt (iPhone SE, mini, 8) and 320pt (the original SE,
+// the narrowest screen the iOS 15 deployment target still reaches) are both narrower than the
+// popup's 380px, and the popup does not scroll sideways: whatever overhangs is simply unreachable.
+// A viewport of that width is the faithful stand-in, because unlike a desktop toolbar popup an
+// extension sheet has a real viewport handed to it.
+async function expectPopupFits(
+  context: BrowserContext,
+  extensionId: string,
+  width: number,
+): Promise<void> {
+  const page = await context.newPage();
+  await page.setViewportSize({ width, height: 640 });
+  await page.goto(`chrome-extension://${extensionId}/popup.html`);
+  await page.evaluate(() => document.fonts.ready);
+
+  const fit = await page.evaluate(() => {
+    const available = document.documentElement.clientWidth;
+    const clipped = [...document.querySelectorAll("*")].filter((element) => {
+      const box = element.getBoundingClientRect();
+      // Half a pixel of tolerance: sub-pixel text metrics, not a layout fault.
+      return box.width > 0 && box.right > available + 0.5;
+    });
+    const switches = [...document.querySelectorAll('button[role="switch"]')];
+    return {
+      available,
+      popupWidth: Math.round(
+        document.querySelector(".popup")!.getBoundingClientRect().width,
+      ),
+      clippedCount: clipped.length,
+      switchCount: switches.length,
+      switchesFullyVisible: switches.every(
+        (element) => element.getBoundingClientRect().right <= available + 0.5,
+      ),
+    };
+  });
+
+  expect(fit.popupWidth).toBeLessThanOrEqual(fit.available);
+  expect(fit.clippedCount).toBe(0);
+  expect(fit.switchCount).toBeGreaterThan(0);
+  expect(fit.switchesFullyVisible).toBe(true);
+}
+
+for (const width of [375, 320]) {
+  test(`the Chromium build's popup fits a ${width}px surface with every switch reachable`, async ({
+    context,
+    extensionId,
+  }) => {
+    await expectPopupFits(context, extensionId, width);
+  });
+
+  // The bug that prompted these checks is an iPhone one, and the iPhone runs the Safari build,
+  // which carries its own popup copy. Blink renders it here, so this proves the Safari bundle's
+  // markup and stylesheet fit a narrow screen; it does not stand in for WebKit or for how a real
+  // Safari popover or iOS sheet hosts the document.
+  test(`the Safari build's popup fits a ${width}px surface with every switch reachable`, async ({
+    safariContext,
+    safariExtensionId,
+  }) => {
+    await expectPopupFits(safariContext, safariExtensionId, width);
+  });
+}
 
 test("the manifest limits host permissions to the four services (no <all_urls>)", async ({
   context,

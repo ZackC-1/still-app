@@ -48,7 +48,7 @@ it("uses explicit compact popup layout instead of scaling the interface", () => 
 
 Write the contract tests RED-first (session history): the implementing session wrote failing tests for the two named gaps — no explicit compact host mode existed, and service controls stayed keyboard-operable while visually disabled — confirmed RED, and only then implemented.
 
-Two companion practices reinforce the contract:
+Three companion practices reinforce the contract:
 
 1. **No CSS `zoom` for compact layouts.** `zoom:` has inconsistent cross-engine coordinate/hit-testing behavior and breaks automation. Instead `App.svelte` exposes a `data-density="compact"` attribute that swaps a block of CSS custom properties — same DOM, same coordinate space, different token values:
 
@@ -56,7 +56,9 @@ Two companion practices reinforce the contract:
    <div class="still-ui app" data-density={compact ? "compact" : "comfortable"}>
    ```
 
-2. **A rendered-outcome backstop at the real size.** `tests/playwright/extension.spec.ts` loads the *built* Chromium popup at 380×600, waits for fonts, and asserts no scroll overflow, computed `zoom === "1"`, and that a key control stays in-viewport — verifying what the string assertions can only infer from source text.
+2. **A rendered-outcome backstop at the real size.** `tests/playwright/extension.spec.ts` loads the *built* popup at 380x600, which is the width Still asks for and the tallest a browser-action popup will ever show, waits for fonts, and asserts computed `zoom === "1"`, no horizontal overflow, and that a key control is wholly in view without scrolling to it. Height is asserted two ways, because either measure alone is satisfied by a popup nobody can use: the document's scroll height catches content outgrowing the 600px cap, and the furthest laid-out bottom edge catches the opposite mistake of pinning the popup's height and letting `overflow: clip` swallow the surplus, which the first measure reports as a clean 600. The narrow-screen checks load the Safari bundle as well as the Chromium one, because the two carry different copy and copy is what decides how wide a popup wants to be; both run in Blink, so they cover the Safari *build*, not the Safari engine.
+
+3. **An absolute width and a percentage maximum for a popup, never a viewport unit.** A browser-action popup has no viewport to measure before it exists: the browser derives the popup window's width from the content's own preferred width, so a relative width is circular. Measured on real toolbar popups, `inline-size: 100%` renders a 69px sliver in Chromium and `min(380px, 100vw)` renders 295px, which was a shipped bug. The rule is narrower than "keep the width absolute", though: a `max-inline-size: 100vw` on top of a correct 380px width collapses a real Firefox popup to 5px with 48 clipped elements and its switches unreachable. What holds is that the width must be an absolute length *and* any maximum must be a percentage, which resolves against the containing block rather than the viewport and so never feeds back into the measurement pass. `max-inline-size: 100%` measures the full 380px on a desktop toolbar, changing nothing there, and lets the same document fit the 320pt phone screen where the extension presents as a sheet. This is why the contract test bans viewport units anywhere in the popup's styles rather than only on the width.
 
 ## Why This Matters
 

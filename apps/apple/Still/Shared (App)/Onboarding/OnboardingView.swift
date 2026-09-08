@@ -47,20 +47,34 @@ struct OnboardingView: View {
       progressDots
         .padding(.top, 24)
 
-      Spacer(minLength: 0)
+      // Centered while the screen fits, scrolling when it does not. Screen 3 is what makes this
+      // necessary: it carries the guided steps, the button that opens Safari's settings, and two
+      // reassurance captions, and on a 320pt phone or at the largest text sizes that column is
+      // taller than the space available. Without a scroll view the overflow is simply cut off, and
+      // the first thing to go is the button that opens the place the user has to visit, on the one
+      // screen between installing Still and it working. The footer stays outside the scroll view so
+      // the primary button is always on screen.
+      GeometryReader { available in
+        ScrollView {
+          VStack(spacing: 0) {
+            Spacer(minLength: 0)
 
-      Group {
-        switch step {
-        case 0: welcome
-        case 1: outcome
-        case 2: enableExtension
-        default: done
+            Group {
+              switch step {
+              case 0: welcome
+              case 1: outcome
+              case 2: enableExtension
+              default: done
+              }
+            }
+            .frame(maxWidth: 460)
+            .padding(.horizontal, 32)
+
+            Spacer(minLength: 0)
+          }
+          .frame(minWidth: available.size.width, minHeight: available.size.height)
         }
       }
-      .frame(maxWidth: 460)
-      .padding(.horizontal, 32)
-
-      Spacer(minLength: 0)
 
       footer
         .frame(maxWidth: 460)
@@ -317,9 +331,13 @@ private extension Font {
 }
 
 private extension View {
-  /// Caps Dynamic Type at the first accessibility size: the onboarding column is a fixed,
-  /// Spacer-centered VStack with no scrolling, and the ~3.1× accessibility scales would push the
-  /// Continue button off-screen. (macOS 11 predates the API — and has no Dynamic Type to cap.)
+  /// Caps Dynamic Type at the first accessibility size. The screens themselves now scroll, so the
+  /// cap is no longer what keeps them reachable; the footer is. The footer sits outside the scroll
+  /// view so the primary button is always on screen, and at the very largest sizes that button
+  /// alone fills more than half of a 375pt phone, leaving the screen above it a narrow band.
+  /// Screenshotted at the largest size on 2026-09-08 and judged worse than the cap. Lifting it
+  /// properly means letting the footer scroll with everything else, which is a layout decision
+  /// rather than a sizing one. (macOS 11 predates the API, and has no Dynamic Type to cap.)
   @ViewBuilder func cappedDynamicType() -> some View {
     if #available(iOS 15.0, macOS 12.0, *) {
       dynamicTypeSize(...DynamicTypeSize.accessibility1)

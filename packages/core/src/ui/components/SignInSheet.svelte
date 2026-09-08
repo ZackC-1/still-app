@@ -256,7 +256,7 @@
     inset-block-end: 0;
     inset-inline: 0;
     margin-inline: auto;
-    inline-size: min(100%, 420px);
+    inline-size: min(100%, var(--sheet-max-inline-size, 420px));
     /* vh fallback for older WebKit (iOS 15.0–15.3) that drops the dvh declaration below. */
     max-block-size: calc(100vh - env(safe-area-inset-top) - var(--space-3));
     max-block-size: calc(100dvh - env(safe-area-inset-top) - var(--space-3));
