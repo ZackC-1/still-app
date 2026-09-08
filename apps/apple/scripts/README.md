@@ -1,7 +1,7 @@
 # Still Apple build and archive commands
 
 Still 2.0 provides free blocking with optional account sync. Both paid-tier flags remain false;
-RevenueCat identity and purchase infrastructure stay dormant. On mobile, blocking applies to
+RevenueCat identity plumbing remains active; purchase UI stays dormant. On mobile, blocking applies to
 supported websites in Safari, not native social apps.
 
 | Script | Behavior |
