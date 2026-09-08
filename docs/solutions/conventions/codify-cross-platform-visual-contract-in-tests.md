@@ -1,6 +1,7 @@
 ---
 title: Codify cross-platform visual parity as file-content assertion tests
 date: 2026-07-10
+last_updated: 2026-09-08
 category: conventions
 track: knowledge
 module: packages/core/src/ui
@@ -48,7 +49,7 @@ it("uses explicit compact popup layout instead of scaling the interface", () => 
 
 Write the contract tests RED-first (session history): the implementing session wrote failing tests for the two named gaps — no explicit compact host mode existed, and service controls stayed keyboard-operable while visually disabled — confirmed RED, and only then implemented.
 
-Three companion practices reinforce the contract:
+Four companion practices reinforce the contract:
 
 1. **No CSS `zoom` for compact layouts.** `zoom:` has inconsistent cross-engine coordinate/hit-testing behavior and breaks automation. Instead `App.svelte` exposes a `data-density="compact"` attribute that swaps a block of CSS custom properties — same DOM, same coordinate space, different token values:
 
@@ -59,6 +60,24 @@ Three companion practices reinforce the contract:
 2. **A rendered-outcome backstop at the real size.** `tests/playwright/extension.spec.ts` loads the *built* popup at 380x600, which is the width Still asks for and the tallest a browser-action popup will ever show, waits for fonts, and asserts computed `zoom === "1"`, no horizontal overflow, and that a key control is wholly in view without scrolling to it. Height is asserted two ways, because either measure alone is satisfied by a popup nobody can use: the document's scroll height catches content outgrowing the 600px cap, and the furthest laid-out bottom edge catches the opposite mistake of pinning the popup's height and letting `overflow: clip` swallow the surplus, which the first measure reports as a clean 600. The narrow-screen checks load the Safari bundle as well as the Chromium one, because the two carry different copy and copy is what decides how wide a popup wants to be; both run in Blink, so they cover the Safari *build*, not the Safari engine.
 
 3. **An absolute width and a percentage maximum for a popup, never a viewport unit.** A browser-action popup has no viewport to measure before it exists: the browser derives the popup window's width from the content's own preferred width, so a relative width is circular. Measured on real toolbar popups, `inline-size: 100%` renders a 69px sliver in Chromium and `min(380px, 100vw)` renders 295px, which was a shipped bug. The rule is narrower than "keep the width absolute", though: a `max-inline-size: 100vw` on top of a correct 380px width collapses a real Firefox popup to 5px with 48 clipped elements and its switches unreachable. What holds is that the width must be an absolute length *and* any maximum must be a percentage, which resolves against the containing block rather than the viewport and so never feeds back into the measurement pass. `max-inline-size: 100%` measures the full 380px on a desktop toolbar, changing nothing there, and lets the same document fit the 320pt phone screen where the extension presents as a sheet. This is why the contract test bans viewport units anywhere in the popup's styles rather than only on the width.
+
+4. **Build every capability variant before measuring it.** The signed-out popup with both public
+   Supabase fields configured includes a sign-in explanation and button; the unconfigured build
+   renders a shorter device-only note. The same source produced a passing unconfigured popup and
+   a configured 610px failure at 380×600. Reducing only compact section gaps and sync-card padding
+   brought the configured content to about 590px in Chromium and 595px in Firefox, preserving
+   typography, controls, and the width contract. The first gap-only adjustment passed Chromium but
+   still measured 603px in Firefox: check engine variation before accepting a near-limit result.
+
+   CI builds/tests the unconfigured variant first, deletes extension output folders, then freshly
+   builds/tests configured bundles with `https://still-audit.invalid` and
+   `public-audit-placeholder`. `STILL_TEST_SYNC_CONFIGURED` independently tells the geometry test
+   whether the sign-in button must exist, so stale output cannot silently pass the wrong variant.
+   Removing the two production spacing adjustments restores the 610px failure. Both variants run
+   the full fixture suite; narrow widths also exercise light/dark mode and keyboard reachability.
+   The strict 600px fit applies to default text on initial open. Larger accessibility text should
+   wrap and scroll normally, without scaling down, clipping, or removing controls. Browser-document
+   and toolbar measurements remain distinct from native Safari/iPhone host acceptance.
 
 ## Why This Matters
 

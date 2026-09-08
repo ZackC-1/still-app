@@ -533,7 +533,8 @@
   }
 
   .app[data-density="compact"] {
-    --app-gap: var(--space-2);
+    /* Leave room for the configured sign-in card within the desktop popup's 600px height. */
+    --app-gap: var(--space-1);
     --app-padding: var(--space-2);
     --appbar-padding: 0 0 var(--space-1);
     --hero-padding: var(--space-3);
@@ -545,7 +546,7 @@
     --service-status-size: 13px;
     --services-gap: var(--space-1);
     --sync-gap: var(--space-1);
-    --sync-padding: var(--space-2);
+    --sync-padding: var(--space-1);
     --block-button-padding: var(--space-2) var(--space-3);
     --logo-mark-size: 24px;
     --logo-word-size: 18px;
