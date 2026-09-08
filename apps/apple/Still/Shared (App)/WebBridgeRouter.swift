@@ -223,21 +223,17 @@ final class WebBridgeRouter {
   /// was included, without an account and without sending anything anywhere.
   ///
   /// Two halves, deliberately. The local half is written first and always: it reads the app's own
-  /// bundle, needs nothing from Apple, and works on every OS version Still supports. The verified
-  /// half comes from Apple's app transaction, is richer, and is entirely optional: it is available
-  /// only on newer systems, and asking for it can put an App Store sign-in sheet in front of a free
-  /// app when the transaction is not already cached on the device. So the ask happens at most once
-  /// per launch, is counted before it is made, and stops for good after a few attempts, rather than
-  /// repeating at every launch and every return to the app.
-  /// Record which era this device installed Still in. The local half is written first and always:
-  /// it comes from the app's own bundle, needs nothing from Apple, and is the field the cohort is
-  /// actually read from.
+  /// bundle, needs nothing from Apple, works on every OS version Still supports, and is the field
+  /// the cohort is actually read from. The verified half comes from Apple's app transaction, is
+  /// richer, and is entirely optional: it is available only on newer systems, and asking for it can
+  /// put an App Store sign-in sheet in front of a free app when the transaction is not already
+  /// cached on the device. So the ask happens at most once per launch, is counted before it is
+  /// made, and stops for good after a few attempts, rather than repeating at every launch and every
+  /// return to the app.
   ///
-  /// Everything after it is the richer half that only Apple can answer, and asking can raise an App
-  /// Store sign-in sheet on a device where nobody is signed in. `shouldRequestVerifiedValues` is
-  /// false for the whole of the free era, so on this build the method stops at the local write and
-  /// this app never asks Apple about purchases at launch. The path stays here, unchanged, for the
-  /// day paid access returns.
+  /// On this build the ask never happens at all: `shouldRequestVerifiedValues` is false for the
+  /// whole of the free era, so the method stops at the local write and this app asks Apple nothing
+  /// at launch. The path below stays here, unchanged, for the day paid access returns.
   private func captureOriginalInstall() async {
     let defaults = InstallGeneration.appGroupDefaults()
     OriginalInstall.ensure(

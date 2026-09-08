@@ -66,13 +66,20 @@ function shouldAppWin(candidate: StoredSettingsRecord, current: StoredSettingsRe
   // StoredSettingsRecord.syncEpoch: `version` orders writes inside one account's row and cannot
   // order two different people's rows. When someone signs out of a shared iPhone or Mac and the
   // next person signs in, the app repoints the shared container at the newcomer's account, which is
-  // routinely on a lower version. This extension keeps its own copy of the settings, so without
-  // this test it would read the newcomer's record as stale and push the previous person's straight
-  // back into the container, undoing the repoint and re-exposing one person's settings to another.
+  // routinely on a lower version.
+  //
+  // This extension keeps its own copy of the settings, so it is the second place that has to
+  // understand a repoint. It is not what keeps the newcomer's account safe: a push from here is
+  // judged by the same order on the Swift side and refused. What only this half can stop is this
+  // extension going on serving the previous person's settings to the new person on every page, and
+  // the two stores never converging, because every reconcile would re-push the stale record, be
+  // refused, and leave this side's own later edits refused with it. Both halves are load-bearing,
+  // for different reasons, which is why neither ships without the other.
   //
   // A record with no counter has never been repointed and therefore ranks where zero ranks, which
   // is what keeps a record left behind by a build that predates the counter from winning here.
-  // Same order, same reasoning, as the Swift App Group store and the shared SettingsCache.
+  // Same order, same reasoning, as the Swift App Group store. The shared SettingsCache is
+  // deliberately softer with an absent counter, for the reason recorded there.
   const repointOrder = repointCount(candidate) - repointCount(current);
   if (repointOrder !== 0) return repointOrder > 0;
   const candidateMeta = candidate.syncMetadata;

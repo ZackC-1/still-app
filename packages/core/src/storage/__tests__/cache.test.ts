@@ -187,9 +187,9 @@ describe("SettingsCache", () => {
   });
 
   it("a record with no epoch is judged the way it always was, so bridged settings still arrive", () => {
-    // A record written by a build from before the counter existed carries no epoch at all. Reading
-    // that as this cache's own state would let a browser that has reconciled once refuse an edit
-    // whose writer could not have stamped one.
+    // A record whose writer never carried the counter arrives with no epoch at all. Reading that as
+    // this cache's own state would let a browser that has reconciled once refuse an edit whose
+    // writer could not have stamped one.
     const { adapter, cache } = makeCache();
     cache.watch();
     cache.adoptSyncedEnvelope({

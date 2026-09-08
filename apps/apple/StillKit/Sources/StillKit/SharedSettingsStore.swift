@@ -92,9 +92,12 @@ private func shouldApply(_ incoming: StoredSettingsRecord, over current: StoredS
   // record from a build that predates the counter could still displace one that has been
   // repointed. Within one epoch the rules below stand exactly as they were.
   //
-  // This is the order the shared web cache uses (SettingsCache.applyStoredRecord in
-  // packages/core) and the order the Safari extension's App Group reconcile uses. All three
-  // arbitrate the same records and must agree, or whichever one disagrees undoes the others.
+  // This is the order the Safari extension's App Group reconcile uses, and the two must agree or
+  // whichever one disagrees undoes the other: both arbitrate between two STORED records, so both
+  // rank an absent counter at zero. The shared web cache (SettingsCache.applyStoredRecord in
+  // packages/core) deliberately differs on exactly that point, because it is judging an incoming
+  // record against its own live state rather than against a second stored one; the reason it is
+  // softer is recorded there.
   let incomingEpoch = incoming.syncEpoch ?? 0
   let currentEpoch = current.syncEpoch ?? 0
   if incomingEpoch != currentEpoch { return incomingEpoch > currentEpoch }
@@ -117,6 +120,11 @@ private func shouldApply(_ incoming: StoredSettingsRecord, over current: StoredS
     // the time a record with sync metadata reaches this store the decision has already been taken;
     // re-judging it here on timestamps would reverse it, and the app and the Safari extension
     // would then disagree until the next reconcile. Do not add a comparison to this case.
+    //
+    // The repoint counter above is asked before this switch and does not re-open that decision. It
+    // could only reverse this case for a record carrying a repoint but no sync metadata, and
+    // nothing writes one: a repoint is counted by the sign-in that hands this device an account,
+    // which is the same moment the metadata arrives.
     return true
   case (.none, .some):
     return false

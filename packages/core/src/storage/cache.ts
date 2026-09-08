@@ -188,11 +188,13 @@ export class SettingsCache {
    * stale echo of its own. Within one epoch the version test stands unchanged: it is what keeps two
    * contexts writing at the same moment converging on the later write instead of trading places.
    *
-   * A record with NO epoch is judged by the version rules alone, exactly as before this existed.
-   * Only a build from before the counter existed writes one. Such a record has never been
-   * repointed, so the two readings agree at the only moment one can arrive: while this cache is
-   * still on epoch zero itself. Being softer than that costs nothing and means settings are never
-   * refused for lacking a counter their writer could not have carried.
+   * A record with NO epoch is judged by the version rules alone, exactly as before this existed,
+   * and that softness is deliberate. Two shapes arrive without one and neither can undo a repoint
+   * here. A bare settings payload parses to no metadata and no counter, and the last branch of this
+   * method refuses any record with no metadata once this cache is synced. A record with metadata
+   * but no counter comes either from a store that has never been repointed, where there is no
+   * repoint to undo, or from a build older than the field, where refusing it would strand settings
+   * coming back across the Apple bridge for the sake of a counter their writer could not stamp.
    */
   private applyStoredRecord(record: StoredSettingsRecord, source: SettingsChangeSource): boolean {
     const incomingEpoch = record.syncEpoch;
