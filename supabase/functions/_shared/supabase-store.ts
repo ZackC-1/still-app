@@ -21,16 +21,18 @@ export class SupabaseUserStore implements UserStore {
   }
 
   async getProfile(userId: string): Promise<unknown | null> {
-    const { data } = await this.admin.from("profiles").select("settings, updated_at").eq("id", userId).maybeSingle();
+    const { data, error } = await this.admin.from("profiles").select("settings, updated_at").eq("id", userId).maybeSingle();
+    if (error) throw error;
     return data ?? null;
   }
 
   async getEntitlement(userId: string): Promise<unknown | null> {
-    const { data } = await this.admin
+    const { data, error } = await this.admin
       .from("entitlements")
       .select("still_sync, source, updated_at")
       .eq("user_id", userId)
       .maybeSingle();
+    if (error) throw error;
     return data ?? null;
   }
 }
