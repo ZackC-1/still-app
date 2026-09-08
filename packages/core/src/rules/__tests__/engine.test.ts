@@ -407,6 +407,61 @@ describe("applyDom", () => {
     expect((document.querySelector("#ig-home-nav") as HTMLElement).style.display).toBe("");
   });
 
+  // The signed-in Instagram home feed, in the shapes a real capture showed. Two facts drive these
+  // selectors and neither was known when they were first written: a Reel in the feed links to
+  // /reels/<id>/ with an s, and every post that uses a song also carries /reels/audio/<id>/. Match
+  // the first without excluding the second and Still removes ordinary posts for having a soundtrack.
+  it("removes home-feed Reels while keeping an ordinary post that merely credits a song", () => {
+    document.body.innerHTML = `
+      <main role="main">
+        <section>
+          <article id="ig-feed-reel">
+            <a role="link" href="/photo_walker/">photo_walker</a>
+            <a role="link" href="/reels/audio/209204686381096/">Big Band</a>
+            <a role="link" href="/reels/Ca1eXaMpLe02/"><video></video></a>
+          </article>
+          <article id="ig-feed-music-post">
+            <a role="link" href="/photo_walker/">photo_walker</a>
+            <a role="link" href="/p/Ca1eXaMpLe03/">2w</a>
+            <a id="ig-feed-music-credit" role="link" href="/reels/audio/1714050255344127/">Island Chorus</a>
+          </article>
+          <article id="ig-feed-photo-post"><a role="link" href="/p/Ca1eXaMpLe01/">8w</a></article>
+        </section>
+      </main>
+    `;
+    applyDom(ruleSet, allOn, new URL("https://www.instagram.com/"), document, { pro: true });
+    expect(document.querySelector("#ig-feed-reel")).toBeNull();
+    expect(document.querySelector("#ig-feed-music-post")).not.toBeNull();
+    expect(document.querySelector("#ig-feed-photo-post")).not.toBeNull();
+    // The credit line itself stays too, or the post is still not "untouched".
+    expect((document.querySelector("#ig-feed-music-credit") as HTMLElement).style.display).toBe("");
+    // The feed's own wrapper section holds every post, so a suggested-Reels rule that stopped
+    // requiring a direct-child link would take the entire feed with it.
+    expect(document.querySelector("main section")).not.toBeNull();
+  });
+
+  // The suggested-Reels rule carries the same corrected address shape, but it keeps its direct-child
+  // requirement. The section element it is written against was never in a capture, so the shape
+  // below is the one the rule has always claimed, with only the address corrected. The requirement
+  // earns its keep here: the home feed's own wrapper is a <section> holding every post, so a version
+  // that looked anywhere inside a section would delete the entire feed on a page of ordinary posts.
+  it("removes a suggested-Reels section and leaves the feed's own wrapper section alone", () => {
+    document.body.innerHTML = `
+      <main role="main">
+        <section id="ig-suggested-reels"><a role="link" href="/reels/Ca1eXaMpLe05/">Suggested reel</a></section>
+        <section id="ig-feed-wrapper">
+          <article id="ig-wrapped-reel"><a role="link" href="/reels/Ca1eXaMpLe06/"><video></video></a></article>
+          <article id="ig-wrapped-post"><a role="link" href="/p/Ca1eXaMpLe07/">8w</a></article>
+        </section>
+      </main>
+    `;
+    applyDom(ruleSet, allOn, new URL("https://www.instagram.com/"), document, { pro: true });
+    expect(document.querySelector("#ig-suggested-reels")).toBeNull();
+    expect(document.querySelector("#ig-feed-wrapper")).not.toBeNull();
+    expect(document.querySelector("#ig-wrapped-reel")).toBeNull();
+    expect(document.querySelector("#ig-wrapped-post")).not.toBeNull();
+  });
+
   it("removes mobile Facebook Reels surfaces while keeping normal mobile feed posts", () => {
     document.body.innerHTML = `
       <nav>

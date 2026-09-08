@@ -65,3 +65,8 @@ docs/build/
 
 # Codex CLI session artifacts
 .codex/
+
+# Raw signed-in page captures used to author a fixture. A rendered page from a logged-in session
+# carries the viewer's own account plus session, csrf and device values in its inline scripts, so
+# the capture stays local and only the hand-extracted fixture beside it is committed.
+tests/fixtures/*signed-in*

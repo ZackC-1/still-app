@@ -209,6 +209,38 @@ test("instagram: Pro user removes an inline Reel + hides the Reels nav, keeps a 
   await expect(page.locator("#reels-link")).toBeHidden();
 });
 
+// The signed-in home feed, rebuilt by hand from a real capture. It is the first surface anyone
+// opens, so it is the one place over-blocking is most expensive and under-blocking most visible.
+test("instagram home feed: Reels posts go, ordinary posts stay whole", async ({ context, extensionId }) => {
+  await setEntitled(context, extensionId, true);
+  const page = await context.newPage();
+  await serve(page, "**://*.instagram.com/**", fixture("instagram-home.html"));
+  await page.goto("https://www.instagram.com/");
+
+  // A Reel in the feed links to /reels/<id>/, with an s. The rules used to look for /reel/<id>/
+  // and so matched nothing at all here: both of these posts stayed, minus their video.
+  await expect(page.locator("#reel-post")).toHaveCount(0);
+  await expect(page.locator("#reel-post-with-hashtags")).toHaveCount(0);
+  await expect(page.locator("#nav-reels")).toBeHidden();
+
+  // Everything else is indistinguishable from the extension being off.
+  await expect(page.locator("#keep-photo-post")).toBeVisible();
+  await expect(page.locator("#keep-photo-post-image")).toBeVisible();
+  await expect(page.locator("#keep-sponsored-post")).toBeVisible();
+  await expect(page.locator("#keep-sponsored-post-cta")).toBeVisible();
+  await expect(page.locator("#keep-sponsored-post-video")).toBeVisible();
+  await expect(page.locator("#keep-nav-home")).toBeVisible();
+  await expect(page.locator("#keep-nav-search")).toBeVisible();
+  await expect(page.locator("#keep-nav-messages")).toBeVisible();
+
+  // The post that decides how wide the rules may be drawn: an ordinary video post that uses a song
+  // carries a /reels/audio/<id>/ credit, so a rule keyed on "/reels/" alone takes the whole post
+  // with it. The post survives AND so does the credit line itself.
+  await expect(page.locator("#keep-video-post-with-audio")).toBeVisible();
+  await expect(page.locator("#keep-video-post-video")).toBeVisible();
+  await expect(page.locator("#keep-video-post-audio")).toBeVisible();
+});
+
 test("instagram profile: grid Reels go, ordinary grid posts stay", async ({ context, extensionId }) => {
   await setEntitled(context, extensionId, true);
   const page = await context.newPage();

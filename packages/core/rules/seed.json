@@ -1,5 +1,5 @@
 {
-  "version": "1.1.4",
+  "version": "1.1.5",
   "services": {
     "youtube": {
       "matches": [
@@ -135,7 +135,7 @@
           "enabledByDefault": true,
           "selectors": [
             "a[href=\"/reels/\"]",
-            "a[href^=\"/reels/\"]",
+            "a[href^=\"/reels/\"]:not([href*=\"/reels/audio/\"])",
             "a:has(svg[aria-label=\"Reels\"])",
             "a[aria-label*=\"reels\" i]",
             "[role=\"tablist\"] a[href*=\"/reels\"]"
@@ -149,7 +149,8 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "article:has(a[href^=\"/reel/\"])"
+            "article:has(a[href*=\"/reel/\"])",
+            "article:has(a[href*=\"/reels/\"]:not([href*=\"/reels/audio/\"]))"
           ]
         },
         {
@@ -173,7 +174,8 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "section:has(> a[href^=\"/reel/\"])"
+            "section:has(> a[href*=\"/reel/\"])",
+            "section:has(> a[href*=\"/reels/\"]:not([href*=\"/reels/audio/\"]))"
           ]
         },
         {
@@ -312,6 +314,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "f0c63af1b27b3f777bde017258e5e8fe11c0ee86522bfc815c9a5e16090250400a2ec366c68579b8d8605c7992bb18af6436f6f7f286a6874b1dde465ea1410d"
+    "value": "613ecd3fbe3d7f035766a0245403b6aa8ac71ed622cca51adba0ebe3db3df8fe8e969e0885f1d73a893f2e5a52d2e30b16a2f3201b8ed81399ad97a71693a909"
   }
 }
