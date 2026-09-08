@@ -18,7 +18,11 @@
 
 <style>
   .options {
-    max-inline-size: var(--options-max-inline-size, 480px);
+    /* The same cap the app content inside already uses, so this frame is exactly as wide as what
+       it holds. A wider frame here would be invisible: App.svelte centres itself at
+       --content-max-inline-size regardless, so the settings page's real width is that token and
+       this reads it rather than offering a second number that changes nothing. */
+    max-inline-size: var(--content-max-inline-size, 432px);
     margin-inline: auto;
     padding-block: clamp(var(--space-3), 5vh, var(--space-8));
   }

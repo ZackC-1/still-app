@@ -47,10 +47,14 @@
      browser has no viewport to measure before the popup exists, so it derives the popup window's
      width from the content's own preferred width. A percentage or viewport unit there is circular
      and collapses the popup (measured: a `100%` width collapses a real Chrome toolbar popup to
-     69px). Fitting a narrower screen is the job of `max-inline-size`, not of this value. */
+     69px). Fitting a narrower screen is the job of `max-inline-size`, not of this value.
+
+     --content-max-inline-size is how wide the app content ever draws, on every host that is wider
+     than it: the popup, the settings page and the macOS window all centre the same capped column.
+     The settings page reads this rather than carrying a width of its own, because its own wrapper
+     was always wider than the content it held and so could never change what anybody saw. */
   --popup-inline-size: 380px;
   --content-max-inline-size: 432px;
-  --options-max-inline-size: 480px;
   --sheet-max-inline-size: 420px;
 
   --font-ui:

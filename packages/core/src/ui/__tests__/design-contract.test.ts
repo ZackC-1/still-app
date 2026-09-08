@@ -38,16 +38,25 @@ describe("cross-platform design contract", () => {
       "../ext-chromium/entrypoints/popup/PopupApp.svelte": "--popup-inline-size",
       "../ext-safari/entrypoints/popup/PopupApp.svelte": "--popup-inline-size",
       "../ext-chromium/entrypoints/options/OptionsApp.svelte":
-        "--options-max-inline-size",
+        "--content-max-inline-size",
       "../ext-safari/entrypoints/options/OptionsApp.svelte":
-        "--options-max-inline-size",
+        "--content-max-inline-size",
     };
 
+    const declared = new Map<string, string>();
     for (const token of new Set(Object.values(consumers))) {
-      expect(tokens).toMatch(new RegExp(`${token}:\\s*\\d+px;`));
+      // Empty when the token is missing or has stopped being a pixel value, which the assertion
+      // then reports as the failure it is rather than pinning nothing.
+      const value = new RegExp(`${token}:\\s*(\\d+px);`).exec(tokens)?.[1] ?? "";
+      expect(value).toMatch(/^\d+px$/);
+      declared.set(token, value);
     }
+
+    // The fallback must repeat the token's own value, not merely be a pixel value. Otherwise
+    // "one place to change it" is only half true: editing the token would leave a stale number
+    // behind in every consumer, unreachable in a real build and wrong in every other reading.
     for (const [path, token] of Object.entries(consumers)) {
-      expect(read(path)).toContain(`var(${token}, `);
+      expect(read(path)).toContain(`var(${token}, ${declared.get(token)})`);
     }
   });
 
