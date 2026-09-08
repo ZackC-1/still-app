@@ -1,3 +1,4 @@
+import type { BrowserContext } from "@playwright/test";
 import { test, expect } from "./_extension.js";
 
 test("the background service worker registers and yields an extension id", async ({
@@ -54,42 +55,60 @@ test("the popup keeps every primary control visible without scaling or overflow"
 // popup's 380px, and the popup does not scroll sideways: whatever overhangs is simply unreachable.
 // A viewport of that width is the faithful stand-in, because unlike a desktop toolbar popup an
 // extension sheet has a real viewport handed to it.
+async function expectPopupFits(
+  context: BrowserContext,
+  extensionId: string,
+  width: number,
+): Promise<void> {
+  const page = await context.newPage();
+  await page.setViewportSize({ width, height: 640 });
+  await page.goto(`chrome-extension://${extensionId}/popup.html`);
+  await page.evaluate(() => document.fonts.ready);
+
+  const fit = await page.evaluate(() => {
+    const available = document.documentElement.clientWidth;
+    const clipped = [...document.querySelectorAll("*")].filter((element) => {
+      const box = element.getBoundingClientRect();
+      // Half a pixel of tolerance: sub-pixel text metrics, not a layout fault.
+      return box.width > 0 && box.right > available + 0.5;
+    });
+    const switches = [...document.querySelectorAll('button[role="switch"]')];
+    return {
+      available,
+      popupWidth: Math.round(
+        document.querySelector(".popup")!.getBoundingClientRect().width,
+      ),
+      clippedCount: clipped.length,
+      switchCount: switches.length,
+      switchesFullyVisible: switches.every(
+        (element) => element.getBoundingClientRect().right <= available + 0.5,
+      ),
+    };
+  });
+
+  expect(fit.popupWidth).toBeLessThanOrEqual(fit.available);
+  expect(fit.clippedCount).toBe(0);
+  expect(fit.switchCount).toBeGreaterThan(0);
+  expect(fit.switchesFullyVisible).toBe(true);
+}
+
 for (const width of [375, 320]) {
-  test(`the popup fits a ${width}px surface with every switch reachable`, async ({
+  test(`the Chromium build's popup fits a ${width}px surface with every switch reachable`, async ({
     context,
     extensionId,
   }) => {
-    const page = await context.newPage();
-    await page.setViewportSize({ width, height: 640 });
-    await page.goto(`chrome-extension://${extensionId}/popup.html`);
-    await page.evaluate(() => document.fonts.ready);
+    await expectPopupFits(context, extensionId, width);
+  });
 
-    const fit = await page.evaluate(() => {
-      const available = document.documentElement.clientWidth;
-      const clipped = [...document.querySelectorAll("*")].filter((element) => {
-        const box = element.getBoundingClientRect();
-        // Half a pixel of tolerance: sub-pixel text metrics, not a layout fault.
-        return box.width > 0 && box.right > available + 0.5;
-      });
-      const switches = [...document.querySelectorAll('button[role="switch"]')];
-      return {
-        available,
-        popupWidth: Math.round(
-          document.querySelector(".popup")!.getBoundingClientRect().width,
-        ),
-        clippedCount: clipped.length,
-        switchCount: switches.length,
-        switchesFullyVisible: switches.every(
-          (element) =>
-            element.getBoundingClientRect().right <= available + 0.5,
-        ),
-      };
-    });
-
-    expect(fit.popupWidth).toBeLessThanOrEqual(fit.available);
-    expect(fit.clippedCount).toBe(0);
-    expect(fit.switchCount).toBeGreaterThan(0);
-    expect(fit.switchesFullyVisible).toBe(true);
+  // The bug that prompted these checks is an iPhone one, and the iPhone runs the Safari build,
+  // which carries its own popup copy. Blink renders it here, so this proves the Safari bundle's
+  // markup and stylesheet fit a narrow screen; it does not stand in for WebKit or for how a real
+  // Safari popover or iOS sheet hosts the document.
+  test(`the Safari build's popup fits a ${width}px surface with every switch reachable`, async ({
+    safariContext,
+    safariExtensionId,
+  }) => {
+    await expectPopupFits(safariContext, safariExtensionId, width);
   });
 }
 
