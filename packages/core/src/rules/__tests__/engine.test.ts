@@ -110,6 +110,27 @@ describe("evaluate — navigation decisions", () => {
     expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reelmaker/")).kind).toBe("apply");
   });
 
+  // Two rules point opposite ways at the same address, on purpose, and this pins both so that the
+  // next person to notice does not resolve the contradiction by deleting one of them.
+  //
+  // The selectors say a song credit is NOT a Reel, and exclude /reels/audio/ so that an ordinary
+  // post that happens to use a song keeps its credit line. Hiding it would leave a hole in a post
+  // Still is supposed to leave alone, which is worse than the credit being there.
+  //
+  // The address rule says the page that credit LEADS to is a Reel, and it is: Instagram's audio page
+  // is a grid of Reels made with that song. So the credit stays visible and following it reaches
+  // Still's placeholder. That is the intended behaviour, not an oversight: Still leaves the ordinary
+  // post alone and still declines to open a wall of Reels.
+  it("keeps a song credit clickable in the feed and still blocks the Reels grid it leads to", () => {
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reels/audio/111111111111111/")).kind).toBe(
+      "placeholder",
+    );
+    // Cleared content rather than a whole-site block, like every other Instagram Reels address.
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reels/audio/111111111111111/"))).not.toMatchObject(
+      { blocked: true },
+    );
+  });
+
   it("placeholders a direct Facebook Reel URL", () => {
     expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reel/123")).kind).toBe("placeholder");
     expect(evaluate(ruleSet, allOn, new URL("https://m.facebook.com/reels/")).kind).toBe("placeholder");
