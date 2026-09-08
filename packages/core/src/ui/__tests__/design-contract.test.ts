@@ -35,6 +35,8 @@ describe("cross-platform design contract", () => {
       "src/ui/App.svelte": "--content-max-inline-size",
       "src/ui/components/SignInSheet.svelte": "--sheet-max-inline-size",
       "src/ui/components/PaywallSheet.svelte": "--sheet-max-inline-size",
+      "../ext-chromium/entrypoints/popup/PopupApp.svelte": "--popup-inline-size",
+      "../ext-safari/entrypoints/popup/PopupApp.svelte": "--popup-inline-size",
       "../ext-chromium/entrypoints/options/OptionsApp.svelte":
         "--options-max-inline-size",
       "../ext-safari/entrypoints/options/OptionsApp.svelte":
