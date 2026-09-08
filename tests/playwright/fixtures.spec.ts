@@ -47,6 +47,11 @@ test("fixtures stay hand written", () => {
   expect(entries.length, "no fixtures found, so this test is guarding nothing").toBeGreaterThan(0);
 
   for (const entry of entries) {
+    // Finder writes .DS_Store into any directory it opens. It is ignored repository-wide, it can
+    // never reach a commit, and deleting it only invites it back, so failing on it would teach
+    // people to expect a red from this check for a reason that is never a leak.
+    if (entry.name === ".DS_Store") continue;
+
     expect(entry.isFile(), `${entry.name} is a directory, which is how a saved page stores its parts`).toBe(true);
     const bytes = statSync(join(FIXTURE_DIR, entry.name)).size;
     expect(bytes, `${entry.name} is ${Math.round(bytes / 1024)} KB, which is the size of a saved page`).toBeLessThan(
