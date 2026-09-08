@@ -35,9 +35,12 @@ async function setEntitled(context: BrowserContext, extensionId: string, entitle
 // 712 KB and 1.8 MB. The ceiling below sits far above the former and far below the latter, so it
 // catches a saved page whatever it is called.
 //
-// The naming check earns its place separately: the ignore rules assume fixtures are lower-case and
-// hyphenated, so a fixture that broke that assumption would be silently ignored rather than
-// committed, and someone would spend an afternoon wondering why their new fixture will not add.
+// The naming check earns its place separately, in both directions. A save whose name has a space in
+// it, or one of the archive extensions, is ignored silently by .gitignore, so this check gives a
+// person a reason for a file that will not add. A capitalised save such as the browser's default
+// "Instagram.html" is not ignored at all, deliberately: no ignore pattern can express "capitalised"
+// on a case-insensitive filesystem, where git folds the pattern's case and a character class would
+// swallow every fixture here. This check is the only place that shape is caught.
 test("fixtures stay hand written", () => {
   const MAX_FIXTURE_BYTES = 64 * 1024;
   const entries = readdirSync(FIXTURE_DIR, { withFileTypes: true });
@@ -49,7 +52,7 @@ test("fixtures stay hand written", () => {
     expect(bytes, `${entry.name} is ${Math.round(bytes / 1024)} KB, which is the size of a saved page`).toBeLessThan(
       MAX_FIXTURE_BYTES,
     );
-    expect(entry.name, `${entry.name} is not lower-case and hyphenated, so .gitignore would hide it`).toMatch(
+    expect(entry.name, `${entry.name} is not lower-case and hyphenated, which is what a browser save looks like`).toMatch(
       /^[a-z0-9-]+\.html$/,
     );
   }

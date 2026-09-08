@@ -70,19 +70,25 @@ docs/build/
 # carries the viewer's own account plus session, csrf and device values in its inline scripts, so
 # the capture stays local and only the hand-extracted fixture beside it is committed.
 #
-# These patterns cover the names a browser gives a saved page. Committed fixtures are hand-written,
-# lower-case and hyphenated, so anything capitalised, spaced, or carrying a save format's extension
-# is a capture rather than a fixture. The sidecar directory matters most: saving as "Webpage,
-# Complete" splits the same session material across many small files, where it is least likely to be
-# noticed in review.
+# These patterns cover four of the shapes a browser save takes: a name carrying "signed-in", a name
+# with a space in it, a plain-text dump, and the two single-file archive formats. The fifth is the
+# sidecar directory that "Webpage, Complete" writes beside the page, and it matters most, because it
+# splits the same session material across many small files where it is least likely to be noticed in
+# review.
+#
+# Nothing here tries to match a capitalised name, and nothing should. Git turns core.ignorecase on
+# for a case-insensitive filesystem, which is every default macOS checkout, and folds a pattern's
+# case before matching it, so a character class such as [A-Z] also matches lower case and quietly
+# ignores every file in this directory on the machine this project is developed on. A capitalised
+# browser save is caught by the check below instead, which fails loudly rather than swallowing the
+# file.
 #
 # A name is a guess, so it is not the only guard. "fixtures stay hand written" in
-# tests/playwright/fixtures.spec.ts fails on any fixture large enough to be a saved page, whatever
-# it is called and wherever a browser decided to put it.
+# tests/playwright/fixtures.spec.ts fails on any fixture large enough to be a saved page, on any name
+# that is not lower-case and hyphenated, and on any directory, whatever a browser called it.
 tests/fixtures/*signed-in*
 tests/fixtures/*.txt
 tests/fixtures/* *
-tests/fixtures/[A-Z]*
 tests/fixtures/*_files/
 tests/fixtures/*.mhtml
 tests/fixtures/*.webarchive
