@@ -16,7 +16,10 @@ export class SupabaseUserStore implements UserStore {
     // GoTrue admin methods resolve with an `error` object rather than throwing — an unchecked call
     // would report a *failed* deletion as success, signing the user out while their account still
     // exists (a real GDPR/5.1.1 hole). Surface failures; tolerate "already gone" (404) for idempotency.
-    const { error } = await this.admin.auth.admin.deleteUser(userId);
+    // Migration 0013 cascades account counters and cleans pre-account email counters inside the
+    // auth deletion transaction. A cleanup failure must fail this call; never clean up afterward,
+    // when the caller may already have lost the identity needed to retry.
+    const { error } = await this.admin.auth.admin.deleteUser(userId, false);
     if (error && error.status !== 404) throw error;
   }
 

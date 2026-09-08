@@ -4,7 +4,7 @@
 // unclassified so the webhook keeps its fail-and-release retriability for genuine failures.
 
 import { assertEquals, assertRejects } from "@std/assert";
-import { PgEntitlementStore } from "./pg-store.ts";
+import { PgEntitlementStore, PgRateLimiter } from "./pg-store.ts";
 import { MissingUserError } from "./store.ts";
 
 const USER = "11111111-1111-1111-1111-111111111111";
@@ -45,4 +45,25 @@ Deno.test("setEntitlement passes every other store error through unclassified", 
     assertEquals(thrown, error);
     assertEquals(thrown instanceof MissingUserError, false);
   }
+});
+
+Deno.test("rate limiter fails closed without copying driver parameters into handler logs", async () => {
+  const limiter = new PgRateLimiter(rejectingSql(driverError({
+    detail: "synthetic raw address 203.0.113.42",
+    query: "synthetic parameter-bearing query",
+  })));
+  const error = await assertRejects(
+    () => limiter.consume("reconcile:ip:203.0.113.42", 60, 60),
+    Error,
+  );
+  assertEquals(error.message, "Rate limiter unavailable");
+  assertEquals(error.cause, undefined);
+  assertEquals(Object.keys(error), []);
+});
+
+Deno.test("rate limiter rejects a missing RPC result instead of allowing traffic", async () => {
+  const sql = (() => Promise.resolve([])) as unknown as Sql;
+  await assertRejects(() =>
+    new PgRateLimiter(sql).consume(`reconcile:user:${USER}`, 10, 60)
+  );
 });
