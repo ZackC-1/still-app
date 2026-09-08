@@ -3,7 +3,8 @@
 ## Still 2.0 candidate instructions — draft
 
 For Still 2.0, blocking is free without an account or purchase. Sign-in enables optional
-settings sync. Both paid flags remain false; purchase products and RevenueCat stay dormant.
+settings sync. Both paid flags remain false; purchase UI stays dormant and RevenueCat identity
+plumbing remains active.
 Use version 2.0.0 and the candidate build number recorded in certification. Do not execute the
 older purchase setup/submission checklist below as a 2.0 requirement. Signed Release exports,
 macOS/Safari and physical iPhone/iPad evidence remain required.
