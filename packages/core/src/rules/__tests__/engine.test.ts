@@ -493,6 +493,32 @@ describe("applyDom", () => {
     expect((document.querySelector("#fb-home-nav") as HTMLElement).style.display).toBe("");
   });
 
+  // facebook.com/public/<name> is a people directory, so /public/reels lists everyone whose name
+  // contains the word. Each result's photo link carries that person's name as its accessible name.
+  // The left-menu rule used to hide any link whose label merely contained "Reels", which took the
+  // photos of 24 of the 25 people listed. Facebook labels the real shortcut exactly "Reels", so an
+  // exact match keeps the shortcut hidden and gives every person their picture back.
+  it("hides the Reels shortcut by its exact label and leaves people named Reels alone", () => {
+    document.body.innerHTML = `
+      <nav>
+        <a id="fb-shortcut-reels" href="/reel/?s=ptl" aria-label="Reels">Reels</a>
+        <a id="fb-shortcut-video" href="/watch/" aria-label="Video">Video</a>
+      </nav>
+      <div id="fb-directory">
+        <a id="fb-person-1" aria-label="Reels Kapoor" href="https://www.facebook.com/people/Reels-Kapoor/pfbid0Ex4mPle1"><img id="fb-photo-1"></a>
+        <a id="fb-person-2" aria-label="TJ Reels" href="https://www.facebook.com/people/TJ-Reels/pfbid0Ex4mPle2"><img id="fb-photo-2"></a>
+        <a id="fb-person-3" aria-label="Dana 's Reels" href="https://www.facebook.com/people/Dana-s-Reels/pfbid0Ex4mPle3"><img id="fb-photo-3"></a>
+      </div>
+    `;
+    applyDom(ruleSet, allOn, new URL("https://www.facebook.com/public/reels"), document, { pro: true });
+    expect((document.querySelector("#fb-shortcut-reels") as HTMLElement).style.display).toBe("none");
+    expect((document.querySelector("#fb-shortcut-video") as HTMLElement).style.display).toBe("");
+    for (const id of ["#fb-person-1", "#fb-person-2", "#fb-person-3"]) {
+      expect((document.querySelector(id) as HTMLElement).style.display, id).toBe("");
+    }
+    expect(document.querySelectorAll("#fb-directory img")).toHaveLength(3);
+  });
+
   // Issue #58 (second round, from live Web Inspector DOM): every tab is pinned to its slot with
   // precomputed inline offsets (width:67px; margin-left:…) — siblings never reflow, so ANY removal
   // (tab or wrapper) leaves a hole exposing the ancestor's gray bg-s26. The fix keeps the tab as

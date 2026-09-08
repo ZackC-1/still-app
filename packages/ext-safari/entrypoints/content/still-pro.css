@@ -6,7 +6,6 @@ html.still-pro-active.still-service-instagram a[aria-label*="reels" i]{display:n
 html.still-pro-active.still-service-instagram [role="tablist"] a[href*="/reels"]{display:none!important}
 html.still-pro-active.still-service-instagram a[href$="/reels/"]{display:none!important}
 html.still-pro-active.still-service-facebook a[aria-label="Reels"]{display:none!important}
-html.still-pro-active.still-service-facebook a[aria-label*="Reels" i]{display:none!important}
 html.still-pro-active.still-service-facebook a[href*="/reels/"]{display:none!important}
 html.still-pro-active.still-service-facebook li:has(> a[href*="/reel/"], > a[href*="/reels/"]){display:none!important}
 html.still-pro-active.still-service-facebook a[role="tab"][href*="/reels_tab"]{display:none!important}

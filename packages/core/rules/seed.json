@@ -1,5 +1,5 @@
 {
-  "version": "1.1.5",
+  "version": "1.1.6",
   "services": {
     "youtube": {
       "matches": [
@@ -243,7 +243,6 @@
           "enabledByDefault": true,
           "selectors": [
             "a[aria-label=\"Reels\"]",
-            "a[aria-label*=\"Reels\" i]",
             "a[href*=\"/reels/\"]",
             "li:has(> a[href*=\"/reel/\"], > a[href*=\"/reels/\"])"
           ]
@@ -314,6 +313,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "613ecd3fbe3d7f035766a0245403b6aa8ac71ed622cca51adba0ebe3db3df8fe8e969e0885f1d73a893f2e5a52d2e30b16a2f3201b8ed81399ad97a71693a909"
+    "value": "f9332cb211b8ccce17395404f3f921ebe4a532a1ee15876b7fa439ede657fd816580df862202683d56eced18c1fe5da7fa3b47a278882088846e3d0e9b8a3806"
   }
 }

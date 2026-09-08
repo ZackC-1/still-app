@@ -306,10 +306,35 @@ test("facebook: Pro user removes a Reel article + hides the Reels shortcut, keep
   await expect(page.locator("#reel-article")).toHaveCount(0);
   await expect(page.locator("#keep-article")).toBeVisible();
   await expect(page.locator("#reels-shortcut")).toBeHidden();
+  // The shortcut as Facebook addresses it: a query-string address no address selector reaches, so
+  // its exact accessible name is the only thing hiding it.
+  await expect(page.locator("#reels-shortcut-by-label")).toBeHidden();
   // A Page whose name starts with the letters "reel" is not a Reel.
   await expect(page.locator("#keep-lookalike-article")).toBeVisible();
   await expect(page.locator("#keep-menu-lookalike")).toBeVisible();
   await expect(page.locator("#keep-menu-home")).toBeVisible();
+});
+
+// A person named Reels is not a Reel. Facebook's people directory lists everyone whose name
+// contains the word, and each result's photo link carries that name as its accessible name, so a
+// rule that hid any link labelled with the word took 24 of the 25 photos with it.
+test("facebook people directory: profiles of people named Reels keep their photos", async ({
+  context,
+  extensionId,
+}) => {
+  await setEntitled(context, extensionId, true);
+  const page = await context.newPage();
+  await serve(page, "**://*.facebook.com/**", fixture("facebook.html"));
+  await page.goto("https://www.facebook.com/public/reels");
+
+  await expect(page.locator("#still-placeholder")).toHaveCount(0);
+  for (const person of ["one", "two", "three"]) {
+    await expect(page.locator(`#keep-directory-person-${person}`)).toBeVisible();
+    await expect(page.locator(`#keep-directory-photo-${person}`)).toBeVisible();
+  }
+  // And the genuine shortcut is still hidden on the same page, so this is a narrowing and not a
+  // switching-off.
+  await expect(page.locator("#reels-shortcut-by-label")).toBeHidden();
 });
 
 test("facebook page: the Reels tab goes, the other Page tabs stay", async ({ context, extensionId }) => {
