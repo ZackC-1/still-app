@@ -48,7 +48,7 @@ it("uses explicit compact popup layout instead of scaling the interface", () => 
 
 Write the contract tests RED-first (session history): the implementing session wrote failing tests for the two named gaps — no explicit compact host mode existed, and service controls stayed keyboard-operable while visually disabled — confirmed RED, and only then implemented.
 
-Two companion practices reinforce the contract:
+Three companion practices reinforce the contract:
 
 1. **No CSS `zoom` for compact layouts.** `zoom:` has inconsistent cross-engine coordinate/hit-testing behavior and breaks automation. Instead `App.svelte` exposes a `data-density="compact"` attribute that swaps a block of CSS custom properties — same DOM, same coordinate space, different token values:
 
