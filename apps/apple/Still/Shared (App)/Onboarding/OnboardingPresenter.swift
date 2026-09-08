@@ -72,10 +72,18 @@ enum OnboardingPresenter {
     // the sheet takes its size from preferredContentSize alone.
     // Clamp to the host window on BOTH axes: presentAsSheet does not clip an oversized sheet, so a
     // fixed 520pt sheet visually overhangs the 480pt default / 440pt minimum window (review finding,
-    // PR #55, verified empirically), and a fixed 660pt sheet overhangs the 560pt minimum content
-    // height the same way. The onboarding screens scroll, so a shorter sheet hides nothing. The
-    // frame stays FIXED at presentation time; sizingOptions = [] below (the macOS 26 race fix)
-    // depends on the hosting view never renegotiating size.
+    // PR #55, verified empirically), and a fixed 660pt sheet overhangs the 560pt content-height
+    // minimum the same way. The onboarding screens scroll, so a shorter sheet hides nothing.
+    //
+    // Scope of the height clamp, stated honestly: the storyboard opens this window 480x860, so on a
+    // normal first launch min(660, height) is simply 660 and the clamp changes nothing. It engages
+    // only when the window is already shorter than 660pt at the moment the sheet is presented,
+    // which is the relaunch case (the window carries a frame autosave name, so a user who shrank it
+    // and quit mid-onboarding reopens short) and the DEBUG screenshot hook above. Both clamps are
+    // snapshots: the frame stays FIXED at presentation time because sizingOptions = [] below (the
+    // macOS 26 race fix) depends on the hosting view never renegotiating size, so dragging the
+    // window smaller while the sheet is up still overhangs. Closing that would mean giving the
+    // hosting view its sizing options back, which is the crash this workaround exists to avoid.
     let sheetWidth = min(520, host.view.bounds.width)
     let sheetHeight = min(660, host.view.bounds.height)
     let controller = NSHostingController(
