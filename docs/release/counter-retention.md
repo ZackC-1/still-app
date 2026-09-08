@@ -47,8 +47,10 @@ establish any of these providers' retention/deletion guarantees.
 | RevenueCat, Apple and retained billing/event records | Anonymous/account purchase identifiers and financial/event records; application `revenuecat_events` retains identifiers independently of this counter FK | Confirm necessary retention and deletion responsibilities. Existing dormant payment plumbing and event history were not changed. No blanket account-data-erasure claim is supported by this change. |
 | Static hosting and any operator log drains | Transport IP/log metadata and forwarded logs | Verify actual enabled services, retention and deletion support. |
 
-Current provider management access was insufficient to verify hosted auth/Postgres configuration or
-backups. The release owner must obtain those settings from an authorized dashboard/operator. If
+Read-only management checks confirmed hosted auth configuration and the presence of managed
+backups. Those observations do not establish log/backup retention or account-deletion handling.
+The release owner must verify plan-specific retention, PostgreSQL parameter/error logging and
+restore procedures through an authorized dashboard/operator. If
 provider retention contradicts the approved functionality-only/IP-deletion policy, obtain a specific
 decision or configure supported deletion before release. The short-lived counter exception does not
 authorize indefinite provider retention.
