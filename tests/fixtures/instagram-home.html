@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Instagram home feed — fixture</title>
+  </head>
+  <!--
+    The signed-in Instagram home feed, the first surface anyone opens.
+
+    Extracted by hand from a real signed-in capture. The capture itself is not committed: a rendered
+    Instagram page carries the viewer's own handle plus session, csrf and device values in its inline
+    scripts, none of which belongs in a public repository.
+
+    That reasoning applies to the values inside the markup as well, so this fixture draws a hard line
+    between the two kinds of thing a capture contains.
+
+    Copied from the capture, because a rule can only be trusted against the shapes it will really
+    meet: the post wrapper element, the class names on the structural wrappers, the nesting, the
+    parameter names on the advertising addresses, and the shape of every link. Instagram's class
+    names are generated for its own stylesheet and are the same for everyone who loads the site, so
+    they identify a layout and not a person.
+
+    Invented, every single one, because it identifies somebody or their session: account handles,
+    post ids, audio ids, track and artist names, hashtags, captions, like and comment counts, post
+    ages, and every value inside an advertising address. The long addresses below are long and opaque
+    on purpose, which is the only property the fixture needs from them, and their contents are
+    repeated filler text. No rule reads any of these values, so none of them is load-bearing. If you
+    add a post here, type the values yourself rather than pasting them from a page.
+
+    The two shapes that matter, because for a long time the rules were written against neither:
+
+      * a Reel in the feed links to /reels/<id>/  (with an s). The old rules looked for /reel/<id>/
+        and so matched nothing at all on the real feed.
+      * the SAME post also carries a music attribution link, /reels/audio/<id>/. So does an ordinary
+        video post that happens to use a song. A rule that keys naively on "/reels/" therefore also
+        removes ordinary posts, which is why every Reel rule here excludes the audio path.
+
+    The song credit therefore stays visible and clickable on an ordinary post, and following it
+    reaches Still's placeholder, because Instagram's audio page is itself a grid of Reels. Both
+    halves of that are deliberate: the post is left exactly as it was, and Still still declines to
+    open a wall of Reels. The address rule and the selectors look like they disagree about whether
+    the audio path is a Reel, and they are pinned in opposite directions on purpose.
+
+    Every element whose id starts with "keep-" is a control: it must survive untouched, exactly as it
+    looks with the extension switched off.
+  -->
+  <body>
+    <!-- Left sidebar. The Reels entry is a plain link with no accessible name of its own. -->
+    <nav>
+      <a href="/" id="keep-nav-home">Home</a>
+      <a href="/reels/" id="nav-reels">Reels</a>
+      <a href="/explore/" id="keep-nav-search">Search</a>
+      <a href="/direct/inbox/" id="keep-nav-messages">Messages</a>
+    </nav>
+
+    <main role="main" class="xvbhtw8 x78zum5 xdt5ytf x1iyjqo2 xl56j7k">
+      <section class="x78zum5 xdt5ytf x1iyjqo2 xg6iff7">
+        <!--
+          1. An ordinary photo carousel. No link anywhere in it goes near a Reel, so nothing in the
+          Instagram rule set may touch it.
+        -->
+        <article id="keep-photo-post">
+          <div class="x78zum5 xdt5ytf x5yr21d xa1mljc xh8yej3">
+            <div class="xsag5q8 x2vl965 x1onr9mi">
+              <div class="x6s0dn4 x78zum5 x1q0g3np x1nhvcw1 xh8yej3">
+                <a role="link" href="/photo_walker/">photo_walker</a>
+                <a role="link" href="/p/Ca1eXaMpLe01/">5w</a>
+                <div role="button"><svg role="img" aria-label="More options"></svg></div>
+              </div>
+            </div>
+            <div class="x1n2onr6">
+              <div class="x6s0dn4 xyzq4qe x78zum5 xdt5ytf x2lah0s xl56j7k">
+                <img id="keep-photo-post-image" alt="Photo by photo_walker" src="data:," />
+              </div>
+            </div>
+            <section class="x6s0dn4 xrvj5dj x1o61qjw x12nagc x1gslohp">
+              <div role="button"><svg role="img" aria-label="Like"></svg></div>
+              <span role="button">41</span>
+              <div role="button"><svg role="img" aria-label="Comment"></svg></div>
+              <span role="button">7</span>
+              <div role="button"><svg role="img" aria-label="Share"></svg></div>
+            </section>
+            <div class="html-div xdj266r x14z9mp">
+              <a role="link" href="/photo_walker/">photo_walker</a>
+              <span dir="auto">A morning on the pier.</span>
+            </div>
+          </div>
+        </article>
+
+        <!--
+          2. A Reel. The video sits inside an anchor to /reels/<id>/, and the header carries the
+          track credit as /reels/audio/<id>/. The whole post goes.
+        -->
+        <article id="reel-post">
+          <div class="x78zum5 xdt5ytf x5yr21d xa1mljc xh8yej3">
+            <div class="x1n2onr6">
+              <div class="x6s0dn4 xyzq4qe x78zum5 xdt5ytf x2lah0s xl56j7k">
+                <div class="x10l6tqk x13vifvy xh8yej3 x1vjfegm x1cu70dp">
+                  <div class="xsag5q8 x2vl965 x1onr9mi">
+                    <div class="x6s0dn4 x78zum5 x1q0g3np x1nhvcw1 xh8yej3">
+                      <a role="link" href="/photo_walker/">photo_walker</a>
+                      <a role="link" href="/p/Ca1eXaMpLe02/">44w</a>
+                      <a role="link" href="/reels/audio/111111111111111/" id="reel-post-audio"
+                        >Big Band • Thunder Overhead</a
+                      >
+                    </div>
+                  </div>
+                </div>
+                <a
+                  role="link"
+                  href="/reels/Ca1eXaMpLe02/"
+                  class="x1i10hfl xjbqb8w x1ejq31n x18oe1m7 x1sy0etr"
+                >
+                  <div>
+                    <video muted></video>
+                    <svg role="img" aria-label="Audio is muted"></svg>
+                  </div>
+                </a>
+              </div>
+            </div>
+            <section class="x6s0dn4 xrvj5dj x1o61qjw x12nagc x1gslohp">
+              <div role="button"><svg role="img" aria-label="Like"></svg></div>
+              <span role="button">17</span>
+            </section>
+          </div>
+        </article>
+
+        <!--
+          3. A sponsored post. Its links are enormous Facebook ad-redirect addresses, which is what
+          makes it a useful control: it is the post least like the hand-written examples, and it
+          must come through a sweep completely unchanged.
+        -->
+        <article id="keep-sponsored-post">
+          <div class="x78zum5 xdt5ytf x5yr21d xa1mljc xh8yej3">
+            <div class="xsag5q8 x2vl965 x1onr9mi">
+              <a
+                role="link"
+                href="/trailmix.co/?enable_persistent_cta=true&amp;entry_point=feed&amp;e=00000000-0000-4000-8000-000000000000&amp;a_mpk=1234567890123456789_9876543210&amp;c[0]=AI%40EXAMPLECLICKCONTEXTEXAMPLECLICKCONTEXTEXAMPLECLICKCONTEXTEXAMPLECLICKCONTEXTEXAMPLECLICK&amp;__tn__=[%7B%22type%22%3A1%7D%2C%7B%22type%22%3A2%7D%2C%7B%22type%22%3A3%7D]"
+                >trailmix.co</a
+              >
+              <span>Sponsored</span>
+            </div>
+            <div class="x1n2onr6">
+              <div class="x6s0dn4 xyzq4qe x78zum5 xdt5ytf x2lah0s xl56j7k">
+                <video id="keep-sponsored-post-video" muted></video>
+                <svg role="img" aria-label="Audio is muted"></svg>
+              </div>
+            </div>
+            <a
+              id="keep-sponsored-post-cta"
+              href="https://www.facebook.com/ads/ig_redirect/?d=ExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampleClickPayloadNotARealTokenExampl&amp;a=1&amp;hash=ExampleHashValue123&amp;__tn__=*E-X"
+              >Learn more</a
+            >
+            <section class="x6s0dn4 xrvj5dj x1o61qjw x12nagc x1gslohp">
+              <div role="button"><svg role="img" aria-label="Like"></svg></div>
+              <span role="button">58</span>
+            </section>
+          </div>
+        </article>
+
+        <!--
+          4. The control this whole change turns on: an ordinary video post that uses a song, so it
+          carries a /reels/audio/<id>/ link and nothing else Reels-shaped. Every Reel rule must step
+          around it. Loosen any of them to a bare "/reels/" match and this post disappears from the
+          feed, which is over-blocking of exactly the kind Still exists not to do.
+        -->
+        <article id="keep-video-post-with-audio">
+          <div class="x78zum5 xdt5ytf x5yr21d xa1mljc xh8yej3">
+            <div class="xsag5q8 x2vl965 x1onr9mi">
+              <div class="x6s0dn4 x78zum5 x1q0g3np x1nhvcw1 xh8yej3">
+                <a role="link" href="/photo_walker/">photo_walker</a>
+                <a role="link" href="/p/Ca1eXaMpLe03/">9w</a>
+                <a role="link" href="/reels/audio/222222222222222/" id="keep-video-post-audio"
+                  >Island Chorus • Made Up Melody</a
+                >
+              </div>
+            </div>
+            <div class="x1n2onr6">
+              <div class="x6s0dn4 xyzq4qe x78zum5 xdt5ytf x2lah0s xl56j7k">
+                <video id="keep-video-post-video" muted></video>
+              </div>
+            </div>
+            <section class="x6s0dn4 xrvj5dj x1o61qjw x12nagc x1gslohp">
+              <div role="button"><svg role="img" aria-label="Like"></svg></div>
+              <span role="button">12</span>
+            </section>
+          </div>
+        </article>
+
+        <!--
+          5. A second Reel, this one with hashtags in the caption. Hashtag links go to /explore/tags/
+          and are not a Reels signal; they are here so the removal is proved on a post that carries
+          plenty of other links too.
+        -->
+        <article id="reel-post-with-hashtags">
+          <div class="x78zum5 xdt5ytf x5yr21d xa1mljc xh8yej3">
+            <div class="x1n2onr6">
+              <div class="x6s0dn4 xyzq4qe x78zum5 xdt5ytf x2lah0s xl56j7k">
+                <div class="x10l6tqk x13vifvy xh8yej3 x1vjfegm x1cu70dp">
+                  <div class="xsag5q8 x2vl965 x1onr9mi">
+                    <a role="link" href="/photo_walker/">photo_walker</a>
+                    <a role="link" href="/p/Ca1eXaMpLe04/">27w</a>
+                    <a role="link" href="/reels/audio/222222222222222/">Island Chorus • Made Up Melody</a>
+                  </div>
+                </div>
+                <a role="link" href="/reels/Ca1eXaMpLe04/">
+                  <div>
+                    <video muted></video>
+                    <svg role="img" aria-label="Audio is muted"></svg>
+                  </div>
+                </a>
+              </div>
+            </div>
+            <div class="html-div xdj266r x14z9mp">
+              <a role="link" href="/explore/tags/examplebeach/">#examplebeach</a>
+              <a role="link" href="/explore/tags/exampletown/">#exampletown</a>
+            </div>
+          </div>
+        </article>
+
+        <!--
+          6. The control that decides how widely the Reel address rules may be drawn. Every link in
+          this post has a Reels-shaped path segment and not one of them is a Reel on Instagram:
+
+            * two point at an advertiser's own website, where "reel" and "reels" mean whatever that
+              advertiser wants. A shop selling fishing tackle is the obvious case, and this
+              repository has been caught by that exact word before on YouTube.
+            * one points at somebody's Reel on their own profile grid, which is a different surface
+              with its own rule. The post is an ordinary post that mentions a Reel; the Reel is not
+              in it. Following the link still lands on Still's placeholder, so nothing is opened by
+              leaving the post alone.
+
+          Match a Reels-shaped address anywhere inside a link, rather than at the start of an
+          Instagram one, and this whole post is deleted. That is over-blocking, and preventing it is
+          the entire point of this fixture.
+        -->
+        <article id="keep-post-linking-to-reels">
+          <div class="x78zum5 xdt5ytf x5yr21d xa1mljc xh8yej3">
+            <div class="xsag5q8 x2vl965 x1onr9mi">
+              <div class="x6s0dn4 x78zum5 x1q0g3np x1nhvcw1 xh8yej3">
+                <a role="link" href="/photo_walker/">photo_walker</a>
+                <a role="link" href="/p/Ca1eXaMpLe08/">33w</a>
+              </div>
+            </div>
+            <div class="x1n2onr6">
+              <div class="x6s0dn4 xyzq4qe x78zum5 xdt5ytf x2lah0s xl56j7k">
+                <img id="keep-outbound-post-image" alt="Photo by photo_walker" src="data:," />
+              </div>
+            </div>
+            <div class="html-div xdj266r x14z9mp">
+              <span dir="auto">New rods and reels in stock this week.</span>
+              <a id="keep-outbound-reel-link" href="https://trailmix.example/reel/summer-sale"
+                >trailmix.example/reel/summer-sale</a
+              >
+              <a id="keep-outbound-reels-link" href="https://trailmix.example/reels/spring-range"
+                >the rest of the range</a
+              >
+              <a id="keep-profile-reel-link" role="link" href="/photo_walker/reel/Ca1eXaMpLe09/"
+                >as seen here</a
+              >
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

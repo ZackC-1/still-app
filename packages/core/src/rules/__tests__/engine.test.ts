@@ -110,6 +110,27 @@ describe("evaluate — navigation decisions", () => {
     expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reelmaker/")).kind).toBe("apply");
   });
 
+  // Two rules point opposite ways at the same address, on purpose, and this pins both so that the
+  // next person to notice does not resolve the contradiction by deleting one of them.
+  //
+  // The selectors say a song credit is NOT a Reel, and exclude /reels/audio/ so that an ordinary
+  // post that happens to use a song keeps its credit line. Hiding it would leave a hole in a post
+  // Still is supposed to leave alone, which is worse than the credit being there.
+  //
+  // The address rule says the page that credit LEADS to is a Reel, and it is: Instagram's audio page
+  // is a grid of Reels made with that song. So the credit stays visible and following it reaches
+  // Still's placeholder. That is the intended behaviour, not an oversight: Still leaves the ordinary
+  // post alone and still declines to open a wall of Reels.
+  it("keeps a song credit clickable in the feed and still blocks the Reels grid it leads to", () => {
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reels/audio/111111111111111/")).kind).toBe(
+      "placeholder",
+    );
+    // Cleared content rather than a whole-site block, like every other Instagram Reels address.
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reels/audio/111111111111111/"))).not.toMatchObject(
+      { blocked: true },
+    );
+  });
+
   it("placeholders a direct Facebook Reel URL", () => {
     expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reel/123")).kind).toBe("placeholder");
     expect(evaluate(ruleSet, allOn, new URL("https://m.facebook.com/reels/")).kind).toBe("placeholder");
@@ -407,6 +428,125 @@ describe("applyDom", () => {
     expect((document.querySelector("#ig-home-nav") as HTMLElement).style.display).toBe("");
   });
 
+  // The signed-in Instagram home feed, in the shapes a real capture showed. Two facts drive these
+  // selectors and neither was known when they were first written: a Reel in the feed links to
+  // /reels/<id>/ with an s, and every post that uses a song also carries /reels/audio/<id>/. Match
+  // the first without excluding the second and Still removes ordinary posts for having a soundtrack.
+  it("removes home-feed Reels while keeping an ordinary post that merely credits a song", () => {
+    document.body.innerHTML = `
+      <main role="main">
+        <section>
+          <article id="ig-feed-reel">
+            <a role="link" href="/photo_walker/">photo_walker</a>
+            <a role="link" href="/reels/audio/111111111111111/">Big Band</a>
+            <a role="link" href="/reels/Ca1eXaMpLe02/"><video></video></a>
+          </article>
+          <article id="ig-feed-music-post">
+            <a role="link" href="/photo_walker/">photo_walker</a>
+            <a role="link" href="/p/Ca1eXaMpLe03/">9w</a>
+            <a id="ig-feed-music-credit" role="link" href="/reels/audio/222222222222222/">Island Chorus</a>
+          </article>
+          <article id="ig-feed-photo-post"><a role="link" href="/p/Ca1eXaMpLe01/">5w</a></article>
+        </section>
+      </main>
+    `;
+    applyDom(ruleSet, allOn, new URL("https://www.instagram.com/"), document, { pro: true });
+    expect(document.querySelector("#ig-feed-reel")).toBeNull();
+    expect(document.querySelector("#ig-feed-music-post")).not.toBeNull();
+    expect(document.querySelector("#ig-feed-photo-post")).not.toBeNull();
+    // The credit line itself stays too, or the post is still not "untouched".
+    expect((document.querySelector("#ig-feed-music-credit") as HTMLElement).style.display).toBe("");
+    // The feed's own wrapper section holds every post, so a suggested-Reels rule that stopped
+    // requiring a direct-child link would take the entire feed with it.
+    expect(document.querySelector("main section")).not.toBeNull();
+  });
+
+  // The bound on the two rules that delete a whole post. Both match a Reel address at the START of
+  // an Instagram link, never anywhere inside any link, and each case below is a post that a
+  // match-anywhere version deletes outright. Removing a post is the most destructive thing Still
+  // does, so the shapes that must survive are pinned one at a time and named, and the shapes that
+  // must go are pinned in the same test so neither direction can drift on its own.
+  it("keeps ordinary posts whose only Reels-shaped links point somewhere that is not a Reel", () => {
+    document.body.innerHTML = `
+      <main role="main">
+        <section>
+          <article id="ig-outbound-reel">
+            <a id="ig-outbound-reel-link" href="https://trailmix.example/reel/summer-sale">Summer sale</a>
+          </article>
+          <article id="ig-outbound-reels">
+            <a id="ig-outbound-reels-link" href="https://trailmix.example/reels/spring-range">The range</a>
+          </article>
+          <article id="ig-profile-reel">
+            <a id="ig-profile-reel-link" href="/photo_walker/reel/Ca1eXaMpLe09/">As seen here</a>
+          </article>
+          <article id="ig-quoted-address">
+            <a href="https://news.example/story?url=https%3A%2F%2Finstagram.com%2Freels%2FCa1eXaMpLe10%2F">Story</a>
+          </article>
+          <article id="ig-real-feed-reel"><a href="/reels/Ca1eXaMpLe11/"><video></video></a></article>
+          <article id="ig-real-absolute-reel">
+            <a href="https://www.instagram.com/reels/Ca1eXaMpLe12/"><video></video></a>
+          </article>
+        </section>
+      </main>
+    `;
+    applyDom(ruleSet, allOn, new URL("https://www.instagram.com/"), document, { pro: true });
+
+    // An advertiser's own website decides for itself what "reel" and "reels" mean in its addresses.
+    expect(document.querySelector("#ig-outbound-reel")).not.toBeNull();
+    expect(document.querySelector("#ig-outbound-reels")).not.toBeNull();
+    // A post that mentions somebody's Reel is not itself a Reel. The profile grid is a different
+    // surface with its own rule, and the address rule still covers the destination.
+    expect(document.querySelector("#ig-profile-reel")).not.toBeNull();
+    // An Instagram address quoted inside another site's query string is not a link to Instagram.
+    expect(document.querySelector("#ig-quoted-address")).not.toBeNull();
+    // Every one of those links is still there to be clicked, so the posts are untouched and not
+    // merely undeleted.
+    for (const id of ["#ig-outbound-reel-link", "#ig-outbound-reels-link", "#ig-profile-reel-link"]) {
+      expect((document.querySelector(id) as HTMLElement).style.display, id).toBe("");
+    }
+
+    // The other direction: a genuine feed Reel still goes, by either address form.
+    expect(document.querySelector("#ig-real-feed-reel")).toBeNull();
+    expect(document.querySelector("#ig-real-absolute-reel")).toBeNull();
+  });
+
+  // The same bound on the suggested-Reels rule, which removes a whole section rather than a post.
+  it("keeps a suggested-style section whose only Reels-shaped link points off Instagram", () => {
+    document.body.innerHTML = `
+      <main role="main">
+        <section id="ig-outbound-section"><a href="https://trailmix.example/reel/summer-sale">Summer sale</a></section>
+        <section id="ig-suggested-absolute">
+          <a href="https://www.instagram.com/reels/Ca1eXaMpLe13/">Suggested reel</a>
+        </section>
+      </main>
+    `;
+    applyDom(ruleSet, allOn, new URL("https://www.instagram.com/"), document, { pro: true });
+    expect(document.querySelector("#ig-outbound-section")).not.toBeNull();
+    expect(document.querySelector("#ig-suggested-absolute")).toBeNull();
+  });
+
+  // The suggested-Reels rule carries the same corrected address shape, but it keeps its direct-child
+  // requirement. The section element it is written against was never in a capture, so the shape
+  // below is the one the rule has always claimed, with only the address corrected. The requirement
+  // earns its keep here: the home feed's own wrapper is a <section> holding every post, so a version
+  // that looked anywhere inside a section would delete the entire feed on a page of ordinary posts.
+  it("removes a suggested-Reels section and leaves the feed's own wrapper section alone", () => {
+    document.body.innerHTML = `
+      <main role="main">
+        <section id="ig-suggested-reels"><a role="link" href="/reels/Ca1eXaMpLe05/">Suggested reel</a></section>
+        <section id="ig-feed-wrapper">
+          <article id="ig-wrapped-reel"><a role="link" href="/reels/Ca1eXaMpLe06/"><video></video></a></article>
+          <article id="ig-wrapped-post"><a role="link" href="/p/Ca1eXaMpLe07/">5w</a></article>
+        </section>
+      </main>
+    `;
+    applyDom(ruleSet, allOn, new URL("https://www.instagram.com/"), document, { pro: true });
+    expect(document.querySelector("#ig-suggested-reels")).toBeNull();
+    expect(document.querySelector("#ig-feed-wrapper")).not.toBeNull();
+    expect(document.querySelector("#ig-wrapped-reel")).toBeNull();
+    expect(document.querySelector("#ig-wrapped-post")).not.toBeNull();
+  });
+
   it("removes mobile Facebook Reels surfaces while keeping normal mobile feed posts", () => {
     document.body.innerHTML = `
       <nav>
@@ -436,6 +576,35 @@ describe("applyDom", () => {
     expect((document.querySelector("#fb-home-icon") as HTMLElement).style.display).toBe("");
     expect(document.querySelector("#fb-reel-button")).toBeNull();
     expect((document.querySelector("#fb-home-nav") as HTMLElement).style.display).toBe("");
+  });
+
+  // facebook.com/public/<name> is a people directory, so /public/reels lists everyone whose name
+  // contains the word. Each result's photo link carries that person's name as its accessible name.
+  // The left-menu rule used to hide any link whose label merely contained "Reels". Measured on the
+  // live page, which carries 120 links in total: it matched 26 of them, every one a photo link,
+  // covering 13 people listed twice each, so the page read as a list of names with no pictures.
+  // Facebook labels the real shortcut exactly "Reels", so an exact match keeps the shortcut hidden
+  // and gives every person their picture back. The addresses below are invented; the label is the
+  // only thing any rule reads.
+  it("hides the Reels shortcut by its exact label and leaves people named Reels alone", () => {
+    document.body.innerHTML = `
+      <nav>
+        <a id="fb-shortcut-reels" href="/reel/?s=ptl" aria-label="Reels">Reels</a>
+        <a id="fb-shortcut-video" href="/watch/" aria-label="Video">Video</a>
+      </nav>
+      <div id="fb-directory">
+        <a id="fb-person-1" aria-label="Reels Kapoor" href="https://www.facebook.com/people/Reels-Kapoor/pfbid0Ex4mPle1"><img id="fb-photo-1"></a>
+        <a id="fb-person-2" aria-label="TJ Reels" href="https://www.facebook.com/people/TJ-Reels/pfbid0Ex4mPle2"><img id="fb-photo-2"></a>
+        <a id="fb-person-3" aria-label="Dana 's Reels" href="https://www.facebook.com/people/Dana-s-Reels/pfbid0Ex4mPle3"><img id="fb-photo-3"></a>
+      </div>
+    `;
+    applyDom(ruleSet, allOn, new URL("https://www.facebook.com/public/reels"), document, { pro: true });
+    expect((document.querySelector("#fb-shortcut-reels") as HTMLElement).style.display).toBe("none");
+    expect((document.querySelector("#fb-shortcut-video") as HTMLElement).style.display).toBe("");
+    for (const id of ["#fb-person-1", "#fb-person-2", "#fb-person-3"]) {
+      expect((document.querySelector(id) as HTMLElement).style.display, id).toBe("");
+    }
+    expect(document.querySelectorAll("#fb-directory img")).toHaveLength(3);
   });
 
   // Issue #58 (second round, from live Web Inspector DOM): every tab is pinned to its slot with

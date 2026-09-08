@@ -7,6 +7,20 @@
   <body>
     <!-- Left menu: a Reels shortcut (fb-left-menu, hide) + normal items (must survive) -->
     <nav id="left-menu">
+      <!--
+        The Reels shortcut as it appears outside a list item, which is what the rule below the list
+        is for. Two different things are being represented here and they are worth separating.
+
+        Confirmed: Facebook labels this shortcut exactly "Reels", checked on a signed-in page. That
+        is the load-bearing fact, because it is what lets the rule be an exact label match rather
+        than a substring one.
+
+        Assumed: the address. A query string is used here so that no address selector can reach the
+        link and only the label can hide it, which is the case worth testing. The exact "?s=ptl" is
+        a plausible stand-in rather than a recorded shape, since the left menu is only visible when
+        signed in and no capture of it exists. No rule reads the address, so nothing depends on it.
+      -->
+      <a href="/reel/?s=ptl" id="reels-shortcut-by-label" aria-label="Reels">Reels</a>
       <ul>
         <li id="keep-menu-home"><a href="/" id="home-link">Home</a></li>
         <li id="menu-reels"><a href="/reel/" id="reels-shortcut" aria-label="Reels">Reels</a></li>
@@ -46,6 +60,41 @@
     <section id="keep-section-page">
       <h1 id="keep-section-title">Fishing rods, reels and tackle</h1>
       <div role="article" id="keep-section-post">A rod and reel auction listing</div>
+
+      <!--
+        The people directory at facebook.com/public/reels, which lists everyone whose name contains
+        the word Reels. Copied in shape from the live page: each result is a link whose accessible
+        name is the person's own name, wrapping their photo, addressed under /people/.
+
+        This is the control for the narrowing above. A rule that hid any link merely labelled with
+        the word "Reels" matched all of these. Measured on the live page, which carries 120 links in
+        total: 26 matched, every one of them a photo link, covering 13 people listed twice each. The
+        page read as a list of names with no pictures. Names of this shape are the reason the rule
+        now matches the exact label and nothing else.
+      -->
+      <div id="keep-directory">
+        <a
+          id="keep-directory-person-one"
+          role="presentation"
+          aria-label="Reels Kapoor"
+          href="https://www.facebook.com/people/Reels-Kapoor/pfbid0Ex4mPle1"
+          ><img id="keep-directory-photo-one" alt="Reels Kapoor" src="data:,"
+        /></a>
+        <a
+          id="keep-directory-person-two"
+          role="presentation"
+          aria-label="TJ Reels"
+          href="https://www.facebook.com/people/TJ-Reels/pfbid0Ex4mPle2"
+          ><img id="keep-directory-photo-two" alt="TJ Reels" src="data:,"
+        /></a>
+        <a
+          id="keep-directory-person-three"
+          role="presentation"
+          aria-label="Dana 's Reels"
+          href="https://www.facebook.com/people/Dana-s-Reels/pfbid0Ex4mPle3"
+          ><img id="keep-directory-photo-three" alt="Dana 's Reels" src="data:,"
+        /></a>
+      </div>
     </section>
 
     <!-- Feed: a Reel article (fb-feed, remove) + normal posts (must survive) -->

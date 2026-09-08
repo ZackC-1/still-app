@@ -1,5 +1,5 @@
 {
-  "version": "1.1.4",
+  "version": "1.1.7",
   "services": {
     "youtube": {
       "matches": [
@@ -135,7 +135,7 @@
           "enabledByDefault": true,
           "selectors": [
             "a[href=\"/reels/\"]",
-            "a[href^=\"/reels/\"]",
+            "a[href^=\"/reels/\"]:not([href*=\"/reels/audio/\"])",
             "a:has(svg[aria-label=\"Reels\"])",
             "a[aria-label*=\"reels\" i]",
             "[role=\"tablist\"] a[href*=\"/reels\"]"
@@ -149,7 +149,8 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "article:has(a[href^=\"/reel/\"])"
+            "article:has(a[href^=\"/reel/\"], a[href^=\"https://www.instagram.com/reel/\"])",
+            "article:has(a[href^=\"/reels/\"]:not([href*=\"/reels/audio/\"]), a[href^=\"https://www.instagram.com/reels/\"]:not([href*=\"/reels/audio/\"]))"
           ]
         },
         {
@@ -173,7 +174,8 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "section:has(> a[href^=\"/reel/\"])"
+            "section:has(> a[href^=\"/reel/\"], > a[href^=\"https://www.instagram.com/reel/\"])",
+            "section:has(> a[href^=\"/reels/\"]:not([href*=\"/reels/audio/\"]), > a[href^=\"https://www.instagram.com/reels/\"]:not([href*=\"/reels/audio/\"]))"
           ]
         },
         {
@@ -241,7 +243,6 @@
           "enabledByDefault": true,
           "selectors": [
             "a[aria-label=\"Reels\"]",
-            "a[aria-label*=\"Reels\" i]",
             "a[href*=\"/reels/\"]",
             "li:has(> a[href*=\"/reel/\"], > a[href*=\"/reels/\"])"
           ]
@@ -312,6 +313,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "f0c63af1b27b3f777bde017258e5e8fe11c0ee86522bfc815c9a5e16090250400a2ec366c68579b8d8605c7992bb18af6436f6f7f286a6874b1dde465ea1410d"
+    "value": "12463a04635c6136f2ed4c301162d022fd4f925e4f839eb5d7b94decbc537d90dee4890b92eead56d9fd45de79566bc52be9831caacb48966074f3d59639bd00"
   }
 }

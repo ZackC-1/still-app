@@ -1,6 +1,11 @@
 import { test, expect, fixture } from "./_extension.js";
 import type { BrowserContext, Page } from "@playwright/test";
+import { readdirSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { PAID_TIER_ENABLED } from "../../packages/shared-types/src/entitlement.js";
+
+const FIXTURE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../fixtures");
 
 // Serve a service's fixture HTML for every request to its domain (no real network); the extension's
 // content script injects because the committed URL matches its host pattern.
@@ -21,6 +26,42 @@ async function setEntitled(context: BrowserContext, extensionId: string, entitle
   }, entitled);
   await page.close();
 }
+
+// The one thing that must never land in tests/fixtures/ is a page saved from a browser, because a
+// saved page carries the session of whoever saved it. The .gitignore rules cover the names a browser
+// gives such a file, but a name is a guess and this one is worth more than a guess, so the same
+// hazard is also caught by the property it cannot hide: its size. Every committed fixture is written
+// by hand and is a few kilobytes; the two captures the Instagram fixtures were authored from are
+// 712 KB and 1.8 MB. The ceiling below sits far above the former and far below the latter, so it
+// catches a saved page whatever it is called.
+//
+// The naming check earns its place separately, in both directions. A save whose name has a space in
+// it, or one of the archive extensions, is ignored silently by .gitignore, so this check gives a
+// person a reason for a file that will not add. A capitalised save such as the browser's default
+// "Instagram.html" is not ignored at all, deliberately: no ignore pattern can express "capitalised"
+// on a case-insensitive filesystem, where git folds the pattern's case and a character class would
+// swallow every fixture here. This check is the only place that shape is caught.
+test("fixtures stay hand written", () => {
+  const MAX_FIXTURE_BYTES = 64 * 1024;
+  const entries = readdirSync(FIXTURE_DIR, { withFileTypes: true });
+  expect(entries.length, "no fixtures found, so this test is guarding nothing").toBeGreaterThan(0);
+
+  for (const entry of entries) {
+    // Finder writes .DS_Store into any directory it opens. It is ignored repository-wide, it can
+    // never reach a commit, and deleting it only invites it back, so failing on it would teach
+    // people to expect a red from this check for a reason that is never a leak.
+    if (entry.name === ".DS_Store") continue;
+
+    expect(entry.isFile(), `${entry.name} is a directory, which is how a saved page stores its parts`).toBe(true);
+    const bytes = statSync(join(FIXTURE_DIR, entry.name)).size;
+    expect(bytes, `${entry.name} is ${Math.round(bytes / 1024)} KB, which is the size of a saved page`).toBeLessThan(
+      MAX_FIXTURE_BYTES,
+    );
+    expect(entry.name, `${entry.name} is not lower-case and hyphenated, which is what a browser save looks like`).toMatch(
+      /^[a-z0-9-]+\.html$/,
+    );
+  }
+});
 
 // The YouTube regression matrix. Every fixture carries "keep-" controls copied from live markup,
 // so each case asserts both halves of the promise: Shorts entry points disappear, and everything
@@ -209,6 +250,71 @@ test("instagram: Pro user removes an inline Reel + hides the Reels nav, keeps a 
   await expect(page.locator("#reels-link")).toBeHidden();
 });
 
+// The signed-in home feed, rebuilt by hand from a real capture. It is the first surface anyone
+// opens, so it is the one place over-blocking is most expensive and under-blocking most visible.
+test("instagram home feed: Reels posts go, ordinary posts stay whole", async ({ context, extensionId }) => {
+  await setEntitled(context, extensionId, true);
+  const page = await context.newPage();
+  await serve(page, "**://*.instagram.com/**", fixture("instagram-home.html"));
+  await page.goto("https://www.instagram.com/");
+
+  // A Reel in the feed links to /reels/<id>/, with an s. The rules used to look for /reel/<id>/
+  // and so matched nothing at all here: both of these posts stayed, minus their video.
+  await expect(page.locator("#reel-post")).toHaveCount(0);
+  await expect(page.locator("#reel-post-with-hashtags")).toHaveCount(0);
+  await expect(page.locator("#nav-reels")).toBeHidden();
+
+  // Everything else is indistinguishable from the extension being off.
+  await expect(page.locator("#keep-photo-post")).toBeVisible();
+  await expect(page.locator("#keep-photo-post-image")).toBeVisible();
+  await expect(page.locator("#keep-sponsored-post")).toBeVisible();
+  await expect(page.locator("#keep-sponsored-post-cta")).toBeVisible();
+  await expect(page.locator("#keep-sponsored-post-video")).toBeVisible();
+  await expect(page.locator("#keep-nav-home")).toBeVisible();
+  await expect(page.locator("#keep-nav-search")).toBeVisible();
+  await expect(page.locator("#keep-nav-messages")).toBeVisible();
+
+  // The post that decides how wide the rules may be drawn: an ordinary video post that uses a song
+  // carries a /reels/audio/<id>/ credit, so a rule keyed on "/reels/" alone takes the whole post
+  // with it. The post survives AND so does the credit line itself.
+  await expect(page.locator("#keep-video-post-with-audio")).toBeVisible();
+  await expect(page.locator("#keep-video-post-video")).toBeVisible();
+  await expect(page.locator("#keep-video-post-audio")).toBeVisible();
+
+  // The other post that bounds how wide the address rules may be drawn: every link in it has a
+  // Reels-shaped path segment, and none of them is a Reel on Instagram. Two are the advertiser's
+  // own pages and one points at somebody's profile grid. Match a Reels-shaped address anywhere in a
+  // link rather than at the start of an Instagram one and this whole post is deleted.
+  await expect(page.locator("#keep-post-linking-to-reels")).toBeVisible();
+  await expect(page.locator("#keep-outbound-post-image")).toBeVisible();
+  await expect(page.locator("#keep-outbound-reel-link")).toBeVisible();
+  await expect(page.locator("#keep-outbound-reels-link")).toBeVisible();
+  await expect(page.locator("#keep-profile-reel-link")).toBeVisible();
+});
+
+// Instagram is included for everyone while the paid tier is switched off, so the home feed gets the
+// same tier-following check every other Instagram surface has. Today both arms of the branch below
+// describe the same shipped behaviour; the test exists so that turning the paid tier back on cannot
+// quietly make the first surface anyone opens a paid one.
+test("instagram home feed: free-user Reels behavior follows the paid-tier switch", async ({ context }) => {
+  const page = await context.newPage();
+  await serve(page, "**://*.instagram.com/**", fixture("instagram-home.html"));
+  await page.goto("https://www.instagram.com/");
+
+  await expect(page.locator("#keep-photo-post")).toBeVisible();
+  await expect(page.locator("#keep-video-post-with-audio")).toBeVisible();
+  await expect(page.locator("#keep-post-linking-to-reels")).toBeVisible();
+  if (PAID_TIER_ENABLED) {
+    await expect(page.locator("#reel-post")).toBeVisible();
+    await expect(page.locator("#nav-reels")).toBeVisible();
+    await expect(page.locator("html")).not.toHaveClass(/still-pro-active/);
+  } else {
+    await expect(page.locator("#reel-post")).toHaveCount(0);
+    await expect(page.locator("#nav-reels")).toBeHidden();
+    await expect(page.locator("html")).toHaveClass(/still-pro-active/);
+  }
+});
+
 test("instagram profile: grid Reels go, ordinary grid posts stay", async ({ context, extensionId }) => {
   await setEntitled(context, extensionId, true);
   const page = await context.newPage();
@@ -274,10 +380,37 @@ test("facebook: Pro user removes a Reel article + hides the Reels shortcut, keep
   await expect(page.locator("#reel-article")).toHaveCount(0);
   await expect(page.locator("#keep-article")).toBeVisible();
   await expect(page.locator("#reels-shortcut")).toBeHidden();
+  // The shortcut as Facebook addresses it: a query-string address no address selector reaches, so
+  // its exact accessible name is the only thing hiding it.
+  await expect(page.locator("#reels-shortcut-by-label")).toBeHidden();
   // A Page whose name starts with the letters "reel" is not a Reel.
   await expect(page.locator("#keep-lookalike-article")).toBeVisible();
   await expect(page.locator("#keep-menu-lookalike")).toBeVisible();
   await expect(page.locator("#keep-menu-home")).toBeVisible();
+});
+
+// A person named Reels is not a Reel. Facebook's people directory lists everyone whose name
+// contains the word, and each result's photo link carries that name as its accessible name, so a
+// rule that hid any link labelled with the word took their photos with it. Measured on the live
+// page, which carries 120 links in total: 26 matched, every one a photo link, covering 13 people
+// listed twice each.
+test("facebook people directory: profiles of people named Reels keep their photos", async ({
+  context,
+  extensionId,
+}) => {
+  await setEntitled(context, extensionId, true);
+  const page = await context.newPage();
+  await serve(page, "**://*.facebook.com/**", fixture("facebook.html"));
+  await page.goto("https://www.facebook.com/public/reels");
+
+  await expect(page.locator("#still-placeholder")).toHaveCount(0);
+  for (const person of ["one", "two", "three"]) {
+    await expect(page.locator(`#keep-directory-person-${person}`)).toBeVisible();
+    await expect(page.locator(`#keep-directory-photo-${person}`)).toBeVisible();
+  }
+  // And the genuine shortcut is still hidden on the same page, so this is a narrowing and not a
+  // switching-off.
+  await expect(page.locator("#reels-shortcut-by-label")).toBeHidden();
 });
 
 test("facebook page: the Reels tab goes, the other Page tabs stay", async ({ context, extensionId }) => {
