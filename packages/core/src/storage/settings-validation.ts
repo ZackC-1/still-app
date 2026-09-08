@@ -107,7 +107,7 @@ export function parseStoredSettingsRecord(value: unknown): StoredSettingsRecord 
   // The reconcile epoch is reconstructed like everything else, or the whitelist above would strip
   // it and every context would go back to arbitrating a shared browser for itself. Absence is
   // preserved rather than defaulted, because absent and zero mean different things to the cache: a
-  // record with no counter came from a store that does not carry one.
+  // record with no counter was written by a build from before the counter existed.
   const rawEpoch = (decoded as { syncEpoch?: unknown }).syncEpoch;
   const syncEpoch = typeof rawEpoch === "number" && Number.isSafeInteger(rawEpoch) && rawEpoch >= 0
     ? rawEpoch

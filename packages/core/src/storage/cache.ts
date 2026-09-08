@@ -189,9 +189,10 @@ export class SettingsCache {
    * contexts writing at the same moment converging on the later write instead of trading places.
    *
    * A record with NO epoch is judged by the version rules alone, exactly as before this existed.
-   * That is the Apple App Group's records, whose Swift coder drops the field, and anything written
-   * by an older build. Refusing those would break settings coming back the other way across the
-   * bridge for the sake of a counter they were never able to carry.
+   * Only a build from before the counter existed writes one. Such a record has never been
+   * repointed, so the two readings agree at the only moment one can arrive: while this cache is
+   * still on epoch zero itself. Being softer than that costs nothing and means settings are never
+   * refused for lacking a counter their writer could not have carried.
    */
   private applyStoredRecord(record: StoredSettingsRecord, source: SettingsChangeSource): boolean {
     const incomingEpoch = record.syncEpoch;

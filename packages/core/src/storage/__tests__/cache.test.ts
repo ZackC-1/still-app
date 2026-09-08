@@ -187,9 +187,9 @@ describe("SettingsCache", () => {
   });
 
   it("a record with no epoch is judged the way it always was, so bridged settings still arrive", () => {
-    // The Apple App Group is coded in Swift and drops fields it does not know, so records coming
-    // back across that bridge carry no epoch at all. Reading that as zero would let a browser that
-    // has reconciled once refuse every later edit made in the app.
+    // A record written by a build from before the counter existed carries no epoch at all. Reading
+    // that as this cache's own state would let a browser that has reconciled once refuse an edit
+    // whose writer could not have stamped one.
     const { adapter, cache } = makeCache();
     cache.watch();
     cache.adoptSyncedEnvelope({

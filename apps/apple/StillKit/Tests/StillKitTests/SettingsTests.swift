@@ -125,6 +125,103 @@ final class SettingsTests: XCTestCase {
     XCTAssertEqual(store.currentRecord().syncMetadata?.lastWriteId, "w2")
   }
 
+  // MARK: - Two people, one device
+
+  /// Alice's account, as it sits in the shared container after she has used this device for a
+  /// while: everything switched off, a settings row saved many times over, and one repoint on the
+  /// clock from the sign-in that pointed this device at her.
+  private func alicesRecord() -> StoredSettingsRecord {
+    StoredSettingsRecord(
+      settings: StillSettings(globalOn: false, services: StillServices(), pauses: [], updatedAt: 9_000),
+      syncMetadata: SettingsSyncMetadata(
+        version: 99, serverUpdatedAt: "2026-09-01T10:00:00.000Z", lastWriteId: "alice"),
+      syncEpoch: 1)
+  }
+
+  /// Bob signs in on the same device after Alice signs out. His account is new, so it is on a much
+  /// lower version than the one Alice left behind, and its settings carry an older timestamp. The
+  /// raised repoint counter is the shared core saying it has already decided this account is what
+  /// this device is now pointed at.
+  private func bobsRecord() -> StoredSettingsRecord {
+    StoredSettingsRecord(
+      settings: StillSettings(globalOn: true, services: StillServices(), pauses: [], updatedAt: 12),
+      syncMetadata: SettingsSyncMetadata(
+        version: 3, serverUpdatedAt: "2026-08-01T10:00:00.000Z", lastWriteId: "bob"),
+      syncEpoch: 2)
+  }
+
+  /// The shared-device case this container used to get wrong, driven the way the app drives it: as
+  /// a bridge `set`, because the harm was never only that the write was refused. The reply to a
+  /// refused write is whatever the container still holds, the web layer takes that reply as the
+  /// resolved truth, and Alice's settings were then published into Bob's account. So both halves
+  /// are asserted: what the container keeps, and what it says back.
+  func testASecondPersonSigningInGetsTheirOwnSettingsAndTheFirstPersonsAreNotHandedBack() throws {
+    let store = SharedSettingsStore(backing: InMemoryBacking())
+    let bridge = SettingsBridge(store: store, notifyChanged: {})
+    store.saveRecord(alicesRecord())
+
+    let reply = try XCTUnwrap(bridge.handle(rawBody: [
+      "kind": "set", "settings": SettingsBridge.encodeRecord(bobsRecord()),
+    ]))
+    let resolved = try JSONDecoder().decode(StoredSettingsRecord.self, from: Data(reply.utf8))
+
+    XCTAssertTrue(store.current().globalOn)
+    XCTAssertEqual(store.currentRecord().syncMetadata?.lastWriteId, "bob")
+    XCTAssertEqual(store.currentRecord().syncEpoch, 2)
+    XCTAssertTrue(resolved.settings.globalOn)
+    XCTAssertEqual(resolved.syncMetadata?.lastWriteId, "bob")
+  }
+
+  /// The same device, updated from a build that had no repoint counter at all. The record left
+  /// behind cannot say how many times it has been repointed, and the honest answer is none, so it
+  /// must not outrank a record that has been repointed however high its version happens to be.
+  func testARecordWithNoRepointCounterCannotDisplaceARepointedOne() {
+    let store = SharedSettingsStore(backing: InMemoryBacking())
+    store.saveRecord(bobsRecord())
+
+    var alicesOldBuildRecord = alicesRecord()
+    alicesOldBuildRecord.syncEpoch = nil
+
+    XCTAssertFalse(store.applyRecord(alicesOldBuildRecord))
+    XCTAssertTrue(store.current().globalOn)
+    XCTAssertEqual(store.currentRecord().syncMetadata?.lastWriteId, "bob")
+  }
+
+  /// Saving bare settings says what the settings are, not which account this device is pointed at.
+  /// If that write reset the counter, the very next record from the previous account would look
+  /// like the higher-ranked one again and the whole guarantee would last exactly one save.
+  func testSavingBareSettingsKeepsTheRepointCounter() {
+    let store = SharedSettingsStore(backing: InMemoryBacking())
+    store.saveRecord(bobsRecord())
+
+    store.save(StillSettings(globalOn: false, services: StillServices(), pauses: [], updatedAt: 20))
+
+    XCTAssertEqual(store.currentRecord().syncEpoch, 2)
+    XCTAssertFalse(store.applyRecord(alicesRecord()))
+    XCTAssertEqual(store.currentRecord().syncMetadata?.lastWriteId, "bob")
+  }
+
+  /// Within one account nothing about the ordering changes: the server version still decides, and
+  /// the counter answers only the question of whether two records belong to the same account.
+  func testWithinOneAccountTheServerVersionStillDecides() {
+    let store = SharedSettingsStore(backing: InMemoryBacking())
+    store.saveRecord(StoredSettingsRecord(
+      settings: StillSettings(globalOn: true, services: StillServices(), pauses: [], updatedAt: 9_000),
+      syncMetadata: SettingsSyncMetadata(
+        version: 4, serverUpdatedAt: "2026-09-01T10:00:00.000Z", lastWriteId: "w1"),
+      syncEpoch: 2))
+
+    let laterWriteOnTheSameAccount = StoredSettingsRecord(
+      settings: StillSettings(globalOn: false, services: StillServices(), pauses: [], updatedAt: 12),
+      syncMetadata: SettingsSyncMetadata(
+        version: 5, serverUpdatedAt: "2026-09-01T11:00:00.000Z", lastWriteId: "w2"),
+      syncEpoch: 2)
+
+    XCTAssertTrue(store.applyRecord(laterWriteOnTheSameAccount))
+    XCTAssertFalse(store.current().globalOn)
+    XCTAssertEqual(store.currentRecord().syncEpoch, 2)
+  }
+
   /// A web-written JSON blob decodes into the Swift model (interop direction: web → native).
   func testDecodesWebWrittenJSON() throws {
     let json = """
@@ -165,12 +262,12 @@ final class SettingsTests: XCTestCase {
     XCTAssertNil(echoed.syncMetadata)
   }
 
-  func testBridgeAcceptsARecordCarryingTheBrowserSideReconcileCounter() throws {
-    // The web side stamps every record it persists with `syncEpoch`, a browser-local counter of
-    // which account that browser profile is pointed at. It is meaningless here and this decoder
-    // drops it, which is exactly what the web side expects: a record that comes back without one
-    // is judged the way it always was. What must not happen is the record being rejected for
-    // carrying it, because that would strand the app's own settings on the far side of the bridge.
+  /// `syncEpoch` counts how many times a sign-in has repointed a device at a different account.
+  /// The web side stamps every record it persists with it, and this side has to carry it back
+  /// unchanged: the shared container, the app and the Safari extension all order records by it, so
+  /// a round trip that quietly dropped it would put every one of them back to ordering two
+  /// different people's settings by a number that only means something inside one account.
+  func testBridgeCarriesTheRepointCounterBackUnderTheNameTheWebSideUses() throws {
     let store = SharedSettingsStore(backing: InMemoryBacking())
     let bridge = SettingsBridge(store: store)
     let json = """
@@ -181,6 +278,29 @@ final class SettingsTests: XCTestCase {
     let echoed = try JSONDecoder().decode(StoredSettingsRecord.self, from: Data(reply.utf8))
     XCTAssertTrue(echoed.settings.services.youtube)
     XCTAssertEqual(echoed.settings.updatedAt, 10)
+    XCTAssertEqual(echoed.syncEpoch, 3)
+    XCTAssertEqual(store.currentRecord().syncEpoch, 3)
+
+    // The key on the wire, not just the Swift property: the web side reads this JSON by name.
+    let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any])
+    XCTAssertEqual(object["syncEpoch"] as? Int, 3)
+  }
+
+  /// A record written before the counter existed still has to be accepted, and the app has to keep
+  /// reading it exactly as it always did rather than treating the missing counter as an error.
+  func testBridgeStillAcceptsARecordWithNoRepointCounter() throws {
+    let store = SharedSettingsStore(backing: InMemoryBacking())
+    let bridge = SettingsBridge(store: store)
+    let json = """
+    { "settings": { "globalOn": false, "services": { "youtube": true, "instagram": true, "tiktok": true, "facebook": true }, "pauses": [], "updatedAt": 10 }, "syncMetadata": null }
+    """
+
+    let reply = try XCTUnwrap(bridge.handle(rawBody: ["kind": "set", "settings": json]))
+    let echoed = try JSONDecoder().decode(StoredSettingsRecord.self, from: Data(reply.utf8))
+    XCTAssertFalse(echoed.settings.globalOn)
+    XCTAssertNil(echoed.syncEpoch)
+    let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(reply.utf8)) as? [String: Any])
+    XCTAssertNil(object["syncEpoch"])
   }
 
   func testBridgeDropsUnknownEntitlementFields() throws {

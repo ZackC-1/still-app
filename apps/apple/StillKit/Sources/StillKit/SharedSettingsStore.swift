@@ -2,9 +2,9 @@ import Foundation
 
 // The shared settings store + its pluggable backing (KTD4). Production uses the App Group container
 // (so the app, the Safari extension, and the WKWebView agree); tests use an in-memory backing.
-// Merge uses server sync metadata when present, falling back to last-write-wins by `updatedAt` for
-// old settings-only records. The first-sign-in merge itself is decided in the shared core, not
-// here; see the note on `shouldApply`.
+// Merge asks the repoint counter first, then the server sync metadata when present, and falls back
+// to last-write-wins by `updatedAt` for old settings-only records. The first-sign-in merge itself is
+// decided in the shared core, not here; see the note on `shouldApply`.
 
 public protocol SettingsBacking {
   func read() -> Data?
@@ -44,9 +44,15 @@ public final class SharedSettingsStore {
     return record
   }
 
-  /// Persist settings as JSON the web UI can also read.
+  /// Persist settings as JSON the web UI can also read. Both stamps already in the store ride
+  /// along: a caller handing over bare settings is saying what the settings are, not that this
+  /// device has been repointed at a different account, and dropping `syncEpoch` here would reset
+  /// the store to "never repointed" and let the previous account's record win again.
   public func save(_ settings: StillSettings) {
-    saveRecord(StoredSettingsRecord(settings: settings, syncMetadata: currentRecord().syncMetadata))
+    let stored = currentRecord()
+    saveRecord(
+      StoredSettingsRecord(
+        settings: settings, syncMetadata: stored.syncMetadata, syncEpoch: stored.syncEpoch))
   }
 
   public func saveRecord(_ record: StoredSettingsRecord) {
@@ -57,8 +63,11 @@ public final class SharedSettingsStore {
   /// Apply an incoming settings set via last-write-wins. Returns true if the store changed.
   @discardableResult
   public func applyRemote(_ incoming: StillSettings) -> Bool {
-    guard currentRecord().syncMetadata == nil, incoming.updatedAt > current().updatedAt else { return false }
-    saveRecord(StoredSettingsRecord(settings: incoming, syncMetadata: nil))
+    let stored = currentRecord()
+    guard stored.syncMetadata == nil, incoming.updatedAt > current().updatedAt else { return false }
+    // Same reason as `save`: settings arriving without sync metadata say nothing about which
+    // account this device is pointed at, so the repoint counter is carried rather than reset.
+    saveRecord(StoredSettingsRecord(settings: incoming, syncMetadata: nil, syncEpoch: stored.syncEpoch))
     return true
   }
 
@@ -71,6 +80,25 @@ public final class SharedSettingsStore {
 }
 
 private func shouldApply(_ incoming: StoredSettingsRecord, over current: StoredSettingsRecord) -> Bool {
+  // The repoint counter is asked first, and a higher one wins outright, because it answers a
+  // question the server version cannot: whether the two records are even counting the same
+  // account. Sign-in on a shared device repoints this device, and the account it lands on is
+  // routinely on a LOWER version than the one the previous person left here. Judging that by
+  // version alone is what used to make this container refuse the newcomer's settings, hand the
+  // previous person's back through the bridge, and get them published into the newcomer's account.
+  //
+  // A record with no counter has never been repointed, so it ranks where zero ranks. That is the
+  // whole of the tolerance: absence is a position in the order, not an exemption from it, or a
+  // record from a build that predates the counter could still displace one that has been
+  // repointed. Within one epoch the rules below stand exactly as they were.
+  //
+  // This is the order the shared web cache uses (SettingsCache.applyStoredRecord in
+  // packages/core) and the order the Safari extension's App Group reconcile uses. All three
+  // arbitrate the same records and must agree, or whichever one disagrees undoes the others.
+  let incomingEpoch = incoming.syncEpoch ?? 0
+  let currentEpoch = current.syncEpoch ?? 0
+  if incomingEpoch != currentEpoch { return incomingEpoch > currentEpoch }
+
   switch (incoming.syncMetadata, current.syncMetadata) {
   case let (incomingMeta?, currentMeta?):
     if incomingMeta.version != currentMeta.version { return incomingMeta.version > currentMeta.version }
