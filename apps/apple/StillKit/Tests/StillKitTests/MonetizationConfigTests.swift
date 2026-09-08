@@ -151,6 +151,12 @@ final class MonetizationConfigTests: XCTestCase {
   /// nothing. A guard only holds if it is the only way through, so this asks the harder question:
   /// is that the only place in the shipped Apple sources that asks at all. A second one added later
   /// would be behind no switch, and this is what says so.
+  ///
+  /// It matches the bare type name rather than one member on one line, because `AppTransaction
+  /// .shared` split across two lines and `AppTransaction.refresh()` are both the same round trip
+  /// to the App Store and both used to walk straight past this. Mentions inside a block comment or
+  /// a string literal would be counted too, which fails safe: it names a file that has to be looked
+  /// at, rather than missing one that should have been.
   func testTheAppAsksAppleForPurchaseHistoryInExactlyOnePlace() throws {
     var callSites: [String] = []
     for url in try shippedSwiftSources() {
@@ -158,13 +164,43 @@ final class MonetizationConfigTests: XCTestCase {
       for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
         let code = line.trimmingCharacters(in: .whitespaces)
         if code.hasPrefix("//") { continue }
-        if code.contains("AppTransaction.shared") { callSites.append(url.lastPathComponent) }
+        if code.contains("AppTransaction") { callSites.append(url.lastPathComponent) }
       }
     }
     XCTAssertEqual(
       callSites, ["WebBridgeRouter.swift"],
       "every ask for Apple's purchase history goes through the one gated capture in "
         + "WebBridgeRouter; a new call site needs the same switch before it ships"
+    )
+  }
+
+  /// The helper both source-text tests above depend on has to fail when it cannot find the capture,
+  /// rather than quietly handing back the whole router. A window that widens to the file turns an
+  /// assertion about one method into an assertion about whatever else the file happens to contain,
+  /// and both of those tests would then be passing for a reason that has nothing to do with what
+  /// they claim to check.
+  func testTheCaptureWindowFailsRatherThanWideningToTheWholeRouter() throws {
+    let source = try routerSource()
+    let capture = try XCTUnwrap(
+      captureBody(in: source),
+      "the capture is no longer where this test expects it: captureOriginalInstall() not found"
+    )
+
+    XCTAssertTrue(
+      capture.contains("OriginalInstall.ensure("),
+      "the window must actually hold the capture"
+    )
+    XCTAssertFalse(
+      capture.contains("private static var marketingVersion"),
+      "the window runs past the end of the capture and into the rest of the router"
+    )
+    XCTAssertNil(
+      captureBody(in: "final class Router {\n  private func other() async {\n    return\n  }\n}\n"),
+      "a router with no capture in it must produce no window at all, not the whole file"
+    )
+    XCTAssertNil(
+      captureBody(in: "  private func captureOriginalInstall() async {\n    let defaults = 0\n"),
+      "a capture whose closing line cannot be found must produce no window either"
     )
   }
 
@@ -181,24 +217,52 @@ final class MonetizationConfigTests: XCTestCase {
         FileManager.default.enumerator(atPath: root.path),
         "this test can no longer read \(root.lastPathComponent)"
       )
+      var foundHere = 0
       for case let relative as String in enumerator where relative.hasSuffix(".swift") {
         let components = relative.split(separator: "/")
         if components.contains(where: { $0 == "build" || $0 == ".build" || $0 == "Tests" }) {
           continue
         }
         found.append(root.appendingPathComponent(relative))
+        foundHere += 1
       }
+      // Per root, not over the total: a root that moved or was renamed contributes nothing while
+      // the other one still fills the array, and the walk would then pass having read half the app.
+      XCTAssertGreaterThan(
+        foundHere,
+        0,
+        "no Swift files under \(root.lastPathComponent): this walk is no longer reading that "
+          + "target, so it would pass by looking at nothing"
+      )
     }
-    XCTAssertFalse(found.isEmpty, "no Apple sources found: this test would pass by finding nothing")
     return found
   }
 
-  /// The body of the router's cohort capture.
+  /// The body of the router's cohort capture, from the end of its signature to the line that closes
+  /// it. Nil when either end cannot be found, and never the whole file.
+  ///
+  /// The nil is the point. An earlier version split the file on the signature and took the last
+  /// piece, which is the whole file when the signature is absent, then wrapped it in an XCTUnwrap
+  /// of a value that can never be nil, so the message it carried could not be reached. Renaming the
+  /// capture left one test passing while it scanned the entire router and found its strings
+  /// somewhere in it, and made the other fail with a message that sent its reader after a bug that
+  /// was not there. That is the same quiet widening the purchase test above refuses, for the same
+  /// reason, in the same file.
+  private func captureBody(in source: String) -> String? {
+    guard let signature = source.range(of: "private func captureOriginalInstall() async {") else {
+      return nil
+    }
+    let body = source[signature.upperBound...]
+    guard let close = body.range(of: "\n  }") else { return nil }
+    return String(body[body.startIndex..<close.lowerBound])
+  }
+
   private func captureSource() throws -> String {
     let source = try routerSource()
     return try XCTUnwrap(
-      source.components(separatedBy: "private func captureOriginalInstall() async {").last,
-      "the capture is no longer where this test expects it"
+      captureBody(in: source),
+      "this test can no longer find the body of captureOriginalInstall() in WebBridgeRouter: "
+        + "point it at the method the cohort capture lives in now"
     )
   }
 

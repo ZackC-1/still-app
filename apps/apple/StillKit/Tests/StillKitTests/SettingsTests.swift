@@ -201,6 +201,27 @@ final class SettingsTests: XCTestCase {
     XCTAssertEqual(store.currentRecord().syncMetadata?.lastWriteId, "bob")
   }
 
+  /// The same rule on the other write path. `applyRemote` takes bare settings with no sync
+  /// metadata, which say what the settings are and nothing about which account this device is
+  /// pointed at, so it has to carry the counter through as well. Proved directly rather than in
+  /// passing: no shipped caller reaches this method today, so nothing else would notice.
+  func testApplyingBareRemoteSettingsKeepsTheRepointCounter() {
+    let store = SharedSettingsStore(backing: InMemoryBacking())
+    store.saveRecord(StoredSettingsRecord(
+      settings: StillSettings(globalOn: true, services: StillServices(), pauses: [], updatedAt: 12),
+      syncMetadata: nil,
+      syncEpoch: 2))
+
+    XCTAssertTrue(store.applyRemote(
+      StillSettings(globalOn: false, services: StillServices(), pauses: [], updatedAt: 30)))
+
+    XCTAssertEqual(store.currentRecord().syncEpoch, 2)
+    XCTAssertFalse(
+      store.applyRecord(alicesRecord()),
+      "the counter has to survive this write, or the previous account's record wins again"
+    )
+  }
+
   /// Within one account nothing about the ordering changes: the server version still decides, and
   /// the counter answers only the question of whether two records belong to the same account.
   func testWithinOneAccountTheServerVersionStillDecides() {

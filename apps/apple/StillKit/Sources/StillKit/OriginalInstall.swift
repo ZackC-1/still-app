@@ -186,7 +186,23 @@ public enum OriginalInstall {
   /// that actually places someone in the era when everything was included. The verified half was
   /// only ever the richer extra.
   public static func shouldRequestVerifiedValues(_ defaults: UserDefaults) -> Bool {
-    guard MonetizationConfig.paidTierEnabled else { return false }
+    shouldRequestVerifiedValues(defaults, paidTierEnabled: MonetizationConfig.paidTierEnabled)
+  }
+
+  /// The same decision with the paid-tier switch handed in, so everything below the switch can be
+  /// proved on the build that ships. Internal on purpose: nothing outside StillKit can see it, the
+  /// app reaches only the public function above, and the switch is therefore still the whole of
+  /// the answer for every shipped caller while it is off.
+  ///
+  /// The seam exists because of a defect in the tests rather than one in the app. The ceiling
+  /// below used to be reachable from a test only through the public function, which returns false
+  /// on every free-era build long before the ceiling is consulted, so the test meant to prove the
+  /// ceiling compared zero against zero: deleting the ceiling outright left the whole suite green,
+  /// on the one mechanism that stops an App Store sign-in sheet arriving launch after launch once
+  /// purchases return. Anything else switched off for the free era that still has to be proved
+  /// should be made reachable the same way.
+  static func shouldRequestVerifiedValues(_ defaults: UserDefaults, paidTierEnabled: Bool) -> Bool {
+    guard paidTierEnabled else { return false }
     if current(defaults)?.applicationVersion != nil { return false }
     return defaults.integer(forKey: verifiedAttemptsKey) < maxVerifiedAttempts
   }

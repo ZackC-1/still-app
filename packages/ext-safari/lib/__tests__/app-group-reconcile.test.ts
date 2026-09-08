@@ -42,12 +42,15 @@ function personRecord(opts: {
   updatedAt: number;
   globalOn: boolean;
   repoints?: number;
+  serverUpdatedAt?: string;
 }): StoredSettingsRecord {
   const base: StoredSettingsRecord = {
     settings: { ...settings(opts.updatedAt), globalOn: opts.globalOn },
     syncMetadata: {
       version: opts.version,
-      serverUpdatedAt: new Date(1_800_000_000_000 + opts.version).toISOString(),
+      // Derived from the version by default, so the two agree and the version alone decides.
+      // Override it to pin the tiebreak underneath, which nothing can reach while they agree.
+      serverUpdatedAt: opts.serverUpdatedAt ?? new Date(1_800_000_000_000 + opts.version).toISOString(),
       lastWriteId: opts.writeId,
     },
   };
@@ -229,6 +232,30 @@ describe("createAppGroupReconciler", () => {
     await r.reconcile();
 
     expect(local.value?.syncMetadata?.version).toBe(5);
+    expect(pushToApp).not.toHaveBeenCalled();
+    r.stop();
+  });
+
+  // The tiebreak below the version, which nothing used to reach: every other record here derives
+  // its server timestamp from its version, so the two can never disagree and the version always
+  // answers first. Here they disagree deliberately, and the settings timestamp points the other way
+  // as well, so the server timestamp is the only thing that can decide this.
+  it("equal server versions → the later server timestamp decides", async () => {
+    const held = personRecord({
+      writeId: "w1", version: 7, updatedAt: 9_000, globalOn: false,
+      serverUpdatedAt: "2026-09-01T10:00:00.000Z",
+    });
+    const arriving = personRecord({
+      writeId: "w2", version: 7, updatedAt: 12, globalOn: true,
+      serverUpdatedAt: "2026-09-01T11:00:00.000Z",
+    });
+    const local = fakeLocal(held);
+    const pushToApp = vi.fn((_record: StoredSettingsRecord) => Promise.resolve());
+    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(arriving), pushToApp, local: local.store });
+
+    await r.reconcile();
+
+    expect(local.value?.syncMetadata?.lastWriteId).toBe("w2");
     expect(pushToApp).not.toHaveBeenCalled();
     r.stop();
   });
