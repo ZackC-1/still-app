@@ -1,5 +1,5 @@
 {
-  "version": "1.1.6",
+  "version": "1.1.7",
   "services": {
     "youtube": {
       "matches": [
@@ -149,8 +149,8 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "article:has(a[href*=\"/reel/\"])",
-            "article:has(a[href*=\"/reels/\"]:not([href*=\"/reels/audio/\"]))"
+            "article:has(a[href^=\"/reel/\"], a[href^=\"https://www.instagram.com/reel/\"])",
+            "article:has(a[href^=\"/reels/\"]:not([href*=\"/reels/audio/\"]), a[href^=\"https://www.instagram.com/reels/\"]:not([href*=\"/reels/audio/\"]))"
           ]
         },
         {
@@ -174,8 +174,8 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "section:has(> a[href*=\"/reel/\"])",
-            "section:has(> a[href*=\"/reels/\"]:not([href*=\"/reels/audio/\"]))"
+            "section:has(> a[href^=\"/reel/\"], > a[href^=\"https://www.instagram.com/reel/\"])",
+            "section:has(> a[href^=\"/reels/\"]:not([href*=\"/reels/audio/\"]), > a[href^=\"https://www.instagram.com/reels/\"]:not([href*=\"/reels/audio/\"]))"
           ]
         },
         {
@@ -313,6 +313,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "f9332cb211b8ccce17395404f3f921ebe4a532a1ee15876b7fa439ede657fd816580df862202683d56eced18c1fe5da7fa3b47a278882088846e3d0e9b8a3806"
+    "value": "12463a04635c6136f2ed4c301162d022fd4f925e4f839eb5d7b94decbc537d90dee4890b92eead56d9fd45de79566bc52be9831caacb48966074f3d59639bd00"
   }
 }

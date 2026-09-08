@@ -440,6 +440,70 @@ describe("applyDom", () => {
     expect(document.querySelector("main section")).not.toBeNull();
   });
 
+  // The bound on the two rules that delete a whole post. Both match a Reel address at the START of
+  // an Instagram link, never anywhere inside any link, and each case below is a post that a
+  // match-anywhere version deletes outright. Removing a post is the most destructive thing Still
+  // does, so the shapes that must survive are pinned one at a time and named, and the shapes that
+  // must go are pinned in the same test so neither direction can drift on its own.
+  it("keeps ordinary posts whose only Reels-shaped links point somewhere that is not a Reel", () => {
+    document.body.innerHTML = `
+      <main role="main">
+        <section>
+          <article id="ig-outbound-reel">
+            <a id="ig-outbound-reel-link" href="https://trailmix.example/reel/summer-sale">Summer sale</a>
+          </article>
+          <article id="ig-outbound-reels">
+            <a id="ig-outbound-reels-link" href="https://trailmix.example/reels/spring-range">The range</a>
+          </article>
+          <article id="ig-profile-reel">
+            <a id="ig-profile-reel-link" href="/photo_walker/reel/Ca1eXaMpLe09/">As seen here</a>
+          </article>
+          <article id="ig-quoted-address">
+            <a href="https://news.example/story?url=https%3A%2F%2Finstagram.com%2Freels%2FCa1eXaMpLe10%2F">Story</a>
+          </article>
+          <article id="ig-real-feed-reel"><a href="/reels/Ca1eXaMpLe11/"><video></video></a></article>
+          <article id="ig-real-absolute-reel">
+            <a href="https://www.instagram.com/reels/Ca1eXaMpLe12/"><video></video></a>
+          </article>
+        </section>
+      </main>
+    `;
+    applyDom(ruleSet, allOn, new URL("https://www.instagram.com/"), document, { pro: true });
+
+    // An advertiser's own website decides for itself what "reel" and "reels" mean in its addresses.
+    expect(document.querySelector("#ig-outbound-reel")).not.toBeNull();
+    expect(document.querySelector("#ig-outbound-reels")).not.toBeNull();
+    // A post that mentions somebody's Reel is not itself a Reel. The profile grid is a different
+    // surface with its own rule, and the address rule still covers the destination.
+    expect(document.querySelector("#ig-profile-reel")).not.toBeNull();
+    // An Instagram address quoted inside another site's query string is not a link to Instagram.
+    expect(document.querySelector("#ig-quoted-address")).not.toBeNull();
+    // Every one of those links is still there to be clicked, so the posts are untouched and not
+    // merely undeleted.
+    for (const id of ["#ig-outbound-reel-link", "#ig-outbound-reels-link", "#ig-profile-reel-link"]) {
+      expect((document.querySelector(id) as HTMLElement).style.display, id).toBe("");
+    }
+
+    // The other direction: a genuine feed Reel still goes, by either address form.
+    expect(document.querySelector("#ig-real-feed-reel")).toBeNull();
+    expect(document.querySelector("#ig-real-absolute-reel")).toBeNull();
+  });
+
+  // The same bound on the suggested-Reels rule, which removes a whole section rather than a post.
+  it("keeps a suggested-style section whose only Reels-shaped link points off Instagram", () => {
+    document.body.innerHTML = `
+      <main role="main">
+        <section id="ig-outbound-section"><a href="https://trailmix.example/reel/summer-sale">Summer sale</a></section>
+        <section id="ig-suggested-absolute">
+          <a href="https://www.instagram.com/reels/Ca1eXaMpLe13/">Suggested reel</a>
+        </section>
+      </main>
+    `;
+    applyDom(ruleSet, allOn, new URL("https://www.instagram.com/"), document, { pro: true });
+    expect(document.querySelector("#ig-outbound-section")).not.toBeNull();
+    expect(document.querySelector("#ig-suggested-absolute")).toBeNull();
+  });
+
   // The suggested-Reels rule carries the same corrected address shape, but it keeps its direct-child
   // requirement. The section element it is written against was never in a capture, so the shape
   // below is the one the rule has always claimed, with only the address corrected. The requirement

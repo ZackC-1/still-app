@@ -239,6 +239,39 @@ test("instagram home feed: Reels posts go, ordinary posts stay whole", async ({ 
   await expect(page.locator("#keep-video-post-with-audio")).toBeVisible();
   await expect(page.locator("#keep-video-post-video")).toBeVisible();
   await expect(page.locator("#keep-video-post-audio")).toBeVisible();
+
+  // The other post that bounds how wide the address rules may be drawn: every link in it has a
+  // Reels-shaped path segment, and none of them is a Reel on Instagram. Two are the advertiser's
+  // own pages and one points at somebody's profile grid. Match a Reels-shaped address anywhere in a
+  // link rather than at the start of an Instagram one and this whole post is deleted.
+  await expect(page.locator("#keep-post-linking-to-reels")).toBeVisible();
+  await expect(page.locator("#keep-outbound-post-image")).toBeVisible();
+  await expect(page.locator("#keep-outbound-reel-link")).toBeVisible();
+  await expect(page.locator("#keep-outbound-reels-link")).toBeVisible();
+  await expect(page.locator("#keep-profile-reel-link")).toBeVisible();
+});
+
+// Instagram is included for everyone while the paid tier is switched off, so the home feed gets the
+// same tier-following check every other Instagram surface has. Today both arms of the branch below
+// describe the same shipped behaviour; the test exists so that turning the paid tier back on cannot
+// quietly make the first surface anyone opens a paid one.
+test("instagram home feed: free-user Reels behavior follows the paid-tier switch", async ({ context }) => {
+  const page = await context.newPage();
+  await serve(page, "**://*.instagram.com/**", fixture("instagram-home.html"));
+  await page.goto("https://www.instagram.com/");
+
+  await expect(page.locator("#keep-photo-post")).toBeVisible();
+  await expect(page.locator("#keep-video-post-with-audio")).toBeVisible();
+  await expect(page.locator("#keep-post-linking-to-reels")).toBeVisible();
+  if (PAID_TIER_ENABLED) {
+    await expect(page.locator("#reel-post")).toBeVisible();
+    await expect(page.locator("#nav-reels")).toBeVisible();
+    await expect(page.locator("html")).not.toHaveClass(/still-pro-active/);
+  } else {
+    await expect(page.locator("#reel-post")).toHaveCount(0);
+    await expect(page.locator("#nav-reels")).toBeHidden();
+    await expect(page.locator("html")).toHaveClass(/still-pro-active/);
+  }
 });
 
 test("instagram profile: grid Reels go, ordinary grid posts stay", async ({ context, extensionId }) => {
