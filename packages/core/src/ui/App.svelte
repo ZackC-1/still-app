@@ -301,7 +301,7 @@
     gap: var(--app-gap, var(--space-3));
     inline-size: 100%;
     min-inline-size: 0;
-    max-inline-size: 432px;
+    max-inline-size: var(--content-max-inline-size, 432px);
     padding: var(--app-padding, var(--space-4));
     padding-block-start: calc(
       var(--app-padding, var(--space-4)) + env(safe-area-inset-top)

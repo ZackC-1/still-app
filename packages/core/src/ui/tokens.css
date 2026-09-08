@@ -38,6 +38,21 @@
   --radius-card: 12px;
   --radius-sheet: 16px;
 
+  /* Surface sizes. Every host that has an opinion about how wide something is reads it from here,
+     so the numbers live in one place instead of being repeated in each entrypoint's stylesheet.
+     Each consumer repeats the value as a var() fallback, because these sizes must still resolve if
+     a host ever mounts a component without this stylesheet.
+
+     --popup-inline-size is the browser-action popup's width and MUST stay a hard pixel value: the
+     browser has no viewport to measure before the popup exists, so it derives the popup window's
+     width from the content's own preferred width. A percentage or viewport unit there is circular
+     and collapses the popup (measured: a `100%` width collapses a real Chrome toolbar popup to
+     69px). Fitting a narrower screen is the job of `max-inline-size`, not of this value. */
+  --popup-inline-size: 380px;
+  --content-max-inline-size: 432px;
+  --options-max-inline-size: 480px;
+  --sheet-max-inline-size: 420px;
+
   --font-ui:
     "InterVariable", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
     sans-serif;

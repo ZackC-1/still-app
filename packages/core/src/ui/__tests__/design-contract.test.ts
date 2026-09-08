@@ -25,6 +25,30 @@ describe("cross-platform design contract", () => {
     expect(safari).not.toMatch(/\bzoom\s*:/);
   });
 
+  it("takes every surface size from the shared tokens instead of repeating numbers", () => {
+    // Before this, the popup width was written out twice, the options width twice, and the sheet
+    // width twice, so "make the popup narrower" meant finding every copy. Each size now has one
+    // declaration and each host reads it, with the number repeated only as a var() fallback so the
+    // component still sizes correctly if it is ever mounted without tokens.css.
+    const tokens = read("src/ui/tokens.css");
+    const consumers: Record<string, string> = {
+      "src/ui/App.svelte": "--content-max-inline-size",
+      "src/ui/components/SignInSheet.svelte": "--sheet-max-inline-size",
+      "src/ui/components/PaywallSheet.svelte": "--sheet-max-inline-size",
+      "../ext-chromium/entrypoints/options/OptionsApp.svelte":
+        "--options-max-inline-size",
+      "../ext-safari/entrypoints/options/OptionsApp.svelte":
+        "--options-max-inline-size",
+    };
+
+    for (const token of new Set(Object.values(consumers))) {
+      expect(tokens).toMatch(new RegExp(`${token}:\\s*\\d+px;`));
+    }
+    for (const [path, token] of Object.entries(consumers)) {
+      expect(read(path)).toContain(`var(${token}, `);
+    }
+  });
+
   it("uses the same typeface on the linked privacy and support surfaces", () => {
     const privacy = read("../../docs/privacy.html");
     const support = read("../../docs/support.html");

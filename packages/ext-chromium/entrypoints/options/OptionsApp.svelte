@@ -22,7 +22,7 @@
 
 <style>
   .options {
-    max-inline-size: 480px;
+    max-inline-size: var(--options-max-inline-size, 480px);
     margin-inline: auto;
     padding-block: clamp(var(--space-3), 5vh, var(--space-8));
   }
