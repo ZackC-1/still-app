@@ -15,9 +15,6 @@ export function fixture(name: string): string {
   return readFileSync(resolve(FIXTURE_DIR, name), "utf8");
 }
 
-/** Where the committed fixtures live, for the tests that check the directory itself. */
-export const fixtureDir = FIXTURE_DIR;
-
 export const test = base.extend<{ context: BrowserContext; extensionId: string }>({
   // eslint-disable-next-line no-empty-pattern -- Playwright fixtures require this destructure form
   context: async ({}, use) => {

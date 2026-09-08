@@ -1,8 +1,11 @@
-import { test, expect, fixture, fixtureDir } from "./_extension.js";
+import { test, expect, fixture } from "./_extension.js";
 import type { BrowserContext, Page } from "@playwright/test";
 import { readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { PAID_TIER_ENABLED } from "../../packages/shared-types/src/entitlement.js";
+
+const FIXTURE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../fixtures");
 
 // Serve a service's fixture HTML for every request to its domain (no real network); the extension's
 // content script injects because the committed URL matches its host pattern.
@@ -37,12 +40,12 @@ async function setEntitled(context: BrowserContext, extensionId: string, entitle
 // committed, and someone would spend an afternoon wondering why their new fixture will not add.
 test("fixtures stay hand written", () => {
   const MAX_FIXTURE_BYTES = 64 * 1024;
-  const entries = readdirSync(fixtureDir, { withFileTypes: true });
+  const entries = readdirSync(FIXTURE_DIR, { withFileTypes: true });
   expect(entries.length, "no fixtures found, so this test is guarding nothing").toBeGreaterThan(0);
 
   for (const entry of entries) {
     expect(entry.isFile(), `${entry.name} is a directory, which is how a saved page stores its parts`).toBe(true);
-    const bytes = statSync(join(fixtureDir, entry.name)).size;
+    const bytes = statSync(join(FIXTURE_DIR, entry.name)).size;
     expect(bytes, `${entry.name} is ${Math.round(bytes / 1024)} KB, which is the size of a saved page`).toBeLessThan(
       MAX_FIXTURE_BYTES,
     );
