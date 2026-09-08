@@ -580,9 +580,12 @@ describe("applyDom", () => {
 
   // facebook.com/public/<name> is a people directory, so /public/reels lists everyone whose name
   // contains the word. Each result's photo link carries that person's name as its accessible name.
-  // The left-menu rule used to hide any link whose label merely contained "Reels", which took the
-  // photos of 24 of the 25 people listed. Facebook labels the real shortcut exactly "Reels", so an
-  // exact match keeps the shortcut hidden and gives every person their picture back.
+  // The left-menu rule used to hide any link whose label merely contained "Reels". Measured on the
+  // live page, which carries 120 links in total: it matched 26 of them, every one a photo link,
+  // covering 13 people listed twice each, so the page read as a list of names with no pictures.
+  // Facebook labels the real shortcut exactly "Reels", so an exact match keeps the shortcut hidden
+  // and gives every person their picture back. The addresses below are invented; the label is the
+  // only thing any rule reads.
   it("hides the Reels shortcut by its exact label and leaves people named Reels alone", () => {
     document.body.innerHTML = `
       <nav>

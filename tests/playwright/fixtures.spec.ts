@@ -380,7 +380,9 @@ test("facebook: Pro user removes a Reel article + hides the Reels shortcut, keep
 
 // A person named Reels is not a Reel. Facebook's people directory lists everyone whose name
 // contains the word, and each result's photo link carries that name as its accessible name, so a
-// rule that hid any link labelled with the word took 24 of the 25 photos with it.
+// rule that hid any link labelled with the word took their photos with it. Measured on the live
+// page, which carries 120 links in total: 26 matched, every one a photo link, covering 13 people
+// listed twice each.
 test("facebook people directory: profiles of people named Reels keep their photos", async ({
   context,
   extensionId,
