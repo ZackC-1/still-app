@@ -159,6 +159,8 @@ function createSessionSpine(cache: SettingsCache): ExtensionSession | null {
       const { data } = await client.auth.getSession();
       return data.session?.user.id ?? null;
     },
+    // Display identity comes from the authenticated session, never the popup's pending OTP draft.
+    currentAccount: () => port.currentAccount(),
   };
   const backend = new SupabaseBackendPort(client);
   const identity = createIdentityStore();
