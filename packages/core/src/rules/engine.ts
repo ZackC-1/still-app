@@ -387,6 +387,8 @@ export function renderPlaceholder(doc: Document, line: string = STILL_PLACEHOLDE
   mark.setAttribute("role", "img");
   mark.setAttribute("aria-label", "Still");
   mark.style.cssText = "display:block;flex-shrink:0;";
+  const title = doc.createElementNS(svgNS, "title");
+  title.textContent = "Still";
   const tile = doc.createElementNS(svgNS, "rect");
   tile.setAttribute("width", "48");
   tile.setAttribute("height", "48");
@@ -405,7 +407,7 @@ export function renderPlaceholder(doc: Document, line: string = STILL_PLACEHOLDE
   dot.setAttribute("cy", "26.4");
   dot.setAttribute("r", "3.6");
   dot.setAttribute("fill", "#fff");
-  mark.append(tile, balance, dot);
+  mark.append(title, tile, balance, dot);
   const msg = doc.createElement("p");
   msg.textContent = line;
   msg.style.cssText = "margin:0;font-size:15px;opacity:0.7;";
