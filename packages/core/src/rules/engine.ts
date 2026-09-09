@@ -378,9 +378,34 @@ export function renderPlaceholder(doc: Document, line: string = STILL_PLACEHOLDE
   root.style.cssText =
     "position:fixed;inset:0;display:flex;flex-direction:column;align-items:center;" +
     "justify-content:center;gap:12px;background:#ffffff;color:#0b1020;font-family:system-ui,sans-serif;z-index:2147483647;";
-  const mark = doc.createElement("div");
-  mark.textContent = "Still";
-  mark.style.cssText = "font-weight:600;font-size:20px;letter-spacing:-0.01em;";
+  // Use the app's balance mark as inline SVG so host image policies cannot block the logo.
+  const svgNS = "http://www.w3.org/2000/svg";
+  const mark = doc.createElementNS(svgNS, "svg");
+  mark.setAttribute("viewBox", "0 0 48 48");
+  mark.setAttribute("width", "64");
+  mark.setAttribute("height", "64");
+  mark.setAttribute("role", "img");
+  mark.setAttribute("aria-label", "Still");
+  mark.style.cssText = "display:block;flex-shrink:0;";
+  const tile = doc.createElementNS(svgNS, "rect");
+  tile.setAttribute("width", "48");
+  tile.setAttribute("height", "48");
+  tile.setAttribute("rx", "13");
+  tile.setAttribute("fill", "#2A47E8");
+  const balance = doc.createElementNS(svgNS, "line");
+  balance.setAttribute("x1", "9");
+  balance.setAttribute("y1", "30");
+  balance.setAttribute("x2", "39");
+  balance.setAttribute("y2", "30");
+  balance.setAttribute("stroke", "#fff");
+  balance.setAttribute("stroke-width", "2.4");
+  balance.setAttribute("stroke-linecap", "round");
+  const dot = doc.createElementNS(svgNS, "circle");
+  dot.setAttribute("cx", "24");
+  dot.setAttribute("cy", "26.4");
+  dot.setAttribute("r", "3.6");
+  dot.setAttribute("fill", "#fff");
+  mark.append(tile, balance, dot);
   const msg = doc.createElement("p");
   msg.textContent = line;
   msg.style.cssText = "margin:0;font-size:15px;opacity:0.7;";
