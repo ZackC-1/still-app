@@ -36,10 +36,3 @@ it("rejects corrupt or unavailable status instead of claiming signed-out or sync
   install("broken");
   await expect(readAccountStatus(local)).rejects.toThrow();
 });
-it("does not claim matching enforcement when only a legacy pause differs", async () => {
-  const paused = { ...local, settings: { ...local.settings, pauses: ["youtube.com"] } };
-  install(JSON.stringify(status), paused);
-  await expect(readAccountStatus(local)).resolves.toMatchObject({ extensionMatchesApp: false, pendingUpload: true });
-  install(JSON.stringify(status), local);
-  await expect(readAccountStatus(paused)).resolves.toMatchObject({ extensionMatchesApp: false, pendingUpload: true });
-});

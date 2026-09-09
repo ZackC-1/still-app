@@ -15,7 +15,6 @@ export async function readAccountStatus(local: StoredSettingsRecord): Promise<Ac
   const app = parseStoredSettingsRecord(settingsReply?.settings);
   if (!status || !app) throw new Error("Still app status unavailable");
   const matches = local.settings.globalOn === app.settings.globalOn &&
-    JSON.stringify(local.settings.pauses) === JSON.stringify(app.settings.pauses) &&
     (Object.keys(local.settings.services) as (keyof typeof local.settings.services)[])
       .every((service) => local.settings.services[service] === app.settings.services[service]);
   return {
