@@ -35,7 +35,13 @@ export function harness(opts: {
   exchange?: AppleSessionDeps["exchangeAppleCredential"];
 } = {}) {
   const cache = new SettingsCache(new InMemoryStorageAdapter(null), { now: () => Date.now() });
-  const controller = new UiController({ cache, host: { canPurchase: true } });
+  const controller = new UiController({
+    cache, host: { canPurchase: true },
+    auth: {
+      signOut: () => session.signOutEverywhere(),
+      deleteAccount: () => session.deleteAccountEverywhere(),
+    },
+  });
   const bridge = makeBridge(opts.bridge);
   // A fake SyncService: onSignedIn projects the configured post-reconcile state through the same
   // onSyncState path the real service drives.

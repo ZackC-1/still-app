@@ -194,7 +194,8 @@ export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
 
   /** Session metadata is sufficient for a display label, including while the network is offline. */
   async currentAccount(): Promise<{ id: string; email: string | null } | null> {
-    const { data } = await this.client.auth.getSession();
+    const { data, error } = await this.client.auth.getSession();
+    if (error) throw new Error("Account status unavailable");
     const user = data.session?.user;
     return user ? { id: user.id, email: user.email ?? null } : null;
   }

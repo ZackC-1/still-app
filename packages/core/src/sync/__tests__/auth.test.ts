@@ -370,3 +370,9 @@ describe("authenticated account display", () => {
     expect(getUser).not.toHaveBeenCalled();
   });
 });
+
+it("does not mistake a session read error for sign-out", async () => {
+  const getSession = vi.fn(async () => ({ data: { session: null }, error: { message: "unavailable" } }));
+  const port = new SupabaseAuthPort({ auth: { getSession } } as unknown as SupabaseClient);
+  await expect(port.currentAccount()).rejects.toThrow("Account status unavailable");
+});
