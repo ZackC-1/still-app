@@ -49,21 +49,26 @@ async function harness() {
     currentUserId: async () => USER,
   };
   let status: Parameters<BackendPort["subscribeToProfile"]>[2];
+  let onEnvelope: ((value: SyncedSettingsEnvelope) => void) | undefined;
   const backend = {
     reconcileEntitlement: vi.fn(async () => undefined),
     readEntitlement: vi.fn(async () => "not-entitled" as const),
     readProfile: vi.fn(async () => cloud as SyncedSettingsEnvelope | null),
-    writeProfile: vi.fn(async (settings: StillSettings) => {
-      cloud = envelope(settings, cloud.version + 1);
+    writeProfile: vi.fn(async (settings: StillSettings, writeId: string) => {
+      cloud = {
+        ...envelope(settings, cloud.version + 1),
+        lastWriteId: writeId,
+      };
       return cloud;
     }),
     subscribeToProfile: vi.fn(
       (
         _user: string,
-        _listener: (value: SyncedSettingsEnvelope) => void,
+        listener: (value: SyncedSettingsEnvelope) => void,
         onStatus?: typeof status,
       ) => {
         status = onStatus;
+        onEnvelope = listener;
         return () => undefined;
       },
     ),
@@ -82,6 +87,10 @@ async function harness() {
     cache,
     backend,
     auth,
+    emit: (value: SyncedSettingsEnvelope) => {
+      cloud = value;
+      onEnvelope?.(value);
+    },
     status: (value: "subscribed" | "disconnected" | "error") => status?.(value),
   };
 }
@@ -96,6 +105,120 @@ afterEach(() => {
 });
 
 describe("settings upload recovery", () => {
+  it("keeps account-wins behavior for another device's realtime write while an edit is pending", async () => {
+    const { sync, cache, backend, emit } = await harness();
+    const first = deferred<SyncedSettingsEnvelope>();
+    backend.writeProfile.mockReturnValueOnce(first.promise);
+    const sent = await cache.setService("facebook", true);
+    await cache.setService("instagram", false);
+    first.reject(new Error("offline"));
+    await vi.advanceTimersByTimeAsync(0);
+    const peer = { ...envelope(sent, 2), lastWriteId: "other-device-write" };
+    emit(peer);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(cache.current()).toEqual(peer.settings);
+    expect(backend.writeProfile).toHaveBeenCalledTimes(1);
+    expect(sync.getState()).toMatchObject({
+      pendingUpload: false,
+      cloudReachable: true,
+    });
+  });
+
+  it("retains a held edit through a retry upload's own echo and a following failed upload", async () => {
+    const { sync, cache, backend, emit } = await harness();
+    backend.writeProfile.mockRejectedValueOnce(new Error("offline"));
+    await cache.setService("facebook", true);
+    await vi.advanceTimersByTimeAsync(0);
+    const write = deferred<SyncedSettingsEnvelope>();
+    backend.writeProfile
+      .mockReturnValueOnce(write.promise)
+      .mockRejectedValueOnce(new Error("offline again"));
+    const retry = sync.retryNow();
+    await vi.advanceTimersByTimeAsync(0);
+    const [sent, writeId] = backend.writeProfile.mock.calls.at(-1)!;
+    await cache.setService("instagram", false);
+    const echoed = { ...envelope(sent, 2), lastWriteId: writeId };
+    emit(echoed);
+    write.resolve(echoed);
+    await retry;
+    expect(cache.current().services.instagram).toBe(false);
+    expect(sync.getState()).toMatchObject({
+      pendingUpload: true,
+      cloudReachable: false,
+    });
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect((await backend.readProfile())?.settings.services).toMatchObject({
+      facebook: true,
+      instagram: false,
+    });
+    expect(sync.getState()).toMatchObject({
+      pendingUpload: false,
+      cloudReachable: true,
+    });
+  });
+
+  it("retains the newest edit when an own echo arrives after the upload reports failure", async () => {
+    const { sync, cache, backend, emit } = await harness();
+    const first = deferred<SyncedSettingsEnvelope>();
+    backend.writeProfile.mockReturnValueOnce(first.promise);
+    const sent = await cache.setService("facebook", true);
+    await cache.setService("instagram", false);
+    const echoed = {
+      ...envelope(sent, 2),
+      lastWriteId: backend.writeProfile.mock.calls[0]![1],
+    };
+    first.reject(new Error("response lost after server commit"));
+    await vi.advanceTimersByTimeAsync(0);
+    emit(echoed);
+    expect(cache.current().services.instagram).toBe(false);
+    expect(sync.getState().pendingUpload).toBe(true);
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect((await backend.readProfile())?.settings.services).toMatchObject({
+      facebook: true,
+      instagram: false,
+    });
+    expect(sync.getState().pendingUpload).toBe(false);
+  });
+
+  it.each([false, true])(
+    "preserves the queued edit when the own realtime echo precedes its RPC acknowledgement (queued upload fails: %s)",
+    async (fails) => {
+      const { sync, cache, backend, emit } = await harness();
+      const first = deferred<SyncedSettingsEnvelope>();
+      backend.writeProfile.mockReturnValueOnce(first.promise);
+      if (fails)
+        backend.writeProfile.mockRejectedValueOnce(
+          new Error("queued upload offline"),
+        );
+      const sent = await cache.setService("facebook", true);
+      await cache.setService("instagram", false);
+      const echoed = {
+        ...envelope(sent, 2),
+        lastWriteId: backend.writeProfile.mock.calls[0]![1],
+      };
+      emit(echoed);
+      first.resolve(echoed);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(cache.current().services).toMatchObject({
+        facebook: true,
+        instagram: false,
+      });
+      expect(sync.getState()).toMatchObject({
+        pendingUpload: fails,
+        cloudReachable: !fails,
+      });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect((await backend.readProfile())?.settings.services).toMatchObject({
+        facebook: true,
+        instagram: false,
+      });
+      expect(sync.getState()).toMatchObject({
+        pendingUpload: false,
+        cloudReachable: true,
+      });
+    },
+  );
+
   it("uploads a failed local edit without another edit or realtime reconnect", async () => {
     const { sync, cache, backend, status } = await harness();
     status("subscribed");
