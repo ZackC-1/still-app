@@ -1,6 +1,7 @@
 # Sync recovery and visible account identity
 
-Status: investigating. Branch: fix/apple-sync-foreground. Base candidate: 2dcadc7.
+Status: implemented and independently reviewed; physical cross-surface retest in progress.
+PR branch: fix/account-sync-status, stacked on fix/149-sync-lifecycle. Base candidate: 2dcadc7.
 
 The owner observed Facebook on in the Mac app while the iPhone app remained off. Read-only
 snapshots confirmed the mismatch. Restarting the iPhone did not recover it. A Mac screenshot
@@ -34,3 +35,16 @@ Mac-to-iPhone toggle sequence, including Safari enforcement. Keep the earlier Sa
 failure separate from the sender upload failure.
 
 Publication and production actions remain outside this local implementation/testing scope.
+
+
+Verification evidence: the integrated candidate `cc12c5323b3424ba227845d57cde2e35f194cf31`
+passed lint, typecheck, 786 JavaScript tests (39 existing paid-tier skips), 131 Swift tests and
+50 configured browser fixtures. Configured Chrome, Firefox, Safari and app-webview bundles built.
+Signed development archives/exports succeeded for macOS and iOS. The Mac install preserved its
+settings, and the owner confirmed the correct email and successful sync status. The iPhone was
+updated in place; iOS required unlocking before launch and the remaining human sync retest.
+
+The candidate also contains the separately reviewed popup sizing, branding and YouTube filter
+fixes. This PR is stacked on the session-isolation fix; final popup geometry verification must use
+the integration containing the popup sizing fix as well. These results do not close the broader
+release certification or authorize store upload or production changes.
