@@ -156,7 +156,9 @@
         <p class="muted">{c.userId ? STRINGS.sync.appManaged : STRINGS.sync.deviceOnly}</p>
       {/if}
       {#if c.userId}
-        <p class="muted">{c.extensionMatchesApp === true ? STRINGS.sync.extensionCurrent : STRINGS.sync.extensionChecking}</p>
+        {#if !compact || (c.cloudReachable && !c.pendingUpload)}
+          <p class="muted">{c.extensionMatchesApp === true ? STRINGS.sync.extensionCurrent : STRINGS.sync.extensionChecking}</p>
+        {/if}
         {#if !c.cloudReachable || c.pendingUpload}
           <p class="muted">{STRINGS.sync.extensionPending}</p>
 
