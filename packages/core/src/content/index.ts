@@ -79,6 +79,41 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   const dedupe = deps.redirectDedupe ?? { lastRedirect: null };
   const pageSession = createEnginePageSession(ruleSet);
   const teardowns: Array<() => void> = [];
+  const shortsChipRule = ruleSet.services.youtube?.surfaces.find((s) => s.id === "yt-chips");
+  let resetShortsFilterRequested = false;
+  let shortsFilterHref: string | null = null;
+
+  const prepareYouTubeChips = (url: URL): void => {
+    if (!shortsChipRule?.enabledByDefault || shortsChipRule.action !== "hide"
+      || !shortsChipRule.selectors?.includes("yt-chip-cloud-chip-renderer[data-still-shorts-chip]")) return;
+    if (shortsFilterHref !== url.href) resetShortsFilterRequested = false;
+    shortsFilterHref = url.href;
+    let selectedShorts: Element | null = null;
+    for (const chip of doc.querySelectorAll("yt-chip-cloud-chip-renderer")) {
+      const tab = chip.querySelector<HTMLElement>('[role="tab"]');
+      const isShorts = tab?.textContent?.trim() === "Shorts";
+      // Current YouTube chips expose a tab label, not the title attribute the older rule used.
+      // Keep hiding in the rule set so root-class changes restore the chip when blocking is off.
+      chip.toggleAttribute("data-still-shorts-chip", isShorts);
+      if (isShorts && (chip.hasAttribute("selected") || tab?.getAttribute("aria-selected") === "true")) {
+        selectedShorts = chip;
+      }
+    }
+    if (!selectedShorts) {
+      resetShortsFilterRequested = false;
+      return;
+    }
+    if (resetShortsFilterRequested || url.pathname !== "/results") return;
+    const bar = selectedShorts.closest("yt-chip-cloud-renderer");
+    const all = Array.from(bar?.querySelectorAll<HTMLElement>('[role="tab"]') ?? [])
+      .find((tab) => tab.textContent?.trim() === "All");
+    if (all) {
+      // Removing every result leaves YouTube's continuation trigger in view. Leave Shorts-only
+      // search through its own All control once, even if the response is slow or fails.
+      resetShortsFilterRequested = true;
+      all.click();
+    }
+  };
 
   const setRootActive = (active: boolean): void => {
     doc.documentElement?.classList.toggle(ROOT_ACTIVE_CLASS, active);
@@ -142,9 +177,11 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
         setRootService(pageSession.activeServiceId());
         setRootActive(true);
         setRootProActive(pro);
+        if (pageSession.activeServiceId() === "youtube") prepareYouTubeChips(url);
         (deps.manifestCssOwnsHides ? pageSession.applyRemovals : pageSession.applyDom)(settings, url, doc, opts);
         return;
       case "noop":
+        resetShortsFilterRequested = false;
         setRootActive(false);
         setRootProActive(false);
         setRootService(null);

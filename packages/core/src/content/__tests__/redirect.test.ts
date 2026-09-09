@@ -86,6 +86,62 @@ beforeEach(() => {
 });
 
 describe("content script — redirect + SPA navigation (U7)", () => {
+  it("hides the current Shorts chip and exits a selected Shorts search only once", async () => {
+    document.body.innerHTML = `<yt-chip-cloud-renderer>
+      <yt-chip-cloud-chip-renderer><button role="tab" aria-selected="false">All</button></yt-chip-cloud-chip-renderer>
+      <yt-chip-cloud-chip-renderer id="shorts" selected><button role="tab" aria-selected="true">Shorts</button></yt-chip-cloud-chip-renderer>
+      <yt-chip-cloud-chip-renderer id="videos"><button role="tab">Videos</button></yt-chip-cloud-chip-renderer>
+    </yt-chip-cloud-renderer><input value="construction"><div id="ordinary">Ordinary video</div>`;
+    const all = document.querySelector<HTMLButtonElement>("button")!;
+    const clicks = vi.fn();
+    all.addEventListener("click", clicks);
+    const cs = createContentScript({ win: makeWin("https://www.youtube.com/results?search_query=construction"), doc: document, ruleSet, cache: cacheWith(null), schedule: sync });
+    try {
+      await cs.start();
+      expect(document.querySelector<HTMLElement>("#shorts")!.style.display).toBe("none");
+      expect(document.querySelector<HTMLElement>("#videos")!.style.display).not.toBe("none");
+      expect(clicks).toHaveBeenCalledTimes(1);
+      cs.reapply();
+      cs.reapply();
+      expect(clicks).toHaveBeenCalledTimes(1);
+      expect(document.querySelector("input")!.value).toBe("construction");
+      expect(document.querySelector("#ordinary")).not.toBeNull();
+    } finally { cs.stop(); }
+  });
+
+  it.each([[false, true], [true, false]])("leaves Shorts chips alone when blocking is disabled (global=%s, youtube=%s)", async (globalOn, youtube) => {
+    document.body.innerHTML = `<yt-chip-cloud-renderer><yt-chip-cloud-chip-renderer><button role="tab">All</button></yt-chip-cloud-chip-renderer><yt-chip-cloud-chip-renderer id="shorts" selected><button role="tab">Shorts</button></yt-chip-cloud-chip-renderer></yt-chip-cloud-renderer>`;
+    const clicks = vi.fn();
+    document.querySelector("button")!.addEventListener("click", clicks);
+    const settings = { ...DEFAULT_SETTINGS, updatedAt: 1, globalOn, services: { ...DEFAULT_SETTINGS.services, youtube } };
+    const cs = createContentScript({ win: makeWin("https://www.youtube.com/results?search_query=test"), doc: document, ruleSet, cache: cacheWith(settings), schedule: sync });
+    try {
+      await cs.start();
+      expect(document.querySelector<HTMLElement>("#shorts")!.style.display).not.toBe("none");
+      expect(clicks).not.toHaveBeenCalled();
+    } finally { cs.stop(); }
+  });
+
+  it.each(["disabled", "replaced"])("honors a %s chip rule from a downloaded rule set", async (override) => {
+    document.body.innerHTML = `<yt-chip-cloud-renderer>
+      <yt-chip-cloud-chip-renderer><button role="tab">All</button></yt-chip-cloud-chip-renderer>
+      <yt-chip-cloud-chip-renderer id="shorts" selected><button role="tab">Shorts</button></yt-chip-cloud-chip-renderer>
+    </yt-chip-cloud-renderer>`;
+    const clicks = vi.fn();
+    document.querySelector("button")!.addEventListener("click", clicks);
+    const customRules = structuredClone(ruleSet);
+    const chipRule = customRules.services.youtube!.surfaces.find((surface) => surface.id === "yt-chips")!;
+    Object.assign(chipRule, override === "disabled"
+      ? { enabledByDefault: false }
+      : { selectors: [".replacement-chip"] });
+    const cs = createContentScript({ win: makeWin("https://www.youtube.com/results?search_query=test"), doc: document, ruleSet: customRules, cache: cacheWith(null), schedule: sync });
+    try {
+      await cs.start();
+      expect(document.querySelector<HTMLElement>("#shorts")!.style.display).not.toBe("none");
+      expect(clicks).not.toHaveBeenCalled();
+    } finally { cs.stop(); }
+  });
+
   it("redirects a Shorts URL with an id to the watch page after hydrate (AE1)", async () => {
     const win = makeWin("https://www.youtube.com/shorts/abc123");
     const redirectPort = { replace: vi.fn() };
