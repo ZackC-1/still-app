@@ -36,3 +36,7 @@ it("rejects corrupt or unavailable status instead of claiming signed-out or sync
   install("broken");
   await expect(readAccountStatus(local)).rejects.toThrow();
 });
+it("compares effective settings after the existing parser clears a legacy native pause", async () => {
+  install(JSON.stringify(status), { ...local, settings: { ...local.settings, pauses: ["youtube.com"] } });
+  await expect(readAccountStatus(local)).resolves.toMatchObject({ extensionMatchesApp: true, pendingUpload: false });
+});
