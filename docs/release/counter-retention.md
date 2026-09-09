@@ -165,7 +165,8 @@ provider action; do not broaden the migration role to work around a denied prere
    window-key table, constraints/indexes, replacement RPC and minute cleanup job. Apply atomically;
    SQL failure must roll back the migration. No profile/entitlement/identity data should change.
 3. Deploy the reviewed Edge revisions containing `_shared/pg-store.ts` and deletion adapter with
-   `supabase functions deploy <name>` for `reconcile-entitlement`, `create-web-checkout`,
+   `supabase functions deploy <name> --import-map supabase/functions/deno.json` for
+   `reconcile-entitlement`, `create-web-checkout`,
    `review-signin`, and `delete-user`. This shared-module deployment changes retention/error handling,
    not dormant purchase behavior. Coordinate any combined #150 export deployment separately.
 4. Validate below without issuing OTP, creating sessions, deleting real accounts or exercising a
