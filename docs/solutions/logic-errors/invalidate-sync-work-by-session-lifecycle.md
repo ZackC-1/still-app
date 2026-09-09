@@ -68,3 +68,17 @@ Swift suite passed 125 tests.
 
 Related: [local sign-out persistence](../security-issues/supabase-signout-leaves-local-session-on-revoke-failure.md)
 explains why host auth teardown must also clear persisted sessions when a server revoke fails.
+
+## Account display and native cleanup
+
+The same ownership rule applies outside SyncService. A queued native status write adds an await
+before sign-out; recheck the session generation after that await and after native cleanup, before
+signing out the sync service. Account deletion must likewise ignore a completion superseded by a
+new session. UI completion handlers must not reset the replacement account. Clear account-scoped
+delete presentation when identity changes, so the replacement account does not inherit a disabled
+"Deleting" button. A launch identity lookup needs guards on both its success and failure paths.
+
+`apple-session.test.ts` exercises delayed native status writes and account deletion through the
+controller-to-session wiring. `ui/__tests__/account-status.test.ts` covers a background account
+switch while an earlier sign-out is pending. Removing the Apple completion guards breaks both
+new teardown regressions while the other session controls still pass.
