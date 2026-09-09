@@ -105,6 +105,7 @@ export class SyncService {
   // The cache can already hold the next edit when an acknowledgement arrives. Compare a held
   // edit with what actually reached the account, rather than treating that local cache as proof.
   private lastWrittenSettings: StillSettings | null = null;
+  private latestWriteId: string | null = null;
   // A UUID is not enough: signing out and back into the same account starts a new lifecycle.
   private lifecycle = 0;
 
@@ -720,6 +721,7 @@ export class SyncService {
     this.catchingUp = null;
     this.heldWrite = null;
     this.lastWrittenSettings = null;
+    this.latestWriteId = null;
     // The lifecycle owner emits its next state. Do not emit a confirmed old-account state between
     // teardown and the provisional sign-in state: native entitlement mirroring observes emissions.
     this.state = { ...this.state, syncing: false, lastSyncedAt: null, pendingUpload: false };
@@ -790,13 +792,24 @@ export class SyncService {
   }
 
   private applyRemoteEnvelope(envelope: SyncedSettingsEnvelope): void {
-    this.cache.applySyncedEnvelope(envelope);
+    // Realtime may acknowledge our write before its RPC response. Anchor the newest local edit
+    // on that acknowledgement now: the later RPC has the same version and cannot restore it.
+    // Only this request's write id proves an own echo; another device's row keeps normal ordering.
+    const ownEcho = this.latestWriteId !== null && envelope.lastWriteId === this.latestWriteId;
+    const latest = this.pendingWrite ?? this.heldWrite ??
+      (this.state.pendingUpload ? this.cache.current() : null);
+    this.cache.applySyncedEnvelope(ownEcho && latest !== null ? {
+      ...envelope,
+      settings: latest,
+    } : envelope);
     this.setState({ ...this.state, lastSyncedAt: this.now(), cloudReachable: true });
   }
 
   private async writeAndApply(settings: StillSettings): Promise<void> {
     const lifecycle = this.lifecycle;
-    const envelope = await this.backend.writeProfile(settings, randomWriteId());
+    const writeId = randomWriteId();
+    this.latestWriteId = writeId;
+    const envelope = await this.backend.writeProfile(settings, writeId);
     if (lifecycle !== this.lifecycle) return;
     // A successful older write anchors the next queued local edit to this row. Keep that edit in
     // the cache: if its upload fails, recovery must still find the user's latest choices there.
