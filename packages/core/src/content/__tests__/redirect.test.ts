@@ -109,6 +109,40 @@ describe("content script — redirect + SPA navigation (U7)", () => {
     } finally { cs.stop(); }
   });
 
+  it("keeps one recovery pending while YouTube replaces chips or changes filter parameters", async () => {
+    const markup = `<yt-chip-cloud-renderer>
+      <yt-chip-cloud-chip-renderer id="all"><button role="tab" aria-selected="false">All</button></yt-chip-cloud-chip-renderer>
+      <yt-chip-cloud-chip-renderer id="shorts" selected><button role="tab" aria-selected="true">Shorts</button></yt-chip-cloud-chip-renderer>
+    </yt-chip-cloud-renderer>`;
+    const clicks = vi.fn();
+    const insertChips = () => {
+      document.body.innerHTML = markup;
+      document.querySelector("#all button")!.addEventListener("click", clicks);
+    };
+    insertChips();
+    const win = makeWin("https://www.youtube.com/results?search_query=construction&sp=shorts");
+    const cs = createContentScript({ win, doc: document, ruleSet, cache: cacheWith(null), schedule: sync });
+    try {
+      await cs.start();
+      expect(clicks).toHaveBeenCalledTimes(1);
+      document.body.innerHTML = "";
+      cs.reapply();
+      insertChips();
+      cs.reapply();
+      win.setHref("https://www.youtube.com/results?search_query=construction");
+      cs.reapply();
+      expect(clicks).toHaveBeenCalledTimes(1);
+      // A confirmed All selection ends this recovery. A later Shorts selection is a new action.
+      document.querySelector("#shorts")!.removeAttribute("selected");
+      document.querySelector("#shorts button")!.setAttribute("aria-selected", "false");
+      document.querySelector("#all button")!.setAttribute("aria-selected", "true");
+      cs.reapply();
+      insertChips();
+      cs.reapply();
+      expect(clicks).toHaveBeenCalledTimes(2);
+    } finally { cs.stop(); }
+  });
+
   it.each([[false, true], [true, false]])("leaves Shorts chips alone when blocking is disabled (global=%s, youtube=%s)", async (globalOn, youtube) => {
     document.body.innerHTML = `<yt-chip-cloud-renderer><yt-chip-cloud-chip-renderer><button role="tab">All</button></yt-chip-cloud-chip-renderer><yt-chip-cloud-chip-renderer id="shorts" selected><button role="tab">Shorts</button></yt-chip-cloud-chip-renderer></yt-chip-cloud-renderer>`;
     const clicks = vi.fn();
