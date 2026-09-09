@@ -81,26 +81,30 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   const teardowns: Array<() => void> = [];
   const shortsChipRule = ruleSet.services.youtube?.surfaces.find((s) => s.id === "yt-chips");
   let resetShortsFilterRequested = false;
-  let shortsFilterHref: string | null = null;
+  let shortsFilterSearch: string | null = null;
 
   const prepareYouTubeChips = (url: URL): void => {
     if (!shortsChipRule?.enabledByDefault || shortsChipRule.action !== "hide"
       || !shortsChipRule.selectors?.includes("yt-chip-cloud-chip-renderer[data-still-shorts-chip]")) return;
-    if (shortsFilterHref !== url.href) resetShortsFilterRequested = false;
-    shortsFilterHref = url.href;
+    const search = `${url.pathname}\n${url.searchParams.get("search_query") ?? ""}`;
+    if (shortsFilterSearch !== search) resetShortsFilterRequested = false;
+    shortsFilterSearch = search;
     let selectedShorts: Element | null = null;
+    let selectedOtherChip = false;
     for (const chip of doc.querySelectorAll("yt-chip-cloud-chip-renderer")) {
       const tab = chip.querySelector<HTMLElement>('[role="tab"]');
       const isShorts = tab?.textContent?.trim() === "Shorts";
       // Current YouTube chips expose a tab label, not the title attribute the older rule used.
       // Keep hiding in the rule set so root-class changes restore the chip when blocking is off.
       chip.toggleAttribute("data-still-shorts-chip", isShorts);
-      if (isShorts && (chip.hasAttribute("selected") || tab?.getAttribute("aria-selected") === "true")) {
-        selectedShorts = chip;
+      if (chip.hasAttribute("selected") || tab?.getAttribute("aria-selected") === "true") {
+        if (isShorts) selectedShorts = chip;
+        else selectedOtherChip = true;
       }
     }
     if (!selectedShorts) {
-      resetShortsFilterRequested = false;
+      // A missing bar is not confirmation: YouTube can replace it while All is still loading.
+      if (selectedOtherChip) resetShortsFilterRequested = false;
       return;
     }
     if (resetShortsFilterRequested || url.pathname !== "/results") return;
