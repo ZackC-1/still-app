@@ -982,7 +982,12 @@ export class UiController {
     if (this.authFlowGeneration !== gen) return;
     if (outcome.kind === "verified") {
       this.accountRevision++;
-      if (this.userId !== outcome.userId) { this.lastSyncedAt = null; this.pendingUpload = false; }
+      if (this.userId !== outcome.userId) {
+        this.lastSyncedAt = null;
+        this.pendingUpload = false;
+        this.deleteFlow = "idle";
+        this.deleteError = null;
+      }
       this.userId = outcome.userId;
       this.accountEmail = outcome.email ?? null;
       this.clearCodeFlow();

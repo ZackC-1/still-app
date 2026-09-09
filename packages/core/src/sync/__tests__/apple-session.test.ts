@@ -455,6 +455,9 @@ it("does not clear a new account when an earlier account deletion finishes", asy
   expect(h.bridge.signOut).not.toHaveBeenCalled();
   expect(h.controller.accountEmail).toBe("second@example.com");
   expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ accountId: "u2" }));
+  expect(h.controller.deleteFlow).toBe("idle");
+  h.controller.requestDeleteAccount();
+  expect(h.controller.deleteFlow).toBe("confirming");
 });
 
 it("ignores a launch identity failure after a new account has signed in", async () => {
