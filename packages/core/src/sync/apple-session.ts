@@ -1,5 +1,6 @@
 import type { UiController } from "../ui/controller.svelte.js";
 import type { AppleCredential, PurchaseResult, ReceiptStatusValue } from "../native/bridge.js";
+import type { AccountSyncStatus } from "./account-status.js";
 import type { SyncService, SyncState } from "./service.js";
 
 // The Apple session orchestrator — the auth/purchase/entitlement spine of the WKWebView app,
@@ -52,11 +53,13 @@ export interface AppleSessionBridge {
   price(): Promise<string | null>;
   signOut(): Promise<void>;
   setEntitlement(entitled: boolean): Promise<void>;
+  setAccountSyncStatus?(status: AccountSyncStatus | null): Promise<void>;
 }
 
 export interface AppleSessionDeps {
   readonly controller: UiController;
-  readonly sync: Pick<SyncService, "onSignedIn" | "signOut" | "deleteAccount">;
+  readonly sync: Pick<SyncService, "onSignedIn" | "signOut" | "deleteAccount"> &
+    Partial<Pick<SyncService, "retryNow">>;
   readonly bridge: AppleSessionBridge;
   /** Exchange the native Apple credential for a Supabase session (signInWithIdToken); returns the
    * Supabase user id, or the error message to surface. */
@@ -72,7 +75,7 @@ export interface AppleSession {
   /** Establish a session: the RevenueCat re-key to the UUID and the SyncService mirror start
    * together, then the attach evaluation (R7) and the paywall price, with the entitlement-pending
    * state shown while the mirror is in flight. */
-  enterSession(userId: string): Promise<void>;
+  enterSession(userId: string, email?: string | null): Promise<void>;
   /** Refresh the controller's receipt-entitlement input from the bridge (R17/R18). Boot wiring,
    * post-purchase/restore, and foreground returns call this; safe on hosts with no native port. */
   refreshReceipt(): Promise<ReceiptStatusValue>;
@@ -83,7 +86,7 @@ export interface AppleSession {
    * with entitlement + price settled. Side-effect failures are swallowed (extension-session
    * parity: the session exists; onGet / visibility-change re-entry self-heal) — never throw at
    * the sheet. */
-  onCodeVerified(userId: string): Promise<void>;
+  onCodeVerified(userId: string, email?: string | null): Promise<void>;
   onGet(): Promise<void>;
   onRestore(): Promise<void>;
   /** Foreground return: refresh the receipt (R18 — resolves a signed-out Ask-to-Buy approval into
@@ -105,6 +108,17 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
   // The last receipt verdict this session observed — the mirror-skip input (a doomed server-lane
   // false is not proposed when the device provably owns Pro).
   let lastReceiptStatus: ReceiptStatusValue = "noSignal";
+
+  let statusWrite: Promise<void> = Promise.resolve();
+  const publishStatus = (status: AccountSyncStatus | null): Promise<void> => {
+    const generation = teardownGeneration;
+    statusWrite = statusWrite.catch(() => {}).then(async () => {
+      if (generation !== teardownGeneration) return;
+      if ((status?.accountId ?? null) !== activeSessionUserId) return;
+      if (bridge.available) await bridge.setAccountSyncStatus?.(status);
+    }).catch(() => { /* The next state change retries this local display mirror. */ });
+    return statusWrite;
+  };
 
   const refreshReceipt = async (): Promise<ReceiptStatusValue> => {
     if (!bridge.available) return "noSignal";
@@ -131,7 +145,15 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
     }
   };
 
-  const enterSession = async (userId: string): Promise<void> => {
+  const enterSession = async (userId: string, email?: string | null): Promise<void> => {
+    if (activeSessionUserId !== userId) {
+      teardownGeneration++;
+      controller.accountRevision++;
+      controller.accountEmail = null;
+      controller.lastSyncedAt = null;
+      controller.pendingUpload = false;
+    }
+    if (email !== undefined) controller.accountEmail = email;
     const generationAtEntry = teardownGeneration; // AE13: abort side effects if teardown intervenes
     activeSessionGeneration = teardownGeneration;
     activeSessionUserId = userId;
@@ -200,7 +222,22 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
         state.userId !== null &&
         (activeSessionGeneration !== teardownGeneration || state.userId !== activeSessionUserId)
       ) return;
+      if (state.userId === null) {
+        activeSessionUserId = null;
+        controller.accountRevision++;
+        controller.accountEmail = null;
+      }
       controller.userId = state.userId;
+      controller.lastSyncedAt = state.lastSyncedAt ?? null;
+      controller.pendingUpload = state.pendingUpload ?? false;
+      void publishStatus(state.userId === null ? null : {
+        accountId: state.userId,
+        email: controller.accountEmail,
+        lastSyncedAt: state.lastSyncedAt ?? null,
+        pendingUpload: state.pendingUpload ?? false,
+        cloudReachable: state.cloudReachable,
+        updatedAt: Date.now(),
+      });
       controller.entitled = state.entitled;
       controller.cloudReachable = state.cloudReachable;
       // Propose the entitlement into the App Group so the Safari extension's content scripts gate
@@ -222,9 +259,9 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
     enterSession,
     refreshReceipt,
 
-    async onCodeVerified(userId: string): Promise<void> {
+    async onCodeVerified(userId: string, email?: string | null): Promise<void> {
       try {
-        await enterSession(userId);
+        await enterSession(userId, email);
       } catch {
         // The Supabase session is real even when a bootstrap side effect (configurePurchases /
         // reconcile / mirror) failed; onGet and onVisibilityChange re-enter the session, so the
@@ -326,6 +363,7 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
 
     onVisibilityChange(visibility: DocumentVisibilityState): void {
       if (visibility !== "visible") return;
+      if (controller.userId) void sync.retryNow?.().catch(() => {});
       // Always refresh the receipt on foreground (R18): a signed-out Ask-to-Buy approval or a
       // refund that landed while backgrounded is observed here; refreshReceipt itself resolves a
       // pending flow into the success screen.
@@ -363,6 +401,12 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
     // downgrade on a receipt-entitled device, and the controller keeps receiptEntitled.
     async signOutEverywhere(): Promise<void> {
       teardownGeneration++;
+      activeSessionUserId = null;
+      controller.accountRevision++;
+      controller.accountEmail = null;
+      controller.lastSyncedAt = null;
+      controller.pendingUpload = false;
+      await publishStatus(null);
       if (bridge.available) {
         try {
           await bridge.signOut();
@@ -380,6 +424,12 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
     async deleteAccountEverywhere(): Promise<void> {
       await sync.deleteAccount();
       teardownGeneration++;
+      activeSessionUserId = null;
+      controller.accountRevision++;
+      controller.accountEmail = null;
+      controller.lastSyncedAt = null;
+      controller.pendingUpload = false;
+      await publishStatus(null);
       if (bridge.available) {
         try {
           await bridge.signOut();

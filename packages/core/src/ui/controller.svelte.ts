@@ -222,6 +222,14 @@ export class UiController {
 
   // Sync + connectivity — the entrypoint updates these from SyncService events.
   userId = $state<string | null>(null);
+  accountEmail = $state<string | null>(null);
+  accountRevision = 0;
+  lastSyncedAt = $state<number | null>(null);
+  pendingUpload = $state(false);
+  accountManagedByApp = false;
+  extensionMatchesApp = $state<boolean | null>(null);
+  retrySync: (() => Promise<void>) | undefined;
+
   reconciling = $state(false);
   cloudReachable = $state(true);
 
@@ -811,6 +819,10 @@ export class UiController {
    * clear (the purchase may have happened). Purchase intent makes the paywall reopen after the
    * sign-in completes, and verifyCode resumes the pending presentation (one continuous flow). */
   reSignInFromCheckout(): void {
+    this.accountRevision++;
+    this.accountEmail = null;
+    this.lastSyncedAt = null;
+    this.pendingUpload = false;
     this.userId = null; // local mirror of the dead session — NOT resetToSignedOut (no downgrade)
     this.stopPollTimer(); // polls would keep hitting 401; sign-in restarts the window
     this.paywallOpen = false;
@@ -969,7 +981,10 @@ export class UiController {
     // must not silently sign the user in (F6).
     if (this.authFlowGeneration !== gen) return;
     if (outcome.kind === "verified") {
+      this.accountRevision++;
+      if (this.userId !== outcome.userId) { this.lastSyncedAt = null; this.pendingUpload = false; }
       this.userId = outcome.userId;
+      this.accountEmail = outcome.email ?? null;
       this.clearCodeFlow();
       this.authFlow = "idle";
       this.signInOpen = false;
@@ -1221,6 +1236,10 @@ export class UiController {
    * receipt-derived Pro belongs to the device's Apple Account and survives teardown (R6) — a
    * receipt-entitled device lands on `pro-no-account`, not a re-locked home screen. */
   private resetToSignedOut(): void {
+    this.accountRevision++;
+    this.accountEmail = null;
+    this.lastSyncedAt = null;
+    this.pendingUpload = false;
     this.userId = null;
     this.entitled = false; // server lane only — the setter never touches #receiptEntitled
     this.authFlow = "idle";
