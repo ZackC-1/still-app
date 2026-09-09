@@ -242,6 +242,7 @@ export const STRINGS = {
     synced: "Synced with your account.",
     checking: "Checking sync…",
     lastSynced: "Last synced",
+    appLastSynced: "Last synced in Still app",
     retry: "Retry sync",
     appManaged: "Account managed in the Still app.",
     extensionCurrent: "Safari settings match the Still app.",

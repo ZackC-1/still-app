@@ -1258,6 +1258,7 @@ export class UiController {
   }
 
   async signOut(): Promise<void> {
+    const revision = this.accountRevision;
     // Best-effort backend sign-out, but always clear local state and never throw — a failed
     // auth.signOut() must not leave the UI stuck in a signed-in state.
     try {
@@ -1265,6 +1266,7 @@ export class UiController {
     } catch {
       /* swallow: the user asked to sign out; clear local state regardless */
     }
+    if (this.userId !== null && this.accountRevision !== revision) return;
     this.resetToSignedOut();
   }
 
@@ -1286,14 +1288,17 @@ export class UiController {
    * and keep the session (the account still exists). */
   async confirmDeleteAccount(): Promise<void> {
     if (!this.auth?.deleteAccount || this.deleteFlow === "deleting") return;
+    const revision = this.accountRevision;
     this.deleteFlow = "deleting";
     this.deleteError = null;
     try {
       await this.auth.deleteAccount();
+      if (this.userId !== null && this.accountRevision !== revision) return;
       // Account gone → mirror the signed-out reset.
       this.resetToSignedOut();
       this.deleteFlow = "idle";
     } catch (e) {
+      if (this.userId !== null && this.accountRevision !== revision) return;
       this.deleteFlow = "error";
       this.deleteError = e instanceof Error ? e.message : String(e);
     }

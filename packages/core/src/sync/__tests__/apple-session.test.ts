@@ -423,3 +423,54 @@ describe("AppleSession account display", () => {
     expect(save).not.toHaveBeenCalledWith(null);
   });
 });
+
+it("does not let queued old native status turn an old sign-out into a sign-out of the new account", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  const save = vi.fn(async () => {}).mockImplementationOnce(() => gate);
+  const h = harness({ bridge: { setAccountSyncStatus: save } });
+  await h.session.enterSession("u1", "first@example.com");
+  await vi.waitFor(() => expect(save).toHaveBeenCalled());
+  const signingOut = h.controller.signOut();
+  await h.session.enterSession("u2", "second@example.com");
+  release();
+  await signingOut;
+  await vi.waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ accountId: "u2" })));
+  expect(h.sync.signOut).not.toHaveBeenCalled();
+  expect(h.bridge.signOut).not.toHaveBeenCalled();
+  expect(h.controller.accountEmail).toBe("second@example.com");
+});
+
+it("does not clear a new account when an earlier account deletion finishes", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  const save = vi.fn(async () => {});
+  const h = harness({ bridge: { setAccountSyncStatus: save } });
+  await h.session.enterSession("u1", "first@example.com");
+  h.sync.deleteAccount.mockImplementationOnce(() => gate);
+  const deleting = h.controller.confirmDeleteAccount();
+  await h.session.enterSession("u2", "second@example.com");
+  release();
+  await deleting;
+  expect(h.bridge.signOut).not.toHaveBeenCalled();
+  expect(h.controller.accountEmail).toBe("second@example.com");
+  expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ accountId: "u2" }));
+});
+
+it("ignores a launch identity failure after a new account has signed in", async () => {
+  let reject!: (reason: Error) => void;
+  const h = harness();
+  const resuming = h.session.resumeAccount(() => new Promise((_, fail) => { reject = fail; }));
+  await h.session.enterSession("u2", "second@example.com");
+  reject(new Error("old storage read failed"));
+  await resuming;
+  expect(h.controller.accountEmail).toBe("second@example.com");
+  expect(h.controller.cloudReachable).toBe(true);
+});
+
+it("clears the native account display when launch finds no session", async () => {
+  const save = vi.fn(async () => {});
+  const h = harness({ bridge: { setAccountSyncStatus: save } });
+  await h.session.resumeAccount(async () => null);
+  expect(save).toHaveBeenLastCalledWith(null);
+});

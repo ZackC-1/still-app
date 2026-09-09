@@ -76,6 +76,7 @@ export interface AppleSession {
    * together, then the attach evaluation (R7) and the paywall price, with the entitlement-pending
    * state shown while the mirror is in flight. */
   enterSession(userId: string, email?: string | null): Promise<void>;
+  resumeAccount(read: () => Promise<{ id: string; email: string | null } | null>): Promise<void>;
   /** Refresh the controller's receipt-entitlement input from the bridge (R17/R18). Boot wiring,
    * post-purchase/restore, and foreground returns call this; safe on hosts with no native port. */
   refreshReceipt(): Promise<ReceiptStatusValue>;
@@ -257,6 +258,19 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
     },
 
     enterSession,
+    async resumeAccount(read): Promise<void> {
+      const revision = controller.accountRevision;
+      try {
+        const account = await read();
+        if (controller.accountRevision !== revision || controller.userId !== null) return;
+        if (account) await enterSession(account.id, account.email);
+        else await publishStatus(null);
+      } catch {
+        if (controller.accountRevision === revision && controller.userId === null) {
+          controller.cloudReachable = false;
+        }
+      }
+    },
     refreshReceipt,
 
     async onCodeVerified(userId: string, email?: string | null): Promise<void> {
@@ -400,13 +414,15 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
     // session. Receipt-derived Pro survives (R6): the native StampPolicy refuses the App-Group
     // downgrade on a receipt-entitled device, and the controller keeps receiptEntitled.
     async signOutEverywhere(): Promise<void> {
-      teardownGeneration++;
+      const generation = ++teardownGeneration;
+      controller.userId = null;
       activeSessionUserId = null;
       controller.accountRevision++;
       controller.accountEmail = null;
       controller.lastSyncedAt = null;
       controller.pendingUpload = false;
       await publishStatus(null);
+      if (generation !== teardownGeneration) return;
       if (bridge.available) {
         try {
           await bridge.signOut();
@@ -414,6 +430,7 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
           /* native reset failed — still clear the Supabase session below */
         }
       }
+      if (generation !== teardownGeneration) return;
       await sync.signOut();
     },
 
@@ -422,14 +439,18 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
     // deleted user's app_user_id isn't left configured. Receipt-derived Pro survives deletion too —
     // the purchase belongs to the Apple Account, not the Still account.
     async deleteAccountEverywhere(): Promise<void> {
+      const startGeneration = teardownGeneration;
       await sync.deleteAccount();
-      teardownGeneration++;
+      if (startGeneration !== teardownGeneration) return;
+      const generation = ++teardownGeneration;
+      controller.userId = null;
       activeSessionUserId = null;
       controller.accountRevision++;
       controller.accountEmail = null;
       controller.lastSyncedAt = null;
       controller.pendingUpload = false;
       await publishStatus(null);
+      if (generation !== teardownGeneration) return;
       if (bridge.available) {
         try {
           await bridge.signOut();

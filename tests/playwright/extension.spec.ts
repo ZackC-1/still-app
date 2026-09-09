@@ -218,3 +218,28 @@ for (const colorScheme of ["light", "dark"] as const) {
     await expect(page.getByRole("button", { name: "Open settings & setup guide" })).toBeInViewport({ ratio: 1 });
   });
 }
+
+for (const pendingUpload of [false, true]) {
+  test(`Safari account status fits the desktop popup with pending upload ${pendingUpload}`, async ({ safariContext, safariExtensionId }) => {
+    await safariContext.route(/^https?:/, (route) => route.abort());
+    const page = await safariContext.newPage();
+    await page.setViewportSize({ width: POPUP_INLINE_SIZE, height: POPUP_MAX_BLOCK_SIZE });
+    await page.addInitScript(({ pendingUpload }) => {
+      const settings = { globalOn: true, services: { youtube: true, instagram: true, facebook: true, tiktok: true }, pauses: [], updatedAt: 10 };
+      chrome.runtime.sendNativeMessage = ((_host: string, message: { kind: string }) => {
+        if (message.kind === "getAccountSyncStatus") return Promise.resolve({ accountSyncStatus: JSON.stringify({
+          accountId: "11111111-1111-1111-1111-111111111111", email: "a.long.account.name.for.layout.testing@example.com",
+          lastSyncedAt: Date.now(), pendingUpload, cloudReachable: !pendingUpload, updatedAt: Date.now(),
+        }) });
+        if (message.kind === "get") return Promise.resolve({ settings: JSON.stringify({ settings, syncMetadata: null }) });
+        return Promise.resolve({ ok: true });
+      }) as typeof chrome.runtime.sendNativeMessage;
+    }, { pendingUpload });
+    await page.goto(`chrome-extension://${safariExtensionId}/popup.html`);
+    await expect(page.getByText("a.long.account.name.for.layout.testing@example.com", { exact: true })).toBeVisible();
+    const height = await page.evaluate(() => Math.max(document.documentElement.scrollHeight,
+      ...[...document.body.querySelectorAll("*")].map((el) => el.getBoundingClientRect().bottom)));
+    expect(height).toBeLessThanOrEqual(POPUP_MAX_BLOCK_SIZE);
+    await expect(page.getByRole("button", { name: "Open settings & setup guide" })).toBeInViewport({ ratio: 1 });
+  });
+}

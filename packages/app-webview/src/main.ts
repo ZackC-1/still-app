@@ -159,12 +159,7 @@ if (supabaseUrl && supabaseAnonKey) {
   // Resume an existing Supabase session on launch. The userId guard closes the slow-network race
   // where the user completes a fresh code sign-in before this launch check resolves — without it,
   // two enterSession pipelines (possibly for different identities) would interleave.
-  const launchRevision = controller.accountRevision;
-  void authPort.currentAccount().then((account) => {
-    if (controller.accountRevision !== launchRevision || controller.userId !== null) return;
-    if (account) void session.enterSession(account.id, account.email);
-    else if (bridge.available) void bridge.setAccountSyncStatus(null).catch(() => {});
-  }).catch(() => { controller.cloudReachable = false; });
+  void session.resumeAccount(() => authPort.currentAccount());
 
   // Native actions only exist inside the WKWebView host. Sign in with Apple is no longer offered
   // (email-code sign-in above is the one auth path, 2026-07-06); the native SIWA bridge + the
