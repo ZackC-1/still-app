@@ -31,7 +31,11 @@ then verify regression sensitivity and security at the frozen candidate.
 
 - Confirmed the integration tip and predecessor merges; no existing implementation PRs.
 - Confirmed old shipping versions and paid manifest description in the current source.
-- Final candidate, artifacts, reviews and host/device evidence remain pending.
+- Frozen candidate `d87126aa34d599ee38bb31b2182622a4376a40eb` contains all reviewed fixes.
+  Final automated gates, configured browser packages, clean AMO rebuild, and development-signed
+  Apple Release archives/exports passed. The certification record contains hashes and exact gates.
+  Distribution certificates, native/physical-device journeys, provider policy and approved backend
+  deployment/privacy/store actions remain open; issue153 is No-Go.
 
 - Preparation check: Chromium typecheck and 34 extension tests passed; `pnpm build` passed.
   Fresh Chrome/Firefox/Safari manifests report 2.0.0, unchanged four-service host permissions
