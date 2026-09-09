@@ -24,8 +24,8 @@ public struct AccountSyncStatus: Codable, Equatable, Sendable {
     updatedAt = try container.decode(Double.self, forKey: .updatedAt)
     guard accountId.utf16.count == 36, UUID(uuidString: accountId) != nil,
           (email?.utf16.count ?? 0) <= 320,
-          updatedAt.isFinite, updatedAt >= 0,
-          lastSyncedAt.map({ $0.isFinite && $0 >= 0 }) ?? true
+          updatedAt.isFinite, updatedAt >= 0, updatedAt <= 8.64e15,
+          lastSyncedAt.map({ $0.isFinite && $0 >= 0 && $0 <= 8.64e15 }) ?? true
     else {
       throw DecodingError.dataCorrupted(.init(
         codingPath: decoder.codingPath, debugDescription: "Invalid account sync status"))

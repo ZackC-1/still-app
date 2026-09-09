@@ -150,7 +150,7 @@ export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
               refresh_token: rt,
             });
             const userId = typeof uid === "string" ? uid : data?.user?.id;
-            if (!error && userId) return { kind: "verified", userId };
+            if (!error && userId) return { kind: "verified", userId, email: data?.user?.email ?? null };
           } catch {
             // fall to verify-failed below — never leave the flow stuck mid-verify
           }
@@ -175,7 +175,7 @@ export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
         return { kind: "verify-failed" };
       }
       const userId = data.user?.id ?? data.session?.user.id;
-      return userId ? { kind: "verified", userId } : { kind: "verify-failed" };
+      return userId ? { kind: "verified", userId, email: data.user?.email ?? data.session?.user.email ?? null } : { kind: "verify-failed" };
     } catch {
       return { kind: "verify-failed" };
     }
@@ -190,6 +190,13 @@ export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
     // which is the offline-proof guarantee; this keeps the shared AuthPort honest for every host.
     const { error } = await this.client.auth.signOut();
     if (error) await this.client.auth.signOut({ scope: "local" });
+  }
+
+  /** Session metadata is sufficient for a display label, including while the network is offline. */
+  async currentAccount(): Promise<{ id: string; email: string | null } | null> {
+    const { data } = await this.client.auth.getSession();
+    const user = data.session?.user;
+    return user ? { id: user.id, email: user.email ?? null } : null;
   }
 
   async currentUserId(): Promise<string | null> {

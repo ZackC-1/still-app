@@ -79,13 +79,13 @@ describe("SupabaseAuthPort.verifyCode classification (R1/R5/R7)", () => {
 
   it("session returned → verified with the user id", async () => {
     const verifyOtp = vi.fn(async () => ({ data: { user: { id: "u1" } }, error: null }));
-    expect(await verify(verifyOtp)).toEqual({ kind: "verified", userId: "u1" });
+    expect(await verify(verifyOtp)).toEqual({ kind: "verified", userId: "u1", email: null });
     expect(verifyOtp).toHaveBeenCalledWith({ email: "a@b.c", token: "123456", type: "email" });
   });
 
   it("user id falls back to the session payload when data.user is absent", async () => {
     const verifyOtp = vi.fn(async () => ({ data: { session: { user: { id: "u2" } } }, error: null }));
-    expect(await verify(verifyOtp)).toEqual({ kind: "verified", userId: "u2" });
+    expect(await verify(verifyOtp)).toEqual({ kind: "verified", userId: "u2", email: null });
   });
 
   it("otp_expired (wrong OR expired token — one server error by design) → invalid-code", async () => {
@@ -251,7 +251,7 @@ describe("review sign-in branch — verifyCode (AE7/AE9, R8/R9)", () => {
       "review@example.test",
       "654321",
     );
-    expect(out).toEqual({ kind: "verified", userId: "u-review" });
+    expect(out).toEqual({ kind: "verified", userId: "u-review", email: null });
     expect(setSession).toHaveBeenCalledWith({ access_token: "at", refresh_token: "rt" });
   });
 
@@ -273,7 +273,7 @@ describe("review sign-in branch — verifyCode (AE7/AE9, R8/R9)", () => {
     const invoke = vi.fn(async () => httpError(404));
     const verifyOtp = vi.fn(async () => ({ data: { user: { id: "u-fallback" } }, error: null }));
     const out = await reviewPort({ invoke, verifyOtp }).verifyCode("review@example.test", "111222");
-    expect(out).toEqual({ kind: "verified", userId: "u-fallback" });
+    expect(out).toEqual({ kind: "verified", userId: "u-fallback", email: null });
     expect(verifyOtp).toHaveBeenCalledWith({
       email: "review@example.test",
       token: "111222",
@@ -352,5 +352,21 @@ describe("review sign-in branch — verifyCode (AE7/AE9, R8/R9)", () => {
     await reviewPort({ invoke, signInWithOtp }).signInWithMagicLink("review@example.test");
     expect(invoke).not.toHaveBeenCalled();
     expect(signInWithOtp).toHaveBeenCalledTimes(1); // pinned: wiring this host-side at the review address is forbidden
+  });
+});
+
+
+describe("authenticated account display", () => {
+  it("uses the verified response email, never the typed address", async () => {
+    const verifyOtp = vi.fn(async () => ({ data: { user: { id: "u1", email: "verified@example.com" } }, error: null }));
+    const port = new SupabaseAuthPort(codeClient({ verifyOtp }));
+    await expect(port.verifyCode("typed@example.com", "123456")).resolves.toMatchObject({ email: "verified@example.com" });
+  });
+  it("reads the existing session identity for display without a user network request", async () => {
+    const getUser = vi.fn();
+    const getSession = vi.fn(async () => ({ data: { session: { user: { id: "u1", email: "verified@example.com" } } }, error: null }));
+    const port = new SupabaseAuthPort({ auth: { getUser, getSession } } as unknown as SupabaseClient);
+    await expect(port.currentAccount()).resolves.toEqual({ id: "u1", email: "verified@example.com" });
+    expect(getUser).not.toHaveBeenCalled();
   });
 });

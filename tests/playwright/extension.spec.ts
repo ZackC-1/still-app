@@ -185,3 +185,36 @@ test("the manifest limits host permissions to the four services (no <all_urls>)"
   expect(manifest.host_permissions).toHaveLength(4);
   expect(JSON.stringify(manifest)).not.toContain("<all_urls>");
 });
+
+for (const colorScheme of ["light", "dark"] as const) {
+  test(`signed-in account status fits the configured popup in ${colorScheme} mode`, async ({ context, extensionId }) => {
+    test.skip(syncConfigured !== "true", "Requires the independently declared configured build");
+    await context.route(/^https?:/, (route) => route.abort());
+    const page = await context.newPage();
+    await page.setViewportSize({ width: POPUP_INLINE_SIZE, height: POPUP_MAX_BLOCK_SIZE });
+    await page.emulateMedia({ colorScheme });
+    const email = "a.long.account.name.for.layout.testing@example.com";
+    await page.addInitScript(({ email }) => {
+      const send = chrome.runtime.sendMessage.bind(chrome.runtime);
+      chrome.runtime.sendMessage = ((message: { kind?: string; action?: string }, ...args: unknown[]) => {
+        if (message.kind === "still:session" && message.action === "getSyncStatus") {
+          return Promise.resolve({ accountId: "11111111-1111-1111-1111-111111111111", email,
+            lastSyncedAt: Date.now(), pendingUpload: false, cloudReachable: true, updatedAt: Date.now() });
+        }
+        return Reflect.apply(send, chrome.runtime, [message, ...args]);
+      }) as typeof chrome.runtime.sendMessage;
+    }, { email });
+    await page.goto(`chrome-extension://${extensionId}/popup.html`);
+    await expect(page.getByText(email, { exact: true })).toBeVisible();
+    await expect(page.getByText("Synced with your account.", { exact: true })).toBeVisible();
+    const fit = await page.evaluate(() => ({
+      width: document.documentElement.scrollWidth,
+      height: document.documentElement.scrollHeight,
+      bottom: Math.ceil(Math.max(...[...document.body.querySelectorAll("*")].map((el) => el.getBoundingClientRect().bottom))),
+    }));
+    expect(fit.width).toBeLessThanOrEqual(POPUP_INLINE_SIZE);
+    expect(fit.height).toBeLessThanOrEqual(POPUP_MAX_BLOCK_SIZE);
+    expect(fit.bottom).toBeLessThanOrEqual(POPUP_MAX_BLOCK_SIZE);
+    await expect(page.getByRole("button", { name: "Open settings & setup guide" })).toBeInViewport({ ratio: 1 });
+  });
+}

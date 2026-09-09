@@ -15,6 +15,11 @@ export interface AuthPort {
   currentUserId(): Promise<string | null>;
 }
 
+/** Display-only identity from the authenticated session; never an authorization decision. */
+export interface AccountAuthPort {
+  currentAccount(): Promise<{ id: string; email: string | null } | null>;
+}
+
 // ── Email-OTP code flow (plan U2/R1) ──────────────────────────────────────────────────────────────
 // A separate capability interface, not extra methods on AuthPort: hosts advertise capabilities
 // (Apple keeps the magic link; the extension popup can't receive a redirect, so it verifies a
@@ -36,7 +41,7 @@ export type RequestCodeOutcome =
 
 /** Outcome of verifying an entered code. */
 export type VerifyCodeOutcome =
-  | { readonly kind: "verified"; readonly userId: string }
+  | { readonly kind: "verified"; readonly userId: string; readonly email?: string | null }
   /** Wrong or expired token — the server reports both as one error, so they share a kind. */
   | { readonly kind: "invalid-code" }
   /** GoTrue `over_request_rate_limit` (per-IP verify throttle): NOT a code attempt, and the UI

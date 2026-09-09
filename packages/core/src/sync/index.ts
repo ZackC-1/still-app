@@ -44,3 +44,5 @@ export {
   type SignOutSessionOutcome,
   type DeleteAccountSessionOutcome,
 } from "./extension-session.js";
+
+export { parseAccountSyncStatus, type AccountSyncStatus } from "./account-status.js";

@@ -30,3 +30,5 @@ export {
 export { default as App } from "./App.svelte";
 export { default as OpenSettingsButton } from "./components/OpenSettingsButton.svelte";
 export { default as Placeholder } from "./components/Placeholder.svelte";
+
+export type { AccountStatusSnapshot } from "./account-status.js";
