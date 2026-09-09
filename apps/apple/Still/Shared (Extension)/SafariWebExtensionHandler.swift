@@ -26,6 +26,7 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
 
     private let bridge = SettingsBridge(store: .appGroup())
     private let entitlementBridge = EntitlementBridge(store: .appGroup(), readOnly: true)
+    private let accountSyncStatus = AccountSyncStatusStore.appGroup()
 
     func beginRequest(with context: NSExtensionContext) {
         let request = context.inputItems.first as? NSExtensionItem
@@ -37,11 +38,12 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
             message = request?.userInfo?["message"]
         }
 
-        // Route by lane: entitlement messages reply { entitlement }, everything else goes through
-        // the settings bridge and replies { settings }. An unrecognized message yields an empty
-        // settings string, which the background treats as "no value".
+        // Account display status has a read-only lane. Unknown kinds, including status setters,
+        // fall through to the settings bridge, which ignores them without writing.
         let payload: [String: Any]
-        if let entitlementJSON = message.flatMap({ entitlementBridge.handle(rawBody: $0) }) {
+        if let statusReply = message.flatMap({ accountSyncStatus.readReply(rawBody: $0) }) {
+            payload = statusReply
+        } else if let entitlementJSON = message.flatMap({ entitlementBridge.handle(rawBody: $0) }) {
             payload = ["entitlement": entitlementJSON]
         } else {
             let settingsJSON = message.flatMap { bridge.handle(rawBody: $0) } ?? ""
