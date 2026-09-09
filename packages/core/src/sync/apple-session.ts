@@ -153,6 +153,8 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
       controller.accountEmail = null;
       controller.lastSyncedAt = null;
       controller.pendingUpload = false;
+      controller.deleteFlow = "idle";
+      controller.deleteError = null;
     }
     if (email !== undefined) controller.accountEmail = email;
     const generationAtEntry = teardownGeneration; // AE13: abort side effects if teardown intervenes

@@ -8,7 +8,7 @@ const status: AccountStatusSnapshot = {
   accountId: "11111111-1111-1111-1111-111111111111", email: "test@example.com",
   lastSyncedAt: 100, pendingUpload: false, cloudReachable: true, updatedAt: 110,
 };
-const makeController = () => new UiController({ cache: new SettingsCache(new InMemoryStorageAdapter(null)), host: { canPurchase: false }, auth: { signOut: async () => {} } });
+const makeController = (signOut = async () => {}) => new UiController({ cache: new SettingsCache(new InMemoryStorageAdapter(null)), host: { canPurchase: false }, auth: { signOut } });
 afterEach(() => vi.useRealTimers());
 
 it("refreshes email and health, retains account on transport failure, clears on sign-out", async () => {
@@ -54,4 +54,20 @@ it("ignores late replies after the observer stops", async () => {
   resolve(status);
   await Promise.resolve();
   expect(controller.userId).toBeNull();
+});
+
+it("a delayed sign-out cannot reset the account received from another surface", async () => {
+  vi.useFakeTimers();
+  let release!: () => void;
+  const controller = makeController(() => new Promise<void>((r) => { release = r; }));
+  const read = vi.fn<() => Promise<AccountStatusSnapshot | null>>().mockResolvedValue(status);
+  const stop = watchAccountStatus(controller, read);
+  await vi.advanceTimersByTimeAsync(0);
+  const signingOut = controller.signOut();
+  read.mockResolvedValue({ ...status, accountId: "22222222-2222-2222-2222-222222222222", email: "second@example.com" });
+  await vi.advanceTimersByTimeAsync(2000);
+  release();
+  await signingOut;
+  expect(controller.accountEmail).toBe("second@example.com");
+  stop();
 });

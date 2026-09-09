@@ -17,6 +17,11 @@ export function watchAccountStatus(
     try {
       const status = await read();
       if (stopped || controller.accountRevision !== revision) return;
+      if (controller.userId !== (status?.accountId ?? null)) {
+        controller.accountRevision++;
+        controller.deleteFlow = "idle";
+        controller.deleteError = null;
+      }
       controller.userId = status?.accountId ?? null;
       controller.extensionMatchesApp = status?.extensionMatchesApp ?? null;
       controller.accountEmail = status?.email ?? null;
