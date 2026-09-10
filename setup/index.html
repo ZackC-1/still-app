@@ -10,6 +10,8 @@
 <link rel="stylesheet" href="../assets/legal.css">
 <style>
   html { scroll-padding-top: 1.5rem; }
+  .guide-title { display: flex; align-items: center; gap: .75rem; }
+  .guide-title img { width: 56px; height: 56px; flex-shrink: 0; }
   .device-list { display: grid; gap: .65rem; padding: 0; list-style: none; }
   .device-list a { display: block; padding: .8rem 1rem; border: 1px solid var(--border); border-radius: .75rem; text-decoration: none; background: var(--surface-raised); }
   .device-list a:hover { text-decoration: underline; }
@@ -22,7 +24,7 @@
 <body>
 <header>
   <a href="https://zackc-1.github.io/still-app/" aria-label="Still home">Still</a>
-  <h1>Set up Still</h1>
+  <h1 class="guide-title"><img src="../assets/still-logo.png" width="56" height="56" alt="">Set up Still</h1>
   <p class="lede">Choose your device and browser, then follow the steps below.</p>
   <p class="note">This guide covers <strong>Still 2.0</strong>. Store updates may arrive at different times. In 2.0, all four website controls work without an account; signing in adds settings sync. Browser permissions must still be enabled on each device.</p>
 </header>
