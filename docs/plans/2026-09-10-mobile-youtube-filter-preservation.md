@@ -1,6 +1,6 @@
 # Preserve ordinary mobile YouTube filters
 
-Status: investigating Home-topic blank results
+Status: implemented and reviewed; signed iPhone test build installed; physical acceptance pending
 
 Base: installed candidate `cc12c5323b3424ba227845d57cde2e35f194cf31`.
 Working branch: `fix/mobile-youtube-filters`.
@@ -53,4 +53,4 @@ rule correction both bundles pass. Expanded checks cover repeated topics, off/on
 reused cards becoming ordinary videos. The fixture is explicitly a model, not captured YouTube
 renderer source. The owner’s exact phone rendering exception remains unobserved.
 
-Full gates and independent review running. Physical iPhone verification remains required.
+Verification: 786 JavaScript tests, 53 built-extension fixtures, lint and typecheck passed. Both independent reviews passed. WebKit reproduces the synthetic blank-feed failure on the old bundle and passes with the fix; restoring mobile deletion breaks the regression while its disabled control passes. Mutation source restored byte-for-byte. Integrated runtime candidate `7cead5c` was development-signed and installed on iPhone with matching WebUI/Safari resources and all blocking settings preserved. Scoped PR typecheck passed. Physical iPhone Home-topic results, ordinary playback and resource behavior remain pending; the exact phone exception has not been captured.
