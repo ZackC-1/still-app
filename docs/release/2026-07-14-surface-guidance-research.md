@@ -17,3 +17,12 @@
 ## Scope intentionally deferred
 
 Chrome can report whether a user has pinned Still through `chrome.action.getUserSettings()`. The current guidance is deterministic and useful whether the popup is opened from the Extensions menu or the toolbar; a later experiment can personalize the copy after measuring whether the static prompt leaves a meaningful discoverability gap.
+
+## September 10, 2026 update
+
+The shared settings UI now links to `/setup/` instead of rendering the inline instruction card.
+`docs/setup.html` owns device/browser setup steps; `SurfaceGuidance.title` remains only as host
+context for the popup settings button’s accessible name. Keep browser installation and website
+permissions separate from Still account sync: syncing does not install or enable an extension.
+The guide is explicitly for Still 2.0; store versions may lag. Publish the guide before installing
+clients that link to it, and preserve the GitHub Pages directory URL plus relative asset paths.
