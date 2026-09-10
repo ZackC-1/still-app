@@ -583,6 +583,7 @@
   .app[data-density="compact"] .account {
     flex-direction: row;
     flex-wrap: wrap;
+    justify-content: space-between;
     gap: var(--space-2) var(--space-3);
     padding-block-start: var(--space-1);
     margin-block-start: 0;
