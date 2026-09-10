@@ -26,3 +26,7 @@ context for the popup settings button’s accessible name. Keep browser installa
 permissions separate from Still account sync: syncing does not install or enable an extension.
 The guide is explicitly for Still 2.0; store versions may lag. Publish the guide before installing
 clients that link to it, and preserve the GitHub Pages directory URL plus relative asset paths.
+
+### Shared setup destination (owner confirmed 2026-09-10)
+
+Use https://zackc-1.github.io/still-app/setup/ as the canonical setup-help destination across every supported Still surface: Mac app, iPhone/iPad app, Safari extension, Chrome, and Firefox. Existing popup links may open their settings page first, where the guide is linked. Keep device/browser instructions on this shared page so published updates reach installed versions without an app rebuild. Preserve the URL and update its instructions as supported platforms change. The guide does not imply support for native social apps or mobile Chrome/Firefox.
