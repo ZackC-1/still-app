@@ -39,3 +39,4 @@ traceability. It is not operational guidance and may describe superseded reposit
 
 - [privacy.html](privacy.html) is the public privacy policy page used by store submissions.
 - [support.html](support.html) is the public support page used by store submissions.
+- [setup.html](setup.html) is the Still 2.0 setup guide organized by device and browser.
