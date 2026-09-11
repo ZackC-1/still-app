@@ -134,7 +134,9 @@ struct OnboardingView: View {
               .foregroundColor(.white)
               .frame(width: 22, height: 22)
               .background(Circle().fill(Self.stillBlue))
-            Text(line).font(.still(size: 15, relativeTo: .callout))
+            Text(line)
+              .font(.still(size: 15, relativeTo: .callout))
+              .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
           }
         }
