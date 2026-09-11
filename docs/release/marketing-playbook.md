@@ -344,7 +344,7 @@ Use a two-step prompt only after the product has delivered value.
 **Share copy:**
 
 > I use Still to remove Shorts and Reels from my browser. YouTube Shorts are free to block, and Still
-> Pro is $1.99 once across supported browsers: https://zackc-1.github.io/still-app/
+> Pro is $1.99 once across supported browsers: https://stillapp.fit/
 
 Do not gate functionality, nag repeatedly, or reward ratings.
 
