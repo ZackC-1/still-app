@@ -8,3 +8,12 @@ html.still-active.still-service-youtube yt-tab-shape[tab-title="Shorts"]{display
 html.still-active.still-service-youtube tp-yt-paper-tab:has([href$="/shorts"]){display:none!important}
 html.still-active.still-service-youtube yt-chip-cloud-chip-renderer:has([title="Shorts"]){display:none!important}
 html.still-active.still-service-youtube yt-chip-cloud-chip-renderer[data-still-shorts-chip]{display:none!important}
+html.still-active.still-service-youtube ytm-app ytm-rich-section-renderer:has(ytm-shorts-lockup-view-model){display:none!important}
+html.still-active.still-service-youtube ytm-app ytm-rich-section-renderer:has(ytm-reel-shelf-renderer){display:none!important}
+html.still-active.still-service-youtube ytm-app ytm-reel-shelf-renderer{display:none!important}
+html.still-active.still-service-youtube ytm-app grid-shelf-view-model:has(ytm-shorts-lockup-view-model){display:none!important}
+html.still-active.still-service-youtube ytm-app ytm-rich-item-renderer:has(ytm-shorts-lockup-view-model){display:none!important}
+html.still-active.still-service-youtube ytm-app ytm-video-with-context-renderer:has(ytm-media-item.big-shorts-singleton){display:none!important}
+html.still-active.still-service-youtube ytm-app ytm-video-with-context-renderer:has(a.media-item-thumbnail-container[href^="/shorts/"]){display:none!important}
+html.still-active.still-service-youtube ytm-app ytm-rich-item-renderer:has(a.media-item-thumbnail-container[href^="/shorts/"]){display:none!important}
+html.still-active.still-service-youtube ytm-app ytm-shorts-lockup-view-model{display:none!important}
