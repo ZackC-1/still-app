@@ -6,7 +6,9 @@ import { test, expect } from "./_extension.js";
 // taller than 600px and scroll the remainder; Still asks for 380px of the available width.
 const POPUP_INLINE_SIZE = 380;
 const POPUP_MAX_BLOCK_SIZE = 600;
-const syncConfigured = process.env.STILL_PLAYWRIGHT_CONFIGURED ?? "false";
+// CI supplies this independently of the build inputs. Assert the rendered capability so a stale
+// unconfigured bundle cannot silently satisfy the configured geometry gate.
+const syncConfigured = process.env.STILL_TEST_SYNC_CONFIGURED;
 
 test("the background service worker registers and yields an extension id", async ({
   extensionId,
@@ -27,6 +29,7 @@ test("the popup keeps every primary control visible without scaling or overflow"
   context,
   extensionId,
 }) => {
+  await context.route(/^https?:/, (route) => route.abort());
   const page = await context.newPage();
   await page.setViewportSize({
     width: POPUP_INLINE_SIZE,
@@ -34,6 +37,13 @@ test("the popup keeps every primary control visible without scaling or overflow"
   });
   await page.goto(`chrome-extension://${extensionId}/popup.html`);
   await page.evaluate(() => document.fonts.ready);
+
+  if (syncConfigured !== undefined) {
+    await expect(
+      page.getByRole("button", { name: "Sign in to sync", exact: true }),
+    ).toHaveCount(syncConfigured === "true" ? 1 : 0);
+  }
+  await expect(page.getByRole("switch")).toHaveCount(5);
 
   const layout = await page.evaluate(() => {
     // The furthest bottom edge anything is laid out at, measured from the top of the document.
@@ -43,6 +53,7 @@ test("the popup keeps every primary control visible without scaling or overflow"
       return box.width > 0 || box.height > 0 ? box.bottom + window.scrollY : 0;
     });
     return {
+      scrollY: window.scrollY,
       innerWidth: window.innerWidth,
       innerHeight: window.innerHeight,
       scrollWidth: document.documentElement.scrollWidth,
@@ -57,6 +68,7 @@ test("the popup keeps every primary control visible without scaling or overflow"
   expect(layout.innerWidth).toBe(POPUP_INLINE_SIZE);
   expect(layout.innerHeight).toBe(POPUP_MAX_BLOCK_SIZE);
 
+  expect(layout.scrollY).toBe(0);
   expect(layout.scrollWidth).toBeLessThanOrEqual(layout.innerWidth);
   expect(layout.zoom).toBe("1");
 
@@ -67,8 +79,7 @@ test("the popup keeps every primary control visible without scaling or overflow"
   //   - the furthest laid-out edge catches the opposite mistake, pinning the popup's height and
   //     letting `overflow: clip` swallow the surplus, which the first measure reports as a clean
   //     600 while the content below is both invisible and unreachable.
-  // The rendered content is around 540px today, so roughly 60px of headroom stands between normal
-  // font variation and a red build.
+  // The configured sign-in card is taller than the device-only card; both must fit on initial open.
   expect(layout.scrollHeight).toBeLessThanOrEqual(POPUP_MAX_BLOCK_SIZE);
   expect(layout.contentBottom).toBeLessThanOrEqual(POPUP_MAX_BLOCK_SIZE);
 
@@ -89,9 +100,12 @@ async function expectPopupFits(
   context: BrowserContext,
   extensionId: string,
   width: number,
+  colorScheme: "light" | "dark",
 ): Promise<void> {
   const page = await context.newPage();
+  await context.route(/^https?:/, (route) => route.abort());
   await page.setViewportSize({ width, height: 640 });
+  await page.emulateMedia({ colorScheme });
   await page.goto(`chrome-extension://${extensionId}/popup.html`);
   await page.evaluate(() => document.fonts.ready);
 
@@ -118,28 +132,45 @@ async function expectPopupFits(
 
   expect(fit.popupWidth).toBeLessThanOrEqual(fit.available);
   expect(fit.clippedCount).toBe(0);
-  expect(fit.switchCount).toBeGreaterThan(0);
+  expect(fit.switchCount).toBe(5);
   expect(fit.switchesFullyVisible).toBe(true);
+
+  // Reach every interactive control using the keyboard, including the final settings button.
+  const controls = page.locator(
+    'button:not([disabled]):not([tabindex="-1"]), a[href]',
+  );
+  for (let index = 0; index < (await controls.count()); index++) {
+    await page.keyboard.press("Tab");
+    await expect(controls.nth(index)).toBeFocused();
+    await expect(controls.nth(index)).toBeInViewport({ ratio: 1 });
+  }
 }
 
-for (const width of [375, 320]) {
-  test(`the Chromium build's popup fits a ${width}px surface with every switch reachable`, async ({
-    context,
-    extensionId,
-  }) => {
-    await expectPopupFits(context, extensionId, width);
-  });
+for (const colorScheme of ["light", "dark"] as const) {
+  for (const width of [375, 320]) {
+    test(`the Chromium build's popup fits a ${width}px ${colorScheme} surface with every switch reachable`, async ({
+      context,
+      extensionId,
+    }) => {
+      await expectPopupFits(context, extensionId, width, colorScheme);
+    });
 
-  // The bug that prompted these checks is an iPhone one, and the iPhone runs the Safari build,
-  // which carries its own popup copy. Blink renders it here, so this proves the Safari bundle's
-  // markup and stylesheet fit a narrow screen; it does not stand in for WebKit or for how a real
-  // Safari popover or iOS sheet hosts the document.
-  test(`the Safari build's popup fits a ${width}px surface with every switch reachable`, async ({
-    safariContext,
-    safariExtensionId,
-  }) => {
-    await expectPopupFits(safariContext, safariExtensionId, width);
-  });
+    // The bug that prompted these checks is an iPhone one, and the iPhone runs the Safari build,
+    // which carries its own popup copy. Blink renders it here, so this proves the Safari bundle's
+    // markup and stylesheet fit a narrow screen; it does not stand in for WebKit or for how a real
+    // Safari popover or iOS sheet hosts the document.
+    test(`the Safari build's popup fits a ${width}px ${colorScheme} surface with every switch reachable`, async ({
+      safariContext,
+      safariExtensionId,
+    }) => {
+      await expectPopupFits(
+        safariContext,
+        safariExtensionId,
+        width,
+        colorScheme,
+      );
+    });
+  }
 }
 
 test("the manifest limits host permissions to the four services (no <all_urls>)", async ({

@@ -1,5 +1,18 @@
 # Track 6 — Mobile short-form blocking: Safari launch gate + future Firefox Android
 
+## Still 2.0 candidate instructions — draft
+
+For Still 2.0, verify all four supported services on Safari websites without sign-in or
+purchase, including offline/restart, toggles, pause and ordinary-content preservation. Check the
+native app and Safari sheet at narrow widths, light/dark and larger text on physical iPhone and
+supported iPad. Use approved synthetic accounts for optional sync and deletion journeys. Previous
+mobile evidence and paid-tier procedures below do not certify the 2.0 candidate.
+
+See [current certification](2026-09-08-still-2-certification.md) for exact artifacts and outstanding
+gates. Store metadata changes, upload/submission and production writes require explicit approval.
+
+## Previous release procedures (historical)
+
 Removing **YouTube Shorts is the free-tier core promise**, and mobile is historically Still's
 **weakest surface** — the one place CI can't reach. The required launch gate covers iPhone Safari,
 the only mobile surface advertised at launch. Firefox Android is a future validation track and does

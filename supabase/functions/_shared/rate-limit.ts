@@ -9,7 +9,8 @@ import { jsonResponse } from "./store.ts";
 // traffic through — fail closed.
 
 export interface RateLimiter {
-  /** Consume one request from a bucket. Returns 0 when allowed, else seconds until the window resets. */
+  /** Consume an ephemeral request key; the persistent adapter must derive a window-specific key
+   * before storage (migration 0013). Never log this input. Returns 0 or seconds until reset. */
   consume(bucketKey: string, maxRequests: number, windowSeconds: number): Promise<number>;
 }
 

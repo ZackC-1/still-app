@@ -31,9 +31,9 @@ jobs:
       - uses: actions/checkout@v7
 
       # pnpm version is read from package.json "packageManager" (pnpm@11.9.0).
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@v6.0.9
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -91,10 +91,10 @@ jobs:
             echo "::notice::Playwright harness not present yet (added in U16) — skipping e2e."
           fi
 
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@v6.0.9
         if: steps.detect.outputs.present == 'true'
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@v7
         if: steps.detect.outputs.present == 'true'
         with:
           node-version: 22
@@ -104,7 +104,10 @@ jobs:
         if: steps.detect.outputs.present == 'true'
         run: pnpm install --frozen-lockfile
 
-      - name: Build extensions
+      - name: Build unconfigured extensions
+        env:
+          VITE_SUPABASE_URL: ""
+          VITE_SUPABASE_ANON_KEY: ""
         if: steps.detect.outputs.present == 'true'
         run: pnpm build
 
@@ -128,8 +131,26 @@ jobs:
           done
           exit 1
 
-      - name: Run Playwright fixture tests (gating)
+      - name: Run unconfigured Playwright fixture tests (gating)
+        env:
+          STILL_TEST_SYNC_CONFIGURED: "false"
         if: steps.detect.outputs.present == 'true'
+        run: pnpm exec playwright test --project=fixtures
+
+      # Rebuild sequentially in this job; tests below must never reuse the shorter unconfigured UI.
+      - name: Build configured extensions with synthetic public configuration
+        if: steps.detect.outputs.present == 'true'
+        env:
+          VITE_SUPABASE_URL: https://still-audit.invalid
+          VITE_SUPABASE_ANON_KEY: public-audit-placeholder
+        run: |
+          rm -rf packages/ext-chromium/dist packages/ext-safari/dist
+          pnpm build
+
+      - name: Run configured Playwright fixture tests (gating)
+        if: steps.detect.outputs.present == 'true'
+        env:
+          STILL_TEST_SYNC_CONFIGURED: "true"
         run: pnpm exec playwright test --project=fixtures
 
       # The real-site smoke layer is intentionally NOT run here — it is non-gating

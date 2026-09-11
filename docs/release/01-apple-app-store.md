@@ -1,5 +1,19 @@
 # Track 1 — Apple App Store (iOS + macOS) + Safari extension + $1.99 IAP
 
+## Still 2.0 candidate instructions — draft
+
+For Still 2.0, blocking is free without an account or purchase. Sign-in enables optional
+settings sync. Both paid flags remain false; purchase UI stays dormant and RevenueCat identity
+plumbing remains active.
+Use version 2.0.0 and the candidate build number recorded in certification. Do not execute the
+older purchase setup/submission checklist below as a 2.0 requirement. Signed Release exports,
+macOS/Safari and physical iPhone/iPad evidence remain required.
+
+See [current certification](2026-09-08-still-2-certification.md) for exact artifacts and outstanding
+gates. Store metadata changes, upload/submission and production writes require explicit approval.
+
+## Previous release procedures (historical)
+
 This is the only track where paid Pro is fully wired in the shipping UI, and it has the **longest
 review queue** (budget 1–2 weeks for a first submission), so start it early.
 
