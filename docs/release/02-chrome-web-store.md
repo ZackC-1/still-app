@@ -1,5 +1,17 @@
 # Track 2 — Chrome Web Store (Chromium extension)
 
+## Still 2.0 candidate instructions — draft
+
+For Still 2.0, describe free YouTube Shorts, Instagram/Facebook Reels removal and TikTok
+website blocking, with optional account sync. Build the configured 2.0.0 ZIP from the frozen
+candidate. Verify its actual toolbar, options and supported-site journeys. Older Pro purchase
+instructions below describe retained infrastructure, not a 2.0 activation requirement.
+
+See [current certification](2026-09-08-still-2-certification.md) for exact artifacts and outstanding
+gates. Store metadata changes, upload/submission and production writes require explicit approval.
+
+## Previous release procedures (historical)
+
 Fast and cheap ($5 one-time, no hardware). Ships the Shorts remover **plus** the in-extension
 "Unlock Pro" purchase (email-OTP sign-in + RevenueCat Web Billing) shipped in PR #34. Whether Pro is
 live depends only on the build carrying prod Supabase creds — an unconfigured build fails safe to the

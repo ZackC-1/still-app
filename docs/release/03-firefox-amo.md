@@ -1,5 +1,21 @@
 # Track 3 — Firefox Add-ons (addons.mozilla.org / AMO)
 
+## Still 2.0 candidate instructions — draft
+
+For Still 2.0, all supported blocking is free and account sync is optional. The draft
+listing must not mark this version as requiring payment. Optional sign-in transmits account
+authentication and settings data; preserve the current manifest consent declaration and minimum
+Firefox version. Keep desktop-only support. Supply the complete frozen monorepo and explicit
+allowlisted public build configuration for source reproduction; never copy an ignored `.env`
+wholesale. Run `pnpm install --frozen-lockfile` and `pnpm --filter @still/ext-chromium build:firefox`
+in a clean extraction and compare all built files. The older Pro/payment and source-environment
+instructions below are historical and do not govern 2.0.
+
+See [current certification](2026-09-08-still-2-certification.md) for exact artifacts and outstanding
+gates. Store metadata changes, upload/submission and production writes require explicit approval.
+
+## Previous release procedures (historical)
+
 The Firefox build is a second target of the existing WXT project. It ships the Shorts remover **plus**
 the in-extension Pro purchase (email-OTP sign-in + RevenueCat Web Billing) shipped in PR #34 — same
 extension as Chrome. Whether Pro is live depends only on the build carrying prod Supabase creds; see

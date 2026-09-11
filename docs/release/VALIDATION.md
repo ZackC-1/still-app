@@ -1,5 +1,11 @@
 # Release Validation
 
+The Still 2.0 candidate is **not yet certified**. Its current checks and unverified surfaces are
+tracked in [the September 8 certification record](2026-09-08-still-2-certification.md).
+The records below apply only to their named older commits; they are not 2.0 evidence.
+
+## Historical validation
+
 Current validation record for commit
 `5678e1b4ef683d0ba1857dff68583c9b40437b95` on July 10, 2026.
 

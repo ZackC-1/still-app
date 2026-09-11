@@ -7,7 +7,7 @@ export const firefoxBrowserSpecificSettings = {
     // data collection, pin the minimum so no one can install on an older desktop Firefox and sign
     // in or transmit auth/settings data without that consent screen.
     strict_min_version: "140.0",
-    // Optional Pro sign-in uses an emailed one-time code and persists a Supabase session. Settings
+    // Optional account sign-in uses an emailed one-time code and persists a Supabase session. Settings
     // sync carries only the signed-in user's own Still preferences under that account.
     data_collection_permissions: { required: ["authenticationInfo"] },
   },
@@ -30,7 +30,7 @@ export function stillManifest(browser: string) {
   return {
     name: "Still: Block Shorts & Reels",
     description:
-      "Block YouTube Shorts free. Still Pro removes Reels and TikTok and syncs settings across supported browsers.",
+      "Remove YouTube Shorts, Instagram and Facebook Reels, and block the TikTok website for free. Sign in optionally to sync settings.",
     permissions: [
       "storage",
       // DNR is Chromium-only here (see header); Firefox uses the content-script redirect.
