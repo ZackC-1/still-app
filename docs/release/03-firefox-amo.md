@@ -22,6 +22,16 @@ The older screenshot set depicts paid controls and must not accompany the free r
 See [current certification](2026-09-08-still-2-certification.md) for exact artifacts and outstanding
 gates. Store metadata changes, upload/submission and production writes require explicit approval.
 
+### Existing-listing update: publication boundary
+
+**Continue after upload validation can create and publish an update before a later Submit Version
+button.** Do not assume this is a draft-only step or that manual review will delay availability.
+Have the source archive, reproducible build instructions, reviewer notes and final metadata ready
+before advancing. Supply source and notes at the first available fields; if the version becomes
+public during Continue, attach/save them immediately and verify persistence. Check the developer
+version and public API after each advancing step. See the
+[verified AMO publication-boundary lesson](../solutions/conventions/amo-continue-can-publish-an-update.md).
+
 ## Previous release procedures (historical)
 
 The Firefox build is a second target of the existing WXT project. It ships the Shorts remover **plus**
@@ -152,8 +162,8 @@ fails safe to the free Shorts remover.
 
 ## 6. Review + publish
 
-- [ ] Submit → **human review** follows automated validation. Listed add-ons that request host
-      permissions and submit source are reviewed manually; budget a few days.
+- [ ] Historical planning assumption: allow time for review, but do not assume a human-review delay
+      prevents publication. For current updates, use the publication-boundary procedure above.
 - [ ] After approval the add-on is live at its `addons.mozilla.org` URL and auto-updates from AMO.
 
 Docs: [Submitting an add-on](https://extensionworkshop.com/documentation/publish/submitting-an-add-on/) ·
