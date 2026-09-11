@@ -154,6 +154,9 @@ supabase functions deploy create-web-checkout --project-ref kikpgrreradotvvefdgd
   --import-map supabase/functions/deno.json
 ```
 
+Before deploying, read the [dependency configuration note](counter-retention.md#edge-dependency-configuration)
+for the legacy import-map argument and CLI 2.107.0 warning.
+
 > **Current retained function behavior.** `create-web-checkout` verifies the Supabase JWT,
 > derives `app_user_id` from its `sub`, then returns
 > `https://pay.rev.cat/<token>/<app_user_id>` for the browser to open. There
