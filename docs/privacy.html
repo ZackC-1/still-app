@@ -3,79 +3,151 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Still Privacy Policy — Data, purchases &amp; sync</title>
-<meta name="description" content="Learn what Still stores for optional sign-in, purchase restore, and settings sync—and what Still does not collect while blocking short-form video.">
+<title>Still Privacy Policy — Accounts, service providers &amp; retention</title>
+<meta name="description" content="How Still handles local settings, optional sync, service-provider records and account deletion without collecting browsing history.">
 <meta name="theme-color" content="#2948e8">
 <link rel="canonical" href="https://stillapp.fit/privacy/">
 <link rel="stylesheet" href="/assets/legal.css">
 </head>
 <body>
   <h1>Still — Privacy Policy</h1>
-  <p class="updated">Last updated: July 13, 2026</p>
+  <p class="updated">Last updated: September 11, 2026</p>
+  <p>Still is made by Cadmus Labs LLC. This policy covers our apps, browser extensions, website
+  and support service.</p>
+  <p>Still 2.0 removes YouTube Shorts and Instagram/Facebook Reels and blocks the TikTok website
+  for free on supported web surfaces. Blocking needs no account or purchase. Optional sign-in enables
+  free settings sync. On iPhone and iPad, Still works in Safari websites, not native social-media apps.
+  See <a href="/#release-status">2.0 release availability</a> before installing.</p>
 
-  <p>Still 2.0 removes YouTube Shorts, Instagram and Facebook Reels, and blocks the
-  TikTok website for free in supported browsers. This policy explains what data Still collects, why, and your
-  choices.</p>
+  <h2>Browsing and local settings</h2>
+  <p>Still does not collect your browsing history or the content of pages you visit. Access to the
+  supported websites lets Still remove or block the features you select. Your blocking settings can
+  stay on your device, and blocking works without signing in.</p>
+  <p>Using Still without an account does not mean no information reaches service providers. The Apple
+  app connects to RevenueCat before sign-in, and online requests involve connection information.</p>
 
-  <p class="lede"><strong>Short version:</strong> Still does <strong>not</strong> track you, show ads,
-  or sell your data. The only data we handle is what's needed to (a) sign you in and (b) sync your
-  settings across your devices — and only if you choose to sign in.</p>
-
-  <h2>What we collect</h2>
-  <p>Still works fully <strong>without an account</strong> — if you never sign in, Still keeps your
-  settings on your device only and we collect nothing.</p>
-  <p>If you create an account to sync settings across devices, we process:</p>
-  <table>
-    <thead>
-      <tr><th>Data</th><th>Why</th><th>Where it's stored</th></tr>
-    </thead>
-    <tbody>
-      <tr><td><strong>Email address</strong></td><td>Account identity (you sign in with a 6-digit code sent by email)</td><td>Supabase (our backend)</td></tr>
-      <tr><td><strong>Account ID</strong></td><td>Links your devices to the same account so settings sync</td><td>Supabase</td></tr>
-      <tr><td><strong>Your Still settings</strong></td><td>The features you've turned on/off and per-site pauses, so they match on every device</td><td>Supabase</td></tr>
-      <tr><td><strong>Purchase record</strong></td><td>Historical Still Pro purchases; no purchase is needed for Still 2.0</td><td>Apple or Stripe, and RevenueCat</td></tr>
-    </tbody>
-  </table>
-  <p>We do <strong>not</strong> collect: browsing history, the content of pages you visit, location,
-  contacts, device identifiers for tracking, or any analytics/advertising data.</p>
-
-  <h2>Service providers</h2>
-  <p>We share the minimum data above only with the providers that make the app work:</p>
+  <h2>Information we use and service providers</h2>
   <ul>
-    <li><strong>Apple</strong> — in-app purchases made in the iPhone, iPad, or Mac app (StoreKit).</li>
-    <li><strong>Stripe</strong> — web purchases started from the Chrome or Firefox extension.</li>
-    <li><strong>Supabase</strong> — stores your account and synced settings.</li>
-    <li><strong>RevenueCat</strong> — processes and verifies your in-app purchase.</li>
+    <li><strong>Account and settings sync:</strong> Supabase processes your email address, account ID,
+    authentication information and synced Still settings when you choose to sign in. Settings describe
+    your choices, not a history of websites you visit.</li>
+    <li><strong>Sign-in email:</strong> Resend processes the recipient address, message content and
+    delivery information needed to send sign-in emails. Open and click tracking are disabled for
+    our sign-in email domain. Delivery and security records still exist.</li>
+    <li><strong>Service security:</strong> Supabase processes request information such as IP addresses,
+    timestamps and outcomes, along with our temporary security counters, to operate and protect
+    account access and backend services.</li>
+    <li><strong>App identity and historical purchases:</strong> RevenueCat maintains app-user identities,
+    purchase history and entitlement information. The Apple app starts with a generated anonymous
+    app-user ID. Signing in associates RevenueCat with your Still account ID, which can be linked to
+    your account. RevenueCat also records connections and customer country information and provides
+    purchase analytics. Apple holds underlying App Store purchase records. No purchase is needed
+    for Still 2.0.</li>
+    <li><strong>Support correspondence:</strong> our support, privacy and general-contact addresses
+    forward to a Google Workspace mailbox. We receive your address, message and any attachments
+    so we can respond.</li>
+    <li><strong>Website visits:</strong> GitHub Pages hosts our website and records visitor IP addresses
+    for security. This is separate from the websites you use Still to block.
+    See <a href="https://docs.github.com/en/pages/getting-started-with-github-pages/what-is-github-pages">GitHub Pages documentation</a>
+    and <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub's privacy statement</a>.</li>
   </ul>
-  <p>We do not sell or share your data with anyone else, and none of this is used for advertising or
-  tracking.</p>
+  <p>RevenueCat documents that customer country can come from a transaction or an IP-derived country,
+  and that it discards the IP used for that derivation. This does not mean all services involved in
+  Still keep no IP logs. See <a href="https://www.revenuecat.com/docs/dashboard-and-metrics/customer-profile">RevenueCat's customer documentation</a>.</p>
+  <p>We do not sell your personal information or use it for advertising tracking. We do not collect
+  browsing analytics. RevenueCat's purchase analytics are separate from browsing activity. Its only
+  configured integration for Still sends events to our Supabase backend.</p>
+  <p>Providers may process information outside your country. For example, Resend documents that it
+  stores customer email data in the United States; selecting an email sending region does not change
+  that storage location. See <a href="https://resend.com/security/gdpr">Resend's processing information</a>.</p>
+
+  <h2>How long information remains</h2>
+  <h3>Local settings and account safety</h3>
+  <p>Settings remain on your device while you keep the local app or extension data. A minimal
+  last-synced-account marker remains after sign-out or account deletion to prevent settings from one
+  account being copied into another on a shared device. It is not an IP address or browsing history.</p>
+
+  <h3>Account and synced settings</h3>
+  <p>We keep your active account and synced settings until you delete the account. The deletion
+  process and its limits are described below.</p>
+
+  <h3>Temporary security counters</h3>
+  <p>Our counter database stores a count, a short time window and a derived identifier for an account,
+  email address or internet connection. It does not store raw IP addresses. Connection identifiers
+  change between windows and are not linked to an account history. Deriving an identifier is a
+  safeguard; it does not necessarily make the record anonymous.</p>
+  <p>Counters use one-minute or ten-minute windows. With cleanup operating normally, expired counters
+  and their window-specific keys are removed by the end of the window plus up to one minute and five
+  seconds: at most eleven minutes and five seconds in total. An outage can delay cleanup. These
+  periods describe active counter records, not provider logs or backup copies.</p>
+
+  <h3>Service logs and database audit records</h3>
+  <p>Separate service logs can contain IP addresses and request information. Our sign-in verification
+  audit messages contain a time and outcome without recording the IP address. Earlier versions
+  recorded IP addresses; deploying the change did not erase existing logs.</p>
+  <p>Supabase's Pro plan advertises seven-day log retention. That does not establish the lifetime of
+  separate audit records stored inside the database or guarantee erasure of every underlying copy.
+  Database audit records and separately stored billing events are not covered by the temporary-counter
+  cleanup schedule. See <a href="https://supabase.com/pricing">Supabase's plan details</a> and
+  <a href="https://supabase.com/docs/guides/auth/audit-logs">audit storage documentation</a>.</p>
+
+  <h3>Database backups</h3>
+  <p>Supabase keeps daily physical database backups for recovery. Our plan provides a seven-day backup
+  history; point-in-time recovery is disabled. Deleting a live record does not selectively erase it
+  from an existing backup. Backup availability is not a guarantee that every underlying copy is erased
+  at that exact deadline. See <a href="https://supabase.com/docs/guides/platform/backups">Supabase's backup documentation</a>.</p>
+
+  <h3>Sign-in email</h3>
+  <p>Resend documents 30-day retention for email and log data on our Free plan and separate seven-day
+  backups. Deleting your Still account does not immediately delete those records. Earlier removal of
+  a specific message can be requested through Resend. These periods do not describe copies in your
+  email account or our support mailbox. See <a href="https://resend.com/security/gdpr">Resend's retention information</a>.</p>
+
+  <h3>RevenueCat and purchase records</h3>
+  <p>Deleting a Still account does not automatically delete its RevenueCat customer identity, aliases,
+  historical purchases or separate backend billing-event records. Our current account-deletion flow
+  sets no automatic expiry for those records. They support retained app identity and historical
+  purchase services. You can contact us about removal. RevenueCat provides a separate customer-deletion
+  operation; it does not erase Apple's underlying store records.
+  See <a href="https://www.revenuecat.com/docs/dashboard-and-metrics/customer-profile">RevenueCat's customer-deletion documentation</a>.</p>
+
+  <h3>Support correspondence</h3>
+  <p>Messages in our Google Workspace mailbox remain until we manually delete them. We do not
+  currently apply an automatic deletion schedule. Deleting a Still account does not delete that
+  correspondence. You can request its deletion by contacting us. Deleting a mailbox message is not
+  an immediate erasure guarantee for every provider copy. Google describes Trash, administrator
+  recovery and any applicable Vault retention separately in its
+  <a href="https://knowledge.workspace.google.com/admin/support/troubleshooting/restore-a-users-permanently-deleted-email">email recovery documentation</a>.</p>
+
+  <h2>Your choices and account deletion</h2>
+  <p>You can use blocking without an account, stop settings sync by signing out, and request a copy
+  of your account data by contacting <a href="mailto:privacy@stillapp.fit">privacy@stillapp.fit</a>.</p>
+  <p>Choose <strong>Delete account</strong> in the app's signed-in screen to remove the authentication
+  account, synced settings, account entitlement record and account-linked security counters from our
+  active application database. Temporary connection counters may finish their existing short security
+  window so deleting an account does not reset protection for other people using the same connection.</p>
+  <p>Local settings and the account-safety marker can remain on your device. Provider logs, database
+  audit records, backups, email correspondence, RevenueCat history and underlying store records have
+  the separate handling described above. Account deletion does not make all these records disappear
+  immediately or guarantee that historical purchases transfer to a new account.</p>
+  <p>Contact <a href="mailto:privacy@stillapp.fit">privacy@stillapp.fit</a> to request access, correction
+  or deletion beyond the in-app process. We may need to verify that the request concerns your
+  information. We will explain any records that cannot be removed through that request and the
+  applicable limitations.</p>
 
   <h2>Chrome Web Store Limited Use</h2>
   <p>Still's use and transfer of user data complies with the Chrome Web Store User Data Policy,
   including the Limited Use requirements. Still uses and transfers user data only to provide or
   improve its disclosed single purpose and user-facing features.</p>
 
-  <h2>Your choices and rights</h2>
-  <ul>
-    <li><strong>Delete your account</strong> — In the app's signed-in screen, choose
-    <strong>Delete account</strong>. This permanently deletes your account, settings, and purchase
-    record from sync. (Your purchase still exists with Apple and can be restored if you make a new
-    account.)</li>
-    <li><strong>Export your data</strong> — You can request a copy of your account data.</li>
-    <li><strong>Use Still without an account</strong> — Just don't sign in; everything stays on your
-    device.</li>
-  </ul>
-
   <h2>Children's privacy</h2>
-  <p>Still is not directed at children under 13 and does not knowingly collect their data.</p>
+  <p>Still is not directed at children under 13 and does not knowingly collect their data. Contact us
+  if you believe a child has provided personal information so we can review its removal.</p>
 
-  <h2>Changes</h2>
-  <p>If this policy changes, we'll update the "Last updated" date above.</p>
-
-  <h2>Contact</h2>
-  <p>Questions about your privacy or data? Email <a href="mailto:privacy@stillapp.fit">privacy@stillapp.fit</a>.</p>
-
-  <p class="footer"><a href="https://stillapp.fit/">Still home</a> ·
-  © 2026 Cadmus Labs · <a href="https://stillapp.fit/support/">Support</a></p>
+  <h2>Changes and contact</h2>
+  <p>When this policy changes, we will update its date. For privacy questions or data requests, email
+  <a href="mailto:privacy@stillapp.fit">privacy@stillapp.fit</a>.</p>
+  <p class="footer"><a href="https://stillapp.fit/">Still home</a> · © 2026 Cadmus Labs LLC ·
+  <a href="https://stillapp.fit/support/">Support</a></p>
 </body>
 </html>
