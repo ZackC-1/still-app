@@ -86,6 +86,10 @@ PNG header checks confirmed all six output dimensions. Chromium emits RGB and Fi
 No runtime code changed for this asset refresh. Scoped verification covers image headers and
 hashes, payload identity, documentation links and actual visual review; it does not repeat the
 broader release/device test suite. Store uploads and native Apple screenshots are separate work.
+The release-wide asset brief also calls for activation and Safari-only mobile visuals. This
+browser set does not show installation/permission steps; native Apple captures cover Safari
+setup and the mobile boundary. Browser descriptions/captions retain the Safari-only qualification.
+This record makes no claim that the full cross-store screenshot brief is complete.
 Do not use the legacy `render.mjs` compositor, which embeds archived paid UI.
 
 Related: [store-asset review conventions](../../../solutions/conventions/codify-store-asset-compliance-in-tests.md),

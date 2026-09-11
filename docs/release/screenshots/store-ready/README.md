@@ -77,6 +77,13 @@ Put these captions in AMO's screenshot-description fields. The blocked page itse
 
 ## Browser capture provenance and refresh
 
+The [release-wide screenshot brief](../../marketing-playbook.md#assets-and-publication) spans browser
+and native Apple surfaces. This browser sequence covers free controls, optional sync and the
+optional TikTok result. It does not picture browser installation/permission steps. Safari setup
+and the Safari-only mobile boundary belong to the separate native Apple capture set; keep that
+boundary explicit in browser listing descriptions and captions too. These files do not certify
+complete cross-store screenshot coverage or replace review of the Apple set.
+
 The controls view uses 200% native browser zoom; the optional-sync view uses 150%; the TikTok
 result uses 200%. The content viewport remains 1280x800 physical pixels. The popup document is
 opened directly, with its real white background. All four controls fit in the first capture;
