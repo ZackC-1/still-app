@@ -2,10 +2,8 @@ import { describe, it, expect, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { SupabaseAuthPort } from "../auth.js";
 
-// SupabaseAuthPort.signOut (F1): auth-js only removes the LOCAL session after a successful server
-// revoke, so a failed/offline global sign-out would leave the session persisted — the extension's
-// next background wake would resurrect the signed-out user. The port must fall back to
-// scope:"local" so the local session is always cleared.
+// Ordinary sign-out must never revoke another device's session. Keep both attempts local;
+// the extension teardown separately clears persisted auth storage after failed revocation.
 
 function clientWith(signOut: ReturnType<typeof vi.fn>) {
   return { auth: { signOut } } as unknown as SupabaseClient;
@@ -21,20 +19,21 @@ function gotrueError(code: string | undefined, status: number) {
 }
 
 describe("SupabaseAuthPort.signOut (F1 — offline-proof local removal)", () => {
-  it("a clean global sign-out needs no local fallback", async () => {
+  it("a successful device-local sign-out needs no retry", async () => {
     const signOut = vi.fn(async () => ({ error: null }));
     await new SupabaseAuthPort(clientWith(signOut)).signOut();
     expect(signOut).toHaveBeenCalledTimes(1);
-    expect(signOut).toHaveBeenCalledWith(); // the default (global) call only
+    expect(signOut).toHaveBeenCalledWith({ scope: "local" });
   });
 
-  it("a failed global sign-out falls back to scope:'local' so the session is still cleared", async () => {
+  it("a failed device-local sign-out retries without revoking other devices", async () => {
     const signOut = vi
       .fn()
-      .mockResolvedValueOnce({ error: new Error("offline") }) // global revoke fails
+      .mockResolvedValueOnce({ error: new Error("offline") }) // local revoke fails
       .mockResolvedValueOnce({ error: null }); // local removal succeeds
     await new SupabaseAuthPort(clientWith(signOut)).signOut();
     expect(signOut).toHaveBeenCalledTimes(2);
+    expect(signOut).toHaveBeenNthCalledWith(1, { scope: "local" });
     expect(signOut).toHaveBeenLastCalledWith({ scope: "local" });
   });
 });
