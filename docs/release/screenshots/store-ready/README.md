@@ -53,7 +53,6 @@ Remove older screenshots depicting Pro locks, purchase requirements or paid sync
 listing. The previous `still-chrome-free-2-1280x800.png` remains a historical baseline.
 
 - Browser: Chromium 153.0.8010.12, isolated profile with the release extension loaded
-- Optional third image: [`still-chrome-functional-03-tiktok-1280x800.png`](chrome/still-chrome-functional-03-tiktok-1280x800.png). Use only with an accompanying caption: “The TikTok website is blocked while Still is on. This does not block the native TikTok app.” Otherwise keep the two-image sequence.
 - Small promo tile: `chrome/still-chrome-promo-v2-440x280.jpg` (required)
 - Marquee tile: `chrome/still-chrome-marquee-v2-1400x560.jpg` (optional, recommended)
 - The promo tiles are brand-led and omit marketing copy, following Chrome's recommendation to avoid

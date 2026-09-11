@@ -171,9 +171,11 @@ Reviewer notes:
 >
 > The complete source archive includes the pnpm workspace, frozen lockfile, public build configuration, and AMO-REBUILD.mjs. Follow that file's prerequisites and run `node AMO-REBUILD.mjs` to reproduce the submitted Firefox payload. Remote rule updates are signed data, not executable code.
 
-Screenshot description:
+Screenshot descriptions:
 
-> Still 2.0 removes Shorts and Reels and blocks the TikTok website for free. Sign-in is optional for settings sync.
+Use the ordered per-image captions in the [current Firefox screenshot manifest](screenshots/store-ready/README.md#firefox-add-ons-amo),
+matching each caption to its image. The optional TikTok result requires the caption identifying the
+TikTok website and explaining that the native TikTok app is unaffected.
 
 ## Customer support responses
 

@@ -47,7 +47,9 @@ An independent reviewer inspected both selected browser sets at full size and at
 size. The controls and optional-sync pair passed for readability, complete controls, absence of
 paid locks/prices and absence of customer data. The third image passed only as an optional result
 with a caption naming the TikTok website; its generic message is insufficient as a standalone
-explanation. Use the [upload manifest](../store-ready/README.md) for order and captions.
+explanation. Chrome uses the controls/sync pair; its TikTok capture is retained as evidence only.
+Firefox can use the captioned third image. Use the [upload manifest](../store-ready/README.md) for
+order and captions.
 
 ## Package and screenshot hashes
 
