@@ -32,7 +32,12 @@ Promotional text (170-character limit):
 
 Keywords (100-byte limit):
 
-> focus,distraction,doomscroll,attention,productivity,mindful,shorts,reels,tiktok,safari
+> focus,distraction,doomscroll,attention,mindful,video,feed,scroll,website,hide,remove,calm,browser
+
+The 97-byte keyword field avoids terms already present in the name, subtitle, or selected
+Productivity/Utilities categories. It uses relevant functional terms without competing app names;
+supported websites remain named in the description. Follow [Apple's search guidance](https://developer.apple.com/app-store/search/)
+when revising it. These choices do not establish search volume or guarantee ranking.
 
 Description (use for both Apple listings):
 
