@@ -550,7 +550,7 @@
   }
 
   .app[data-density="compact"] {
-    --app-gap: var(--space-2);
+    --app-gap: var(--space-1);
     --app-padding: var(--space-2);
     --appbar-padding: 0 0 var(--space-1);
     --hero-padding: var(--space-3);
