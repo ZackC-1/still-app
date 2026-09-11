@@ -368,7 +368,8 @@ in App Store Connect · `[device]` human on hardware.
    gitignored env file (values never printed anywhere) →
    `supabase secrets set --env-file <file> --project-ref kikpgrreradotvvefdgd` →
    `supabase functions deploy review-signin --import-map supabase/functions/deno.json --project-ref kikpgrreradotvvefdgd`
-   (the explicit `--project-ref` matters: without it the commands depend on a gitignored local
+   (see the [dependency configuration note](counter-retention.md#edge-dependency-configuration)
+   for the import-map warning; the explicit `--project-ref` matters: without it the commands depend on a gitignored local
    `supabase link`, which a fresh clone or another worktree does not have) → curl smoke recording
    HTTP statuses only — the exact reproducible invocation lives in the deploy checklist §1c —
    (fixed code → 200; wrong code → 401; non-review address → 404). ALL before any archive upload.

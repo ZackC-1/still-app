@@ -79,8 +79,9 @@ Deploy steps: mint both values into a gitignored env file without printing them 
 `packages/app-webview/.env.review-signin`), then
 `supabase secrets set --env-file <file> --project-ref kikpgrreradotvvefdgd` and
 `supabase functions deploy review-signin --import-map supabase/functions/deno.json --project-ref kikpgrreradotvvefdgd`
-(never pass the values inline on the CLI — shell history and agent transcripts persist them; full
-procedure in `docs/release/extension-purchase-deploy-checklist.md` §1c).
+(read the [dependency configuration note](release/counter-retention.md#edge-dependency-configuration)
+for the CLI 2.107.0 import-map warning; never pass the values inline on the CLI — shell history and
+agent transcripts persist them; full procedure in `docs/release/extension-purchase-deploy-checklist.md` §1c).
 The address and code values are NEVER committed anywhere (this repo is public — the address is half
 the two-factor gate); they live in the private submission record and App Store Connect only. The
 Apple build's `VITE_REVIEW_SIGNIN_EMAIL` must equal the secret exactly (hard pre-upload cross-check,

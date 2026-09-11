@@ -169,6 +169,24 @@ it does not establish SQL validity, row preservation, privilege success or cron 
 execution supplies those checks. If pg_cron is absent, enabling it is a separately named approved
 provider action; do not broaden the migration role to work around a denied prerequisite.
 
+## Edge dependency configuration
+
+The current checkout uses the shared `supabase/functions/deno.json`. The deployment commands below
+retain the explicit `--import-map` argument used with that layout. Supabase CLI 2.107.0 still accepts
+it, but the bundler can report: “Specifying import_map through flags is no longer supported. Please
+use deno.json instead.” A successful CLI exit alone does not verify deployed dependency resolution
+or function behavior; retain the source and deployment checks below.
+
+Supabase recommends `supabase/functions/<name>/deno.json`, beside each function's `index.ts`, for
+[deployment dependency configuration](https://supabase.com/docs/guides/functions/dependencies).
+CLI 2.107.0 [automatically selects that per-function file](https://github.com/supabase/cli/blob/v2.107.0/apps/cli-go/internal/functions/deploy/deploy.go)
+and [omits the legacy bundler flag for that placement](https://github.com/supabase/cli/blob/v2.107.0/apps/cli-go/pkg/function/bundle.go).
+Its automatic selection does not include the shared parent `deno.json` used here. Do not simply
+remove `--import-map` from these commands or change runtime configuration during a deployment to
+silence the warning. First review and verify a per-function configuration change, including imports
+from `_shared`, then update the deployment commands to omit the flag. That migration is separate
+from this runbook correction; the current invocation remains a legacy compatibility path.
+
 ## Approved deployment sequence
 
 1. Obtain explicit approval for enabling cron if needed, the migration's one-time legacy purge,
@@ -178,7 +196,8 @@ provider action; do not broaden the migration role to work around a denied prere
    window-key table, constraints/indexes, replacement RPC and minute cleanup job. Apply atomically;
    SQL failure must roll back the migration. No profile/entitlement/identity data should change.
 3. Deploy the reviewed Edge revisions containing `_shared/pg-store.ts` and deletion adapter with
-   `supabase functions deploy <name> --import-map supabase/functions/deno.json` for
+   `supabase functions deploy <name> --project-ref <approved-project-ref> --import-map supabase/functions/deno.json`
+   using the [current dependency configuration](#edge-dependency-configuration), for
    `reconcile-entitlement`, `create-web-checkout`,
    `review-signin`, and `delete-user`. This shared-module deployment changes retention/error handling,
    not dormant purchase behavior. Coordinate any combined #150 export deployment separately.
