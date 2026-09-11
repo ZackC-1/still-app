@@ -358,6 +358,7 @@
     color: var(--on-blue);
     border-radius: var(--radius-sheet);
     padding: var(--hero-padding, var(--space-6));
+    padding-inline: var(--service-card-padding-inline, var(--space-4));
   }
   .hero.off {
     background: var(--surface-raised);
