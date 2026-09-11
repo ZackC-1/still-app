@@ -106,7 +106,7 @@ Completed in the live listing:
 
 The public install URL is
 <https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf>.
-The linked privacy policy is live at <https://zackc-1.github.io/still-app/privacy/>. Keep the current
+The linked privacy policy is live at <https://stillapp.fit/privacy/>. Keep the current
 listing stable while its first users arrive; make only deliberate metadata or availability changes.
 
 ## Firefox AMO

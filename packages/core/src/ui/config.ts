@@ -5,12 +5,12 @@
  * App Store Connect metadata). Served by GitHub Pages from the `gh-pages` branch, which uses
  * directory-style pretty URLs (`/privacy/`, not `/privacy.html`). The same URL must be entered in
  * the App Store Connect "Privacy Policy URL" field. If a custom domain is added later
- * (e.g. https://still.app/privacy), update this constant + the ASC field together.
+ * (e.g. https://stillapp.fit/privacy), update this constant + the ASC field together.
  */
-export const PRIVACY_POLICY_URL = "https://zackc-1.github.io/still-app/privacy/";
+export const PRIVACY_POLICY_URL = "https://stillapp.fit/privacy/";
 
 /** Device- and browser-specific setup instructions hosted on the Still website. */
-export const SETUP_GUIDE_URL = "https://zackc-1.github.io/still-app/setup/";
+export const SETUP_GUIDE_URL = "https://stillapp.fit/setup/";
 
 /**
  * Support contact for purchase recovery (plan U4). "Find my purchase" is a support mailto for v1
