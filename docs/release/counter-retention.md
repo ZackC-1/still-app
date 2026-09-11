@@ -55,6 +55,19 @@ provider retention contradicts the approved functionality-only/IP-deletion polic
 decision or configure supported deletion before release. The short-lived counter exception does not
 authorize indefinite provider retention.
 
+### Application logging follow-up
+
+The reviewed source for `review-signin` logs verification timestamps and fixed outcomes without
+request IPs. Limiter and session-mint failures emit fixed categories rather than untrusted exception
+objects. This preserves response behavior and IP-based throttling, but removes network attribution
+from these application audit messages. Deploy this handler revision separately through the approved
+Edge deployment process and verify downloaded source parity before describing it as live behavior.
+No database migration or Apple/browser artifact rebuild is needed for this isolated handler change.
+
+The change stops these new application-generated copies after deployment. It does not erase prior
+Edge logs, suppress gateway/Auth/provider request metadata, alter provider retention or delete
+backups. Complete the provider inventory above before making public deletion or IP-retention claims.
+
 Primary references (checked 2026-09-08): [Supabase Cron](https://supabase.com/docs/guides/cron),
 [logs](https://supabase.com/docs/guides/observability/logs),
 [Auth audit logs](https://supabase.com/docs/guides/auth/audit-logs), and

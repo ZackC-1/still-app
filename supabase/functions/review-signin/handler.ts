@@ -1,5 +1,4 @@
 import {
-  clientIp,
   enforceRateLimit,
   type RateLimiter,
   type RateLimitPolicy,
@@ -99,13 +98,13 @@ export async function handleReviewSignin(req: Request, deps: ReviewSigninDeps): 
   if (!configured || email !== reviewEmail) {
     // ONE indistinguishable refusal for "not configured" and "not the review address" — and it
     // fires before any limiter call, so consumption differences can't become a config oracle.
-    if (body.action === "verify") logVerifyAttempt(req, "refused");
+    if (body.action === "verify") logVerifyAttempt("refused");
     return jsonResponse(404, { error: "not_found" });
   }
 
   const limited = await enforceReviewLimits(deps.limiter, body.action, email, req);
   if (limited) {
-    if (body.action === "verify") logVerifyAttempt(req, "rate_limited");
+    if (body.action === "verify") logVerifyAttempt("rate_limited");
     return limited;
   }
 
@@ -116,18 +115,18 @@ export async function handleReviewSignin(req: Request, deps: ReviewSigninDeps): 
   }
 
   if (!constantTimeEqual(body.code, deps.config.reviewCode)) {
-    logVerifyAttempt(req, "invalid_code");
+    logVerifyAttempt("invalid_code");
     return jsonResponse(401, { error: "invalid_code" });
   }
 
   try {
     const session = await mintSession(deps.admin, email);
-    logVerifyAttempt(req, "verified");
+    logVerifyAttempt("verified");
     return jsonResponse(200, session);
-  } catch (error) {
-    // Never leak GoTrue/internal detail to the caller; the server log carries it.
-    console.error("review-signin session mint failed:", error);
-    logVerifyAttempt(req, "mint_failed");
+  } catch {
+    // Provider exceptions may contain request or account data; log only the failure category.
+    console.error("review-signin session mint failed");
+    logVerifyAttempt("mint_failed");
     return jsonResponse(500, { error: "internal" });
   }
 }
@@ -162,10 +161,10 @@ async function enforceReviewLimits(
       REQUEST_RATE_LIMIT.windowSeconds,
     );
     return wait > 0 ? tooManyRequests(wait) : null;
-  } catch (error) {
+  } catch {
     // There is no auth gate above this handler to convert a throw into a 500, and open traffic on
     // a limiter outage would leave the fixed code unmetered — fail closed as a 429.
-    console.error("review-signin rate limiter failed (failing closed):", error);
+    console.error("review-signin rate limiter failed (failing closed)");
     return tooManyRequests(LIMITER_FAILURE_RETRY_SECONDS);
   }
 }
@@ -194,9 +193,9 @@ async function mintSession(admin: ReviewAdmin, email: string): Promise<ReviewSes
   return await admin.verifyMagicLinkTokenHash(tokenHash);
 }
 
-/** Audit trail (R12): timestamp, IP, outcome — never the code, never the submitted email. */
-function logVerifyAttempt(req: Request, outcome: string): void {
+/** Audit trail: timestamp and fixed outcome only; request identifiers stay out of logs. */
+function logVerifyAttempt(outcome: string): void {
   console.info(
-    `review-signin verify at=${new Date().toISOString()} ip=${clientIp(req) ?? "unknown"} outcome=${outcome}`,
+    `review-signin verify at=${new Date().toISOString()} outcome=${outcome}`,
   );
 }
