@@ -1,6 +1,6 @@
 # Public contact email update
 
-Status: in progress
+Status: implemented and verified; integration tracked in PR #169 and the gh-pages publication
 
 ## Scope
 
@@ -20,3 +20,8 @@ No legal-policy, pricing, SMTP, store-portal or submission changes are included.
 - Merge through a PR, synchronize local main, and publish only the reviewed website contact changes
   to gh-pages. Verify HTTPS pages and both `.html`/directory aliases contain the intended links.
 - Record delivered work, artifact implications and remaining provider/portal steps.
+
+Results: [September 11 release record](../release/2026-09-11-public-contact-update.md).
+The only application change is the support constant. Website contact-only edits cover all aliases;
+the Terms policy is preserved. Local checks, configured browser fixtures, signed Apple exports
+and clean AMO reproduction passed. Required CI and final publication are checked at merge time.

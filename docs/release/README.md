@@ -1,7 +1,9 @@
 # Still 2.0 release runbook
 
-Latest source/artifact review: [September 10 PR reconciliation](2026-09-10-pr-reconciliation.md).
-It records fresh distribution exports and the remaining public-release gates.
+Latest source/artifact review: [September 11 public contact update](2026-09-11-public-contact-update.md).
+It records the current contact addresses, fresh distribution exports, verified backend deployment
+and remaining public-release gates. The [September 10 PR reconciliation](2026-09-10-pr-reconciliation.md)
+records the preceding integration and test evidence.
 
 Still removes YouTube Shorts, Instagram and Facebook Reels, and blocks the TikTok website for
 free on every supported surface. An account is optional and enables cross-device settings sync.
