@@ -5,9 +5,21 @@ instructions below do not apply to free 2.0 submission metadata.
 
 Use [public contact addresses](public-contact-addresses.md) for customer email fields and support/privacy links when preparing or updating a store listing.
 
-## Still 2.0 candidate instructions — draft
+## Current distribution status — verified September 11, 2026
 
-For Still 2.0, all supported blocking is free and account sync is optional. The draft
+Still 2.0.0 is public on [AMO](https://addons.mozilla.org/en-US/firefox/addon/still-free-yourself/).
+The public API reports `current_version.version: 2.0.0`, `status: public` and
+`requires_payment: false`. The complete source archive and reviewer notes are saved; the listing
+has the free/sync description and three current screenshots. Publication occurred after Continue
+from upload validation and can precede further review.
+
+This verifies distribution and saved listing state. It does not add a store-installed signed-XPI
+host/device test to the earlier candidate certification. Check current portal/API state before
+any later upload; do not repeat this submission merely because an older audit row is unverified.
+
+## Still 2.0 release instructions
+
+For Still 2.0, all supported blocking is free and account sync is optional. The
 listing must not mark this version as requiring payment. Optional sign-in transmits account
 authentication and settings data; preserve the current manifest consent declaration and minimum
 Firefox version. Keep desktop-only support. Supply the complete frozen monorepo and explicit
@@ -21,6 +33,16 @@ The older screenshot set depicts paid controls and must not accompany the free r
 
 See [current certification](2026-09-08-still-2-certification.md) for exact artifacts and outstanding
 gates. Store metadata changes, upload/submission and production writes require explicit approval.
+
+### Existing-listing update: publication boundary
+
+**Continue after upload validation can create and publish an update before a later Submit Version
+button.** Do not assume this is a draft-only step or that manual review will delay availability.
+Have the source archive, reproducible build instructions, reviewer notes and final metadata ready
+before advancing. Supply source and notes at the first available fields; if the version becomes
+public during Continue, attach/save them immediately and verify persistence. Check the developer
+version and public API after each advancing step. See the
+[verified AMO publication-boundary lesson](../solutions/conventions/amo-continue-can-publish-an-update.md).
 
 ## Previous release procedures (historical)
 
@@ -152,8 +174,8 @@ fails safe to the free Shorts remover.
 
 ## 6. Review + publish
 
-- [ ] Submit → **human review** follows automated validation. Listed add-ons that request host
-      permissions and submit source are reviewed manually; budget a few days.
+- [ ] Historical planning assumption: allow time for review, but do not assume a human-review delay
+      prevents publication. For current updates, use the publication-boundary procedure above.
 - [ ] After approval the add-on is live at its `addons.mozilla.org` URL and auto-updates from AMO.
 
 Docs: [Submitting an add-on](https://extensionworkshop.com/documentation/publish/submitting-an-add-on/) ·
@@ -177,4 +199,4 @@ Docs: [Submitting an add-on](https://extensionworkshop.com/documentation/publish
 - [ ] Generated manifest omits `gecko_android`, and AMO shows the launch version as desktop Firefox
       only. Complete [`06-mobile-blocking-validation.md`](06-mobile-blocking-validation.md) before a
       future Android-compatible submission.
-- [ ] Add-on **Approved** and live on AMO.
+- [x] Version **2.0.0 public on AMO**, verified September 11, 2026 as recorded above. Further review remains possible.
