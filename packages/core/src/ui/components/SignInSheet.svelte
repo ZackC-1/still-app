@@ -279,7 +279,8 @@
     background: var(--border);
     margin-block-end: var(--space-2);
   }
-  h2 {
+  .sheet h2 {
+    text-wrap: wrap;
     margin: 0;
     font-size: 22px;
     font-weight: 700;
