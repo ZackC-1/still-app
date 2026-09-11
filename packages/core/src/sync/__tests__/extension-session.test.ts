@@ -91,6 +91,10 @@ function harness(opts: HarnessOpts = {}) {
       persistSession(null);
     }),
     currentUserId: vi.fn(async () => persistedSession()),
+    currentAccount: vi.fn(async () => {
+      const id = persistedSession();
+      return id === null ? null : { id, email: "verified@example.test" };
+    }),
     requestCode: vi.fn(async (): Promise<RequestCodeOutcome> => ({ kind: "sent" })),
     verifyCode: vi.fn(async (): Promise<VerifyCodeOutcome> => {
       const outcome = opts.verify ?? { kind: "verified", userId: "u1" };
@@ -742,6 +746,80 @@ describe("ExtensionSession — getState (the popup's mount snapshot)", () => {
       checkoutPending: null,
       pendingOtp: null,
     });
+  });
+});
+
+describe("ExtensionSession — account sync display", () => {
+  includedAccessIt("reads the authenticated email and sync status without using the OTP draft", async () => {
+    const h = harness({ pendingOtpValue: { email: "draft@example.test", requestedAt: T0 } });
+    let release!: (value: SyncedSettingsEnvelope | null) => void;
+    h.backend.readProfile.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    const resumed = h.session.resume();
+    await vi.waitFor(() => expect(h.backend.readProfile).toHaveBeenCalledOnce());
+
+    expect(await h.session.getSyncStatus()).toEqual({
+      accountId: "u1",
+      email: "verified@example.test",
+      lastSyncedAt: null,
+      pendingUpload: false,
+      cloudReachable: true,
+      updatedAt: T0,
+    });
+    release(null);
+    await resumed;
+  });
+
+  includedAccessIt("does not pair one account's email with another account's sync state", async () => {
+    const h = harness();
+    await h.session.resume();
+    h.setSessionUser("u2");
+    await expect(h.session.getSyncStatus()).rejects.toThrow("not ready");
+  });
+
+  includedAccessIt("hides status while sign-out is waiting for the auth provider", async () => {
+    const h = harness();
+    await h.session.resume();
+    let release!: () => void;
+    h.auth.signOut.mockImplementationOnce(() => new Promise<void>((resolve) => { release = resolve; }));
+    const signedOut = h.session.signOut();
+    await vi.waitFor(() => expect(h.auth.signOut).toHaveBeenCalledOnce());
+    expect(await h.session.getSyncStatus()).toBeNull();
+    release();
+    await signedOut;
+    expect(await h.session.getSyncStatus()).toBeNull();
+  });
+
+  includedAccessIt("rejects an old account read after sign-out and same-account re-entry", async () => {
+    const h = harness();
+    await h.session.resume();
+    let release!: (value: { id: string; email: string }) => void;
+    h.auth.currentAccount.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
+    const oldStatus = h.session.getSyncStatus();
+    await h.session.signOut();
+    await h.session.verifyCode("new@example.test", "123456");
+    release({ id: "u1", email: "old@example.test" });
+    expect(await oldStatus).toBeNull();
+    expect(await h.session.getSyncStatus()).toMatchObject({ accountId: "u1", email: "verified@example.test" });
+  });
+
+  includedAccessIt("restores display status after a failed account deletion", async () => {
+    const h = harness();
+    await h.session.resume();
+    let reject!: (reason: Error) => void;
+    h.backend.deleteAccount.mockImplementationOnce(() => new Promise<void>((_resolve, no) => { reject = no; }));
+    const deletion = h.session.deleteAccount();
+    await vi.waitFor(() => expect(h.backend.deleteAccount).toHaveBeenCalledOnce());
+    expect(await h.session.getSyncStatus()).toBeNull();
+    reject(new Error("delete failed"));
+    expect(await deletion).toBe("delete-failed");
+    expect(await h.session.getSyncStatus()).toMatchObject({ accountId: "u1", email: "verified@example.test" });
+  });
+
+  it("distinguishes signed-out from an unavailable authenticated identity read", async () => {
+    const h = harness({ sessionUser: null });
+    expect(await h.session.getSyncStatus()).toBeNull();
+    h.auth.currentAccount.mockRejectedValueOnce(new Error("auth unavailable"));
+    await expect(h.session.getSyncStatus()).rejects.toThrow("auth unavailable");
   });
 });
 

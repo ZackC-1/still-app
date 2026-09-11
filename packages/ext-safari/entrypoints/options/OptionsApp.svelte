@@ -1,13 +1,16 @@
 <script lang="ts">
   import { App, SAFARI_SURFACE_GUIDANCE } from "@still/core/ui";
   import { createExtensionUiController } from "@still/core/ui";
-  import { pushSettingsToApp } from "../../lib/native-settings.js";
+  import { readAccountStatus } from "../../lib/account-status.js";
+import { pushSettingsToApp } from "../../lib/native-settings.js";
 
   // Push each local edit straight to the App Group (see popup/main.ts — the background reconciler
   // may be asleep on iOS and miss the browser.storage write).
   void browser.runtime.sendMessage({ kind: "reconcile" }).catch(() => {});
 
   const controller = createExtensionUiController(undefined, {
+    accountManagedByApp: true,
+    readAccountStatus,
     onLocalSettingsCommit: (record) => void pushSettingsToApp(record),
   });
 </script>

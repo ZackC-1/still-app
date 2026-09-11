@@ -206,12 +206,12 @@ describe("App", () => {
     expect(c.signInOpen).toBe(false); // signed in: straight to the paywall, no re-auth detour
   });
 
-  it("a signed-in user is told their settings are syncing", () => {
+  it("a signed-in user without a completed exchange sees checking sync", () => {
     const c = controller();
     c.userId = "u";
     c.entitled = true;
     render(App, { props: { controller: c } });
-    expect(screen.getByText(STRINGS.sync.syncing)).toBeTruthy();
+    expect(screen.getByText(STRINGS.sync.checking)).toBeTruthy();
   });
 
   includedAccessIt("signing in is offered as what it is: settings sync, and optional", () => {
@@ -243,7 +243,7 @@ describe("App", () => {
       expect(c.popupState).toBe("entitled-syncing"); // signed in is signed in; nothing is gated
       expect(screen.queryByText(STRINGS.paywall.upgradeCta)).toBeNull();
       expect(screen.queryByText(/Unlock Pro in the Still app/)).toBeNull();
-      expect(screen.getByText(STRINGS.sync.syncing)).toBeTruthy();
+      expect(screen.getByText(STRINGS.sync.checking)).toBeTruthy();
       expect(screen.getByText(STRINGS.auth.signOut)).toBeTruthy();
       view.unmount();
     }
@@ -366,7 +366,7 @@ describe("App", () => {
     render(App, { props: { controller: c } });
     expect(screen.queryByText(STRINGS.auth.signInCta)).toBeNull();
     expect(screen.queryByText(STRINGS.paywall.upgradeCta)).toBeNull();
-    expect(screen.getByText(STRINGS.sync.syncing)).toBeTruthy();
+    expect(screen.getByText(STRINGS.sync.checking)).toBeTruthy();
   });
 
   paidTierIt("signed-out upgrade records intent and opens email-code sign-in before paywall (web-checkout host)", async () => {
@@ -731,7 +731,7 @@ describe("App — purchase-first surfaces (plan 2026-07-15-001)", () => {
     render(App, { props: { controller: c } });
     expect(c.serverEntitled).toBe(false);
     expect(c.popupState).toBe("entitled-syncing");
-    expect(screen.getByText(STRINGS.sync.syncing)).toBeTruthy();
+    expect(screen.getByText(STRINGS.sync.checking)).toBeTruthy();
     expect(screen.getByText(STRINGS.auth.signOut)).toBeTruthy();
   });
 
@@ -752,5 +752,36 @@ describe("App — purchase-first surfaces (plan 2026-07-15-001)", () => {
     expect(screen.getByText(/Get Still Pro · \$1\.99/)).toBeTruthy();
     expect(screen.getByText(STRINGS.paywall.noAccountNeeded)).toBeTruthy();
     expect(screen.getByText(STRINGS.paywall.restoreSignedOut)).toBeTruthy();
+  });
+});
+
+
+describe("account identity and sync status", () => {
+  it("shows the signed-in email and confirms only this device's successful sync", async () => {
+    const c = controller();
+    c.userId = "account-a";
+    c.accountEmail = "person@example.com";
+    c.lastSyncedAt = Date.now();
+    render(App, { controller: c });
+    expect(screen.getByText("person@example.com")).toBeTruthy();
+    expect(screen.getByText("Synced with your account.")).toBeTruthy();
+    c.pendingUpload = true;
+    await tick();
+    expect(screen.getByText("Syncing your settings.")).toBeTruthy();
+    expect(screen.queryByText("Synced with your account.")).toBeNull();
+    c.cloudReachable = false;
+    await tick();
+    expect(screen.getByText("person@example.com")).toBeTruthy();
+    expect(screen.getByText(STRINGS.sync.unreachable)).toBeTruthy();
+  });
+
+  it("never shows the previous account's email after sign-out", async () => {
+    const c = controller();
+    c.userId = "account-a";
+    c.accountEmail = "person@example.com";
+    render(App, { controller: c });
+    c.userId = null;
+    await tick();
+    expect(screen.queryByText("person@example.com")).toBeNull();
   });
 });

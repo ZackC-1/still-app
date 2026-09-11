@@ -38,7 +38,11 @@ export function createSessionSender(runtime: SessionRuntime): SessionSender {
     const action = request.action as A;
     try {
       const response = (await runtime.sendMessage(request)) as SessionResponses[A] | undefined | null;
-      return response ?? unavailableResponse(action);
+      // Null is a definitive signed-out status. Transport failures use the registry's explicit
+      // unavailable value; preserve other actions' existing null-as-unavailable behavior.
+      return response === undefined || (response === null && action !== "getSyncStatus")
+        ? unavailableResponse(action)
+        : response as SessionResponses[A];
     } catch {
       return unavailableResponse(action);
     }
@@ -65,6 +69,15 @@ export function createExtensionPurchaseDeps(sendMessage: SessionSender): Extensi
   return {
     displayPrice: WEB_DISPLAY_PRICE,
     getState: () => sendMessage({ kind: SESSION_MESSAGE_KIND, action: "getState" }),
+    readAccountStatus: async () => {
+      const status = await sendMessage({ kind: SESSION_MESSAGE_KIND, action: "getSyncStatus" });
+      if (status === "unavailable") throw new Error("Account sync status is unavailable");
+      return status;
+    },
+    retrySync: async () => {
+      const result = await sendMessage({ kind: SESSION_MESSAGE_KIND, action: "retrySync" });
+      if (result !== "ok") throw new Error("Sync retry is unavailable");
+    },
     auth: {
       requestCode: (email) => sendMessage({ kind: SESSION_MESSAGE_KIND, action: "requestCode", email }),
       verifyCode: (email, token) =>

@@ -45,6 +45,7 @@ import StillKit
 final class WebBridgeRouter {
   private let settings: SettingsBridge
   private let entitlement: EntitlementBridge
+  private let accountSyncStatus: AccountSyncStatusStore
   private let purchases = PurchaseManager.shared
   private let siwa = SignInWithAppleCoordinator()
 
@@ -65,10 +66,12 @@ final class WebBridgeRouter {
   init(
     settings: SettingsBridge,
     entitlement: EntitlementBridge = EntitlementBridge(
-      store: .appGroup(), receiptStatus: { stillReceiptStatusCache.current })
+      store: .appGroup(), receiptStatus: { stillReceiptStatusCache.current }),
+    accountSyncStatus: AccountSyncStatusStore = .appGroup()
   ) {
     self.settings = settings
     self.entitlement = entitlement
+    self.accountSyncStatus = accountSyncStatus
   }
 
   /// Refresh the cached receipt snapshot and route it through the stamp policy (the receipt lane's
@@ -182,6 +185,9 @@ final class WebBridgeRouter {
       }
 
     case "signOut":
+      // Clear display identity before yielding; delayed purchase cleanup must not clear a new
+      // session's status after it has already signed in and published its record.
+      accountSyncStatus.clear()
       // Reset the native RevenueCat identity (logOut + clear the configured user) so nothing here
       // can act against the previous account after sign-out. Pairs with the web SyncService sign-out.
       // Awaited before the ok for the same identity-transition reason as configurePurchases above.
@@ -189,6 +195,14 @@ final class WebBridgeRouter {
         await self.purchases.reset()
         reply(Self.json(["ok": true]), nil)
       }
+
+    case "setAccountSyncStatus":
+      // Only the trusted bundled WK frame reaches this writer. The Safari native lane only reads.
+      guard let status = dict["status"], accountSyncStatus.save(rawStatus: status) else {
+        reply(nil, "still: malformed account sync status")
+        return
+      }
+      reply(Self.json(["ok": true]), nil)
 
     case "setEntitlement", "getEntitlement":
       // Entitlement mirror: the web layer proposes its server-reconciled value (server lane);

@@ -46,6 +46,10 @@ export interface SyncState {
   readonly syncing: boolean;
   /** False after a cloud write fails (offline/error); the UI shows the cached-settings note (U9). */
   readonly cloudReachable: boolean;
+  /** Local clock of this session's last successful settings exchange; not device consensus. */
+  readonly lastSyncedAt?: number | null;
+  /** Local changes still awaiting upload or an explicit account-wins reconciliation. */
+  readonly pendingUpload?: boolean;
   /**
    * True only once `entitled` reflects a settled server answer for this session (reconcile + read
    * completed, an already-reconciled confirmation, or a deliberate sign-out). `onSignedIn` first
@@ -63,6 +67,8 @@ const SIGNED_OUT: SyncState = {
   syncing: false,
   cloudReachable: true,
   confirmed: true, // a deliberate sign-out is definitive — hosts may clear native stamps on it
+  lastSyncedAt: null,
+  pendingUpload: false,
 };
 
 /**
@@ -86,12 +92,22 @@ export class SyncService {
   private writing = false;
   private pendingWrite: StillSettings | null = null;
   private retryLatestOnReconnect = false;
+  private retryTimer: ReturnType<typeof setTimeout> | null = null;
+  private retryDelay = 1_000;
+  private recovering: Promise<void> | null = null;
+  private writeCompletion: Promise<void> | null = null;
   // The reconcile in flight, and the one edit held behind it. Publishing during a reconcile would
   // overwrite whatever it is about to bring down, and the reconcile's own write would come back
   // and apply over the edit, so the edit waits for the reconcile to decide. Both ways into a
   // session set this: a background start and a sign-in.
   private catchingUp: Promise<ReconcileOutcome> | null = null;
   private heldWrite: StillSettings | null = null;
+  // The cache can already hold the next edit when an acknowledgement arrives. Compare a held
+  // edit with what actually reached the account, rather than treating that local cache as proof.
+  private lastWrittenSettings: StillSettings | null = null;
+  private latestWriteId: string | null = null;
+  // A UUID is not enough: signing out and back into the same account starts a new lifecycle.
+  private lifecycle = 0;
 
   constructor(
     private readonly cache: SettingsCache,
@@ -107,6 +123,20 @@ export class SyncService {
 
   getState(): SyncState {
     return this.state;
+  }
+
+  /** Refresh this account's settings, sharing any exchange already in progress. Never reauths. */
+  retryNow(): Promise<void> {
+    if (!this.state.userId || !this.canSync || this.unsubCache === null) return Promise.resolve();
+    if (this.recovering !== null) return this.recovering;
+    if (this.catchingUp !== null) return this.catchingUp.then(() => undefined);
+    if (this.writeCompletion !== null) return this.writeCompletion;
+    const recovery = this.refreshAfterRealtimeReconnect();
+    this.recovering = recovery;
+    void recovery.then(() => {
+      if (this.recovering === recovery) this.recovering = null;
+    });
+    return recovery;
   }
 
   signIn(email: string): Promise<{ error?: string }> {
@@ -126,6 +156,7 @@ export class SyncService {
     const previousEntitled = this.state.userId === userId ? this.state.entitled : false;
     this.stopWriteThrough();
     this.stopRealtime();
+    const lifecycle = this.lifecycle;
     // PROVISIONAL: entitled is a carry-over guess until the reconcile below settles — confirmed
     // stays false so no host mirrors it into a native stamp yet.
     this.setState({
@@ -156,9 +187,11 @@ export class SyncService {
     // that means "the cloud is out of reach": the entitlement half decides nothing a user can see
     // here, so its failure must not tell them their settings have stopped syncing.
     const mirrored = this.mirrorAndStartWriteThrough(userId).catch(() => {
+      if (lifecycle !== this.lifecycle) return;
       this.setState({ ...this.state, cloudReachable: false });
     });
     const settled = this.reconcileAndReadEntitlement().then((entitled) => {
+      if (lifecycle !== this.lifecycle) return;
       // An entitlement that could not be checked leaves the previous value in place and leaves
       // `confirmed` false, which is what stops a host writing an unknown answer into the native
       // record the Safari extension trusts for 30 days.
@@ -212,7 +245,13 @@ export class SyncService {
     // whether or not they own anything, so reading `entitled` here would re-mirror on every
     // reconcile.
     const alreadySyncing = this.state.userId === userId && this.unsubCache !== null;
+    if (!alreadySyncing) {
+      this.stopWriteThrough();
+      this.stopRealtime();
+    }
+    const lifecycle = this.lifecycle;
     this.setState({
+      ...this.state,
       userId,
       entitled,
       syncing: this.state.syncing,
@@ -227,6 +266,7 @@ export class SyncService {
     try {
       await this.mirrorAndStartWriteThrough(userId);
     } catch {
+      if (lifecycle !== this.lifecycle) return;
       this.setState({ ...this.state, cloudReachable: false });
     }
   }
@@ -243,6 +283,7 @@ export class SyncService {
    * closes it in the same breath: it runs after this method has armed, not before.
    */
   private async mirrorAndStartWriteThrough(userId: string): Promise<void> {
+    const lifecycle = this.lifecycle;
     // Write-through is armed BEFORE the reconcile, because the hold that protects an edit made
     // during it can only see edits once the cache subscription exists. Arming afterwards left the
     // sign-in route with no equivalent of the protection the background start already had: a
@@ -251,6 +292,7 @@ export class SyncService {
     // of the Apple app, where entering a session is what runs this.
     this.startWriteThrough();
     if ((await this.reconcileHoldingWrites(userId)) === "abandoned") return;
+    if (lifecycle !== this.lifecycle) return;
     this.startRealtime(userId);
   }
 
@@ -269,6 +311,7 @@ export class SyncService {
    * knows which of the two this is.
    */
   private async reconcileHoldingWrites(userId: string): Promise<ReconcileOutcome> {
+    const lifecycle = this.lifecycle;
     const reconcile = this.reconcileWithAccount(userId);
     // What the hold watches must always settle, including on a rejection, or every later edit
     // would queue behind a hold that is never released.
@@ -277,7 +320,17 @@ export class SyncService {
       (): ReconcileOutcome => "abandoned",
     );
     this.catchingUp = settled;
-    this.releaseHeldWrite(userId, settled, await settled);
+    const outcome = await settled;
+    if (lifecycle === this.lifecycle) {
+      if (outcome === "abandoned") {
+        this.recordFailure();
+      } else {
+        const pending = outcome === "device" && this.heldWrite !== null &&
+          (this.lastWrittenSettings === null || !sameSettings(this.heldWrite, this.lastWrittenSettings));
+        this.recordExchange(pending);
+      }
+    }
+    this.releaseHeldWrite(userId, settled, outcome);
     return reconcile; // the same outcome, or the original rejection for the caller to interpret
   }
 
@@ -302,7 +355,7 @@ export class SyncService {
     if (this.state.userId !== userId || !this.canSync) return;
     // Skip when the reconcile already published this exact edit, which is what happens when it
     // decided this device was the newer side after the edit had landed in the cache.
-    if (sameSettings(held, this.cache.current())) return;
+    if (this.lastWrittenSettings !== null && sameSettings(held, this.lastWrittenSettings)) return;
     this.enqueueWrite(held);
   }
 
@@ -314,27 +367,30 @@ export class SyncService {
    * to guess which way it went, including the case where neither side won.
    */
   private async reconcileWithAccount(userId: string): Promise<ReconcileOutcome> {
+    const lifecycle = this.lifecycle;
     // Never judge a device by a cache that has not finished loading. Until hydration lands,
     // `current()` is the bundled defaults and the sync metadata is null, so the device would read
     // as brand new and could publish defaults over settings someone has been using.
     await this.cache.whenHydrated();
+    if (lifecycle !== this.lifecycle) return "abandoned";
     // What this device was anchored to before the read, so the branch below can tell whether
     // anything reached the cache while the read was in flight. Outgoing writes are held for the
     // duration, so in practice that means the account's own live stream arriving with a later write.
     const anchorBeforeRead = this.cache.currentSyncMetadata();
     const lastSynced = this.identity === undefined ? null : await this.identity.get();
+    if (lifecycle !== this.lifecycle) return "abandoned";
     const cloud = await this.backend.readProfile();
     // A sign-out or an account switch during any await here makes the answer below about a session
     // that no longer exists, and acting on it would move one account's settings under another. The
     // test is repeated after the identity write for that reason.
-    if (this.state.userId !== userId) return "abandoned";
+    if (lifecycle !== this.lifecycle || this.state.userId !== userId) return "abandoned";
     // Reaching the account is the moment this browser could start carrying settings between two
     // accounts, so that is when it records whose settings it holds, before anything is published
     // or adopted. Recording it afterwards left a gap: a write that failed, or a worker that died
     // mid-reconcile, left a browser that HAD synced still claiming nobody had ever synced on it,
     // and the shared-browser rule cannot fire on a browser like that.
     await this.identity?.set(userId);
-    if (this.state.userId !== userId) return "abandoned";
+    if (lifecycle !== this.lifecycle || this.state.userId !== userId) return "abandoned";
     const verdict = this.decideReconcile(cloud, lastSynced, userId);
     if (verdict === "device") {
       // The write returns the new envelope, which is how the cache learns the server version that
@@ -447,9 +503,12 @@ export class SyncService {
    * the reset to every other context in this browser, the popup included.
    */
   private async startAccountFromDefaults(): Promise<void> {
+    const lifecycle = this.lifecycle;
     const fresh: StillSettings = { ...DEFAULT_SETTINGS, updatedAt: this.now() };
     const envelope = await this.backend.writeProfile(fresh, randomWriteId());
+    if (lifecycle !== this.lifecycle) return;
     this.cache.adoptSyncedEnvelope(envelope);
+    this.recordExchange(false);
   }
 
   /**
@@ -521,6 +580,8 @@ export class SyncService {
     }
     // `entitled` stays the truthful record of what this account owns even where it no longer gates
     // anything, because a returning purchaser is still told their purchase is recognised.
+    this.stopWriteThrough();
+    this.stopRealtime();
     this.setState({
       userId,
       entitled,
@@ -537,13 +598,15 @@ export class SyncService {
    * The start-up settings read. It goes through the same reconcile a sign-in uses, so a device that
    * has been away adopts what happened while it was away and can still publish an edit it made
    * offline. Never rejects: being offline at start-up is ordinary, and the device simply stays on
-   * its cached settings until the realtime reconnect refresh retries.
+   * its cached settings until bounded recovery or a realtime reconnect retries.
    */
   private catchUpWithAccount(userId: string): Promise<void> {
+    const lifecycle = this.lifecycle;
     return this.reconcileHoldingWrites(userId).then(
       () => undefined,
       () => {
-        this.realtimeStale = true; // the existing reconnect refresh is the retry
+        if (lifecycle !== this.lifecycle) return;
+        this.realtimeStale = true; // reconnect can also prompt recovery before the timer fires
       },
     );
   }
@@ -551,7 +614,9 @@ export class SyncService {
   async signOut(): Promise<void> {
     this.stopWriteThrough();
     this.stopRealtime();
+    const lifecycle = this.lifecycle;
     await this.auth.signOut();
+    if (lifecycle !== this.lifecycle) return;
     this.setState(SIGNED_OUT);
   }
 
@@ -561,18 +626,22 @@ export class SyncService {
    * so we never appear signed-out while the account still exists.
    */
   async deleteAccount(): Promise<void> {
+    const lifecycle = this.lifecycle;
     // The delete is the critical step: if it fails, propagate so the UI surfaces it and the session
     // stays intact (we never appear signed-out while the account still exists).
     await this.backend.deleteAccount();
+    if (lifecycle !== this.lifecycle) return;
     // Account is gone server-side. Local sign-out is now best-effort — force SIGNED_OUT regardless, so
     // a failing auth.signOut() can't strand the UI signed-in against a deleted account.
     this.stopWriteThrough();
     this.stopRealtime();
+    const signedOutLifecycle = this.lifecycle;
     try {
       await this.auth.signOut();
     } catch {
       /* ignore: the account no longer exists; the signed-out state is forced below */
     }
+    if (signedOutLifecycle !== this.lifecycle) return;
     this.setState(SIGNED_OUT);
   }
 
@@ -592,13 +661,17 @@ export class SyncService {
 
   /**
    * Coalesce cloud writes: at most one in-flight; edits during a write keep only the latest as
-   * pending (LWW). A rejected write flips `cloudReachable` false and drops the pending value — the
-   * SettingsCache still holds the latest, so the next edit / sign-in reconcile re-pushes it (no
-   * permanent loss). A later success flips `cloudReachable` back to true.
+   * pending (LWW). A rejected write leaves the latest edit in SettingsCache and schedules a
+   * bounded retry. Recovery reads the account first; only the winning device settings go up.
    */
   private enqueueWrite(settings: StillSettings): void {
+    this.setState({ ...this.state, pendingUpload: true });
     if (this.catchingUp !== null) {
       this.heldWrite = settings;
+      return;
+    }
+    if (this.retryLatestOnReconnect) {
+      void this.retryNow();
       return;
     }
     if (this.writing) {
@@ -606,30 +679,40 @@ export class SyncService {
       return;
     }
     this.writing = true;
-    void this.flushWrite(settings);
+    const completion = this.flushWrite(settings);
+    this.writeCompletion = completion;
+    void completion.then(() => {
+      if (this.writeCompletion === completion) this.writeCompletion = null;
+    });
   }
 
   private async flushWrite(settings: StillSettings): Promise<void> {
+    const lifecycle = this.lifecycle;
     try {
       await this.writeAndApply(settings);
-      if (!this.state.cloudReachable) this.setState({ ...this.state, cloudReachable: true });
-      this.retryLatestOnReconnect = false;
+      if (lifecycle !== this.lifecycle) return;
     } catch {
+      if (lifecycle !== this.lifecycle) return;
       this.pendingWrite = null;
-      this.retryLatestOnReconnect = true;
-      if (this.state.cloudReachable) this.setState({ ...this.state, cloudReachable: false });
+      this.recordFailure();
     } finally {
-      const next = this.pendingWrite;
-      this.pendingWrite = null;
-      if (next && this.canSync && this.state.userId) {
-        void this.flushWrite(next);
-      } else {
-        this.writing = false;
+      if (lifecycle === this.lifecycle) {
+        const next = this.pendingWrite;
+        this.pendingWrite = null;
+        if (next && this.canSync && this.state.userId) {
+          await this.flushWrite(next);
+        } else {
+          this.writing = false;
+        }
       }
     }
   }
 
   private stopWriteThrough(): void {
+    this.lifecycle += 1;
+    this.clearRetry();
+    this.recovering = null;
+    this.writeCompletion = null;
     this.unsubCache?.();
     this.unsubCache = null;
     this.writing = false;
@@ -637,22 +720,32 @@ export class SyncService {
     this.retryLatestOnReconnect = false;
     this.catchingUp = null;
     this.heldWrite = null;
+    this.lastWrittenSettings = null;
+    this.latestWriteId = null;
+    // The lifecycle owner emits its next state. Do not emit a confirmed old-account state between
+    // teardown and the provisional sign-in state: native entitlement mirroring observes emissions.
+    this.state = { ...this.state, syncing: false, lastSyncedAt: null, pendingUpload: false };
   }
 
   private startRealtime(userId: string): void {
     if (this.unsubRealtime !== null) return;
+    const lifecycle = this.lifecycle;
     this.realtimeStale = false;
     this.unsubRealtime = this.backend.subscribeToProfile(
       userId,
-      (envelope) => this.applyRemoteEnvelope(envelope),
+      (envelope) => {
+        if (lifecycle !== this.lifecycle) return;
+        this.applyRemoteEnvelope(envelope);
+      },
       (status) => {
+        if (lifecycle !== this.lifecycle) return;
         if (status === "disconnected" || status === "error") {
           this.realtimeStale = true;
           return;
         }
         if (status === "subscribed" && this.realtimeStale) {
           this.realtimeStale = false;
-          void this.refreshAfterRealtimeReconnect();
+          void this.retryNow();
         }
       },
     );
@@ -666,28 +759,92 @@ export class SyncService {
 
   private async refreshAfterRealtimeReconnect(): Promise<void> {
     if (!this.canSync || !this.state.userId) return;
+    const userId = this.state.userId;
+    const lifecycle = this.lifecycle;
     try {
-      const envelope = await this.backend.readProfile();
-      if (envelope) this.applyRemoteEnvelope(envelope);
-      if (this.retryLatestOnReconnect) this.enqueueWrite(this.cache.current());
-      if (!this.state.cloudReachable) this.setState({ ...this.state, cloudReachable: true });
+      const outcome = await this.reconcileHoldingWrites(userId);
+      if (lifecycle !== this.lifecycle) return;
+      if (outcome === "abandoned") return;
+      await this.writeCompletion;
+      if (lifecycle !== this.lifecycle) return;
+      this.startRealtime(userId);
     } catch {
-      if (this.state.cloudReachable) this.setState({ ...this.state, cloudReachable: false });
+      if (lifecycle !== this.lifecycle) return;
+      this.recordFailure();
     }
   }
 
+  private scheduleRetry(): void {
+    if (this.retryTimer !== null || this.unsubCache === null || !this.state.userId) return;
+    const lifecycle = this.lifecycle;
+    this.retryTimer = setTimeout(() => {
+      if (lifecycle !== this.lifecycle) return;
+      this.retryTimer = null;
+      void this.retryNow();
+    }, this.retryDelay);
+    this.retryDelay = Math.min(this.retryDelay * 2, 30_000);
+  }
+
+  private clearRetry(): void {
+    if (this.retryTimer !== null) clearTimeout(this.retryTimer);
+    this.retryTimer = null;
+    this.retryDelay = 1_000;
+  }
+
   private applyRemoteEnvelope(envelope: SyncedSettingsEnvelope): void {
-    this.cache.applySyncedEnvelope(envelope);
+    // Realtime may acknowledge our write before its RPC response. Anchor the newest local edit
+    // on that acknowledgement now: the later RPC has the same version and cannot restore it.
+    // Only this request's write id proves an own echo; another device's row keeps normal ordering.
+    const ownEcho = this.latestWriteId !== null && envelope.lastWriteId === this.latestWriteId;
+    const latest = this.pendingWrite ?? this.heldWrite ??
+      (this.state.pendingUpload ? this.cache.current() : null);
+    this.cache.applySyncedEnvelope(ownEcho && latest !== null ? {
+      ...envelope,
+      settings: latest,
+    } : envelope);
+    this.setState({ ...this.state, lastSyncedAt: this.now(), cloudReachable: true });
   }
 
   private async writeAndApply(settings: StillSettings): Promise<void> {
-    const envelope = await this.backend.writeProfile(settings, randomWriteId());
-    this.cache.applySyncedEnvelope(envelope);
+    const lifecycle = this.lifecycle;
+    const writeId = randomWriteId();
+    this.latestWriteId = writeId;
+    const envelope = await this.backend.writeProfile(settings, writeId);
+    if (lifecycle !== this.lifecycle) return;
+    // A successful older write anchors the next queued local edit to this row. Keep that edit in
+    // the cache: if its upload fails, recovery must still find the user's latest choices there.
+    const latest = this.pendingWrite ?? this.heldWrite;
+    this.cache.applySyncedEnvelope(latest === null ? envelope : {
+      ...envelope,
+      settings: latest,
+    });
+    this.lastWrittenSettings = settings;
+    const pending = this.pendingWrite !== null ||
+      (this.heldWrite !== null && !sameSettings(this.heldWrite, settings));
+    this.recordExchange(pending);
+  }
+
+  private recordFailure(): void {
+    this.retryLatestOnReconnect = true;
+    this.setState({ ...this.state, cloudReachable: false });
+    this.scheduleRetry();
+  }
+
+  private recordExchange(pendingUpload: boolean): void {
+    this.retryLatestOnReconnect = false;
+    if (!pendingUpload) {
+      this.clearRetry();
+    }
+    this.setState({ ...this.state, cloudReachable: true, lastSyncedAt: this.now(), pendingUpload });
   }
 
   private setState(next: SyncState): void {
-    this.state = next;
-    this.onState?.(next);
+    this.state = {
+      ...next,
+      lastSyncedAt: next.lastSyncedAt ?? null,
+      pendingUpload: next.pendingUpload ?? false,
+    };
+    this.onState?.(this.state);
   }
 }
 

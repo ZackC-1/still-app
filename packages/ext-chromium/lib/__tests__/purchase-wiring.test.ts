@@ -29,6 +29,27 @@ function controllerStub() {
 }
 
 describe("purchase wiring protocol translations", () => {
+  it("distinguishes signed-out status from transport failure and retries through the background", async () => {
+    const unavailable = createExtensionPurchaseDeps(createSessionSender({ sendMessage: async () => undefined }));
+    const signedOut = createExtensionPurchaseDeps(createSessionSender({ sendMessage: async () => null }));
+    await expect(unavailable.readAccountStatus!()).rejects.toThrow();
+    await expect(signedOut.readAccountStatus!()).resolves.toBeNull();
+
+    const status = {
+      accountId: "11111111-1111-4111-8111-111111111111", email: "verified@example.test",
+      lastSyncedAt: 100, pendingUpload: true, cloudReachable: false, updatedAt: 200,
+    };
+    const sendMessage = vi.fn(async (request: SessionRequest) => request.action === "getSyncStatus" ? status : "ok");
+    const deps = createExtensionPurchaseDeps(createSessionSender({ sendMessage }));
+    await expect(deps.readAccountStatus!()).resolves.toEqual(status);
+    await deps.retrySync!();
+    expect(sendMessage.mock.calls.map(([request]) => request)).toEqual([
+      { kind: "still:session", action: "getSyncStatus" },
+      { kind: "still:session", action: "retrySync" },
+    ]);
+    await expect(unavailable.retrySync!()).rejects.toThrow();
+  });
+
   it("maps missing or rejected runtime responses to the action fail-safe", async () => {
     const missing = createSessionSender({ sendMessage: async () => undefined });
     const rejected = createSessionSender({ sendMessage: async () => Promise.reject(new Error("worker asleep")) });

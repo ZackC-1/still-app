@@ -6,6 +6,7 @@ import { test, expect } from "./_extension.js";
 // taller than 600px and scroll the remainder; Still asks for 380px of the available width.
 const POPUP_INLINE_SIZE = 380;
 const POPUP_MAX_BLOCK_SIZE = 600;
+const syncConfigured = process.env.STILL_PLAYWRIGHT_CONFIGURED ?? "false";
 
 test("the background service worker registers and yields an extension id", async ({
   extensionId,
@@ -153,3 +154,61 @@ test("the manifest limits host permissions to the four services (no <all_urls>)"
   expect(manifest.host_permissions).toHaveLength(4);
   expect(JSON.stringify(manifest)).not.toContain("<all_urls>");
 });
+
+for (const colorScheme of ["light", "dark"] as const) {
+  test(`signed-in account status fits the configured popup in ${colorScheme} mode`, async ({ context, extensionId }) => {
+    test.skip(syncConfigured !== "true", "Requires the independently declared configured build");
+    await context.route(/^https?:/, (route) => route.abort());
+    const page = await context.newPage();
+    await page.setViewportSize({ width: POPUP_INLINE_SIZE, height: POPUP_MAX_BLOCK_SIZE });
+    await page.emulateMedia({ colorScheme });
+    const email = "a.long.account.name.for.layout.testing@example.com";
+    await page.addInitScript(({ email }) => {
+      const send = chrome.runtime.sendMessage.bind(chrome.runtime);
+      chrome.runtime.sendMessage = ((message: { kind?: string; action?: string }, ...args: unknown[]) => {
+        if (message.kind === "still:session" && message.action === "getSyncStatus") {
+          return Promise.resolve({ accountId: "11111111-1111-1111-1111-111111111111", email,
+            lastSyncedAt: Date.now(), pendingUpload: false, cloudReachable: true, updatedAt: Date.now() });
+        }
+        return Reflect.apply(send, chrome.runtime, [message, ...args]);
+      }) as typeof chrome.runtime.sendMessage;
+    }, { email });
+    await page.goto(`chrome-extension://${extensionId}/popup.html`);
+    await expect(page.getByText(email, { exact: true })).toBeVisible();
+    await expect(page.getByText("Synced with your account.", { exact: true })).toBeVisible();
+    const fit = await page.evaluate(() => ({
+      width: document.documentElement.scrollWidth,
+      height: document.documentElement.scrollHeight,
+      bottom: Math.ceil(Math.max(...[...document.body.querySelectorAll("*")].map((el) => el.getBoundingClientRect().bottom))),
+    }));
+    expect(fit.width).toBeLessThanOrEqual(POPUP_INLINE_SIZE);
+    expect(fit.height).toBeLessThanOrEqual(POPUP_MAX_BLOCK_SIZE);
+    expect(fit.bottom).toBeLessThanOrEqual(POPUP_MAX_BLOCK_SIZE);
+    await expect(page.getByRole("button", { name: "Open settings & setup guide" })).toBeInViewport({ ratio: 1 });
+  });
+}
+
+for (const pendingUpload of [false, true]) {
+  test(`Safari account status fits the desktop popup with pending upload ${pendingUpload}`, async ({ safariContext, safariExtensionId }) => {
+    await safariContext.route(/^https?:/, (route) => route.abort());
+    const page = await safariContext.newPage();
+    await page.setViewportSize({ width: POPUP_INLINE_SIZE, height: POPUP_MAX_BLOCK_SIZE });
+    await page.addInitScript(({ pendingUpload }) => {
+      const settings = { globalOn: true, services: { youtube: true, instagram: true, facebook: true, tiktok: true }, pauses: [], updatedAt: 10 };
+      chrome.runtime.sendNativeMessage = ((_host: string, message: { kind: string }) => {
+        if (message.kind === "getAccountSyncStatus") return Promise.resolve({ accountSyncStatus: JSON.stringify({
+          accountId: "11111111-1111-1111-1111-111111111111", email: "a.long.account.name.for.layout.testing@example.com",
+          lastSyncedAt: Date.now(), pendingUpload, cloudReachable: !pendingUpload, updatedAt: Date.now(),
+        }) });
+        if (message.kind === "get") return Promise.resolve({ settings: JSON.stringify({ settings, syncMetadata: null }) });
+        return Promise.resolve({ ok: true });
+      }) as typeof chrome.runtime.sendNativeMessage;
+    }, { pendingUpload });
+    await page.goto(`chrome-extension://${safariExtensionId}/popup.html`);
+    await expect(page.getByText("a.long.account.name.for.layout.testing@example.com", { exact: true })).toBeVisible();
+    const height = await page.evaluate(() => Math.max(document.documentElement.scrollHeight,
+      ...[...document.body.querySelectorAll("*")].map((el) => el.getBoundingClientRect().bottom)));
+    expect(height).toBeLessThanOrEqual(POPUP_MAX_BLOCK_SIZE);
+    await expect(page.getByRole("button", { name: "Open settings & setup guide" })).toBeInViewport({ ratio: 1 });
+  });
+}

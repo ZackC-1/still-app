@@ -1,6 +1,7 @@
 import { mount } from "svelte";
 import "@still/core/ui/tokens.css";
 import { createExtensionUiController } from "@still/core/ui";
+import { readAccountStatus } from "../../lib/account-status.js";
 import { pushSettingsToApp } from "../../lib/native-settings.js";
 import PopupApp from "./PopupApp.svelte";
 
@@ -15,6 +16,8 @@ import PopupApp from "./PopupApp.svelte";
 function init(): void {
   void browser.runtime.sendMessage({ kind: "reconcile" }).catch(() => {});
   const controller = createExtensionUiController(undefined, {
+    accountManagedByApp: true,
+    readAccountStatus,
     onLocalSettingsCommit: (record) => void pushSettingsToApp(record),
   });
   mount(PopupApp, { target: document.getElementById("app")!, props: { controller } });

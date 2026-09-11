@@ -1,4 +1,5 @@
 import type {
+  AccountSyncStatus,
   CheckoutPendingRecord,
   ExtensionSession,
   ExtensionSessionState,
@@ -33,6 +34,17 @@ export const SESSION_PROTOCOL = {
   getState: defineSessionCapability(
     (session, _payload: Record<never, never>) => session.getState(),
     { userId: null, entitled: false, checkoutPending: null, pendingOtp: null } satisfies ExtensionSessionState,
+  ),
+  getSyncStatus: defineSessionCapability<Record<never, never>, AccountSyncStatus | null | "unavailable">(
+    (session) => session.getSyncStatus(),
+    "unavailable",
+  ),
+  retrySync: defineSessionCapability(
+    async (session, _payload: Record<never, never>) => {
+      await session.retrySync();
+      return "ok" as const;
+    },
+    "unavailable",
   ),
   requestCode: defineSessionCapability(
     (session, payload: { readonly email: string }) => session.requestCode(payload.email),

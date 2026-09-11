@@ -1,5 +1,7 @@
 import type { EntitlementRecordStore } from "../entitlement/cache.js";
+import type { AccountSyncStatus } from "./account-status.js";
 import type {
+  AccountAuthPort,
   AuthPort,
   BackendPort,
   CheckedReconcilePort,
@@ -132,10 +134,10 @@ export type ExtensionIdentityStore = LastSyncedIdentityStore;
 export type ExtensionSessionSync = Pick<
   SyncService,
   "onSignedIn" | "onEntitlementConfirmed" | "signOut" | "deleteAccount" | "resume" | "getState"
->;
+> & Partial<Pick<SyncService, "retryNow">>;
 
 export interface ExtensionSessionDeps {
-  readonly auth: AuthPort & CodeAuthPort;
+  readonly auth: AuthPort & CodeAuthPort & Partial<AccountAuthPort>;
   readonly backend: BackendPort & WebCheckoutPort & CheckedReconcilePort;
   /** U1's record-level store (identity binding + staleness), not the boolean adapter. */
   readonly records: EntitlementRecordStore;
@@ -199,6 +201,9 @@ export interface ExtensionSessionState {
 
 export interface ExtensionSession {
   getState(): Promise<ExtensionSessionState>;
+  /** Privileged account display: authenticated identity plus this session's actual sync state. */
+  getSyncStatus(): Promise<AccountSyncStatus | null>;
+  retrySync(): Promise<void>;
   requestCode(email: string): Promise<RequestCodeOutcome>;
   verifyCode(email: string, token: string): Promise<VerifyCodeOutcome>;
   /** Popup-open / poll-window reconcile (R4): definitive-write rule, 401 → auth-required. */
@@ -236,6 +241,9 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
    * sign-out (or a concurrent identity switch) letting a stale `entitled: true` land after the purge
    * already wrote `entitled: false`. Independent of any auth-js in-memory-session quirk. */
   let teardownGeneration = 0;
+  // A voluntary exit can wait on the network while SyncService still carries its prior userId.
+  // Keep that identity out of display reads until the exit settles (failed deletion can resume).
+  let accountStatusTeardowns = 0;
 
   /** Purchase intent set before any pending-OTP record exists (locked-row tap precedes the code
    * request) — staged in-instance and folded into the next persisted record. A worker restart in
@@ -360,6 +368,30 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
   };
 
   return {
+    async getSyncStatus(): Promise<AccountSyncStatus | null> {
+      if (accountStatusTeardowns > 0) return null;
+      const generation = teardownGeneration;
+      const account = auth.currentAccount
+        ? await auth.currentAccount()
+        : { id: await auth.currentUserId(), email: null };
+      const state = sync.getState();
+      if (accountStatusTeardowns > 0 || generation !== teardownGeneration || !account?.id) return null;
+      if (state.userId !== account.id) throw new Error("Account sync status is not ready");
+      return {
+        accountId: account.id,
+        email: account.email,
+        lastSyncedAt: state.lastSyncedAt ?? null,
+        pendingUpload: state.pendingUpload ?? false,
+        cloudReachable: state.cloudReachable,
+        updatedAt: now(),
+      };
+    },
+
+    async retrySync(): Promise<void> {
+      if (accountStatusTeardowns > 0) return;
+      await sync.retryNow?.();
+    },
+
     async getState(): Promise<ExtensionSessionState> {
       try {
         const userId = await auth.currentUserId();
@@ -451,27 +483,37 @@ export function createExtensionSession(deps: ExtensionSessionDeps): ExtensionSes
     // involuntary 401 NEVER routes here: auth-required leaves cache + pending to their fate.
 
     async signOut(): Promise<SignOutSessionOutcome> {
+      accountStatusTeardowns += 1;
       // The Supabase sign-out is best-effort for a voluntary exit (apple-session parity: a
       // rejected remote call must not strand the local purge — the UI lands signed out + locked).
       try {
-        await sync.signOut();
-      } catch {
-        /* proceed with the local purge regardless */
+        try {
+          await sync.signOut();
+        } catch {
+          /* proceed with the local purge regardless */
+        }
+        await clearUserScopedState("user-leaving");
+        return "signed-out";
+      } finally {
+        accountStatusTeardowns -= 1;
       }
-      await clearUserScopedState("user-leaving");
-      return "signed-out";
     },
 
     async deleteAccount(): Promise<DeleteAccountSessionOutcome> {
+      accountStatusTeardowns += 1;
       // Server-first (apple-session parity): a failed backend delete keeps the session AND the
       // local state intact — never appear signed-out while the account still exists.
       try {
-        await sync.deleteAccount();
-      } catch {
-        return "delete-failed";
+        try {
+          await sync.deleteAccount();
+        } catch {
+          return "delete-failed";
+        }
+        await clearUserScopedState("user-leaving");
+        return "deleted";
+      } finally {
+        accountStatusTeardowns -= 1;
       }
-      await clearUserScopedState("user-leaving");
-      return "deleted";
     },
 
     async onNudge(): Promise<NudgeOutcome> {

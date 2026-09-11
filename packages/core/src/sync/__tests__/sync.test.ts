@@ -408,6 +408,8 @@ describe("SyncService", () => {
       syncing: true, // the new user still syncs; only their entitlement went unanswered
       cloudReachable: true,
       confirmed: false,
+      lastSyncedAt: expect.any(Number),
+      pendingUpload: false,
     });
   });
 
@@ -472,7 +474,8 @@ describe("SyncService", () => {
     expect(svc.getState().cloudReachable).toBe(false);
     expect(states.some((s) => s.cloudReachable === false)).toBe(true);
 
-    await cache.setService("tiktok", false); // next edit → new write
+    await cache.setService("tiktok", false); // next edit → read the account before retrying
+    await drain();
     d.resolve(); // succeeds
     await drain();
     expect(svc.getState().cloudReachable).toBe(true);
@@ -1447,7 +1450,7 @@ describe("SyncService", () => {
     expect(calls).toContain("deleteAccount");
     expect(authCalls).toContain("signOut");
     expect(svc.getState().userId).toBeNull();
-    expect(states.at(-1)).toEqual({ userId: null, entitled: false, syncing: false, cloudReachable: true, confirmed: true });
+    expect(states.at(-1)).toEqual({ userId: null, entitled: false, syncing: false, cloudReachable: true, confirmed: true, lastSyncedAt: null, pendingUpload: false });
   });
 
   it("deleteAccount deletes BEFORE signing out (order)", async () => {
@@ -1483,6 +1486,6 @@ describe("SyncService", () => {
     await svc.onSignedIn(USER);
     await svc.deleteAccount(); // must not throw — the delete is what matters
     expect(svc.getState().userId).toBeNull();
-    expect(svc.getState()).toEqual({ userId: null, entitled: false, syncing: false, cloudReachable: true, confirmed: true });
+    expect(svc.getState()).toEqual({ userId: null, entitled: false, syncing: false, cloudReachable: true, confirmed: true, lastSyncedAt: null, pendingUpload: false });
   });
 });
