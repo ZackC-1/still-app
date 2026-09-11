@@ -7,3 +7,4 @@ html.still-active.still-service-youtube ytm-pivot-bar-item-renderer:has(.pivot-s
 html.still-active.still-service-youtube yt-tab-shape[tab-title="Shorts"]{display:none!important}
 html.still-active.still-service-youtube tp-yt-paper-tab:has([href$="/shorts"]){display:none!important}
 html.still-active.still-service-youtube yt-chip-cloud-chip-renderer:has([title="Shorts"]){display:none!important}
+html.still-active.still-service-youtube yt-chip-cloud-chip-renderer[data-still-shorts-chip]{display:none!important}

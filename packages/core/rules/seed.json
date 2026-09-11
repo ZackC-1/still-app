@@ -1,5 +1,5 @@
 {
-  "version": "1.1.7",
+  "version": "1.1.8",
   "services": {
     "youtube": {
       "matches": [
@@ -107,7 +107,8 @@
           "action": "hide",
           "enabledByDefault": true,
           "selectors": [
-            "yt-chip-cloud-chip-renderer:has([title=\"Shorts\"])"
+            "yt-chip-cloud-chip-renderer:has([title=\"Shorts\"])",
+            "yt-chip-cloud-chip-renderer[data-still-shorts-chip]"
           ]
         }
       ]
@@ -313,6 +314,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "12463a04635c6136f2ed4c301162d022fd4f925e4f839eb5d7b94decbc537d90dee4890b92eead56d9fd45de79566bc52be9831caacb48966074f3d59639bd00"
+    "value": "ea008a78f5d9a4311c34a188aa55a4a551f510adcfd34230164b98f169a9b067611f4d0bd96144059ae8fc5c4e0288f581714e4bf886ef6dc065a35ef8bc540f"
   }
 }
