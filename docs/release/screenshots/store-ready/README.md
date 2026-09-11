@@ -1,8 +1,9 @@
 # Store-ready screenshot upload manifest
 
-Verified against the official store requirements on July 13, 2026. Upload assets from this directory,
-not from `../v2/`. The `v2` directory remains the complete marketing-concept set for the website,
-support material, and future campaigns.
+Current browser screenshots: captured September 11, 2026 from the configured Still 2.0.0 release
+packages. Use the named free-2 assets below. The older `v2` screenshots and renderer include paid
+1.x UI/copy and are retained as historical concepts, not current 2.0 upload assets. Apple guidance
+below remains separate; the browser captures do not validate native screenshots.
 
 ## Apple App Store — iPhone
 
@@ -43,10 +44,12 @@ while review is pending; use rights-reviewed brand-safe variants for any future 
 
 ## Chrome Web Store
 
-Upload the five numbered `still-chrome-v2-*` files in numeric order. Do not add a sixth screenshot;
-Chrome accepts at most five.
+Upload `chrome/still-chrome-free-2-1280x800.png`. Remove older screenshots depicting Pro locks,
+purchase requirements or paid sync from the 2.0 listing; do not mix them with this replacement.
 
-- Screenshots: 5 JPEG files at 1280x800, full bleed
+- Screenshot: one RGB PNG at 1280x800, captured directly from the real release popup document
+- State: signed out, all four site controls enabled, optional settings sync
+- Browser: Chromium 153.0.8010.12, isolated profile with the release extension loaded
 - Small promo tile: `chrome/still-chrome-promo-v2-440x280.jpg` (required)
 - Marquee tile: `chrome/still-chrome-marquee-v2-1400x560.jpg` (optional, recommended)
 - The promo tiles are brand-led and omit marketing copy, following Chrome's recommendation to avoid
@@ -54,13 +57,31 @@ Chrome accepts at most five.
 
 ## Firefox Add-ons (AMO)
 
-Upload only `firefox/still-firefox-store-01-1280x800.jpg`.
+Upload `firefox/still-firefox-free-2-1280x800.png` in place of the older paid-UI
+`still-firefox-store-01-1280x800.jpg`.
 
-- Format: JPEG
-- Dimensions: 1280x800 (Mozilla's maximum display size and recommended 1.6:1 ratio)
-- Content: actual add-on UI with no explanatory text baked into the image
+- Format: PNG
+- Dimensions: 1280x800
+- Content: actual release add-on popup document, signed out with all four controls enabled
+- Browser: Firefox 155.0.1, isolated profile with the release ZIP temporarily installed
+- No explanatory text or invented browser chrome is baked into the image
 - Put the benefit explanation in AMO's screenshot-description field. Do not upload the annotated
   `../v2/firefox/` concepts to AMO.
+
+## Browser capture provenance and refresh
+
+Both captures use the unchanged popup document at its normal CSS size in a 1280x800 viewport,
+light mode and device scale factor 1. They include no customer data, simulated controls, image
+retouching or marketing overlays. The different browser rendering is intentional. See
+[capture evidence and refresh procedure](../source/browser-free-2-capture.md) for package and image
+hashes. The portal upload status is separate from this asset record.
+
+Do not regenerate these files through `source/render.mjs`: that older compositor embeds the
+archived `chrome/raw-popup-v2.png`. Refresh from the actual candidate in an isolated browser and
+review the resulting pixels before replacing a submitted image.
+
+Official screenshot guidance: [Chrome](https://developer.chrome.com/docs/webstore/images) and
+[Firefox](https://extensionworkshop.com/documentation/develop/create-an-appealing-listing/).
 
 ## Still Pro in-app purchase image
 
