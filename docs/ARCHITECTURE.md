@@ -1,5 +1,9 @@
 # Still Architecture
 
+> **Still 2.0:** All four blocking services and optional settings sync are free. Sign-in gates
+> sync only. Both paid-tier flags are disabled. Purchase and entitlement descriptions below
+> document retained infrastructure, not a requirement to use this release.
+
 Still is organized around a small number of deep modules with narrow interfaces. The goal is locality: a change to blocking rules, purchase state, or platform storage should be verified in one place instead of spread through every extension and app shell.
 
 ## Design goals
@@ -36,7 +40,7 @@ Still is organized around a small number of deep modules with narrow interfaces.
 
 Remote data can change selectors and actions inside the existing interpreter. It cannot add arbitrary JavaScript.
 
-## Entitlement flow
+## Retained entitlement flow
 
 1. StoreKit 2 or RevenueCat Web Billing completes a purchase.
 2. RevenueCat sends the event to `revenuecat-webhook`.
@@ -44,7 +48,7 @@ Remote data can change selectors and actions inside the existing interpreter. It
 4. Clients call `reconcile-entitlement` to read the authoritative state.
 5. Extensions and the Apple app cache the entitlement with explicit offline rules.
 
-The user-facing tier is Still Pro. The immutable internal entitlement id remains `still_sync`.
+The dormant paid tier is Still Pro. The immutable internal entitlement id remains `still_sync`.
 
 ## Settings flow
 

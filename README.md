@@ -2,13 +2,13 @@
 
 [![CI](https://github.com/ZackC-1/still-app/actions/workflows/ci.yml/badge.svg)](https://github.com/ZackC-1/still-app/actions/workflows/ci.yml)
 
-Still removes short-form video surfaces from YouTube, Instagram, Facebook, and TikTok. It is designed to be quiet infrastructure: no timers, streaks, locks, shame loops, or attention dashboards. The app removes the short-form entry points and leaves regular feeds alone.
+Still removes short-form video surfaces from YouTube, Instagram, Facebook, and TikTok. It is designed to be quiet infrastructure: no timers, streaks, locks, shame loops, or attention dashboards. Still removes Shorts and Reels while preserving regular YouTube, Instagram, and Facebook content; it blocks the TikTok website.
 
-This repository is public so people who install Still can inspect what runs in the browser, how privacy is handled, how paid unlocks are verified, and how releases are tested.
+This repository is public so people who install Still can inspect what runs in the browser, how privacy is handled, how optional settings sync works, and how releases are tested.
 
-> **Project status:** Still is in pre-release validation. The current clients and cross-surface sync
-> have passed the release test matrix, but store review and public distribution are intentionally
-> pending. See [release validation](docs/release/VALIDATION.md) for the verified commit and scope.
+> **Project status:** Still 2.0 is undergoing release verification. Automated checks and distribution
+> signing have passed; device journeys, provider privacy checks, and store preparation remain open.
+> See the [release runbook](docs/release/README.md) for evidence and remaining gates.
 
 ## What Still ships
 
@@ -16,15 +16,18 @@ This repository is public so people who install Still can inspect what runs in t
 |---|---|
 | Browser extensions | Shared WebExtension code for Chromium and Firefox builds, with a data-driven content script for blocking short-form surfaces. |
 | Safari extension | The same blocking core packaged as a Safari Web Extension. |
-| Apple app | iOS and macOS host app for the Safari extension, StoreKit 2 purchase, and the extension bridge. |
+| Apple app | iOS and macOS host app for the Safari extension and native bridge, with dormant StoreKit 2 purchase infrastructure. |
 | Supabase backend | Auth, settings sync, entitlement reconciliation, signed rule-set hosting, export, deletion, and selector canary functions. |
 
 ## Product model
 
-| Tier | Included |
+| Feature | Included |
 |---|---|
-| Free | YouTube Shorts removal. No account required. Settings stay on-device. |
-| Still Pro | Reels, TikTok, Facebook short-form surfaces, and cross-device settings sync. One-time purchase. |
+| Free blocking | YouTube Shorts and Instagram/Facebook Reels removal; TikTok website blocking. No account or purchase required. |
+| Optional free settings sync | Sign in with the same email on supported devices to sync your Still settings. |
+
+On iPhone and iPad, Still works on websites opened in Safari, not inside native social-media apps.
+Still 2.0 is free; retained purchase infrastructure is disabled for this release.
 
 Still does not collect browsing history. Host permissions are limited to `youtube.com`, `instagram.com`, `facebook.com`, and `tiktok.com`; the extension never requests `<all_urls>`.
 
@@ -48,7 +51,7 @@ tests/
   playwright/      extension integration tests
   smoke/           non-gating real-site smoke checks
 docs/
-  release/         first-release runbooks for every store and backend dependency
+  release/         release runbooks for every store and backend dependency
 ```
 
 The blocking engine consumes a signed, versioned JSON rule set. Remote updates are data only: selectors, match patterns, action enum values, and tier metadata. They are schema-checked and Ed25519-verified before use; remote rule sets never ship executable code.

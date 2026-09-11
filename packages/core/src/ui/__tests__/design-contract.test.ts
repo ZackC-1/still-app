@@ -65,8 +65,8 @@ describe("cross-platform design contract", () => {
     const support = read("../../docs/support.html");
     const legalStyles = read("../../docs/assets/legal.css");
 
-    expect(privacy).toContain('href="./assets/legal.css"');
-    expect(support).toContain('href="./assets/legal.css"');
+    expect(privacy).toContain('href="/assets/legal.css"');
+    expect(support).toContain('href="/assets/legal.css"');
     expect(legalStyles).toContain('font-family: "InterVariable"');
   });
 });

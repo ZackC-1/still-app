@@ -1,174 +1,181 @@
-# Store listing copy — canonical launch version
+# Still 2.0 store listing copy
 
-Use [public contact addresses](public-contact-addresses.md) for customer email fields and support/privacy links when preparing or updating a store listing.
+Updated September 11, 2026. Canonical English copy for the free 2.0 release. Prepare these fields
+now; publish alongside the corresponding 2.0 artifacts. A listing for an older paid version must
+not imply that its download already includes free 2.0 functionality.
 
-Updated 2026-07-14. This is the paste-ready source of truth for the English U.S./Canada/U.K. launch.
-The message order is intentional: outcome → free value → Pro value → cross-platform proof → scope →
-privacy. Do not reorder the native-app limitation below the privacy/footer material.
+Use [public contact addresses](public-contact-addresses.md) for every submission. Store screenshots,
+provider privacy declarations, and live portal pricing still need the checks in the
+[release runbook](README.md). Do not upload historical images showing Pro locks or $1.99 pricing.
 
 ## Shared product language
 
-- Brand promise: **Open for what you came for.**
-- Functional proof: **Still removes short-form video from supported browsers.**
-- Free: **YouTube Shorts are removed free. No account required.**
-- Pro: **$1.99 once. No subscription. Removes Instagram/Facebook Reels, blocks the TikTok website,
-  and syncs settings.**
-- Cross-platform: **One purchase unlocks Still Pro on every supported surface after sign-in with the
-  same email.**
-- Mobile disclosure: **On iPhone and iPad, Still works only in Safari. It does not change native
-  YouTube, Instagram, Facebook, or TikTok apps. Chrome on mobile is not supported.**
+- **Still 2.0 is free.** Remove YouTube Shorts and Instagram/Facebook Reels; block the TikTok website.
+- **No account or purchase needed for blocking.** Sign-in is optional and enables free settings sync.
+- **Every supported surface:** Safari on iPhone, iPad, and Mac; Chrome and Firefox on desktop.
+- **Mobile means Safari websites.** Still does not block inside native social-media apps.
+- No “free forever” promise. Future pricing is outside this release.
 
-Never shorten “every supported surface” to “everywhere.”
+## Apple App Store: iPhone/iPad and Mac
 
----
-
-## Chrome Web Store
-
-**Item name (≤45):**
+Name (30-character limit):
 
 > Still: Block Shorts & Reels
 
-**Short description (≤132):**
+Subtitle (30-character limit):
 
-> Block YouTube Shorts free. Pay $1.99 once for Reels, TikTok, and synced settings across supported browsers and devices.
+> A quieter web in Safari
 
-**Category:** Productivity
+Promotional text (170-character limit):
 
-**Detailed description:**
+> Still 2.0 is free. Remove YouTube Shorts and Instagram/Facebook Reels, and block the TikTok website in Safari. No account or purchase needed.
+
+Keywords (100-byte limit):
+
+> focus,distraction,doomscroll,attention,productivity,mindful,shorts,reels,tiktok,safari
+
+Description (use for both Apple listings):
 
 > OPEN FOR WHAT YOU CAME FOR
 >
-> You opened the site to do one thing. Still helps it stay one thing.
+> Still removes short-form distractions from websites in Safari, so a quick visit can stay a quick visit.
 >
-> Still removes short-form video from the websites you already use, so a useful visit does not turn
-> into an accidental hour of scrolling. The rest of each site stays available.
+> ALL INCLUDED FREE IN STILL 2.0
+> • Remove YouTube Shorts shelves and tabs
+> • Open Shorts links in the normal YouTube video player
+> • Remove Instagram Reels and Facebook Reels
+> • Block the TikTok website
+> • Choose which supported websites to quiet
 >
-> START FREE
-> • Removes the YouTube Shorts shelf and tab
-> • Opens Shorts links in the normal video player
-> • No account required
-> • Blocking and settings stay on your device
+> Regular videos, posts, and messages on YouTube, Instagram, and Facebook remain available. The TikTok website is blocked.
 >
-> STILL PRO — $1.99 ONCE, NO SUBSCRIPTION
-> • Removes Instagram Reels and Facebook Reels
-> • Blocks the TikTok website
-> • Syncs your Still settings across supported browsers and devices
-> • One purchase on any surface unlocks Still Pro on every supported surface after you sign in with
->   the same email
+> NO ACCOUNT NEEDED
+> Enable the Safari extension and allow it on the websites you want to quiet. All blocking works without sign-in or a purchase. Settings can stay on your device.
 >
-> WHERE STILL WORKS
-> • Desktop: Chrome and Firefox
-> • Apple devices: Safari on iPhone, iPad, and Mac
-> • On iPhone and iPad, Still works only while browsing websites in Safari
+> OPTIONAL FREE SETTINGS SYNC
+> Sign in with an emailed code to sync your Still settings across supported devices. Use the same email on each device. Signing out does not stop blocking.
 >
-> IMPORTANT: Still does not remove or block short-form video inside native mobile apps such as the
-> YouTube, Instagram, Facebook, or TikTok apps. Chrome on mobile does not support Still.
+> WHERE IT WORKS
+> Safari on iPhone, iPad, and Mac. Still is also available separately for Chrome and Firefox on desktop.
+>
+> On iPhone and iPad, Still works only on websites opened in Safari. It cannot block short-form video inside the native YouTube, Instagram, Facebook, or TikTok apps.
 >
 > PRIVATE BY DESIGN
-> • No ads, behavioral tracking, or browsing-history analytics
-> • Free blocking runs entirely on your device
-> • Pro sign-in stores only the account, purchase entitlement, and Still settings needed for restore
->   and sync
-> • Still runs only on youtube.com, instagram.com, tiktok.com, and facebook.com
+> Blocking runs on your device. Still does not collect browsing history or show ads. Website access is limited to YouTube, Instagram, Facebook, and TikTok.
 >
-> Still Pro checkout opens securely on the web and is sold by Cadmus Labs. Support and refunds:
-> https://stillapp.fit/support/
+> Setup and support: https://stillapp.fit/support/
+> Privacy: https://stillapp.fit/privacy/
+
+What's New (both Apple listings and browser release notes):
+
+> Still 2.0 includes all blocking features for free. Remove YouTube Shorts and Instagram/Facebook Reels, and block the TikTok website without an account or purchase. Optional free sign-in syncs your settings across supported devices.
+
+Reviewer notes:
+
+> Still 2.0 is free. No purchase or account is needed to test any blocking feature. Enable the Safari extension, grant access to the four supported websites, and browse them in Safari. Regular YouTube videos and regular Instagram/Facebook content should remain usable; the TikTok website is blocked.
 >
-> Open for what you came for. Leave with your attention intact.
+> Sign-in is optional and enables free cross-device settings sync. It uses an emailed six-digit code. Signed-in users can export their data, sign out, or delete their account. Blocking remains available while signed out. Still does not modify native social-media apps.
+>
+> Purchase infrastructure remains in the project for historical entitlements, with paid features disabled for this release. No in-app purchase is needed to use Still 2.0.
 
-**Privacy practices — single purpose:**
+Before submission, supply any review-only account access through the private portal fields and
+verify it works; never put credentials in this document. Confirm app price is free and that obsolete
+promoted purchases, purchase screenshots, and paid promotional text are not attached to this release.
+Do not delete historical products or customer entitlements just to update metadata.
 
-> Still removes short-form video feeds from supported websites so users can browse those sites
-> without Shorts, Reels, or TikTok pulling them into an endless feed.
+## Chrome Web Store
 
-**Permission justifications:**
-
-- `declarativeNetRequestWithHostAccess`: Redirects YouTube Shorts URLs to the standard watch page
-  before the Shorts player renders.
-- `storage`: Saves the user's on/off, per-service, pause, sign-in, and entitlement state.
-- Host permissions: Applies Still's blocking rules only on YouTube, Instagram, Facebook, and TikTok.
-
-**Data disclosure:** Authentication information is used only for optional Pro sign-in, purchase
-restore, and settings sync. Do not declare browsing history, page content, personal communications,
-or ad data; Still does not collect them. Remote code: **No**.
-
-**External payment disclosure:**
-
-> Still Pro is a $1.99 one-time purchase completed on the web through RevenueCat and Stripe. Checkout
-> opens in a new tab; no payment is collected inside the extension. The seller is Cadmus Labs.
-
-**Recommended asset order:** upload exactly the five numbered screenshots in
-`screenshots/store-ready/chrome/` in numeric order. Chrome accepts no more than five screenshots.
-Also upload the 440x280 small promo tile and the optional 1400x560 marquee tile from that folder.
-Keep screenshot 05; it is the expectation-setting screen that reduces mismatched installs and refunds.
-
----
-
-## Firefox Add-ons (AMO)
-
-**Name:**
+Name:
 
 > Still: Block Shorts & Reels
 
-**Summary (≤250):**
+Short description (132-character limit):
 
-> Open for what you came for. Remove YouTube Shorts free; Still Pro ($1.99 once) removes Reels, blocks TikTok, and syncs settings across supported browsers. Desktop Firefox only. On mobile, Still works only in Safari—not native apps.
+> Remove Shorts and Reels. Block the TikTok website. Free, with no account needed. Optional free settings sync.
 
-**Description:** use the Chrome detailed description above.
+Detailed description:
 
-**Categories:** Productivity and Privacy & Security, if those exact labels remain available.
+> OPEN FOR WHAT YOU CAME FOR
+>
+> Still removes short-form distractions from websites in your desktop browser, so a quick visit can stay a quick visit.
+>
+> ALL INCLUDED FREE IN STILL 2.0
+> • Remove YouTube Shorts shelves and tabs
+> • Open Shorts links in the normal YouTube video player
+> • Remove Instagram Reels and Facebook Reels
+> • Block the TikTok website
+> • Choose which supported websites to quiet
+>
+> Regular videos, posts, and messages on YouTube, Instagram, and Facebook remain available. The TikTok website is blocked.
+>
+> NO ACCOUNT NEEDED
+> Install Still, open it from the toolbar, and choose your settings. All blocking works without sign-in or a purchase. Settings can stay on your device.
+>
+> OPTIONAL FREE SETTINGS SYNC
+> Sign in with an emailed code to sync your Still settings across supported devices. Use the same email on each device. Signing out does not stop blocking.
+>
+> WHERE IT WORKS
+> Chrome and Firefox on desktop. Still is also available separately for Safari on iPhone, iPad, and Mac.
+>
+> On iPhone and iPad, Still works only on websites opened in Safari. It cannot block short-form video inside native YouTube, Instagram, Facebook, or TikTok apps. This desktop extension does not work in mobile Chrome or Firefox.
+>
+> PRIVATE BY DESIGN
+> Blocking runs on your device. Still does not collect browsing history or show ads. Website access is limited to YouTube, Instagram, Facebook, and TikTok.
+>
+> Setup and support: https://stillapp.fit/support/
+> Privacy: https://stillapp.fit/privacy/
 
-**License:** use the repository's actual source-available license selection; do not describe the
-project as open source.
+Single purpose:
 
-**Data collection disclosure:**
+> Remove YouTube Shorts and Instagram/Facebook Reels, and block the TikTok website, so users can browse supported websites with fewer short-form distractions.
 
-> The free tier collects no data and makes no network requests with user data. Optional Still Pro
-> sign-in sends the user's email address to Supabase only to restore the purchase and sync Still
-> settings across supported devices. Still does not collect browsing history or website content.
+Permission justifications:
 
-**Payment flag:** Mark that the add-on contains/requires payment for premium functionality while
-stating that YouTube Shorts blocking remains usable for free.
+- `declarativeNetRequestWithHostAccess`: Redirect YouTube Shorts URLs to the standard watch page.
+- `storage`: Save Still settings and local session state.
+- Host permissions: Apply blocking rules only on YouTube, Instagram, Facebook, and TikTok.
 
-**Reviewer note:**
+Payment: no purchase required for any 2.0 functionality. Remove paid-feature/checkout descriptions.
+Remote executable code: no. Signed remote rule updates are data interpreted by bundled code.
+Finalize data declarations after the provider/privacy gate; optional sign-in processes authentication
+information and settings. Do not reuse the old claim that signed-out clients make no network requests.
 
-> This add-on is built from a pnpm monorepo. Reproduce the submitted build with Node 22+ and pnpm
-> 11.9.0: `pnpm install --frozen-lockfile`, then `pnpm --filter @still/ext-chromium exec wxt zip -b
-> firefox`. The free tier removes YouTube Shorts. Still Pro is a $1.99 one-time web purchase that
-> removes Instagram/Facebook Reels, blocks the TikTok website, and syncs settings. Checkout opens in
-> a browser tab; no payment occurs inside the add-on. Optional sign-in uses an emailed 6-digit code.
-> The only user identifier transmitted is the account email declared as authentication information.
-> Host permissions are limited to the four supported websites.
+## Firefox Add-ons
 
-**Recommended asset:** upload
-`screenshots/store-ready/firefox/still-firefox-store-01-1280x800.jpg`. It shows the actual add-on UI
-without explanatory text baked into the image, following Mozilla's current listing guidance. Use the
-listing's screenshot-description field for any explanation rather than uploading the annotated
-`screenshots/v2/firefox/` marketing concepts.
+Name:
 
-**Screenshot description:**
+> Still: Block Shorts & Reels
 
-> Still removes short-form feeds while keeping the useful parts of each site available. YouTube
-> Shorts blocking is free; Still Pro adds Reels, TikTok, and settings sync.
+Summary (250-character limit):
 
----
+> Remove YouTube Shorts and Instagram/Facebook Reels, and block the TikTok website for free. No account needed. Optional free settings sync. Desktop Firefox only.
 
-## Response templates for reviews and support
+Description: use the Chrome detailed description above. Release notes: use What's New above.
 
-**“It does not work in the Instagram/YouTube app.”**
+Payment: mark no payment required for 2.0 functionality. Keep the actual source-available license;
+do not describe Still as open-source licensed. Finalize data declarations after the provider/privacy
+gate, including optional authentication and sync data.
 
-> Thanks for trying Still. On iPhone and iPad, Still works only on websites opened in Safari; Apple
-> does not let a Safari extension modify native social-media apps. We state this on the listing and
-> compatibility screen, but I am sorry it did not match what you expected. Refund instructions are
-> at https://stillapp.fit/support/.
+Reviewer notes:
 
-**“My Pro purchase is missing on another device.”**
+> All blocking and optional settings sync are free in 2.0. No account or purchase is needed for blocking. Sign-in uses an emailed six-digit code. Host permissions are limited to YouTube, Instagram, Facebook, and TikTok. This release supports desktop Firefox.
+>
+> The complete source archive includes the pnpm workspace, frozen lockfile, public build configuration, and AMO-REBUILD.mjs. Follow that file's prerequisites and run `node AMO-REBUILD.mjs` to reproduce the submitted Firefox payload. Remote rule updates are signed data, not executable code.
 
-> Sign in to Still on both devices with the same email used for the purchase. One purchase unlocks
-> Still Pro on every supported surface tied to that account. If it still does not appear, email the
-> purchase receipt address to support@stillapp.fit and we will reconnect it.
+Screenshot description:
 
-**Positive review response:**
+> Still 2.0 removes Shorts and Reels and blocks the TikTok website for free. Sign-in is optional for settings sync.
 
-> Thank you for making Still part of your browser. We are glad it helps you open for what you came
-> for and leave with your attention intact.
+## Customer support responses
+
+Native-app question:
+
+> On iPhone and iPad, Still works on websites opened in Safari. It cannot change the native YouTube, Instagram, Facebook, or TikTok apps. Setup help: https://stillapp.fit/setup/
+
+Earlier Pro purchase:
+
+> Update to Still 2.0 to use all blocking and optional settings sync for free. No purchase restore is needed. For help with an earlier receipt or refund, email support@stillapp.fit. Apple reviews Apple purchase refunds; earlier web purchases have a 14-day refund window. Details: https://stillapp.fit/support/
+
+Privacy or data request:
+
+> Email privacy@stillapp.fit for help with your Still account data.

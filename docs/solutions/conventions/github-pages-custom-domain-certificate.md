@@ -44,3 +44,14 @@ aliases, and compare each deployed contact link after publication. A main-only s
 branch-only pages. Keep store values in [the public contact checklist](../../release/public-contact-addresses.md)
 and link it from each submission track. Preserve email-shaped application IDs and private login
 identities; they are not public contact addresses.
+
+## Release-copy verification
+
+Search image and video captions as well as HTML: the homepage sharing image and launch video's
+last frame both retained paid-era pricing after text was updated. Regenerate sharing art from its
+HTML source with the scoped `promo` render, and omit obsolete video until a current version exists.
+Do not regenerate unrelated store screenshots or promoted-purchase assets in the same operation.
+
+Directory aliases change relative asset resolution: `./assets/legal.css` under `/support/` requests
+`/support/assets/legal.css`. Use root-relative asset paths and check each `.html` and directory URL
+in a real browser. The same issue affected the setup logo. HTTP 200 on the HTML alone misses it.

@@ -1,5 +1,7 @@
 # Still 2.0 release runbook
 
+Latest copy preparation: [free Still 2.0 copy and publication gates](2026-09-11-free-release-copy.md).
+
 Latest source/artifact review: [September 11 public contact update](2026-09-11-public-contact-update.md).
 It records the current contact addresses, fresh distribution exports, verified backend deployment
 and remaining public-release gates. The [September 10 PR reconciliation](2026-09-10-pr-reconciliation.md)

@@ -1,5 +1,9 @@
 # Still — domain glossary
 
+> **Still 2.0:** All four blocking services and optional settings sync are free. Sign-in gates
+> sync only. Both paid-tier flags are disabled. Purchase and entitlement descriptions below
+> document retained infrastructure, not a requirement to use this release.
+
 Names the load-bearing concepts in this codebase. Use these terms in code, comments, and reviews.
 
 - **Rule set** — the signed, versioned DATA describing what to block: services → surfaces →
