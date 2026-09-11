@@ -32,13 +32,20 @@ Promotional text (170-character limit):
 
 Keywords (100-byte limit):
 
-> focus,distraction,doomscroll,attention,productivity,mindful,shorts,reels,tiktok,safari
+> focus,distraction,doomscroll,attention,mindful,video,feed,scroll,website,hide,remove,calm,browser
+
+The 97-byte keyword field avoids terms already present in the name, subtitle, or selected
+Productivity/Utilities categories. It uses relevant functional terms without competing app names;
+supported websites remain named in the description. Follow [Apple's search guidance](https://developer.apple.com/app-store/search/)
+when revising it. These choices do not establish search volume or guarantee ranking.
 
 Description (use for both Apple listings):
 
 > OPEN FOR WHAT YOU CAME FOR
 >
 > Still removes short-form distractions from websites in Safari, so a quick visit can stay a quick visit.
+>
+> Use Still on your computer and iPhone, with optional free settings sync between supported browsers.
 >
 > ALL INCLUDED FREE IN STILL 2.0
 > • Remove YouTube Shorts shelves and tabs
@@ -52,8 +59,8 @@ Description (use for both Apple listings):
 > NO ACCOUNT NEEDED
 > Enable the Safari extension and allow it on the websites you want to quiet. All blocking works without sign-in or a purchase. Settings can stay on your device.
 >
-> OPTIONAL FREE SETTINGS SYNC
-> Sign in with an emailed code to sync your Still settings across supported devices. Use the same email on each device. Signing out does not stop blocking.
+> FREE SYNC BETWEEN COMPUTER AND PHONE
+> Keep your blocking settings consistent across Chrome and Firefox on your computer, Safari on Mac, and Safari on iPhone and iPad through the Still iOS app. Install Still separately on each browser or device, then sign in with the same email address using the emailed code. Settings sync is optional and free; blocking works without an account.
 >
 > WHERE IT WORKS
 > Safari on iPhone, iPad, and Mac. Still is also available separately for Chrome and Firefox on desktop.
@@ -68,13 +75,13 @@ Description (use for both Apple listings):
 
 What's New (both Apple listings and browser release notes):
 
-> Still 2.0 includes all blocking features for free. Remove YouTube Shorts and Instagram/Facebook Reels, and block the TikTok website without an account or purchase. Optional free sign-in syncs your settings across supported devices.
+> Still 2.0 includes all blocking features for free, with no account or purchase needed. Remove YouTube Shorts and Instagram/Facebook Reels, and block the TikTok website. Optional free sign-in syncs your settings between Chrome and Firefox on your computer, Safari on Mac, and Safari on iPhone and iPad through the Still iOS app.
 
 Reviewer notes:
 
 > Still 2.0 is free. No purchase or account is needed to test any blocking feature. Enable the Safari extension, grant access to the four supported websites, and browse them in Safari. Regular YouTube videos and regular Instagram/Facebook content should remain usable; the TikTok website is blocked.
 >
-> Sign-in is optional and enables free cross-device settings sync. It uses an emailed six-digit code. Signed-in users can export their data, sign out, or delete their account. Blocking remains available while signed out. Still does not modify native social-media apps.
+> Sign-in is optional and enables free cross-device settings sync. It uses an emailed six-digit code. Users can request an export of their account data by emailing privacy@stillapp.fit. Signed-in users can sign out or delete their account in the app. Blocking remains available while signed out. Still does not modify native social-media apps.
 >
 > Purchase infrastructure remains in the project for historical entitlements, with paid features disabled for this release. No in-app purchase is needed to use Still 2.0.
 
@@ -99,6 +106,8 @@ Detailed description:
 >
 > Still removes short-form distractions from websites in your desktop browser, so a quick visit can stay a quick visit.
 >
+> Use Still on your computer and iPhone, with optional free settings sync between supported browsers.
+>
 > ALL INCLUDED FREE IN STILL 2.0
 > • Remove YouTube Shorts shelves and tabs
 > • Open Shorts links in the normal YouTube video player
@@ -111,8 +120,8 @@ Detailed description:
 > NO ACCOUNT NEEDED
 > Install Still, open it from the toolbar, and choose your settings. All blocking works without sign-in or a purchase. Settings can stay on your device.
 >
-> OPTIONAL FREE SETTINGS SYNC
-> Sign in with an emailed code to sync your Still settings across supported devices. Use the same email on each device. Signing out does not stop blocking.
+> FREE SYNC BETWEEN COMPUTER AND PHONE
+> Keep your blocking settings consistent across Chrome and Firefox on your computer, Safari on Mac, and Safari on iPhone and iPad through the Still iOS app. Install Still separately on each browser or device, then sign in with the same email address using the emailed code. Settings sync is optional and free; blocking works without an account.
 >
 > WHERE IT WORKS
 > Chrome and Firefox on desktop. Still is also available separately for Safari on iPhone, iPad, and Mac.
@@ -148,7 +157,7 @@ Name:
 
 Summary (250-character limit):
 
-> Remove YouTube Shorts and Instagram/Facebook Reels, and block the TikTok website for free. No account needed. Optional free settings sync. Desktop Firefox only.
+> Remove YouTube Shorts and Instagram/Facebook Reels, and block the TikTok website for free. No account needed. Optional free settings sync with desktop Chrome and Safari on Mac, iPhone, and iPad. This extension supports desktop Firefox.
 
 Description: use the Chrome detailed description above. Release notes: use What's New above.
 
