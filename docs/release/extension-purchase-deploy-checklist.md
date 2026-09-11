@@ -175,7 +175,7 @@ Verification methods, per item:
       Playbook: locate the Stripe charge in the RC dashboard by receipt email →
       grant the `still_sync` entitlement to the customer's NEW app_user_id
       (RC customer transfer or promotional grant) → confirm reconcile unlocks.
-      Requests arrive via the "Find my purchase" mailto (zack@cadmuslabs.co).
+      Requests arrive via the "Find my purchase" mailto (support@stillapp.fit).
 
 ## 6. Sandbox verification run (record results honestly)
 

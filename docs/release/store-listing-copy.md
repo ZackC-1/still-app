@@ -1,5 +1,7 @@
 # Store listing copy — canonical launch version
 
+Use [public contact addresses](public-contact-addresses.md) for customer email fields and support/privacy links when preparing or updating a store listing.
+
 Updated 2026-07-14. This is the paste-ready source of truth for the English U.S./Canada/U.K. launch.
 The message order is intentional: outcome → free value → Pro value → cross-platform proof → scope →
 privacy. Do not reorder the native-app limitation below the privacy/footer material.
@@ -164,7 +166,7 @@ listing's screenshot-description field for any explanation rather than uploading
 
 > Sign in to Still on both devices with the same email used for the purchase. One purchase unlocks
 > Still Pro on every supported surface tied to that account. If it still does not appear, email the
-> purchase receipt address to zack@cadmuslabs.co and we will reconnect it.
+> purchase receipt address to support@stillapp.fit and we will reconnect it.
 
 **Positive review response:**
 

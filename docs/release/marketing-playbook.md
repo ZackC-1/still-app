@@ -1,5 +1,7 @@
 # Still launch marketing system — English U.S., Canada, and United Kingdom
 
+Use [public contact addresses](public-contact-addresses.md) for customer email fields and support/privacy links when preparing or updating a store listing.
+
 This is the canonical acquisition and conversion plan for the first launch. It covers App Store
 Connect (iOS and macOS), Chrome Web Store, Firefox Add-ons, the homepage, support, product onboarding,
 screenshots, review prompts, release notes, and organic-growth operations.
