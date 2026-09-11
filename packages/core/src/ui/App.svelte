@@ -91,6 +91,9 @@
   <!-- Account management (App Store 5.1.1): privacy policy link + in-app account deletion. -->
   {#snippet accountManagement()}
     <div class="account">
+      {#if compact}
+        <button class="link" onclick={() => c.signOut()}>{STRINGS.auth.signOut}</button>
+      {/if}
       <a
         class="link"
         href={PRIVACY_POLICY_URL}
@@ -145,7 +148,24 @@
            this card is about settings following them between devices, and about nothing else. -->
       <h2 class="sync-title">{STRINGS.sync.sectionTitle}</h2>
     {/if}
-    {#if c.popupState === "signed-out"}
+    {#if c.userId && c.accountEmail}
+      <p class="account-email">{c.accountEmail}</p>
+    {/if}
+    {#if c.accountManagedByApp}
+      {#if !c.userId || !compact}
+        <p class="muted">{c.userId ? STRINGS.sync.appManaged : STRINGS.sync.deviceOnly}</p>
+      {/if}
+      {#if c.userId}
+        {#if !compact || (c.cloudReachable && !c.pendingUpload)}
+          <p class="muted">{c.extensionMatchesApp === true ? STRINGS.sync.extensionCurrent : STRINGS.sync.extensionChecking}</p>
+        {/if}
+        {#if !c.cloudReachable || c.pendingUpload}
+          <p class="muted">{STRINGS.sync.extensionPending}</p>
+
+        {/if}
+      {/if}
+      <a class="link" href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer">{STRINGS.account.privacyPolicy}</a>
+    {:else if c.popupState === "signed-out"}
       {#if c.canSignIn}
         {#if PAID_TIER_ENABLED && c.host.canPurchase}
           <button class="primary block" onclick={() => c.startUpgrade()}>
@@ -227,32 +247,38 @@
           <p class="muted">{STRINGS.paywall.nonApple}</p>
         {/if}
       {/if}
-      <button class="link" onclick={() => c.signOut()}
-        >{STRINGS.auth.signOut}</button
-      >
+      {#if !compact}
+        <button class="link" onclick={() => c.signOut()}>{STRINGS.auth.signOut}</button>
+      {/if}
       {@render accountManagement()}
     {:else if c.popupState === "pro-device-only"}
       <!-- Signed in with receipt-only Pro: honest copy — the ACCOUNT isn't entitled (attach
            ineligible, e.g. family-shared, or not yet landed), so never claim sync. Device Pro
            already unlocks the rows above. -->
       <p class="synced">{STRINGS.proNoAccount.active}</p>
-      <button class="link" onclick={() => c.signOut()}
-        >{STRINGS.auth.signOut}</button
-      >
+      {#if !compact}
+        <button class="link" onclick={() => c.signOut()}>{STRINGS.auth.signOut}</button>
+      {/if}
       {@render accountManagement()}
     {:else if c.popupState === "entitlement-pending"}
       <p class="muted">{STRINGS.sync.pending}</p>
     {:else if c.popupState === "entitled-syncing"}
-      <p class="synced">{STRINGS.sync.syncing}</p>
-      <button class="link" onclick={() => c.signOut()}
-        >{STRINGS.auth.signOut}</button
-      >
+      <p class="synced">{c.pendingUpload ? STRINGS.sync.syncing : c.lastSyncedAt !== null ? STRINGS.sync.synced : STRINGS.sync.checking}</p>
+      {#if !compact}
+        <button class="link" onclick={() => c.signOut()}>{STRINGS.auth.signOut}</button>
+      {/if}
       {@render accountManagement()}
     {:else if c.popupState === "cloud-unreachable"}
       <p class="muted">{STRINGS.sync.unreachable}</p>
+      {#if c.retrySync}
+        <button class="link" onclick={() => void c.retrySync?.().catch(() => { c.cloudReachable = false; })}>{STRINGS.sync.retry}</button>
+      {/if}
       <button class="link" onclick={() => c.signOut()}
         >{STRINGS.auth.signOut}</button
       >
+    {/if}
+    {#if c.userId && c.lastSyncedAt !== null}
+      <p class="sync-time">{c.accountManagedByApp ? STRINGS.sync.appLastSynced : STRINGS.sync.lastSynced} <time datetime={new Date(c.lastSyncedAt).toISOString()}>{new Date(c.lastSyncedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time></p>
     {/if}
   </section>
 
@@ -295,6 +321,9 @@
 </div>
 
 <style>
+  .account-email { margin: 0; overflow-wrap: anywhere; font-weight: 500; }
+  .sync-time { margin: 0; font-size: 12px; color: var(--ink-secondary); }
+
   .app {
     display: flex;
     flex-direction: column;
@@ -533,7 +562,7 @@
   }
 
   .app[data-density="compact"] {
-    --app-gap: var(--space-2);
+    --app-gap: var(--space-1);
     --app-padding: var(--space-2);
     --appbar-padding: 0 0 var(--space-1);
     --hero-padding: var(--space-3);
@@ -549,6 +578,15 @@
     --block-button-padding: var(--space-2) var(--space-3);
     --logo-mark-size: 24px;
     --logo-word-size: 18px;
+  }
+
+  .app[data-density="compact"] .account {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-3);
+    padding-block-start: var(--space-1);
+    margin-block-start: 0;
+    font-size: 14px;
   }
 
   @media (max-height: 700px) {

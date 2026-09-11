@@ -1,3 +1,4 @@
+import type { AccountSyncStatus } from "../sync/account-status.js";
 import type { StillBridgeWindow, StillMessagePort } from "../storage/wkwebview-adapter.js";
 import { safeParse } from "../storage/settings-validation.js";
 
@@ -47,6 +48,7 @@ export type NativeMessage =
   | { readonly kind: "receiptStatus" }
   | { readonly kind: "attachPurchases" }
   | { readonly kind: "price" }
+  | { readonly kind: "setAccountSyncStatus"; readonly status: AccountSyncStatus | null }
   | { readonly kind: "signOut" }
   | { readonly kind: "setEntitlement"; readonly entitled: boolean };
 
@@ -145,6 +147,11 @@ export class NativeBridge {
    * only with server-confirmed values (a cached offline value must not refresh the TTL stamp). */
   async setEntitlement(entitled: boolean): Promise<void> {
     await this.post({ kind: "setEntitlement", entitled });
+  }
+
+  async setAccountSyncStatus(status: AccountSyncStatus | null): Promise<void> {
+    const reply = asObject(await this.post({ kind: "setAccountSyncStatus", status }));
+    if (this.available && reply?.ok !== true) throw new Error("Account status could not be saved");
   }
 
   private async post(message: NativeMessage): Promise<unknown> {

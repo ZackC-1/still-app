@@ -376,3 +376,104 @@ describe("AppleSession — email-code sign-in entry (onCodeVerified)", () => {
     expect(h.controller.userId).toBeNull(); // onSyncState never ran — the signed-in projection waits for the self-heal
   });
 });
+
+describe("AppleSession account display", () => {
+  it("publishes verified email and successful exchange time, and clears them on sign-out", async () => {
+    const save = vi.fn(async () => {});
+    const h = harness({ bridge: { setAccountSyncStatus: save }, onSignedInState: { lastSyncedAt: 1234, pendingUpload: false } });
+    await h.session.onCodeVerified("u1", "test@example.com");
+    await vi.waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ email: "test@example.com", lastSyncedAt: 1234 })));
+    expect(h.controller.accountEmail).toBe("test@example.com");
+    await h.session.signOutEverywhere();
+    expect(save).toHaveBeenLastCalledWith(null);
+    expect(h.controller.accountEmail).toBeNull();
+    expect(h.controller.lastSyncedAt).toBeNull();
+  });
+
+  it("retains the identity and historical time during a failed upload", async () => {
+    const h = harness();
+    await h.session.enterSession("u1", "test@example.com");
+    h.session.onSyncState({ userId: "u1", entitled: false, syncing: false, confirmed: false, cloudReachable: false, lastSyncedAt: 1234, pendingUpload: true });
+    expect(h.controller.accountEmail).toBe("test@example.com");
+    expect(h.controller.lastSyncedAt).toBe(1234);
+    expect(h.controller.pendingUpload).toBe(true);
+    expect(h.controller.popupState).toBe("cloud-unreachable");
+  });
+
+  it("never applies an old account's late state after switching directly", async () => {
+    const save = vi.fn(async () => {});
+    const h = harness({ bridge: { setAccountSyncStatus: save } });
+    await h.session.enterSession("u1", "first@example.com");
+    await h.session.enterSession("u2", "second@example.com");
+    h.session.onSyncState({ userId: "u1", entitled: true, syncing: true, confirmed: true, cloudReachable: true, lastSyncedAt: 999 });
+    await Promise.resolve();
+    expect(h.controller.userId).toBe("u2");
+    expect(h.controller.accountEmail).toBe("second@example.com");
+    expect(h.controller.lastSyncedAt).toBeNull();
+    expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ accountId: "u2", email: "second@example.com" }));
+  });
+
+  it("keeps the account status when deleting the account fails", async () => {
+    const save = vi.fn(async () => {});
+    const h = harness({ bridge: { setAccountSyncStatus: save } });
+    await h.session.enterSession("u1", "test@example.com");
+    h.sync.deleteAccount.mockRejectedValueOnce(new Error("offline"));
+    await expect(h.session.deleteAccountEverywhere()).rejects.toThrow();
+    expect(h.controller.accountEmail).toBe("test@example.com");
+    expect(save).not.toHaveBeenCalledWith(null);
+  });
+});
+
+it("does not let queued old native status turn an old sign-out into a sign-out of the new account", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  const save = vi.fn(async () => {}).mockImplementationOnce(() => gate);
+  const h = harness({ bridge: { setAccountSyncStatus: save } });
+  await h.session.enterSession("u1", "first@example.com");
+  await vi.waitFor(() => expect(save).toHaveBeenCalled());
+  const signingOut = h.controller.signOut();
+  await h.session.enterSession("u2", "second@example.com");
+  release();
+  await signingOut;
+  await vi.waitFor(() => expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ accountId: "u2" })));
+  expect(h.sync.signOut).not.toHaveBeenCalled();
+  expect(h.bridge.signOut).not.toHaveBeenCalled();
+  expect(h.controller.accountEmail).toBe("second@example.com");
+});
+
+it("does not clear a new account when an earlier account deletion finishes", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => { release = r; });
+  const save = vi.fn(async () => {});
+  const h = harness({ bridge: { setAccountSyncStatus: save } });
+  await h.session.enterSession("u1", "first@example.com");
+  h.sync.deleteAccount.mockImplementationOnce(() => gate);
+  const deleting = h.controller.confirmDeleteAccount();
+  await h.session.enterSession("u2", "second@example.com");
+  release();
+  await deleting;
+  expect(h.bridge.signOut).not.toHaveBeenCalled();
+  expect(h.controller.accountEmail).toBe("second@example.com");
+  expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ accountId: "u2" }));
+  expect(h.controller.deleteFlow).toBe("idle");
+  h.controller.requestDeleteAccount();
+  expect(h.controller.deleteFlow).toBe("confirming");
+});
+
+it("ignores a launch identity failure after a new account has signed in", async () => {
+  let reject!: (reason: Error) => void;
+  const h = harness();
+  const resuming = h.session.resumeAccount(() => new Promise((_, fail) => { reject = fail; }));
+  await h.session.enterSession("u2", "second@example.com");
+  reject(new Error("old storage read failed"));
+  await resuming;
+  expect(h.controller.accountEmail).toBe("second@example.com");
+  expect(h.controller.cloudReachable).toBe(true);
+});
+
+it("clears the native account display when launch finds no session", async () => {
+  const save = vi.fn(async () => {});
+  const h = harness({ bridge: { setAccountSyncStatus: save } });
+  await h.session.resumeAccount(async () => null);
+  expect(save).toHaveBeenLastCalledWith(null);
+});

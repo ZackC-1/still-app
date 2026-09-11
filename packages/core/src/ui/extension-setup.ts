@@ -1,3 +1,4 @@
+import { watchAccountStatus, type AccountStatusSnapshot } from "./account-status.js";
 import { PAID_TIER_ENABLED } from "@still/shared-types";
 import { SettingsCache, ChromeStorageAdapter } from "../storage/index.js";
 import type { StoredSettingsRecord } from "../storage/index.js";
@@ -38,9 +39,13 @@ export interface ExtensionPurchaseDeps {
   /** The background's mount snapshot (`getState` message): userId and the persisted pending
    * records have no storage-watch mirror, so the popup asks once on mount. */
   readonly getState: () => Promise<ExtensionSessionState>;
+  readonly readAccountStatus?: () => Promise<AccountStatusSnapshot | null>;
+  readonly retrySync?: () => Promise<void>;
 }
 
 export interface ExtensionUiOptions {
+  readonly readAccountStatus?: (local: StoredSettingsRecord) => Promise<AccountStatusSnapshot | null>;
+  readonly accountManagedByApp?: boolean;
   /** What this browser's add-on store requires before an email address may be collected. Declared
    * by the entrypoint because only the build knows which browser it is for; defaults to "none",
    * which is right for the Safari build, whose popup has no sign-in path at all. */
@@ -77,6 +82,8 @@ export function createExtensionUiController(
     persistence: purchase?.persistence,
     checkout: purchase?.checkout,
   });
+  controller.accountManagedByApp = options?.accountManagedByApp ?? false;
+  controller.retrySync = purchase?.retrySync;
   if (purchase) controller.paywallPrice = purchase.displayPrice;
 
   const entitlement = new EntitlementCache(new ChromeEntitlementAdapter());
@@ -89,10 +96,12 @@ export function createExtensionUiController(
   entitlement.watch();
 
   if (purchase) {
+    const revision = controller.accountRevision;
     void purchase
       .getState()
       .then((state) => {
-        controller.userId = state.userId;
+        if (controller.accountRevision !== revision) return;
+        if (!purchase.readAccountStatus) controller.userId = state.userId;
         // Rehydrate the cross-popup-death flows (the popup dies on every focus loss — rehydration
         // is the design): a pending OTP lands straight on code entry (AE2), a pending checkout on
         // its checking/stale presentation (U4/R3). Both no-op when moot (signed in / entitled).
@@ -119,5 +128,8 @@ export function createExtensionUiController(
       });
   }
 
+  const read = purchase?.readAccountStatus ?? (options?.readAccountStatus
+    ? () => options.readAccountStatus!(cache.currentRecord()) : undefined);
+  if (read) watchAccountStatus(controller, read);
   return controller;
 }
