@@ -1,5 +1,7 @@
 # Still — App Store submission package (superseded)
 
+Use [public contact addresses](release/public-contact-addresses.md) for iOS and macOS customer contact metadata.
+
 > **Superseded 2026-07-15.** This June 2026 package predates the purchase-first restructure
 > (plan `docs/plans/2026-07-15-001`, ADR 0003) and its App Review script instructed testers to
 > sign in before purchasing Still Pro — the exact flow App Review rejected under Guideline

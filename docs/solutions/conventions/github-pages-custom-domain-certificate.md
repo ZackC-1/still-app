@@ -30,3 +30,17 @@ The site publishes from gh-pages, independently of main. Keep both the publishin
 the application URL constants consistent; source merges alone do not deploy gh-pages content.
 
 Reference: [GitHub certificate troubleshooting](https://docs.github.com/en/pages/getting-started-with-github-pages/securing-your-github-pages-site-with-https#troubleshooting-certificate-provisioning-certificate-not-yet-created-error).
+
+## Contact-address changes across branches
+
+Website hosting, incoming email forwarding, outgoing SMTP and store contact metadata are separate
+settings. Public mail DNS cannot prove that aliases reach the operator's mailbox, and changing
+forwarding cannot replace addresses already compiled into an app or written in a web page.
+
+Scan both main and gh-pages for literal contact strings before updating a public address. The
+contact-address audit found the Terms page only on gh-pages, while support/privacy/setup had both
+`.html` and directory copies. Bring missing public sources into `docs/`, preserve existing URL
+aliases, and compare each deployed contact link after publication. A main-only search misses live
+branch-only pages. Keep store values in [the public contact checklist](../../release/public-contact-addresses.md)
+and link it from each submission track. Preserve email-shaped application IDs and private login
+identities; they are not public contact addresses.

@@ -1,5 +1,7 @@
 # Track 2 — Chrome Web Store (Chromium extension)
 
+Use [public contact addresses](public-contact-addresses.md) for customer email fields and support/privacy links when preparing or updating a store listing.
+
 ## Still 2.0 candidate instructions — draft
 
 For Still 2.0, describe free YouTube Shorts, Instagram/Facebook Reels removal and TikTok

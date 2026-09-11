@@ -1,5 +1,7 @@
 # Track 3 — Firefox Add-ons (addons.mozilla.org / AMO)
 
+Use [public contact addresses](public-contact-addresses.md) for customer email fields and support/privacy links when preparing or updating a store listing.
+
 ## Still 2.0 candidate instructions — draft
 
 For Still 2.0, all supported blocking is free and account sync is optional. The draft

@@ -1,5 +1,7 @@
 # Track 1 — Apple App Store (iOS + macOS) + Safari extension + $1.99 IAP
 
+Use [public contact addresses](public-contact-addresses.md) for customer email fields and support/privacy links when preparing or updating a store listing.
+
 ## Still 2.0 candidate instructions — draft
 
 For Still 2.0, blocking is free without an account or purchase. Sign-in enables optional

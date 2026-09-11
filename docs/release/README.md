@@ -12,6 +12,8 @@ The 2.0 candidate must pass [release certification](2026-09-08-still-2-certifica
 portal status in [the launch record](launch-progress-2026-07-13.md) must be verified live before
 an external action.
 
+Customer-facing email addresses and store upload checklist: [public contact addresses](public-contact-addresses.md).
+
 ## Release tracks
 
 | Track | Deliverable | Required evidence |

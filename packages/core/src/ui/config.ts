@@ -18,5 +18,5 @@ export const SETUP_GUIDE_URL = "https://stillapp.fit/setup/";
  * the server ever confirming the purchase, the paywall offers this instead of an infinite spinner.
  * Same address as the App Store support listing.
  */
-export const SUPPORT_EMAIL = "zack@cadmuslabs.co";
+export const SUPPORT_EMAIL = "support@stillapp.fit";
 export const FIND_MY_PURCHASE_MAILTO = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Find my purchase")}`;
