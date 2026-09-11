@@ -1,5 +1,9 @@
 # September 11 — free Still 2.0 release copy
 
+This records the copy-preparation snapshot. Later Firefox publication is recorded in the
+[current Firefox release status](03-firefox-amo.md#current-distribution-status--verified-september-11-2026);
+use the release tracks for current operational state.
+
 The owner confirmed that Still 2.0 is free to grow adoption: all four blocking services without an
 account and optional free sign-in for settings sync. The approved refund window is 14 days for
 previous web purchases; Apple handles Apple purchase refunds under its own policies.
@@ -37,7 +41,8 @@ publication. No store metadata, uploads, pricing, or production provider setting
 2. Finish exact-candidate host/device journeys and capture current store screenshots. Existing
    paid-era screenshots are unsuitable even when their filenames say `store-ready`.
 3. Verify each store's live version and pricing before publishing the matching 2.0 listing and site.
-   On September 11 the public Firefox listing still described version 1.0.3 and paid features.
+   At the initial September 11 copy check, Firefox still described version 1.0.3 and paid features.
+   Later that day, 2.0.0 became public with free/sync copy and payment disabled, as recorded above.
    A staggered rollout needs explicit per-store availability labels before the website can publish.
 4. Set the Terms effective date to its actual publication date when publishing, if later than the
    preparation date. Verify both `.html` and directory URLs after the gh-pages deployment.

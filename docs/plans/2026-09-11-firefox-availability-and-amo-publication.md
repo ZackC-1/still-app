@@ -10,7 +10,7 @@ branch: docs/firefox-release-availability
 
 ## Outcome and scope
 
-Public-page source and the unpublished website draft distinguish available Firefox 2.0 from
+Public-page source and the separately prepared website update distinguish available Firefox 2.0 from
 pending Apple/Chrome 2.0. Matching search descriptions preserve that distinction. Capture the
 verified AMO Continue behavior in a reusable lesson and link the Firefox runbook to it.
 
@@ -36,7 +36,8 @@ observed failure mode and prevention steps without embedding time-sensitive port
 
 ## Release boundary
 
-Keep PR #173 unpublished and its privacy decision pending. A source merge does not deploy gh-pages.
+Website publication is separately authorized and coordinated through PR #173. This source merge
+does not deploy gh-pages or provide privacy/retention approval.
 Coordinate with the independent browser screenshot PR without editing its files.
 
 ## Completion evidence
@@ -49,4 +50,5 @@ Coordinate with the independent browser screenshot PR without editing its files.
 - All 14 local documentation links resolve; all five changed meta descriptions are at most 160
   characters; stale all-platform pending banners are absent; both diffs pass `git diff --check`.
 - App suites were not rerun for static copy. Required repository CI runs on the source PR.
-- Website PR #173 remains a draft. No website publication or privacy approval is implied.
+- Website PR #173 was a draft at initial validation; its subsequent owner-authorized publication is
+  tracked separately. This source PR itself does not publish the website or approve privacy.

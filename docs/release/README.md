@@ -1,5 +1,8 @@
 # Still 2.0 release runbook
 
+Current Firefox distribution: [Still 2.0.0 is public on AMO](03-firefox-amo.md#current-distribution-status--verified-september-11-2026),
+verified September 11, 2026. Apple and Chrome 2.0 updates remain pending.
+
 Latest copy preparation: [free Still 2.0 copy and publication gates](2026-09-11-free-release-copy.md).
 
 Latest source/artifact review: [September 11 public contact update](2026-09-11-public-contact-update.md).

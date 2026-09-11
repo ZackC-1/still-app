@@ -91,13 +91,18 @@ local export with destination `export`, without provisioning updates. Store expo
 
 ## Surface and journey matrix
 
+This matrix records the September 8 candidate test boundaries. **September 11 distribution update:**
+Firefox 2.0.0 is now public on AMO; see the [current Firefox release record](03-firefox-amo.md#current-distribution-status--verified-september-11-2026).
+Public availability does not itself verify a store-installed signed-XPI host run or the other
+journeys below. Those test boundaries remain separate from distribution status.
+
 PASS below names the executed boundary. **Unverified** remains a release gate; fixture rendering
 is not a claim of native Safari, live websites, physical devices or two-device account testing.
 
 | Surface | Candidate evidence | Remaining host gate |
 |---|---|---|
 | Chrome / Chromium desktop | Exact packaged ZIP loaded unpacked in Chromium149.0.7827.55 on macOS26.6.2; actual toolbar light/dark380×600, content589.578px. Synthetic four-site offline/control/restart journeys and embedded options passed;320/375px, keyboard Tab and24px text/scroll passed | Store-installed distribution, live-site, screen-reader and account/two-device certification remain unverified |
-| Firefox desktop | Exact packaged ZIP temporarily installed in Firefox155.0.1 on macOS26.6.2; actual toolbar light/dark380×595, content594.567px. Synthetic four-site offline/control journeys and restart with same-ID reinstall passed.320/375px, native keyboard Tab and24px text/scroll passed | Signed AMO distribution, native inline options controls, screen-reader, live-site and account/two-device journeys remain unverified |
+| Firefox desktop | Exact packaged ZIP temporarily installed in Firefox155.0.1 on macOS26.6.2; actual toolbar light/dark380×595, content594.567px. Synthetic four-site offline/control journeys and restart with same-ID reinstall passed.320/375px, native keyboard Tab and24px text/scroll passed | Store-installed signed AMO host run, native inline options controls, screen-reader, live-site and account/two-device journeys remain unverified in this candidate audit |
 | macOS app + Safari | Signed Release archive and development app export; exact WKWebView/Safari resources and App Group signatures verified | Actual isolated native WKWebView/Safari execution, App Group propagation, restart/background journeys |
 | iOS app + Safari | Signed Release archive and development IPA; embedded resources/signatures verified | Physical iPhone installation and native/Safari sheet/pages, background/restart and larger-text coverage |
 | iPadOS app + Safari | Same 2.0.0 (7) signed candidate | Physical supported iPad coverage unavailable/unverified |
