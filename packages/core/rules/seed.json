@@ -1,5 +1,5 @@
 {
-  "version": "1.1.7",
+  "version": "1.1.9",
   "services": {
     "youtube": {
       "matches": [
@@ -44,16 +44,16 @@
           "enabledByDefault": true,
           "selectors": [
             "ytd-rich-section-renderer:has(ytd-rich-shelf-renderer[is-shorts])",
-            "ytm-rich-section-renderer:has(ytm-shorts-lockup-view-model)",
-            "ytm-rich-section-renderer:has(ytm-reel-shelf-renderer)",
+            "ytm-rich-section-renderer:has(ytm-shorts-lockup-view-model):not(ytm-app *)",
+            "ytm-rich-section-renderer:has(ytm-reel-shelf-renderer):not(ytm-app *)",
             "ytd-reel-shelf-renderer",
-            "ytm-reel-shelf-renderer",
-            "grid-shelf-view-model:has(ytm-shorts-lockup-view-model)",
-            "ytm-rich-item-renderer:has(ytm-shorts-lockup-view-model)",
-            "ytm-video-with-context-renderer:has(ytm-media-item.big-shorts-singleton)",
-            "ytm-video-with-context-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"])",
-            "ytm-rich-item-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"])",
-            "ytm-shorts-lockup-view-model"
+            "ytm-reel-shelf-renderer:not(ytm-app *)",
+            "grid-shelf-view-model:has(ytm-shorts-lockup-view-model):not(ytm-app *)",
+            "ytm-rich-item-renderer:has(ytm-shorts-lockup-view-model):not(ytm-app *)",
+            "ytm-video-with-context-renderer:has(ytm-media-item.big-shorts-singleton):not(ytm-app *)",
+            "ytm-video-with-context-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"]):not(ytm-app *)",
+            "ytm-rich-item-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"]):not(ytm-app *)",
+            "ytm-shorts-lockup-view-model:not(ytm-app *)"
           ]
         },
         {
@@ -65,12 +65,12 @@
           "enabledByDefault": true,
           "selectors": [
             "ytd-reel-shelf-renderer",
-            "grid-shelf-view-model:has(ytm-shorts-lockup-view-model)",
+            "grid-shelf-view-model:has(ytm-shorts-lockup-view-model):not(ytm-app *)",
             "ytd-video-renderer:has(a#thumbnail[href^=\"/shorts/\"])",
-            "ytm-video-with-context-renderer:has(ytm-media-item.big-shorts-singleton)",
-            "ytm-video-with-context-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"])",
-            "ytm-rich-item-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"])",
-            "ytm-shorts-lockup-view-model"
+            "ytm-video-with-context-renderer:has(ytm-media-item.big-shorts-singleton):not(ytm-app *)",
+            "ytm-video-with-context-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"]):not(ytm-app *)",
+            "ytm-rich-item-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"]):not(ytm-app *)",
+            "ytm-shorts-lockup-view-model:not(ytm-app *)"
           ]
         },
         {
@@ -81,10 +81,10 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "grid-shelf-view-model:has(ytm-shorts-lockup-view-model)",
+            "grid-shelf-view-model:has(ytm-shorts-lockup-view-model):not(ytm-app *)",
             "ytd-reel-shelf-renderer",
-            "ytm-reel-shelf-renderer",
-            "ytm-shorts-lockup-view-model"
+            "ytm-reel-shelf-renderer:not(ytm-app *)",
+            "ytm-shorts-lockup-view-model:not(ytm-app *)"
           ]
         },
         {
@@ -107,7 +107,27 @@
           "action": "hide",
           "enabledByDefault": true,
           "selectors": [
-            "yt-chip-cloud-chip-renderer:has([title=\"Shorts\"])"
+            "yt-chip-cloud-chip-renderer:has([title=\"Shorts\"])",
+            "yt-chip-cloud-chip-renderer[data-still-shorts-chip]"
+          ]
+        },
+        {
+          "id": "yt-mobile-shorts",
+          "label": "Mobile Shorts without deleting feed-owned elements",
+          "tier": "free",
+          "requiredCapability": "surface.youtube.shorts",
+          "action": "hide",
+          "enabledByDefault": true,
+          "selectors": [
+            "ytm-app ytm-rich-section-renderer:has(ytm-shorts-lockup-view-model)",
+            "ytm-app ytm-rich-section-renderer:has(ytm-reel-shelf-renderer)",
+            "ytm-app ytm-reel-shelf-renderer",
+            "ytm-app grid-shelf-view-model:has(ytm-shorts-lockup-view-model)",
+            "ytm-app ytm-rich-item-renderer:has(ytm-shorts-lockup-view-model)",
+            "ytm-app ytm-video-with-context-renderer:has(ytm-media-item.big-shorts-singleton)",
+            "ytm-app ytm-video-with-context-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"])",
+            "ytm-app ytm-rich-item-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"])",
+            "ytm-app ytm-shorts-lockup-view-model"
           ]
         }
       ]
@@ -313,6 +333,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "12463a04635c6136f2ed4c301162d022fd4f925e4f839eb5d7b94decbc537d90dee4890b92eead56d9fd45de79566bc52be9831caacb48966074f3d59639bd00"
+    "value": "b3dee460e0c2efac964b40319d100d266f8edfcb7d9c8f231bc4239429f61b0224bb8af7428b65d5e809d22930b3ba5a85cc1889222fc5d5607bba42ce238b0f"
   }
 }
