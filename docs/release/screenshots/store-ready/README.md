@@ -1,8 +1,8 @@
 # Store-ready screenshot upload manifest
 
 Current browser screenshots: captured September 11, 2026 from the configured Still 2.0.0 release
-packages. Use the named free-2 assets below. The older `v2` screenshots and renderer include paid
-1.x UI/copy and are retained as historical concepts, not current 2.0 upload assets. Apple guidance
+packages. Use the named functional assets below. The earlier free-2 captures remain as baselines.
+The older `v2` screenshots and renderer include paid 1.x UI/copy and are retained as historical concepts, not current 2.0 upload assets. Apple guidance
 below remains separate; the browser captures do not validate native screenshots.
 
 ## Apple App Store — iPhone
@@ -44,11 +44,14 @@ while review is pending; use rights-reviewed brand-safe variants for any future 
 
 ## Chrome Web Store
 
-Upload `chrome/still-chrome-free-2-1280x800.png`. Remove older screenshots depicting Pro locks,
-purchase requirements or paid sync from the 2.0 listing; do not mix them with this replacement.
+Upload these RGB PNGs in order, both 1280x800:
 
-- Screenshot: one RGB PNG at 1280x800, captured directly from the real release popup document
-- State: signed out, all four site controls enabled, optional settings sync
+1. [`still-chrome-functional-01-controls-1280x800.png`](chrome/still-chrome-functional-01-controls-1280x800.png): all four free controls enabled, signed out.
+2. [`still-chrome-functional-02-sync-1280x800.png`](chrome/still-chrome-functional-02-sync-1280x800.png): optional settings-sync sign-in, with an empty email field.
+
+Remove older screenshots depicting Pro locks, purchase requirements or paid sync from the 2.0
+listing. The previous `still-chrome-free-2-1280x800.png` remains a historical baseline.
+
 - Browser: Chromium 153.0.8010.12, isolated profile with the release extension loaded
 - Small promo tile: `chrome/still-chrome-promo-v2-440x280.jpg` (required)
 - Marquee tile: `chrome/still-chrome-marquee-v2-1400x560.jpg` (optional, recommended)
@@ -57,24 +60,41 @@ purchase requirements or paid sync from the 2.0 listing; do not mix them with th
 
 ## Firefox Add-ons (AMO)
 
-Upload `firefox/still-firefox-free-2-1280x800.png` in place of the older paid-UI
-`still-firefox-store-01-1280x800.jpg`.
+Upload these PNGs in order, all 1280x800:
 
-- Format: PNG
-- Dimensions: 1280x800
-- Content: actual release add-on popup document, signed out with all four controls enabled
+1. [`still-firefox-functional-01-controls-1280x800.png`](firefox/still-firefox-functional-01-controls-1280x800.png): “Remove Shorts and Reels and block the TikTok website for free. No account required.”
+2. [`still-firefox-functional-02-sync-1280x800.png`](firefox/still-firefox-functional-02-sync-1280x800.png): “Sign in optionally for free settings sync between supported computer browsers and Safari on iPhone or iPad through the Still iOS app. Install Still separately and use the same account.”
+3. Optional: [`still-firefox-functional-03-tiktok-1280x800.png`](firefox/still-firefox-functional-03-tiktok-1280x800.png), with the caption: “The TikTok website is blocked while Still is on. This does not block the native TikTok app.”
+
+Put these captions in AMO's screenshot-description fields. The blocked page itself says only
+“This site is blocked,” so its caption is required to identify the demonstrated website.
+
 - Browser: Firefox 155.0.1, isolated profile with the release ZIP temporarily installed
-- No explanatory text or invented browser chrome is baked into the image
-- Put the benefit explanation in AMO's screenshot-description field. Do not upload the annotated
-  `../v2/firefox/` concepts to AMO.
+- No explanatory text or invented browser chrome is baked into the images
+- Remove the older paid-UI `still-firefox-store-01-1280x800.jpg`; do not upload annotated
+  `../v2/firefox/` concepts. Preserve `still-firefox-free-2-1280x800.png` as a baseline.
 
 ## Browser capture provenance and refresh
 
-Both captures use the unchanged popup document at its normal CSS size in a 1280x800 viewport,
-light mode and device scale factor 1. They include no customer data, simulated controls, image
-retouching or marketing overlays. The different browser rendering is intentional. See
-[capture evidence and refresh procedure](../source/browser-free-2-capture.md) for package and image
-hashes. The portal upload status is separate from this asset record.
+The [release-wide screenshot brief](../../marketing-playbook.md#assets-and-publication) spans browser
+and native Apple surfaces. This browser sequence covers free controls, optional sync and the
+optional TikTok result. It does not picture browser installation/permission steps. Safari setup
+and the Safari-only mobile boundary belong to the separate native Apple capture set; keep that
+boundary explicit in browser listing descriptions and captions too. These files do not certify
+complete cross-store screenshot coverage or replace review of the Apple set.
+
+The controls view uses 200% native browser zoom; the optional-sync view uses 150%; the TikTok
+result uses 200%. The content viewport remains 1280x800 physical pixels. The popup document is
+opened directly, with its real white background. All four controls fit in the first capture;
+settings farther down the real page remain below the fold. The second capture shows the real
+sign-in sheet and an empty email input; `you@example.com` is its existing placeholder.
+
+Both sets were independently reviewed at full size and thumbnail size. They include no customer
+data, simulated controls, pixel editing or marketing overlays. Native browser rendering differs
+slightly between engines. See [capture evidence and refresh procedure](../source/browser-functional-capture.md)
+for package and image hashes, screenshot-density details and verification limits. The portal
+upload status is separate from this asset record. These images do not demonstrate completed sync
+or native-app blocking; keep supported browser surfaces clear in the listing description.
 
 Do not regenerate these files through `source/render.mjs`: that older compositor embeds the
 archived `chrome/raw-popup-v2.png`. Refresh from the actual candidate in an isolated browser and
