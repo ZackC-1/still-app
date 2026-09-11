@@ -1,22 +1,92 @@
-# Track 4 — RevenueCat (the cross-platform $1.99 spine)
+# Track 4 — RevenueCat for free Still 2.0
 
-RevenueCat is the shared backbone for Pro on **every** platform. A purchase on Apple **or** on the web
-both grant the same project-wide `still_sync` entitlement to the same `app_user_id` (the Supabase auth
-UUID), so one $1.99 unlocks Pro everywhere. **Webhooks require the RevenueCat Pro plan.**
+Still 2.0 provides free blocking without an account and optional free settings sync. RevenueCat
+identity and historical entitlements remain active; purchases are dormant. Follow the
+[strategy](../../STRATEGY.md) and [release overview](README.md) when older paid-launch instructions
+below differ. Do not create billing products, buy a test product, connect Stripe, grant entitlements
+or upgrade a RevenueCat plan solely to release free 2.0.
+
+## Current release checklist
+
+**Dashboard verification pending.** This checklist identifies the evidence to collect; it does not
+assert that live settings have been verified. Record only non-secret outcomes. Keep API keys,
+webhook authorization values and customer records out of screenshots, issues and release notes.
+
+- [ ] Keep `PAID_TIER_ENABLED` and `MonetizationConfig.paidTierEnabled` disabled. Free blocking and
+      free sync must not depend on a purchase or an active `still_sync` entitlement. Migration
+      `0012_profiles_write_free_sync.sql` supersedes the paid-sync checks described below.
+- [ ] In the existing Still project, open **Apps & providers** (older UI: **Apps**) and confirm the
+      Apple App Store app uses `com.chartash.still`. Confirm the release SDK public key belongs to
+      that app/project, rather than Test Store. Check the app's existing credential-health status
+      without uploading or rotating anything. A wrong app/key association needs correction; a
+      warning needs a concrete impact assessment. [Apps and providers](https://www.revenuecat.com/docs/projects/connect-a-store),
+      [release SDK keys](https://www.revenuecat.com/docs/getting-started/configuring-sdk).
+- [ ] In **Integrations**, inventory enabled destinations and **Scheduled Data Exports**, including
+      environment, feeds and forwarded attribute categories. Resolve any undisclosed recipient or
+      advertising/attribution use before privacy publication. An empty integration list is valid;
+      add nothing to fill the checklist. [Integrations](https://www.revenuecat.com/docs/integrations/integrations),
+      [exports](https://www.revenuecat.com/docs/integrations/scheduled-data-exports).
+- [ ] In **Integrations → Webhooks**, inspect the existing destination, enabled status, authorization
+      presence, app coverage, event filters and production/sandbox selection. The destination must
+      be Still's approved Supabase `/functions/v1/revenuecat-webhook`. Existing delivery results can
+      establish success without sending test events or exposing authorization values. Presence
+      alone does not prove the header matches the server. Investigate repeated delivery failures;
+      absence of new purchases/events is not itself a failure. If the current plan lacks a needed
+      feature, record the limitation before proposing a plan change. [Webhook configuration](https://www.revenuecat.com/docs/integrations/webhooks).
+- [ ] Preserve `still_sync`, existing products, offerings, keys, webhook configuration and historical
+      customers. In **Project settings → General**, record production restore behavior and any
+      sandbox override. Do not silently change ownership/transfer behavior or require a purchase
+      journey to validate free blocking/sync. [Restore behavior](https://www.revenuecat.com/docs/projects/restore-behavior).
+- [ ] Using an existing approved test customer if available, confirm anonymous and UUID-based
+      identities without publishing their values. The Apple app configures anonymously at launch,
+      calls `logIn` with the Supabase UUID at sign-in and `logOut` on sign-out/account deletion.
+      Browser extensions use Supabase; they do not initialize a RevenueCat SDK. The native
+      `configurePurchases` bridge carries an account ID, not an email subscriber attribute.
+- [ ] Establish customer/event retention, deletion timing, alias handling and downstream export
+      deletion with the provider. Still account deletion does not invoke RevenueCat customer
+      deletion. Do not infer immediate erasure of purchase records, logs or backups, or an unlimited
+      retention exception from the retained identity design. RevenueCat's **Customer → Manage**
+      deletion operation is separate and must not be used as a test. Follow the
+      [retention inventory](counter-retention.md) and [privacy draft](privacy-retention-draft.md).
+      [Customer deletion](https://www.revenuecat.com/docs/dashboard-and-metrics/customer-profile#delete-customer).
+- [ ] Reconcile **App Store Connect → Still → App Privacy** and the final privacy notice with the
+      retained SDK. RevenueCat's guidance includes Purchase History used for Analytics and App
+      Functionality, and User ID when custom identifiers are used. Inventory integrations before
+      deciding other categories. Purchase analytics differs from browsing-history collection;
+      “only email,” “nothing while signed out” and blanket “no analytics data” claims are unsupported.
+      [Apple privacy guidance](https://www.revenuecat.com/docs/platform-resources/apple-platform-resources/apple-app-privacy).
+
+Source checks establish both disabled paid flags and the retained identity calls. Existing tests
+cover dormant monetization, identity transitions and mocked webhook/reconcile behavior; they do not
+certify dashboard state or provider retention. Deploying the reviewed `review-signin` logging fix
+and verifying its hosted source is a separate Supabase release action under the
+[retention runbook](counter-retention.md#application-logging-follow-up), not a RevenueCat setting.
+
+## Retained paid-launch reference
+
+The sections below preserve prior setup, purchase and validation procedures for an explicitly
+approved future paid release or a demonstrated maintenance issue. Their unchecked items are not
+free 2.0 release requirements. Re-verify provider requirements and pricing before using them.
+Do not run configuration, secret, purchase, migration or deployment commands as part of a read-only
+readiness check.
+
+The prior $1.99 model used the same project-wide `still_sync` entitlement and Supabase account UUID
+for Apple and web purchases. RevenueCat documents webhooks as a Pro-plan feature; confirm actual
+plan availability before proposing any change. This is retained purchase infrastructure.
 
 > **Exact ids for this app:** entitlement **`still_sync`** · Apple product **`still_sync`** · Web
-> Billing product **and** package **`still_sync_web`** · price **$1.99** one-time (non-consumable) ·
+> Billing product **`still_sync_web`** · prior price **$1.99** one-time (non-consumable) ·
 > `app_user_id` = the Supabase user UUID.
 
 ---
 
-## 1. Project, apps, keys, and the Apple `.p8`
+### 1. Project, apps, keys, and the Apple `.p8`
 
 1. [ ] Sign in at [app.revenuecat.com](https://app.revenuecat.com) → **+ New project** → name it "Still".
 2. [ ] **Apps → + New App → App Store**. Bundle id `com.chartash.still`, name "Still". This generates a
        **Public SDK key** (`appl_…`). Add a **second** App Store app for the **Mac** bundle id if it
        differs; both share the project's entitlement.
-3. [ ] Put the Public SDK key in the iOS/Mac app as **`RC_PUBLIC_KEY`** (injected via
+3. [ ] Put the Public SDK key in the iOS/Mac app as **`REVENUECAT_PUBLIC_API_KEY`** (injected via
        `Config/Secrets.local.xcconfig` → Info.plist `RevenueCatPublicAPIKey`). This is the only RC key
        the apps need.
 4. [ ] **Project → API keys** → copy the **Secret API key** (`sk_…`). This is `REVENUECAT_SECRET_API_KEY`
@@ -33,7 +103,7 @@ Docs: [Authentication / API keys](https://www.revenuecat.com/docs/projects/authe
 
 ---
 
-## 2. Products → the `still_sync` entitlement → an offering
+### 2. Products → the `still_sync` entitlement → an offering
 
 1. [ ] Make sure the Apple IAP `still_sync` exists in App Store Connect (see
        [`01-apple-app-store.md` §2](01-apple-app-store.md)).
@@ -50,7 +120,7 @@ Docs: [Entitlements](https://www.revenuecat.com/docs/getting-started/entitlement
 
 ---
 
-## 3. Web Billing → the Web Purchase Link → `REVENUECAT_WEB_BILLING_CHECKOUT_URL`
+### 3. Web Billing → the Web Purchase Link → `REVENUECAT_WEB_BILLING_CHECKOUT_URL`
 
 This is what powers Pro on the Chrome/Firefox extensions via `create-web-checkout`.
 
@@ -64,42 +134,42 @@ This is what powers Pro on the Chrome/Firefox extensions via `create-web-checkou
        locked after save.)* [product setup](https://www.revenuecat.com/docs/web/web-billing/product-setup)
 4. [ ] **Entitlements → still_sync → Attach** the `still_sync_web` product. Now Apple **and** web both
        feed the one entitlement.
-5. [ ] Add a **package** to your offering with id **`still_sync_web`** → attach the web product. The
-       package id must equal `REVENUECAT_WEB_PRODUCT_ID`.
+5. [ ] Add the web product to the intended offering; preserve any existing package identifier. The
+       hosted Purchase Link selects its configured offering and packages; the server does not
+       select a package by product ID.
 6. [ ] **Funnels → Purchase Links → + New** → billing engine **RevenueCat Web Billing**, your offering +
        web config → brand it → **Save & Publish**. You get a **Production** and a **Sandbox** URL of the
        form `https://pay.rev.cat/<token>`. [web purchase links](https://www.revenuecat.com/docs/web/web-billing/web-purchase-links)
 
-### Wire it to the function
+#### Wire it to the function (future paid launch)
 
 - [ ] `REVENUECAT_WEB_BILLING_CHECKOUT_URL` = the **production** `pay.rev.cat/<token>` base (no trailing
       `/<app_user_id>`).
-- [ ] `REVENUECAT_WEB_PRODUCT_ID` = `still_sync_web`.
 
 ```bash
 supabase secrets set \
   REVENUECAT_WEB_BILLING_CHECKOUT_URL='https://pay.rev.cat/<your-token>' \
-  REVENUECAT_WEB_PRODUCT_ID='still_sync_web' \
   --project-ref kikpgrreradotvvefdgd
 supabase functions deploy create-web-checkout --project-ref kikpgrreradotvvefdgd \
   --import-map supabase/functions/deno.json
 ```
 
-> **How the function uses it (fixed in this PR).** `create-web-checkout` verifies the Supabase JWT,
+> **Current retained function behavior.** `create-web-checkout` verifies the Supabase JWT,
 > derives `app_user_id` from its `sub`, then returns
-> `https://pay.rev.cat/<token>/<app_user_id>?package_id=still_sync_web` for the browser to open. There
+> `https://pay.rev.cat/<token>/<app_user_id>` for the browser to open. There
 > is **no** RevenueCat checkout-minting API — the link *is* the session. (The earlier code POSTed to a
 > non-existent API and would have 502'd; corrected to build the Web Purchase Link.) The client never
 > assembles the URL or supplies the id — the server does, from the verified token.
+> `REVENUECAT_WEB_PRODUCT_ID` is not read by current code, and no `package_id` query is appended.
 >
-> ✅ **Verify at launch:** open `…/create-web-checkout` with a real session, confirm it returns your
+> **For a future paid launch:** open `…/create-web-checkout` with a real session, confirm it returns your
 > `pay.rev.cat` link, complete a **sandbox** purchase (Stripe test card `4242 4242 4242 4242`), and
 > confirm the webhook flips the entitlement. **Never distribute the Sandbox Purchase Link** — anyone
 > can "buy" with test cards.
 
 ---
 
-## 4. Webhook → `revenuecat-webhook`
+### 4. Webhook → `revenuecat-webhook`
 
 1. [ ] Pick a strong random token; set it as the Supabase secret and paste the **same** value into RC:
        ```bash
@@ -118,11 +188,12 @@ Docs: [Webhooks](https://www.revenuecat.com/docs/integrations/webhooks)
 
 ---
 
-## 5. Customer identity (one purchase, every platform)
+### 5. Customer identity across supported surfaces
 
-- **Apple app:** configure RevenueCat with `appUserID` = the Supabase user UUID at sign-in
-  (`Purchases.configure(withAPIKey: RC_PUBLIC_KEY, appUserID: supabaseUUID)`), and `logOut()` on
-  sign-out (already implemented in `PurchaseManager`).
+- **Apple app:** `PurchaseManager.configure()` initializes anonymously at launch;
+  `configure(appUserID:)` calls `logIn` with the Supabase UUID at sign-in. `reset()` calls `logOut`
+  on sign-out/account deletion. The public build setting is `REVENUECAT_PUBLIC_API_KEY`, exposed
+  through Info.plist `RevenueCatPublicAPIKey`. Settings sync starts independently of this rekeying.
 - **Web:** `create-web-checkout` embeds the JWT-verified UUID in the Purchase Link — no separate call.
 - Because the `still_sync` entitlement is project-scoped, any purchase tied to that UUID makes
   `entitlements["still_sync"].isActive == true` on Apple and web alike.
@@ -138,15 +209,16 @@ Docs: [Identifying customers](https://www.revenuecat.com/docs/customers/identify
 
 ---
 
-## 6. Sandbox test, then the Supabase Go/No-Go
+### 6. Sandbox test, then the Supabase Go/No-Go
 
-### Sandbox
+#### Sandbox (future paid launch)
+
 - [ ] **Apple:** buy `still_sync` with a sandbox tester → webhook event has `environment: SANDBOX` →
       entitlement recorded.
 - [ ] **Web:** open the **Sandbox** Purchase Link, pay with Stripe test card `4242 4242 4242 4242` →
       webhook records the entitlement. [sandbox docs](https://www.revenuecat.com/docs/test-and-launch/sandbox)
 
-### July 8, 2026 PT entitlement validation
+#### July 8, 2026 PT entitlement validation (historical)
 
 - [x] Apple offering/product lookup reached the device paywall: `Unlock Pro - $1.99`.
 - [x] RevenueCat dashboard promotional grant for `still_sync` was applied to a dedicated test
@@ -158,10 +230,12 @@ Docs: [Identifying customers](https://www.revenuecat.com/docs/customers/identify
       sandbox Apple Account signed in. The current evidence points to Apple sandbox auth/device
       flakiness, not an offering or Supabase entitlement issue.
 
-### Backend deploy verification (migrations `0008` and `0009`)
-Before going live, run the deployment-verification checklist. Migration `0008` gates profile writes
-by entitlement; migration `0009` adds the server-authoritative settings RPC and metadata required by
-current clients. Key checks:
+#### Prior paid-sync verification (migrations `0008` and `0009`)
+
+**Historical only:** migration `0012_profiles_write_free_sync.sql` removed the entitlement gate
+for current free sync. Do not apply these old denial expectations to Still 2.0 or reverse that
+migration during release preparation. Migration `0008` gated profile writes by entitlement;
+migration `0009` added the server-authoritative settings RPC. The earlier checks were:
 
 ```sql
 -- after `supabase db push`: confirm 0008 applied and the policies swapped
@@ -186,12 +260,12 @@ rollback;
 
 ---
 
-## Production checklist
+### Prior paid-launch checklist (not required for free 2.0)
 
 - [ ] Apple Paid Applications Agreement signed; `.p8` uploaded to RC ("Valid credentials").
 - [ ] `still_sync` entitlement has **both** `still_sync` (Apple) and `still_sync_web` (web) attached.
 - [ ] Stripe connected to a **live** account; `still_sync_web` published.
-- [ ] `REVENUECAT_WEB_BILLING_CHECKOUT_URL` = **production** Purchase Link; `REVENUECAT_WEB_PRODUCT_ID` =
-      `still_sync_web`.
+- [ ] `REVENUECAT_WEB_BILLING_CHECKOUT_URL` = **production** Purchase Link with the intended offering.
+      Package selection is configured in the dashboard, not by a `REVENUECAT_WEB_PRODUCT_ID` setting.
 - [ ] Webhook points at the production function URL; Authorization token matches; RC **Pro plan** active.
 - [ ] Sandbox purchase verified on **both** Apple and web before flipping anything live.
