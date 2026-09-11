@@ -1,5 +1,8 @@
 # Still 2.0 release runbook
 
+Latest source/artifact review: [September 10 PR reconciliation](2026-09-10-pr-reconciliation.md).
+It records fresh distribution exports and the remaining public-release gates.
+
 Still removes YouTube Shorts, Instagram and Facebook Reels, and blocks the TikTok website for
 free on every supported surface. An account is optional and enables cross-device settings sync.
 On iPhone and iPad, Still works in Safari websites; it does not block native social apps.

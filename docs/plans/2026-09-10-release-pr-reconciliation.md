@@ -1,6 +1,6 @@
 ---
 title: Reconcile outstanding PRs and verify the Still release candidate
-status: in_progress
+status: verified
 date: 2026-09-10
 ---
 
@@ -36,4 +36,16 @@ separate from source integration; report their actual readiness from evidence.
 
 ## Completion evidence
 
-Pending final integration and checks. See the dated release reconciliation report when completed.
+Every original PR head is an ancestor of the reconciliation candidate. Local lint/types/build,
+788 JavaScript tests, 131 StillKit tests, 135 Deno tests plus eight steps, ten disposable retention
+steps, and both browser variants passed. Full dependency audit reports zero advisories. Fresh
+Chrome/Firefox packages and signed iOS/Mac App Store exports passed inspection; a clean AMO rebuild
+matches all 20 runtime files. Required GitHub checks passed on candidate 80b4ec6.
+
+All 61 worktrees were inventoried: none has dirty tracked source; four contain untracked audit
+tooling/cache evidence and are preserved. The app/backend implementation matches the previously
+tested 18dd971 candidate apart from intentional dependency and domain changes.
+
+Protected integration and final merge status are tracked by [PR #168](https://github.com/ZackC-1/still-app/pull/168).
+See [the reconciliation record](../release/2026-09-10-pr-reconciliation.md) for artifact provenance
+and remaining hosted/backend, device and store release boundaries.
