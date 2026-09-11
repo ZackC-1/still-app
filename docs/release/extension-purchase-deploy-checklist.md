@@ -92,6 +92,8 @@ Verification methods, per item:
       Status 2026-07-16: DONE for the current cycle (count 2).
 - [ ] Deploy:
       `supabase functions deploy review-signin --import-map supabase/functions/deno.json --project-ref kikpgrreradotvvefdgd`
+      Read the [dependency configuration note](counter-retention.md#edge-dependency-configuration)
+      before changing the legacy import-map argument in response to a CLI warning.
       Status 2026-07-16: DONE for the current cycle (version 1, ACTIVE, verify_jwt=false).
 - [ ] **Cross-check (HARD gate):** the Apple build's `VITE_REVIEW_SIGNIN_EMAIL`
       equals the `REVIEW_SIGNIN_EMAIL` secret exactly. Drift here reproduces
