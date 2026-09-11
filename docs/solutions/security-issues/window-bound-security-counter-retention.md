@@ -6,6 +6,7 @@ problem_type: security_issue
 module: supabase/functions
 applies_when: Retaining abuse prevention across account deletion without keeping raw IP history
 date: 2026-09-08
+last_updated: 2026-09-11
 status: active
 tags: [privacy, retention, rate-limiting, postgres, account-deletion]
 ---
@@ -33,6 +34,21 @@ after credentials disappear. PostgreSQL can abort a lock conflict; callers must 
 The RPC interface and limits stay unchanged. The Postgres adapter drops parameter-bearing driver
 errors before handler logging and rejects missing RPC results. Do not propagate an error `cause`
 that reintroduces raw parameters into logs.
+
+Counter minimization must include application logs. The review-sign-in handler previously wrote
+raw request IPs for every verification outcome, including non-review and unconfigured refusals,
+and passed provider exceptions to `console.error`. It now logs timestamps and fixed outcomes;
+limiter/session-mint errors emit only fixed categories. The limiter still consumes IP-based buckets.
+Historical network attribution from application audit messages is intentionally removed; no
+authentication or throttle decision depends on those messages. Provider-generated request logs and
+already-retained application logs remain separate retention concerns.
+
+`supabase/functions/review-signin/handler.test.ts` checks all verification outcomes and request/verify
+limiter failures with synthetic IPv4/IPv6/forwarded headers and exception message/cause/token
+sentinels. It asserts response compatibility, safe log fields and fixed error categories. The new
+24-step matrix failed against the prior handler and passed after removing sensitive fields. Keep
+these output-boundary assertions alongside the existing IP-throttle tests; sanitizing only the
+database adapter cannot protect logs emitted elsewhere in the handler.
 
 Verification uses `supabase/tests/rate_limit_retention_test.ts`: real limiter, real persisted SQL
 rows, migration, narrow-role checks, lock-observed concurrent deletion, controllable database clock,

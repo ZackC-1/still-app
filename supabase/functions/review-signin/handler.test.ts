@@ -355,33 +355,97 @@ Deno.test("GET → 405", async () => {
   assertEquals(res.status, 405);
 });
 
-Deno.test("verify never logs the fixed code or the submitted email (audit trail is IP + outcome only)", async () => {
-  const lines: string[] = [];
-  const origInfo = console.info;
-  console.info = (...args: unknown[]) => void lines.push(args.join(" "));
-  try {
-    // A correct verify and a wrong-code verify both go through logVerifyAttempt.
-    await handleReviewSignin(
-      post({ action: "verify", email: REVIEW_EMAIL, code: REVIEW_CODE }, {
-        "cf-connecting-ip": "203.0.113.9",
-      }),
-      deps(makeAdmin([CONFIRMED]).admin),
-    );
-    await handleReviewSignin(
-      post({ action: "verify", email: REVIEW_EMAIL, code: "000000" }, {
-        "cf-connecting-ip": "203.0.113.9",
-      }),
-      deps(makeAdmin([CONFIRMED]).admin),
-    );
-  } finally {
-    console.info = origInfo;
+Deno.test("sign-in logs contain only timestamps, outcomes and fixed failure categories", async (t) => {
+  const ipv4 = "203.0.113.9";
+  const ipv6 = "2001:db8::7";
+  const forwarded = "198.51.100.42";
+  const otherEmail = "other@example.test";
+  const wrongCode = "654321";
+  const sensitive = [
+    ipv4, ipv6, forwarded, REVIEW_EMAIL, otherEmail, REVIEW_CODE, wrongCode,
+    SESSION.access_token, SESSION.refresh_token, USER_ID, "fake-token-hash",
+  ];
+  // Provider errors can expose details through the message, cause, stack or extra fields.
+  const providerError = Object.assign(new Error(sensitive.join(" "), {
+    cause: { headers: { authorization: SESSION.access_token }, email: REVIEW_EMAIL },
+  }), { token: SESSION.refresh_token });
+  const throwing: RateLimiter = { consume: () => Promise.reject(providerError) };
+  const headers: Record<string, string>[] = [
+    { "cf-connecting-ip": ipv4, "x-real-ip": ipv6, "x-forwarded-for": forwarded },
+    { "x-real-ip": ipv6, "x-forwarded-for": forwarded },
+    { "x-forwarded-for": `${forwarded}, ${ipv6}` },
+  ];
+
+  for (const [index, requestHeaders] of headers.entries()) {
+    const cases = [
+      { name: "success", status: 200, outcome: "verified", body: SESSION },
+      { name: "wrong code", status: 401, outcome: "invalid_code", code: wrongCode, body: { error: "invalid_code" } },
+      { name: "email mismatch", status: 404, outcome: "refused", email: otherEmail, body: { error: "not_found" } },
+      { name: "unconfigured", status: 404, outcome: "refused", config: UNSET_CONFIG, body: { error: "not_found" } },
+      {
+        name: "rate limited", status: 429, outcome: "rate_limited",
+        limiter: recordingLimiter({ "review-signin:verify:user:review@example.test": 33 }).limiter,
+        body: { error: "rate_limited", retry_after: 33 },
+      },
+      {
+        name: "mint failure", status: 500, outcome: "mint_failed",
+        admin: { ...makeAdmin([CONFIRMED]).admin, generateMagicLinkTokenHash: () => Promise.reject(providerError) },
+        error: "review-signin session mint failed", body: { error: "internal" },
+      },
+      {
+        name: "verify limiter failure", status: 429, outcome: "rate_limited", limiter: throwing,
+        error: "review-signin rate limiter failed (failing closed)",
+        body: { error: "rate_limited", retry_after: LIMITER_FAILURE_RETRY_SECONDS },
+      },
+      {
+        name: "request limiter failure", action: "request", status: 429, limiter: throwing,
+        error: "review-signin rate limiter failed (failing closed)",
+        body: { error: "rate_limited", retry_after: LIMITER_FAILURE_RETRY_SECONDS },
+      },
+    ];
+    for (const scenario of cases) {
+      await t.step(`${scenario.name}, IP header variant ${index + 1}`, async () => {
+        const info: unknown[][] = [];
+        const errors: unknown[][] = [];
+        const originalInfo = console.info;
+        const originalError = console.error;
+        console.info = (...args: unknown[]) => void info.push(args);
+        console.error = (...args: unknown[]) => void errors.push(args);
+        try {
+          const response = await handleReviewSignin(
+            post({
+              action: scenario.action ?? "verify",
+              email: scenario.email ?? REVIEW_EMAIL,
+              code: scenario.code ?? REVIEW_CODE,
+            }, requestHeaders),
+            deps(scenario.admin ?? makeAdmin([CONFIRMED]).admin, scenario.limiter ?? allowAll, scenario.config ?? CONFIG),
+          );
+          assertEquals(response.status, scenario.status);
+          assertEquals(await response.json(), scenario.body);
+          if (scenario.status === 429) {
+            assert("retry_after" in scenario.body);
+            assertEquals(response.headers.get("retry-after"), String(scenario.body.retry_after));
+          }
+        } finally {
+          console.info = originalInfo;
+          console.error = originalError;
+        }
+        assertEquals(errors, scenario.error ? [[scenario.error]] : []);
+        assertEquals(info.length, scenario.outcome ? 1 : 0);
+        if (scenario.outcome) {
+          assertEquals(info[0].length, 1);
+          const line = info[0][0];
+          assert(typeof line === "string");
+          const match = /^review-signin verify at=(\S+) outcome=(\w+)$/.exec(line);
+          assert(match, "audit fields must be limited to timestamp and outcome");
+          assertEquals(new Date(match[1]).toISOString(), match[1]);
+          assertEquals(match[2], scenario.outcome);
+        }
+        const logged = JSON.stringify([info, errors]);
+        for (const sentinel of sensitive) assert(!logged.includes(sentinel), `logged sensitive sentinel: ${sentinel}`);
+      });
+    }
   }
-  const logged = lines.join("\n");
-  assert(logged.length > 0, "verify attempts must be logged");
-  assert(!logged.includes(REVIEW_CODE), "the fixed code must never appear in logs");
-  assert(!logged.includes("000000"), "a submitted code must never appear in logs");
-  assert(!logged.includes(REVIEW_EMAIL), "the review email must never appear in logs");
-  assert(logged.includes("203.0.113.9"), "the IP is the audit key");
 });
 
 Deno.test("a correct code is accepted even after the per-email verify bucket is exhausted (reviewer never locked out)", async () => {
