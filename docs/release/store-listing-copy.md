@@ -157,7 +157,7 @@ Name:
 
 Summary (250-character limit):
 
-> Remove YouTube Shorts and Instagram/Facebook Reels, and block the TikTok website for free. No account needed. Optional free settings sync with Chrome and Safari on Mac, iPhone, and iPad. This extension supports desktop Firefox.
+> Remove YouTube Shorts and Instagram/Facebook Reels, and block the TikTok website for free. No account needed. Optional free settings sync with desktop Chrome and Safari on Mac, iPhone, and iPad. This extension supports desktop Firefox.
 
 Description: use the Chrome detailed description above. Release notes: use What's New above.
 
