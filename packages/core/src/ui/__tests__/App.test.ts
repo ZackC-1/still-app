@@ -11,7 +11,7 @@ import {
   type UiHost,
 } from "../controller.svelte.js";
 import { STRINGS } from "../strings.js";
-import { PRIVACY_POLICY_URL } from "../config.js";
+import { PRIVACY_POLICY_URL, SETUP_GUIDE_URL } from "../config.js";
 import { SettingsCache } from "../../storage/cache.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
 
@@ -100,21 +100,19 @@ describe("App", () => {
     expect(document.querySelectorAll("[data-service]").length).toBe(4);
   });
 
-  it("renders host-supplied guidance for finding Still on that surface", () => {
+  it("links to the online setup guide instead of rendering inline instructions", () => {
     render(App, {
       props: {
         controller: controller(),
-        surfaceGuidance: {
-          title: "Find Still in a test browser",
-          body: "Use this browser's extension menu.",
-        },
+        surfaceGuidance: { title: "Find Still in a test browser" },
       },
     });
 
-    expect(
-      screen.getByRole("heading", { name: "Find Still in a test browser" }),
-    ).toBeTruthy();
-    expect(screen.getByText("Use this browser's extension menu.")).toBeTruthy();
+    const guide = screen.getByRole("link", { name: "How to set up Still" });
+    expect(guide.getAttribute("href")).toBe(SETUP_GUIDE_URL);
+    expect(guide.getAttribute("target")).toBe("_blank");
+    expect(guide.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(document.querySelector(".guidance")).toBeNull();
   });
 
   it("renders no guidance card when the host supplies none", () => {

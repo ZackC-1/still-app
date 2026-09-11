@@ -7,7 +7,7 @@
   import SignInSheet from "./components/SignInSheet.svelte";
   import Logo from "./components/Logo.svelte";
   import { STRINGS } from "./strings.js";
-  import { PRIVACY_POLICY_URL } from "./config.js";
+  import { PRIVACY_POLICY_URL, SETUP_GUIDE_URL } from "./config.js";
   import type { SurfaceGuidance } from "./surface-guidance.js";
 
   interface Props {
@@ -16,7 +16,7 @@
     compact?: boolean;
     onGet?: () => void;
     onRestore?: () => void;
-    /** Browser- or native-surface-specific directions for finding Still after setup. */
+    /** Enables access to the online setup guide on settings surfaces. */
     surfaceGuidance?: SurfaceGuidance;
     /** Deprecated Apple host hook. Kept as a no-op prop so older host wiring cannot surface SIWA. */
     onSignInWithApple?: () => void;
@@ -78,10 +78,9 @@
   </div>
 
   {#if surfaceGuidance}
-    <section class="guidance card" aria-labelledby="surface-guidance-title">
-      <h2 id="surface-guidance-title">{surfaceGuidance.title}</h2>
-      <p>{surfaceGuidance.body}</p>
-    </section>
+    <a class="link setup-guide" href={SETUP_GUIDE_URL} target="_blank" rel="noopener noreferrer">
+      How to set up Still
+    </a>
   {/if}
 
   <!-- Per-site pause UI removed 2026-07-06 (founder call: popup must fit one panel; feature may
@@ -411,19 +410,8 @@
     gap: var(--sync-gap, var(--space-3));
     padding: var(--sync-padding, var(--space-4));
   }
-  .guidance {
-    padding: var(--sync-padding, var(--space-4));
-  }
-  .guidance h2 {
-    margin: 0 0 var(--space-1);
-    font-size: 15px;
-    font-weight: 600;
-  }
-  .guidance p {
-    margin: 0;
-    color: var(--ink-secondary);
-    font-size: 13.5px;
-    line-height: 1.4;
+  .setup-guide {
+    font-size: 14px;
   }
   .syncrow {
     display: flex;
@@ -583,6 +571,7 @@
   .app[data-density="compact"] .account {
     flex-direction: row;
     flex-wrap: wrap;
+    justify-content: space-between;
     gap: var(--space-2) var(--space-3);
     padding-block-start: var(--space-1);
     margin-block-start: 0;

@@ -12,7 +12,6 @@ describe("OpenSettingsButton", () => {
       props: {
         surfaceGuidance: {
           title: "Find Still in a test browser",
-          body: "Use this browser's extension menu.",
         },
         onOpen,
       },

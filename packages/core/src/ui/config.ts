@@ -9,6 +9,9 @@
  */
 export const PRIVACY_POLICY_URL = "https://zackc-1.github.io/still-app/privacy/";
 
+/** Device- and browser-specific setup instructions hosted on the Still website. */
+export const SETUP_GUIDE_URL = "https://zackc-1.github.io/still-app/setup/";
+
 /**
  * Support contact for purchase recovery (plan U4). "Find my purchase" is a support mailto for v1
  * [DECIDED — docs/monetization-design.md]: when a checkout-pending flag decays past 24h without
