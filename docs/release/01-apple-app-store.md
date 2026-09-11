@@ -1,4 +1,7 @@
-# Track 1 — Apple App Store (iOS + macOS) + Safari extension + $1.99 IAP
+# Track 1 — Apple App Store (iOS + macOS) and Safari extension
+
+Use [canonical Still 2.0 copy](store-listing-copy.md) for this release. Historical purchase
+instructions below do not apply to free 2.0 submission metadata.
 
 Use [public contact addresses](public-contact-addresses.md) for customer email fields and support/privacy links when preparing or updating a store listing.
 

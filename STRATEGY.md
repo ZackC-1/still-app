@@ -2,7 +2,7 @@
 
 Status: product-direction source of truth  
 Owner: Cadmus Labs  
-Last reviewed: 2026-07-14
+Last reviewed: 2026-09-11
 
 This document gives every human and coding agent the same product direction. It explains what Still
 is trying to achieve and which promises must survive implementation details, store constraints, and
@@ -23,13 +23,14 @@ Still is:
 
 - A focused short-form-video remover for supported websites.
 - Calm infrastructure that makes distracting surfaces feel absent.
-- Free for the clearest first win: removing YouTube Shorts.
-- A one-time paid upgrade for broader removal and settings continuity across supported surfaces.
+- Free in version 2.0: YouTube Shorts, Instagram and Facebook Reels removal, and TikTok website blocking.
+- Usable without an account, with optional free sign-in for cross-device settings sync.
 - Privacy-conscious by design, with narrow host access and no browsing-history collection.
 
 Still is not:
 
-- A whole-site blocker, ad blocker, parental-control product, or accountability system.
+- A general-purpose website blocker, ad blocker, parental-control product, or accountability system.
+  TikTok is the specific whole-website block among the four supported services.
 - A timer, streak, shame loop, hard lock, or willpower test.
 - A native-app blocker on iPhone or iPad.
 - A promise to work on every device, browser, or surface without qualification.
@@ -37,11 +38,11 @@ Still is not:
 ## Objective order
 
 1. **Qualified downloads.** Attract people who understand the supported surfaces and want the free
-   YouTube Shorts outcome.
-2. **Successful activation.** Help them enable the extension and experience that free outcome before
-   asking them to pay.
-3. **Still Pro conversion.** Explain the broader result and one-purchase portability at the moment a
-   user expresses intent for a locked service.
+   blocking outcome across the four supported services.
+2. **Successful activation.** Help them enable the extension and experience blocking without an account
+   or purchase.
+3. **Continued use.** Make blocking reliable and settings understandable. Offer free sync when users
+   want their choices to follow them across supported devices.
 4. **Durable trust.** Minimize refunds, scope-related support, privacy surprises, and inconsistent
    claims across product, website, and stores.
 5. **Operational learning.** Convert verified launch, architecture, security, and support lessons
@@ -53,23 +54,23 @@ downloads that generate refunds and negative reviews.
 
 ## Commercial model
 
-| Tier | User outcome | Account requirement |
+| Feature | User outcome | Account requirement |
 |---|---|---|
-| Free | YouTube Shorts surfaces are removed on supported websites. | None. Settings remain local. |
-| Still Pro | Instagram and Facebook Reels are removed, the TikTok website is blocked, and settings sync across supported surfaces. | On Apple platforms Pro is purchasable with no account (the receipt is the entitlement). Same-email sign-in is required for sync and cross-surface restoration. |
+| Free blocking | Removes YouTube Shorts and Instagram/Facebook Reels; blocks the TikTok website. | None. Settings can remain local. |
+| Free settings sync | Carries Still settings across supported browsers and devices. | Optional email sign-in on the devices to sync. |
 
-Still Pro is a $1.99 USD one-time purchase. The immutable internal entitlement identifier is
-`still_sync`. Apple uses a non-consumable in-app purchase; supported browser extensions use
-RevenueCat Web Billing. Both paths resolve to the same RevenueCat entitlement.
-
-The approved promise is: **one purchase, every supported surface, using the same Still account.**
+Still 2.0 is free to grow adoption. This is the current release model, not a promise of permanent
+pricing. Both paid-tier flags remain disabled. Retain RevenueCat identity, historical entitlements,
+and purchase infrastructure so a separately approved future pricing change remains possible.
+The immutable entitlement identifier remains `still_sync`; it is not a blocking or sync requirement
+in 2.0. Do not enable paid behavior as part of release preparation.
 
 ## Supported-surface truth
 
 | Surface | Launch behavior |
 |---|---|
-| Chrome and Chromium browsers on desktop | WebExtension blocking and optional Pro sign-in/purchase. |
-| Firefox on desktop | WebExtension blocking and optional Pro sign-in/purchase. |
+| Chrome and Chromium browsers on desktop | Free WebExtension blocking and optional free settings sync. |
+| Firefox on desktop | Free WebExtension blocking and optional free settings sync. |
 | Safari on iPhone and iPad | Safari Web Extension inside the Still container app. |
 | Safari on Mac | Safari Web Extension inside the Still macOS app. |
 | Native social-video apps | Not supported. Still cannot remove video inside the native YouTube, Instagram, Facebook, or TikTok apps. |
@@ -81,21 +82,21 @@ review, store approval, and updated messaging.
 
 - **Sell the calm state, prove it with concrete scope.** Lead with the feeling of being free to leave;
   immediately support that promise with the exact surfaces Still removes.
-- **Value before upgrade.** The free YouTube result should be observable before the primary Pro ask.
-- **Remove the invitation, preserve the site.** Normal videos, posts, messages, and pages should
-  remain useful.
+- **Value without a gate.** All blocking works without a purchase or account.
+- **Remove the invitation, preserve the site.** Regular YouTube, Instagram, and Facebook content
+  should remain useful; the TikTok website is blocked.
 - **Quiet, not gamified.** No attention dashboards, celebratory streaks, guilt, or pressure.
-- **One understandable purchase.** No subscription language and no fragmented platform upgrades.
+- **Free for growth.** Still 2.0 has no purchase requirement. Do not promise permanent pricing.
 - **Disclose at the decision point.** Mobile Safari and native-app limitations belong near download
-  and purchase calls to action, not only in legal copy.
+  calls to action, not only in legal copy.
 - **Private by construction.** Do not add behavioral analytics merely to make a dashboard easier.
 
 ## Messaging hierarchy
 
 1. Future state: open for what you came for and leave when you are done.
-2. Immediate proof: YouTube Shorts disappear for free.
-3. Paid expansion: Still Pro quiets Reels and TikTok and syncs settings.
-4. Portability: purchase once and use the same Still account across supported surfaces.
+2. Immediate proof: Shorts and Reels disappear, and the TikTok website is blocked, all for free.
+3. No barrier: blocking needs no purchase or account.
+4. Continuity: optional free sign-in syncs settings across supported surfaces.
 5. Boundary: on mobile, Still works in Safari websites and not inside native social apps.
 
 Canonical store copy and asset instructions live in
@@ -121,7 +122,7 @@ decisions live in [`docs/adr/`](docs/adr/), and implementation learnings live in
 ## Launch posture
 
 The current store and deployment state is operational data and changes frequently. Consult
-[`docs/release/launch-progress-2026-07-13.md`](docs/release/launch-progress-2026-07-13.md) and verify
+[`docs/release/README.md`](docs/release/README.md) and verify
 live portals before acting.
 
 While a store submission is pending, do not replace a build, edit locked assets, or resubmit merely
@@ -130,16 +131,15 @@ a verified launch blocker requires action.
 
 ## Success signals
 
-- A user successfully enables Still and observes the free YouTube outcome.
+- A user successfully enables Still and observes free blocking on their chosen supported websites.
 - Store visitors understand the product before installing.
-- Locked-service intent progresses through Pro explanation, sign-in, checkout, entitlement, and
-  restoration without ambiguity.
+- Users can keep blocking without an account and choose free settings sync when useful.
 - Refunds, uninstall reasons, reviews, and support requests do not reveal a recurring scope mismatch.
 - Store listing, website, in-product copy, privacy declarations, and support guidance tell the same
   product truth.
 - Reusable engineering and operational lessons are captured in `docs/solutions/` and remain current.
 
-Use store dashboards, purchase state, and categorized support feedback for the initial baseline.
+Use store dashboards and categorized support feedback for the initial baseline.
 Any future analytics proposal must be reviewed against Still's privacy promise before implementation.
 
 ## Decision hierarchy

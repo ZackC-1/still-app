@@ -118,20 +118,19 @@ with the code that proves it whenever practical.
 
 ## Product truths that must remain consistent
 
-- Free Still removes YouTube Shorts on supported web surfaces without an account.
-- Still Pro is a one-time purchase that adds Instagram and Facebook Reels removal, TikTok website
-  blocking, and cross-device settings sync on supported surfaces.
-- Still Pro can be purchased on Apple platforms without an account (entitlement from the Apple
-  receipt; App Review 5.1.1). One entitlement can be restored across supported surfaces when the
-  user signs into the same Still account. Sign-in is required for sync and for Pro in
-  Chrome/Firefox — not for the free tier or for Apple-platform purchase.
+- Still 2.0 removes YouTube Shorts and Instagram/Facebook Reels and blocks the TikTok website
+  for free on supported web surfaces without an account.
+- Sign-in is optional and enables free cross-device settings sync. It must never gate blocking.
+- The current goal is adoption growth. Do not promise permanent free pricing or reintroduce a
+  purchase requirement. Both paid-tier flags remain disabled; preserve RevenueCat identity,
+  historical entitlements, and dormant purchase infrastructure for a separately approved future change.
 - Mobile support means websites opened in Safari. Still does not block short-form video inside native
   YouTube, Instagram, Facebook, or TikTok apps.
 - Say "every supported surface," never "everywhere."
 - Still does not collect browsing history. Host permissions remain limited to the four documented
   services and must never expand to `<all_urls>` without an explicit product and privacy review.
-- Optimize first for qualified downloads, then for conversion to Still Pro without creating refund-
-  causing ambiguity.
+- Optimize first for qualified downloads, then reliable activation and continued use, while making
+  supported surfaces and optional sign-in clear.
 
 ## Verification and completion
 

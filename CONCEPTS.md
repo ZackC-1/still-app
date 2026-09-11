@@ -1,5 +1,9 @@
 # Concepts
 
+> **Still 2.0:** All four blocking services and optional settings sync are free. Sign-in gates
+> sync only. Both paid-tier flags are disabled. Purchase and entitlement descriptions below
+> document retained infrastructure, not a requirement to use this release.
+
 Shared domain vocabulary for this project — entities, named processes, and status concepts with
 project-specific meaning. Seeded with core domain vocabulary, then accretes as ce-compound and
 ce-compound-refresh process learnings; direct edits are fine. Glossary only, not a spec or catch-all.

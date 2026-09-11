@@ -1,5 +1,8 @@
 # Track 2 — Chrome Web Store (Chromium extension)
 
+Use [canonical Still 2.0 copy](store-listing-copy.md) for this release. Historical purchase
+instructions below do not apply to free 2.0 submission metadata.
+
 Use [public contact addresses](public-contact-addresses.md) for customer email fields and support/privacy links when preparing or updating a store listing.
 
 ## Still 2.0 candidate instructions — draft
