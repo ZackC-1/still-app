@@ -158,10 +158,14 @@ test("m.youtube.com home: Shorts shelves and the Shorts tab go, ordinary cards s
 
   await expect(page.locator("#shorts-tab")).toBeHidden();
   await expect(page.locator("#shorts-tab-by-href")).toBeHidden();
-  await expect(page.locator("#mobile-shorts-section")).toHaveCount(0);
-  await expect(page.locator("#mobile-reel-shelf-section")).toHaveCount(0);
-  await expect(page.locator("#mobile-loose-short")).toHaveCount(0);
-  await expect(page.locator("#mobile-shorts-card")).toHaveCount(0);
+  await expect(page.locator("#mobile-shorts-section")).toHaveCount(1); // retained for YouTube rendering
+  await expect(page.locator("#mobile-shorts-section")).toBeHidden();
+  await expect(page.locator("#mobile-reel-shelf-section")).toHaveCount(1); // retained for YouTube rendering
+  await expect(page.locator("#mobile-reel-shelf-section")).toBeHidden();
+  await expect(page.locator("#mobile-loose-short")).toHaveCount(1); // retained for YouTube rendering
+  await expect(page.locator("#mobile-loose-short")).toBeHidden();
+  await expect(page.locator("#mobile-shorts-card")).toHaveCount(1); // retained for YouTube rendering
+  await expect(page.locator("#mobile-shorts-card")).toBeHidden();
 
   await expect(page.locator("#home-tab")).toBeVisible();
   await expect(page.locator("#keep-mobile-video")).toBeVisible();
@@ -180,8 +184,10 @@ test("m.youtube.com search: the Shorts shelf and Shorts results go, ordinary res
   await serve(page, "**://*.youtube.com/**", fixture("youtube-mobile-search.html"));
   await page.goto("https://m.youtube.com/results?search_query=shorts");
 
-  await expect(page.locator("#mobile-shorts-shelf")).toHaveCount(0);
-  await expect(page.locator("#mobile-shorts-result")).toHaveCount(0);
+  await expect(page.locator("#mobile-shorts-shelf")).toHaveCount(1); // retained for YouTube rendering
+  await expect(page.locator("#mobile-shorts-shelf")).toBeHidden();
+  await expect(page.locator("#mobile-shorts-result")).toHaveCount(1); // retained for YouTube rendering
+  await expect(page.locator("#mobile-shorts-result")).toBeHidden();
 
   await expect(page.locator("#keep-mobile-first-result")).toBeVisible();
   await expect(page.locator("#keep-mobile-result-linking-to-short")).toBeVisible();
@@ -194,7 +200,8 @@ test("m.youtube.com channel: the Shorts shelf and tab go, ordinary shelves stay"
   await page.goto("https://m.youtube.com/@YouTube");
 
   await expect(page.locator("#mobile-shorts-tab")).toBeHidden();
-  await expect(page.locator("#mobile-channel-shorts-shelf")).toHaveCount(0);
+  await expect(page.locator("#mobile-channel-shorts-shelf")).toHaveCount(1); // retained for YouTube rendering
+  await expect(page.locator("#mobile-channel-shorts-shelf")).toBeHidden();
 
   await expect(page.locator("#keep-mobile-videos-tab")).toBeVisible();
   await expect(page.locator("#keep-mobile-channel-shelf")).toBeVisible();
@@ -203,10 +210,11 @@ test("m.youtube.com channel: the Shorts shelf and tab go, ordinary shelves stay"
 
 test("m.youtube.com watch: the related Shorts go, the up-next rail stays", async ({ context }) => {
   const page = await context.newPage();
-  await serve(page, "**://*.youtube.com/**", fixture("youtube-watch.html"));
+  await serve(page, "**://*.youtube.com/**", fixture("youtube-watch.html").replace("<body>", "<body><ytm-app>").replace("</body>", "</ytm-app></body>"));
   await page.goto("https://m.youtube.com/watch?v=long123");
 
-  await expect(page.locator("#watch-mobile-short")).toHaveCount(0);
+  await expect(page.locator("#watch-mobile-short")).toHaveCount(1);
+  await expect(page.locator("#watch-mobile-short")).toBeHidden();
   await expect(page.locator("#keep-mobile-rail")).toBeVisible();
   await expect(page.locator("#keep-mobile-next")).toBeVisible();
 });

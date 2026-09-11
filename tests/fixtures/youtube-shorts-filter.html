@@ -1,0 +1,51 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Shorts search fixture</title></head><body>
+<input id="search" value="example search">
+<yt-chip-cloud-renderer>
+  <yt-chip-cloud-chip-renderer id="all"><button role="tab" aria-selected="false">All</button></yt-chip-cloud-chip-renderer>
+  <yt-chip-cloud-chip-renderer id="shorts" selected><button role="tab" aria-selected="true"><span>Shorts</span></button></yt-chip-cloud-chip-renderer>
+  <yt-chip-cloud-chip-renderer id="videos"><button role="tab" aria-selected="false">Videos</button></yt-chip-cloud-chip-renderer>
+</yt-chip-cloud-renderer>
+<div id="results"></div>
+<script>
+  // Hand-written model of the observed continuation trigger: when removal empties a Shorts-only
+  // batch and no ad occupies the viewport, YouTube fetches another batch. No network or user data.
+  window.filterProbe = { requests: 0, allClicks: 0, shortsSelected: true };
+  const results = document.getElementById('results');
+  const shorts = document.getElementById('shorts');
+  const all = document.getElementById('all');
+  let queued = false;
+  function fetchBatch() {
+    queued = false;
+    if (!window.filterProbe.shortsSelected) return;
+    window.filterProbe.requests++;
+    const video = document.createElement('ytd-video-renderer');
+    const thumbnail = document.createElement('a');
+    thumbnail.id = 'thumbnail';
+    thumbnail.href = '/shorts/example';
+    thumbnail.textContent = 'Short video';
+    video.append(thumbnail);
+    results.append(video);
+  }
+  new MutationObserver(() => {
+    if (window.filterProbe.shortsSelected && !results.childElementCount && !queued) {
+      queued = true;
+      setTimeout(fetchBatch, 25);
+    }
+  }).observe(results, { childList: true });
+  all.querySelector('button').addEventListener('click', () => {
+    window.filterProbe.allClicks++;
+    window.filterProbe.shortsSelected = false;
+    shorts.removeAttribute('selected');
+    shorts.querySelector('button').setAttribute('aria-selected', 'false');
+    all.setAttribute('selected', '');
+    all.querySelector('button').setAttribute('aria-selected', 'true');
+    const ordinary = document.createElement('a');
+    ordinary.id = 'ordinary';
+    ordinary.href = '/watch?v=ordinary';
+    ordinary.textContent = 'Ordinary video';
+    results.replaceChildren(ordinary);
+  });
+  fetchBatch();
+</script>
+</body></html>

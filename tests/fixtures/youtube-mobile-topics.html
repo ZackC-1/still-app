@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Mobile Home topics</title></head>
+<body>
+<ytm-app>
+  <div role="tablist" aria-label="Home topics">
+    <button role="tab" aria-selected="true">All</button>
+    <button role="tab" aria-selected="false">Music</button>
+    <button role="tab" aria-selected="false">Boat building</button>
+  </div>
+  <ytm-rich-grid-renderer>
+    <div class="rich-grid-renderer-contents" id="feed">
+      <ytm-rich-item-renderer><ytm-video-with-context-renderer><ytm-media-item>
+        <a class="media-item-thumbnail-container" href="/watch?v=ordinary">Ordinary video</a>
+      </ytm-media-item></ytm-video-with-context-renderer></ytm-rich-item-renderer>
+      <ytm-rich-section-renderer id="shorts-shelf"><grid-shelf-view-model>
+        <ytm-shorts-lockup-view-model><a href="/shorts/example">Shorts</a></ytm-shorts-lockup-view-model>
+      </grid-shelf-view-model></ytm-rich-section-renderer>
+    </div>
+  </ytm-rich-grid-renderer>
+</ytm-app>
+<script>
+  // Synthetic reconciliation model, not captured YouTube source. A renderer owns references to
+  // its children between renders. Deleting one externally can abort the next render after it has
+  // cleared ordinary videos. The owner observed selected Home topics with an empty results area.
+  const feed = document.getElementById('feed');
+  let children = Array.from(feed.children);
+  window.topicErrors = [];
+  for (const button of document.querySelectorAll('[role="tab"]')) {
+    button.addEventListener('click', () => {
+      for (const tab of document.querySelectorAll('[role="tab"]')) {
+        tab.setAttribute('aria-selected', String(tab === button));
+      }
+      try {
+        for (const child of children) feed.removeChild(child);
+        const card = document.createElement('ytm-rich-item-renderer');
+        card.innerHTML = '<ytm-video-with-context-renderer><ytm-media-item>' +
+          '<a id="topic-video" class="media-item-thumbnail-container" href="/watch?v=topic">' +
+          button.textContent + ' ordinary video</a></ytm-media-item></ytm-video-with-context-renderer>';
+        const short = document.createElement('ytm-rich-item-renderer');
+        short.id = 'reused-card';
+        short.innerHTML = '<ytm-video-with-context-renderer><ytm-media-item>' +
+          '<a class="media-item-thumbnail-container" href="/shorts/topic">Topic short</a>' +
+          '</ytm-media-item></ytm-video-with-context-renderer>';
+        feed.append(card, short);
+        children = [card, short];
+      } catch (error) {
+        window.topicErrors.push(error.name);
+      }
+    });
+  }
+</script>
+</body>
+</html>

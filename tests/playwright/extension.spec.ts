@@ -6,6 +6,7 @@ import { test, expect } from "./_extension.js";
 // taller than 600px and scroll the remainder; Still asks for 380px of the available width.
 const POPUP_INLINE_SIZE = 380;
 const POPUP_MAX_BLOCK_SIZE = 600;
+const syncConfigured = process.env.STILL_PLAYWRIGHT_CONFIGURED ?? "false";
 
 test("the background service worker registers and yields an extension id", async ({
   extensionId,
