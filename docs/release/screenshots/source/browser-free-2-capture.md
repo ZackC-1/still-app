@@ -1,5 +1,8 @@
 # Still 2.0 browser screenshot capture
 
+Historical baseline. Use the newer [functional capture set](browser-functional-capture.md) for
+current browser listings; these original files remain unchanged.
+
 Captured September 11, 2026 from the configured 2.0.0 release ZIPs. Source commit:
 `d2b95d99ed10399cd36c86e481286126158047ec`. Browser application code is unchanged through
 `f6d70825156548239666134d1b49f3d0d75af8a7`.
