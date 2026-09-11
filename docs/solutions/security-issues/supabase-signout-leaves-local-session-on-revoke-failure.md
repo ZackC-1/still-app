@@ -38,12 +38,12 @@ The extension purchase spine (PR #34) assumed `supabase.auth.signOut()` always c
 
 Two layers — never depend on the SDK to have cleared local state:
 
-1. **Fall back to `scope: 'local'` in the shared auth port** so a failed global revoke still drops the local session when the server is reachable-but-erroring:
+1. **Use `scope: 'local'` on every attempt in the shared auth port.** Ordinary sign-out affects this device only. Retry once after a failed revoke; direct storage cleanup remains necessary when the network is unavailable:
 
 ```ts
 // packages/core/src/sync/auth.ts
 async signOut(): Promise<void> {
-  const { error } = await this.client.auth.signOut();
+  const { error } = await this.client.auth.signOut({ scope: "local" });
   if (error) await this.client.auth.signOut({ scope: "local" });
 }
 ```
@@ -74,7 +74,7 @@ The mistaken mental model was "`signOut()` resolved, therefore the session is go
 - **Test the failure path.** Pin it: a `signOut` whose revoke rejects still clears the local session.
 
 ```ts
-it("a failed global sign-out falls back to scope:'local'", async () => {
+it("a failed local sign-out retries without affecting other devices", async () => {
   const signOut = vi.fn()
     .mockResolvedValueOnce({ error: new Error("offline") })
     .mockResolvedValueOnce({ error: null });
@@ -90,3 +90,11 @@ it("a failed global sign-out falls back to scope:'local'", async () => {
 - `docs/solutions/conventions/mirror-fixes-across-parallel-paths.md` — the teardown parity convention this reinforces: the persisted-session clear lives in the single shared helper so all voluntary-teardown paths get it.
 - `docs/solutions/security-issues/gate-production-trust-by-build-mode.md` — sibling auth/trust-boundary learning for the same extension spine.
 - Found by the 10-persona `/ce-code-review` on PR #34 (correctness + security personas, cross-reviewer agreement); fixed in commit `f2cb9be`.
+
+## Cross-device sign-out scope (2026-09-10)
+
+The previous first call used Supabase's default global scope. That revokes refresh tokens on other devices, although their existing access tokens can continue working until expiry. The resulting failure can look like delayed settings sync instead of a sign-out problem. Ordinary Still sign-out now requests local scope on both attempts. Account deletion still uses the existing server-side deletion path.
+
+`device-signout.test.ts` exercises the production auth port and real Supabase SDK using two clients against a synthetic auth transport. The peer can renew before sign-out; the old implementation causes renewal to fail afterward. With local sign-out, the departing client's session clears and the peer can still renew. An explicit-global control proves the harness detects the delayed peer failure. No hosted sessions or credentials are used.
+
+Reference: https://supabase.com/docs/guides/auth/signout. A session revoked by an older build cannot be restored by this code change; that device needs a fresh sign-in. Distinguish this confirmed API-scope defect from the live Mac failure's attribution: no private session logs were inspected.
