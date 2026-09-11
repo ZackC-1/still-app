@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { SERVICE_IDS } from "@still/shared-types";
+  import { PAID_TIER_ENABLED, SERVICE_IDS } from "@still/shared-types";
   import type { UiController } from "./controller.svelte.js";
   import Toggle from "./components/Toggle.svelte";
   import ServiceCard from "./components/ServiceCard.svelte";
@@ -40,12 +40,14 @@
     <div class="hero-text">
       <h1>{c.settings.globalOn ? STRINGS.global.on : STRINGS.global.off}</h1>
       <p>
-        <!-- The free line claims "Shorts are removed", which is only true while the YouTube row —
-             the free tier's one service — is itself on; row-off gets the truthful sibling line.
-             Pro needs no gate: "on enabled sites" already hedges per-service state. -->
+        <!-- With every service included there is one line for everyone: "on enabled sites" already
+             hedges per-service state. The two paid-era alternatives below it were written for a
+             free tier that removed YouTube Shorts only, where the hero had to say what the rest
+             cost and had to stop claiming removal when the one included row was itself off. They
+             return with the switch. -->
         {c.settings.globalOn
-          ? c.entitled
-            ? STRINGS.global.onPro
+          ? !PAID_TIER_ENABLED || c.entitled
+            ? STRINGS.global.onSecondary
             : c.settings.services.youtube
               ? STRINGS.global.onFree
               : STRINGS.global.onFreeYoutubeOff
@@ -129,11 +131,23 @@
     </div>
   {/snippet}
 
-  <!-- Sync / account section: renders the popup state matrix -->
+  <!-- Sync / account section: renders the popup state matrix. The PAID_TIER_ENABLED checks in this
+       section hide the buy and restore calls to action while the paid tier is dormant, leaving
+       sign-in as the only thing this card offers. Where the alternative branch was written for a
+       different audience, the check wraps that whole branch, so hiding a purchase affordance shows
+       nothing in its place rather than falling through to a line meant for somebody else. The
+       signed-out check just below joins its condition instead, because both sides of that one read
+       correctly for a free user: with no purchase to offer, sign-in becomes the primary button.
+       The branches themselves are preserved, not deleted. -->
   <section class="sync card" data-state={c.popupState}>
+    {#if !PAID_TIER_ENABLED}
+      <!-- Naming the section is what keeps the invitation calm: someone reading it can see that
+           this card is about settings following them between devices, and about nothing else. -->
+      <h2 class="sync-title">{STRINGS.sync.sectionTitle}</h2>
+    {/if}
     {#if c.popupState === "signed-out"}
       {#if c.canSignIn}
-        {#if c.host.canPurchase}
+        {#if PAID_TIER_ENABLED && c.host.canPurchase}
           <button class="primary block" onclick={() => c.startUpgrade()}>
             {STRINGS.paywall.upgradeCta}
           </button>
@@ -141,14 +155,20 @@
             {STRINGS.auth.signInCta}
           </button>
         {:else}
+          <p class="muted">{STRINGS.sync.signedOut}</p>
           <button class="primary block" onclick={() => c.openSignIn()}>
             {STRINGS.auth.signInCta}
           </button>
         {/if}
-      {:else}
+      {:else if PAID_TIER_ENABLED}
         <!-- No auth path on this host (the browser extensions, until U10): a sign-in CTA here
              would silently do nothing, so show the quiet explanatory note instead. -->
         <p class="muted">{STRINGS.paywall.nonApple}</p>
+      {:else}
+        <!-- The Safari extension popup, which has no sign-in path of its own and, under App Store
+             Review Guideline 4.4, carries no invitation to create an account either. It states the
+             plain fact; the host app is where signing in is offered. -->
+        <p class="muted">{STRINGS.sync.deviceOnly}</p>
       {/if}
       <a
         class="link center"
@@ -169,14 +189,20 @@
           {STRINGS.auth.signInCta}
         </button>
       {/if}
-      <button
-        class="link"
-        onclick={() => {
-          if (onRestore && c.beginRestore()) onRestore();
-        }}
-      >
-        {STRINGS.paywall.restoreSignedOut}
-      </button>
+      {#if PAID_TIER_ENABLED}
+        <!-- Restore has nothing to report while the paid tier is dormant: the native action is
+             refused and its answer only ever renders inside the paywall sheet, so the control
+             would look tappable and do nothing at all. The device still proves its own purchase
+             through the receipt read, which runs on its own and is untouched. -->
+        <button
+          class="link"
+          onclick={() => {
+            if (onRestore && c.beginRestore()) onRestore();
+          }}
+        >
+          {STRINGS.paywall.restoreSignedOut}
+        </button>
+      {/if}
       <a
         class="link center"
         href={PRIVACY_POLICY_URL}
@@ -186,18 +212,20 @@
         {STRINGS.account.privacyPolicy}
       </a>
     {:else if c.popupState === "not-entitled"}
-      {#if c.host.canPurchase}
-        <div class="syncrow">
-          <div class="syncrow-text">
-            <span class="syncrow-title">{STRINGS.paywall.title}</span>
-            <span class="syncrow-sub">{STRINGS.paywall.body}</span>
+      {#if PAID_TIER_ENABLED}
+        {#if c.host.canPurchase}
+          <div class="syncrow">
+            <div class="syncrow-text">
+              <span class="syncrow-title">{STRINGS.paywall.title}</span>
+              <span class="syncrow-sub">{STRINGS.paywall.body}</span>
+            </div>
+            <button class="primary block" onclick={() => c.startUpgrade()}
+              >{STRINGS.paywall.upgradeCta}</button
+            >
           </div>
-          <button class="primary block" onclick={() => c.startUpgrade()}
-            >{STRINGS.paywall.upgradeCta}</button
-          >
-        </div>
-      {:else}
-        <p class="muted">{STRINGS.paywall.nonApple}</p>
+        {:else}
+          <p class="muted">{STRINGS.paywall.nonApple}</p>
+        {/if}
       {/if}
       <button class="link" onclick={() => c.signOut()}
         >{STRINGS.auth.signOut}</button
@@ -235,8 +263,11 @@
   <!-- The sheet also opens on hosts without a purchase path (locked-row taps in the extensions):
        it renders its explanatory state there instead of a buy CTA (R19). During the payoff
        (U3/R6) the sheet stays mounted showing the success payoff while the service rows above —
-       already reactive to c.entitled — render live-and-on behind it. -->
-  {#if c.paywallOpen}
+       already reactive to c.entitled — render live-and-on behind it.
+       The whole sheet is kept and left unreachable while the paid tier is dormant behind
+       PAID_TIER_ENABLED. This is the last gate: any other route that sets paywallOpen, such as a
+       purchase intent left over from an older install, still renders nothing. -->
+  {#if PAID_TIER_ENABLED && c.paywallOpen}
     <PaywallSheet
       canPurchase={c.host.canPurchase}
       price={c.paywallPrice}
@@ -270,7 +301,7 @@
     gap: var(--app-gap, var(--space-3));
     inline-size: 100%;
     min-inline-size: 0;
-    max-inline-size: 432px;
+    max-inline-size: var(--content-max-inline-size, 432px);
     padding: var(--app-padding, var(--space-4));
     padding-block-start: calc(
       var(--app-padding, var(--space-4)) + env(safe-area-inset-top)
@@ -337,6 +368,13 @@
   .card {
     background: var(--surface-raised);
     border-radius: var(--radius-card);
+  }
+  .sync-title {
+    margin: 0;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    color: var(--ink-secondary);
   }
   .sync {
     display: flex;

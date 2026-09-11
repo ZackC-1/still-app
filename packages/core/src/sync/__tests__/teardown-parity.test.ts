@@ -27,7 +27,12 @@ import { SyncService } from "../service.js";
 //       (never appear signed out while the account still exists);
 //   (b) a VOLUNTARY sign-out completes the local purge/signed-out transition even when the remote
 //       sign-out rejects (the user asked to leave; offline must not trap them signed-in);
-//   (c) neither path throws to its caller-facing surface.
+//   (c) neither path throws to its caller-facing surface;
+// The record of who last synced on this device is deliberately NOT part of the shared contract,
+// because only one host has a way to lose it. The extension teardown runs a browser-scoped purge
+// that once cleared it, so that case is asserted below against the real purge. The Apple session
+// has no such path: LastSyncedIdentityStore offers only get and set, and the WKWebView session
+// never reaches the store at all, so an assertion there would be a green line proving nothing.
 // The orchestrators are NOT merged (their purge mechanics genuinely differ: App-Group mirror vs
 // record store + browser-scoped purges) — only the observable teardown contract is shared, via a
 // per-orchestrator adapter over the same wiring production uses. Each adapter's local-state
@@ -51,6 +56,11 @@ interface TeardownHarness {
 }
 
 const T0 = 1_700_000_000_000;
+
+/** The key the background's Supabase client persists its session under (the extension's
+ * AUTH_STORAGE_KEY, and the key clearExtensionAuthStorage removes). Spelled out rather than
+ * imported because core cannot depend on an extension package. */
+const AUTH_STORAGE_KEY = "still:auth";
 
 // ── Apple (WKWebView app) ────────────────────────────────────────────────────────────────────────
 // Wired the way the app-webview entrypoint wires it: UiAuth closures over the session's
@@ -130,10 +140,11 @@ function appleHarness(fail: FailureModes = {}): TeardownHarness {
 // ── Extension (Chromium background) ──────────────────────────────────────────────────────────────
 // The extension-session.test.ts harness pattern, trimmed to the teardown surface: mocked ports, a
 // real SyncService, the in-memory record store, and write/side-effect logs the predicates read.
-// Its local-signed-out truth is the purge itself (record downgraded to an explicit entitled:false,
-// identity forgotten, persisted auth session removed) — NOT the fake's in-memory session flag: a
-// rejected remote revoke leaves auth-js's session server-side, and clearAuthStorage removing the
-// persisted copy is exactly the offline-proof pin (F1).
+// Its local-signed-out truth is the purge itself: the record downgraded to an explicit
+// entitled:false AND the persisted session gone from the fake browser storage. Not the remote
+// call, which a rejected revoke leaves alive server-side, and not a spy: removing the session key
+// is what actually signs this client out, so the offline-proof pin (F1) is asserted against the
+// disk the real client reads.
 
 function makeSlot<T>(initial: unknown = null): PersistedSlot<T> & { value: unknown } {
   const slot = {
@@ -146,9 +157,22 @@ function makeSlot<T>(initial: unknown = null): PersistedSlot<T> & { value: unkno
   return slot;
 }
 
-function extensionHarness(fail: FailureModes = {}): TeardownHarness {
+/** The extension harness answers one predicate more than the shared contract: it is the only host
+ * whose teardown can reach the record of who last synced here. */
+function extensionHarness(
+  fail: FailureModes = {},
+): TeardownHarness & { lastSyncedIdentity(): Promise<string | null> } {
   const now = () => T0;
-  let sessionUser: string | null = "u1";
+  // The session where the real one lives: one key in browser.storage.local, re-read on every call
+  // because the client keeps none in memory. Removing the key IS being signed out, which is what
+  // makes the offline-proof pin below an assertion about this browser rather than about a spy.
+  const browserStorage = new Map<string, string>();
+  const persistedSession = (): string | null => browserStorage.get(AUTH_STORAGE_KEY) ?? null;
+  const persistSession = (userId: string | null): void => {
+    if (userId === null) browserStorage.delete(AUTH_STORAGE_KEY);
+    else browserStorage.set(AUTH_STORAGE_KEY, userId);
+  };
+  persistSession("u1");
 
   const auth = {
     signInWithMagicLink: vi.fn(async () => ({})),
@@ -157,11 +181,14 @@ function extensionHarness(fail: FailureModes = {}): TeardownHarness {
           throw new Error("offline"); // server revoke failed — the remote session survives
         })
       : vi.fn(async () => {
-          sessionUser = null;
+          persistSession(null);
         }),
-    currentUserId: vi.fn(async () => sessionUser),
+    currentUserId: vi.fn(async () => persistedSession()),
     requestCode: vi.fn(async (): Promise<RequestCodeOutcome> => ({ kind: "sent" })),
-    verifyCode: vi.fn(async (): Promise<VerifyCodeOutcome> => ({ kind: "verified", userId: "u1" })),
+    verifyCode: vi.fn(async (): Promise<VerifyCodeOutcome> => {
+      persistSession("u1");
+      return { kind: "verified", userId: "u1" };
+    }),
   };
 
   const backend = {
@@ -197,20 +224,21 @@ function extensionHarness(fail: FailureModes = {}): TeardownHarness {
     },
   };
 
-  let lastSynced: string | null = "u1"; // a previously-synced identity, so teardown has one to forget
+  let lastSynced: string | null = "u1"; // a previously-synced identity, which teardown must keep
   const identity = {
     get: vi.fn(async () => lastSynced),
     set: vi.fn(async (userId: string) => {
       lastSynced = userId;
     }),
-    clear: vi.fn(async () => {
-      lastSynced = null;
-    }),
   };
 
   const cache = new SettingsCache(new InMemoryStorageAdapter(null), { now });
   const sync = new SyncService(cache, auth, backend, undefined, identity);
-  const clearAuthStorage = vi.fn(async () => {});
+  // What clearExtensionAuthStorage really does: remove the session key, which signs this client
+  // out on the spot because currentUserId reads the same key.
+  const clearAuthStorage = vi.fn(async () => {
+    persistSession(null);
+  });
 
   const session = createExtensionSession({
     auth,
@@ -236,12 +264,12 @@ function extensionHarness(fail: FailureModes = {}): TeardownHarness {
     deleteAccount: async () => {
       await session.deleteAccount();
     },
-    isSignedOutLocally: () =>
-      purged() && identity.clear.mock.calls.length > 0 && clearAuthStorage.mock.calls.length > 0,
-    sessionIntact: () =>
-      sessionUser === "u1" && !purged() && identity.clear.mock.calls.length === 0,
+    isSignedOutLocally: () => purged() && persistedSession() === null,
+    sessionIntact: () => persistedSession() === "u1" && !purged(),
+    lastSyncedIdentity: () => identity.get(),
   };
 }
+
 
 // ── The shared contract ──────────────────────────────────────────────────────────────────────────
 
@@ -273,5 +301,21 @@ describe.each(orchestrators)("teardown parity — $name", ({ build }) => {
     await deleted.deleteAccount();
     expect(deleted.isSignedOutLocally()).toBe(true);
     expect(deleted.sessionIntact()).toBe(false);
+  });
+});
+
+// The extension is the only host whose teardown touches the last-synced identity, so this is the
+// only host where the promise can be broken. Erasing it would let the next person to sign in on a
+// shared machine carry the previous person's settings into their own account.
+
+describe("extension-session teardown and the shared-machine record", () => {
+  it("neither exit forgets who last synced on this device", async () => {
+    const signedOut = extensionHarness();
+    await signedOut.signOut();
+    expect(await signedOut.lastSyncedIdentity()).toBe("u1");
+
+    const deleted = extensionHarness();
+    await deleted.deleteAccount();
+    expect(await deleted.lastSyncedIdentity()).toBe("u1");
   });
 });

@@ -2,21 +2,72 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>YouTube — fixture</title>
+    <title>YouTube — desktop home and subscriptions fixture</title>
   </head>
   <body>
-    <!-- Left guide: a Shorts entry (yt-sidebar, hide) + a normal entry (must survive) -->
+    <!--
+      Desktop youtube.com: the home feed, the subscriptions feed and the left guide. Element names
+      and nesting are copied from a signed-out capture of the live site, so a selector that stops
+      matching here has stopped matching YouTube. Anything with an id starting "keep-" must survive
+      untouched: those are the over-blocking controls.
+    -->
     <nav id="guide">
-      <ytd-guide-entry-renderer><a title="Home" href="/">Home</a></ytd-guide-entry-renderer>
+      <ytd-guide-entry-renderer id="keep-guide-home"><a title="Home" href="/">Home</a></ytd-guide-entry-renderer>
       <ytd-guide-entry-renderer id="shorts-guide"><a id="endpoint" title="Shorts" href="/shorts">Shorts</a></ytd-guide-entry-renderer>
+      <ytd-mini-guide-entry-renderer id="shorts-mini-guide"><a title="Shorts" href="/shorts">Shorts</a></ytd-mini-guide-entry-renderer>
     </nav>
 
-    <!-- Home feed: a Shorts shelf (yt-home-shelf, remove) + a real video (must survive) -->
-    <main>
+    <!-- Chip bar above the home feed: the Shorts chip goes, the others stay. -->
+    <div id="chips">
+      <yt-chip-cloud-chip-renderer id="keep-chip-all"><span title="All">All</span></yt-chip-cloud-chip-renderer>
+      <yt-chip-cloud-chip-renderer id="shorts-chip"><span title="Shorts">Shorts</span></yt-chip-cloud-chip-renderer>
+    </div>
+
+    <main id="home">
+      <!-- Older Shorts shelf, still served on some pages. -->
       <ytd-reel-shelf-renderer id="shelf">
         <a href="/shorts/abc123">a short</a>
       </ytd-reel-shelf-renderer>
-      <ytd-rich-item-renderer id="keep-video">A real long-form video</ytd-rich-item-renderer>
+
+      <!-- Current desktop home Shorts shelf: a rich section wrapping a Shorts rich shelf. -->
+      <ytd-rich-section-renderer id="rich-shorts-section">
+        <ytd-rich-shelf-renderer is-shorts>
+          <ytd-rich-item-renderer><a href="/shorts/def456">another short</a></ytd-rich-item-renderer>
+        </ytd-rich-shelf-renderer>
+      </ytd-rich-section-renderer>
+
+      <!--
+        Over-blocking control: an ordinary recommendation shelf that happens to contain one link to
+        a Short in a creator's blurb. The section is not a Shorts shelf and must survive whole.
+      -->
+      <ytd-rich-section-renderer id="keep-mixed-section">
+        <ytd-rich-shelf-renderer>
+          <ytd-rich-item-renderer id="keep-mixed-video">
+            <a href="/watch?v=long789">An ordinary recommended video</a>
+            <div class="description">Follow-up to my short at <a href="/shorts/ghi789">this link</a></div>
+          </ytd-rich-item-renderer>
+        </ytd-rich-shelf-renderer>
+      </ytd-rich-section-renderer>
+
+      <ytd-rich-item-renderer id="keep-video">
+        <a id="thumbnail" href="/watch?v=long123">A real long-form video</a>
+      </ytd-rich-item-renderer>
+
+      <!-- Over-blocking control: a long-form video whose title contains the word "reels". The
+           Instagram and Facebook Reels rules must not reach a YouTube page. -->
+      <ytd-rich-item-renderer id="keep-reels-titled-video">
+        <a id="thumbnail" href="/watch?v=long456" aria-label="Best fishing reels of 2026">Best fishing reels of 2026</a>
+      </ytd-rich-item-renderer>
     </main>
+
+    <!-- Subscriptions feed: a Shorts shelf plus an ordinary upload. -->
+    <div id="subscriptions">
+      <ytd-reel-shelf-renderer id="subs-shorts-shelf">
+        <a href="/shorts/jkl012">a subscription short</a>
+      </ytd-reel-shelf-renderer>
+      <ytd-rich-item-renderer id="keep-subs-video">
+        <a id="thumbnail" href="/watch?v=subs123">A video from a subscription</a>
+      </ytd-rich-item-renderer>
+    </div>
   </body>
 </html>

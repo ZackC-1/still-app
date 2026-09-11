@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import seed from "../../../rules/seed.json";
 import type { SignedRuleSet, StillSettings, ServiceId } from "@still/shared-types";
-import { DEFAULT_SETTINGS, SERVICE_IDS } from "@still/shared-types";
+import { DEFAULT_SETTINGS, PAID_TIER_ENABLED, SERVICE_IDS } from "@still/shared-types";
 import {
   evaluate,
   applyDom,
@@ -14,6 +14,8 @@ import {
   STILL_PLACEHOLDER_LINE,
 } from "../engine.js";
 
+const paidTierIt = it.runIf(PAID_TIER_ENABLED);
+const includedAccessIt = it.runIf(!PAID_TIER_ENABLED);
 const ruleSet = seed as unknown as SignedRuleSet;
 const allOn: StillSettings = DEFAULT_SETTINGS;
 
@@ -100,12 +102,107 @@ describe("evaluate — navigation decisions", () => {
     expect(d).not.toMatchObject({ blocked: true }); // a cleared URL, not a site block
     expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reels/")).kind).toBe("placeholder");
     expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/someuser/reels/")).kind).toBe("placeholder");
+    // Instagram serves the same Reel at two addresses. The root one was blocked and the profile one
+    // was not, so a Reel opened from a profile or a shared link still played.
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/someuser/reel/XYZ/")).kind).toBe("placeholder");
+    // An ordinary profile, and a username that merely begins with the letters "reel", are not Reels.
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/someuser/")).kind).toBe("apply");
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reelmaker/")).kind).toBe("apply");
+  });
+
+  // Two rules point opposite ways at the same address, on purpose, and this pins both so that the
+  // next person to notice does not resolve the contradiction by deleting one of them.
+  //
+  // The selectors say a song credit is NOT a Reel, and exclude /reels/audio/ so that an ordinary
+  // post that happens to use a song keeps its credit line. Hiding it would leave a hole in a post
+  // Still is supposed to leave alone, which is worse than the credit being there.
+  //
+  // The address rule says the page that credit LEADS to is a Reel, and it is: Instagram's audio page
+  // is a grid of Reels made with that song. So the credit stays visible and following it reaches
+  // Still's placeholder. That is the intended behaviour, not an oversight: Still leaves the ordinary
+  // post alone and still declines to open a wall of Reels.
+  it("keeps a song credit clickable in the feed and still blocks the Reels grid it leads to", () => {
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reels/audio/111111111111111/")).kind).toBe(
+      "placeholder",
+    );
+    // Cleared content rather than a whole-site block, like every other Instagram Reels address.
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reels/audio/111111111111111/"))).not.toMatchObject(
+      { blocked: true },
+    );
   });
 
   it("placeholders a direct Facebook Reel URL", () => {
     expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reel/123")).kind).toBe("placeholder");
     expect(evaluate(ruleSet, allOn, new URL("https://m.facebook.com/reels/")).kind).toBe("placeholder");
     expect(evaluate(ruleSet, allOn, new URL("https://m.facebook.com/watch/reels/")).kind).toBe("placeholder");
+    // A Page's own Reels tab, which is where the hidden tab used to lead.
+    expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/somepage/reels/")).kind).toBe("placeholder");
+    // A Page's ordinary sections are long-form video and photos, which Still leaves alone.
+    expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/somepage/videos")).kind).toBe("apply");
+    expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/somepage/")).kind).toBe("apply");
+    expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reelestate/")).kind).toBe("apply");
+  });
+
+  it("leaves Facebook's own sections alone when their address ends in the word reels", () => {
+    // "/<name>/reels" is a Page's Reels tab only when <name> is a Page. Facebook reserves its own
+    // first path segment for sections like groups and hashtag, so /groups/reels is a real group
+    // about fishing rods, reels and tackle, /hashtag/reels is the hashtag feed, and /public/reels
+    // is the people directory listing everyone whose name contains "Reels". All render ordinary
+    // content and none is short-form video, so Still must not cover them.
+    for (const path of [
+      "/groups/reels",
+      "/groups/reels/",
+      "/hashtag/reels",
+      "/marketplace/reels",
+      "/gaming/reels",
+      "/games/reels",
+      "/live/reels",
+      "/events/reels",
+      "/pages/reels",
+      "/people/reels",
+      "/stories/reels",
+      "/search/reels",
+      "/help/reels",
+      "/business/reels",
+      "/settings/reels",
+      "/messages/reels",
+      "/notifications/reels",
+      "/bookmarks/reels",
+      "/friends/reels",
+      "/saved/reels",
+      "/ads/reels",
+      "/photo/reels",
+      "/policies/reels",
+      "/legal/reels",
+      "/careers/reels",
+      "/login/reels",
+      "/privacy/reels",
+      "/public/reels",
+    ]) {
+      expect(evaluate(ruleSet, allOn, new URL(`https://www.facebook.com${path}`)).kind).toBe("apply");
+      expect(evaluate(ruleSet, allOn, new URL(`https://m.facebook.com${path}`)).kind).toBe("apply");
+    }
+
+    // Narrowing must not give back the Reels addresses this rule exists to cover: a Page whose
+    // vanity name merely begins with a section name is still a Page.
+    for (const path of [
+      "/reel/123",
+      "/reels/",
+      // "watch" is deliberately not a reserved word above, because /watch/reels is a real Reels
+      // surface, so the general "<name>/reels" alternative covers it and the pattern needs no
+      // separate one. Anyone who ever reserves "watch" must restore that alternative.
+      "/watch/reels",
+      "/watch/reels/",
+      "/somepage/reels",
+      "/somepage/reels/",
+      "/100064860875397/reels",
+      "/groupsofpeople/reels",
+      "/liveband/reels",
+    ]) {
+      expect(evaluate(ruleSet, allOn, new URL(`https://www.facebook.com${path}`)).kind).toBe(
+        "placeholder",
+      );
+    }
   });
 
   it("is a no-op on an unknown domain", () => {
@@ -160,7 +257,7 @@ describe("evaluate — safety model (AE4)", () => {
     expect(document.querySelector("#n")).toBeNull();
   });
 
-  it("defaults a newly-added unlabeled surface to Pro for free users", () => {
+  paidTierIt("defaults a newly-added unlabeled surface to Pro for free users", () => {
     const extended = JSON.parse(JSON.stringify(ruleSet));
     extended.services.youtube.surfaces.push({
       id: "yt-new-premium",
@@ -178,6 +275,16 @@ describe("evaluate — safety model (AE4)", () => {
 });
 
 describe("evaluate/applyDom — monetization gating", () => {
+  includedAccessIt("applies every enabled service without entitlement while the paid tier is off", () => {
+    expect(PAID_TIER_ENABLED).toBe(false);
+    expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reel/XYZ/"), { pro: false }).kind).toBe("placeholder");
+    expect(evaluate(ruleSet, allOn, new URL("https://www.tiktok.com/foryou"), { pro: false })).toMatchObject({
+      kind: "placeholder",
+      blocked: true,
+    });
+    expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reel/123"), { pro: false }).kind).toBe("placeholder");
+  });
+
   it("keeps every current YouTube Shorts surface free", () => {
     const yt = ruleSet.services.youtube!.surfaces;
     // Containment, not exact set-equality: every always-free safety-net id must exist in the seed
@@ -202,12 +309,20 @@ describe("evaluate/applyDom — monetization gating", () => {
   });
 
   it("removes mobile YouTube Shorts tiles and sections while keeping normal mobile videos", () => {
+    // Card markup mirrors m.youtube.com: the thumbnail anchor is what says whether a card is a
+    // Short, so the fixture carries it rather than a bare link.
     document.body.innerHTML = `
       <ytm-rich-section-renderer id="mobile-shelf">
         <ytm-shorts-lockup-view-model><a href="/shorts/abc">Short</a></ytm-shorts-lockup-view-model>
       </ytm-rich-section-renderer>
-      <ytm-video-with-context-renderer id="mobile-short"><a href="/shorts/def">Short result</a></ytm-video-with-context-renderer>
-      <ytm-video-with-context-renderer id="mobile-video"><a href="/watch?v=long">Long result</a></ytm-video-with-context-renderer>
+      <ytm-video-with-context-renderer id="mobile-short">
+        <ytm-media-item class="big-shorts-singleton">
+          <a class="media-item-thumbnail-container" href="/shorts/def">Short result</a>
+        </ytm-media-item>
+      </ytm-video-with-context-renderer>
+      <ytm-video-with-context-renderer id="mobile-video">
+        <ytm-media-item><a class="media-item-thumbnail-container" href="/watch?v=long">Long result</a></ytm-media-item>
+      </ytm-video-with-context-renderer>
     `;
 
     applyDom(ruleSet, allOn, new URL("https://m.youtube.com/results?search_query=shorts"), document, { pro: false });
@@ -217,7 +332,7 @@ describe("evaluate/applyDom — monetization gating", () => {
     expect(document.querySelector("#mobile-video")).not.toBeNull();
   });
 
-  it("does not apply Pro services for free users", () => {
+  paidTierIt("does not apply Pro services for free users", () => {
     expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reel/XYZ/"), { pro: false }).kind).toBe("noop");
     expect(evaluate(ruleSet, allOn, new URL("https://www.tiktok.com/foryou"), { pro: false }).kind).toBe("noop");
     expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reel/123"), { pro: false }).kind).toBe("noop");
@@ -232,7 +347,7 @@ describe("evaluate/applyDom — monetization gating", () => {
     expect(evaluate(ruleSet, allOn, new URL("https://www.facebook.com/reel/123"), { pro: true }).kind).toBe("placeholder");
   });
 
-  it("gates every non-free surface on the single pro flag (no second gating axis)", () => {
+  paidTierIt("gates every non-free surface on the single pro flag (no second gating axis)", () => {
     // requiredCapability tags in the seed are reserved authored data — the engine must ignore them
     // and gate purely by tier + pro, so tier and capability data can never silently disagree.
     expect(evaluate(ruleSet, allOn, new URL("https://www.instagram.com/reel/XYZ/"), { pro: false }).kind).toBe("noop");
@@ -313,6 +428,125 @@ describe("applyDom", () => {
     expect((document.querySelector("#ig-home-nav") as HTMLElement).style.display).toBe("");
   });
 
+  // The signed-in Instagram home feed, in the shapes a real capture showed. Two facts drive these
+  // selectors and neither was known when they were first written: a Reel in the feed links to
+  // /reels/<id>/ with an s, and every post that uses a song also carries /reels/audio/<id>/. Match
+  // the first without excluding the second and Still removes ordinary posts for having a soundtrack.
+  it("removes home-feed Reels while keeping an ordinary post that merely credits a song", () => {
+    document.body.innerHTML = `
+      <main role="main">
+        <section>
+          <article id="ig-feed-reel">
+            <a role="link" href="/photo_walker/">photo_walker</a>
+            <a role="link" href="/reels/audio/111111111111111/">Big Band</a>
+            <a role="link" href="/reels/Ca1eXaMpLe02/"><video></video></a>
+          </article>
+          <article id="ig-feed-music-post">
+            <a role="link" href="/photo_walker/">photo_walker</a>
+            <a role="link" href="/p/Ca1eXaMpLe03/">9w</a>
+            <a id="ig-feed-music-credit" role="link" href="/reels/audio/222222222222222/">Island Chorus</a>
+          </article>
+          <article id="ig-feed-photo-post"><a role="link" href="/p/Ca1eXaMpLe01/">5w</a></article>
+        </section>
+      </main>
+    `;
+    applyDom(ruleSet, allOn, new URL("https://www.instagram.com/"), document, { pro: true });
+    expect(document.querySelector("#ig-feed-reel")).toBeNull();
+    expect(document.querySelector("#ig-feed-music-post")).not.toBeNull();
+    expect(document.querySelector("#ig-feed-photo-post")).not.toBeNull();
+    // The credit line itself stays too, or the post is still not "untouched".
+    expect((document.querySelector("#ig-feed-music-credit") as HTMLElement).style.display).toBe("");
+    // The feed's own wrapper section holds every post, so a suggested-Reels rule that stopped
+    // requiring a direct-child link would take the entire feed with it.
+    expect(document.querySelector("main section")).not.toBeNull();
+  });
+
+  // The bound on the two rules that delete a whole post. Both match a Reel address at the START of
+  // an Instagram link, never anywhere inside any link, and each case below is a post that a
+  // match-anywhere version deletes outright. Removing a post is the most destructive thing Still
+  // does, so the shapes that must survive are pinned one at a time and named, and the shapes that
+  // must go are pinned in the same test so neither direction can drift on its own.
+  it("keeps ordinary posts whose only Reels-shaped links point somewhere that is not a Reel", () => {
+    document.body.innerHTML = `
+      <main role="main">
+        <section>
+          <article id="ig-outbound-reel">
+            <a id="ig-outbound-reel-link" href="https://trailmix.example/reel/summer-sale">Summer sale</a>
+          </article>
+          <article id="ig-outbound-reels">
+            <a id="ig-outbound-reels-link" href="https://trailmix.example/reels/spring-range">The range</a>
+          </article>
+          <article id="ig-profile-reel">
+            <a id="ig-profile-reel-link" href="/photo_walker/reel/Ca1eXaMpLe09/">As seen here</a>
+          </article>
+          <article id="ig-quoted-address">
+            <a href="https://news.example/story?url=https%3A%2F%2Finstagram.com%2Freels%2FCa1eXaMpLe10%2F">Story</a>
+          </article>
+          <article id="ig-real-feed-reel"><a href="/reels/Ca1eXaMpLe11/"><video></video></a></article>
+          <article id="ig-real-absolute-reel">
+            <a href="https://www.instagram.com/reels/Ca1eXaMpLe12/"><video></video></a>
+          </article>
+        </section>
+      </main>
+    `;
+    applyDom(ruleSet, allOn, new URL("https://www.instagram.com/"), document, { pro: true });
+
+    // An advertiser's own website decides for itself what "reel" and "reels" mean in its addresses.
+    expect(document.querySelector("#ig-outbound-reel")).not.toBeNull();
+    expect(document.querySelector("#ig-outbound-reels")).not.toBeNull();
+    // A post that mentions somebody's Reel is not itself a Reel. The profile grid is a different
+    // surface with its own rule, and the address rule still covers the destination.
+    expect(document.querySelector("#ig-profile-reel")).not.toBeNull();
+    // An Instagram address quoted inside another site's query string is not a link to Instagram.
+    expect(document.querySelector("#ig-quoted-address")).not.toBeNull();
+    // Every one of those links is still there to be clicked, so the posts are untouched and not
+    // merely undeleted.
+    for (const id of ["#ig-outbound-reel-link", "#ig-outbound-reels-link", "#ig-profile-reel-link"]) {
+      expect((document.querySelector(id) as HTMLElement).style.display, id).toBe("");
+    }
+
+    // The other direction: a genuine feed Reel still goes, by either address form.
+    expect(document.querySelector("#ig-real-feed-reel")).toBeNull();
+    expect(document.querySelector("#ig-real-absolute-reel")).toBeNull();
+  });
+
+  // The same bound on the suggested-Reels rule, which removes a whole section rather than a post.
+  it("keeps a suggested-style section whose only Reels-shaped link points off Instagram", () => {
+    document.body.innerHTML = `
+      <main role="main">
+        <section id="ig-outbound-section"><a href="https://trailmix.example/reel/summer-sale">Summer sale</a></section>
+        <section id="ig-suggested-absolute">
+          <a href="https://www.instagram.com/reels/Ca1eXaMpLe13/">Suggested reel</a>
+        </section>
+      </main>
+    `;
+    applyDom(ruleSet, allOn, new URL("https://www.instagram.com/"), document, { pro: true });
+    expect(document.querySelector("#ig-outbound-section")).not.toBeNull();
+    expect(document.querySelector("#ig-suggested-absolute")).toBeNull();
+  });
+
+  // The suggested-Reels rule carries the same corrected address shape, but it keeps its direct-child
+  // requirement. The section element it is written against was never in a capture, so the shape
+  // below is the one the rule has always claimed, with only the address corrected. The requirement
+  // earns its keep here: the home feed's own wrapper is a <section> holding every post, so a version
+  // that looked anywhere inside a section would delete the entire feed on a page of ordinary posts.
+  it("removes a suggested-Reels section and leaves the feed's own wrapper section alone", () => {
+    document.body.innerHTML = `
+      <main role="main">
+        <section id="ig-suggested-reels"><a role="link" href="/reels/Ca1eXaMpLe05/">Suggested reel</a></section>
+        <section id="ig-feed-wrapper">
+          <article id="ig-wrapped-reel"><a role="link" href="/reels/Ca1eXaMpLe06/"><video></video></a></article>
+          <article id="ig-wrapped-post"><a role="link" href="/p/Ca1eXaMpLe07/">5w</a></article>
+        </section>
+      </main>
+    `;
+    applyDom(ruleSet, allOn, new URL("https://www.instagram.com/"), document, { pro: true });
+    expect(document.querySelector("#ig-suggested-reels")).toBeNull();
+    expect(document.querySelector("#ig-feed-wrapper")).not.toBeNull();
+    expect(document.querySelector("#ig-wrapped-reel")).toBeNull();
+    expect(document.querySelector("#ig-wrapped-post")).not.toBeNull();
+  });
+
   it("removes mobile Facebook Reels surfaces while keeping normal mobile feed posts", () => {
     document.body.innerHTML = `
       <nav>
@@ -344,6 +578,35 @@ describe("applyDom", () => {
     expect((document.querySelector("#fb-home-nav") as HTMLElement).style.display).toBe("");
   });
 
+  // facebook.com/public/<name> is a people directory, so /public/reels lists everyone whose name
+  // contains the word. Each result's photo link carries that person's name as its accessible name.
+  // The left-menu rule used to hide any link whose label merely contained "Reels". Measured on the
+  // live page, which carries 120 links in total: it matched 26 of them, every one a photo link,
+  // covering 13 people listed twice each, so the page read as a list of names with no pictures.
+  // Facebook labels the real shortcut exactly "Reels", so an exact match keeps the shortcut hidden
+  // and gives every person their picture back. The addresses below are invented; the label is the
+  // only thing any rule reads.
+  it("hides the Reels shortcut by its exact label and leaves people named Reels alone", () => {
+    document.body.innerHTML = `
+      <nav>
+        <a id="fb-shortcut-reels" href="/reel/?s=ptl" aria-label="Reels">Reels</a>
+        <a id="fb-shortcut-video" href="/watch/" aria-label="Video">Video</a>
+      </nav>
+      <div id="fb-directory">
+        <a id="fb-person-1" aria-label="Reels Kapoor" href="https://www.facebook.com/people/Reels-Kapoor/pfbid0Ex4mPle1"><img id="fb-photo-1"></a>
+        <a id="fb-person-2" aria-label="TJ Reels" href="https://www.facebook.com/people/TJ-Reels/pfbid0Ex4mPle2"><img id="fb-photo-2"></a>
+        <a id="fb-person-3" aria-label="Dana 's Reels" href="https://www.facebook.com/people/Dana-s-Reels/pfbid0Ex4mPle3"><img id="fb-photo-3"></a>
+      </div>
+    `;
+    applyDom(ruleSet, allOn, new URL("https://www.facebook.com/public/reels"), document, { pro: true });
+    expect((document.querySelector("#fb-shortcut-reels") as HTMLElement).style.display).toBe("none");
+    expect((document.querySelector("#fb-shortcut-video") as HTMLElement).style.display).toBe("");
+    for (const id of ["#fb-person-1", "#fb-person-2", "#fb-person-3"]) {
+      expect((document.querySelector(id) as HTMLElement).style.display, id).toBe("");
+    }
+    expect(document.querySelectorAll("#fb-directory img")).toHaveLength(3);
+  });
+
   // Issue #58 (second round, from live Web Inspector DOM): every tab is pinned to its slot with
   // precomputed inline offsets (width:67px; margin-left:…) — siblings never reflow, so ANY removal
   // (tab or wrapper) leaves a hole exposing the ancestor's gray bg-s26. The fix keeps the tab as
@@ -370,7 +633,7 @@ describe("applyDom", () => {
     expect(document.querySelectorAll("[role=tablist] > *").length).toBe(3);
   });
 
-  it("leaves every Facebook mobile tab-bar surface intact for a FREE user (monetization gate)", () => {
+  paidTierIt("leaves every Facebook mobile tab-bar surface intact for a FREE user (monetization gate)", () => {
     document.body.innerHTML = `
       <div role="tablist">
         <div id="free-reels-tab" role="tab" aria-label="reels, 4 of 6"><div id="free-reels-icon"></div></div>
@@ -418,5 +681,188 @@ describe("renderPlaceholder", () => {
     renderPlaceholder(document, "two");
     expect(document.getElementById("still-placeholder")).toBe(first);
     expect(first?.querySelector("p")?.textContent).toBe("two");
+  });
+});
+
+// Every case below is taken from a signed-out capture of the live site. The rule is one sentence:
+// a card is a Short when its OWN thumbnail is a Short, and a shelf is a Shorts shelf when it holds
+// Shorts lockups. "Contains a link to a Short somewhere" is not the test, because ordinary cards
+// and mixed sections routinely contain one.
+describe("applyRemovals — YouTube Shorts surfaces against live markup", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    document.documentElement.className = "";
+  });
+
+  const sweep = (href: string) =>
+    applyRemovals(ruleSet, allOn, new URL(href), document, { pro: false });
+
+  it("removes the search Shorts shelf whole, heading and all", () => {
+    document.body.innerHTML = `
+      <grid-shelf-view-model id="shelf">
+        <yt-shelf-header-layout><h2>Shorts</h2><button>Show more</button></yt-shelf-header-layout>
+        <ytm-shorts-lockup-view-model><a href="/shorts/abc">a short</a></ytm-shorts-lockup-view-model>
+      </grid-shelf-view-model>
+      <grid-shelf-view-model id="keep-shelf">
+        <yt-shelf-header-layout><h2>For you</h2></yt-shelf-header-layout>
+        <yt-lockup-view-model><a href="/watch?v=long">a long-form video</a></yt-lockup-view-model>
+      </grid-shelf-view-model>`;
+    sweep("https://www.youtube.com/results?search_query=shorts");
+    expect(document.querySelector("#shelf")).toBeNull();
+    expect(document.querySelector("#keep-shelf")).not.toBeNull();
+  });
+
+  it("removes a mobile card whose own thumbnail is a Short", () => {
+    document.body.innerHTML = `
+      <ytm-video-with-context-renderer id="short">
+        <ytm-media-item class="big-shorts-singleton">
+          <a class="media-item-thumbnail-container" href="/shorts/abc">a short</a>
+        </ytm-media-item>
+      </ytm-video-with-context-renderer>`;
+    sweep("https://m.youtube.com/results?search_query=shorts");
+    expect(document.querySelector("#short")).toBeNull();
+  });
+
+  it("keeps a mobile card that merely links to a Short from its channel row", () => {
+    document.body.innerHTML = `
+      <ytm-video-with-context-renderer id="keep">
+        <ytm-media-item>
+          <a class="media-item-thumbnail-container" href="/watch?v=long">a long-form video</a>
+          <div class="media-channel"><a class="media-item-extra-endpoint" href="/shorts/abc">a short</a></div>
+        </ytm-media-item>
+      </ytm-video-with-context-renderer>`;
+    sweep("https://m.youtube.com/results?search_query=news");
+    expect(document.querySelector("#keep")).not.toBeNull();
+  });
+
+  it("keeps a mobile home section that is not a Shorts shelf", () => {
+    document.body.innerHTML = `
+      <ytm-rich-section-renderer id="shorts-section">
+        <ytm-shorts-lockup-view-model><a href="/shorts/abc">a short</a></ytm-shorts-lockup-view-model>
+      </ytm-rich-section-renderer>
+      <ytm-rich-section-renderer id="keep-section">
+        <yt-lockup-view-model>
+          <a href="/watch?v=long">a long-form video</a>
+          <div class="blurb">see also <a href="/shorts/def">my short</a></div>
+        </yt-lockup-view-model>
+      </ytm-rich-section-renderer>`;
+    sweep("https://m.youtube.com/");
+    expect(document.querySelector("#shorts-section")).toBeNull();
+    expect(document.querySelector("#keep-section")).not.toBeNull();
+  });
+
+  it("keeps a desktop search result that only mentions a Short in its description", () => {
+    document.body.innerHTML = `
+      <ytd-video-renderer id="short">
+        <ytd-thumbnail><a id="thumbnail" href="/shorts/abc">a short</a></ytd-thumbnail>
+      </ytd-video-renderer>
+      <ytd-video-renderer id="keep">
+        <ytd-thumbnail><a id="thumbnail" href="/watch?v=long">a long-form video</a></ytd-thumbnail>
+        <div id="description"><a href="/shorts/def">watch the short version</a></div>
+      </ytd-video-renderer>`;
+    sweep("https://www.youtube.com/results?search_query=news");
+    expect(document.querySelector("#short")).toBeNull();
+    expect(document.querySelector("#keep")).not.toBeNull();
+  });
+
+  it("leaves a Shorts URL written into a community post, which the redirect handles instead", () => {
+    document.body.innerHTML = `
+      <ytd-post-renderer id="post">
+        <div id="post-text"><a href="/shorts/abc">https://www.youtube.com/shorts/abc</a></div>
+      </ytd-post-renderer>`;
+    sweep("https://www.youtube.com/@YouTube");
+    expect(document.querySelector("#post")).not.toBeNull();
+    expect(evaluate(ruleSet, allOn, new URL("https://www.youtube.com/shorts/abc"))).toEqual({
+      kind: "redirect",
+      url: "https://www.youtube.com/watch?v=abc",
+    });
+  });
+});
+
+// The sweep runs on every mutation frame of an infinite feed, so it queries the document once per
+// action rather than once per selector. Two behaviours follow, and both are load bearing.
+describe("applyRemovals — one query per action", () => {
+  beforeEach(() => {
+    document.body.innerHTML = "";
+    document.documentElement.className = "";
+  });
+
+  it("walks the document once per action, not once per selector", () => {
+    const calls: string[] = [];
+    const original = Document.prototype.querySelectorAll;
+    Document.prototype.querySelectorAll = function (this: Document, selector: string) {
+      calls.push(selector);
+      return original.call(this, selector) as never;
+    } as typeof original;
+    try {
+      applyRemovals(ruleSet, allOn, new URL("https://m.youtube.com/"), document, { pro: false });
+    } finally {
+      Document.prototype.querySelectorAll = original;
+    }
+    expect(calls).toHaveLength(1);
+    // The one query carries every distinct remove selector of the active service, deduplicated
+    // across surfaces that share a shelf.
+    const youtube = ruleSet.services.youtube!;
+    const authored = new Set(
+      youtube.surfaces
+        .filter((s) => s.action === "remove" && s.selectors)
+        .flatMap((s) => [...s.selectors!]),
+    );
+    expect(calls[0]!.split(",")).toHaveLength(authored.size);
+  });
+
+  it("removes a wrapper and its contents whatever order the selectors are authored in", () => {
+    // Authored inner-first, which used to leave the wrapper behind as an empty box because the
+    // wrapper's :has() test named a child an earlier selector had already removed.
+    const innerFirst: SignedRuleSet = {
+      ...ruleSet,
+      services: {
+        youtube: {
+          matches: ["*://*.youtube.com/*"],
+          surfaces: [
+            {
+              id: "yt-home-shelf",
+              label: "test",
+              tier: "free",
+              action: "remove",
+              enabledByDefault: true,
+              selectors: ["ytm-reel-shelf-renderer", "ytm-rich-section-renderer:has(ytm-reel-shelf-renderer)"],
+            },
+          ],
+        },
+      },
+    };
+    document.body.innerHTML = `
+      <ytm-rich-section-renderer id="section">
+        <ytm-reel-shelf-renderer id="shelf"></ytm-reel-shelf-renderer>
+      </ytm-rich-section-renderer>`;
+    applyRemovals(innerFirst, allOn, new URL("https://m.youtube.com/"), document, { pro: false });
+    expect(document.querySelector("#section")).toBeNull();
+  });
+
+  it("falls back to one query per selector when the browser rejects the list", () => {
+    const withUnsupported: SignedRuleSet = {
+      ...ruleSet,
+      services: {
+        youtube: {
+          matches: ["*://*.youtube.com/*"],
+          surfaces: [
+            {
+              id: "yt-home-shelf",
+              label: "test",
+              tier: "free",
+              action: "remove",
+              enabledByDefault: true,
+              // A selector this engine cannot parse must not cost us the one beside it.
+              selectors: ["ytd-reel-shelf-renderer:unsupported-by-this-browser", "ytd-reel-shelf-renderer"],
+            },
+          ],
+        },
+      },
+    };
+    document.body.innerHTML = `<ytd-reel-shelf-renderer id="shelf"></ytd-reel-shelf-renderer>`;
+    const res = applyRemovals(withUnsupported, allOn, new URL("https://www.youtube.com/"), document, { pro: false });
+    expect(document.querySelector("#shelf")).toBeNull();
+    expect(res.removed).toBe(1);
   });
 });

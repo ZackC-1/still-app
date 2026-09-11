@@ -1,3 +1,4 @@
+import { PAID_TIER_ENABLED } from "@still/shared-types";
 import { SettingsCache, ChromeStorageAdapter } from "../storage/index.js";
 import type { StoredSettingsRecord } from "../storage/index.js";
 import { EntitlementCache, ChromeEntitlementAdapter } from "../entitlement/index.js";
@@ -8,6 +9,7 @@ import {
   type UiAuth,
   type UiCheckout,
 } from "./controller.svelte.js";
+import type { EmailConsent } from "./email-consent.js";
 
 // The ONE popup/options wiring every extension build shares (Safari maps the WebExtension storage
 // API — Safari 16+ exposes the `chrome` namespace, so the Chrome adapters serve both). The optional
@@ -39,6 +41,10 @@ export interface ExtensionPurchaseDeps {
 }
 
 export interface ExtensionUiOptions {
+  /** What this browser's add-on store requires before an email address may be collected. Declared
+   * by the entrypoint because only the build knows which browser it is for; defaults to "none",
+   * which is right for the Safari build, whose popup has no sign-in path at all. */
+  readonly emailConsent?: EmailConsent;
   /** Called with the freshly-committed record on every LOCAL settings edit made in this
    * popup/options page (never on external/synced changes arriving from storage). Safari passes a
    * handler that pushes the record straight to the App Group via a native message, because the
@@ -66,7 +72,7 @@ export function createExtensionUiController(
   }
   const controller = new UiController({
     cache,
-    host: { canPurchase: purchase !== undefined },
+    host: { canPurchase: purchase !== undefined, emailConsent: options?.emailConsent },
     auth: purchase?.auth,
     persistence: purchase?.persistence,
     checkout: purchase?.checkout,
@@ -96,7 +102,14 @@ export function createExtensionUiController(
         // refund revokes without ritual. The checkout-pending rehydration above starts its own
         // fast-poll (which reconciles immediately), so only the no-pending open fires here. The
         // entitled flip arrives through the entitlement storage watch — never this return value.
-        if (state.userId !== null && state.checkoutPending === null) {
+        //
+        // Skipped while the paid tier is dormant behind PAID_TIER_ENABLED, because with nothing
+        // for an entitlement to unlock this is a live purchase-service query, on the server, every
+        // time someone opens the popup, whose answer changes nothing anyone can see. Nothing is
+        // lost by waiting: the record it keeps warm is refreshed by the content-script nudge, which
+        // reconciles whenever the cached answer is more than a day old, and the whole path returns
+        // with the switch.
+        if (PAID_TIER_ENABLED && state.userId !== null && state.checkoutPending === null) {
           void purchase.checkout.reconcile();
         }
       })

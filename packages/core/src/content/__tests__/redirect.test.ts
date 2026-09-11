@@ -1,13 +1,15 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import seed from "../../../rules/seed.json";
 import type { SignedRuleSet, StillSettings } from "@still/shared-types";
-import { DEFAULT_SETTINGS } from "@still/shared-types";
+import { DEFAULT_SETTINGS, PAID_TIER_ENABLED } from "@still/shared-types";
 import { SettingsCache } from "../../storage/cache.js";
 import { InMemoryStorageAdapter, type StorageAdapter } from "../../storage/adapter.js";
 import { EntitlementCache, InMemoryEntitlementAdapter } from "../../entitlement/index.js";
 import { createContentScript, earlyShortsRedirect } from "../index.js";
-import { ROOT_ACTIVE_CLASS } from "../../rules/engine.js";
+import { ROOT_ACTIVE_CLASS, ROOT_SERVICE_CLASS_PREFIX, rootServiceClass } from "../../rules/engine.js";
 
+const paidTierIt = it.runIf(PAID_TIER_ENABLED);
+const includedAccessIt = it.runIf(!PAID_TIER_ENABLED);
 const ruleSet = seed as unknown as SignedRuleSet;
 const sync = (cb: () => void) => cb();
 
@@ -84,6 +86,96 @@ beforeEach(() => {
 });
 
 describe("content script — redirect + SPA navigation (U7)", () => {
+  it("hides the current Shorts chip and exits a selected Shorts search only once", async () => {
+    document.body.innerHTML = `<yt-chip-cloud-renderer>
+      <yt-chip-cloud-chip-renderer><button role="tab" aria-selected="false">All</button></yt-chip-cloud-chip-renderer>
+      <yt-chip-cloud-chip-renderer id="shorts" selected><button role="tab" aria-selected="true">Shorts</button></yt-chip-cloud-chip-renderer>
+      <yt-chip-cloud-chip-renderer id="videos"><button role="tab">Videos</button></yt-chip-cloud-chip-renderer>
+    </yt-chip-cloud-renderer><input value="construction"><div id="ordinary">Ordinary video</div>`;
+    const all = document.querySelector<HTMLButtonElement>("button")!;
+    const clicks = vi.fn();
+    all.addEventListener("click", clicks);
+    const cs = createContentScript({ win: makeWin("https://www.youtube.com/results?search_query=construction"), doc: document, ruleSet, cache: cacheWith(null), schedule: sync });
+    try {
+      await cs.start();
+      expect(document.querySelector<HTMLElement>("#shorts")!.style.display).toBe("none");
+      expect(document.querySelector<HTMLElement>("#videos")!.style.display).not.toBe("none");
+      expect(clicks).toHaveBeenCalledTimes(1);
+      cs.reapply();
+      cs.reapply();
+      expect(clicks).toHaveBeenCalledTimes(1);
+      expect(document.querySelector("input")!.value).toBe("construction");
+      expect(document.querySelector("#ordinary")).not.toBeNull();
+    } finally { cs.stop(); }
+  });
+
+  it("keeps one recovery pending while YouTube replaces chips or changes filter parameters", async () => {
+    const markup = `<yt-chip-cloud-renderer>
+      <yt-chip-cloud-chip-renderer id="all"><button role="tab" aria-selected="false">All</button></yt-chip-cloud-chip-renderer>
+      <yt-chip-cloud-chip-renderer id="shorts" selected><button role="tab" aria-selected="true">Shorts</button></yt-chip-cloud-chip-renderer>
+    </yt-chip-cloud-renderer>`;
+    const clicks = vi.fn();
+    const insertChips = () => {
+      document.body.innerHTML = markup;
+      document.querySelector("#all button")!.addEventListener("click", clicks);
+    };
+    insertChips();
+    const win = makeWin("https://www.youtube.com/results?search_query=construction&sp=shorts");
+    const cs = createContentScript({ win, doc: document, ruleSet, cache: cacheWith(null), schedule: sync });
+    try {
+      await cs.start();
+      expect(clicks).toHaveBeenCalledTimes(1);
+      document.body.innerHTML = "";
+      cs.reapply();
+      insertChips();
+      cs.reapply();
+      win.setHref("https://www.youtube.com/results?search_query=construction");
+      cs.reapply();
+      expect(clicks).toHaveBeenCalledTimes(1);
+      // A confirmed All selection ends this recovery. A later Shorts selection is a new action.
+      document.querySelector("#shorts")!.removeAttribute("selected");
+      document.querySelector("#shorts button")!.setAttribute("aria-selected", "false");
+      document.querySelector("#all button")!.setAttribute("aria-selected", "true");
+      cs.reapply();
+      insertChips();
+      cs.reapply();
+      expect(clicks).toHaveBeenCalledTimes(2);
+    } finally { cs.stop(); }
+  });
+
+  it.each([[false, true], [true, false]])("leaves Shorts chips alone when blocking is disabled (global=%s, youtube=%s)", async (globalOn, youtube) => {
+    document.body.innerHTML = `<yt-chip-cloud-renderer><yt-chip-cloud-chip-renderer><button role="tab">All</button></yt-chip-cloud-chip-renderer><yt-chip-cloud-chip-renderer id="shorts" selected><button role="tab">Shorts</button></yt-chip-cloud-chip-renderer></yt-chip-cloud-renderer>`;
+    const clicks = vi.fn();
+    document.querySelector("button")!.addEventListener("click", clicks);
+    const settings = { ...DEFAULT_SETTINGS, updatedAt: 1, globalOn, services: { ...DEFAULT_SETTINGS.services, youtube } };
+    const cs = createContentScript({ win: makeWin("https://www.youtube.com/results?search_query=test"), doc: document, ruleSet, cache: cacheWith(settings), schedule: sync });
+    try {
+      await cs.start();
+      expect(document.querySelector<HTMLElement>("#shorts")!.style.display).not.toBe("none");
+      expect(clicks).not.toHaveBeenCalled();
+    } finally { cs.stop(); }
+  });
+
+  it.each(["disabled", "replaced"])("honors a %s chip rule from a downloaded rule set", async (override) => {
+    document.body.innerHTML = `<yt-chip-cloud-renderer>
+      <yt-chip-cloud-chip-renderer><button role="tab">All</button></yt-chip-cloud-chip-renderer>
+      <yt-chip-cloud-chip-renderer id="shorts" selected><button role="tab">Shorts</button></yt-chip-cloud-chip-renderer>
+    </yt-chip-cloud-renderer>`;
+    const clicks = vi.fn();
+    document.querySelector("button")!.addEventListener("click", clicks);
+    const customRules = structuredClone(ruleSet);
+    const chipRule = customRules.services.youtube!.surfaces.find((surface) => surface.id === "yt-chips")!;
+    Object.assign(chipRule, override === "disabled"
+      ? { enabledByDefault: false }
+      : { selectors: [".replacement-chip"] });
+    const cs = createContentScript({ win: makeWin("https://www.youtube.com/results?search_query=test"), doc: document, ruleSet: customRules, cache: cacheWith(null), schedule: sync });
+    try {
+      await cs.start();
+      expect(document.querySelector<HTMLElement>("#shorts")!.style.display).not.toBe("none");
+      expect(clicks).not.toHaveBeenCalled();
+    } finally { cs.stop(); }
+  });
+
   it("redirects a Shorts URL with an id to the watch page after hydrate (AE1)", async () => {
     const win = makeWin("https://www.youtube.com/shorts/abc123");
     const redirectPort = { replace: vi.fn() };
@@ -278,7 +370,7 @@ describe("content script — redirect + SPA navigation (U7)", () => {
     expect(document.documentElement.classList.contains(ROOT_ACTIVE_CLASS)).toBe(true);
   });
 
-  it("free user: production content-script path no-ops on a Pro Instagram Reel URL", async () => {
+  paidTierIt("free user: production content-script path no-ops on a Pro Instagram Reel URL", async () => {
     const win = makeWin("https://www.instagram.com/reel/XYZ/");
     const cs = createContentScript({
       win,
@@ -292,6 +384,22 @@ describe("content script — redirect + SPA navigation (U7)", () => {
     await cs.start();
     expect(document.querySelector("#still-placeholder")).toBeNull();
     expect(document.documentElement.classList.contains(ROOT_ACTIVE_CLASS)).toBe(false);
+    cs.stop();
+  });
+
+  includedAccessIt("paid tier off: production content-script path applies Instagram without entitlement", async () => {
+    expect(PAID_TIER_ENABLED).toBe(false);
+    const win = makeWin("https://www.instagram.com/reel/XYZ/");
+    const cs = createContentScript({
+      win,
+      doc: document,
+      ruleSet,
+      cache: cacheWith(null),
+      redirectPort: { replace: vi.fn() },
+      schedule: sync,
+    });
+    await cs.start();
+    expect(document.querySelector("#still-placeholder")).not.toBeNull();
     cs.stop();
   });
 
@@ -423,6 +531,77 @@ describe("content script — hydration boundary (U3)", () => {
     release();
     await pending;
     expect(redirectPort.replace).toHaveBeenCalledTimes(1); // one redirect, no storm
+    cs.stop();
+  });
+});
+
+// The packaged stylesheets are declared once in the manifest, so every service's hide selectors
+// load on every service's pages. The root service class is what keeps them apart, so it has to be
+// present exactly when the CSS may act and absent whenever it may not.
+describe("content script — root service class scopes the packaged CSS", () => {
+  const serviceClasses = () =>
+    Array.from(document.documentElement.classList).filter((c) =>
+      c.startsWith(ROOT_SERVICE_CLASS_PREFIX),
+    );
+
+  it("names the page's own service while rules apply", async () => {
+    const cs = createContentScript({
+      win: makeWin("https://m.youtube.com/results?search_query=news"),
+      doc: document,
+      ruleSet,
+      cache: cacheWith(null),
+      schedule: sync,
+    });
+    await cs.start();
+    expect(serviceClasses()).toEqual([rootServiceClass("youtube")]);
+    cs.stop();
+  });
+
+  it("never names two services at once", async () => {
+    const cs = createContentScript({
+      win: makeWin("https://www.instagram.com/someuser/"),
+      doc: document,
+      ruleSet,
+      cache: cacheWith(null),
+      entitlement: entitlementWith(true),
+      schedule: sync,
+    });
+    await cs.start();
+    expect(serviceClasses()).toEqual([rootServiceClass("instagram")]);
+    cs.stop();
+  });
+
+  it("drops the class when the user turns the service off", async () => {
+    const adapter = new InMemoryStorageAdapter(null);
+    const cache = new SettingsCache(adapter);
+    const cs = createContentScript({
+      win: makeWin("https://www.youtube.com/feed/subscriptions"),
+      doc: document,
+      ruleSet,
+      cache,
+      schedule: sync,
+    });
+    await cs.start();
+    expect(serviceClasses()).toEqual([rootServiceClass("youtube")]);
+
+    adapter.emitExternal({ ...DEFAULT_SETTINGS, globalOn: false, updatedAt: Date.now() + 1 });
+    expect(serviceClasses()).toEqual([]);
+    expect(document.documentElement.classList.contains(ROOT_ACTIVE_CLASS)).toBe(false);
+    cs.stop();
+  });
+
+  it("drops the class on a page Still replaces with the placeholder", async () => {
+    const cs = createContentScript({
+      win: makeWin("https://www.tiktok.com/foryou"),
+      doc: document,
+      ruleSet,
+      cache: cacheWith(null),
+      entitlement: entitlementWith(true),
+      schedule: sync,
+    });
+    await cs.start();
+    expect(document.querySelector("#still-placeholder")).not.toBeNull();
+    expect(serviceClasses()).toEqual([]);
     cs.stop();
   });
 });

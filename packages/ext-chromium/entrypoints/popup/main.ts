@@ -5,6 +5,7 @@ import {
   extensionPurchaseDeps,
   restoreHandler,
 } from "../../lib/purchase-wiring.js";
+import { emailConsent } from "../../lib/email-consent.js";
 import { surfaceGuidance } from "../../lib/surface-guidance.js";
 import PopupApp from "./PopupApp.svelte";
 
@@ -14,7 +15,7 @@ import PopupApp from "./PopupApp.svelte";
 // 2026-07-06; only the dormant `pauses` settings field remains in core.
 function init(): void {
   const purchase = extensionPurchaseDeps();
-  const controller = createExtensionUiController(purchase);
+  const controller = createExtensionUiController(purchase, { emailConsent });
   mount(PopupApp, {
     target: document.getElementById("app")!,
     props: {

@@ -12,6 +12,7 @@
     "./sync": "./src/sync/index.ts",
     "./native": "./src/native/index.ts",
     "./ui": "./src/ui/index.ts",
+    "./ui/email-consent": "./src/ui/email-consent.ts",
     "./ui/surface-guidance": "./src/ui/surface-guidance.ts",
     "./ui/tokens.css": "./src/ui/tokens.css",
     "./seed": "./rules/seed.json"

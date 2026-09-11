@@ -1,8 +1,9 @@
-import type { SignedRuleSet } from "@still/shared-types";
+import { PAID_TIER_ENABLED, type ServiceId, type SignedRuleSet } from "@still/shared-types";
 import {
   evaluate,
   createEnginePageSession,
   renderPlaceholder,
+  rootServiceClass,
   ROOT_ACTIVE_CLASS,
   ROOT_PRO_ACTIVE_CLASS,
   STILL_PLACEHOLDER_LINE,
@@ -78,12 +79,64 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   const dedupe = deps.redirectDedupe ?? { lastRedirect: null };
   const pageSession = createEnginePageSession(ruleSet);
   const teardowns: Array<() => void> = [];
+  const shortsChipRule = ruleSet.services.youtube?.surfaces.find((s) => s.id === "yt-chips");
+  let resetShortsFilterRequested = false;
+  let shortsFilterSearch: string | null = null;
+
+  const prepareYouTubeChips = (url: URL): void => {
+    if (!shortsChipRule?.enabledByDefault || shortsChipRule.action !== "hide"
+      || !shortsChipRule.selectors?.includes("yt-chip-cloud-chip-renderer[data-still-shorts-chip]")) return;
+    const search = `${url.pathname}\n${url.searchParams.get("search_query") ?? ""}`;
+    if (shortsFilterSearch !== search) resetShortsFilterRequested = false;
+    shortsFilterSearch = search;
+    let selectedShorts: Element | null = null;
+    let selectedOtherChip = false;
+    for (const chip of doc.querySelectorAll("yt-chip-cloud-chip-renderer")) {
+      const tab = chip.querySelector<HTMLElement>('[role="tab"]');
+      const isShorts = tab?.textContent?.trim() === "Shorts";
+      // Current YouTube chips expose a tab label, not the title attribute the older rule used.
+      // Keep hiding in the rule set so root-class changes restore the chip when blocking is off.
+      chip.toggleAttribute("data-still-shorts-chip", isShorts);
+      if (chip.hasAttribute("selected") || tab?.getAttribute("aria-selected") === "true") {
+        if (isShorts) selectedShorts = chip;
+        else selectedOtherChip = true;
+      }
+    }
+    if (!selectedShorts) {
+      // A missing bar is not confirmation: YouTube can replace it while All is still loading.
+      if (selectedOtherChip) resetShortsFilterRequested = false;
+      return;
+    }
+    if (resetShortsFilterRequested || url.pathname !== "/results") return;
+    const bar = selectedShorts.closest("yt-chip-cloud-renderer");
+    const all = Array.from(bar?.querySelectorAll<HTMLElement>('[role="tab"]') ?? [])
+      .find((tab) => tab.textContent?.trim() === "All");
+    if (all) {
+      // Removing every result leaves YouTube's continuation trigger in view. Leave Shorts-only
+      // search through its own All control once, even if the response is slow or fails.
+      resetShortsFilterRequested = true;
+      all.click();
+    }
+  };
 
   const setRootActive = (active: boolean): void => {
     doc.documentElement?.classList.toggle(ROOT_ACTIVE_CLASS, active);
   };
   const setRootProActive = (active: boolean): void => {
     doc.documentElement?.classList.toggle(ROOT_PRO_ACTIVE_CLASS, active);
+  };
+  // Names the service whose packaged CSS may apply here. The stylesheets are declared once in the
+  // manifest, so all four services' selectors reach every page; without this class Instagram's
+  // Reels rules hide YouTube results whose title happens to contain "reels".
+  let rootServiceApplied: string | null = null;
+  const setRootService = (serviceId: ServiceId | null): void => {
+    const next = serviceId === null ? null : rootServiceClass(serviceId);
+    if (next === rootServiceApplied) return;
+    const classes = doc.documentElement?.classList;
+    if (!classes) return;
+    if (rootServiceApplied !== null) classes.remove(rootServiceApplied);
+    if (next !== null) classes.add(next);
+    rootServiceApplied = next;
   };
 
   const currentUrl = (): URL => {
@@ -100,16 +153,18 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     // we add nothing (off/paused users must not see content hidden-then-revealed).
     if (stopped || !hydrated) return;
     const url = currentUrl();
-    // Fail CLOSED on the monetization gate: with no entitlement source wired we treat the user as
-    // free (Pro surfaces stay visible) rather than granting Pro by default. Both extensions pass an
-    // EntitlementCache; the app-webview path gates Pro via UiController.entitled, not here. A caller
-    // that genuinely wants all surfaces must pass InMemoryEntitlementAdapter(true) explicitly.
-    const pro = deps.entitlement?.current() ?? false;
+    // The paid tier is dormant behind PAID_TIER_ENABLED, so every surface applies for everyone.
+    // The switch is read synchronously, before the cached entitlement, so blocking never waits on
+    // an account, a receipt, or a network answer. Turn the switch on and the original behavior
+    // returns: a missing entitlement source fails CLOSED to free rather than granting Pro, because
+    // the app-webview path gates Pro through UiController.entitled instead of here.
+    const pro = !PAID_TIER_ENABLED || (deps.entitlement?.current() ?? false);
     const opts = { pro };
     const settings = cache.current();
     const decision = pageSession.evaluate(settings, url, opts);
     switch (decision.kind) {
       case "redirect":
+        setRootService(pageSession.activeServiceId());
         setRootProActive(pro);
         if (dedupe.lastRedirect !== decision.url) {
           dedupe.lastRedirect = decision.url;
@@ -119,16 +174,21 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       case "placeholder":
         setRootActive(false);
         setRootProActive(false);
+        setRootService(null);
         renderPlaceholder(doc, decision.blocked ? blockedLine : placeholderLine);
         return;
       case "apply":
+        setRootService(pageSession.activeServiceId());
         setRootActive(true);
         setRootProActive(pro);
+        if (pageSession.activeServiceId() === "youtube") prepareYouTubeChips(url);
         (deps.manifestCssOwnsHides ? pageSession.applyRemovals : pageSession.applyDom)(settings, url, doc, opts);
         return;
       case "noop":
+        resetShortsFilterRequested = false;
         setRootActive(false);
         setRootProActive(false);
+        setRootService(null);
         return;
     }
   };

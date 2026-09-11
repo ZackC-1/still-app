@@ -64,3 +64,31 @@ describe("SupabaseBackendPort.subscribeToProfile", () => {
     expect(onEnvelope).not.toHaveBeenCalled();
   });
 });
+
+// And the profile READ, where one distinction is load-bearing: the reconcile is allowed to start an
+// account that has nothing saved in it from scratch, so "there is no row" and "the row could not be
+// read" have to arrive as different answers.
+
+function fakeProfileClient(result: { data: unknown; error: unknown }) {
+  return {
+    from: () => ({
+      select: () => ({
+        maybeSingle: () => Promise.resolve(result),
+      }),
+    }),
+  } as unknown as SupabaseClient;
+}
+
+describe("SupabaseBackendPort.readProfile", () => {
+  it("reports an account with nothing saved as null", async () => {
+    const port = new SupabaseBackendPort(fakeProfileClient({ data: null, error: null }));
+    await expect(port.readProfile()).resolves.toBeNull();
+  });
+
+  it("raises a failed read rather than passing it on as an account with nothing saved", async () => {
+    // A browser that could not reach the server would otherwise look exactly like a browser signing
+    // into a brand new account, and be treated as one.
+    const port = new SupabaseBackendPort(fakeProfileClient({ data: null, error: new Error("offline") }));
+    await expect(port.readProfile()).rejects.toThrow("offline");
+  });
+});

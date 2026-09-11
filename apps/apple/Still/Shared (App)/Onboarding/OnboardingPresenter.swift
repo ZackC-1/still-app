@@ -49,6 +49,7 @@ enum OnboardingPresenter {
     let view = OnboardingView(
       checkStatus: { await SafariExtensionBridge.currentStatus() },
       openEnableLocation: { SafariExtensionBridge.openEnableLocation() },
+      enableLocation: SafariExtensionBridge.enableLocation,
       onComplete: { [weak host] in
         OnboardingGate.markComplete(defaults)
         Self.dismiss(host)
@@ -69,13 +70,26 @@ enum OnboardingPresenter {
     // 2026-07-06; the same signature is reported against other SwiftUI apps on macOS 26). With
     // no sizing options the hosting view never posts constraint invalidations, removing the race;
     // the sheet takes its size from preferredContentSize alone.
-    // Clamp to the host window: presentAsSheet does NOT clip an over-wide sheet, so a fixed
-    // 520pt sheet visually overhangs the 480pt default / 440pt minimum window (review finding,
-    // PR #55 — verified empirically). The frame stays FIXED at presentation time; sizingOptions
-    // = [] below (the macOS 26 race fix) depends on the hosting view never renegotiating size.
+    // Clamp to the host window on BOTH axes: presentAsSheet does not clip an oversized sheet, so a
+    // fixed 520pt sheet visually overhangs the 480pt default / 440pt minimum window (review finding,
+    // PR #55, verified empirically), and a fixed 660pt sheet overhangs the 560pt content-height
+    // minimum the same way. The onboarding screens scroll, so a shorter sheet hides nothing.
+    //
+    // Scope of the height clamp, stated honestly: the storyboard opens this window 480x860, so on a
+    // normal first launch min(660, height) is simply 660 and the clamp changes nothing. It engages
+    // only when the window is already shorter than 660pt at the moment the sheet is presented,
+    // which is the relaunch case (the window carries a frame autosave name, so a user who shrank it
+    // and quit mid-onboarding reopens short) and the DEBUG screenshot hook above. Both clamps are
+    // snapshots: the frame stays FIXED at presentation time because sizingOptions = [] below (the
+    // macOS 26 race fix) depends on the hosting view never renegotiating size, so dragging the
+    // window smaller while the sheet is up still overhangs. Closing that would mean giving the
+    // hosting view its sizing options back, which is the crash this workaround exists to avoid.
     let sheetWidth = min(520, host.view.bounds.width)
-    let controller = NSHostingController(rootView: view.frame(width: sheetWidth, height: 660))
-    controller.preferredContentSize = NSSize(width: sheetWidth, height: 660)
+    let sheetHeight = min(660, host.view.bounds.height)
+    let controller = NSHostingController(
+      rootView: view.frame(width: sheetWidth, height: sheetHeight)
+    )
+    controller.preferredContentSize = NSSize(width: sheetWidth, height: sheetHeight)
     if #available(macOS 13.0, *) {
       controller.sizingOptions = []
     }

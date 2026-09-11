@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { render, screen, fireEvent, within } from "@testing-library/svelte";
 import { tick } from "svelte";
-import { DEFAULT_SETTINGS } from "@still/shared-types";
+import { DEFAULT_SETTINGS, PAID_TIER_ENABLED } from "@still/shared-types";
 import App from "../App.svelte";
 import Placeholder from "../components/Placeholder.svelte";
 import {
@@ -14,6 +14,9 @@ import { STRINGS } from "../strings.js";
 import { PRIVACY_POLICY_URL } from "../config.js";
 import { SettingsCache } from "../../storage/cache.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
+
+const paidTierIt = it.runIf(PAID_TIER_ENABLED);
+const includedAccessIt = it.runIf(!PAID_TIER_ENABLED);
 
 function controller(
   opts: {
@@ -75,6 +78,15 @@ function codeCapableAuth(over: Partial<UiAuth> = {}): UiAuth {
 }
 
 describe("App", () => {
+  includedAccessIt("shows live toggles and no upgrade CTA while the paid tier is off", () => {
+    expect(PAID_TIER_ENABLED).toBe(false);
+    render(App, { props: { controller: controller({ auth: codeCapableAuth() }) } });
+
+    expect(document.querySelectorAll(".card.locked")).toHaveLength(0);
+    expect(screen.queryByText(STRINGS.paywall.upgradeCta)).toBeNull();
+    expect(screen.getByText(STRINGS.auth.signInCta)).toBeTruthy();
+  });
+
   it("exposes an explicit compact density for constrained extension panels", () => {
     render(App, { props: { controller: controller(), compact: true } });
 
@@ -120,7 +132,7 @@ describe("App", () => {
     expect(youtubeSwitch.disabled).toBe(true);
   });
 
-  it("global off also disables a locked service's lock button", () => {
+  paidTierIt("global off also disables a locked service's lock button", () => {
     render(App, { props: { controller: controller({ globalOn: false }) } });
     const lock = document.querySelector(
       '[data-service="instagram"] .lock',
@@ -128,7 +140,7 @@ describe("App", () => {
     expect(lock.disabled).toBe(true);
   });
 
-  it("un-entitled users see the three Pro rows locked (no silent no-op toggles)", () => {
+  paidTierIt("un-entitled users see the three Pro rows locked (no silent no-op toggles)", () => {
     render(App, { props: { controller: controller() } });
     expect(screen.getByText(STRINGS.global.onFree)).toBeTruthy();
     expect(document.querySelectorAll(".card.locked").length).toBe(3); // instagram/tiktok/facebook
@@ -145,7 +157,7 @@ describe("App", () => {
     const c = controller();
     c.entitled = true;
     render(App, { props: { controller: c } });
-    expect(screen.getByText(STRINGS.global.onPro)).toBeTruthy();
+    expect(screen.getByText(STRINGS.global.onSecondary)).toBeTruthy();
     expect(document.querySelectorAll(".card.locked").length).toBe(0);
   });
 
@@ -154,7 +166,7 @@ describe("App", () => {
     expect(screen.getByText(STRINGS.global.offSecondary)).toBeTruthy();
   });
 
-  it("free user with the YouTube row off does not claim Shorts are removed", () => {
+  paidTierIt("free user with the YouTube row off does not claim Shorts are removed", () => {
     render(App, {
       props: { controller: controller({ services: { youtube: false } }) },
     });
@@ -162,7 +174,20 @@ describe("App", () => {
     expect(screen.queryByText(STRINGS.global.onFree)).toBeNull();
   });
 
-  it("tapping a lock on a no-purchase host opens the explanatory paywall sheet", async () => {
+  includedAccessIt("one hero line covers everyone, whichever rows are on", () => {
+    // "On enabled sites" is already true of any combination of rows, so there is no state where
+    // the hero has to hedge or name a service someone cannot have.
+    for (const youtube of [true, false]) {
+      const view = render(App, {
+        props: { controller: controller({ services: { youtube } }) },
+      });
+      expect(screen.getByText(STRINGS.global.onSecondary)).toBeTruthy();
+      expect(screen.queryByText(/Still Pro/)).toBeNull();
+      view.unmount();
+    }
+  });
+
+  paidTierIt("tapping a lock on a no-purchase host opens the explanatory paywall sheet", async () => {
     const c = controller({ host: { canPurchase: false } });
     render(App, { props: { controller: c } });
     await fireEvent.click(document.querySelector(".lock")!);
@@ -172,7 +197,7 @@ describe("App", () => {
     expect(dialog.queryByText(STRINGS.paywall.cta)).toBeNull();
   });
 
-  it("not-entitled + can-purchase shows the upgrade CTA and it opens the paywall", async () => {
+  paidTierIt("not-entitled + can-purchase shows the upgrade CTA and it opens the paywall", async () => {
     const c = controller();
     c.userId = "u";
     render(App, { props: { controller: c } });
@@ -181,15 +206,25 @@ describe("App", () => {
     expect(c.signInOpen).toBe(false); // signed in: straight to the paywall, no re-auth detour
   });
 
-  it("entitled shows the synced state", () => {
+  it("a signed-in user is told their settings are syncing", () => {
     const c = controller();
     c.userId = "u";
     c.entitled = true;
     render(App, { props: { controller: c } });
-    expect(screen.getByText(/Synced across supported devices/)).toBeTruthy();
+    expect(screen.getByText(STRINGS.sync.syncing)).toBeTruthy();
   });
 
-  it("non-Apple host shows the explanatory paywall, never a purchasable CTA (R19)", () => {
+  includedAccessIt("signing in is offered as what it is: settings sync, and optional", () => {
+    render(App, { props: { controller: controller({ auth: codeCapableAuth() }) } });
+    expect(screen.getByText(STRINGS.sync.sectionTitle)).toBeTruthy();
+    expect(screen.getByText(STRINGS.sync.signedOut)).toBeTruthy();
+    expect(screen.getByText(STRINGS.auth.signInCta)).toBeTruthy();
+    // Nothing here may imply that blocking depends on it.
+    expect(screen.queryByText(STRINGS.paywall.upgradeCta)).toBeNull();
+    expect(document.querySelectorAll(".card.locked")).toHaveLength(0);
+  });
+
+  paidTierIt("non-Apple host shows the explanatory paywall, never a purchasable CTA (R19)", () => {
     const c = controller({ host: { canPurchase: false } });
     c.userId = "u";
     render(App, { props: { controller: c } });
@@ -197,12 +232,29 @@ describe("App", () => {
     expect(screen.getByText(/Unlock Pro in the Still app/)).toBeTruthy();
   });
 
+  includedAccessIt("a signed-in free user is never pointed at a purchase, on any host", () => {
+    // The line below was written for a surface that could not sell anything and had to explain
+    // where to buy. With nothing to buy anywhere, it would tell people to go to the app they are
+    // already inside, so this state shows nothing in its place.
+    for (const canPurchase of [true, false]) {
+      const c = controller({ host: { canPurchase }, auth: codeCapableAuth() });
+      c.userId = "u";
+      const view = render(App, { props: { controller: c } });
+      expect(c.popupState).toBe("entitled-syncing"); // signed in is signed in; nothing is gated
+      expect(screen.queryByText(STRINGS.paywall.upgradeCta)).toBeNull();
+      expect(screen.queryByText(/Unlock Pro in the Still app/)).toBeNull();
+      expect(screen.getByText(STRINGS.sync.syncing)).toBeTruthy();
+      expect(screen.getByText(STRINGS.auth.signOut)).toBeTruthy();
+      view.unmount();
+    }
+  });
+
   it("Apple host prop is ignored: shared UI does not render Sign in with Apple", async () => {
     const onSignInWithApple = vi.fn();
     const c = controller({ auth: codeCapableAuth() });
     render(App, { props: { controller: c, onSignInWithApple } });
     expect(screen.queryByText("Sign in with Apple")).toBeNull();
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
     expect(c.signInOpen).toBe(true);
     expect(document.querySelector("input.email")).toBeTruthy();
     expect(screen.queryByText("Sign in with Apple")).toBeNull();
@@ -214,7 +266,7 @@ describe("App", () => {
     render(App, { props: { controller: c } });
     expect(document.querySelector("input.email")).toBeNull(); // not inline in the main UI
     expect(screen.queryByText("Sign in with Apple")).toBeNull();
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
     expect(c.signInOpen).toBe(true);
     expect(document.querySelector("input.email")).toBeTruthy(); // now in the modal
   });
@@ -222,7 +274,7 @@ describe("App", () => {
   it("the sign-in form exposes native email metadata and a visible label", async () => {
     const c = controller({ auth: codeCapableAuth() });
     render(App, { props: { controller: c } });
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
 
     const email = screen.getByLabelText(
       STRINGS.auth.emailLabel,
@@ -236,7 +288,7 @@ describe("App", () => {
   it("the sign-in dialog traps reverse tab navigation and has a semantic backdrop", async () => {
     const c = controller({ auth: codeCapableAuth() });
     render(App, { props: { controller: c } });
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
     await tick();
 
     const dialog = screen.getByRole("dialog");
@@ -244,20 +296,24 @@ describe("App", () => {
     expect(document.activeElement).toBe(email);
     await fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
     expect(document.activeElement).toBe(
-      within(dialog).getByText(STRINGS.auth.notNow),
+      within(dialog).getByText(STRINGS.auth.cancel),
     );
     expect(
       screen.getByRole("button", { name: STRINGS.auth.dismissLabel }),
     ).toBeTruthy();
   });
 
-  it("a host without auth (the extensions, pre-U10) gets no sign-in CTA — only the explanatory note", () => {
-    // A sign-in button with no auth wired behind it would silently do nothing.
+  it("a host without auth gets no sign-in CTA, only a plain note about where settings live", () => {
+    // The Safari extension popup. A sign-in button with no auth wired behind it would silently do
+    // nothing, and App Store Review Guideline 4.4 keeps an invitation to create an account out of
+    // an extension, so the note states the fact and the host app carries the invitation.
     const c = controller({ host: { canPurchase: false } }); // auth: undefined
     render(App, { props: { controller: c } });
-    expect(screen.queryByText("Sign in to Still")).toBeNull();
+    expect(screen.queryByText(STRINGS.auth.signInCta)).toBeNull();
     expect(screen.queryByText("Sign in with Apple")).toBeNull();
-    expect(screen.getByText(STRINGS.paywall.nonApple)).toBeTruthy();
+    expect(
+      screen.getByText(PAID_TIER_ENABLED ? STRINGS.paywall.nonApple : STRINGS.sync.deviceOnly),
+    ).toBeTruthy();
     expect(screen.getByText("Privacy policy")).toBeTruthy(); // store-required link stays reachable
   });
 
@@ -269,19 +325,19 @@ describe("App", () => {
     expect(screen.queryByText(STRINGS.auth.title)).toBeNull(); // the modal title is absent
   });
 
-  it("signed-out home screen shows sign-in and upgrade, with auth copy only in the sheet", async () => {
+  paidTierIt("signed-out home screen shows sign-in and upgrade, with auth copy only in the sheet", async () => {
     const c = controller({ auth: codeCapableAuth() });
     render(App, { props: { controller: c } });
-    expect(screen.getByText("Sign in to Still")).toBeTruthy();
+    expect(screen.getByText(STRINGS.auth.signInCta)).toBeTruthy();
     expect(screen.getByText(STRINGS.paywall.upgradeCta)).toBeTruthy();
     expect(screen.queryByText(STRINGS.auth.prompt)).toBeNull();
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
     expect(
       within(screen.getByRole("dialog")).getByText(STRINGS.auth.prompt),
     ).toBeTruthy();
   });
 
-  it("makes the signed-out Still Pro path primary while keeping restore sign-in available", () => {
+  paidTierIt("makes the signed-out Still Pro path primary while keeping restore sign-in available", () => {
     const c = controller({ auth: codeCapableAuth() });
     render(App, { props: { controller: c } });
     const accountCard = document.querySelector("section.sync");
@@ -293,7 +349,7 @@ describe("App", () => {
     expect(buttons[1]?.classList.contains("secondary")).toBe(true);
   });
 
-  it("signed-in non-Pro users see upgrade and account controls", () => {
+  paidTierIt("signed-in non-Pro users see upgrade and account controls", () => {
     const c = controller({ deletable: true });
     c.userId = "u";
     render(App, { props: { controller: c } });
@@ -303,17 +359,17 @@ describe("App", () => {
     expect(screen.getByText("Delete account")).toBeTruthy();
   });
 
-  it("Pro users do not see sign-in or upgrade CTAs", () => {
+  it("a signed-in user is not asked to sign in again, or to buy anything", () => {
     const c = controller({ auth: codeCapableAuth(), deletable: true });
     c.userId = "u";
     c.entitled = true;
     render(App, { props: { controller: c } });
-    expect(screen.queryByText("Sign in to Still")).toBeNull();
+    expect(screen.queryByText(STRINGS.auth.signInCta)).toBeNull();
     expect(screen.queryByText(STRINGS.paywall.upgradeCta)).toBeNull();
-    expect(screen.getByText(/Synced across supported devices/)).toBeTruthy();
+    expect(screen.getByText(STRINGS.sync.syncing)).toBeTruthy();
   });
 
-  it("signed-out upgrade records intent and opens email-code sign-in before paywall (web-checkout host)", async () => {
+  paidTierIt("signed-out upgrade records intent and opens email-code sign-in before paywall (web-checkout host)", async () => {
     const c = controller({ auth: codeCapableAuth(), checkout: checkoutStub() });
     render(App, { props: { controller: c } });
     await fireEvent.click(screen.getByText(STRINGS.paywall.upgradeCta));
@@ -323,7 +379,7 @@ describe("App", () => {
     expect(document.querySelector("input.email")).toBeTruthy();
   });
 
-  it("locked Pro rows do not toggle and route signed-out users to sign-in (web-checkout host)", async () => {
+  paidTierIt("locked Pro rows do not toggle and route signed-out users to sign-in (web-checkout host)", async () => {
     const c = controller({ auth: codeCapableAuth(), checkout: checkoutStub() });
     render(App, { props: { controller: c } });
     const instagram = document.querySelector('[data-service="instagram"]')!;
@@ -339,7 +395,7 @@ describe("App", () => {
   it("code host: sending a code lands on ONE plain one-time-code input (no segmented boxes)", async () => {
     const c = controller({ auth: codeCapableAuth() });
     render(App, { props: { controller: c } });
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
     const dialog = within(screen.getByRole("dialog"));
     expect(dialog.getByText(STRINGS.codeAuth.send)).toBeTruthy(); // "Email me a code", not a link
     await c.signIn("a@b.com");
@@ -363,7 +419,7 @@ describe("App", () => {
   it("code host: the verify button only enables at 6 digits", async () => {
     const c = controller({ auth: codeCapableAuth() });
     render(App, { props: { controller: c } });
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
     await c.signIn("a@b.com");
     await tick();
     const dialog = within(screen.getByRole("dialog"));
@@ -387,7 +443,7 @@ describe("App", () => {
       }),
     });
     render(App, { props: { controller: c } });
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
     await c.signIn("a@b.com");
     await tick();
     const dialog = within(screen.getByRole("dialog"));
@@ -403,7 +459,7 @@ describe("App", () => {
       }),
     });
     render(App, { props: { controller: c } });
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
     await c.signIn("a@b.com");
     await tick();
     const dialog = within(screen.getByRole("dialog"));
@@ -421,7 +477,7 @@ describe("App", () => {
       }),
     });
     render(App, { props: { controller: c } });
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
     await c.signIn("a@b.com");
     await tick();
     const input = document.querySelector("input.code") as HTMLInputElement;
@@ -439,7 +495,7 @@ describe("App", () => {
   it("a rate-limited resend renders the code-view wait copy (the sent code still works) with resend locked (AE2)", async () => {
     const c = controller({ auth: codeCapableAuth() });
     render(App, { props: { controller: c } });
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
     await c.signIn("a@b.com");
     await tick();
     // Drive the post-429 state directly (the transition itself is pinned in controller.test.ts);
@@ -487,8 +543,8 @@ describe("App", () => {
     c.userId = "u";
     render(App, { props: { controller: c } });
     await fireEvent.click(screen.getByText("Delete account"));
-    expect(screen.getByText(/permanently deletes your account/)).toBeTruthy();
-    expect(screen.getByText("Cancel")).toBeTruthy();
+    expect(screen.getByText(STRINGS.account.deleteConfirmBody)).toBeTruthy();
+    expect(screen.getByText(STRINGS.account.deleteCancel)).toBeTruthy();
   });
 
   it("host without deleteAccount shows privacy link but no Delete button", () => {
@@ -501,7 +557,7 @@ describe("App", () => {
 
   // ── paywall purchase outcomes (P1 #5) ──────────────────────────────────────────────────────────
 
-  it("a non-purchased outcome keeps the sheet open with a message", () => {
+  paidTierIt("a non-purchased outcome keeps the sheet open with a message", () => {
     const c = controller();
     c.userId = "u";
     c.openPaywall();
@@ -511,7 +567,7 @@ describe("App", () => {
     expect(screen.getByText("Purchase cancelled.")).toBeTruthy();
   });
 
-  it("the buy CTA shows the localized store price when loaded, and no price otherwise", () => {
+  paidTierIt("the buy CTA shows the localized store price when loaded, and no price otherwise", () => {
     const withPrice = controller();
     withPrice.userId = "u";
     withPrice.openPaywall();
@@ -532,25 +588,7 @@ describe("App", () => {
     expect(cta.textContent).not.toContain("·"); // no hardcoded/guessed price
   });
 
-  it("the Get button is disabled while a purchase is in flight (duplicate-tap guard)", async () => {
-    const onGet = vi.fn();
-    const c = controller();
-    c.userId = "u";
-    c.openPaywall();
-    c.paywallPrice = "$1.99";
-    render(App, { props: { controller: c, onGet } });
-    const dialog = within(screen.getByRole("dialog"));
-    await fireEvent.click(dialog.getByText(/Get Still Pro ·/)); // the paywall CTA (has the price)
-    expect(onGet).toHaveBeenCalledOnce();
-    const inFlight = dialog.getByText(
-      /Completing your purchase/,
-    ) as HTMLButtonElement;
-    expect(inFlight.disabled).toBe(true);
-    await fireEvent.click(inFlight);
-    expect(onGet).toHaveBeenCalledOnce(); // second tap ignored (button disabled)
-  });
-
-  it("pending purchase keeps the sheet open with the Ask-to-Buy note", () => {
+  paidTierIt("pending purchase keeps the sheet open with the Ask-to-Buy note", () => {
     const c = controller();
     c.userId = "u";
     c.openPaywall();
@@ -559,7 +597,7 @@ describe("App", () => {
     expect(screen.getByText(/Waiting for approval/)).toBeTruthy();
   });
 
-  it("the paywall leads with the ratified headline and reassurance (D6)", () => {
+  paidTierIt("the paywall leads with the ratified headline and reassurance (D6)", () => {
     const c = controller();
     c.userId = "u";
     c.openPaywall();
@@ -569,7 +607,7 @@ describe("App", () => {
     expect(dialog.getByText(STRINGS.paywall.reassurance)).toBeTruthy();
   });
 
-  it("discloses the Safari-only mobile boundary before purchase", () => {
+  paidTierIt("discloses the Safari-only mobile boundary before purchase", () => {
     const c = controller();
     c.userId = "u";
     c.openPaywall();
@@ -584,7 +622,7 @@ describe("App", () => {
 
   // ── success payoff (plan U3/R6) ────────────────────────────────────────────────────────────────
 
-  it("the payoff renders as a status line while the rows behind unlock live-and-on", async () => {
+  paidTierIt("the payoff renders as a status line while the rows behind unlock live-and-on", async () => {
     const c = controller();
     c.userId = "u";
     c.openPaywall();
@@ -605,73 +643,21 @@ describe("App", () => {
     c.dismissPaywall(); // clear the payoff auto-dismiss timer
   });
 
-  it("a tap on the payoff dismisses it early", async () => {
-    const c = controller();
-    c.userId = "u";
-    c.openPaywall();
-    render(App, { props: { controller: c, onGet: () => {} } });
-    c.entitled = true;
-    await tick();
-    await fireEvent.click(screen.getByText(STRINGS.paywall.unlocked));
-    expect(c.paywallOpen).toBe(false);
-    expect(c.justUnlocked).toBe(false);
-  });
-
-  it("Escape dismisses the payoff early", async () => {
-    const c = controller();
-    c.userId = "u";
-    c.openPaywall();
-    render(App, { props: { controller: c, onGet: () => {} } });
-    c.entitled = true;
-    await tick();
-    await fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-    expect(c.paywallOpen).toBe(false);
-    expect(c.justUnlocked).toBe(false);
-  });
-
-  it("the web checkout hand-off renders the transitional line with the CTA disabled (U3→U4 hook)", () => {
-    const c = controller();
-    c.userId = "u";
-    c.openPaywall();
-    c.purchaseFlow = "opening-checkout";
-    render(App, { props: { controller: c, onGet: () => {} } });
-    const cta = within(screen.getByRole("dialog")).getByText(
-      STRINGS.paywall.openingCheckout,
-    ) as HTMLButtonElement;
-    expect(cta.disabled).toBe(true); // busy — no duplicate checkout taps
-  });
-
   // ── modal focus containment (the shared trap in focus-trap.ts) ─────────────────────────────────
-  // jsdom never blurs a control that becomes disabled, so these exercise the trap's
-  // !hasAttribute("disabled") filter directly rather than the real-browser blur behavior.
-
-  it("the paywall Tab cycle skips disabled controls while a purchase is in flight", async () => {
-    const c = controller();
-    c.userId = "u";
-    c.openPaywall();
-    c.purchaseFlow = "purchasing"; // Get + Restore render disabled
-    render(App, { props: { controller: c, onGet: () => {} } });
-    const dialog = screen.getByRole("dialog");
-    const dismiss = within(dialog).getByText(
-      STRINGS.paywall.dismiss,
-    ) as HTMLButtonElement;
-    dismiss.focus();
-    await fireEvent.keyDown(dialog, { key: "Tab" });
-    // Tab from the last control wraps to the first ENABLED focusable — here that is the dismiss
-    // button itself (the only enabled control), never the disabled Get/Restore pair.
-    expect(document.activeElement).toBe(dismiss);
-    expect((document.activeElement as HTMLButtonElement).disabled).toBe(false);
-  });
+  // jsdom never blurs a control that becomes disabled, so this exercises the trap's
+  // !hasAttribute("disabled") filter directly rather than the real-browser blur behavior. The
+  // paywall sheet's own focus cases live in paid-tier-paywall-sheet.test.ts, which mocks the
+  // switch on so they keep running while the paid tier is dormant.
 
   it("the sign-in Tab cycle skips the cooldown-disabled resend control", async () => {
     const c = controller({ auth: codeCapableAuth() });
     render(App, { props: { controller: c } });
-    await fireEvent.click(screen.getByText("Sign in to Still"));
+    await fireEvent.click(screen.getByText(STRINGS.auth.signInCta));
     await c.signIn("a@b.com"); // → code entry; resend disabled behind the 60s cooldown
     await tick();
     const dialog = screen.getByRole("dialog");
     const dismiss = within(dialog).getByText(
-      STRINGS.auth.notNow,
+      STRINGS.auth.cancel,
     ) as HTMLButtonElement;
     dismiss.focus();
     await fireEvent.keyDown(dialog, { key: "Tab" });
@@ -679,20 +665,6 @@ describe("App", () => {
     // (code empty) or resend (cooldown) buttons between them.
     expect(document.activeElement).toBe(document.querySelector("input.code"));
     c.dismissSignIn(); // stop the cooldown ticker
-  });
-
-  it("dismissing the paywall restores focus to the trigger that opened it", async () => {
-    const c = controller(); // no auth wired → a locked-row tap opens the paywall directly
-    render(App, { props: { controller: c } });
-    const lock = document.querySelector(".lock") as HTMLButtonElement;
-    lock.focus();
-    await fireEvent.click(lock);
-    expect(c.paywallOpen).toBe(true);
-    await tick();
-    await fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
-    await tick();
-    expect(c.paywallOpen).toBe(false);
-    expect(document.activeElement).toBe(lock);
   });
 });
 
@@ -705,17 +677,26 @@ describe("Placeholder", () => {
 });
 
 describe("App — purchase-first surfaces (plan 2026-07-15-001)", () => {
-  it("pro-no-account home state: active copy, Sign in visible, restore link, no buy CTA", () => {
+  // The two receipt-flavoured card states (`pro-no-account` and `pro-device-only`) exist only to
+  // describe what a purchase granted. With every service included they are unreachable, and their
+  // cases run with the switch mocked on in paid-tier-sync-card.test.ts rather than going dark.
+
+  includedAccessIt("an earlier purchase changes nothing about the signed-out card", () => {
+    // The receipt still resolves and `entitled` is still true, which is what a returning purchaser
+    // needs. It simply no longer selects a different card, because there is nothing left to say
+    // about a purchase that grants what everybody already has.
     const c = controller({ auth: codeCapableAuth() });
-    c.receiptEntitled = true; // receipt-proven Pro, no session
+    c.receiptEntitled = true;
     render(App, { props: { controller: c } });
-    expect(screen.getByText(STRINGS.proNoAccount.active)).toBeTruthy();
+    expect(c.entitled).toBe(true);
+    expect(c.popupState).toBe("signed-out");
+    expect(screen.queryByText(STRINGS.proNoAccount.active)).toBeNull();
+    expect(screen.queryByText(STRINGS.paywall.restoreSignedOut)).toBeNull();
+    expect(screen.getByText(STRINGS.sync.signedOut)).toBeTruthy();
     expect(screen.getByText(STRINGS.auth.signInCta)).toBeTruthy();
-    expect(screen.getByText(STRINGS.paywall.restoreSignedOut)).toBeTruthy();
-    expect(screen.queryByText(STRINGS.paywall.upgradeCta)).toBeNull();
   });
 
-  it("success screen (account-pitch): two independent equal-weight CTAs, no auto-dismiss markup", async () => {
+  paidTierIt("success screen (account-pitch): two independent equal-weight CTAs, no auto-dismiss markup", async () => {
     const c = controller({ auth: codeCapableAuth() });
     c.showPurchaseSuccess();
     render(App, { props: { controller: c } });
@@ -731,7 +712,7 @@ describe("App — purchase-first surfaces (plan 2026-07-15-001)", () => {
     expect(c.paywallOpen).toBe(false);
   });
 
-  it("success screen (synced): sync confirmation, no account CTA at a signed-in buyer", () => {
+  paidTierIt("success screen (synced): sync confirmation, no account CTA at a signed-in buyer", () => {
     const c = controller({ auth: codeCapableAuth() });
     c.userId = "u1";
     c.showPurchaseSuccess();
@@ -740,18 +721,21 @@ describe("App — purchase-first surfaces (plan 2026-07-15-001)", () => {
     expect(screen.queryByText(STRINGS.success.createAccount)).toBeNull();
   });
 
-  it("pro-device-only: signed-in receipt-only Pro never claims sync (Codex review pin)", () => {
+  includedAccessIt("a signed-in device with a receipt-only purchase still syncs its settings", () => {
+    // The old warning here was that a receipt-only purchase does not buy sync, so the card must
+    // not promise it. Sync now follows the account rather than the purchase, so the promise is
+    // true for this person and the separate state is gone.
     const c = controller({ auth: codeCapableAuth() });
     c.userId = "u1";
     c.receiptEntitled = true; // server lane false: attach ineligible or webhook not landed
     render(App, { props: { controller: c } });
-    expect(c.popupState).toBe("pro-device-only");
-    expect(screen.getByText(STRINGS.proNoAccount.active)).toBeTruthy();
-    expect(screen.queryByText(STRINGS.sync.syncing)).toBeNull(); // never "Synced across devices"
+    expect(c.serverEntitled).toBe(false);
+    expect(c.popupState).toBe("entitled-syncing");
+    expect(screen.getByText(STRINGS.sync.syncing)).toBeTruthy();
     expect(screen.getByText(STRINGS.auth.signOut)).toBeTruthy();
   });
 
-  it("stale-identity paywall state: retry CTA label + calm status line (R15)", () => {
+  paidTierIt("stale-identity paywall state: retry CTA label + calm status line (R15)", () => {
     const c = controller({ auth: codeCapableAuth() });
     c.openPaywall();
     c.purchaseFlow = "stale-identity";
@@ -760,7 +744,7 @@ describe("App — purchase-first surfaces (plan 2026-07-15-001)", () => {
     expect(screen.getByText(STRINGS.paywall.retryPurchase)).toBeTruthy();
   });
 
-  it("signed-out paywall: price on the CTA and the no-account reassurance (R1/R12)", () => {
+  paidTierIt("signed-out paywall: price on the CTA and the no-account reassurance (R1/R12)", () => {
     const c = controller({ auth: codeCapableAuth() });
     c.paywallPrice = "$1.99";
     c.openPaywall();

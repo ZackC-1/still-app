@@ -5,16 +5,105 @@
     <title>Facebook — fixture</title>
   </head>
   <body>
-    <!-- Left menu: a Reels shortcut (fb-left-menu, hide) + a normal item (must survive) -->
+    <!-- Left menu: a Reels shortcut (fb-left-menu, hide) + normal items (must survive) -->
     <nav id="left-menu">
-      <a href="/" id="home-link">Home</a>
-      <a href="/reel/" id="reels-shortcut" aria-label="Reels">Reels</a>
+      <!--
+        The Reels shortcut as it appears outside a list item, which is what the rule below the list
+        is for. Two different things are being represented here and they are worth separating.
+
+        Confirmed: Facebook labels this shortcut exactly "Reels", checked on a signed-in page. That
+        is the load-bearing fact, because it is what lets the rule be an exact label match rather
+        than a substring one.
+
+        Assumed: the address. A query string is used here so that no address selector can reach the
+        link and only the label can hide it, which is the case worth testing. The exact "?s=ptl" is
+        a plausible stand-in rather than a recorded shape, since the left menu is only visible when
+        signed in and no capture of it exists. No rule reads the address, so nothing depends on it.
+      -->
+      <a href="/reel/?s=ptl" id="reels-shortcut-by-label" aria-label="Reels">Reels</a>
+      <ul>
+        <li id="keep-menu-home"><a href="/" id="home-link">Home</a></li>
+        <li id="menu-reels"><a href="/reel/" id="reels-shortcut" aria-label="Reels">Reels</a></li>
+        <!--
+          Over-blocking control: a Page whose name begins with the letters "reel". Facebook's own
+          Reels URLs are always /reel/<id> or /reels/..., so the trailing slash is what tells a Reel
+          apart from a Page called "Reel Estate".
+        -->
+        <li id="keep-menu-lookalike"><a href="/reelestate">Reel Estate Group</a></li>
+        <!--
+          Over-blocking control for the Page-tab rule below: an ordinary link to a Page whose vanity
+          address happens to be "reels_tab". The rule keys on the tab, not on the word, so this link
+          survives.
+        -->
+        <li id="keep-menu-reels-tab-page"><a href="/reels_tab">Reels Tab Productions</a></li>
+      </ul>
     </nav>
 
-    <!-- Feed: a Reel article (fb-feed, remove) + a normal post (must survive) -->
-    <main>
+    <!--
+      Page profile tabs. Every Facebook Page carries a Reels tab pointing at /<page>/reels_tab
+      (fb-page-tabs, hide); the other tabs must survive. Copied from a signed-out capture of
+      facebook.com/facebook, where the tab is an <a role="tab"> with an absolute address.
+    -->
+    <div role="tablist" id="page-tabs">
+      <a role="tab" href="https://www.facebook.com/stillapp/" id="keep-page-posts-tab">Posts</a>
+      <a role="tab" href="https://www.facebook.com/stillapp/reels_tab" id="page-reels-tab">Reels</a>
+      <a role="tab" href="https://www.facebook.com/stillapp/photos" id="keep-page-photos-tab">Photos</a>
+    </div>
+
+    <!--
+      Over-blocking control for the address rule. Facebook keeps its own sections in the first path
+      segment, so an address like /groups/reels or /hashtag/reels is a section of Facebook rather
+      than a Page's Reels tab. facebook.com/groups/reels is a live group that auctions fishing rods,
+      reels and tackle. Those addresses must load exactly as they do with Still switched off, so the
+      tests navigate to them and expect this block, not Still's page.
+    -->
+    <section id="keep-section-page">
+      <h1 id="keep-section-title">Fishing rods, reels and tackle</h1>
+      <div role="article" id="keep-section-post">A rod and reel auction listing</div>
+
+      <!--
+        The people directory at facebook.com/public/reels, which lists everyone whose name contains
+        the word Reels. Copied in shape from the live page: each result is a link whose accessible
+        name is the person's own name, wrapping their photo, addressed under /people/.
+
+        This is the control for the narrowing above. A rule that hid any link merely labelled with
+        the word "Reels" matched all of these. Measured on the live page, which carries 120 links in
+        total: 26 matched, every one of them a photo link, covering 13 people listed twice each. The
+        page read as a list of names with no pictures. Names of this shape are the reason the rule
+        now matches the exact label and nothing else.
+      -->
+      <div id="keep-directory">
+        <a
+          id="keep-directory-person-one"
+          role="presentation"
+          aria-label="Reels Kapoor"
+          href="https://www.facebook.com/people/Reels-Kapoor/pfbid0Ex4mPle1"
+          ><img id="keep-directory-photo-one" alt="Reels Kapoor" src="data:,"
+        /></a>
+        <a
+          id="keep-directory-person-two"
+          role="presentation"
+          aria-label="TJ Reels"
+          href="https://www.facebook.com/people/TJ-Reels/pfbid0Ex4mPle2"
+          ><img id="keep-directory-photo-two" alt="TJ Reels" src="data:,"
+        /></a>
+        <a
+          id="keep-directory-person-three"
+          role="presentation"
+          aria-label="Dana 's Reels"
+          href="https://www.facebook.com/people/Dana-s-Reels/pfbid0Ex4mPle3"
+          ><img id="keep-directory-photo-three" alt="Dana 's Reels" src="data:,"
+        /></a>
+      </div>
+    </section>
+
+    <!-- Feed: a Reel article (fb-feed, remove) + normal posts (must survive) -->
+    <main role="feed">
       <div role="article" id="reel-article"><a href="/reel/123">a reel</a></div>
       <div role="article" id="keep-article">A normal status update</div>
+      <div role="article" id="keep-lookalike-article">
+        <a href="/reeling-in-the-years/posts/1">Reeling In The Years posted an update</a>
+      </div>
     </main>
   </body>
 </html>

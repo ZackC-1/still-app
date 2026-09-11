@@ -1,7 +1,8 @@
 import type { ServiceId, StillSettings } from "@still/shared-types";
-import { DEFAULT_SETTINGS } from "@still/shared-types";
+import { DEFAULT_SETTINGS, PAID_TIER_ENABLED } from "@still/shared-types";
 import { PRO_SERVICE_IDS } from "../rules/tiers.js";
 import { isValidEmail } from "./email.js";
+import type { EmailConsent } from "./email-consent.js";
 import type { SettingsCache } from "../storage/cache.js";
 import type { PurchaseResult } from "../native/bridge.js";
 import type {
@@ -126,6 +127,17 @@ export const CHECKOUT_PENDING_TTL_MS = 24 * 60 * 60_000;
 export interface UiHost {
   /** false on hosts with no purchase path (non-Apple desktop): explanatory paywall, no CTA (R19). */
   readonly canPurchase: boolean;
+  /**
+   * What this surface must show before an email address may be collected. Declared by the host,
+   * like every other capability here, never sniffed from the user agent.
+   *
+   * The rule is the add-on store's, not ours. Chrome's program policies want the disclosure in the
+   * extension's own interface at the point of collection rather than only behind a privacy-policy
+   * link. Firefox wants an explicit, affirmative opt-in before anything is collected at all. The
+   * Apple apps declare `none`: their disclosure is the App Store privacy label and the privacy
+   * policy, and an extra screen there would only put a step between someone and what they came for.
+   */
+  readonly emailConsent?: EmailConsent;
 }
 
 export interface UiAuth {
@@ -248,6 +260,10 @@ export class UiController {
   purchaseIntent = $state(false);
   /** The sign-in sheet overlays the rest of the UI when the signed-out CTA is tapped. */
   signInOpen = $state(false);
+  /** Set once this run of the sign-in flow has satisfied the surface's email-consent rule. Held in
+   * memory rather than persisted: leaving the flow starts it again from the disclosure, which is
+   * the conservative reading of "before the email is collected", and it costs one tap. */
+  emailConsentGiven = $state(false);
   paywallOpen = $state(false);
   /** Localized store price for the buy CTA (e.g. "$1.99"), set by the host from StoreKit/RevenueCat.
    * Null until loaded / on hosts without a price — the CTA then shows no price rather than a guess. */
@@ -395,6 +411,9 @@ export class UiController {
    * optional-account pitch; signed-in buyers get the sync confirmation. Renders in the paywall
    * sheet with NO auto-dismiss — leaving is an explicit choice ("Not now" / account CTA). */
   showPurchaseSuccess(): void {
+    // Dormant paid tier: see openPaywall below. Nothing can be purchased, so there is no purchase
+    // to celebrate, and the success screen only exists inside the sheet that no longer mounts.
+    if (!PAID_TIER_ENABLED) return;
     this.clearPayoff();
     this.successScreen = this.userId === null ? "account-pitch" : "synced";
     this.paywallOpen = true;
@@ -442,18 +461,31 @@ export class UiController {
     }
   }
 
+  /**
+   * Which sync card to draw.
+   *
+   * Three of these states exist only to describe what an entitlement did or did not grant, so
+   * while the paid tier is dormant behind PAID_TIER_ENABLED they are unreachable and the card
+   * turns on one fact: whether there is an account. Someone signed out is signed out whether or
+   * not their device carries an old purchase; someone signed in is syncing whether or not they
+   * ever bought anything. The three branches are preserved, not deleted, and each one's condition
+   * returns with the switch.
+   */
   get popupState(): PopupState {
     if (this.userId && !this.cloudReachable) return "cloud-unreachable";
     // Receipt-entitled with no session (purchase-first): Pro is ACTIVE — the home screen must not
     // render a buy CTA that startUpgrade() would silently no-op on. Sign-in stays visible (R3/R9).
-    if (!this.userId) return this.entitled ? "pro-no-account" : "signed-out";
+    if (!this.userId) {
+      return PAID_TIER_ENABLED && this.entitled ? "pro-no-account" : "signed-out";
+    }
     if (this.reconciling) return "entitlement-pending";
-    if (!this.entitled) return "not-entitled";
+    if (PAID_TIER_ENABLED && !this.entitled) return "not-entitled";
     // Sync-flavored state keys off the SERVER lane: a signed-in user whose Pro is receipt-only
     // (family-shared receipt is attach-ineligible; or the attach/webhook hasn't landed) is NOT
-    // synced — claiming "Synced across supported devices" would be false, possibly permanently
-    // (Codex review pin). Device Pro still unlocks the rows via the merged `entitled`.
-    if (!this.serverEntitled) return "pro-device-only";
+    // synced, because claiming a sync that will never happen would be false, possibly permanently
+    // (Codex review pin). Device Pro still unlocks the rows via the merged `entitled`. With the
+    // paid tier dormant this cannot arise: settings sync follows the account, not the receipt.
+    if (PAID_TIER_ENABLED && !this.serverEntitled) return "pro-device-only";
     return "entitled-syncing";
   }
 
@@ -467,6 +499,22 @@ export class UiController {
    * nothing. Requires an actual sign-in capability (magic link or code), not just the interface. */
   get canSignIn(): boolean {
     return typeof this.auth?.signIn === "function" || this.canUseCode;
+  }
+
+  /** What this surface must show before the email field appears, or "none". */
+  get emailConsent(): EmailConsent {
+    return this.host.emailConsent ?? "none";
+  }
+
+  /** Whether the sheet must show its consent step before offering the email field. */
+  get needsEmailConsent(): boolean {
+    return this.emailConsent !== "none" && !this.emailConsentGiven;
+  }
+
+  /** The consent step's one affirmative action. The sheet only enables it once the surface's own
+   * requirement is met, which on Firefox means an explicit yes rather than merely reading. */
+  acceptEmailConsent(): void {
+    this.emailConsentGiven = true;
   }
 
   /** Whether this host signs in by emailed 6-digit code (plan U2/R1) — capability-driven, never
@@ -495,7 +543,9 @@ export class UiController {
   /** True when a service's surfaces are Pro-gated and this user isn't entitled — the row renders
    * locked (🔒 → paywall) instead of a toggle that would flip without blocking anything. */
   isLocked(id: ServiceId): boolean {
-    return !this.entitled && PRO_SERVICE_IDS.has(id);
+    // Nothing is locked while the paid tier is dormant behind PAID_TIER_ENABLED: every row is a
+    // live toggle for everyone, and the lock returns with the switch.
+    return PAID_TIER_ENABLED && !this.entitled && PRO_SERVICE_IDS.has(id);
   }
 
   /** Start the Pro upgrade path. NATIVE-purchase hosts (Apple — no checkout seam) open the
@@ -505,6 +555,9 @@ export class UiController {
    * intent so a successful sign-in continues to the paywall without re-tapping. Hosts without a
    * purchase path get the explanatory paywall state. */
   startUpgrade(): void {
+    // The upgrade path is preserved and unreachable while the paid tier is dormant behind
+    // PAID_TIER_ENABLED. There is nothing to buy, so every entry point into it is a no-op.
+    if (!PAID_TIER_ENABLED) return;
     // Also a no-op while a purchase/restore is in flight — a second trigger (locked-row tap,
     // upgrade CTA) must not reset purchaseFlow mid-purchase.
     if (this.entitled || this.purchaseBusy) return;
@@ -528,6 +581,7 @@ export class UiController {
   dismissSignIn(): void {
     this.authFlowGeneration += 1; // cancel any in-flight send/verify/resend continuation (F6)
     this.signInOpen = false;
+    this.emailConsentGiven = false; // a fresh start asks again before collecting anything
     // A deliberate "Not now" abandons the code flow entirely (unlike popup death, which persists
     // it): clear the pending OTP so the next open starts fresh at the email field (R1).
     if (this.inCodeFlow) {
@@ -557,6 +611,11 @@ export class UiController {
   }
 
   openPaywall(): void {
+    // The paid tier is dormant behind PAID_TIER_ENABLED, and the sheet this opens is not rendered
+    // while it is. Refusing here, at the funnel rather than at the render, is what stops the
+    // machinery behind the sheet from running against UI nobody can see or dismiss: the payoff
+    // timer, the success screen, and the checkout poll window all key off paywallOpen.
+    if (!PAID_TIER_ENABLED) return;
     if (this.purchaseBusy) return; // re-opening must not reset an in-flight purchase
     this.paywallOpen = true;
     this.purchaseFlow = "idle";
@@ -715,6 +774,15 @@ export class UiController {
     pending: { startedAt?: number; tabId?: number } | null | undefined,
   ): void {
     if (!this.checkout || pending === null || pending === undefined) return;
+    // A checkout that can no longer complete is moot while the paid tier is dormant behind
+    // PAID_TIER_ENABLED, so clear the record instead of presenting it. Presenting would start a
+    // repeating entitlement poll behind a sheet that does not render, and the only control that
+    // cancels it ("I didn't finish checkout") lives inside that sheet. Clearing is what frees a
+    // user carrying a stale flag from an older install: it happens once, and never again.
+    if (!PAID_TIER_ENABLED) {
+      this.setCheckoutPending(null);
+      return;
+    }
     if (this.entitled) {
       this.setCheckoutPending(null);
       return;
@@ -828,11 +896,16 @@ export class UiController {
   /** The sheet's one send action. Code-capable hosts get the code flow (→ code-entry); everyone
    * else keeps the magic link (→ sent). Same button, capability-driven path (plan U2). */
   async signIn(email: string): Promise<void> {
+    // The store's own requirement, enforced here and not only in the sheet. On a surface that has
+    // to disclose or ask before an email address is collected, no address may leave this device
+    // until that step is satisfied, whoever is calling. The sheet does not render an email field
+    // before then, so this covers a programmatic caller rather than a person.
+    if (this.needsEmailConsent) return;
     if (
       !this.auth ||
       this.authFlow === "sending" ||
       this.authFlow === "verifying" ||
-      this.sendBlockRemaining > 0 // rate-limit lock (R2) — the sheet disables the CTA; this covers programmatic callers
+      this.sendBlockRemaining > 0 // rate-limit lock (R2), the sheet disables the CTA; this covers programmatic callers
     )
       return;
     // Gate the request on a syntactically valid address so a malformed email never issues a
@@ -997,6 +1070,10 @@ export class UiController {
       this.authFlow = "code-error";
     }
     this.purchaseIntent = pending.purchaseIntent === true; // already persisted — no seam echo
+    // A pending code means an address was already collected, with consent, before the popup died.
+    // Asking again here would be theatre, and it would sit in front of the code the person is
+    // holding in their other hand.
+    this.emailConsentGiven = true;
     this.signInOpen = true;
   }
 
@@ -1147,6 +1224,7 @@ export class UiController {
     this.userId = null;
     this.entitled = false; // server lane only — the setter never touches #receiptEntitled
     this.authFlow = "idle";
+    this.emailConsentGiven = false;
     this.paywallOpen = false;
     this.successScreen = "none";
     this.purchaseFlow = "idle";

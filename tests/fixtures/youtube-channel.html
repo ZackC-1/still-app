@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>YouTube — desktop channel page fixture</title>
+  </head>
+  <body>
+    <!--
+      Desktop youtube.com channel page: the tab strip, a Shorts shelf on the channel home, and a
+      community post. The post is the documented exception: a creator can paste a Shorts URL into
+      the text of a post, and Still leaves that sentence alone rather than editing what the creator
+      wrote. Following the link still lands on the watch page, because the Shorts URL redirect is a
+      separate, selector-free rule. Ids starting "keep-" are the over-blocking controls.
+    -->
+    <div id="tabs">
+      <yt-tab-shape id="keep-videos-tab" tab-title="Videos">Videos</yt-tab-shape>
+      <yt-tab-shape id="shorts-tab" tab-title="Shorts">Shorts</yt-tab-shape>
+      <tp-yt-paper-tab id="shorts-tab-legacy"><a href="/@channel/shorts">Shorts</a></tp-yt-paper-tab>
+      <tp-yt-paper-tab id="keep-videos-tab-legacy"><a href="/@channel/videos">Videos</a></tp-yt-paper-tab>
+    </div>
+
+    <main>
+      <ytd-reel-shelf-renderer id="channel-shorts-shelf">
+        <h2>Shorts</h2>
+        <a href="/shorts/abc123">a channel short</a>
+      </ytd-reel-shelf-renderer>
+
+      <ytd-rich-item-renderer id="keep-channel-video">
+        <a id="thumbnail" href="/watch?v=long123">A real long-form upload</a>
+      </ytd-rich-item-renderer>
+
+      <!--
+        Documented survivor: a community post whose body text is a Shorts URL. Removing it would
+        mean deleting a sentence a creator wrote, so the link stays and the redirect handles the
+        destination.
+      -->
+      <ytd-post-renderer id="keep-community-post">
+        <div id="body">
+          <div id="post-text">
+            <yt-formatted-string id="home-content-text">
+              New short is up: <a href="/shorts/def456">https://www.youtube.com/shorts/def456</a>
+            </yt-formatted-string>
+          </div>
+        </div>
+      </ytd-post-renderer>
+    </main>
+  </body>
+</html>

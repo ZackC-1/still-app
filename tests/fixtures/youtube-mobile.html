@@ -2,9 +2,15 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>YouTube mobile fixture</title>
+    <title>YouTube — m.youtube.com home fixture</title>
   </head>
   <body>
+    <!--
+      m.youtube.com home feed. Mobile YouTube uses a different component tree from desktop
+      (ytm-* elements, and the newer grid-shelf-view-model / ytm-shorts-lockup-view-model pair),
+      which is why the seed carries mobile selectors alongside the desktop ones. Nesting is copied
+      from a signed-out iPhone-emulated capture. Ids starting "keep-" are over-blocking controls.
+    -->
     <ytm-pivot-bar-renderer role="tablist">
       <ytm-pivot-bar-item-renderer id="home-tab">
         <div class="pivot-bar-item-tab pivot-w2w">Home</div>
@@ -12,22 +18,85 @@
       <ytm-pivot-bar-item-renderer id="shorts-tab">
         <div class="pivot-bar-item-tab pivot-shorts">Shorts</div>
       </ytm-pivot-bar-item-renderer>
+      <ytm-pivot-bar-item-renderer id="shorts-tab-by-href">
+        <a href="/shorts"><div class="pivot-bar-item-tab">Shorts</div></a>
+      </ytm-pivot-bar-item-renderer>
     </ytm-pivot-bar-renderer>
 
-    <main>
-      <ytm-rich-section-renderer id="mobile-shorts-section">
-        <div class="rich-section-content">
-          <ytm-shorts-lockup-view-model>
-            <a href="/shorts/abc123">a mobile short</a>
-          </ytm-shorts-lockup-view-model>
-        </div>
-      </ytm-rich-section-renderer>
-      <ytm-video-with-context-renderer id="mobile-shorts-result">
-        <a href="/shorts/def456">a mobile Shorts result</a>
-      </ytm-video-with-context-renderer>
-      <ytm-video-with-context-renderer id="mobile-keep-video">
-        <a href="/watch?v=long123">A real long-form mobile video</a>
-      </ytm-video-with-context-renderer>
-    </main>
+    <ytm-rich-grid-renderer>
+      <div class="rich-grid-renderer-contents">
+        <!-- Current mobile Shorts shelf: a rich section holding a grid shelf of Shorts lockups. -->
+        <ytm-rich-section-renderer id="mobile-shorts-section" class="rich-section-single-column">
+          <div class="rich-section-content">
+            <grid-shelf-view-model class="ytGridShelfViewModelHost">
+              <div class="ytGridShelfViewModelGridShelfRow">
+                <div class="ytGridShelfViewModelGridShelfItem">
+                  <ytm-shorts-lockup-view-model class="shortsLockupViewModelHost">
+                    <a class="shortsLockupViewModelHostEndpoint" href="/shorts/abc123">a mobile short</a>
+                  </ytm-shorts-lockup-view-model>
+                </div>
+              </div>
+            </grid-shelf-view-model>
+          </div>
+        </ytm-rich-section-renderer>
+
+        <!-- Older mobile Shorts shelf inside a rich section. -->
+        <ytm-rich-section-renderer id="mobile-reel-shelf-section">
+          <ytm-reel-shelf-renderer>
+            <div class="reel-shelf-items">
+              <ytm-shorts-lockup-view-model>
+                <a href="/shorts/mno345">another mobile short</a>
+              </ytm-shorts-lockup-view-model>
+            </div>
+          </ytm-reel-shelf-renderer>
+        </ytm-rich-section-renderer>
+
+        <!--
+          Over-blocking control: an ordinary mobile section holding long-form lockups, one of whose
+          blurbs links to a Short. The section is not a Shorts shelf and must survive whole.
+        -->
+        <ytm-rich-section-renderer id="keep-mobile-mixed-section">
+          <div class="rich-section-content">
+            <yt-lockup-view-model id="keep-mobile-mixed-video">
+              <a href="/watch?v=mixed123">An ordinary recommended video</a>
+              <div class="blurb">See also <a href="/shorts/pqr678">my short</a></div>
+            </yt-lockup-view-model>
+          </div>
+        </ytm-rich-section-renderer>
+      </div>
+    </ytm-rich-grid-renderer>
+
+    <!-- A bare Shorts lockup outside any shelf. -->
+    <ytm-shorts-lockup-view-model id="mobile-loose-short">
+      <a href="/shorts/stu901">a loose mobile short</a>
+    </ytm-shorts-lockup-view-model>
+
+    <!-- Feed cards. A card is a Short only when its own thumbnail points at /shorts/. -->
+    <ytm-video-with-context-renderer id="mobile-shorts-card" class="item">
+      <ytm-media-item class="big-shorts-singleton">
+        <a class="media-item-thumbnail-container" href="/shorts/def456">a mobile Shorts card</a>
+      </ytm-media-item>
+    </ytm-video-with-context-renderer>
+
+    <ytm-video-with-context-renderer id="keep-mobile-video" class="item">
+      <ytm-media-item>
+        <a class="media-item-thumbnail-container" href="/watch?v=long123">A real long-form mobile video</a>
+      </ytm-media-item>
+    </ytm-video-with-context-renderer>
+
+    <!-- Over-blocking control: an ordinary card whose channel row links to a Short. -->
+    <ytm-video-with-context-renderer id="keep-mobile-video-linking-to-short" class="item">
+      <ytm-media-item>
+        <a class="media-item-thumbnail-container" href="/watch?v=long456">Another long-form mobile video</a>
+        <div class="media-channel"><a class="media-item-extra-endpoint" href="/shorts/vwx234">a short by the same channel</a></div>
+      </ytm-media-item>
+    </ytm-video-with-context-renderer>
+
+    <!-- Over-blocking control: a long-form card whose title contains the word "reels". -->
+    <ytm-video-with-context-renderer id="keep-mobile-reels-titled-video" class="item">
+      <ytm-media-item>
+        <a class="media-item-thumbnail-container" href="/watch?v=long789" aria-label="Best fishing reels of 2026">Best fishing reels of 2026</a>
+      </ytm-media-item>
+    </ytm-video-with-context-renderer>
   </body>
 </html>

@@ -104,7 +104,16 @@ export function parseStoredSettingsRecord(value: unknown): StoredSettingsRecord 
   const rawMetadata = obj.syncMetadata ?? obj.metadata ?? null;
   const syncMetadata = rawMetadata === null ? null : parseSettingsSyncMetadata(rawMetadata);
   if (rawMetadata !== null && syncMetadata === null) return null;
-  return { settings, syncMetadata };
+  // The reconcile epoch is reconstructed like everything else, or the whitelist above would strip
+  // it and every context would go back to arbitrating a shared browser for itself. Absence is
+  // preserved rather than defaulted, because absent and zero mean different things to the cache: a
+  // record with no counter is one whose writer never carried the field, which is what the branch
+  // at the top of this function returns for a bare settings payload.
+  const rawEpoch = (decoded as { syncEpoch?: unknown }).syncEpoch;
+  const syncEpoch = typeof rawEpoch === "number" && Number.isSafeInteger(rawEpoch) && rawEpoch >= 0
+    ? rawEpoch
+    : undefined;
+  return syncEpoch === undefined ? { settings, syncMetadata } : { settings, syncMetadata, syncEpoch };
 }
 
 /** JSON.parse that returns null instead of throwing on malformed input. */

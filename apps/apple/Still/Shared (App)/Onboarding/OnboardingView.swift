@@ -3,7 +3,9 @@
 //  Shared (App)
 //
 //  The 4-screen first-launch onboarding (U18): Welcome → Outcome → Enable the extension → Done,
-//  landing on Settings. Copy is the brainstorm draft. This is pure SwiftUI — the platform actions
+//  landing on Settings. Nothing here asks for an account: Still blocks without one, and the only
+//  thing standing between a first launch and a first block is turning the extension on in Safari.
+//  This is pure SwiftUI — the platform actions
 //  (probe the live Safari-extension state, open the place the user enables it) are injected as
 //  closures by OnboardingPresenter, so this view imports neither SafariServices nor UIKit/AppKit and
 //  renders the same on iOS and macOS. Screen 3 reflects the real extension state on macOS (live) and
@@ -19,6 +21,9 @@ struct OnboardingView: View {
   var checkStatus: () async -> SafariExtensionStatus = { .unknown }
   /// Open where the user enables the extension: Safari settings on macOS, the Settings app on iOS.
   var openEnableLocation: () -> Void = {}
+  /// Where the closure above lands, declared by whoever implements it. The button's label and the
+  /// steps are both written from this, so neither can describe a screen the button does not open.
+  var enableLocation: EnableLocation = .safariExtensionSettings
   /// Called when the user finishes — the presenter marks the gate complete and dismisses.
   var onComplete: () -> Void = {}
   /// Starting screen — 0 in production; the presenter overrides it only under a DEBUG launch arg so
@@ -42,20 +47,34 @@ struct OnboardingView: View {
       progressDots
         .padding(.top, 24)
 
-      Spacer(minLength: 0)
+      // Centered while the screen fits, scrolling when it does not. Screen 3 is what makes this
+      // necessary: it carries the guided steps, the button that opens Safari's settings, and two
+      // reassurance captions, and on a 320pt phone or at the largest text sizes that column is
+      // taller than the space available. Without a scroll view the overflow is simply cut off, and
+      // the first thing to go is the button that opens the place the user has to visit, on the one
+      // screen between installing Still and it working. The footer stays outside the scroll view so
+      // the primary button is always on screen.
+      GeometryReader { available in
+        ScrollView {
+          VStack(spacing: 0) {
+            Spacer(minLength: 0)
 
-      Group {
-        switch step {
-        case 0: welcome
-        case 1: outcome
-        case 2: enableExtension
-        default: done
+            Group {
+              switch step {
+              case 0: welcome
+              case 1: outcome
+              case 2: enableExtension
+              default: done
+              }
+            }
+            .frame(maxWidth: 460)
+            .padding(.horizontal, 32)
+
+            Spacer(minLength: 0)
+          }
+          .frame(minWidth: available.size.width, minHeight: available.size.height)
         }
       }
-      .frame(maxWidth: 460)
-      .padding(.horizontal, 32)
-
-      Spacer(minLength: 0)
 
       footer
         .frame(maxWidth: 460)
@@ -75,7 +94,7 @@ struct OnboardingView: View {
       brandMark
       Text("Still")
         .font(.still(size: 52, weight: .bold, relativeTo: .largeTitle))
-      Text("YouTube Shorts disappear.\nEverything else stays.")
+      Text("The short-form video disappears.\nEverything else stays.")
         .font(.still(size: 20, relativeTo: .title3))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
@@ -85,10 +104,10 @@ struct OnboardingView: View {
   private var outcome: some View {
     VStack(spacing: 20) {
       glyph("scissors", tint: Self.stillBlue)
-      Text("YouTube Shorts — gone.")
+      Text("Short-form video is gone")
         .font(.still(size: 30, weight: .semibold, relativeTo: .title))
         .multilineTextAlignment(.center)
-      Text("Normal videos and the rest of YouTube stay right where they are.")
+      Text("Keep normal videos, posts, messages, and everything else you came to see.")
         .font(.still(size: 20, relativeTo: .title3))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
@@ -98,9 +117,9 @@ struct OnboardingView: View {
   private var enableExtension: some View {
     VStack(spacing: 18) {
       glyph("puzzlepiece.extension.fill", tint: status.isConfirmedEnabled ? .green : Self.stillBlue)
-      Text("One quick step.")
+      Text("Turn on Still in Safari")
         .font(.still(size: 28, weight: .semibold, relativeTo: .title))
-      Text("Turn on Still in Safari to remove YouTube Shorts. Still Pro is ready whenever you want Reels and TikTok, too.")
+      Text("Enable the Still extension in Safari, then choose the websites where you want short-form video removed.")
         .font(.still(size: 16, relativeTo: .body))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
@@ -126,7 +145,8 @@ struct OnboardingView: View {
       Button(action: openEnableLocation) {
         HStack(spacing: 8) {
           Image(systemName: "arrow.up.forward.app.fill")
-          Text(openButtonTitle).font(.still(size: 16, weight: .semibold, relativeTo: .body))
+          Text(OnboardingCopy.openButtonTitle(for: enableLocation))
+            .font(.still(size: 16, weight: .semibold, relativeTo: .body))
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 13)
@@ -135,7 +155,14 @@ struct OnboardingView: View {
       .buttonStyle(.plain)
       .foregroundColor(Self.stillBlue)
 
-      Text("Still only reads those four sites to hide short-form — nothing else you browse.")
+      // The one reassurance worth spending space on here, because it is what someone is quietly
+      // wondering while an app asks them to turn something on in their browser.
+      Text("No account or purchase is needed. Still does not collect your browsing history.")
+        .font(.still(size: 12, relativeTo: .caption))
+        .foregroundColor(.secondary)
+        .multilineTextAlignment(.center)
+        .fixedSize(horizontal: false, vertical: true)
+      Text("Still only reads those four sites to hide short-form video, nothing else you browse.")
         .font(.still(size: 12, relativeTo: .caption))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
@@ -152,9 +179,9 @@ struct OnboardingView: View {
   private var done: some View {
     VStack(spacing: 20) {
       glyph("checkmark.seal.fill", tint: .green)
-      Text("You're ready.")
+      Text("Still is ready.")
         .font(.still(size: 40, weight: .semibold, relativeTo: .largeTitle))
-      Text("YouTube Shorts are gone. Still Pro adds Reels and TikTok whenever you want it.")
+      Text("Short-form video is removed from enabled websites in Safari.")
         .font(.still(size: 20, relativeTo: .title3))
         .foregroundColor(.secondary)
         .multilineTextAlignment(.center)
@@ -191,7 +218,8 @@ struct OnboardingView: View {
   }
 
   /// Platform-specific guided steps for enabling the extension. The copy lives in StillKit
-  /// (`OnboardingCopy`), where `swift test` proves the per-OS variants; this only resolves the OS.
+  /// (`OnboardingCopy`), where `swift test` proves the per-OS variants, that step 1 still names the
+  /// button below it, and that the name matches where that button goes; this only resolves the OS.
   private var enableSteps: [String] {
     #if os(iOS)
     if #available(iOS 18.0, *) {
@@ -200,14 +228,6 @@ struct OnboardingView: View {
     return OnboardingCopy.enableSteps(iOS18OrLater: false)
     #else
     return OnboardingCopy.macOSEnableSteps
-    #endif
-  }
-
-  private var openButtonTitle: String {
-    #if os(iOS)
-    return "Open Settings"
-    #else
-    return "Open Safari Settings"
     #endif
   }
 
@@ -311,9 +331,13 @@ private extension Font {
 }
 
 private extension View {
-  /// Caps Dynamic Type at the first accessibility size: the onboarding column is a fixed,
-  /// Spacer-centered VStack with no scrolling, and the ~3.1× accessibility scales would push the
-  /// Continue button off-screen. (macOS 11 predates the API — and has no Dynamic Type to cap.)
+  /// Caps Dynamic Type at the first accessibility size. The screens themselves now scroll, so the
+  /// cap is no longer what keeps them reachable; the footer is. The footer sits outside the scroll
+  /// view so the primary button is always on screen, and at the very largest sizes that button
+  /// alone fills more than half of a 375pt phone, leaving the screen above it a narrow band.
+  /// Screenshotted at the largest size on 2026-09-08 and judged worse than the cap. Lifting it
+  /// properly means letting the footer scroll with everything else, which is a layout decision
+  /// rather than a sizing one. (macOS 11 predates the API, and has no Dynamic Type to cap.)
   @ViewBuilder func cappedDynamicType() -> some View {
     if #available(iOS 15.0, macOS 12.0, *) {
       dynamicTypeSize(...DynamicTypeSize.accessibility1)

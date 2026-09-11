@@ -6,6 +6,10 @@ import {
 } from "../../sync/extension-session.js";
 import type { RequestCodeOutcome, VerifyCodeOutcome, WebCheckoutOutcome } from "../../sync/ports.js";
 import type { CheckoutReconcileOutcome } from "../controller.svelte.js";
+import { PAID_TIER_ENABLED } from "@still/shared-types";
+
+const paidTierIt = it.runIf(PAID_TIER_ENABLED);
+const includedAccessIt = it.runIf(!PAID_TIER_ENABLED);
 
 // Plan U6: the shared extension wiring. The FIRST test is the Safari acceptance pin (AE7/3.1.1):
 // no injection → no sign-in, no checkout CTA, no web price — byte-for-byte today's explanatory
@@ -63,6 +67,7 @@ function makePurchase(over: { state?: ExtensionSessionState } = {}) {
   const createCheckout = vi.fn(() =>
     Promise.resolve<WebCheckoutOutcome>({ kind: "checkout-url", url: CHECKOUT_URL }),
   );
+  const setCheckoutPending = vi.fn();
   const deps: ExtensionPurchaseDeps = {
     displayPrice: "$1.99",
     getState: vi.fn(() => Promise.resolve(over.state ?? snapshot())),
@@ -75,9 +80,14 @@ function makePurchase(over: { state?: ExtensionSessionState } = {}) {
       deleteAccount: vi.fn(() => Promise.resolve()),
     },
     persistence: { setPendingOtp: vi.fn(), setPurchaseIntent: vi.fn() },
-    checkout: { createCheckout, openCheckoutTab, setPending: vi.fn(), reconcile },
+    checkout: {
+      createCheckout,
+      openCheckoutTab,
+      setPending: setCheckoutPending,
+      reconcile,
+    },
   };
-  return { deps, openCheckoutTab, reconcile, createCheckout };
+  return { deps, openCheckoutTab, reconcile, createCheckout, setCheckoutPending };
 }
 
 describe("createExtensionUiController — no injection (the Safari pin, AE7/3.1.1)", () => {
@@ -181,7 +191,7 @@ describe("createExtensionUiController — with the ext-chromium injection (plan 
     expect(c.purchaseIntent).toBe(true);
   });
 
-  it("rehydrates a fresh checkout-pending flag into the checking presentation (U4/R3)", async () => {
+  paidTierIt("rehydrates a fresh checkout-pending flag into the checking presentation (U4/R3)", async () => {
     installChrome();
     const { deps, reconcile } = makePurchase({
       state: snapshot({ userId: "user-1", checkoutPending: { startedAt: Date.now() } }),
@@ -196,12 +206,39 @@ describe("createExtensionUiController — with the ext-chromium injection (plan 
     expect(reconcile).toHaveBeenCalledTimes(1);
   });
 
-  it("reconciles once on a signed-in popup open with no pending flag (R4)", async () => {
+  includedAccessIt("clears a leftover checkout-pending flag quietly while the paid tier is dormant", async () => {
+    // The user who matters here started a purchase on an older build and walked away. Nothing can
+    // complete that checkout now, so opening the popup must not present it, must not start the
+    // repeating entitlement check behind a sheet that no longer renders, and must not leave the
+    // flag in place to do the same thing again tomorrow. Opening the popup once clears it.
+    installChrome();
+    const { deps, reconcile, setCheckoutPending } = makePurchase({
+      state: snapshot({ userId: "user-1", checkoutPending: { startedAt: Date.now() } }),
+    });
+    const c = createExtensionUiController(deps);
+    await flush();
+    expect(c.checkoutFlow).toBe("none");
+    expect(c.paywallOpen).toBe(false);
+    expect(setCheckoutPending).toHaveBeenCalledWith(null);
+    expect(reconcile).not.toHaveBeenCalled();
+  });
+
+  paidTierIt("reconciles once on a signed-in popup open with no pending flag (R4)", async () => {
     installChrome();
     const { deps, reconcile } = makePurchase({ state: snapshot({ userId: "user-1" }) });
     createExtensionUiController(deps);
     await flush();
     expect(reconcile).toHaveBeenCalledTimes(1);
+  });
+
+  includedAccessIt("spends no purchase-service query on opening the popup", async () => {
+    // With nothing for an entitlement to unlock, this call would ask the server, which asks the
+    // purchase service, every single time someone opens Still, and change nothing anyone can see.
+    installChrome();
+    const { deps, reconcile } = makePurchase({ state: snapshot({ userId: "user-1" }) });
+    createExtensionUiController(deps);
+    await flush();
+    expect(reconcile).not.toHaveBeenCalled();
   });
 
   it("never reconciles on a signed-out open (no session, nothing to check)", async () => {

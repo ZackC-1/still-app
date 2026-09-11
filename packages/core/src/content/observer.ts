@@ -16,6 +16,27 @@ function defaultScheduler(win: StillWindow): Scheduler {
   return raf ? (cb) => raf(() => cb()) : (cb) => setTimeout(cb, 0);
 }
 
+const ELEMENT_NODE = 1;
+
+/**
+ * True when a batch of mutations introduced at least one element.
+ *
+ * The observer watches childList on the whole document, and a running feed churns text nodes
+ * constantly: view counts, timestamps, live-region announcements. None of those can produce a
+ * surface to hide or remove, since every selector matches elements, so a batch that added no
+ * element is not worth a sweep. Removals cannot create a match either. On m.youtube.com this drops
+ * a large share of frames that previously walked the whole document to find nothing.
+ */
+function addedAnyElement(records: readonly MutationRecord[]): boolean {
+  for (const record of records) {
+    const added = record.addedNodes;
+    for (let i = 0; i < added.length; i++) {
+      if (added[i]!.nodeType === ELEMENT_NODE) return true;
+    }
+  }
+  return false;
+}
+
 export function createReapplyObserver(
   win: StillWindow,
   doc: Document,
@@ -27,8 +48,9 @@ export function createReapplyObserver(
     scheduled = false;
     reapply();
   };
-  const observer = new win.MutationObserver(() => {
+  const observer = new win.MutationObserver((records) => {
     if (scheduled) return;
+    if (!addedAnyElement(records)) return;
     scheduled = true;
     schedule(flush);
   });

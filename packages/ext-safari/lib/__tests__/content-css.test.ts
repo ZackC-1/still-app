@@ -24,6 +24,14 @@ function generatedCss(): { readonly free: string; readonly pro: string } {
   }
 }
 
+/** The one place the class prefix is authored, read as text because this suite runs without a DOM. */
+function servicePrefixFromEngine(): string {
+  const engine = read("packages/core/src/rules/engine.ts");
+  const match = /ROOT_SERVICE_CLASS_PREFIX = "([^"]+)"/.exec(engine);
+  if (!match) throw new Error("ROOT_SERVICE_CLASS_PREFIX not found in engine.ts");
+  return match[1]!;
+}
+
 describe("generated content CSS monetization gating", () => {
   for (const target of ["ext-chromium", "ext-safari"]) {
     it(`${target}: free stylesheet contains no Pro Reels selectors`, () => {
@@ -34,7 +42,7 @@ describe("generated content CSS monetization gating", () => {
       expect(freeCss).not.toContain('a[aria-label="Reels"]');
       expect(freeCss).not.toContain('a[href$="/reels/"]');
       expect(freeCss).not.toContain('a[aria-label="Reels"]');
-      expect(freeCss).not.toContain('li:has(> a[href*="/reel"])');
+      expect(freeCss).not.toContain('li:has(> a[href*="/reel/"], > a[href*="/reels/"])');
       expect(freeCss).not.toContain("still-pro-active");
     });
 
@@ -43,11 +51,14 @@ describe("generated content CSS monetization gating", () => {
       expect(proCss).toContain("html.still-pro-active");
       expect(proCss).toContain('a[href="/reels/"]');
       expect(proCss).toContain('a[aria-label="Reels"]');
-      expect(proCss).toContain('li:has(> a[href*="/reel"])');
+      expect(proCss).toContain('li:has(> a[href*="/reel/"], > a[href*="/reels/"])');
       // Issue #58's tab-slot cover MUST ship in the packaged CSS: the manifest-CSS fast path
       // (manifestCssOwnsHides) skips hide surfaces in JS, so a stylesheet that drifted from the
       // seed silently never applies this rule.
       expect(proCss).toContain('[role="tab"][aria-label*="reels" i] > *');
+      // Same reasoning for the Facebook Page tab: it is a hide surface, so the packaged stylesheet
+      // is the only thing that applies it on a real page.
+      expect(proCss).toContain('a[role="tab"][href*="/reels_tab"]');
     });
 
     // The committed stylesheets are GENERATED artifacts of the seed. PR #64's review caught the
@@ -59,5 +70,29 @@ describe("generated content CSS monetization gating", () => {
       expect(read(`packages/${target}/entrypoints/content/still.css`)).toBe(expected.free);
       expect(read(`packages/${target}/entrypoints/content/still-pro.css`)).toBe(expected.pro);
     });
+
+    // Both stylesheets are declared once in the manifest, so they load on all four services. Every
+    // rule must therefore name the service it was authored for, or one service's selectors run on
+    // another's pages: Instagram's `a[aria-label*="reels" i]` hid seven ordinary long-form results
+    // on a YouTube search for "fishing reels".
+    it(`${target}: every generated rule is scoped to exactly one service`, () => {
+      const prefix = servicePrefixFromEngine();
+      for (const file of ["still.css", "still-pro.css"]) {
+        const lines = read(`packages/${target}/entrypoints/content/${file}`)
+          .split("\n")
+          .filter((line) => line.startsWith("html."));
+        expect(lines.length).toBeGreaterThan(0);
+        for (const line of lines) {
+          const scopes = line.slice(0, line.indexOf(" ")).split(".").filter((c) => c.startsWith(prefix));
+          expect(scopes, line).toHaveLength(1);
+        }
+      }
+    });
   }
+
+  it("the generator writes the same service class prefix the engine toggles", () => {
+    expect(read("packages/core/scripts/gen-content-css.mjs")).toContain(
+      `SERVICE_CLASS_PREFIX = "${servicePrefixFromEngine()}"`,
+    );
+  });
 });

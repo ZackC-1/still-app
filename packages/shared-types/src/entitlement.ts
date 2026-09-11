@@ -1,6 +1,19 @@
 // Entitlement state (spec §6.3). The canonical source is the Supabase `entitlements` row, written
 // server-side by the RevenueCat webhook / reconcile functions (U14) — never by the client.
 
+/**
+ * The paid tier is intentionally dormant while Still includes every supported blocking surface.
+ * Keep the entitlement, purchase, and paywall paths healthy: changing this literal to `true` is
+ * the single TypeScript switch that restores their authority in a rebuilt release.
+ *
+ * Every read path that decides what a user may block, or whether the purchase UI is reachable,
+ * checks this before it reads an entitlement, so full access is answered synchronously and offline
+ * with no network call of any kind. The Apple app has one counterpart, `MonetizationConfig
+ * .paidTierEnabled` in StillKit, which governs the native purchase and restore actions; the two
+ * must always hold the same value and a StillKit test fails if they drift.
+ */
+export const PAID_TIER_ENABLED = false;
+
 /** How the entitlement row was last written, for audit/debug. */
 export type EntitlementSource = "webhook" | "reconcile" | null;
 

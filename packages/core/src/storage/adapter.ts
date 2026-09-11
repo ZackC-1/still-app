@@ -18,6 +18,25 @@ export interface SyncedSettingsEnvelope extends SettingsSyncMetadata {
 export interface StoredSettingsRecord {
   readonly settings: StillSettings;
   readonly syncMetadata: SettingsSyncMetadata | null;
+  /**
+   * Which account this browser profile's settings belong to, counted rather than named.
+   *
+   * `version` above orders writes within ONE account's row. It says nothing when the row itself
+   * changes, which is what happens when someone signs out of a shared browser and the next person
+   * signs in: their account can be on a lower version than the one left behind, and every context
+   * reading this store would otherwise refuse the newcomer's settings as stale. The reconcile bumps
+   * this counter whenever it repoints a browser at a different account, so the popup, the options
+   * page, and the content scripts all accept the reset instead of each arbitrating for itself.
+   *
+   * Absent, rather than zero, on any record whose writer never carried the field: a build from
+   * before it existed, a store that has never been repointed, and a bare settings payload, which
+   * parses to settings with no metadata and no counter at all. None of those has been repointed,
+   * which is exactly where zero ranks, and the Apple App Group store and the Safari extension's
+   * reconcile order an absent counter there explicitly, because they arbitrate between two stored
+   * records. The cache below is deliberately softer with one it receives, since it judges an
+   * incoming record against its own live state instead; the reason is recorded there.
+   */
+  readonly syncEpoch?: number;
 }
 
 export interface StorageAdapter {

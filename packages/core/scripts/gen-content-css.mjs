@@ -3,6 +3,14 @@
 // `html.still-active`; Pro hide rules are scoped under `html.still-pro-active`, which the content
 // script only adds when the entitlement cache says Pro is active.
 //
+// Every rule is ALSO scoped under `html.still-service-<id>`, because the manifest injects these
+// stylesheets on all four services at once. Without that scope, one service's selectors run on
+// another service's pages: Instagram's `a[aria-label*="reels" i]` hid ordinary YouTube results
+// whose titles contained the word "reels". The class name is authored in
+// packages/core/src/rules/engine.ts (ROOT_SERVICE_CLASS_PREFIX) and repeated here as a literal
+// because this generator is plain Node and cannot import TypeScript; a contract test pins the two
+// together.
+//
 // Usage: node packages/core/scripts/gen-content-css.mjs <content-dir> [<content-dir> ...]
 //   e.g. node ../core/scripts/gen-content-css.mjs entrypoints/content   (from an extension package)
 // Each <content-dir> receives still.css (free) + still-pro.css (pro).
@@ -24,16 +32,21 @@ if (targets.length === 0) {
   process.exit(1);
 }
 
+/** Must equal ROOT_SERVICE_CLASS_PREFIX in packages/core/src/rules/engine.ts. */
+const SERVICE_CLASS_PREFIX = "still-service-";
+
 const seed = JSON.parse(readFileSync(seedPath, "utf8"));
 const rules = [];
 const proRules = [];
-for (const service of Object.values(seed.services)) {
+for (const [serviceId, service] of Object.entries(seed.services)) {
   for (const surface of service.surfaces) {
     if (surface.action === "hide" && surface.enabledByDefault && surface.selectors) {
       for (const selector of surface.selectors) {
         const target = surface.tier === "free" ? rules : proRules;
         const root = target === rules ? "still-active" : "still-pro-active";
-        target.push(`html.${root} ${selector}{display:none!important}`);
+        target.push(
+          `html.${root}.${SERVICE_CLASS_PREFIX}${serviceId} ${selector}{display:none!important}`,
+        );
       }
     }
   }

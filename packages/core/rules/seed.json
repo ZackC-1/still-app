@@ -1,5 +1,5 @@
 {
-  "version": "1.0.4",
+  "version": "1.1.8",
   "services": {
     "youtube": {
       "matches": [
@@ -43,14 +43,17 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "ytd-reel-shelf-renderer",
             "ytd-rich-section-renderer:has(ytd-rich-shelf-renderer[is-shorts])",
-            "ytm-reel-shelf-renderer",
-            "ytm-rich-section-renderer:has(a[href^=\"/shorts/\"])",
             "ytm-rich-section-renderer:has(ytm-shorts-lockup-view-model)",
-            "ytm-shorts-lockup-view-model",
-            "ytm-video-with-context-renderer:has(a[href^=\"/shorts/\"])",
-            "ytm-rich-item-renderer:has(a[href^=\"/shorts/\"])"
+            "ytm-rich-section-renderer:has(ytm-reel-shelf-renderer)",
+            "ytd-reel-shelf-renderer",
+            "ytm-reel-shelf-renderer",
+            "grid-shelf-view-model:has(ytm-shorts-lockup-view-model)",
+            "ytm-rich-item-renderer:has(ytm-shorts-lockup-view-model)",
+            "ytm-video-with-context-renderer:has(ytm-media-item.big-shorts-singleton)",
+            "ytm-video-with-context-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"])",
+            "ytm-rich-item-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"])",
+            "ytm-shorts-lockup-view-model"
           ]
         },
         {
@@ -62,10 +65,12 @@
           "enabledByDefault": true,
           "selectors": [
             "ytd-reel-shelf-renderer",
-            "ytd-video-renderer:has(a[href^=\"/shorts/\"])",
-            "ytm-shorts-lockup-view-model",
-            "ytm-video-with-context-renderer:has(a[href^=\"/shorts/\"])",
-            "ytm-rich-item-renderer:has(a[href^=\"/shorts/\"])"
+            "grid-shelf-view-model:has(ytm-shorts-lockup-view-model)",
+            "ytd-video-renderer:has(a#thumbnail[href^=\"/shorts/\"])",
+            "ytm-video-with-context-renderer:has(ytm-media-item.big-shorts-singleton)",
+            "ytm-video-with-context-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"])",
+            "ytm-rich-item-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"])",
+            "ytm-shorts-lockup-view-model"
           ]
         },
         {
@@ -76,7 +81,10 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "ytd-reel-shelf-renderer"
+            "grid-shelf-view-model:has(ytm-shorts-lockup-view-model)",
+            "ytd-reel-shelf-renderer",
+            "ytm-reel-shelf-renderer",
+            "ytm-shorts-lockup-view-model"
           ]
         },
         {
@@ -99,7 +107,8 @@
           "action": "hide",
           "enabledByDefault": true,
           "selectors": [
-            "yt-chip-cloud-chip-renderer:has([title=\"Shorts\"])"
+            "yt-chip-cloud-chip-renderer:has([title=\"Shorts\"])",
+            "yt-chip-cloud-chip-renderer[data-still-shorts-chip]"
           ]
         }
       ]
@@ -116,7 +125,7 @@
           "requiredCapability": "surface.instagram.reels",
           "action": "placeholder",
           "enabledByDefault": true,
-          "urlMatch": "^/(?:reels?|[^/]+/reels)(/|$)"
+          "urlMatch": "^/(?:reels?|[^/]+/reels?)(/|$)"
         },
         {
           "id": "ig-nav",
@@ -127,7 +136,7 @@
           "enabledByDefault": true,
           "selectors": [
             "a[href=\"/reels/\"]",
-            "a[href^=\"/reels/\"]",
+            "a[href^=\"/reels/\"]:not([href*=\"/reels/audio/\"])",
             "a:has(svg[aria-label=\"Reels\"])",
             "a[aria-label*=\"reels\" i]",
             "[role=\"tablist\"] a[href*=\"/reels\"]"
@@ -141,7 +150,8 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "article:has(a[href^=\"/reel/\"])"
+            "article:has(a[href^=\"/reel/\"], a[href^=\"https://www.instagram.com/reel/\"])",
+            "article:has(a[href^=\"/reels/\"]:not([href*=\"/reels/audio/\"]), a[href^=\"https://www.instagram.com/reels/\"]:not([href*=\"/reels/audio/\"]))"
           ]
         },
         {
@@ -152,9 +162,9 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "a[href^=\"/reel/\"]:has(span[aria-label*=\"Clip\"])",
-            "a[href^=\"/reel/\"] > div > svg[aria-label=\"Clip\"]",
-            "a[href^=\"/reel/\"]:has(svg[aria-label=\"Clip\"])"
+            "a[href*=\"/reel/\"]:has(span[aria-label*=\"Clip\"])",
+            "a[href*=\"/reel/\"] > div > svg[aria-label=\"Clip\"]",
+            "a[href*=\"/reel/\"]:has(svg[aria-label=\"Clip\"])"
           ]
         },
         {
@@ -165,7 +175,8 @@
           "action": "remove",
           "enabledByDefault": true,
           "selectors": [
-            "section:has(> a[href^=\"/reel/\"])"
+            "section:has(> a[href^=\"/reel/\"], > a[href^=\"https://www.instagram.com/reel/\"])",
+            "section:has(> a[href^=\"/reels/\"]:not([href*=\"/reels/audio/\"]), > a[href^=\"https://www.instagram.com/reels/\"]:not([href*=\"/reels/audio/\"]))"
           ]
         },
         {
@@ -209,7 +220,7 @@
           "requiredCapability": "surface.facebook.reels",
           "action": "placeholder",
           "enabledByDefault": true,
-          "urlMatch": "^/(?:reels?|watch/reels)(/|$)"
+          "urlMatch": "^/(?:reels?|(?!(?:groups|hashtag|events|pages|people|marketplace|gaming|games|live|stories|search|help|business|settings|messages|notifications|bookmarks|friends|saved|ads|photo|policies|legal|careers|login|privacy|public)/)[^/]+/reels)(/|$)"
         },
         {
           "id": "fb-feed",
@@ -221,7 +232,7 @@
           "selectors": [
             "div[role=\"article\"]:has(a[href*=\"/reel/\"])",
             "div[role=\"article\"]:has(a[href*=\"/reels/\"])",
-            "[role=\"feed\"] [role=\"article\"]:has(a[href*=\"/reel\"])"
+            "[role=\"feed\"] [role=\"article\"]:has(a[href*=\"/reel/\"], a[href*=\"/reels/\"])"
           ]
         },
         {
@@ -233,9 +244,20 @@
           "enabledByDefault": true,
           "selectors": [
             "a[aria-label=\"Reels\"]",
-            "a[aria-label*=\"Reels\" i]",
             "a[href*=\"/reels/\"]",
-            "li:has(> a[href*=\"/reel\"])"
+            "li:has(> a[href*=\"/reel/\"], > a[href*=\"/reels/\"])"
+          ]
+        },
+        {
+          "id": "fb-page-tabs",
+          "label": "Reels tab on Page profiles",
+          "tier": "pro",
+          "requiredCapability": "surface.facebook.reels",
+          "action": "hide",
+          "enabledByDefault": true,
+          "selectors": [
+            "a[role=\"tab\"][href*=\"/reels_tab\"]",
+            "[role=\"tablist\"] a[href*=\"/reels_tab\"]"
           ]
         },
         {
@@ -292,6 +314,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "48da761ca2369e911aff7410cb08c897a6956b70969f042189e10a8bb709f72934d366a14c7998246510a5d1a19180d182ef738cd417dc5b0792fdccd4c7c005"
+    "value": "ea008a78f5d9a4311c34a188aa55a4a551f510adcfd34230164b98f169a9b067611f4d0bd96144059ae8fc5c4e0288f581714e4bf886ef6dc065a35ef8bc540f"
   }
 }
