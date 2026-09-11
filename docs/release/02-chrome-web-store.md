@@ -12,6 +12,9 @@ website blocking, with optional account sync. Build the configured 2.0.0 ZIP fro
 candidate. Verify its actual toolbar, options and supported-site journeys. Older Pro purchase
 instructions below describe retained infrastructure, not a 2.0 activation requirement.
 
+Use the [current Chrome screenshot](screenshots/store-ready/README.md#chrome-web-store) for 2.0.
+The older screenshot set depicts paid controls and must not accompany the free release.
+
 See [current certification](2026-09-08-still-2-certification.md) for exact artifacts and outstanding
 gates. Store metadata changes, upload/submission and production writes require explicit approval.
 
