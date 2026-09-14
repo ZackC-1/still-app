@@ -2,7 +2,8 @@
 
 This repository is the shared memory for Claude Code, Codex Personal, Codex Work, and human
 maintainers. Each harness keeps its own runtime configuration and raw session history. Durable
-knowledge becomes shared only when it is written to the repository and synchronized through Git.
+knowledge is written to the repository and synchronized through Git. Mem0 adds shared retrieval
+of concise session context for Codex and Claude Code under [one project protocol](MEMORY.md).
 
 ## What is shared
 
@@ -15,6 +16,7 @@ knowledge becomes shared only when it is written to the repository and synchroni
 | Planned work | `docs/plans/` | Active until completed or superseded. |
 | Cross-agent resumption state | `docs/handoffs/` | Temporary; removed or archived after integration. |
 | Release truth | `docs/release/` | Operational and time-sensitive. |
+| Searchable session context | Mem0 under the [Still protocol](MEMORY.md) | Dated summaries and pointers; verify before acting. |
 | Raw session transcripts | Harness-specific home directories | Local evidence, not authoritative project memory. |
 
 ## The shared loop
@@ -47,7 +49,8 @@ Every agent should:
 2. Read `STRATEGY.md` and `docs/README.md`.
 3. Read only the relevant current spec, architecture, ADR, release, and plan documents.
 4. Search `docs/solutions/` before repeating investigation.
-5. Read a handoff only when the task explicitly resumes it.
+5. Retrieve relevant shared Mem0 context using [MEMORY.md](MEMORY.md). Read a handoff when the
+   task resumes its unfinished work; verify its claims against Git and current state.
 6. Create or update a plan if the work is multi-file, risky, externally coordinated, or difficult to
    verify in one pass.
 
@@ -69,6 +72,8 @@ Every agent should:
 5. Commit documentation with its supporting code when practical.
 6. If work remains, create a handoff from `docs/handoffs/_template.md`.
 7. If nothing remains, do not create a handoff merely to summarize a completed chat.
+8. Save a concise Mem0 checkpoint under the Still scope with the decision/outcome, verification
+   and authoritative document pointer. Confirm successful storage before reporting it saved.
 
 ## Session-history boundary
 

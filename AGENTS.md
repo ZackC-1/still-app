@@ -16,6 +16,11 @@ Compound Engineering brain.
 5. Inspect `git status --short --branch`. Preserve unrelated changes and never assume an uncommitted
    file is disposable.
 
+6. Follow [`docs/MEMORY.md`](docs/MEMORY.md): retrieve relevant Still Mem0 context before
+   substantive work and save privacy-safe decisions, verified outcomes and handoffs at checkpoints.
+   Codex and Claude Code share `user_id: still-app` and `app_id: still-app`; shared searches must
+   not filter by writing agent. The owner has authorized this project-memory workflow.
+
 The complete shared-brain workflow is documented in
 [`docs/SHARED-BRAIN.md`](docs/SHARED-BRAIN.md).
 
@@ -74,7 +79,9 @@ perform the read-first check and capture reusable learning after non-trivial wor
 
 ## Durable brain contract
 
-Repository files, not chat transcripts, are the source of shared memory.
+Repository files are the authoritative source of shared memory. Mem0 adds cross-session retrieval
+of concise project context under the [Still memory protocol](docs/MEMORY.md); it does not replace
+repository evidence or capture raw chat transcripts.
 
 - `STRATEGY.md` records durable product direction and outcome priorities.
 - `CONCEPTS.md` records the project's shared domain vocabulary — the agreed names for entities,
