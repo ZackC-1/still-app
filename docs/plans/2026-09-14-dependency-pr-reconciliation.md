@@ -1,6 +1,6 @@
 # Reconcile dependency PRs 184–187
 
-Status: verifying
+Status: implemented; protected merge verification is tracked in [PR #193](https://github.com/ZackC-1/still-app/pull/193).
 
 ## Intent
 
@@ -33,5 +33,6 @@ Detailed command output is local ignored evidence under
 
 Local verification on Node 24.19.0 and pnpm 11.9.0 passed frozen install, lint,
 typecheck, all builds, and 788 unit tests (39 existing skips). The integrated audit
-reported zero advisories across 404 dependencies. Protected CI verification remains
-required before merge.
+reported zero advisories across 404 dependencies. The linked PR records the required
+CI results, including Deno and both browser-fixture configurations. Linux skips one
+additional macOS-only test, matching the previous CI baseline.
