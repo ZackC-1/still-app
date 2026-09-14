@@ -78,7 +78,7 @@ lifecycle is documented in [docs/SHARED-BRAIN.md](docs/SHARED-BRAIN.md).
 
 Requirements:
 
-- Node.js 22+
+- Node.js 22.22.2+ within 22.x, 24.15.0+ within 24.x, or 26+ (required by the test toolchain)
 - pnpm 11.x
 - Supabase CLI and Docker for local database/function work
 - Playwright Chromium for extension fixture tests
