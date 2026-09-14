@@ -1,5 +1,9 @@
 # Still 2.0 release runbook
 
+Latest operational snapshot: [September 14 release status and owner decisions](2026-09-14-release-status.md).
+It records source/website integration, pending store rollout, and the owner-accepted physical iPad
+testing exception (skipped/unverified). Recheck live portal status before acting.
+
 Current Firefox distribution: [Still 2.0.0 is public on AMO](03-firefox-amo.md#current-distribution-status--verified-september-11-2026),
 verified September 11, 2026. Apple and Chrome 2.0 updates remain pending.
 
