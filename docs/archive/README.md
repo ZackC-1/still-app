@@ -13,3 +13,14 @@ Use the following sources instead:
 
 Archived files may mention superseded branches, build numbers, store states, or incomplete work.
 Personal test-account identifiers have been removed.
+
+## Release and testing records
+
+- [July 7 release checkpoint](release-sessions/2026-07-07-release-session-checkpoint.md)
+- [July 8 iOS submission checkpoint](release-sessions/2026-07-08-ios-submission-checkpoint.md)
+- [July 9 functional testing matrix](release-sessions/2026-07-09-functional-testing-matrix.md)
+- [July 9 release testing checkpoint](release-sessions/2026-07-09-release-testing-checkpoint.md)
+- [July launch progress](release-sessions/launch-progress-2026-07-13.md)
+
+External research lives in [research/](../research/README.md); current release operations live in
+[release/](../release/README.md). Archived headings that say “current” refer to their original date.

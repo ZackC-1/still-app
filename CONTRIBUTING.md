@@ -14,7 +14,7 @@ permission. See [LICENSE](LICENSE) for the controlling terms.
 
 - Use the issue templates for bugs and feature requests.
 - Keep security-sensitive reports out of public issues. Follow [SECURITY.md](SECURITY.md).
-- Check [CONTEXT.md](CONTEXT.md) for the domain vocabulary before naming new code.
+- Check [CONCEPTS.md](CONCEPTS.md) for the domain vocabulary before naming new code.
 - Open an issue before code changes so scope, permission, and the verification plan are clear.
 
 ## Local setup
@@ -56,6 +56,14 @@ Useful focused commands:
 - Update docs when the public interface, privacy posture, release process, or architecture changes.
 - Do not commit generated outputs such as `dist/`, `.output/`, `.wxt/`, coverage, Playwright reports, or local Xcode build products.
 - Do not commit real secrets. Use `.env.example` and package-level `.env.example` files for names only.
+
+## File placement
+
+Start with the component README and [documentation map](docs/README.md) before adding files.
+Keep shared behavior in `packages/core/`, platform adapters in their existing packages, native
+Apple code in `apps/apple/`, and backend functions/migrations in `supabase/`. Preserve framework
+entrypoint names. Place research and historical release records in their documented folders and
+update relative links when moving a document.
 
 ## Architecture expectations
 

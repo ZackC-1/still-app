@@ -4,7 +4,7 @@ This is the operational handoff for the English launch. Apple is configured for 
 Canada, and the United Kingdom. Chrome version 1.0.1 is publicly installable in the United States
 and Canada. Resume here before changing a pending store submission. The canonical positioning and
 paste-ready copy remain in
-[`marketing-playbook.md`](marketing-playbook.md) and [`store-listing-copy.md`](store-listing-copy.md).
+[`marketing-playbook.md`](../../release/marketing-playbook.md) and [`store-listing-copy.md`](../../release/store-listing-copy.md).
 
 ## 2026-07-21 — Launch state (CURRENT; supersedes the July 13–14 snapshot below)
 
@@ -64,7 +64,7 @@ approves the pending build). Product-truth wording uses "every **supported** sur
    from `.env` (the macOS review still relies on that code — never rotate mid-review); optional: re-add
    the v3 IAP promo image + fix the "andTikTok" spacing typo in the App Store promotional text.
 5. **Recommended, never done** — on-device mobile-blocking validation on a physical iPhone (Safari) and
-   Firefox for Android ([`06-mobile-blocking-validation.md`](06-mobile-blocking-validation.md)); the
+   Firefox for Android ([`06-mobile-blocking-validation.md`](../../release/06-mobile-blocking-validation.md)); the
    free-tier core promise CI cannot cover.
 
 ---
@@ -185,7 +185,7 @@ pnpm --filter @still/ext-chromium zip:firefox
 ```
 
 The WXT command recreates the binary but not the required full-monorepo source archive. Follow
-[`03-firefox-amo.md`](03-firefox-amo.md) §3 to recreate and clean-room verify that archive.
+[`03-firefox-amo.md`](../../release/03-firefox-amo.md) §3 to recreate and clean-room verify that archive.
 
 ## Apple App Store
 
@@ -246,7 +246,7 @@ status, then check:
    iPhone, iPad, and Mac.
 7. After the launch versions are live, upload the staged 1.0.3 packages (hashes above) to Chrome and
    AMO, and archive/upload Apple 1.0.3 build 4 from `main`. Rerun the on-device checks in
-   [`06-mobile-blocking-validation.md`](06-mobile-blocking-validation.md) and the `VALIDATION.md`
+   [`06-mobile-blocking-validation.md`](../../release/06-mobile-blocking-validation.md) and the `VALIDATION.md`
    manual cross-surface passes against build 4 before releasing it.
 
 ## Safe resume check
