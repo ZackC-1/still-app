@@ -22,5 +22,6 @@ Helpful reports include:
 
 - Still never requests `<all_urls>` host access.
 - Remote rule sets are signed data, not executable code.
-- Entitlements are server-authoritative and written through narrow backend paths.
+- Account entitlements are server-authoritative; Apple receipt authority is separately governed by
+  [ADR 0003](docs/adr/0003-entitlement-authority-receipt-and-server.md). Neither gates free 2.0.0 access.
 - Real secrets must stay out of the repository and client bundles.

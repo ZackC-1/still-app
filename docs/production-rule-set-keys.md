@@ -1,65 +1,56 @@
-# Production rule-set signing keys — deploy runbook
+# Production rule-set signing and publication
 
-The Safari (and Chromium) extensions verify any fetched rule set against an Ed25519 signing-key
-allowlist before applying it (`packages/core/src/rules/`). A **production** build trusts only
-`PRODUCTION_RULE_SET_KEYS`; the dev key is never trusted in a prod build. The current set is served
-from the hosted `get_current_rule_set()` RPC and applied if it's strictly newer than the bundled seed.
+Current reference reviewed September 14, 2026. Signed rule updates are data, not executable code.
+The [earlier guide](archive/pre-2.0-reference-refresh/docs/production-rule-set-keys.md) preserves the
+initial publication history. Do not infer current hosted version or private-key custody from it.
 
-## Status (what's already done)
+## Trust and version selection
 
-The production signing key + initial published set are wired up:
+`packages/core/src/rules/trusted-keys.ts` contains the production public-key allowlist and rollback
+floor. Production builds verify fetched/cached data against production keys; they do not accept a
+development-signed remote cache. The packaged seed is a separately trusted offline input, so its
+bundled development signature is not evidence that remote production trust was disabled.
 
-- **`PRODUCTION_RULE_SET_KEYS`** (`packages/core/src/rules/trusted-keys.ts`) holds the prod public key
-  `still-prod-1`.
-- **`supabase/migrations/0006_prod_rule_set.sql`** is the prod-signed current set (v1.0.1), generated
-  by the signer. A CI test (`signature.test.ts`) verifies it against the shipped public key, so a
-  key/signature mismatch fails the build.
-- The **private key** lives only in the gitignored `packages/core/.secrets/rule-set-prod-key.local`
-  on the machine that generated it. **Move it into your secret manager and delete that file.**
+Current source seed version is 1.1.9. That is a rule-data version, separate from application 2.0.0.
+The initial production migration 0006 contains an older set; applying that migration alone cannot
+make an older remote set supersede a newer bundled seed. Clients choose the newest trusted set,
+reverify cached data and keep the newer cache against stale fetches. Refresh is shared in flight and
+lands for a subsequent content load. A configured endpoint and usable production keys are required;
+otherwise blocking continues from the bundle.
 
-**Two human deploy actions remain:**
+## Signing tools
 
-1. Secure the private key (above).
-2. Apply the migration to hosted Supabase — `supabase db push` (linked project) **or** paste
-   `0006_prod_rule_set.sql` into the Supabase SQL editor. After that, production extensions fetch +
-   verify + apply the prod-signed set.
+| Command in `@still/core` | Behavior |
+|---|---|
+| `gen-rule-set-key [kid]` | Creates a keypair, writes a private ignored file and prints only the public key. Refuses to overwrite an existing key. |
+| `sign-seed` | Re-signs the bundled seed after a reviewed data change. |
+| `sign-prod-set` | Signs seed content with the production key and writes a sequential production migration for the chosen version. |
 
-## Scripts
+The production signer reads `STILL_PROD_PRIVATE_KEY_HEX` or the private ignored key file and supports
+`STILL_PROD_KID` / `STILL_PROD_VERSION`. Its default version bumps the seed patch. It rejects malformed
+or older-than-seed versions and rejects changed content/signatures under an already generated
+version. An identical rerun can reuse that version's migration; never rewrite an applied migration
+to deliver different rules.
 
-- `pnpm --filter @still/core gen-rule-set-key [kid]` — generate a keypair. Writes the private key to
-  the gitignored secrets file, prints **only** the public key (ready to paste into
-  `PRODUCTION_RULE_SET_KEYS`). Default kid `still-prod-1`. Refuses to overwrite an existing key file.
-- `pnpm --filter @still/core sign-prod-set` — sign `rules/seed.json`'s content with the prod key and
-  write a **fresh sequentially-numbered migration**
-  (`supabase/migrations/<NNNN>_prod_rule_set_v<version>.sql`; re-running for the same version
-  overwrites that version's own file — the initial publish lives in `0006_prod_rule_set.sql`).
-  Reads the private key from `STILL_PROD_PRIVATE_KEY_HEX` or the secrets file. Env overrides:
-  `STILL_PROD_KID`, `STILL_PROD_VERSION` (default: the seed version with the patch bumped, so it's
-  strictly newer).
+Private-key possession and backup must be verified privately by the operator before signing. Do not
+generate a replacement merely because the historical local file is absent; a new key requires the
+rotation sequence below. Do not print private keys in commands, transcripts or documentation.
 
-## Publishing a rule-set update later
+## Future authorized publication
 
-When you change the rules (edit `packages/core/rules/seed.json` and `pnpm --filter @still/core
-sign-seed` to re-sign the bundled seed at a new version):
+1. Review the rule changes against supported-site behavior and ordinary-content preservation; update
+   the bundled seed/version and its tests as applicable.
+2. Select a production version newer than both the intended clients' bundle and the current hosted
+   version. Generate/review the signed migration using the existing private key.
+3. Verify signature, schema and version ordering with the existing tests. Inspect the exact migration
+   and deployment target before an authorized database push; do not reapply old migration IDs.
+4. Verify the deployed payload and a configured client's adoption. Failure/offline must preserve the
+   trusted local fallback. Record versions/hashes and actual observations, not a same-day-delivery promise.
 
-1. `STILL_PROD_VERSION=<new-version> pnpm --filter @still/core sign-prod-set` (private key in env or
-   the secrets file restored from your secret manager) — writes a NEW migration file for the new
-   version. (A new file is required: `supabase db push` records applied migration ids and skips ones
-   it has already run, so a rewritten old file would silently never reach the hosted database.)
-2. Commit the new migration, then `supabase db push` (or run the SQL).
-
-Clients adopt the new set on next fetch because it's strictly newer than what they hold (rollback floor
-is `RULE_SET_MIN_VERSION`).
+This reference update does not publish a rule set or alter submitted artifacts.
 
 ## Rotation
 
-Generate a new keypair, **add** its public key to `PRODUCTION_RULE_SET_KEYS` alongside the current one,
-ship that build, then start signing with the new key (`STILL_PROD_KID=still-prod-2`). Remove the
-retired key only after the old build is out of the field.
-
-## Safety properties
-
-- A prod build trusts **only** `PRODUCTION_RULE_SET_KEYS` — never the dev key — enforced by
-  `packages/core/src/rules/loader.ts` and asserted in the shared loader tests.
-- If the prod key list were ever empty, the fetch is skipped and the bundled seed applies (fail-safe).
-- The payload + signature are public (served to every client); only the private key is secret.
+Add the new public key beside the current one, ship clients that trust it, then begin signing with
+that key. Retire old keys only after accounting for installed clients and rollback needs. An empty
+production key list skips fetching and uses the bundled seed; it must never fall back to dev trust.

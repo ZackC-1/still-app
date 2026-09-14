@@ -50,9 +50,41 @@ Remote data can change selectors and actions inside the existing interpreter. It
 
 The dormant paid tier is Still Pro. The immutable internal entitlement id remains `still_sync`.
 
-## Settings flow
+## Settings and account flow
 
-Settings are user choices, not authority. Local adapters read and write `StillSettings`; signed-in users sync settings through Supabase with last-write-wins timestamps. Entitlement never comes from client-writable settings.
+Settings are user choices, not entitlement authority. Local adapters read/write `StillSettings`
+without a network dependency for blocking. One global switch and four service switches are active;
+the legacy pause field is normalized/ignored. Optional sign-in uses the shared email-code flow.
+
+`SyncService` starts free settings sync independently of entitlement reconciliation. Server profile
+writes carry a version, server timestamp and write ID. First-time reconciliation can seed local
+settings, adopt a newer account, or start a new account from defaults when the device contains
+another person's state. Subsequent reconciliation compares the complete anchored server-row state;
+it is not unbounded device-clock LWW. See [the decision table](PRODUCT.md#settings-sync-and-account-safety).
+
+Realtime updates and local storage notifications propagate accepted settings. The Apple
+`SettingsBridge` broadcasts App Group changes to the app and extension; sync epochs permit account
+adoption without retaining the previous account's version. Failed uploads retry with bounded
+backoff, and delayed acknowledgements cannot replace newer local changes. Lifecycle guards discard
+work from old sessions, even when the same UUID signs back in.
+
+Sign-out stops this installation's sync and clears its local session without revoking other devices
+as the intended action. Blocking/settings persist. The last-synced-account marker survives sign-out
+and deletion to protect the next account on a shared device. Export/delete endpoints authenticate
+the current user; export read failures fail closed rather than returning a misleading partial export.
+
+## Privacy and deployment boundaries
+
+Migration 0012 removed paid-sync gating; 0013 adds short-lived derived security counters and cleanup.
+Account deletion removes active account/settings/account-entitlement records and linked counters.
+Separate historical billing events, RevenueCat records, support mail and provider logs/backups follow
+[the published current-practice policy](https://stillapp.fit/privacy/). The retained Apple SDK can
+communicate while signed out; no browsing-history collection is introduced.
+
+[Connections](CONNECTIONS.md) documents actual configuration, and [the release record](release/2026-09-14-release-status.md)
+attributes backend, website and store state. Current main, a submitted package and the live website
+can have different source commits: `gh-pages` publishes separately and later tooling/docs changes
+do not rebuild pending store artifacts.
 
 ## Verification surfaces
 

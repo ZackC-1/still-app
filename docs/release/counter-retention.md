@@ -1,8 +1,14 @@
 # Security counter retention deployment
 
-Status: **approval required** for hosted migration, purge, deployment, provider changes, and privacy
-publication. Issue #152; migration `0013_counter_retention.sql`. Do not run these steps against a
-hosted project just because local tests pass. This runbook covers security counters; it does not
+Status: **implemented and deployed for this release; issue #152 closed.** Migration
+`0013_counter_retention.sql`, the reviewed Edge revisions and subsequent review-sign-in logging
+update were deployed; the owner-approved current-practice privacy notice was published. See
+[September 14 status](2026-09-14-release-status.md) and the
+[September 11 deployment evidence](2026-09-11-public-contact-update.md).
+
+The procedures below remain operational references for a future approved change or recovery, not
+unfinished instructions to rerun the purge or redeploy. Fresh production/provider changes require
+their own scope. This runbook covers security counters; it does not
 promise erasure of provider logs, purchase records, WAL, backups, or every account identifier.
 
 ## Storage and lifetime
@@ -33,10 +39,12 @@ The RPC signature, 60/600-second windows, per-account-first behavior, shared-net
 once because legacy rows contain raw identifiers and do not store their duration. Do not run it
 repeatedly as an operational cleanup.
 
-## Provider inventory and unresolved release gates
+## Provider inventory and disclosure boundaries
 
-These are separate from the tested counter-table behavior. An application SQL DELETE does not
-establish any of these providers' retention/deletion guarantees.
+These are separate from the tested counter-table behavior. The owner accepted disclosure of current
+practice rather than automatic cleanup of all separate billing/support records. The table below is
+an inventory for future provider changes and requests, not an assertion that publication is pending.
+An application SQL DELETE does not establish provider retention/deletion guarantees.
 
 | System | Potential retained data | Required owner verification |
 |---|---|---|
@@ -49,24 +57,22 @@ establish any of these providers' retention/deletion guarantees.
 
 Read-only management checks confirmed hosted auth configuration and the presence of managed
 backups. Those observations do not establish log/backup retention or account-deletion handling.
-The release owner must verify plan-specific retention, PostgreSQL parameter/error logging and
-restore procedures through an authorized dashboard/operator. If
-provider retention contradicts the approved functionality-only/IP-deletion policy, obtain a specific
-decision or configure supported deletion before release. The short-lived counter exception does not
-authorize indefinite provider retention.
+Verify plan-specific retention, PostgreSQL parameter/error logging and restore procedures before
+making a new provider-retention promise or changing the approved policy. The accepted current-practice
+notice does not establish a maximum for every provider or authorize a new undisclosed recipient.
 
 ### Application logging follow-up
 
 The reviewed source for `review-signin` logs verification timestamps and fixed outcomes without
 request IPs. Limiter and session-mint failures emit fixed categories rather than untrusted exception
 objects. This preserves response behavior and IP-based throttling, but removes network attribution
-from these application audit messages. Deploy this handler revision separately through the approved
-Edge deployment process and verify downloaded source parity before describing it as live behavior.
+from these application audit messages. Its deployment is confirmed in the September 14 record.
+A future revision still needs the approved Edge deployment/source-parity checks.
 No database migration or Apple/browser artifact rebuild is needed for this isolated handler change.
 
 The change stops these new application-generated copies after deployment. It does not erase prior
 Edge logs, suppress gateway/Auth/provider request metadata, alter provider retention or delete
-backups. Complete the provider inventory above before making public deletion or IP-retention claims.
+backups. Keep public deletion/IP-retention claims within the approved notice and verified provider facts.
 
 Primary references (checked 2026-09-08): [Supabase Cron](https://supabase.com/docs/guides/cron),
 [logs](https://supabase.com/docs/guides/observability/logs),
@@ -239,4 +245,5 @@ Never restore migration 0010's raw-key writer or repopulate purged counters from
 forward-only for personal data. If a broader restore is necessary, restore into isolation, apply
 0013 and account-deletion reconciliation before reopening traffic. Provider-backed deletion
 reconciliation requires its own documented approved process; this runbook does not invent a new
-long-lived account/IP ledger. Keep release blocked if that process or provider retention is unknown.
+long-lived account/IP ledger. Do not reopen restored service until its deletion/expiry reconciliation
+and provider-handling requirements are understood and approved.

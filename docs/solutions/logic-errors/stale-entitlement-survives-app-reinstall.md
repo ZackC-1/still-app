@@ -19,6 +19,13 @@ status: active
 
 # Stale Safari-extension entitlement survives app reinstall
 
+## Current applicability — Still 2.0.0
+
+This documents the retained purchase infrastructure and its historical failure mode. All blocking
+and optional settings sync are free with both paid flags disabled; the purchase/restore steps below
+are not current activation requirements. Preserve the technical lesson and existing ownership data;
+use [current monetization](../../monetization-design.md) before any future paid work.
+
 ## Problem
 
 iOS Safari owns web-extension storage independently of the app container: deleting the app wipes

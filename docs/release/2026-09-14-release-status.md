@@ -51,6 +51,15 @@ References: [#189](https://github.com/ZackC-1/still-app/pull/189),
 [#193](https://github.com/ZackC-1/still-app/pull/193),
 [#153](https://github.com/ZackC-1/still-app/issues/153).
 
+## Repository maintenance addendum
+
+After the source checkpoint above, shared-memory documentation merged through #195, obsolete-file
+cleanup through #196 at `ccee37c`, and repository organization through #197 at `4877e2e`.
+PR #197 passed all three required CI checks (run `34896951640`) and local main was fast-forwarded.
+These maintenance changes preserve runtime behavior and the submitted artifacts. Current product
+reference is [PRODUCT.md](../PRODUCT.md); the [reference audit](2026-09-14-reference-audit.md)
+documents subsequent documentation corrections. This addendum makes no newer portal observation.
+
 ## Website — published and verified
 
 The live site is [stillapp.fit](https://stillapp.fit/), published from `gh-pages`, independently of

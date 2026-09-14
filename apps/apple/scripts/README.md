@@ -11,9 +11,10 @@ supported websites in Safari, not native social apps.
 | `archive.sh` | Rebuilds web resources, archives iOS and exports an App Store IPA with an ASC API key. It permits provisioning updates; `UPLOAD=1` additionally uploads. Both external actions require explicit approval. |
 | `ExportOptions.plist` | Existing App Store export configuration. |
 
-Use [release certification](../../../docs/release/2026-09-08-still-2-certification.md) for the
-candidate, versions, evidence and remaining approval gates. Do not reuse an earlier archive as
-proof for newer source.
+Use [current release status](../../../docs/release/2026-09-14-release-status.md) for submitted
+artifacts and [the historical candidate record](../../../docs/release/2026-09-08-still-2-certification.md)
+for its original hashes/tests. Source defaults are 2.0.0 (7); submitted Apple packages are 2.0.0 (8).
+Do not reuse an earlier archive as proof for newer source or rebuild pending packages merely to sync Git.
 
 ## Local preparation
 
@@ -47,6 +48,7 @@ App Store export readiness.
 
 After signed installation, verify the native webview, Safari extension, App Group propagation,
 restart/background behavior, offline free blocking and the approved synthetic-account sync
-journeys on macOS, physical iPhone and supported iPad. Record device/OS, artifact hash and actual
-results. Deployment, production-account tests, privacy/store publication and submission remain
+journeys for the affected candidate. Preserve existing Mac/iPhone evidence and repeat only checks
+needed by a change/failure. Physical iPad is owner-accepted skipped/unverified for this release.
+Record device/OS, artifact hash and actual results. Deployment, production-account tests, privacy/store publication and submission remain
 separate approval gates.

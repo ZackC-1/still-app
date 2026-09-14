@@ -19,6 +19,13 @@ status: active
 
 # Free-tier hero copy claims Shorts removal without checking the per-service toggle
 
+## Current applicability — Still 2.0.0
+
+The truthfulness lesson still applies, but the free/Pro strings and four-state matrix below describe
+the older paid model. Current free mode covers all enabled services and keeps paid presentation
+behind disabled flags. Issue #99 was closed as superseded, not because an entitlement-hydration
+tri-state was implemented. Do not recreate that deferred upsell work for this release.
+
 ## Problem
 
 PR #96 made the hero status line entitlement-aware (`STRINGS.global.onFree` / `onPro` / `offSecondary`), but the free-tier line "YouTube Shorts are removed. Still Pro adds Reels, TikTok, and sync." asserted removal without checking whether the YouTube service row was actually on. Removal truthfully requires `globalOn && services.youtube`, so a free user with Still on but the YouTube row toggled off saw the hero claim removal while Shorts were showing directly underneath.
@@ -33,7 +40,7 @@ PR #96 made the hero status line entitlement-aware (`STRINGS.global.onFree` / `o
 ## What Didn't Work
 
 1. **The PR's original cut — entitlement axis only.** The authoring session scoped status truthfulness to exactly three states — Free, Pro, and global-off — during a broad launch-readiness sweep, effectively conflating "service row off" with "global off"; the per-service toggle was never identified as a fourth axis (session history). The copy's truth claim depended on a state axis the code never inspected — an incomplete state matrix.
-2. **Reviewer-proposed "entitlement-pending" gate — refuted.** A review finding proposed gating the free/pro split on an entitlement-hydration "pending" signal (`c.reconciling` / `popupState === 'entitlement-pending'`) to stop a returning-Pro-user upsell flash at startup. Investigation found the mechanism doesn't exist for this purpose: extension hosts never set `reconciling` (only `apple-session.ts` writes it) and hydrate entitlement via `EntitlementCache` with no in-flight flag; on Apple, the flash window spans mount → `supabase.auth.getUser()`, during which `popupState` reads `'signed-out'` — indistinguishable from a real signed-out free user. A real fix needs a new tri-state entitlement-hydration signal threaded through `extension-setup.ts`, `app-webview/main.ts`, and the Safari wiring — deferred as a multi-host design decision rather than patched superficially. Nothing tracks this yet.
+2. **Reviewer-proposed "entitlement-pending" gate — refuted.** A review finding proposed gating the free/pro split on an entitlement-hydration "pending" signal (`c.reconciling` / `popupState === 'entitlement-pending'`) to stop a returning-Pro-user upsell flash at startup. Investigation found the mechanism doesn't exist for this purpose: extension hosts never set `reconciling` (only `apple-session.ts` writes it) and hydrate entitlement via `EntitlementCache` with no in-flight flag; on Apple, the flash window spans mount → `supabase.auth.getUser()`, during which `popupState` reads `'signed-out'` — indistinguishable from a real signed-out free user. A real fix needs a new tri-state entitlement-hydration signal threaded through `extension-setup.ts`, `app-webview/main.ts`, and the Safari wiring — deferred as a multi-host design decision rather than patched superficially. This was later tracked by #99 and closed as superseded by the free release, not implemented.
 
 ## Solution
 
@@ -106,4 +113,4 @@ Picking the wrong shape (or, as here, doing neither) leaves a claim that's only 
 - [testable-swift-decision-logic-via-stillkit](../architecture-patterns/testable-swift-decision-logic-via-stillkit.md) — same-cycle sibling (commit `6be13e0`, PR #96) applying the extract-to-StillKit pattern to per-OS onboarding copy.
 - [mirror-fixes-across-parallel-paths](../conventions/mirror-fixes-across-parallel-paths.md) — related-but-distinct failure shape: that doc is duplicated code paths drifting apart; this doc is a single implementation under-conditioned on a state axis.
 - PR #96 (https://github.com/ZackC-1/still-app/pull/96) — the fix commits `57ebb8c` (hero copy) and `6be13e0` (OnboardingCopy) landed during its review cycle.
-- Deferred follow-up with no tracking issue yet: tri-state entitlement-hydration signal to prevent the returning-Pro upsell flash (see What Didn't Work #2).
+- Historical deferred follow-up: entitlement-hydration tri-state. Issue #99 was later closed as superseded by free mode; it was not implemented (see applicability above).

@@ -7,7 +7,8 @@ Compound Engineering brain.
 ## Start every task here
 
 1. Read [`STRATEGY.md`](STRATEGY.md) for product direction and non-negotiable product truths.
-2. Read [`docs/README.md`](docs/README.md) and the relevant architecture, specification, ADR, or
+2. Read [`docs/README.md`](docs/README.md), use [`docs/PRODUCT.md`](docs/PRODUCT.md) for current
+   release behavior, and read the relevant architecture, specification, ADR, or
    release runbook for the task.
 3. Search [`docs/solutions/`](docs/solutions/) for prior decisions, failed approaches, and reusable
    fixes before investigating from scratch.

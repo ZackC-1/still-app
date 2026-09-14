@@ -8,8 +8,11 @@ or upgrade a RevenueCat plan solely to release free 2.0.
 
 ## Current release checklist
 
-**Dashboard verification pending.** This checklist identifies the evidence to collect; it does not
-assert that live settings have been verified. Record only non-secret outcomes. Keep API keys,
+**September 14 checkpoint:** the owner reviewed credentials and the existing Supabase webhook,
+with successful delivery evidence. The provider inventory and current-practice retention decision
+are recorded in [the release status](2026-09-14-release-status.md). This is not a fresh dashboard
+inspection or proof that every field below was independently certified. Use this checklist for a
+future relevant change; unchecked reusable items do not undo recorded results. Keep API keys,
 webhook authorization values and customer records out of screenshots, issues and release notes.
 
 - [ ] Keep `PAID_TIER_ENABLED` and `MonetizationConfig.paidTierEnabled` disabled. Free blocking and
@@ -47,7 +50,7 @@ webhook authorization values and customer records out of screenshots, issues and
       deletion. Do not infer immediate erasure of purchase records, logs or backups, or an unlimited
       retention exception from the retained identity design. RevenueCat's **Customer → Manage**
       deletion operation is separate and must not be used as a test. Follow the
-      [retention inventory](counter-retention.md) and [privacy draft](privacy-retention-draft.md).
+      [retention inventory](counter-retention.md) and [published privacy notice](https://stillapp.fit/privacy/).
       [Customer deletion](https://www.revenuecat.com/docs/dashboard-and-metrics/customer-profile#delete-customer).
 - [ ] Reconcile **App Store Connect → Still → App Privacy** and the final privacy notice with the
       retained SDK. RevenueCat's guidance includes Purchase History used for Analytics and App
@@ -58,8 +61,8 @@ webhook authorization values and customer records out of screenshots, issues and
 
 Source checks establish both disabled paid flags and the retained identity calls. Existing tests
 cover dormant monetization, identity transitions and mocked webhook/reconcile behavior; they do not
-certify dashboard state or provider retention. Deploying the reviewed `review-signin` logging fix
-and verifying its hosted source is a separate Supabase release action under the
+certify dashboard state or provider retention. The reviewed `review-signin` logging fix was deployed as recorded in the September 14 checkpoint.
+Future deployment/source verification remains a separate Supabase action under the
 [retention runbook](counter-retention.md#application-logging-follow-up), not a RevenueCat setting.
 
 ## Retained paid-launch reference
@@ -200,7 +203,7 @@ Docs: [Webhooks](https://www.revenuecat.com/docs/integrations/webhooks)
 - **Web:** `create-web-checkout` embeds the JWT-verified UUID in the Purchase Link — no separate call.
 - Because the `still_sync` entitlement is project-scoped, any purchase tied to that UUID makes
   `entitlements["still_sync"].isActive == true` on Apple and web alike.
-- **Restore decision rule:** a Supabase account with `still_sync = true` auto-provisions Pro after
+- **Historical paid-flow restore rule (superseded on Apple by [ADR 0003](../adr/0003-entitlement-authority-receipt-and-server.md)):** a Supabase account with `still_sync = true` auto-provisions Pro after
   sign-in/reconcile and does not need a Restore button. An unentitled signed-in account should see the
   upgrade path plus a secondary Apple `Restore purchase` button in the paywall. Restore is for Apple
   receipt recovery: reinstall/new Apple device, or an Apple ID that already owns the non-consumable

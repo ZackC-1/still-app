@@ -1,5 +1,9 @@
 # Still 2.0 PR reconciliation
 
+> **Dated evidence.** [September 14 release status](2026-09-14-release-status.md) supersedes
+> earlier pending deployment, forwarding, policy and submission observations. Preserve the
+> candidate-specific hashes and test results below; do not treat old next steps as new work.
+
 Verified September 10, 2026 (Pacific). **Source is verified for merge; public release remains No-Go
 pending the external and device gates below.**
 

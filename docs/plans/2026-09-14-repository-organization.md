@@ -42,6 +42,6 @@ remain with explicit scope/provenance qualifications. The old `#surface` anchor 
 No newly broken local Markdown links were found, and 13 documented package commands match their
 package scripts. Git whitespace validation passed.
 
-Full CI and the protected merge will be linked through the PR. Historical files remain in Git and
+All three required CI checks passed in run `34896951640`; [PR #197](https://github.com/ZackC-1/still-app/pull/197) merged at `4877e2e`. Historical files remain in Git and
 the moved files remain in the current tree. Restore a specific old path from `ccee37c` if needed;
 do not replace current source or store packages with an older snapshot.

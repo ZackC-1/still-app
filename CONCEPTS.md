@@ -28,8 +28,9 @@ deliberately finite and enumerated; claims about coverage say "every supported s
 The dormant paid tier: a one-time purchase, never a subscription, that historically extended Still beyond free
 YouTube-Shorts removal to Reels removal, TikTok website blocking, and settings sync across surfaces.
 
-Pro is a property of an Entitlement, not of an account — it can be bought and used with no account at
-all on Apple platforms. An account only becomes necessary to carry Pro *between* surfaces.
+In the retained paid model, Pro is a property of an Entitlement, not of an account: Apple receipt
+ownership can work without an account, while an account carries entitlement between supported
+surfaces. Current 2.0.0 access requires neither form of entitlement.
 
 ### Entitlement
 The fact that Pro is unlocked, together with where that fact came from.
@@ -64,21 +65,24 @@ are governed by [ADR 0003](docs/adr/0003-entitlement-authority-receipt-and-serve
   trusted offline floor; fetched sets are Ed25519-verified against build-scoped trusted keys.
 - **Surface** — one authored blocking unit under a service (e.g. `yt-home-shelf`), with an action
   (`hide`/`remove`/`redirect`/`placeholder`/`blockSite`) and a monetization `tier`.
-- **Tier** — the ONE monetization axis (`free` | `pro`), authored per surface in the seed. The
+- **Tier** — the ONE monetization axis (`free` | `pro`), authored per surface in the seed. With paid flags enabled, the
   engine gates by it, the CSS generator buckets by it, and service-row locking derives from it
-  (`core/rules/tiers.ts`). `requiredCapability` is reserved authored data, deliberately unread.
+  (`core/rules/tiers.ts`). In 2.0.0 those access gates are bypassed by the disabled paid flags.
+  `requiredCapability` is reserved authored data, deliberately unread.
 - **Rule-set loader** (`core/rules/loader.ts`) — the one extension wiring for the signed rule-set
   pipeline: background fetch → verify → cache; content applies the newest of {cached, bundled}.
   Shared by Safari, Chromium, and Firefox builds.
 - **Engine** (`core/rules/engine.ts`) — pure decisions + DOM application. `applyDom` is the full
   hide+remove walk; **`applyRemovals`** is the per-mutation-frame fast path used when the packaged
   manifest CSS owns every hide surface (applied rule set = bundled seed).
-- **Settings** (`StillSettings`) — the user's toggles, synced last-write-wins by `updatedAt`.
-  Client-writable; never carries entitlement.
+- **Settings** (`StillSettings`) — global/per-service choices. Initial sync uses a guarded timestamp
+  comparison; subsequent sync uses server-row version/timestamp/write-ID anchors and account isolation,
+  as specified in [PRODUCT.md](docs/PRODUCT.md#settings-sync-and-account-safety). Client-writable;
+  never carries entitlement. The legacy pause field does not expose a current pause feature.
 - **Entitlement** — the server-authoritative "is this account Pro" bit (RevenueCat →
   `revenuecat-webhook` → Supabase `entitlements.still_sync` → reconcile). Reaches the Safari
   extension via the App-Group **entitlement lane** (StillKit `EntitlementBridge`), stamped with the
-  last server-confirmed time so the 30-day offline TTL is real. User-facing name: **Still Pro**;
+  last authoritative receipt/server confirmation time so the 30-day offline TTL is real. User-facing name: **Still Pro**;
   immutable internal id: `still_sync`.
 - **Apple session orchestrator** (`core/sync/apple-session.ts`) — the tested auth/purchase/
   entitlement spine of the WKWebView app: sign-in exchange, double-charge + offline guards,
@@ -96,7 +100,9 @@ are governed by [ADR 0003](docs/adr/0003-entitlement-authority-receipt-and-serve
   wiring around it; entitlement reaches Chrome/Firefox through this lane the way the App-Group
   entitlement lane serves Safari.
 - **App-Group bridge** — the Swift↔web↔extension seam on Apple: settings lane (`SettingsBridge`,
-  LWW) + entitlement lane (`EntitlementBridge`, app-written only after server reconcile).
+  sync metadata/epochs and local timestamp ordering) + entitlement lane (`EntitlementBridge`,
+  app-written after receipt or server confirmation through `StampPolicy`). Safari reads entitlement;
+  it does not become its authority.
 - **Auth gate** (`supabase/functions/_shared/auth.ts`) — the one authenticated-request preamble
   every browser/app-called function wraps its body in (`withAuthenticatedUser`): OPTIONS preflight →
   POST-only → Bearer shape → `verifyJwt` (HS256/ES256 + defense-in-depth claims) → UUID subject.
@@ -109,10 +115,9 @@ are governed by [ADR 0003](docs/adr/0003-entitlement-authority-receipt-and-serve
   rendered UI destination — is distinct from the rule-set **Surface** above (a blocking unit).
 - **Hero card** — the global on/off card at the top of the shared core UI (`core/ui/App.svelte`).
   Its headline says whether Still is on; its secondary line states the current *outcome* and must
-  stay truthful across the full state matrix (globalOn × entitlement × the free tier's YouTube
-  row): a claim is either gated on every axis it asserts or phrased to hedge the axis ("on enabled
-  sites"). All four states are pinned in `core/ui/__tests__/App.test.ts`
-  (`docs/solutions/ui-bugs/free-tier-hero-copy-ignores-service-toggle.md`).
+  stay truthful for the global and enabled-service state. Free 2.0.0 uses the all-service outcome;
+  entitlement-specific copy remains dormant. The earlier paid-mode state-matrix lesson is retained in
+  `docs/solutions/ui-bugs/free-tier-hero-copy-ignores-service-toggle.md`.
 - **Install generation** — the per-install id the app stamps into the App Group on launch
   (StillKit `InstallGeneration`, idempotent) and returns inside every entitlement-lane reply. The
   Safari extension purges its cached entitlement only when the id it last saw CHANGES (reinstall

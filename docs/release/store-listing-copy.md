@@ -1,11 +1,13 @@
 # Still 2.0 store listing copy
 
-Updated September 14, 2026. Canonical English copy for the free 2.0 release. Prepare these fields
-now; publish alongside the corresponding 2.0 artifacts. A listing for an older paid version must
+Updated September 14, 2026. Canonical draft English copy for the free 2.0 release. Apple and Chrome
+submissions and Firefox publication are recorded in [release status](2026-09-14-release-status.md).
+The owner made later Apple portal wording edits; those are intentional and must not be overwritten
+with this draft. This file is not a verbatim export of every submitted localization. A listing for an older paid version must
 not imply that its download already includes free 2.0 functionality.
 
 Use [public contact addresses](public-contact-addresses.md) for every submission. Store screenshots,
-provider privacy declarations, and live portal pricing still need the checks in the
+provider privacy declarations, and live portal pricing follow the evidence/checks in the
 [release runbook](README.md). Do not upload historical images showing Pro locks or $1.99 pricing.
 
 ## Shared product language
@@ -146,7 +148,7 @@ Permission justifications:
 
 Payment: no purchase required for any 2.0 functionality. Remove paid-feature/checkout descriptions.
 Remote executable code: no. Signed remote rule updates are data interpreted by bundled code.
-Finalize data declarations after the provider/privacy gate; optional sign-in processes authentication
+Maintain data declarations against the approved provider/privacy notice; optional sign-in processes authentication
 information and settings. Do not reuse the old claim that signed-out clients make no network requests.
 
 ## Firefox Add-ons
@@ -162,8 +164,8 @@ Summary (250-character limit):
 Description: use the Chrome detailed description above. Release notes: use What's New above.
 
 Payment: mark no payment required for 2.0 functionality. Keep the actual source-available license;
-do not describe Still as open-source licensed. Finalize data declarations after the provider/privacy
-gate, including optional authentication and sync data.
+do not describe Still as open-source licensed. Maintain data declarations against the approved
+provider/privacy notice, including optional authentication and sync data.
 
 Reviewer notes:
 
