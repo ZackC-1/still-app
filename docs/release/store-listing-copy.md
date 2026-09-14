@@ -1,6 +1,6 @@
 # Still 2.0 store listing copy
 
-Updated September 11, 2026. Canonical English copy for the free 2.0 release. Prepare these fields
+Updated September 14, 2026. Canonical English copy for the free 2.0 release. Prepare these fields
 now; publish alongside the corresponding 2.0 artifacts. A listing for an older paid version must
 not imply that its download already includes free 2.0 functionality.
 
@@ -43,11 +43,11 @@ Description (use for both Apple listings):
 
 > OPEN FOR WHAT YOU CAME FOR
 >
-> Still removes short-form distractions from websites in Safari, so a quick visit can stay a quick visit.
+> Still removes short-form video distractions from websites in Safari on iPhone, iPad, and Mac, so a quick visit can stay a quick visit.
 >
-> Use Still on your computer and iPhone, with optional free settings sync between supported browsers.
+> Use Still on your Mac, iPhone, and iPad, with optional free settings sync between supported browsers.
 >
-> ALL INCLUDED FREE IN STILL 2.0
+> INCLUDED FREE IN STILL
 > • Remove YouTube Shorts shelves and tabs
 > • Open Shorts links in the normal YouTube video player
 > • Remove Instagram Reels and Facebook Reels
@@ -57,10 +57,10 @@ Description (use for both Apple listings):
 > Regular videos, posts, and messages on YouTube, Instagram, and Facebook remain available. The TikTok website is blocked.
 >
 > NO ACCOUNT NEEDED
-> Enable the Safari extension and allow it on the websites you want to quiet. All blocking works without sign-in or a purchase. Settings can stay on your device.
+> Install Still, enable its Safari extension, and allow access to the websites you want to quiet. All blocking works without sign-in or a purchase. Settings can stay on your device.
 >
 > FREE SYNC BETWEEN COMPUTER AND PHONE
-> Keep your blocking settings consistent across Chrome and Firefox on your computer, Safari on Mac, and Safari on iPhone and iPad through the Still iOS app. Install Still separately on each browser or device, then sign in with the same email address using the emailed code. Settings sync is optional and free; blocking works without an account.
+> Keep your blocking settings consistent across Safari on Mac, iPhone, and iPad using the Still app. Settings also sync with the separately installed Still extensions for Chrome and Firefox on your computer. Install Still on each browser or device, then sign in with the same email address using the emailed code. Settings sync is optional and free; blocking works without an account.
 >
 > WHERE IT WORKS
 > Safari on iPhone, iPad, and Mac. Still is also available separately for Chrome and Firefox on desktop.
