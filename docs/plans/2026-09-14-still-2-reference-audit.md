@@ -10,6 +10,7 @@ branch: docs/still-2-reference-audit
 
 Baseline: `4877e2ed38b8ea81feaca7b1d4d807a0a2b4f7ef`, the merged organization PR #197.
 The owner requested a complete current-reference audit after that organization pass.
+Delivery and required CI: [PR #198](https://github.com/ZackC-1/still-app/pull/198).
 
 ## Work and boundaries
 
