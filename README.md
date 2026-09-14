@@ -37,7 +37,7 @@ Load unpacked development builds from:
 - Firefox: `packages/ext-chromium/dist/firefox-mv3/manifest.json`
 
 Build output is generated and ignored by Git. Do not load the source directory as an extension.
-Cloud auth, sync, and purchase flows require local environment configuration; blocking and most
+Cloud auth and sync require local environment configuration; purchase flows are dormant. Blocking and most
 tests work without production credentials. Copy the relevant package-level `.env.example` file and
 use local or development values only.
 
@@ -95,6 +95,7 @@ docs/
 
 The blocking engine consumes a signed, versioned JSON rule set. Remote updates are data only: selectors, match patterns, action enum values, and tier metadata. They are schema-checked and Ed25519-verified before use; remote rule sets never ship executable code.
 
+For current behavior and reconciliation rules, use [the 2.0.0 specification](docs/PRODUCT.md).
 For a deeper map, start with [docs/README.md](docs/README.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 

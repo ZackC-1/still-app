@@ -36,11 +36,13 @@ this document does not establish that a live portal has already been updated.
 - Confirm the submitted package and complete Firefox source archive correspond to the reviewed
   candidate. A source edit does not update an existing ZIP, IPA or PKG. Compare rebuilt payloads
   and artifact hashes; preserve earlier evidence with its original candidate.
-- Send forwarding tests from an address other than the destination mailbox, and confirm receipt
-  for all three aliases before relying on them for customer support. DNS alone cannot prove delivery.
+- All three forwarding tests were confirmed received by the owner, recorded September 14 in the
+  [release status](2026-09-14-release-status.md). Repeat only after a relevant delivery/configuration
+  change; DNS alone cannot prove delivery.
 
 ## Outgoing email
 
+The updated Supabase SMTP sender and delivery were owner-confirmed in the September 14 record.
 Forwarding receives mail; it does not configure sending from these addresses. The Supabase Auth
 sender and any email-service templates need a separate verified sending-domain/SMTP configuration.
 Replies from an existing work mailbox retain that mailbox's sender unless its mail provider has a

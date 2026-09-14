@@ -1,6 +1,7 @@
 ---
-status: source-of-record (product spec)
+status: historical (superseded for current release)
 authority_note: |
+  For current behavior use docs/PRODUCT.md (Still 2.0.0) and STRATEGY.md.
   This is the founder's original v1 product spec. Several v1 decisions here were
   REVISED during second-pass review. Where this document and
   docs/brainstorms/2026-06-23-still-second-pass-requirements.md disagree, the
@@ -13,7 +14,12 @@ authority_note: |
   the plan before implementing anything in Sections 4, 5, and 6 below.
 ---
 
-# Still — Product & Engineering Specification (v1)
+# Still — Product & Engineering Specification (v1, historical)
+
+> **Historical design input.** Use [the current 2.0.0 specification](PRODUCT.md) for
+> shipped behavior, free access, optional sync, platform versions and privacy. This original
+> document retains superseded paid-sync, pause, auth, platform and zero-data proposals for history.
+> It must not be used as current build instructions or acceptance criteria.
 
 Document owner: founder
 Version: v1 draft for build

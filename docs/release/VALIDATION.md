@@ -1,8 +1,12 @@
 # Release Validation
 
-The Still 2.0 candidate is **not yet certified**. Its current checks and unverified surfaces are
-tracked in [the September 8 certification record](2026-09-08-still-2-certification.md).
-The records below apply only to their named older commits; they are not 2.0 evidence.
+Current consolidated evidence and owner decisions are in [the September 14 release record](2026-09-14-release-status.md).
+The [September 8 candidate record](2026-09-08-still-2-certification.md) retains its original artifact
+hashes and historical gaps; later deployment/signing/store and device evidence supersedes those
+specific status observations without reassigning test results to another binary. Issue #153 retains
+hosted account-lifecycle/final-certification work. Physical iPad is owner-accepted skipped/unverified.
+Do not repeat completed owner Mac/iPhone testing merely because a historical row is unchecked.
+The records below apply only to their named older commits; they are not new 2.0 evidence.
 
 ## Historical validation
 

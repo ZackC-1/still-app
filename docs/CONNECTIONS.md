@@ -1,104 +1,89 @@
-# Still — external services & connections checklist
+# Still — services, configuration and operations
 
-The autonomous `/loop` build can do almost all of Phase A with **zero external accounts** (everything runs locally via the Supabase CLI + Docker and Playwright). External accounts are needed to *deploy* and to do the Apple/store half. This file lists every connection, who does it, what it unblocks, and the order.
+Current reference for 2.0.0; reviewed September 14, 2026. This is the connection map for the existing
+application, not a new-project setup checklist. Dated verification lives in the
+[release record](release/2026-09-14-release-status.md). Recheck external state before changing it.
+The [initial connection checklist](archive/pre-2.0-reference-refresh/docs/CONNECTIONS.md) is preserved.
 
-Legend: 🤖 agent can do · 🧑 human must do · ⏳ blocks a phase
+## Services and responsibilities
 
----
+| Service | Current role | Configuration boundary |
+|---|---|---|
+| GitHub | Source, protected PR workflow and CI; separate `gh-pages` website | Existing repository/account; no new repository needed. |
+| Supabase | Email-code auth, optional free settings sync, signed rule hosting, account export/deletion, retained entitlements and security counters | Public client URL/key; private function/database credentials remain server-side. |
+| Resend | Supabase custom SMTP for six-digit sign-in emails | Verified `stillapp.fit` sending domain and domain-scoped SMTP key; actual values stay private. |
+| Namecheap / Google Workspace | Domain DNS and public contact delivery to the owner's work inbox | Public aliases in [contact guide](release/public-contact-addresses.md); forwarding and sending are separate. |
+| RevenueCat / Apple | Retained purchase identities, receipts, entitlements and webhook | Existing app/product IDs; paid access flags remain false. |
+| App Store Connect | Separate iOS/macOS submissions carrying Safari extensions | Existing app, signing identities and private reviewer access. |
+| Chrome Web Store / Firefox AMO | Desktop extension distribution | Existing listings; Firefox requires complete reproducible sources paired to the uploaded artifact. |
 
-## Tier 0 — needed to start the autonomous loop
+Still's runtime does not use Mem0. Mem0 is shared developer memory under
+[docs/MEMORY.md](MEMORY.md), separate from user accounts and the application backend.
+No Sentry integration is established merely because an example variable exists.
 
-| # | Connection | Who | Provides | Blocks |
-|---|---|---|---|---|
-| 1 | **GitHub auth** (`gh auth login`) | 🧑 | push + Actions for the loop | ⏳ everything (version control + CI) |
-| 2 | GitHub repo created (`gh repo create`) | 🤖 once authed | the remote | ⏳ CI |
-| 3 | Local toolchain: Node 20+, pnpm, Supabase CLI, Docker, Playwright | 🤖 installs | local dev + headless tests | ⏳ Phase A local |
+## Local toolchain and build inputs
 
-After Tier 0, the loop can build and CI-test all of Phase A locally.
+Follow the [root development guide](../README.md#development), root `package.json` and frozen lockfile.
+Current Node engines are `^22.22.2 || ^24.15.0 || >=26.0.0`; the package-manager pin is pnpm 11.9.0.
+Supabase CLI/Docker support local database work; Apple builds require macOS/Xcode.
 
----
+| Input | Consumer |
+|---|---|
+| `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` | Package-local build configuration for Chromium/Firefox auth+sync and signed rule fetch, Safari rule fetch, Apple webview auth+sync. |
+| `VITE_REVIEW_SIGNIN_EMAIL` | Apple app-webview store build only; must match the private deployed reviewer configuration. Never put it in browser-extension builds. |
+| `REVENUECAT_PUBLIC_API_KEY` | Native Apple SDK through local xcconfig / `RevenueCatPublicAPIKey`. |
+| Production rule public-key allowlist | `packages/core/src/rules/trusted-keys.ts`; see [signing guide](production-rule-set-keys.md). |
 
-## Tier 1 — needed to deploy Phase A (sync goes live)
+Blank public configuration keeps blocking local with the bundled seed and disables the associated
+cloud capability. It does not introduce a paywall or restrict free blocking to YouTube. An optional
+sync release must contain the intended public configuration; synthetic CI values are not production.
+Build-time values cannot update an already exported package.
 
-| # | Connection | Who | Provides | Blocks |
-|---|---|---|---|---|
-| 4 | **Supabase project** (create at supabase.com) | 🧑 creates · 🤖 runs migrations/functions | `SUPABASE_URL`, anon key, migration-only service-role/DB credentials, narrow function write credentials | ⏳ hosted rule set, auth, sync, entitlement webhook |
-| 5 | **Resend** (or SMTP) + verified sending domain | 🧑 (needs DNS) | `RESEND_API_KEY`, sender domain | ⏳ magic-link sign-in (built-in caps at ~2/hr → launch blocker) |
-| 6 | Sentry (optional) | 🧑 | `SENTRY_DSN` | crash reporting only |
+The root and package `.env.example` files enumerate inputs; some comments preserve older purchase-era
+terminology. Use this guide for current behavior. Never copy an ignored `.env` wholesale into a
+public source archive: include only an explicit allowlist of public build values.
 
----
+## Server secrets
 
-## Tier 2 — needed for the paid unlock + Apple/Safari (Phase B, human-gated)
+The configured function dependencies use `SUPABASE_URL`, `SUPABASE_ANON_KEY`,
+`SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET`, `ENTITLEMENT_WRITER_DB_URL`,
+`REVENUECAT_SECRET_API_KEY`, `REVENUECAT_WEBHOOK_TOKEN`, review-sign-in secrets and selector-canary
+secrets as applicable. The retained checkout uses `REVENUECAT_WEB_BILLING_CHECKOUT_URL`.
+`REVENUECAT_WEB_PRODUCT_ID` is not a current runtime input.
 
-| # | Connection | Who | Provides | Blocks |
-|---|---|---|---|---|
-| 7 | **Apple Developer Program** ($99/yr) | 🧑 | team, certs, entitlements (SIWA, IAP) | ⏳ Phase B |
-| 8 | **App Store Connect**: create non-consumable `still_sync` ($1.99); generate **In-App Purchase Key (.p8)** + ASC API key; create sandbox testers | 🧑 | product + `.p8` + API key + testers | ⏳ real purchase |
-| 9 | **RevenueCat**: project, product, entitlement, offering, webhook + static auth token; upload the `.p8`; for non-Apple platforms set up **Web Billing** (product + hosted checkout) | 🧑 (dashboard) | `RC_PUBLIC_KEY`, `RC_SECRET_KEY`, `REVENUECAT_WEBHOOK_TOKEN`, `REVENUECAT_WEB_BILLING_CHECKOUT_URL`, `REVENUECAT_WEB_PRODUCT_ID` | ⏳ Phase B purchase. NOTE: the webhook→entitlement path is fully testable in Phase A with a **faked** payload — no Apple needed to prove the bridge. `REVENUECAT_WEB_BILLING_CHECKOUT_URL` has **no fallback** — if unset, `create-web-checkout` returns a 502 `checkout_unavailable`; `REVENUECAT_WEB_PRODUCT_ID` defaults to `still_sync_web`. |
-| 10 | **Mac + Xcode + Apple device(s)** | 🧑 | Safari build/sign, sandbox purchase test | ⏳ Phase B |
-| 11 | **Chrome Web Store** developer account ($5 one-time) | 🧑 | publish the Chromium extension | Chromium store launch |
-| 12 | Domain (optional v1) | 🧑 | rule-endpoint alias, privacy policy, marketing | optional |
+Keep elevated keys, database credentials, review codes and signing private keys outside tracked
+files and client bundles. Use private env files/secret management rather than inline CLI values.
+The webhook compares the complete Authorization header with its configured token; do not add an
+unconfigured prefix. Follow the [RevenueCat](release/04-revenuecat.md) and
+[auth deployment](release/extension-purchase-deploy-checklist.md) references.
 
----
+## Operational evidence and remaining work
 
-## What the agent CANNOT do (hard human gates)
+The September 14 record credits verified SMTP delivery from the new domain, successful forwarding
+for all three aliases, RevenueCat credential/webhook review, migration 0013 and Edge deployments,
+and the published current-practice retention policy. Do not repeat setup or reset credentials based
+on an old unchecked box. It also records daily backups, no PITR/log drains, and owner-selected manual
+monitoring. Provider allowances and retention are external state; inspect before scaling or changes.
 
-1. App Store Connect product creation, the `.p8` key, the ASC API key, sandbox testers.
-2. Pasting credentials into RevenueCat + creating the entitlement/offering/webhook.
-3. `xcrun safari-web-extension-packager` + Xcode build/sign/notarize (first-run provisioning is GUI).
-4. The real sandbox/device purchase test.
-5. Resend DNS verification; Supabase project creation; production keys.
+The selector canary is a scheduled backend diagnostic, not user browsing telemetry. Invocations
+require `SELECTOR_CANARY_INVOCATION_TOKEN`; outbound alerts use `SELECTOR_CANARY_NOTIFY_URL` when
+configured. A function existing in source does not prove its current schedule or delivery channel.
+Login-walled results can be indeterminate. Diagnose with the current operational evidence before
+changing schedules or sending notifications.
 
-Everything else — the monorepo, core, Chromium extension, the entire Supabase backend including the webhook (faked-payload tested), the Swift integration *code* + a local `.storekit` config — the agent builds and tests unattended.
+Use [counter retention](release/counter-retention.md) for migration/dependency commands and recovery.
+Do not remove the documented legacy `--import-map` argument merely to silence the CLI warning.
+The hosted disposable-account lifecycle remains the separate certification item in issue #153.
 
----
+## Git and release controls
 
-## Selector canary (U21)
+`main` is protected through repository ruleset `protect-main`, requiring a PR, resolved review
+threads, an up-to-date branch and three CI checks: `lint · typecheck · unit · build`,
+`Supabase Edge Functions (Deno)` and `Playwright on fixtures`. The ruleset also blocks force pushes
+and branch deletion; its required approval count is zero for the solo-maintainer workflow.
+Legacy branch-protection API 404 is not proof that this ruleset is absent.
 
-The `selector-canary` Edge Function flags selector rot. It is invoked on a schedule (not by users),
-and every invocation must carry `SELECTOR_CANARY_INVOCATION_TOKEN` in the `Authorization` header —
-the function rejects everything else with a 401 (constant-time compare, fail closed when the secret
-is unset), because the schedule alone is not an access boundary.
-Deploy steps: set `SELECTOR_CANARY_NOTIFY_URL` (a Slack/webhook/email-relay URL) and
-`SELECTOR_CANARY_INVOCATION_TOKEN` (any long random string) via `supabase secrets set`, then
-schedule the function — e.g. a `pg_cron` job that `net.http_post`s the function URL daily with
-`headers := jsonb_build_object('Authorization', '<token>')`, or the Supabase dashboard scheduler
-with the same header. Without the notify URL it logs and no-ops.
-Login-walled services (e.g. Instagram) report as *indeterminate*; a persistent-indeterminate streak
-fires its own "needs manual check" alert so they can't rot silently.
-
-## review-signin (deterministic App Review sign-in — plan 2026-07-15-002)
-
-The `review-signin` Edge Function lets Apple App Review sign in with a fixed verification code for
-ONE designated review address (no email is ever sent; the code lives in the App Review notes). Gate
-is in-function (`verify_jwt = false`): exact normalized-email allowlist + constant-time code compare
-+ per-email/per-IP rate limits through the writer-role `consume_rate_limit` RPC, fail closed on
-every axis — both secrets unset means every request gets the same 404 refusal and the client falls
-back to normal OTP end to end.
-Deploy steps: mint both values into a gitignored env file without printing them (convention:
-`packages/app-webview/.env.review-signin`), then
-`supabase secrets set --env-file <file> --project-ref kikpgrreradotvvefdgd` and
-`supabase functions deploy review-signin --import-map supabase/functions/deno.json --project-ref kikpgrreradotvvefdgd`
-(read the [dependency configuration note](release/counter-retention.md#edge-dependency-configuration)
-for the CLI 2.107.0 import-map warning; never pass the values inline on the CLI — shell history and
-agent transcripts persist them; full procedure in `docs/release/extension-purchase-deploy-checklist.md` §1c).
-The address and code values are NEVER committed anywhere (this repo is public — the address is half
-the two-factor gate); they live in the private submission record and App Store Connect only. The
-Apple build's `VITE_REVIEW_SIGNIN_EMAIL` must equal the secret exactly (hard pre-upload cross-check,
-`docs/release/extension-purchase-deploy-checklist.md` §1c). Rotate/unset only when no submission
-referencing the code is still in review.
-
-## Secrets
-
-All secrets live in `.env` (gitignored); `.env.example` lists every key by name. Supabase Edge Function secrets are set via `supabase secrets set`. Never commit a real key.
-
-## Autonomy / loop posture
-
-`.claude/settings.json` sets `permissions.defaultMode: bypassPermissions` (no prompts). The enforceable guardrails are server-side and environment-side, not convention: **GitHub branch protection on `main`**, secret scanning, keeping production secrets out of the loop environment, and running `/loop` only on a dedicated `build/*` branch/worktree. Branch protection prevents direct damage to `main`; it does not protect any secret or external account credential available to the loop.
-
-### Status (U1)
-
-- **Repo:** `ZackC-1/still-app` — **public** (switched from private on 2026-06-23). Branch protection on a *private* repo needs GitHub Pro; making the repo public unblocked free protection. The extension content-script code ships to users and is inspectable regardless; the genuine secrets live only in `.env.local` / Supabase function secrets, never in the repo.
-- **Branch protection:** active via repository ruleset `protect-main` (require PR before merge, require green CI status checks `lint · typecheck · unit · build` + `Playwright on fixtures` with strict up-to-date policy, block force-push (`non_fast_forward`) and branch deletion). `required_approving_review_count = 0` because a solo maintainer cannot self-approve; the PR + green-CI gate is the enforceable checkpoint. Raise the review count once there's a second maintainer.
-- **CI:** `.github/workflows/ci.yml` — green on the scaffold. The Playwright `e2e` job self-skips until U16 lands `playwright.config.ts`.
-- **Supply-chain note:** the release-age cooldown (`minimumReleaseAge`) is disabled in `pnpm-workspace.yaml` + the CI env, so the autonomous loop's CI doesn't fail when a dependency published a same-day patch. Lockfile integrity hashes remain the real tamper protection. Revisit if a stricter posture is wanted.
+Current CI runs fixture tests for both unconfigured and synthetic-configured bundles. It does not
+certify production credentials, native devices or public store availability. Keep the exact submitted
+artifact source/configuration separate from later documentation and dependency commits. Owner portal
+copy and builds already in review must be preserved while waiting for release.

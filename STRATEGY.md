@@ -2,7 +2,7 @@
 
 Status: product-direction source of truth  
 Owner: Cadmus Labs  
-Last reviewed: 2026-09-11
+Last reviewed: 2026-09-14
 
 This document gives every human and coding agent the same product direction. It explains what Still
 is trying to achieve and which promises must survive implementation details, store constraints, and
@@ -93,7 +93,7 @@ review, store approval, and updated messaging.
 
 ## Messaging hierarchy
 
-1. Future state: open for what you came for and leave when you are done.
+1. Future state: “Do what you came to do” (owner-approved homepage heading).
 2. Immediate proof: Shorts and Reels disappear, and the TikTok website is blocked, all for free.
 3. No barrier: blocking needs no purchase or account.
 4. Continuity: optional free sign-in syncs settings across supported surfaces.
@@ -115,6 +115,8 @@ canonical copy inside implementation plans or handoffs.
 - Preserve testable decision logic outside UI and platform framework glue.
 - Mirror security and correctness fixes across parallel purchase, auth, and platform paths.
 
+The current behavior specification is [`docs/PRODUCT.md`](docs/PRODUCT.md).
+The original v1 specification is historical and does not override the free release.
 The current runtime map is [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Accepted architectural
 decisions live in [`docs/adr/`](docs/adr/), and implementation learnings live in
 [`docs/solutions/`](docs/solutions/).

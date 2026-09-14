@@ -28,14 +28,19 @@ A content blocker on Android is a different architecture from a desktop browser 
 - **Play billing** would be Google Play Billing (separate from RevenueCat's Apple/Web Billing), which
   RevenueCat also supports — but only once a native Android app exists.
 
-## Recommendation
+## Current release boundary — September 14, 2026
 
-- **Now:** reach Android users via **Firefox for Android** through the existing AMO submission (lowest
-  effort — verify the extension under Firefox for Android and enable Android compatibility on the
-  listing). Track it as a follow-up to [`03-firefox-amo.md`](03-firefox-amo.md).
+Still 2.0.0 has no Android support or Play submission. The options below are future research,
+not approved work. No purchase, billing-provider setup or Android compatibility change is needed
+for this free release. Recheck platform/provider requirements before planning a future implementation.
+
+## Future options
+
+- **If separately approved:** evaluate Firefox for Android through AMO. Verify compatibility,
+  privacy, UI and actual device behavior before enabling or advertising it. The current AMO listing
+  remains desktop-only; see [`03-firefox-amo.md`](03-firefox-amo.md).
 - **Later (if validated):** scope a dedicated Android app as its own project, then add a Google Play
-  Billing app in RevenueCat under the same `still_sync` entitlement so one purchase still unlocks
-  everywhere.
+  integration only if a separately approved future commercial model requires it. Preserve supported-surface boundaries.
 
 Google Play Console (for when there's an app): [play.google.com/console](https://play.google.com/console)
 · $25 one-time registration · requires the Data Safety form and a privacy policy URL.

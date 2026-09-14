@@ -1,0 +1,128 @@
+> **Historical snapshot, preserved September 14, 2026.** Original path: `docs/release/02-chrome-web-store.md` at `4877e2e`.
+> This records prior design/procedures, including superseded prices and incomplete status.
+> Use [current guidance](https://github.com/ZackC-1/still-app/blob/main/docs/release/02-chrome-web-store.md) for Still 2.0.0.
+> Relative document links below are pinned to the original commit; code examples are historical.
+
+# Track 2 — Chrome Web Store (Chromium extension)
+
+Use [canonical Still 2.0 copy](https://github.com/ZackC-1/still-app/blob/4877e2ed38b8ea81feaca7b1d4d807a0a2b4f7ef/docs/release/store-listing-copy.md) for this release. Historical purchase
+instructions below do not apply to free 2.0 submission metadata.
+
+Use [public contact addresses](https://github.com/ZackC-1/still-app/blob/4877e2ed38b8ea81feaca7b1d4d807a0a2b4f7ef/docs/release/public-contact-addresses.md) for customer email fields and support/privacy links when preparing or updating a store listing.
+
+## Still 2.0 candidate instructions — draft
+
+For Still 2.0, describe free YouTube Shorts, Instagram/Facebook Reels removal and TikTok
+website blocking, with optional account sync. Build the configured 2.0.0 ZIP from the frozen
+candidate. Verify its actual toolbar, options and supported-site journeys. Older Pro purchase
+instructions below describe retained infrastructure, not a 2.0 activation requirement.
+
+Use the [current Chrome screenshot](https://github.com/ZackC-1/still-app/blob/4877e2ed38b8ea81feaca7b1d4d807a0a2b4f7ef/docs/release/screenshots/store-ready/README.md#chrome-web-store) for 2.0.
+The older screenshot set depicts paid controls and must not accompany the free release.
+
+See [current certification](https://github.com/ZackC-1/still-app/blob/4877e2ed38b8ea81feaca7b1d4d807a0a2b4f7ef/docs/release/2026-09-08-still-2-certification.md) for exact artifacts and outstanding
+gates. Store metadata changes, upload/submission and production writes require explicit approval.
+
+## Previous release procedures (historical)
+
+Fast and cheap ($5 one-time, no hardware). Ships the Shorts remover **plus** the in-extension
+"Unlock Pro" purchase (email-OTP sign-in + RevenueCat Web Billing) shipped in PR #34. Whether Pro is
+live depends only on the build carrying prod Supabase creds — an unconfigured build fails safe to the
+free Shorts remover. See [`extension-purchase-deploy-checklist.md`](https://github.com/ZackC-1/still-app/blob/4877e2ed38b8ea81feaca7b1d4d807a0a2b4f7ef/docs/release/extension-purchase-deploy-checklist.md).
+
+**Build artifact:** `packages/ext-chromium/dist/chrome-mv3` (MV3, DNR Shorts-redirect, host permissions
+limited to the 4 service domains).
+
+> **No mobile surface.** Chrome for Android doesn't support extensions, so this track is desktop-only —
+> there is no mobile-Chrome YouTube case. Mobile YouTube-Shorts validation lives on the iOS Safari and
+> Firefox-Android tracks ([`06-mobile-blocking-validation.md`](https://github.com/ZackC-1/still-app/blob/4877e2ed38b8ea81feaca7b1d4d807a0a2b4f7ef/docs/release/06-mobile-blocking-validation.md)).
+
+```bash
+pnpm --filter @still/ext-chromium build   # → packages/ext-chromium/dist/chrome-mv3
+pnpm --filter @still/ext-chromium zip      # → a store-ready .zip
+```
+
+---
+
+## 1. Register the developer account
+
+1. [ ] Go to the [Chrome Web Store Developer Dashboard](https://chrome.google.com/webstore/devconsole).
+2. [ ] Pay the **one-time $5** registration fee.
+3. [ ] Complete **identity / contact verification** (Google now requires a verified email + may require
+       more for new accounts; new developers can face a brief account-age gate before publishing).
+4. [ ] **EU note (DSA Trader status):** if you target EU users, the dashboard requires you to declare
+       **Trader** status (you're selling, even if the listed item is free + external Pro). Fill the
+       Trader contact details. [Trader verification FAQ](https://developer.chrome.com/docs/webstore/program-policies/trader-verification-faq)
+
+Docs: [Register as a developer](https://developer.chrome.com/docs/webstore/register)
+
+---
+
+## 2. Listing assets
+
+- [ ] **Icon:** 128×128 PNG (already in the build).
+- [ ] **Screenshots:** at least one, **1280×800** (or 640×400).
+- [ ] **Small promo tile:** 440×280. **Marquee** (optional): 1400×560.
+- [ ] **Description**, **category** (Productivity), **language**.
+- [ ] **Privacy policy URL** (HTTP 200) — required because the extension requests host permissions.
+
+Docs: [Prepare your store listing](https://developer.chrome.com/docs/webstore/cws-dashboard-listing)
+
+---
+
+## 3. Privacy practices tab (this is where content blockers get rejected)
+
+1. [ ] **Single purpose** statement: "Still removes short-form video (YouTube Shorts) from supported
+       sites." Keep it to the one purpose.
+2. [ ] **Permission justifications** — justify each:
+       - `declarativeNetRequestWithHostAccess` → "Redirect YouTube Shorts URLs to the standard watch
+         page at the network layer (no page flash)."
+       - `storage` → "Persist the user's on/off and per-site settings locally."
+       - host permissions (`youtube/instagram/facebook/tiktok`) → "Apply the content rules only on the
+         sites Still supports." (Never `<all_urls>`.)
+       *(There is no `activeTab`/`tabs` permission — the pause-on-this-site control that used it was
+       removed 2026-07-06.)*
+3. [ ] **Data usage** disclosures + the certification checkboxes. The **free** tier collects/transmits
+       **no** data (fully on-device). **Still Pro** sign-in (PR #34) transmits the user's **email /
+       authentication info** to Supabase for the cross-device entitlement + settings sync — disclose
+       that under the appropriate data types if you ship the build with Pro enabled (a free-only build
+       with no prod Supabase creds transmits nothing). **No remote code** (MV3; all code is in the package).
+
+Docs: [User data privacy policy](https://developer.chrome.com/docs/webstore/program-policies/user-data-faq) ·
+[Program policies](https://developer.chrome.com/docs/webstore/program-policies/policies)
+
+---
+
+## 4. External payments policy (shipped in PR #34)
+
+Chrome Web Store's own payments are **deprecated**. Still's Pro is an **external** RevenueCat Web
+Billing checkout. Per the current [program policies](https://developer.chrome.com/docs/webstore/program-policies/policies)
+(updated 2025-05), linking out to your own checkout for digital goods is allowed — you just must not
+be deceptive about it. Since the Pro CTA now ships in the extension:
+- [ ] Disclose in the listing that Pro is a paid upgrade purchased on the web ($1.99 one-time).
+- [ ] Confirm the CTA opens the RevenueCat Web Purchase Link in a new tab; no payment happens inside
+      the extension surface. (It's inert until the deploy checklist is complete.)
+
+---
+
+## 5. Upload + submit
+
+1. [ ] Dashboard → **Add new item** → upload the **`.zip`** from `pnpm --filter @still/ext-chromium zip`.
+2. [ ] Fill the listing + privacy tabs (above) → **Submit for review**.
+3. [ ] Review is typically hours-to-days; extensions with host permissions can take longer.
+4. [ ] Use **staged rollout** for the first version if you want a gradual release.
+
+---
+
+## Pre-empt the common rejections
+
+- [ ] **Single purpose** clearly stated and narrow.
+- [ ] **Every permission justified**; host permissions scoped to the 4 domains, never `<all_urls>`. ✅
+- [ ] **No remote code** (MV3, all bundled). ✅
+- [ ] **Privacy policy URL live** and data-use disclosures match reality (no data collected).
+- [ ] Honest install flow — no misleading screenshots or "you must install X" dark patterns.
+
+## Done when
+
+- [ ] Extension **Published** and installable from its store URL.
+- [ ] Free YouTube Shorts removal verified on a clean Chrome profile.

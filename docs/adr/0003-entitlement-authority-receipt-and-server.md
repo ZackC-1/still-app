@@ -2,6 +2,11 @@
 
 Date: 2026-07-15 · Status: accepted
 
+> **2.0.0 applicability, September 14:** this remains the authority/stamp contract for retained
+> purchase records. All blocking and optional sync are free and neither receipt nor account
+> entitlement gates access. The purchase-first UI and paid-tier consequences below describe the
+> original decision context; see [current monetization](../monetization-design.md).
+
 ## Context
 
 App Review rejected macOS 1.0 (3) under Guideline 5.1.1(v): email registration was required before
@@ -57,8 +62,7 @@ session orchestrators, and the user deferred consolidating them pre-release.
 
 ## Consequences
 
-- A signed-out purchaser has full Pro on the device (app + Safari extension) with zero personal
-  information; optional sign-in attaches the purchase via RevenueCat's ID-level merge and the
+- A signed-out purchaser has full Pro on the device (app + Safari extension) without requiring an account; optional sign-in attaches the purchase via RevenueCat's ID-level merge and the
   existing webhook/reconcile spine distributes it (the attach evaluation runs at every session
   establishment and foreground, gated natively on SDK-identity equality and purchased — not
   family-shared — ownership).

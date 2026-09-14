@@ -10,6 +10,7 @@ of concise session context for Codex and Claude Code under [one project protocol
 | Layer | Location | Lifetime |
 |---|---|---|
 | Product direction | `STRATEGY.md` | Durable; changes deliberately. |
+| Current release behavior | `docs/PRODUCT.md` | Updated with implemented behavior; original v1 spec is historical. |
 | Agent operating rules | `AGENTS.md` and `CLAUDE.md` | Durable; applies at task start. |
 | Architecture decisions | `docs/ARCHITECTURE.md` and `docs/adr/` | Durable; updated with accepted design changes. |
 | Solved-problem knowledge | `docs/solutions/` | Durable; maintained as code evolves. |

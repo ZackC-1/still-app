@@ -2,7 +2,32 @@
 
 Still uses descriptive pull request titles and conventional commit-style summaries for changes from this point forward.
 
-## Unreleased
+## 2.0.0 — free release (store rollout in progress)
+
+Implementation and release changes recorded through September 14, 2026. Public availability varies
+by store; see [the dated release record](docs/release/2026-09-14-release-status.md).
+
+- All supported blocking is free: YouTube Shorts, Instagram/Facebook Reels and the TikTok website.
+  No account or purchase is required; both paid-tier flags remain disabled.
+- Optional free email-code sign-in syncs settings across desktop Chrome/Firefox and Safari on
+  Mac/iPhone/iPad. Improved first-account adoption, reconnect/upload recovery, account status,
+  local sign-out and isolation from delayed callbacks across account changes.
+- Improved YouTube Shorts filtering while preserving mobile renderers, regular videos and search
+  continuation behavior. Controls work across all four services; legacy pause state is normalized.
+- Refined configured popup sizing, Apple onboarding text wrapping and setup instructions.
+- Hardened account exports against partial read failures; deployed derived security-counter
+  retention/cleanup and removed request-IP/error details from review-sign-in application logging.
+- Retained RevenueCat identity, historical entitlements and receipt infrastructure with purchase
+  presentation dormant. The approved privacy notice documents separate billing/support/provider retention.
+- Updated public contacts, free store descriptions, controls/sync screenshots, website/download
+  links, setup guides and consistent 14-day historical web-refund wording.
+- Reconciled dependency PRs, updated development toolchain/CI, and organized repository references
+  and historical material. These later maintenance changes do not rebuild submitted store packages.
+
+## Earlier implementation history — June/July 2026
+
+These entries previously appeared under Unreleased. They preserve the earlier paid-release work;
+they are not current 2.0.0 purchase requirements or artifact versions.
 
 - Truthful OTP sign-in error handling (Guideline 2.1(a) resubmission): rate-limited sends and
   verifies now render calm wait states with locked buttons instead of "try again" copy that

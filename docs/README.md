@@ -11,7 +11,7 @@ repository map.
 | [STRATEGY.md](../STRATEGY.md) | Product direction, commercial truth and decision guardrails. |
 | [CONCEPTS.md](../CONCEPTS.md) | Canonical domain vocabulary; `CONTEXT.md` is a compatibility pointer. |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Runtime modules, interfaces, data flows and verification surfaces. |
-| [Still-Spec-v1.md](Still-Spec-v1.md) | Product specification, including its current-release qualifications. |
+| [PRODUCT.md](PRODUCT.md) | Current Still 2.0.0 behavior, supported installations, sync rules and evidence boundaries. |
 | [CONNECTIONS.md](CONNECTIONS.md) | Service configuration, secret ownership and deployment gates. |
 | [monetization-design.md](monetization-design.md) | Retained purchase and entitlement infrastructure. |
 | [production-rule-set-keys.md](production-rule-set-keys.md) | Rule signing and production key management. |
@@ -63,6 +63,10 @@ not website assets. See [Pages publication lessons](solutions/conventions/github
 | [handoffs/](handoffs/README.md) | Temporary state for unfinished work that another session must resume. |
 | [archive/](archive/README.md) | Historical release and testing records, including superseded launch status. |
 | `build/` (ignored) | Local working notes, release evidence, artifacts and audit output; never public source. |
+
+The [original v1 specification](Still-Spec-v1.md) and
+[pre-refresh references](archive/pre-2.0-reference-refresh/README.md) preserve superseded design
+and release procedures. The [reference audit](release/2026-09-14-reference-audit.md) records coverage.
 
 History helps explain decisions but does not establish current behavior or store state. Completed
 handoffs and execution prompts are retired after their useful knowledge is captured. Preserve

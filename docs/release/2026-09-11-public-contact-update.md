@@ -1,9 +1,17 @@
 # Public contact update
 
+> **Dated evidence.** [September 14 release status](2026-09-14-release-status.md) supersedes
+> earlier pending deployment, forwarding, policy and submission observations. Preserve the
+> candidate-specific hashes and test results below; do not treat old next steps as new work.
+
 Verified September 11, 2026 (Pacific). The contact source candidate is `d2b95d9`;
 subsequent documentation changes do not alter its app payloads.
 [PR #169](https://github.com/ZackC-1/still-app/pull/169) records integration into main.
 Website publishing remains a separate gh-pages change.
+
+Later verification is recorded in [September 14 status](2026-09-14-release-status.md): all three
+forwarding tests arrived, the updated SMTP sender worked, privacy was published and submissions
+advanced. Preserve the artifact evidence below as the September 11 contact candidate.
 
 ## Addresses and publication
 

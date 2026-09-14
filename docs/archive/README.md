@@ -24,3 +24,9 @@ Personal test-account identifiers have been removed.
 
 External research lives in [research/](../research/README.md); current release operations live in
 [release/](../release/README.md). Archived headings that say “current” refer to their original date.
+
+## Superseded reference guides
+
+[Pre-2.0 refresh snapshots](pre-2.0-reference-refresh/README.md) preserve the original monetization,
+connections, store/mobile, auth, marketing and signing references. Their current replacements stay
+at the established paths; the original v1 specification is also retained with a current-spec pointer.

@@ -1,6 +1,12 @@
 # Still 2.0 candidate certification
 
-Status: **No-Go — implementation complete; release verification blocked**. Issue #153 stays open.
+**Historical candidate record — September 8.** For current consolidated status use
+[September 14 release status](2026-09-14-release-status.md). Later evidence records distribution
+exports, backend deployment, privacy publication and store submissions; the original hashes and
+results below stay attributed to this candidate. Issue #153 remains for hosted account lifecycle and
+final certification. Physical iPad is owner-accepted skipped/unverified, not a request for hardware.
+
+Status at the time of this candidate audit: **No-Go — implementation complete; release verification blocked**.
 
 Frozen runtime/source candidate: `d87126aa34d599ee38bb31b2182622a4376a40eb`, based on
 `b98f801e7036bac21d0687b18eed0aee88723ee6`. This document records that candidate after packaging;

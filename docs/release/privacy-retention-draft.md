@@ -1,8 +1,15 @@
 # Privacy notice draft — security counters and local account safety
 
-**DRAFT — not approved for publication.** Issue #152. Replace the conflicting existing claims only
-after deployed behavior and provider retention have been verified and the founder has approved the
-complete public notice. This draft does not change `docs/privacy.html` or publish anything.
+**Historical proposal — superseded by the owner-approved published notice.** Issue #152 is closed.
+On September 14 the owner approved documenting current retention practice; publication is recorded
+in [the release status](2026-09-14-release-status.md). The source of current public wording is
+[privacy.html](../privacy.html), live at [stillapp.fit/privacy/](https://stillapp.fit/privacy/).
+
+The proposal below is retained to explain the original counter/privacy work. Its former approval
+checklist and provider-policy blockers are historical, not a request to redo completed publication.
+Active account/settings data is deleted; separate support and historical billing records remain until
+separately deleted, and provider logs/backups expire on their schedules. No universal immediate
+provider-erasure guarantee was accepted.
 
 ## Proposed reader-facing wording
 
@@ -38,7 +45,7 @@ A minimal last-synced-account marker remains on the device after sign-out or acc
 prevents settings from one account being copied into a different account on a shared device. This
 marker is not an IP address or browsing history. Blocking settings can continue to work locally.
 
-## Provider paragraph — publication blocked pending verification
+## Historical provider paragraph — originally blocked pending verification
 
 Do not publish an invented maximum here. Complete the inventory in
 [counter-retention.md](counter-retention.md), then write the actual provider names, data categories,
@@ -52,7 +59,7 @@ IP-deletion policy. If a provider cannot meet it, the founder must resolve that 
 before publication. Avoid a blanket statement that all account data or all IP copies are immediately
 erased. Avoid assuming that GDPR or CCPA applies, or claiming legal compliance from this code change.
 
-## Publication checklist for the owner
+## Historical publication checklist
 
 - Confirm migration 0013 and the reviewed Edge revision are deployed and cleanup runs successfully.
 - Resolve provider retention/deletion limitations and use verified periods in the final notice.

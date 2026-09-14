@@ -1,6 +1,6 @@
 # Still 2.0 growth and release messaging
 
-Updated September 11, 2026. The current goal is to grow adoption with a free app. This replaces the
+Updated September 14, 2026. The current goal is to grow adoption with a free app. This replaces the
 paid-conversion launch plan, which remains available in Git history.
 
 ## Objective order
@@ -15,7 +15,7 @@ as part of this launch. Do not promise permanent free pricing.
 
 ## Message order
 
-- Outcome: “Open for what you came for.”
+- Homepage outcome: “Do what you came to do.” Preserve the owner-approved wording; store drafts and owner-edited portal descriptions are distinct.
 - Proof: remove YouTube Shorts and Instagram/Facebook Reels; block the TikTok website.
 - Price and account: all free in Still 2.0, with no account or purchase needed for blocking.
 - Optional continuity: sign in to sync settings for free across supported surfaces.
@@ -30,17 +30,20 @@ Homepage and guide sources live directly under `docs/`; the live site deploys fr
 ## Assets and publication
 
 Capture the exact 2.0 candidate for every store. Show the real free UI, the enable/permission steps,
-all four services, optional sync, and the Safari-only mobile boundary. Older `store-ready` assets
-contain paid-era UI and are not approved for the 2.0 upload. Regenerating captions alone does not
-make an old app screenshot current.
+all four services, optional sync, and the Safari-only mobile boundary. Use the current
+[functional screenshot manifest](screenshots/store-ready/README.md); paid-era assets were removed
+or retained only as explicitly labeled history. Preserve owner-approved Apple screenshots already
+submitted. Regenerating captions alone does not make an old app screenshot current.
 
 The website sharing image must use the same free 2.0 language. Preserve brand assets that have no
 outdated product claims. The old launch video ends with a $1.99 Pro claim and is removed from the 2.0 homepage.
 Do not reuse it in store uploads or campaigns; the brand-only poster remains suitable.
 
-Coordinate website publication with store availability. If platforms roll out at different times,
-label each download with its actual available version and keep free 2.0 claims explicitly scoped
-to version 2.0. Do not advertise a free 2.0 outcome beside an older download without that distinction.
+The owner approved the current website publication, direct store links and versionless homepage
+branding, and removed homepage rollout notices. Preserve that decision and exact supplied homepage
+copy. Broad promotion waits for Apple/Chrome rollout; verify each public download/listing before
+starting a campaign. Secondary-page scope and rollout notes remain as recorded in the release status.
+Do not restore removed homepage notices during a documentation refresh.
 
 Provider privacy, device testing, portal pricing, fresh screenshots, and store submission are tracked
 in the [release runbook](README.md). Updating this document does not complete those gates.

@@ -1,5 +1,9 @@
 # September 11 — free Still 2.0 release copy
 
+> **Dated evidence.** [September 14 release status](2026-09-14-release-status.md) supersedes
+> earlier pending deployment, forwarding, policy and submission observations. Preserve the
+> candidate-specific hashes and test results below; do not treat old next steps as new work.
+
 This records the copy-preparation snapshot. Later Firefox publication is recorded in the
 [current Firefox release status](03-firefox-amo.md#current-distribution-status--verified-september-11-2026);
 use the release tracks for current operational state.

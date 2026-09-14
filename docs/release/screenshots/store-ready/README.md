@@ -81,7 +81,13 @@ Official screenshot guidance: [Chrome](https://developer.chrome.com/docs/webstor
 
 ## Still Pro in-app purchase image
 
-Use `apple/still-pro-iap-v3-1024x1024.jpg` only in the public promotional **Image** field for the
+**Retained historical asset, not a free 2.0.0 upload instruction.** Do not re-add a promoted purchase
+image or replace current reviewer material merely because the July note below mentions a future
+retry. The September 14 record supersedes that old next action. Current review notes explain the
+free functionality and retained product; use the actual submitted free UI if new private review
+material is specifically requested.
+
+For a separately approved future paid submission, use `apple/still-pro-iap-v3-1024x1024.jpg` only in the public promotional **Image** field for the
 in-app purchase. This section is the CANONICAL statement of the compliance rules — the release
 runbook §7 references it rather than restating it.
 
@@ -91,7 +97,7 @@ runbook §7 references it rather than restating it.
 > Apple's rejection letter offers deletion as a remedy, so the field was cleared to get a clean
 > 2.3.2 resolution rather than ship a half-processed asset. v3 is staged here for a post-approval
 > retry — promoted-IAP metadata is version-independent, so re-adding it costs no review cycle.
-> Full detail: `docs/release/01-apple-app-store.md` §7 step 6.
+> Full detail: [historical Apple runbook](../../../archive/pre-2.0-reference-refresh/docs/release/01-apple-app-store.md) §7 step 6.
 
 - Format: JPEG, RGB, 1024x1024, 72 dpi, flattened with square image corners
 - Rejection history: v1 (an app paywall screenshot showing the price) was rejected under
@@ -112,7 +118,8 @@ runbook §7 references it rather than restating it.
     untouched.
 
 This is not the **App Review Screenshot**. For that separate review-only field, capture the real
-Still Pro purchase/paywall screen from the submitted build so the item being sold is visible.
+Still Pro purchase/paywall screen only for a future paid candidate where that UI actually exists.
+The free 2.0.0 build has no purchase requirement; do not fabricate a paywall screenshot.
 
 ## Rights and accuracy check before each upload
 

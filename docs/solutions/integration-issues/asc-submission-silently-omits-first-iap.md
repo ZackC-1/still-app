@@ -17,6 +17,13 @@ tags: [app-store-connect, asc-api, in-app-purchase, submission-workflow, apple-r
 
 # App Store Connect silently submits an app version without its in-app purchase
 
+## Current applicability — Still 2.0.0
+
+This documents the retained purchase infrastructure and its historical failure mode. All blocking
+and optional settings sync are free with both paid flags disabled; the purchase/restore steps below
+are not current activation requirements. Preserve the technical lesson and existing ownership data;
+use [current monetization](../../monetization-design.md) before any future paid work.
+
 ## Problem
 
 On 2026-07-16 both Still platforms (iOS and macOS 1.0 build 5) were submitted to App Store
