@@ -48,7 +48,7 @@
         <h1>Do what you came to do</h1>
         <p class="hero-lede">Still remove Shorts, Reels, and Tiktoks from the websites you use. One intentional visit doesn't become hours of scrolling</p>
         <div class="hero-actions">
-          <a class="button button-primary" href="https://apps.apple.com/app/id6784061138" aria-label="Get Still for Mac, iPhone and iPad on the App Store">App Store</a>
+          <a class="button button-primary" data-apple-store href="https://apps.apple.com/app/id6784061138" aria-label="Get Still for Mac, iPhone and iPad on the App Store">App Store</a>
           <a class="button button-secondary" href="https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf">Chrome</a>
           <a class="button button-secondary" href="https://addons.mozilla.org/en-US/firefox/addon/still-free-yourself/">Firefox</a>
         </div>
@@ -125,10 +125,9 @@
     <section id="get-still" class="get-still-section section-shell" aria-labelledby="get-still-title">
       <p class="eyebrow">Get Still</p>
       <h2 id="get-still-title">Add Still to the browser you use.</h2>
-      <p id="release-status" class="store-note">Still supports Safari, Chrome, and Firefox. The free update is rolling out across stores; some listings may still show an earlier release.</p>
       <p class="get-still-lede">Still removes YouTube Shorts, Instagram and Facebook Reels, and blocks the TikTok website. All included, with no purchase needed.</p>
-      <div class="store-grid">
-        <a class="store-btn" href="https://apps.apple.com/app/id6784061138">
+      <div id="release-status" class="store-grid">
+        <a class="store-btn" data-apple-store href="https://apps.apple.com/app/id6784061138">
           <span class="store-name">App Store</span>
           <span class="store-surface">iPhone, iPad &amp; Mac — Safari</span>
         </a>
@@ -156,7 +155,6 @@
       <p class="eyebrow">A small change to your browser</p>
       <h2>A little more stillness in your day.</h2>
       <p>Remove the feed before it asks for your attention.</p>
-      <a class="button button-primary" href="#get-still">Check release availability</a>
     </section>
   </main>
 
@@ -166,5 +164,18 @@
   </footer>
 
 
+  <script>
+    // iPad can report a Mac user agent when requesting desktop websites.
+    const appleUserAgent = navigator.userAgent;
+    const isIPad = /iPad/.test(appleUserAgent) || (/Macintosh/.test(appleUserAgent) && navigator.maxTouchPoints > 1);
+    const applePlatform = isIPad ? 'ipad' : /iPhone|iPod/.test(appleUserAgent) ? 'iphone' : /Macintosh/.test(appleUserAgent) ? 'mac' : null;
+    if (applePlatform) {
+      document.querySelectorAll('[data-apple-store]').forEach(link => {
+        const url = new URL(link.href);
+        url.searchParams.set('platform', applePlatform);
+        link.href = url.href;
+      });
+    }
+  </script>
 </body>
 </html>

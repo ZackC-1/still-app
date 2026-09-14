@@ -75,7 +75,7 @@ h2 { max-width: 790px; margin: 0; font-size: clamp(38px, 4vw, 58px); line-height
 .outcome-grid { margin-top: 58px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
 .outcome-grid article { min-height: 240px; padding: 28px; border: 1px solid var(--line); border-radius: 18px; background: white; }
 .outcome-grid article > span { color: var(--blue); font-size: 12px; font-weight: 750; letter-spacing: .09em; }
-.outcome-grid h3 { margin: 62px 0 9px; font-size: 21px; letter-spacing: -.025em; }
+.outcome-grid h3 { margin: 31px 0 9px; font-size: 21px; letter-spacing: -.025em; }
 .outcome-grid p { margin: 0; color: var(--muted); }
 
 .split-section { padding: 64px max(32px, calc((100% - 1160px) / 2)); display: grid; grid-template-columns: 1fr 1fr; gap: 90px; align-items: start; background: #11172b; color: white; }
