@@ -1,7 +1,8 @@
 # Documentation Archive
 
-This directory preserves dated implementation handoffs and agent prompts for historical
-traceability. These files are not current setup, release, or operational instructions.
+This directory preserves historical release and testing evidence. Completed agent prompts were
+removed during the September 14 repository cleanup; Git history preserves them. These records are
+not current setup, release, or operational instructions.
 
 Use the following sources instead:
 

@@ -40,9 +40,10 @@ The rules for Apple's promoted-IAP image, now canonical in
 
 Two engineering moves generalize beyond this asset.
 
-**1. Scope the regeneration script, and fail loudly on a bad scope.** The render script regenerates
-*every* store asset by default, including rights-reviewed screenshot sets that must not change. A
-positional type filter keeps a rerun to what actually changed — and an unknown filter must exit
+**1. Scope the regeneration script, and fail loudly on a bad scope.** The original render script regenerated
+*every* store asset by default, including screenshots that must not change. It now renders only
+brand assets after obsolete screenshot concepts were removed. A positional type filter still
+keeps a rerun to what actually changed — and an unknown filter must exit
 non-zero *before* rendering, because a silent zero-match run exits 0 and leaves the previous asset
 in place looking freshly regenerated:
 

@@ -1,46 +1,20 @@
 # Store-ready screenshot upload manifest
 
-Current browser screenshots: captured September 11, 2026 from the configured Still 2.0.0 release
-packages. Use the named functional assets below. The earlier free-2 captures remain as baselines.
-The older `v2` screenshots and renderer include paid 1.x UI/copy and are retained as historical concepts, not current 2.0 upload assets. Apple guidance
-below remains separate; the browser captures do not validate native screenshots.
+Current browser screenshots were captured September 11, 2026 from the configured Still 2.0.0
+release packages. Use the functional assets below. The earlier free-2 captures remain as explicit
+baselines. Paid-era screenshots and their duplicate generated copies were removed during the
+[repository cleanup](../../../plans/2026-09-14-repository-file-cleanup.md); Git history preserves them.
 
-## Apple App Store — iPhone
+## Apple App Store — iPhone, iPad and Mac
 
-Do **not** upload the current six files in `iphone/` to App Store Connect. They are useful marketing
-concepts, but they visibly include third-party service marks and are therefore not the approved
-Apple upload set. Keep the already-submitted, brand-safe Apple screenshots in place while review is
-pending. Before a future Apple metadata update, create and rights-review brand-safe variants that
-show the real Still UI without those marks.
+Keep the owner-approved screenshots already submitted with build 8 in App Store Connect. Their
+release state and local evidence are recorded in the [September 14 release status](../../2026-09-14-release-status.md).
+No native screenshot or store submission was replaced during repository cleanup.
 
-- Format: JPEG
-- Dimensions: 1290x2796 portrait
-- Count: 6 (Apple accepts 1–10)
-- Content: every image includes the app in use; images 5 and 6 use text/image overlays while retaining
-  the actual app interface
-- Pricing: no hard-coded price, so the English set is safe for both U.S. and Canadian storefronts
-
-## Apple App Store — iPad
-
-Do **not** upload the current six files in `ipad/` to App Store Connect for the same third-party
-service-mark reason as the iPhone set. Keep the currently submitted brand-safe screenshots in place
-while review is pending; use rights-reviewed brand-safe variants for any future update.
-
-- Format: JPEG
-- Dimensions: 2064x2752 portrait
-- Count: 6
-- Content: every image includes the app in use
-
-## Mac App Store
-
-Do **not** upload the current six files in `macos/` to App Store Connect for the same third-party
-service-mark reason as the iPhone set. Keep the currently submitted brand-safe screenshots in place
-while review is pending; use rights-reviewed brand-safe variants for any future update.
-
-- Format: JPEG
-- Dimensions: 2880x1800 landscape (16:10)
-- Count: 6
-- Content: every image includes the app in use
+The former six-image `iphone/`, `ipad/` and `macos/` sets were paid-era marketing concepts with
+third-party service marks, explicitly excluded from current uploads. They have been removed.
+Future Apple screenshots must come from the actual candidate, reflect the free release, and receive
+visual/rights review. Browser captures do not stand in for native Apple screenshots.
 
 ## Chrome Web Store
 
@@ -71,8 +45,8 @@ Put these captions in AMO's screenshot-description fields. The blocked page itse
 
 - Browser: Firefox 155.0.1, isolated profile with the release ZIP temporarily installed
 - No explanatory text or invented browser chrome is baked into the images
-- Remove the older paid-UI `still-firefox-store-01-1280x800.jpg`; do not upload annotated
-  `../v2/firefox/` concepts. Preserve `still-firefox-free-2-1280x800.png` as a baseline.
+- The older paid-UI screenshot and annotated Firefox concepts have been removed. Preserve
+  `still-firefox-free-2-1280x800.png` as a baseline.
 
 ## Browser capture provenance and refresh
 
@@ -96,9 +70,11 @@ for package and image hashes, screenshot-density details and verification limits
 upload status is separate from this asset record. These images do not demonstrate completed sync
 or native-app blocking; keep supported browser surfaces clear in the listing description.
 
-Do not regenerate these files through `source/render.mjs`: that older compositor embeds the
-archived `chrome/raw-popup-v2.png`. Refresh from the actual candidate in an isolated browser and
-review the resulting pixels before replacing a submitted image.
+Refresh functional screenshots from the actual candidate in an isolated browser and review the
+resulting pixels before replacing a submitted image. `source/render.mjs` now renders only brand
+assets: `store-promo` writes the two Chrome tiles here, `iap` writes the retained IAP image here,
+and `promo` writes the website sharing image at its existing `../v2/web/` URL. Each has one output
+copy. An unscoped run renders those four brand images; it never rewrites functional screenshots.
 
 Official screenshot guidance: [Chrome](https://developer.chrome.com/docs/webstore/images) and
 [Firefox](https://extensionworkshop.com/documentation/develop/create-an-appealing-listing/).
@@ -132,18 +108,14 @@ runbook §7 references it rather than restating it.
     thumbnail scale Apple renders in search.
   - The bottom-left 30% × 30% of the canvas stays content-free (internal convention — Apple
     publishes no exact figure — reserving the icon-composite region).
-  - Regenerate ONLY via `node render.mjs iap` from `../source/` — an unscoped run rewrites the
-    rights-reviewed screenshot sets above.
+  - Regenerate ONLY via `node render.mjs iap` from `../source/` so unrelated brand assets remain
+    untouched.
 
 This is not the **App Review Screenshot**. For that separate review-only field, capture the real
 Still Pro purchase/paywall screen from the submitted build so the item being sold is visible.
 
 ## Rights and accuracy check before each upload
 
-The screenshots reproduce the actual Still interface, including third-party service names and icons.
-Apple requires the publisher to hold the rights needed for every material shown in screenshots. The
-current Apple-family files in this directory are **not** cleared for App Store upload because they
-include those service marks. Before uploading any future Apple screenshots, confirm the live build
-still matches the depicted interface, obtain any required rights clearance, or use brand-safe UI
-crops that do not show the marks. Chrome and AMO assets must also be checked against each store's
-current third-party-rights and accuracy rules.
+Before a future upload, confirm the live build matches the depicted interface and review rights
+for every material shown. Use the approved native Apple captures for Apple listings and the
+functional browser captures for Chrome/AMO. Removed historical concepts are not upload candidates.

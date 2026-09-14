@@ -164,7 +164,7 @@ Prose remains authoritative: the full ordered human runbook lands in
 - **Files:** `docs/release/screenshots/source/promo.html`,
   `docs/release/screenshots/source/render.mjs`,
   `docs/release/screenshots/store-ready/apple/still-pro-iap-v3-1024x1024.jpg` (new),
-  `docs/release/screenshots/v2/apple/still-pro-iap-v3-1024x1024.jpg` (new — `render.mjs` writes
+  [historical still-pro-iap-v3-1024x1024.jpg](https://github.com/ZackC-1/still-app/blob/bcd76fe33b5c942f5bfe92d030f05e6cc6e6509d/docs/release/screenshots/v2/apple/still-pro-iap-v3-1024x1024.jpg) (new — `render.mjs` writes
   the concept copy to the `v2/` output root before copying to `store-ready/`; delete the stale
   v2-named concept file there),
   delete `docs/release/screenshots/store-ready/apple/still-pro-iap-v2-1024x1024.jpg`.

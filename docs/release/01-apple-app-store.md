@@ -190,7 +190,7 @@ Docs: [Submitting for review](https://developer.apple.com/help/app-store-connect
 - [x] `still_sync` is attached to the launch submission and **Waiting for Review**.
 - [x] iPhone screenshots accepted.
 - [x] 13-inch iPad screenshot blocker resolved with
-      `docs/release/screenshots/ipad/still-ipad-13-01.jpg`.
+      [historical still-ipad-13-01.jpg](https://github.com/ZackC-1/still-app/blob/bcd76fe33b5c942f5bfe92d030f05e6cc6e6509d/docs/release/screenshots/ipad/still-ipad-13-01.jpg).
 - [x] App Review sign-in requirement handled as not required because the free tier is usable without
       account sign-in.
 - [x] iOS and macOS Review Information explain extension setup, free testing, Pro testing, optional

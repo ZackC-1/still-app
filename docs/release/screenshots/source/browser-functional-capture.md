@@ -92,7 +92,7 @@ The release-wide asset brief also calls for activation and Safari-only mobile vi
 browser set does not show installation/permission steps; native Apple captures cover Safari
 setup and the mobile boundary. Browser descriptions/captions retain the Safari-only qualification.
 This record makes no claim that the full cross-store screenshot brief is complete.
-Do not use the legacy `render.mjs` compositor, which embeds archived paid UI.
+The `render.mjs` tool renders brand assets only; capture functional screenshots from the app.
 
 Related: [store-asset review conventions](../../../solutions/conventions/codify-store-asset-compliance-in-tests.md),
 [Chrome image requirements](https://developer.chrome.com/docs/webstore/images), and
