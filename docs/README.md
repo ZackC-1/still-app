@@ -8,6 +8,7 @@ This directory holds the product, architecture, release, and operations notes fo
 |---|---|
 | [../STRATEGY.md](../STRATEGY.md) | Product mission, objective order, commercial truth, and decision guardrails. |
 | [SHARED-BRAIN.md](SHARED-BRAIN.md) | Cross-harness Compound Engineering memory and synchronization workflow. |
+| [MEMORY.md](MEMORY.md) | Shared Mem0 retrieval and checkpoint recording for Codex and Claude Code. |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Runtime map of the main modules, interfaces, data flows, and verification surfaces. |
 | [Still-Spec-v1.md](Still-Spec-v1.md) | Product specification for what Still blocks and how it should behave. |
 | [CONNECTIONS.md](CONNECTIONS.md) | External service checklist, secret ownership, and deployment gates. |
