@@ -12,8 +12,8 @@ the product Still throughout public website copy.
 
 Follow [strategy](../../STRATEGY.md), the [release runbook](../release/README.md), and the
 [separate Pages publishing guidance](../solutions/conventions/github-pages-custom-domain-certificate.md).
-Present all platforms equally with a short free-update rollout notice and keep the Safari-only
-iOS boundary accurate. Preserve
+Present all platforms equally and keep the Safari-only iOS boundary accurate. The owner removed
+the homepage rollout notices and release-availability CTA; secondary-page notices remain. Preserve
 historical refund/retention terms, runtime versions, submitted store assets and owner store text.
 
 1. Apply owner homepage copy, store links, scoped heading width/centering and reduced vertical
@@ -23,7 +23,7 @@ historical refund/retention terms, runtime versions, submitted store assets and 
 4. Merge reviewed source and publishing PRs; verify Pages deployment and live content.
 
 Acceptance: visitors see the requested headings, can navigate directly to each store, understand
-free blocking/optional sync and pending updates, and see natural heading wrapping at phone width.
+free blocking/optional sync, and see natural heading wrapping at phone width.
 
 Rollback: revert only these website changes through PRs. Publication is authorized by the owner;
 no store-submission changes are included.
@@ -41,3 +41,8 @@ Source integration: [PR189](https://github.com/ZackC-1/still-app/pull/189).
 Independent review passed for source/publishing parity, 87 internal links/anchors, unchanged
 retention/refund terms and scoped public assets. No new unit tests were needed for these static
 copy and CSS changes; browser evidence and the normal CI gates cover the relevant checks.
+
+Owner follow-up: halve the outcome-card number-to-heading margin (62px to 31px), preserve the
+release-status anchor on the store grid, and select Apple’s Mac, iPhone or iPad listing using
+browser device hints. Unrecognized devices and JavaScript-disabled browsers retain the shared
+HTTPS App Store URL. Check device variants, both Apple buttons, and desktop/mobile layout.
