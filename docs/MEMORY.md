@@ -2,7 +2,9 @@
 
 The owner authorized Codex and Claude Code to record and retrieve Still project memories on
 September 14, 2026. Follow this protocol without asking for permission again for ordinary,
-privacy-safe project summaries. This is an agent workflow, not automatic raw-transcript capture.
+privacy-safe project summaries. This includes the owner-approved release, backend/email and
+retention summaries, subject to the privacy and approval-review boundaries below. This is an agent
+workflow, not automatic raw-transcript capture.
 
 Repository documents remain authoritative. Mem0 provides searchable context across sessions and
 harnesses; it does not replace Git, release evidence, or a live check of external state.
