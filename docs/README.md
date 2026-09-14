@@ -33,8 +33,9 @@ The [`handoffs/`](handoffs/README.md) directory is temporary cross-agent state. 
 to resume unfinished work; reusable lessons belong in `solutions/`, and completed operational state
 belongs in the relevant current runbook.
 
-The `archive/` directory contains dated session handoffs and agent prompts retained for historical
-traceability. It is not operational guidance and may describe superseded repository or store state.
+The `archive/` directory retains historical release/testing records. Completed agent prompts and
+superseded execution handoffs are removed; Git history preserves them. Archived records are not
+operational guidance and may describe superseded repository or store state.
 
 ## Public pages
 

@@ -52,7 +52,7 @@ release ZIP byte for byte; both ZIP hashes matched the release manifest.
    Close only the capture-owned browser process. Keep older assets for history until a separate
    cleanup is approved.
 
-The older `render.mjs` is a marketing compositor whose browser source is the archived paid popup.
+The `render.mjs` tool renders brand assets only; the paid-popup compositor was removed.
 Running it does not refresh these real UI captures. Apple requires a separate capture from the
 candidate native app; these browser images do not stand in for iPhone, iPad or Mac screenshots.
 

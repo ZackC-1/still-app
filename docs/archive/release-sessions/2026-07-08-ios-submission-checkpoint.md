@@ -24,7 +24,7 @@ in review, then macOS, Safari, Chrome, and Firefox.
   - `Still Pro` / product id `still_sync` was attached to the version and is `Ready to Submit`.
   - Three iPhone screenshots were uploaded and accepted.
   - The 13-inch iPad screenshot blocker was resolved by uploading:
-    - `docs/release/screenshots/ipad/still-ipad-13-01.jpg`
+    - [historical still-ipad-13-01.jpg](https://github.com/ZackC-1/still-app/blob/bcd76fe33b5c942f5bfe92d030f05e6cc6e6509d/docs/release/screenshots/ipad/still-ipad-13-01.jpg)
   - App Review sign-in requirement was handled by setting sign-in required to `No` and using review
     notes from `docs/app-store-submission.md` because the free tier is usable without an account.
   - The app was submitted for review.
@@ -118,8 +118,8 @@ Known local modifications:
 - New release artifacts/docs:
   - `docs/release/2026-07-07-release-session-checkpoint.md`
   - `docs/release/2026-07-08-ios-submission-checkpoint.md`
-  - `docs/release/screenshots/ipad/still-ipad-13-01.png`
-  - `docs/release/screenshots/ipad/still-ipad-13-01.jpg`
+  - [historical still-ipad-13-01.png](https://github.com/ZackC-1/still-app/blob/bcd76fe33b5c942f5bfe92d030f05e6cc6e6509d/docs/release/screenshots/ipad/still-ipad-13-01.png)
+  - [historical still-ipad-13-01.jpg](https://github.com/ZackC-1/still-app/blob/bcd76fe33b5c942f5bfe92d030f05e6cc6e6509d/docs/release/screenshots/ipad/still-ipad-13-01.jpg)
 
 Temporary diagnostics were removed from the app source after the CORS fix was deployed.
 
@@ -136,7 +136,7 @@ Temporary diagnostics were removed from the app source after the CORS fix was de
 
 ## Recommended Next Session Order
 
-1. Read this checkpoint and `docs/release/next-session-functional-testing-prompt.md`.
+1. Read this checkpoint and [historical next-session-functional-testing-prompt.md](https://github.com/ZackC-1/still-app/blob/bcd76fe33b5c942f5bfe92d030f05e6cc6e6509d/docs/archive/agent-prompts/next-session-functional-testing-prompt.md).
 2. Rebuild/reinstall a clean current iOS debug build if testing from device; the submitted App Store
    build is build `2`, but local testing may have used temporary diagnostic builds during the session.
 3. Complete iOS functional testing:

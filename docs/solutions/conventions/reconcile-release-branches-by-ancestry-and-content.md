@@ -55,3 +55,19 @@ hosted migration state, signing, and required device journeys.
 
 Related: [configured visual contracts](codify-cross-platform-visual-contract-in-tests.md) and
 [release reconciliation plan](../../plans/2026-09-10-release-pr-reconciliation.md).
+
+## Retiring development branches
+
+An empty `git branch --merged` result does not prove that a branch contains missing work.
+Use patch equivalence for cherry-picked history, verify that a change/revert pair has an empty
+net tree diff, and compare a draft's changed files with its accepted PR merge. Check merge commits
+separately: `git cherry` does not establish whether conflict-resolution changes were retained.
+Classify an obsolete operational runbook against the current release record rather than merging
+old instructions into main solely to make ancestry line up.
+
+Before deletion, save and verify a Git bundle covering the original branch tips. Compare each ref
+with its audited SHA at deletion time; use an expected-old-value ref transaction locally and an
+exact-head lease for remote deletion. If a clean worktree still uses the branch, detach it at the
+same commit and verify unchanged HEAD/status. Preserve its files and ignored release artifacts.
+Prune registrations only for directories that are already absent. Keep independently published
+branches such as gh-pages even when their history differs from main.

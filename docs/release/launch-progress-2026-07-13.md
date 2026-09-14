@@ -48,7 +48,7 @@ uploaded binary):
 | Firefox 1.0.3 binary | `packages/ext-chromium/dist/stillext-chromium-1.0.3-firefox.zip` | `09cc4428070811f5ffc569cc7b43366d2f9a226d5f7ee2aed7418aedc5aa43aa` |
 | AMO full source 1.0.3 | `packages/ext-chromium/dist/still-amo-sources-full-repo-1.0.3.zip` | `9dce5491717673d8b21cbfd6679821872bd1379a06c3f827d60c09614beb94d9` |
 
-**Website change (PR #122).** Hero **launch video** (`docs/assets/still-launch.mp4`, 1.4 MB
+**Website change (PR #122).** Hero **launch video** ([historical still-launch.mp4](https://github.com/ZackC-1/still-app/blob/bcd76fe33b5c942f5bfe92d030f05e6cc6e6509d/docs/assets/still-launch.mp4), 1.4 MB
 H.264/faststart + poster; autoplay/muted/loop + accessible sound toggle) replaced the `.quiet-browser`
 mockup; new **`#get-still` download hub** links the App Store (`apps.apple.com/app/id6784061138` —
 covers iPhone/iPad/Mac Safari), Chrome, and Firefox; the stale "coming soon / Chrome-only" copy was

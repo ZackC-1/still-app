@@ -44,7 +44,7 @@ Live checklist for the post-iOS-submission release validation session.
 
 - Real Apple sandbox purchase is not proven because the physical device sandbox Apple Account would not stay signed in.
 - Facebook mobile home-screen Reels icon remained visible on iOS Safari even though the Reels route blocks. Safari Web Inspector showed the icon as `[role="tab"][aria-label="reels, 4 of 6"]`. Source fix is implemented with `[role="tab"][aria-label*="reels" i]`; device retest is pending.
-- Near-realtime latest-surface-wins settings sync is desired follow-up behavior, not current release behavior. Implementation spec: `docs/plans/2026-07-09-001-near-realtime-settings-sync-spec.md`; parallel-agent prompt: `docs/plans/2026-07-09-002-near-realtime-sync-pr-agent-prompt.md`.
+- Near-realtime latest-surface-wins settings sync is desired follow-up behavior, not current release behavior. Implementation spec: `docs/plans/2026-07-09-001-near-realtime-settings-sync-spec.md`; parallel-agent prompt: [historical 2026-07-09-002-near-realtime-sync-pr-agent-prompt.md](https://github.com/ZackC-1/still-app/blob/bcd76fe33b5c942f5bfe92d030f05e6cc6e6509d/docs/archive/agent-prompts/2026-07-09-002-near-realtime-sync-pr-agent-prompt.md).
 - macOS App Store submission still needs its release walkthrough.
 - Web Billing purchase flow still needs browser extension sandbox validation before web Pro launch.
 
@@ -142,4 +142,4 @@ Result: Blocked by previous Apple sandbox account auth issue.
 | 2026-07-09 | macOS Safari | TikTok Pro blocking | Pass | User reports TikTok is blocked. |
 | 2026-07-09 | macOS app/Safari | Same-device TikTok setting propagation | Pass | Turning TikTok off/on in the macOS Still app affects Safari blocking as expected. |
 | 2026-07-09 | Sync | Near-realtime settings sync spec | Documented | Created `docs/plans/2026-07-09-001-near-realtime-settings-sync-spec.md` for server-authoritative latest-surface-wins sync using Supabase RPC server timestamps, monotonic versions, and Realtime subscriptions. |
-| 2026-07-09 | Sync | Parallel implementation prompt | Documented | Created `docs/plans/2026-07-09-002-near-realtime-sync-pr-agent-prompt.md` to direct a separate Codex worktree session through implementation, local verification, PR creation, CI fixes, and merge. |
+| 2026-07-09 | Sync | Parallel implementation prompt | Documented | Created [historical 2026-07-09-002-near-realtime-sync-pr-agent-prompt.md](https://github.com/ZackC-1/still-app/blob/bcd76fe33b5c942f5bfe92d030f05e6cc6e6509d/docs/archive/agent-prompts/2026-07-09-002-near-realtime-sync-pr-agent-prompt.md) to direct a separate Codex worktree session through implementation, local verification, PR creation, CI fixes, and merge. |

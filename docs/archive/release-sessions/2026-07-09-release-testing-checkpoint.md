@@ -65,7 +65,7 @@ Use this checkpoint to resume release testing after the updated build/parallel s
 - Near-realtime, latest-surface-wins settings sync is desired follow-up behavior, not current release
   behavior.
   - Spec: `docs/plans/2026-07-09-001-near-realtime-settings-sync-spec.md`
-  - Parallel implementation prompt: `docs/plans/2026-07-09-002-near-realtime-sync-pr-agent-prompt.md`
+  - Parallel implementation prompt: [historical 2026-07-09-002-near-realtime-sync-pr-agent-prompt.md](https://github.com/ZackC-1/still-app/blob/bcd76fe33b5c942f5bfe92d030f05e6cc6e6509d/docs/archive/agent-prompts/2026-07-09-002-near-realtime-sync-pr-agent-prompt.md)
   - A separate Codex session is working on that PR in a separate worktree.
 - Restore purchase decision rule was documented:
   - Entitled Supabase account → auto-provision Pro through reconcile; no Restore button needed.
@@ -162,7 +162,7 @@ Optional if a device/emulator is available.
 
 - `docs/release/2026-07-09-functional-testing-matrix.md`
 - `docs/release/2026-07-09-release-testing-checkpoint.md`
-- `docs/release/next-session-after-updated-build-testing-prompt.md`
+- [historical next-session-after-updated-build-testing-prompt.md](https://github.com/ZackC-1/still-app/blob/bcd76fe33b5c942f5bfe92d030f05e6cc6e6509d/docs/archive/agent-prompts/next-session-after-updated-build-testing-prompt.md)
 - `docs/release/01-apple-app-store.md`
 - `docs/release/04-revenuecat.md`
 - `docs/release/02-chrome-web-store.md`
