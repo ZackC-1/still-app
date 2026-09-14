@@ -34,6 +34,13 @@ still leave vulnerable transitive versions. A targeted compatible transitive upd
 unrelated manifest override. The reviewed reconciliation updated only Undici 7.28.0 to 7.29.1
 after the combined audit identified it; the subsequent audit reported zero advisories.
 
+For major test-tool updates, also reconcile runtime engine requirements with the root
+manifest and contributor instructions. jsdom 30 requires `^22.22.2 || ^24.15.0 || >=26.0.0`;
+an older `node >=22` declaration incorrectly admits unsupported patch and intermediate major
+versions. Check the new packages' peer ranges together: a clean textual merge can leave a
+jest-dom snapshot pointing at the old Vitest/jsdom combination even after those package
+definitions have been replaced. Regenerate and verify the combined lockfile before CI.
+
 ## Evidence and prevention
 
 The September 10 reconciliation found that sync lifecycle isolation was already on main, while
