@@ -1,6 +1,6 @@
 ---
 title: Remove superseded repository files
-status: in_progress
+status: implemented
 date: 2026-09-14
 owner: codex-personal
 branch: chore/repository-file-cleanup
@@ -58,8 +58,9 @@ removed files. Historical references should link to the baseline commit rather t
 - Passed: all four renderer modes in a disposable copy (`iap`, `promo`, `store-promo`, unscoped),
   producing exactly their intended canonical files without duplicate outputs or UI screenshots.
 - Passed: six existing Playwright store-asset tests and repository lint.
-- Pending: all three PR CI gates (typecheck/unit/build, Deno and configured/unconfigured fixtures).
-- Pending: protected merge, local/origin parity and final branch cleanup.
+- Full CI and protected merge are tracked in [PR #196](https://github.com/ZackC-1/still-app/pull/196):
+  typecheck/unit/build, Deno and configured/unconfigured browser fixtures. Final local/origin parity
+  and removal of the temporary branch follow that merge.
 
 ## Recovery
 
