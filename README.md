@@ -6,73 +6,9 @@ Still removes short-form video surfaces from YouTube, Instagram, Facebook, and T
 
 This repository is public so people who install Still can inspect what runs in the browser, how privacy is handled, how optional settings sync works, and how releases are tested.
 
-> **Project status:** Still 2.0 is undergoing release verification. Automated checks and distribution
-> signing have passed; device journeys, provider privacy checks, and store preparation remain open.
-> See the [release runbook](docs/release/README.md) for evidence and remaining gates.
-
-## What Still ships
-
-| Surface | What it does |
-|---|---|
-| Browser extensions | Shared WebExtension code for Chromium and Firefox builds, with a data-driven content script for blocking short-form surfaces. |
-| Safari extension | The same blocking core packaged as a Safari Web Extension. |
-| Apple app | iOS and macOS host app for the Safari extension and native bridge, with dormant StoreKit 2 purchase infrastructure. |
-| Supabase backend | Auth, settings sync, entitlement reconciliation, signed rule-set hosting, export, deletion, and selector canary functions. |
-
-## Product model
-
-| Feature | Included |
-|---|---|
-| Free blocking | YouTube Shorts and Instagram/Facebook Reels removal; TikTok website blocking. No account or purchase required. |
-| Optional free settings sync | Sign in with the same email on supported devices to sync your Still settings. |
-
-On iPhone and iPad, Still works on websites opened in Safari, not inside native social-media apps.
-Still 2.0 is free; retained purchase infrastructure is disabled for this release.
-
-Still does not collect browsing history. Host permissions are limited to `youtube.com`, `instagram.com`, `facebook.com`, and `tiktok.com`; the extension never requests `<all_urls>`.
-
-## Architecture
-
-Still is a TypeScript-first monorepo with thin platform shells:
-
-```
-packages/
-  shared-types/    rule set, settings, and entitlement types
-  core/            rule engine, content script, Svelte UI, storage, sync, native bridge adapters
-  ext-chromium/    WXT MV3 extension for Chromium; also produces the Firefox build
-  ext-safari/      WXT Safari extension resources consumed by the Apple app
-apps/
-  apple/           Xcode project for iOS, macOS, Safari extension, and StillKit
-supabase/
-  migrations/      schema, RLS, indexes, and rule-set seed data
-  functions/       Edge Functions for billing, account, entitlement, and canary flows
-tests/
-  fixtures/        recorded service pages used by Playwright
-  playwright/      extension integration tests
-  smoke/           non-gating real-site smoke checks
-docs/
-  release/         release runbooks for every store and backend dependency
-```
-
-The blocking engine consumes a signed, versioned JSON rule set. Remote updates are data only: selectors, match patterns, action enum values, and tier metadata. They are schema-checked and Ed25519-verified before use; remote rule sets never ship executable code.
-
-For a deeper map, start with [docs/README.md](docs/README.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
-
-## Agent collaboration
-
-Claude Code, Codex Personal, and Codex Work share repository-backed Compound Engineering knowledge.
-All agents must follow [AGENTS.md](AGENTS.md); Claude imports the same rules through
-[CLAUDE.md](CLAUDE.md). Product direction lives in [STRATEGY.md](STRATEGY.md), and the knowledge
-lifecycle is documented in [docs/SHARED-BRAIN.md](docs/SHARED-BRAIN.md).
-
-## Trust signals
-
-- CI runs lint, typecheck, unit tests, extension builds, Supabase function checks, and Playwright fixture tests on every PR.
-- `main` is protected by a GitHub ruleset requiring PRs and the required status checks before merge.
-- Real secrets are excluded from the repository. Tracked config files contain empty defaults or public client keys only.
-- Store privacy copy lives in [docs/privacy.html](docs/privacy.html), and support copy lives in [docs/support.html](docs/support.html).
-- Security reporting instructions live in [SECURITY.md](SECURITY.md).
-- The current release validation record lives in [docs/release/VALIDATION.md](docs/release/VALIDATION.md).
+> **Release status:** See the [dated release record](docs/release/2026-09-14-release-status.md)
+> and [release runbook](docs/release/README.md) for store rollout, verified coverage and remaining
+> gates. Check live store state before a release action.
 
 ## Development
 
@@ -107,9 +43,85 @@ use local or development values only.
 
 Apple helpers live in [apps/apple/scripts/README.md](apps/apple/scripts/README.md).
 
+## What Still ships
+
+| Surface | What it does |
+|---|---|
+| Browser extensions | Shared WebExtension code for Chromium and Firefox builds, with a data-driven content script for blocking short-form surfaces. |
+| Safari extension | The same blocking core packaged as a Safari Web Extension. |
+| Apple app | iOS and macOS host app for the Safari extension and native bridge, with dormant StoreKit 2 purchase infrastructure. |
+| Supabase backend | Auth, settings sync, entitlement reconciliation, signed rule-set hosting, export, deletion, and selector canary functions. |
+
+## Product model
+
+| Feature | Included |
+|---|---|
+| Free blocking | YouTube Shorts and Instagram/Facebook Reels removal; TikTok website blocking. No account or purchase required. |
+| Optional free settings sync | Sign in with the same email on supported devices to sync your Still settings. |
+
+On iPhone and iPad, Still works on websites opened in Safari, not inside native social-media apps.
+Still 2.0 is free; retained purchase infrastructure is disabled for this release.
+
+Still does not collect browsing history. Host permissions are limited to `youtube.com`, `instagram.com`, `facebook.com`, and `tiktok.com`; the extension never requests `<all_urls>`.
+
+## Architecture
+
+Still is a TypeScript-first monorepo with thin platform shells:
+
+```
+packages/
+  shared-types/    rule set, settings, and entitlement types
+  core/            rule engine, content script, Svelte UI, storage, sync, native bridge adapters
+  app-webview/     web UI embedded in the iOS and macOS host app
+  ext-chromium/    WXT MV3 extension for Chromium; also produces the Firefox build
+  ext-safari/      WXT Safari extension resources consumed by the Apple app
+apps/
+  apple/           Xcode project for iOS, macOS, Safari extension, and StillKit
+supabase/
+  migrations/      schema, RLS, indexes, and rule-set seed data
+  functions/       Edge Functions for billing, account, entitlement, and canary flows
+tests/
+  fixtures/        recorded service pages used by Playwright
+  playwright/      extension integration tests
+  smoke/           non-gating real-site smoke checks
+docs/
+  release/         current release runbooks, store assets and certification
+  adr/             accepted architecture decisions
+  solutions/       reusable implementation lessons
+  plans/           implementation plans with status and evidence
+  research/        dated external research and its sources
+  archive/         historical release/testing records
+```
+
+The blocking engine consumes a signed, versioned JSON rule set. Remote updates are data only: selectors, match patterns, action enum values, and tier metadata. They are schema-checked and Ed25519-verified before use; remote rule sets never ship executable code.
+
+For a deeper map, start with [docs/README.md](docs/README.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+
+Folder guides: [core](packages/core/README.md), [Chromium/Firefox](packages/ext-chromium/README.md),
+[Safari](packages/ext-safari/README.md), [Apple webview](packages/app-webview/README.md),
+[shared types](packages/shared-types/README.md), [Apple](apps/apple/README.md),
+[backend](supabase/README.md), and [tests](tests/README.md).
+
+## Trust signals
+
+- CI runs lint, typecheck, unit tests, extension builds, Supabase function checks, and Playwright fixture tests on every PR.
+- `main` is protected by a GitHub ruleset requiring PRs and the required status checks before merge.
+- Real secrets are excluded from the repository. Tracked config files contain empty defaults or public client keys only.
+- Store privacy copy lives in [docs/privacy.html](docs/privacy.html), and support copy lives in [docs/support.html](docs/support.html).
+- Security reporting instructions live in [SECURITY.md](SECURITY.md).
+- The current release validation record lives in [docs/release/VALIDATION.md](docs/release/VALIDATION.md).
+
 ## Release operations
 
 The release runbook starts at [docs/release/README.md](docs/release/README.md). It documents the Apple App Store, Chrome Web Store, Firefox AMO, RevenueCat, Supabase, and mobile-validation steps, including the human-gated credentials and portal work that cannot be automated safely.
+
+## Agent collaboration
+
+Claude Code, Codex Personal, and Codex Work share repository-backed Compound Engineering knowledge.
+All agents must follow [AGENTS.md](AGENTS.md); Claude imports the same rules through
+[CLAUDE.md](CLAUDE.md). Product direction lives in [STRATEGY.md](STRATEGY.md), and the knowledge
+lifecycle is documented in [docs/SHARED-BRAIN.md](docs/SHARED-BRAIN.md).
 
 ## Contributing
 

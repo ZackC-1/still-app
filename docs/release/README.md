@@ -20,7 +20,7 @@ On iPhone and iPad, Still works in Safari websites; it does not block native soc
 
 The 2.0 candidate must pass [release certification](2026-09-08-still-2-certification.md).
 [VALIDATION.md](VALIDATION.md) distinguishes current evidence from previous releases. Historical
-portal status in [the launch record](launch-progress-2026-07-13.md) must be verified live before
+portal status in [the launch record](../archive/release-sessions/launch-progress-2026-07-13.md) must be verified live before
 an external action.
 
 Customer-facing email addresses and store upload checklist: [public contact addresses](public-contact-addresses.md).
