@@ -155,4 +155,17 @@ final class AnalyticsIdentityTests: XCTestCase {
     XCTAssertEqual(later.install.anchorId, adopted.install.anchorId)
     XCTAssertEqual(later.previousAnchorId, adopted.previousAnchorId)
   }
+
+  func testAnAnchorReceivedFromICloudIsNeverAliasedAway() {
+    let cloud = MemoryKeyValue()
+    cloud.set("99999999-9999-4999-8999-999999999999", forKey: AnalyticsIdentityStore.anchorKey)
+    let group = MemoryKeyValue()
+    let store = AnalyticsIdentityStore(group: group, newId: ids())
+    let created = store.appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: nil)
+    XCTAssertTrue(created.returning)
+    cloud.set("88888888-8888-4888-8888-888888888888", forKey: AnalyticsIdentityStore.anchorKey)
+    let later = store.appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: nil)
+    XCTAssertEqual(later.install.anchorId, "99999999-9999-4999-8999-999999999999")
+    XCTAssertNil(later.previousAnchorId)
+  }
 }

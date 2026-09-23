@@ -33,6 +33,8 @@ export const PENDING_INSTALL_KEY = "still:analytics:pending-install";
 const QUIET: TrackOptions = { quiet: true };
 /** Longest a send waits for the background start's account check. */
 export const START_HOLD_LIMIT_MS = 10_000;
+/** Longest one server email attach may take before a later screen may try again. */
+export const SERVER_ATTACH_LIMIT_MS = 15_000;
 
 export interface MessageSender {
   readonly id?: string;
@@ -121,26 +123,34 @@ export function createAccountIdentifier(deps: {
 }): AccountIdentifier {
   const { client } = deps;
   const consented = () => deps.consent().catch(() => false);
-  let inflight: Promise<void> | null = null;
-  const attach = (): Promise<void> => {
-    if (!deps.identifyOnServer || !client.enabled) return Promise.resolve();
-    inflight ??= (async () => {
+  // One attempt at a time per account: a request still running for account A never stands in for
+  // account B, and a hung request is abandoned after SERVER_ATTACH_LIMIT_MS so retries continue.
+  const inflight = new Map<string, Promise<void>>();
+  const attach = async (): Promise<void> => {
+    if (!deps.identifyOnServer || !client.enabled || !client.accountConfirmed) return;
+    const userId = await client.signedInAs();
+    if (!userId) return;
+    const existing = inflight.get(userId);
+    if (existing) return existing;
+    const attempt = (async () => {
       const stamp = client.stamp();
-      const userId = await client.signedInAs();
-      if (!userId || !(await consented())) return;
+      if (!(await consented())) return;
       if ((await deps.local.get(SERVER_IDENTIFIED_KEY).catch(() => null)) === userId) return;
-      // Immediately before the request: same account, sharing still on, nothing reset meanwhile.
-      if ((await client.signedInAs()) !== userId || !(await consented()) || !client.isCurrent(stamp)) return;
+      // Immediately before the request: same confirmed account, sharing still on, nothing reset.
+      if (!client.accountConfirmed || (await client.signedInAs()) !== userId || !(await consented())) return;
+      if (!client.isCurrent(stamp)) return;
       try {
-        await deps.identifyOnServer!();
+        await Promise.race([
+          deps.identifyOnServer!(),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), SERVER_ATTACH_LIMIT_MS)),
+        ]);
         if (client.isCurrent(stamp)) await deps.local.set(SERVER_IDENTIFIED_KEY, userId);
       } catch {
         /* retried at the next Still screen */
       }
-    })().finally(() => {
-      inflight = null;
-    });
-    return inflight;
+    })().finally(() => inflight.delete(userId));
+    inflight.set(userId, attempt);
+    return attempt;
   };
   return {
     async identify(userId, options = {}) {
@@ -177,6 +187,8 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
     fetch: deps.fetch ?? ((...args) => fetch(...args)),
     now,
     uuid,
+    // Nobody is attributed until onStart (or a page) confirms the account.
+    startsUnconfirmed: true,
   });
   const accounts = createAccountIdentifier({
     client,
@@ -187,17 +199,16 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
   const identify = (userId: string, options?: TrackOptions) => accounts.identify(userId, options);
   const blocksAtInstall = deps.surface === "chrome" || deps.surface === "firefox";
   const isSafari = deps.surface === "safari-ios" || deps.surface === "safari-macos";
-  // One bounded startup result that everything waits on. "known": the start reconciled the account.
-  // "unknown": it never reported, or could not read the account; then only anonymous events may be
-  // sent until an account is confirmed. Elapsed time is never treated as a successful check.
-  let startSettled!: (known: boolean) => void;
-  const started = new Promise<boolean>((resolve) => (startSettled = resolve));
+  // One bounded startup result that everything waits on. Only a start that actually established
+  // the account confirms it (confirmAccount); a start that never reports, or reports "unknown",
+  // leaves the account unconfirmed, so nothing attributed to an account leaves and new events wait
+  // unattributed. Elapsed time is never treated as a successful check.
+  let startSettled!: () => void;
+  const started = new Promise<void>((resolve) => (startSettled = resolve));
   const startResult: Promise<void> = Promise.race([
     started,
-    new Promise<boolean>((r) => setTimeout(() => r(false), START_HOLD_LIMIT_MS)),
-  ]).then((known) => {
-    if (!known) client.setAccountVerified(false);
-  });
+    new Promise<void>((r) => setTimeout(r, START_HOLD_LIMIT_MS)),
+  ]);
   client.holdSendsUntil(startResult);
   const requestFlushIfNeeded = async (): Promise<void> => {
     if ((await client.queuedCount()) > 0) deps.requestQuietFlush?.();
@@ -238,7 +249,7 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
       }
       case "identify":
         // A page reports the signed-in account from its session: that confirms the account.
-        client.setAccountVerified(true);
+        client.confirmAccount();
         await identify(request.userId);
         return true;
       case "reset":
@@ -289,19 +300,21 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
     },
     onStart(userId) {
       void (async () => {
-        client.setAccountVerified(userId !== undefined);
         if (userId) {
+          client.confirmAccount();
           await identify(userId, QUIET);
         } else if (userId === null) {
           // The account is gone (signed out elsewhere, deleted, expired). Its waiting events go with
           // it: if it was deleted, sending them would recreate the person the server just removed.
           await client.reset({ onlyIfSignedIn: true, forgetAccount: true });
+          client.confirmAccount();
         }
+        // undefined: the account could not be read. It stays unconfirmed.
         await emitPendingInstall(QUIET);
         await requestFlushIfNeeded();
       })()
         .catch(() => {})
-        .finally(() => startSettled(userId !== undefined));
+        .finally(() => startSettled());
     },
     onActivity() {
       void (async () => {

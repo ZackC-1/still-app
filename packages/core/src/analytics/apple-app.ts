@@ -52,7 +52,9 @@ const PENDING_UPDATE_KEY = "still:analytics:pending-update";
 interface Ready {
   readonly client: AnalyticsClient;
   readonly context: AnalyticsContextReply;
+  /** Confirm and identify the account (fast, local), then run the server attach on its own. */
   readonly identify: (userId: string) => Promise<void>;
+  readonly attach: () => Promise<void>;
 }
 
 export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
@@ -83,17 +85,27 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         fetch: deps.fetch ?? ((...args) => fetch(...args)),
         now: deps.now ?? Date.now,
         uuid: deps.uuid ?? (() => crypto.randomUUID()),
+        // Nobody is attributed until the launch's account check (or a sign-in) confirms the account.
+        startsUnconfirmed: true,
       });
       if (!client.enabled) return null;
       client.holdSendsUntil(sendGate);
-      void accountSettled.then((known) => client.setAccountVerified(known));
+
       const accounts = createAccountIdentifier({
         client,
         local: deps.store,
         consent: async () => consent,
         identifyOnServer: deps.identifyOnServer,
       });
-      return { client, context, identify: (userId: string) => accounts.identify(userId) };
+      return {
+        client,
+        context,
+        identify: async (userId: string) => {
+          client.confirmAccount();
+          await client.identify(userId);
+        },
+        attach: () => accounts.attach(),
+      };
     })());
 
   const withReady = (run: (r: Ready) => Promise<unknown> | void): void => {
@@ -156,7 +168,11 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         await r.client.track(name, props);
         await r.client.trackDaily("active", "active", {}); // any use counts toward the day
       }),
-    identify: (userId) => withReady((r) => r.identify(userId)),
+    identify: (userId) =>
+      withReady(async (r) => {
+        await r.identify(userId); // a completed sign-in confirms the account
+        void r.attach();
+      }),
     reset: (options) => withReady((r) => r.client.reset(options)),
     async sharing() {
       const r = await ready();
@@ -189,10 +205,9 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
     async start() {
       const r = await ready();
       if (!r) return;
-      // Attribution first: this launch's events are recorded only once the account is settled, so a
-      // previous account being let go can never discard them.
-      await accountSettled;
       const { client, context } = r;
+      // Evidence first, straight away: the app can be closed during the account check, and the native
+      // side has already recorded this launch, so an install or update not saved now would be lost.
       if (context.previousVersion) {
         await deps.store.set(PENDING_UPDATE_KEY, { kind: "updated", returning: false, from: context.previousVersion, at: now() })
           .catch(() => undefined);
@@ -200,6 +215,9 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         await deps.store.set(PENDING_INSTALL_KEY, { kind: "installed", returning: context.returning, from: null, at: now() })
           .catch(() => undefined);
       }
+      // Then the account check. Events recorded before it confirms anything carry no person and are
+      // attributed when sent (client.ts attributeLater), so nothing can be lost to an account reset.
+      await accountSettled;
       await emitPending(r);
       await client.trackOnce("app_opened", "setup_step", { step: "app_opened" });
       await reportExtensionEnabled(r, context.extensionEnabled);
@@ -218,10 +236,12 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       const op = (async () => {
         const r = await ready();
         if (!r) return;
-        r.client.setAccountVerified(true); // a live session confirms the account
-        await r.identify(userId);
+        await r.identify(userId); // a live session confirms the account
       })();
       accountOp = accountOp.then(() => op);
+      // The server attach is separate from the account check: its network time must never delay or
+      // overrule the check's result.
+      void op.then(() => ready()).then((r) => r?.attach());
       return op;
     },
     accountResolved() {
@@ -230,7 +250,9 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
     accountAbsent() {
       const op = (async () => {
         const r = await ready();
-        if (r) await r.client.reset({ onlyIfSignedIn: true, forgetAccount: true });
+        if (!r) return;
+        await r.client.reset({ onlyIfSignedIn: true, forgetAccount: true });
+        r.client.confirmAccount(); // known: nobody is signed in
       })();
       accountOp = accountOp.then(() => op);
       return op;

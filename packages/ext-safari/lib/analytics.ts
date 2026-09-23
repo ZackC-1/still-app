@@ -124,8 +124,14 @@ export function createSafariBackgroundAnalytics(deps: SafariAnalyticsDeps): Safa
 
   const syncAccount = async (h: ExtensionAnalyticsHost): Promise<void> => {
     const userId = await accountId().catch(() => undefined);
-    if (userId) await h.identify(userId);
-    else if (userId === null) await h.client.reset({ onlyIfSignedIn: true, forgetAccount: true });
+    if (userId) {
+      h.client.confirmAccount(); // the app reports a signed-in account
+      await h.identify(userId);
+    } else if (userId === null) {
+      await h.client.reset({ onlyIfSignedIn: true, forgetAccount: true });
+      h.client.confirmAccount(); // the app reports nobody signed in
+    }
+    // undefined: unreadable; the account stays as it was (confirmed or not).
   };
 
   return {

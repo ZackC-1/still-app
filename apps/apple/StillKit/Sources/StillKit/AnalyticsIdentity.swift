@@ -58,6 +58,10 @@ public final class AnalyticsIdentityStore {
   /// The anchor this device used before adopting its current one. Kept (not only returned once) so
   /// the merge is sent whenever sharing allows; the web layer sends it once.
   static let previousAnchorKey = "still.analytics.previous-anchor"
+  /// "local" when this device made its anchor, "shared" when it came from iCloud. Only a local anchor
+  /// may be merged into another: one from iCloud may already be another device's merge destination,
+  /// and aliasing it again would build a chain PostHog refuses.
+  static let anchorOriginKey = "still.analytics.anchor-origin"
   /// Set once the app has read the install record. The Safari extension can create the record
   /// first (it runs on page loads); the app's first read still has to report the install or update
   /// and share the anchor through iCloud.
@@ -133,10 +137,12 @@ public final class AnalyticsIdentityStore {
     }
     let startingAnchor = install.anchorId
     if created {
+      group.set("local", forKey: Self.anchorOriginKey)
       if let ubiquitous {
         if let shared = ubiquitous.string(forKey: Self.anchorKey), Self.isId(shared) {
           returning = shared != install.anchorId
           install = AnalyticsInstall(installId: install.installId, anchorId: shared)
+          group.set("shared", forKey: Self.anchorOriginKey)
         } else {
           // A record made by the extension carries its install id as the anchor; share a separate
           // anchor so the install id itself never leaves the device through iCloud.
@@ -147,6 +153,7 @@ public final class AnalyticsIdentityStore {
       save(install)
       group.set(true, forKey: Self.appSeenKey)
     } else if group.string(forKey: Self.previousAnchorKey) == nil,
+              group.string(forKey: Self.anchorOriginKey) != "shared",
               let ubiquitous, let shared = ubiquitous.string(forKey: Self.anchorKey), Self.isId(shared),
               shared != install.anchorId {
       // At most once per device: a second adoption would alias into an id that was itself an alias
@@ -155,6 +162,7 @@ public final class AnalyticsIdentityStore {
       // before sync arrived, or two devices racing). Adopt it; the old one is merged below.
       install = AnalyticsInstall(installId: install.installId, anchorId: shared)
       save(install)
+      group.set("shared", forKey: Self.anchorOriginKey)
     }
     // Only an id something may already have reported under needs merging. Remember it until a
     // later change replaces it, so a merge discarded while sharing was off is sent later.

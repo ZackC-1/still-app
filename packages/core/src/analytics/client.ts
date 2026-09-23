@@ -64,6 +64,12 @@ export interface AnalyticsClientDeps {
   readonly uuid: () => string;
   /** Timer seam; defaults to setTimeout. */
   readonly schedule?: (run: () => void, ms: number) => void;
+  /**
+   * Start with the account unconfirmed (the extension and Apple hosts): until the host calls
+   * `confirmAccount`, events are queued without a person and attributed only when they are sent,
+   * after confirmation. See `QueuedEvent.attributeLater`.
+   */
+  readonly startsUnconfirmed?: boolean;
 }
 
 interface QueuedEvent {
@@ -71,6 +77,13 @@ interface QueuedEvent {
   readonly uuid: string;
   readonly timestamp: string;
   readonly properties: Record<string, unknown>;
+  /**
+   * Recorded before the host confirmed who is signed in. It carries no person yet: at send time,
+   * and only once the account is confirmed, it is attributed to the account then current (or the
+   * anonymous id). So it can never go out under an account that has ended, and letting go of an
+   * earlier account never discards it.
+   */
+  readonly attributeLater?: boolean;
 }
 
 interface ClientState {
@@ -157,9 +170,9 @@ export class AnalyticsClient {
   /** Bumped whenever the account this install reports as changes (identify, reset). Work that read
    * the account and then waited (a server attach) checks it before acting. */
   private generation = 0;
-  /** False while the host could not confirm who is signed in (a startup check that timed out).
-   * Then only anonymous events may be sent; anything attributed to an account waits. */
-  private accountVerified = true;
+  /** Whether the host has confirmed who is signed in (or that nobody is). Until then, nothing
+   * attributed to an account leaves, and new events are queued without a person. */
+  private confirmed: boolean;
   /** The request in flight, so switching sharing off can abandon it instead of waiting. */
   private inflight: AbortController | null = null;
   /** Set when an identity reset could not be saved: reporting stops for the life of this client
@@ -170,6 +183,7 @@ export class AnalyticsClient {
     // A malformed version (for example from a bad native reply) would ride along on every event;
     // refuse to run rather than send it.
     this.configured = analyticsConfigured(deps.config) && isVersion(deps.appVersion);
+    this.confirmed = !deps.startsUnconfirmed;
   }
 
   get enabled(): boolean {
@@ -290,8 +304,8 @@ export class AnalyticsClient {
     const state = await this.read();
     await this.clearQueue();
     if (!identity) return;
-    // Never under an account the host has not confirmed (a stalled startup check).
-    if (state.userId && !this.accountVerified) return;
+    // Only once the host has confirmed the account: otherwise the attempt could carry an old one.
+    if (!this.confirmed) return;
     const event: QueuedEvent = {
       event: "sharing_turned_off",
       uuid: this.deps.uuid(),
@@ -334,9 +348,14 @@ export class AnalyticsClient {
     return stamp.generation === this.generation && stamp.epoch === this.epoch;
   }
 
-  /** The host's word on whether it knows who is signed in. See `accountVerified`. */
-  setAccountVerified(verified: boolean): void {
-    this.accountVerified = verified;
+  /** The host has established who is signed in, or that nobody is (after any identify or reset it
+   * needed). Never undone: a later timeout cannot overrule a confirmation. */
+  confirmAccount(): void {
+    this.confirmed = true;
+  }
+
+  get accountConfirmed(): boolean {
+    return this.confirmed;
   }
 
   /** Send what is queued. Keeps events on a network or server failure so the next flush retries. */
@@ -345,15 +364,21 @@ export class AnalyticsClient {
     return this.sendGate.then(() => this.run(async () => {
       const epoch = this.epoch;
       for (;;) {
-        // Consent is re-read before every request: sharing can be switched off mid-flush.
-        if (epoch !== this.epoch || !(await this.allowed())) return;
+        if (epoch !== this.epoch) return;
         const queue = await this.readQueue();
-        // With the account unconfirmed, only anonymous events may leave; the rest wait for it.
-        const eligible = this.accountVerified
+        const state = await this.read();
+        const identity = await this.identity();
+        // Until the account is confirmed, only events already attributed to nobody may leave.
+        const eligible = this.confirmed
           ? queue
-          : queue.filter((e) => e.event !== "$identify" && e.properties.signed_in !== true);
-        const batch = eligible.slice(0, BATCH_SIZE);
+          : queue.filter((e) => !e.attributeLater && e.event !== "$identify" && e.properties.signed_in !== true);
+        const batch = eligible
+          .slice(0, BATCH_SIZE)
+          .map((e) => (e.attributeLater && identity ? this.attribute(e, state, identity) : e));
         if (batch.length === 0) return;
+        // Consent is re-read before every request, and cancellation checked with nothing awaited
+        // in between: sharing can be switched off at any moment during the reads above.
+        if (!(await this.allowed()) || epoch !== this.epoch) return;
         const outcome = await this.post(batch);
         if (outcome === "retry" || epoch !== this.epoch) return;
         await this.markAliasesDelivered(batch);
@@ -528,6 +553,7 @@ export class AnalyticsClient {
   }
 
   private async ensureIdentified(identity: AnalyticsIdentity, options: TrackOptions = {}): Promise<void> {
+    if (!this.confirmed) return; // an account merge only for a confirmed account
     const state = await this.read();
     if (!state.userId || state.identifiedAs === state.userId) return;
     const person = this.personProperties(options);
@@ -548,6 +574,24 @@ export class AnalyticsClient {
     }, options);
   }
 
+  /** Give an event recorded before confirmation its person, as of now (send time, confirmed). */
+  private attribute(e: QueuedEvent, state: ClientState, identity: AnalyticsIdentity): QueuedEvent {
+    const signedIn = state.userId !== null;
+    const $set = { ...(e.properties.$set as Record<string, unknown> | undefined) };
+    if (e.event === "signed_out") $set.signed_in = false;
+    return {
+      event: e.event,
+      uuid: e.uuid,
+      timestamp: e.timestamp,
+      properties: {
+        ...e.properties,
+        distinct_id: state.userId ?? this.anonymousId(state, identity),
+        signed_in: signedIn,
+        $set,
+      },
+    };
+  }
+
   private async enqueue(
     name: string,
     props: Record<string, boolean | string>,
@@ -560,6 +604,28 @@ export class AnalyticsClient {
     const state = await this.read();
     const { surface, appVersion } = this.deps;
     const person = this.personProperties(options);
+    if (!this.confirmed) {
+      // No person yet: attributed at send time, once the account is confirmed.
+      await this.push({
+        event: name,
+        uuid: this.deps.uuid(),
+        timestamp: this.timestamp(options),
+        attributeLater: true,
+        properties: {
+          ...props,
+          $device_id: identity.installId,
+          $lib: "still",
+          $geoip_disable: true,
+          surface,
+          store: storeForSurface(surface),
+          ...(isDeviceClass(this.deps.device) ? { device: this.deps.device } : {}),
+          app_version: appVersion,
+          $set: person.$set,
+          $set_once: person.$set_once,
+        },
+      }, options);
+      return;
+    }
     await this.push({
       event: name,
       uuid: this.deps.uuid(),

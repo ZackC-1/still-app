@@ -379,7 +379,7 @@ describe("turning sharing off", () => {
         fetch: fetch as unknown as typeof globalThis.fetch, uuid: (() => { let n = 0; return () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`; })() },
       RUNTIME_ID, ORIGIN,
     );
-    bg.onStart(undefined);
+    bg.onStart(null); // the start established that nobody is signed in
     const send = (m: unknown) => new Promise<unknown>((r) => { if (!bg.listener(m, PAGE, r)) r(undefined); });
     await bg.client.track("opened", { where: "popup" }); // waiting, not yet sent
     const off = await Promise.race([
@@ -404,5 +404,22 @@ describe("server email attach for people already signed in", () => {
     expect(identifyOnServer).not.toHaveBeenCalled();
     await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } }, PAGE);
     expect(identifyOnServer).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("opt-out when the account is unknown", () => {
+  it("sends nothing at all, not even the opt-out note", async () => {
+    const fetch = vi.fn(async () => new Response("{}"));
+    const local = memory();
+    const bg = createBackgroundAnalytics(
+      { isFirefox: false, config: { key: "phc_test", host: "https://us.i.posthog.com" }, appVersion: "2.1.0", local, shared: null, sharedGraceMs: 0,
+        fetch: fetch as unknown as typeof globalThis.fetch, uuid: (() => { let n = 0; return () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`; })() },
+      RUNTIME_ID, ORIGIN,
+    );
+    bg.onStart(undefined); // the account could not be read
+    const send = (m: unknown) => new Promise<unknown>((r) => { if (!bg.listener(m, PAGE, r)) r(undefined); });
+    expect(await send({ kind: ANALYTICS_MESSAGE_KIND, action: "setSharing", enabled: false })).toBe(false);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

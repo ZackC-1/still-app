@@ -47,6 +47,13 @@ export function isAnalyticsId(value: unknown): value is string {
 interface StoredInstall {
   readonly installId: string;
   readonly anchorId: string;
+  /**
+   * Where the anchor came from: made by this install ("local"), or received from the shared store
+   * ("shared"). Only a local anchor may ever be merged into another one. An anchor received from the
+   * shared store may already be another install's merge destination, and aliasing it again would
+   * build a chain PostHog refuses; so a "shared" anchor is kept for good.
+   */
+  readonly origin?: "local" | "shared";
   /** An earlier anchor merged into this one, kept so the merge can be sent whenever sharing allows
    * (the client sends it once, and again if a discarded queue lost it). */
   readonly aliasOf?: string;
@@ -54,9 +61,12 @@ interface StoredInstall {
 
 function parseStoredInstall(value: unknown): StoredInstall | null {
   if (typeof value !== "object" || value === null) return null;
-  const { installId, anchorId, aliasOf } = value as Record<string, unknown>;
+  const { installId, anchorId, aliasOf, origin } = value as Record<string, unknown>;
   if (!isAnalyticsId(installId) || !isAnalyticsId(anchorId)) return null;
-  return isAnalyticsId(aliasOf) && aliasOf !== anchorId ? { installId, anchorId, aliasOf } : { installId, anchorId };
+  const from = origin === "shared" ? "shared" : "local";
+  return isAnalyticsId(aliasOf) && aliasOf !== anchorId
+    ? { installId, anchorId, aliasOf, origin: from }
+    : { installId, anchorId, origin: from };
 }
 
 export interface ResolveIdentityDeps {
@@ -84,13 +94,16 @@ export async function resolveAnalyticsIdentity(deps: ResolveIdentityDeps): Promi
     // the earlier id to be merged, so one person does not stay split in two.
     // At most once per install: a second adoption would alias into an id that was itself an alias
     // destination, which PostHog refuses. The first adopted anchor stays canonical.
-    const shared = deps.shared && !stored.aliasOf ? await deps.shared.get(ANCHOR_KEY).catch(() => null) : null;
+    const adoptable = deps.shared && !stored.aliasOf && stored.origin !== "shared";
+    const shared = adoptable ? await deps.shared!.get(ANCHOR_KEY).catch(() => null) : null;
     if (isAnalyticsId(shared) && shared !== stored.anchorId) {
-      const record: StoredInstall = { installId: stored.installId, anchorId: shared, aliasOf: stored.anchorId };
+      const record: StoredInstall = { installId: stored.installId, anchorId: shared, aliasOf: stored.anchorId, origin: "shared" };
       await deps.local.set(INSTALL_KEY, record).catch(() => undefined);
-      return { ...record, created: false, returning: false };
+      return { installId: record.installId, anchorId: record.anchorId, aliasOf: record.aliasOf, created: false, returning: false };
     }
-    return { ...stored, created: false, returning: false };
+    return stored.aliasOf
+      ? { installId: stored.installId, anchorId: stored.anchorId, aliasOf: stored.aliasOf, created: false, returning: false }
+      : { installId: stored.installId, anchorId: stored.anchorId, created: false, returning: false };
   }
 
   const installId = deps.uuid();
@@ -110,7 +123,7 @@ export async function resolveAnalyticsIdentity(deps: ResolveIdentityDeps): Promi
       await deps.shared.set(ANCHOR_KEY, anchorId).catch(() => undefined);
     }
   }
-  const record: StoredInstall = { installId, anchorId: anchorId ?? installId };
+  const record: StoredInstall = { installId, anchorId: anchorId ?? installId, origin: returning ? "shared" : "local" };
   await deps.local.set(INSTALL_KEY, record).catch(() => undefined);
-  return { ...record, created: true, returning };
+  return { installId: record.installId, anchorId: record.anchorId, created: true, returning };
 }

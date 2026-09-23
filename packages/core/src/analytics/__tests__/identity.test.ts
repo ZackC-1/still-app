@@ -21,7 +21,7 @@ describe("resolveAnalyticsIdentity", () => {
     expect(id.created).toBe(true);
     expect(id.returning).toBe(false);
     expect(shared.data[ANCHOR_KEY]).toBe(id.anchorId);
-    expect(local.data[INSTALL_KEY]).toEqual({ installId: id.installId, anchorId: id.anchorId });
+    expect(local.data[INSTALL_KEY]).toEqual({ installId: id.installId, anchorId: id.anchorId, origin: "local" });
   });
 
   it("returns the stored ids on later starts", async () => {
@@ -107,5 +107,26 @@ describe("no alias chains", () => {
     const later = await resolveAnalyticsIdentity({ local, shared, uuid });
     expect(later.anchorId).toBe(adopted.anchorId);
     expect(later.aliasOf).toBe(adopted.aliasOf);
+  });
+});
+
+describe("no alias chains across installs", () => {
+  it("an install that received its anchor from sync never aliases it, so B <- A then C <- B cannot happen", async () => {
+    const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    const B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    const C = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+    // Install 1 made A itself; sync later delivers B: it aliases B <- A.
+    const one = memory({ [INSTALL_KEY]: { installId: "11111111-1111-4111-8111-111111111111", anchorId: A, origin: "local" } });
+    const first = await resolveAnalyticsIdentity({ local: one, shared: memory({ [ANCHOR_KEY]: B }), uuid });
+    expect(first).toMatchObject({ anchorId: B, aliasOf: A });
+    // Install 2 received B from sync at creation; sync later shows C: it keeps B, no C <- B.
+    const two = memory();
+    const shared = memory({ [ANCHOR_KEY]: B });
+    const created = await resolveAnalyticsIdentity({ local: two, shared, uuid });
+    expect(created).toMatchObject({ anchorId: B, returning: true });
+    shared.data[ANCHOR_KEY] = C;
+    const later = await resolveAnalyticsIdentity({ local: two, shared, uuid });
+    expect(later.anchorId).toBe(B);
+    expect(later.aliasOf).toBeUndefined();
   });
 });

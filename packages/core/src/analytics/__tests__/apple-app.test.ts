@@ -47,7 +47,11 @@ function setup(
     uuid: () => `uuid-${++n}`,
     identifyOnServer: over.identifyOnServer,
   });
-  if (!over.holdAccount) app.accountResolved();
+  // The real launch always reports what it found before resolving: here, nobody signed in.
+  if (!over.holdAccount) {
+    void app.accountAbsent();
+    app.accountResolved();
+  }
   const events = () =>
     ((store.data[QUEUE_KEY] as { event: string; properties: Record<string, unknown> }[] | undefined) ?? []);
   return { app, bridge, events, setContext: (c: Partial<AnalyticsContextReply>) => void (current = { ...current!, ...c }) };
@@ -195,6 +199,7 @@ describe("Apple app sends wait for the launch's account check", () => {
         fetch: (async () => { throw new TypeError("offline"); }) as unknown as typeof fetch,
         uuid: (() => { let n = 0; return () => `u-${++n}`; })(),
       });
+      void a.accountAbsent();
       a.accountResolved();
       return a;
     };

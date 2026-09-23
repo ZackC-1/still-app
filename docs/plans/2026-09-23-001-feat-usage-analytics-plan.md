@@ -314,3 +314,14 @@ testing, plus store review time.
   a shared anchor is adopted at most once per install (no alias chains) and delivered aliases are
   never re-sent; the runbook and privacy policy describe identity payloads and the one opt-out
   attempt accurately. Race reproductions live in packages/core/src/analytics/__tests__/races.test.ts.
+- 2026-09-23: Codex follow-up on 45ba56e (6 findings, all confirmed). Rather than patch each race,
+  attribution was restructured: clients created by the hosts start unconfirmed, and until a host
+  confirms the account (onStart known, a page identify, Safari's account re-read, the Apple launch's
+  identify or accountAbsent) events are queued without a person and attributed at send time; a
+  timeout never confirms, and a later confirmation is never overruled. Also: a last consent and
+  cancellation check with nothing awaited before every request; the opt-out attempt and the server
+  attach require a confirmed account; the attach is per account, bounded (15 s) and separate from the
+  Apple account check; Apple launch evidence is saved before the account check; only a locally made
+  anchor is ever aliased (anchor origin in the browser record and App Group), so chains cannot form
+  across installs; the runbook lists when one person counts as two. The race tests now pause at the
+  exact race boundary, and two were mutation-checked to fail without their protection.

@@ -133,6 +133,18 @@ different surfaces, so label every insight with the definition it uses.
 - **Opt-out rate.** `sharing_turned_off` is sent once when someone turns sharing off with Still's own
   switch (not when Firefox's permission is withdrawn in the add-on manager). Read Firefox separately:
   it is an opt-in sample.
+- **When one person counts as two.** Persons are an estimate. Expect some people to appear twice:
+  someone who uses Still on Apple and in a browser without ever signing in; someone who signs out on
+  a device and keeps using it (a fresh anonymous id, on purpose); a device whose first sync arrived
+  after it had already made its own id and whose id was not merged (each install merges at most once,
+  and an id received from another device is never merged away, to keep PostHog's merge rules); and a
+  device that stayed offline through an account deletion. Two people share one person when they share
+  a Chrome profile or an Apple ID. Use distinct `$device_id` for install counts and persons for
+  people, and treat the gap as the uncertainty.
+- **Events before the account is confirmed.** While an extension or the Apple app is still
+  confirming who is signed in, new events are held without a person and attributed when they are
+  sent. If confirmation never comes (a lookup that keeps failing), those events wait; they are never
+  sent under a guessed account.
 - **Installs vs persons.** Shared Chrome profiles and shared Apple IDs merge people; signing out gives
   a device a fresh anonymous id. Chart distinct `$device_id` alongside persons.
 
