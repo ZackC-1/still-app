@@ -136,6 +136,27 @@ describe("UiController analytics", () => {
     expect(del.calls).toEqual([["$reset-forget"], ["$identify", "u1"]]);
   });
 
+  it("a deletion that fails after a sign-out never restores the account, and leaves the flow idle", async () => {
+    let began!: () => void;
+    const started = new Promise<void>((r) => (began = r));
+    let fail!: () => void;
+    const failed = new Promise<void>((r) => (fail = r));
+    const { analytics, calls } = recordingAnalytics();
+    const deleteAccount = vi.fn(async () => { began(); await failed; throw new Error("offline"); });
+    const { c } = makeController({ auth: codeAuth({ deleteAccount }), analytics });
+    c.userId = "u1";
+    const deleting = c.confirmDeleteAccount();
+    await started;
+    await c.signOut(); // the person signs out while the server is still deleting
+    expect(c.userId).toBeNull();
+    fail();
+    await deleting;
+    expect(calls).toEqual([["$reset-forget"], ["signed_out", {}], ["$reset"]]); // no $identify
+    expect(c.userId).toBeNull();
+    expect(c.deleteFlow).toBe("idle");
+    expect(c.deleteError).toBeNull();
+  });
+
   it("analytics that never answers cannot hold up deleting the account", async () => {
     vi.useFakeTimers();
     try {

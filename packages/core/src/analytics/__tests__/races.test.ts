@@ -9,6 +9,7 @@ import {
   createExtensionAnalyticsHost,
 } from "../extension-host.js";
 import type { AnalyticsKeyValue } from "../identity.js";
+import { codeAuth, makeController } from "../../ui/__tests__/support/controller-fixtures.js";
 
 // Race reproductions. Each pauses the code at the exact boundary where the race happens (a storage
 // read, a network request) with a gate the test releases, rather than relying on elapsed time, and
@@ -87,6 +88,19 @@ function recordingFetch() {
   }) as unknown as typeof globalThis.fetch;
   return { fetch, bodies, events: () => bodies.flat() };
 }
+
+/** The queue store's writes (or reads) can be refused, the way IndexedDB can refuse on its own
+ * while the extension's local storage keeps working. */
+function refusable(store: ReturnType<typeof pausable>) {
+  let refuse: "none" | "writes" | "reads" = "none";
+  const queueStore: AnalyticsKeyValue = {
+    get: (k) => { if (refuse === "reads") throw new Error("IDB unavailable"); return store.get(k); },
+    set: (k, v) => { if (refuse === "writes") throw new Error("IDB unavailable"); return store.set(k, v); },
+  };
+  return { queueStore, refuse: (what: typeof refuse) => void (refuse = what) };
+}
+
+const settle = () => new Promise((r) => setTimeout(r, 10));
 
 describe("a queued batch never starts after sharing is off", () => {
   it("switching off while the flush is reading the queue sends nothing", async () => {
@@ -216,6 +230,15 @@ describe("unconfirmed accounts", () => {
     const opened = rec.events().find((e) => e.event === "opened")!;
     expect(opened.properties.distinct_id).not.toBe(U1);
     expect(opened.properties.signed_in).toBe(false);
+  });
+
+  it("an unconfirmed restart holds events attributed in an earlier process", async () => {
+    const store = pausable();
+    await makeClient({ store }).client.identify(U1); // the earlier process attributed its $identify
+    const rec = recordingFetch();
+    const { client } = makeClient({ store, fetch: rec.fetch, startsUnconfirmed: true });
+    await client.flush();
+    expect(rec.events()).toEqual([]);
   });
 
   it("the opt-out attempt is skipped under an unconfirmed account", async () => {
@@ -380,5 +403,134 @@ describe("the attribution rules (client.ts rules 1-4)", () => {
     await client.flush();
     await client.sendOptOut();
     expect(rec.events()).toEqual([]);
+  });
+});
+
+describe("forgetting an account (it was deleted)", () => {
+  it("a flush asked for before the forget sends nothing at its turn, even once the deletion's deadline has passed", async () => {
+    vi.useFakeTimers();
+    try {
+      const sent: { batch: unknown[]; serverDeleted: boolean }[] = [];
+      let serverDeleted = false;
+      let firstRequest!: () => void;
+      const reachedFetch = new Promise<void>((r) => (firstRequest = r));
+      const fetch = (async (_u: string, init: RequestInit) => {
+        sent.push({ batch: JSON.parse(String(init.body)).batch, serverDeleted });
+        firstRequest();
+        return sent.length === 1 ? new Promise<Response>(() => {}) : new Response("{}"); // the first hangs
+      }) as unknown as typeof globalThis.fetch;
+      const { client, store } = makeClient({ fetch });
+      await client.identify(U1);
+      await client.track("opened", { where: "popup" });
+      const first = client.flush();
+      const second = client.flush(); // waiting its turn behind the first
+      await reachedFetch;
+      const reached = store.pauseNextRead(QUEUE_KEY); // the second's turn: it pauses inside its queue read
+      const deleteAccount = vi.fn(async () => { serverDeleted = true; });
+      const { c } = makeController({
+        auth: codeAuth({ deleteAccount }),
+        analytics: { track: () => {}, identify: () => {}, reset: (o) => client.reset(o) },
+      });
+      c.userId = U1;
+      const deleting = c.confirmDeleteAccount(); // forgets: abandons the first, fences the second
+      const open = await reached;
+      await vi.advanceTimersByTimeAsync(5_001); // the controller stops waiting for analytics
+      await deleting;
+      expect(serverDeleted).toBe(true);
+      open();
+      await Promise.all([first, second]);
+      expect(sent.length).toBe(1); // the second never sent under the deleted account
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a host's own confirm(null, forget) stops a running flush before its next batch", async () => {
+    const batches: unknown[][] = [];
+    let firstRequest!: () => void;
+    const reachedFetch = new Promise<void>((r) => (firstRequest = r));
+    let release!: () => void;
+    const released = new Promise<void>((r) => (release = r));
+    const fetch = (async (_u: string, init: RequestInit) => {
+      batches.push(JSON.parse(String(init.body)).batch);
+      if (batches.length === 1) { firstRequest(); await released; }
+      return new Response("{}");
+    }) as unknown as typeof globalThis.fetch;
+    const { client, store } = makeClient({ fetch });
+    await client.identify(U1);
+    for (let i = 0; i < 60; i++) await client.track("opened", { where: "popup" }); // two batches
+    const flushing = client.flush();
+    await reachedFetch;
+    const forgetting = client.confirm(null, { forget: true }); // as the extension and Apple hosts call it
+    await settle();
+    release();
+    await Promise.all([flushing, forgetting]);
+    expect(batches.length).toBe(1);
+    expect(JSON.stringify(store.data[QUEUE_KEY])).not.toContain(U1);
+  });
+
+  it("a drop the queue store refuses is owed: nothing leaves until it is done, in this process or the next", async () => {
+    const rec = recordingFetch();
+    const store = pausable();
+    const { queueStore, refuse } = refusable(store);
+    const { client } = makeClient({ store, queueStore, fetch: rec.fetch });
+    await client.identify(U1);
+    await client.track("opened", { where: "popup" });
+    refuse("writes");
+    await client.reset({ forgetAccount: true });
+    expect(await client.signedInAs()).toBeNull(); // the account is let go regardless
+    await client.flush();
+    expect(rec.events()).toEqual([]); // the account's events are still there: nothing leaves
+    refuse("none");
+    await client.track("opened", { where: "popup" }); // an anonymous event, queued behind the owed drop
+    await client.flush(); // the store recovered: the drop is done, then the rest goes
+    expect(JSON.stringify(rec.events())).not.toContain(U1);
+    expect(rec.events().map((e) => e.event)).toEqual(["opened"]);
+  });
+
+  it("the owed drop survives a restart, whoever confirms next", async () => {
+    for (const next of [null, U2]) {
+      const rec = recordingFetch();
+      const store = pausable();
+      const { queueStore, refuse } = refusable(store);
+      const { client } = makeClient({ store, queueStore, fetch: rec.fetch });
+      await client.identify(U1);
+      await client.track("opened", { where: "popup" });
+      refuse("writes");
+      await client.reset({ forgetAccount: true });
+      refuse("none");
+      const restarted = makeClient({ store, queueStore, fetch: rec.fetch, startsUnconfirmed: true }).client;
+      await restarted.confirm(next, { forget: next === null });
+      await restarted.flush();
+      expect(JSON.stringify(rec.events())).not.toContain(U1);
+      if (next) expect(rec.events().some((e) => e.properties.distinct_id === U2)).toBe(true); // theirs go
+    }
+  });
+
+  it("a queue store that refuses to be read is never taken as empty", async () => {
+    const rec = recordingFetch();
+    const store = pausable();
+    const { queueStore, refuse } = refusable(store);
+    const { client } = makeClient({ store, queueStore, fetch: rec.fetch });
+    await client.identify(U1);
+    await client.track("opened", { where: "popup" });
+    refuse("reads");
+    await client.reset({ forgetAccount: true });
+    refuse("none");
+    await client.flush();
+    expect(JSON.stringify(rec.events())).not.toContain(U1);
+  });
+
+  it("an opt-out asked for before the forget never names the account", async () => {
+    const rec = recordingFetch();
+    const { client, store } = makeClient({ fetch: rec.fetch });
+    await client.identify(U1);
+    const reached = store.pauseNextRead(QUEUE_KEY); // inside the opt-out, before its request
+    const optingOut = client.sendOptOut();
+    const open = await reached;
+    const forgetting = client.confirm(null, { forget: true });
+    open();
+    await Promise.all([optingOut, forgetting]);
+    expect(JSON.stringify(rec.events())).not.toContain(U1);
   });
 });

@@ -28,16 +28,22 @@ import { isAnalyticsId, type AnalyticsIdentity, type AnalyticsKeyValue } from ".
 //
 //   1. One operation at a time. Everything that reads or writes the account, the markers or the
 //      queue runs inside `run()`, including a flush's network request and the opt-out attempt, so
-//      no operation ever observes another half done. The only work outside it is synchronous:
-//      `clearQueue`/`sendOptOut` bump the cancellation epoch and abort the request in flight.
+//      no operation ever observes another half done. The only work outside it is synchronous and
+//      happens the moment the caller asks, before anything is queued: forgetting an account, turning
+//      sharing off and the opt-out bump the cancellation epoch and abort the request in flight. A
+//      flush or opt-out remembers the epoch it was asked under, so one asked before that moment
+//      sends nothing when its turn comes, however long it waited.
 //   2. An event's person is decided once and saved. When the account is confirmed, an event is
 //      attributed as it is queued; before that it is queued with no person (`attributeLater`) and
 //      attributed, in storage, by the confirmation itself. Nothing is ever attributed at send time,
-//      so a retry always carries the person it was first given, and deleting an account removes
-//      every event attributed to it.
-//   3. Confirmation is one operation. `confirm()` installs the account (or lets it go), attributes
-//      the waiting events, and only then marks the account confirmed, so nothing can see "confirmed"
-//      together with a different account.
+//      so a retry always carries the person it was first given, and forgetting an account (it was
+//      deleted) drops every event attributed to it. That drop is owed durably: the account is
+//      recorded as forgotten before its events are dropped, the drop is verified, and until it is
+//      verified `flush` sends nothing, so a queue store that refuses the write only delays the drop
+//      to the next confirmation or flush, in this process or the next.
+//   3. Confirmation is one operation. `confirm()` installs the account (or lets it go), tries any
+//      owed drop, attributes the waiting events, and only then marks the account confirmed, so
+//      nothing can see "confirmed" together with a different account.
 //   4. Nothing leaves before the account is confirmed. Hosts that start without knowing who is
 //      signed in (`startsUnconfirmed`) send nothing until they confirm, and a timeout never counts
 //      as confirmation.
@@ -114,9 +120,14 @@ interface ClientState {
    * signed out, so reusing it would keep attributing this device to that person; a fresh id per
    * sign-out, as posthog-js does, separates them. */
   readonly anonId: string | null;
+  /** Accounts that were forgotten (deleted) whose waiting events have not yet verifiably been
+   * dropped. Recorded before the drop, in the state store, because the queue lives in a different
+   * store (IndexedDB in the extensions) that can refuse a write on its own; nothing is sent while
+   * this is non-empty (rule 2). */
+  readonly forgotten: readonly string[];
 }
 
-const EMPTY_STATE: ClientState = { userId: null, identifiedAs: null, daily: {}, anonId: null };
+const EMPTY_STATE: ClientState = { userId: null, identifiedAs: null, daily: {}, anonId: null, forgotten: [] };
 
 function parseState(value: unknown): ClientState {
   if (typeof value !== "object" || value === null) return EMPTY_STATE;
@@ -127,6 +138,7 @@ function parseState(value: unknown): ClientState {
     daily:
       typeof v.daily === "object" && v.daily !== null ? (v.daily as Record<string, string>) : {},
     anonId: typeof v.anonId === "string" ? v.anonId : null,
+    forgotten: Array.isArray(v.forgotten) ? v.forgotten.filter((id): id is string => typeof id === "string") : [],
   };
 }
 
@@ -179,8 +191,9 @@ function localMidnightIso(ms: number): string {
 export type ConfirmedAccount = string | null;
 
 export interface ConfirmOptions {
-  /** The account that was signed in has gone (deleted, or its session ended elsewhere): drop the
-   * events waiting under it, so nothing recreates a person the server deleted. */
+  /** The account that was signed in has gone (deleted, or its session ended elsewhere): abandon
+   * any send under it and drop the events waiting under it, so nothing recreates a person the
+   * server deleted. */
   readonly forget?: boolean;
   /** A background start: do not send now (see TrackOptions.quiet). */
   readonly quiet?: boolean;
@@ -190,8 +203,9 @@ export class AnalyticsClient {
   private readonly configured: boolean;
   private chain: Promise<unknown> = Promise.resolve();
   private flushScheduled = false;
-  /** Bumped synchronously whenever sharing is switched off, so a flush in progress stops before its
-   * next request (rule 1's only exception). */
+  /** Bumped synchronously whenever sharing is switched off or an account is forgotten, so a flush
+   * in progress stops before its next request and one still waiting its turn never starts (rule
+   * 1's only exception). */
   private epoch = 0;
   /** Bumped (inside \`run\`) whenever the account changes. Work that reads the account and then
    * waits outside the client (the server attach) checks it before acting. */
@@ -274,15 +288,23 @@ export class AnalyticsClient {
 
   /**
    * The host has established who is signed in (`userId`), or that nobody is (`null`). In one
-   * operation: install that account (or let the previous one go, with a fresh anonymous id), give
-   * every waiting unattributed event its person, then mark the account confirmed and, unless quiet,
-   * send what is waiting. Never undone: confirmed stays confirmed.
+   * operation: install that account (or let the previous one go, with a fresh anonymous id), drop
+   * what a forgotten account still owns, give every waiting unattributed event its person, then
+   * mark the account confirmed and, unless quiet, send what is waiting. Never undone: confirmed
+   * stays confirmed.
+   *
+   * With `forget`, the account is fenced the moment this is called, before anything waits its turn:
+   * the request in flight is abandoned and every flush asked for before now sends nothing, so
+   * nothing under the account can leave from here on, even if the host stops waiting for this
+   * (account deletion waits a bounded time) and the server deletes the person meanwhile.
    */
   confirm(account: ConfirmedAccount, options: ConfirmOptions = {}): Promise<void> {
+    if (options.forget) this.cancel();
     return this.run(async () => {
       if (!this.configured) return;
       if (account !== null && !isAnalyticsId(account)) return; // only Supabase UUIDs become accounts
       if (!(await this.installAccount(account, options))) return;
+      await this.dropForgotten(); // tried here; `flush` is the gate that refuses to send until it is done
       await this.attributeWaiting();
       this.confirmed = true;
       if (account !== null && (await this.allowed())) {
@@ -298,11 +320,8 @@ export class AnalyticsClient {
     return this.confirm(userId, { quiet: options.quiet });
   }
 
-  /** A sign-out (or, with `forgetAccount`, an account deletion): shorthand for `confirm(null)`.
-   * A deletion also abandons a send already under way, so nothing under the account can still be
-   * on its way once this resolves and the server deletes the person. */
+  /** A sign-out (or, with `forgetAccount`, an account deletion): shorthand for `confirm(null)`. */
   reset(options: { readonly forgetAccount?: boolean } = {}): Promise<void> {
-    if (options.forgetAccount) this.cancel();
     return this.confirm(null, { forget: options.forgetAccount });
   }
 
@@ -326,9 +345,12 @@ export class AnalyticsClient {
   /** Send what is queued, once the account is confirmed. Keeps events on a network or server
    * failure so the next flush retries them, with the person they were given. */
   flush(): Promise<void> {
+    // The epoch this flush was asked under. A cancellation between now and its turn (an account
+    // forgotten, sharing switched off) means it must send nothing when it runs (rule 1).
+    const epoch = this.epoch;
     return this.run(async () => {
-      if (!this.confirmed) return; // rule 4
-      const epoch = this.epoch;
+      if (!this.confirmed || epoch !== this.epoch) return; // rule 4; rule 1
+      if (!(await this.dropForgotten())) return; // rule 2: a forgotten account's events never leave
       for (;;) {
         const batch = (await this.readQueue()).filter((e) => !e.attributeLater).slice(0, BATCH_SIZE);
         if (batch.length === 0) return;
@@ -338,8 +360,8 @@ export class AnalyticsClient {
         if (outcome === "retry" || epoch !== this.epoch) return;
         // Sent, or rejected as malformed (retrying a 400 forever would block the queue).
         const sent = new Set(batch.map((e) => e.uuid));
-        await this.writeQueue((await this.readQueue()).filter((e) => !sent.has(e.uuid)));
         // Storage that will not take the write would hand back the same batch forever.
+        if (!(await this.writeQueue((await this.readQueue()).filter((e) => !sent.has(e.uuid))))) return;
         if ((await this.readQueue()).some((e) => sent.has(e.uuid))) return;
       }
     });
@@ -359,9 +381,10 @@ export class AnalyticsClient {
    */
   sendOptOut(timeoutMs = 3_000): Promise<void> {
     this.cancel();
+    const epoch = this.epoch; // an account forgotten before its turn: nothing to record it under
     return this.run(async () => {
       await this.discardQueue();
-      if (!this.configured || this.blocked || !this.confirmed) return;
+      if (!this.configured || this.blocked || !this.confirmed || epoch !== this.epoch) return;
       const identity = await this.identity();
       if (!identity) return;
       const state = await this.read();
@@ -392,7 +415,8 @@ export class AnalyticsClient {
     return next;
   }
 
-  /** Synchronous: stop a running flush before its next request, and abandon its request. */
+  /** Synchronous: stop a running flush before its next request, abandon its request, and fence
+   * every flush and opt-out asked for before this moment (they check the epoch at their turn). */
   private cancel(): void {
     this.epoch += 1;
     this.inflight?.abort();
@@ -416,7 +440,9 @@ export class AnalyticsClient {
     });
   }
 
-  /** Install the account named by a confirmation. False when the change could not be saved. */
+  /** Install the account named by a confirmation. False when the change could not be saved. A
+   * forgotten account is recorded as such here, durably, before its events are dropped
+   * (`dropForgotten`), so the drop is owed even if this process ends first. */
   private async installAccount(account: ConfirmedAccount, options: ConfirmOptions): Promise<boolean> {
     const state = await this.read();
     if (account !== null) {
@@ -427,14 +453,44 @@ export class AnalyticsClient {
       return saved;
     }
     if (state.userId === null) return true; // nobody, as before: keep the same anonymous id
-    if (options.forget) {
-      const gone = state.userId;
-      await this.writeQueue((await this.readQueue()).filter((e) => e.properties.distinct_id !== gone));
-    }
     this.generation += 1;
-    const saved = await this.write({ ...state, userId: null, identifiedAs: null, anonId: this.deps.uuid() });
-    if (!saved) this.blocked = true;
+    const forgotten = options.forget && !state.forgotten.includes(state.userId)
+      ? [...state.forgotten, state.userId]
+      : state.forgotten;
+    const saved = await this.write({ ...state, userId: null, identifiedAs: null, anonId: this.deps.uuid(), forgotten });
+    if (!saved) {
+      this.blocked = true;
+      // The forget could not be recorded, so drop what can be dropped now: this process sends
+      // nothing more, and the next one should find as little of the account as possible.
+      if (options.forget) await this.dropEventsOf(new Set(forgotten));
+    }
     return saved;
+  }
+
+  /**
+   * Drop every event still attributed to a forgotten account, and verify the queue no longer holds
+   * one, before anything may be sent (rule 2). False when the queue store refuses to give up the
+   * events or to be read: the accounts stay recorded as forgotten and this runs again at the next
+   * confirmation or flush, in this process or the next, and nothing is sent until it succeeds.
+   */
+  private async dropForgotten(): Promise<boolean> {
+    const state = await this.read();
+    if (state.forgotten.length === 0) return true;
+    if (!(await this.dropEventsOf(new Set(state.forgotten)))) return false;
+    // Verified gone. If this write fails the drop simply runs again later and finds nothing.
+    await this.write({ ...state, forgotten: [] });
+    return true;
+  }
+
+  /** Drop every queued event attributed to one of `gone`, and verify it. False when the queue store
+   * refuses to give up the events or to be read (a refused read must not count as "nothing left"). */
+  private async dropEventsOf(gone: ReadonlySet<string>): Promise<boolean> {
+    const owned = (e: QueuedEvent) => typeof e.properties.distinct_id === "string" && gone.has(e.properties.distinct_id);
+    const queue = await this.loadQueue();
+    if (queue === null) return false;
+    if (queue.some(owned) && !(await this.writeQueue(queue.filter((e) => !owned(e))))) return false;
+    const remaining = await this.loadQueue();
+    return remaining !== null && !remaining.some(owned);
   }
 
   /** Give every waiting unattributed event the person now installed, in storage (rule 2). */
@@ -515,19 +571,26 @@ export class AnalyticsClient {
     return this.deps.queueStore ?? this.deps.store;
   }
 
-  private async readQueue(): Promise<QueuedEvent[]> {
+  /** The queue, or null when the queue store refuses to answer (a drop must not count that as empty). */
+  private async loadQueue(): Promise<QueuedEvent[] | null> {
     try {
       return parseQueue(await this.queueStore.get(QUEUE_KEY));
     } catch {
-      return [];
+      return null;
     }
   }
 
-  private async writeQueue(queue: readonly QueuedEvent[]): Promise<void> {
+  private async readQueue(): Promise<QueuedEvent[]> {
+    return (await this.loadQueue()) ?? [];
+  }
+
+  /** False when the queue store refused the write. */
+  private async writeQueue(queue: readonly QueuedEvent[]): Promise<boolean> {
     try {
       await this.queueStore.set(QUEUE_KEY, queue.slice(-MAX_QUEUE));
+      return true;
     } catch {
-      /* as above */
+      return false; // A failed write costs these events, never a working surface.
     }
   }
 

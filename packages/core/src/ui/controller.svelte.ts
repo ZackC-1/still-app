@@ -1350,6 +1350,10 @@ export class UiController {
     this.userId = null;
     this.entitled = false; // server lane only — the setter never touches #receiptEntitled
     this.authFlow = "idle";
+    // A deletion in progress belongs to the session that just ended: signed out, there is nobody
+    // to show its outcome to, and the next session must be able to start its own.
+    this.deleteFlow = "idle";
+    this.deleteError = null;
     this.emailConsentGiven = false;
     this.paywallOpen = false;
     this.successScreen = "none";
@@ -1412,14 +1416,16 @@ export class UiController {
     }
     try {
       await this.auth.deleteAccount();
+      // Someone else signed in meanwhile: their session stands (they already reset this flow).
       if (this.userId !== null && this.accountRevision !== revision) return;
       // Account gone → mirror the signed-out reset. The deletion is counted anonymously.
       this.track("account_deleted", {});
       this.resetToSignedOut();
-      this.deleteFlow = "idle";
     } catch (e) {
-      if (this.userId !== null && this.accountRevision !== revision) return;
-      // The account still exists: attribute to it again.
+      // The account still exists, so attribute to it again, but only for the session that asked:
+      // after a sign-out (or another sign-in) meanwhile the UI is no longer this account's, and
+      // re-identifying it would attribute whatever follows to a person who is signed out.
+      if (this.accountRevision !== revision || this.userId !== deletingUserId) return;
       if (deletingUserId) this.analyticsCall((a) => a.identify(deletingUserId));
       this.deleteFlow = "error";
       this.deleteError = e instanceof Error ? e.message : String(e);

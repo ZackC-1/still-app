@@ -145,7 +145,9 @@ different surfaces, so label every insight with the definition it uses.
   confirmation gives them their person, once, in storage, and sends them. An event keeps that person
   through failed sends until it is delivered or its account is deleted; it is never re-attributed. If
   confirmation never comes (a lookup that keeps failing), those events wait; they are never sent under
-  a guessed account.
+  a guessed account. When an account is deleted, or a device learns its session ended, everything
+  still waiting under it is dropped before anything else is sent; if the device's storage refuses the
+  drop, nothing is sent until it succeeds.
 - **Installs vs persons.** Shared Chrome profiles and shared Apple IDs merge people; signing out gives
   a device a fresh anonymous id. Chart distinct `$device_id` alongside persons.
 
@@ -155,8 +157,9 @@ different surfaces, so label every insight with the definition it uses.
 - Persons whose distinct id is an account UUID but have no email (a stuck identify).
 - The `code_failed` reason mix: a jump in `network` means the backend.
 - The `delete-user` logs for `ANALYTICS DELETION FAILED`, and, a week after any account deletion,
-  a Persons search for the deleted account id: a device that was offline during the deletion can
-  send a few events under it before it learns the session ended. Delete any such person.
+  a Persons search for the deleted account id: a device that was offline during the deletion, or
+  whose extension background received the deletion late, can send a few events under it before it
+  learns the session ended. Delete any such person.
 - PostHog's ingestion warnings: "cannot merge already identified" means an identify was refused.
 - Known small inaccuracy: the Apple app keeps its once-a-day and once-ever markers in the web view's
   storage, which iOS can clear under storage pressure; that can repeat an `app_opened` step or an

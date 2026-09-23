@@ -337,3 +337,19 @@ testing, plus store review time.
   send still on its way, and re-identifies if the server deletion fails. New reproductions in
   races.test.ts and controller-analytics.test.ts; each protection was mutation-checked (removing it
   fails a test).
+- 2026-09-23: Codex review of 6ab3f8c (DO NOT MERGE; 3 P0 on deletion, 1 P2), each reproduced against
+  the source before fixing, plus two more found the same way (an owed drop skipped when someone else
+  signs in next; an opt-out asked for before the forget). Three root causes, fixed where they live.
+  (1) The forget fence was advisory and late: only `reset()` cancelled, and a flush read the
+  cancellation epoch at its turn rather than when asked, so a flush queued behind an in-flight one
+  ran under the deleted account after the controller's 5 s wait ended. Now `confirm(null, {forget})`
+  cancels synchronously the moment it is called (every host path), and a flush or opt-out remembers
+  the epoch it was asked under and sends nothing if a cancellation overtook it. (2) The forget was
+  not durable: the drop was best-effort and the account cleared regardless, so a queue store that
+  refused the write kept the account's events for a later send. Now the account is recorded as
+  forgotten in the state store before the drop, the drop is verified (a refused read is never taken
+  as empty), and `flush` sends nothing until it is done, in that process or the next. (3) The
+  controller's post-deletion guard was asymmetric with its pre-deletion guard (revision checked only
+  with a user present), so a deletion that failed after a sign-out re-identified the signed-out
+  account; it now re-identifies only for the session that asked, and signing out resets a deletion
+  flow. Seeded-queue regression added for the confirmation send guard. Ten mutations, all caught.

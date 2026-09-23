@@ -63,8 +63,15 @@ privacy-positioning cost (the homepage promised "no behavioral tracking") agains
   an event keeps that person through retries and is never re-attributed. A timeout never counts as
   confirmation. Every state change and every send runs one at a time in the client. Ids never change
   once made and are never aliased; `$identify` at sign-in is the only merge.
-- Deleting an account forgets it for analytics first (queued events under it are dropped and a send
-  on its way is abandoned), and only then asks the server to delete the account and its person.
+- Deleting an account forgets it for analytics first, and only then asks the server to delete the
+  account and its person. Forgetting fences the account the moment it is asked: the send on its way
+  is abandoned and every send asked for before that moment sends nothing at its turn, so the bounded
+  wait (5 s) can end without releasing anything under the account. The account is recorded as
+  forgotten before its queued events are dropped, and the drop is verified; if the queue store
+  refuses it, nothing is sent until a later confirmation or flush completes the drop, in that
+  process or the next. A deletion that fails re-attributes the account only to the session that
+  asked, never after a sign-out. A device that is offline, or whose background receives the request
+  late, can still deliver a few events under the account; the weekly check catches those.
 - Turning sharing off takes effect before any network call: the waiting queue is discarded, and one
   standalone `sharing_turned_off` attempt (bounded to a few seconds) is the only thing sent.
 - New accounts are counted by the server once per account, never inferred by a client.
