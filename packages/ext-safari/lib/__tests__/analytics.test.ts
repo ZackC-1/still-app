@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ANALYTICS_MESSAGE_KIND, STATE_KEY, type AnalyticsKeyValue } from "@still/core/analytics";
+import { ANALYTICS_MESSAGE_KIND, QUEUE_KEY, type AnalyticsKeyValue } from "@still/core/analytics";
 import { createSafariBackgroundAnalytics, createSafariPageAnalytics, parseNativeAnalytics } from "../analytics.js";
 
 const INSTALL = "11111111-1111-4111-8111-111111111111";
@@ -13,8 +13,7 @@ function memory(): AnalyticsKeyValue & { data: Record<string, unknown> } {
   return { data, get: async (k) => structuredClone(data[k]), set: async (k, v) => void (data[k] = structuredClone(v)) };
 }
 
-function setup(native: { consent?: boolean; available?: boolean; signedIn?: boolean; os?: string } = {}) {
-  const local = memory();
+function setup(native: { consent?: boolean; available?: boolean; signedIn?: boolean; os?: string } = {}, local = memory()) {
   let consent = native.consent ?? true;
   let clock = 1_000_000;
   const sendNative = vi.fn(async (message: Record<string, unknown>) => {
@@ -43,8 +42,8 @@ function setup(native: { consent?: boolean; available?: boolean; signedIn?: bool
       if (!bg.listener(message, sender, resolve)) resolve(undefined);
     });
   const settle = () => new Promise((r) => setTimeout(r, 5));
-  const events = () => ((local.data[STATE_KEY] as { queue?: { event: string; properties: Record<string, unknown> }[] })?.queue ?? []);
-  return { bg, send, settle, events, sendNative, setConsent: (v: boolean) => void (consent = v), advance: (ms: number) => void (clock += ms) };
+  const events = () => ((local.data[QUEUE_KEY] as { event: string; properties: Record<string, unknown> }[] | undefined) ?? []);
+  return { bg, local, send, settle, events, sendNative, setConsent: (v: boolean) => void (consent = v), advance: (ms: number) => void (clock += ms) };
 }
 
 describe("Safari extension analytics", () => {
@@ -53,8 +52,9 @@ describe("Safari extension analytics", () => {
     bg.onStart();
     await settle();
     const kinds = events().map((e) => e.event);
-    expect(kinds).toEqual(["$identify", "setup_completed", "active"]);
-    expect(events()[1]!.properties).toMatchObject({ surface: "safari-macos", store: "macos", $device_id: INSTALL, distinct_id: ACCOUNT });
+    expect(kinds).toEqual(["$identify", "setup_step", "setup_completed", "active"]);
+    expect(events()[1]!.properties).toMatchObject({ step: "extension_enabled" });
+    expect(events()[2]!.properties).toMatchObject({ surface: "safari-macos", store: "macos", $device_id: INSTALL, distinct_id: ACCOUNT });
     expect(events()[0]!.properties).toMatchObject({ $anon_distinct_id: ANCHOR });
   });
 
@@ -104,5 +104,34 @@ describe("Safari extension analytics", () => {
     expect(parseNativeAnalytics({ analytics: { installId: "x", anchorId: ANCHOR } })).toBeNull();
     expect(parseNativeAnalytics(null)).toBeNull();
     expect(parseNativeAnalytics({ analytics: { installId: INSTALL, anchorId: ANCHOR } })).toEqual({ installId: INSTALL, anchorId: ANCHOR, consent: true });
+  });
+});
+
+describe("Safari extension account changes", () => {
+  it("lets go of an account the app signed out or deleted, with a fresh anonymous id", async () => {
+    const first = setup({ signedIn: true });
+    first.bg.onStart();
+    await first.settle();
+    // Next background start: the app reports no account.
+    const later = setup({ signedIn: false }, first.local);
+    later.bg.onStart();
+    await later.settle();
+    await later.send({ kind: "blocked", service: "youtube" }, CONTENT);
+    await later.settle();
+    const blocked = later.events().find((e) => e.event === "blocking_worked")!;
+    expect(blocked.properties.distinct_id).not.toBe(ACCOUNT);
+    expect(blocked.properties.distinct_id).not.toBe(ANCHOR);
+    expect(blocked.properties.signed_in).toBe(false);
+  });
+
+  it("an unreadable account status changes nothing", async () => {
+    const first = setup({ signedIn: true });
+    first.bg.onStart();
+    await first.settle();
+    const later = setup({ available: false }, first.local);
+    later.bg.onStart();
+    await later.settle();
+    const state = first.local.data["still:analytics:state"] as { userId: string | null };
+    expect(state.userId).toBe(ACCOUNT);
   });
 });

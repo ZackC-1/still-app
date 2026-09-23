@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { createAppAnalytics, type AppAnalyticsBridge } from "../apple-app.js";
-import { STATE_KEY } from "../client.js";
+import { QUEUE_KEY } from "../client.js";
 import type { AnalyticsKeyValue } from "../identity.js";
 import type { AnalyticsContextReply } from "../../native/bridge.js";
 
@@ -41,7 +41,7 @@ function setup(context: Partial<AnalyticsContextReply> | null = {}, over: { iden
     identifyOnServer: over.identifyOnServer,
   });
   const events = () =>
-    ((store.data[STATE_KEY] as { queue?: { event: string; properties: Record<string, unknown> }[] })?.queue ?? []);
+    ((store.data[QUEUE_KEY] as { event: string; properties: Record<string, unknown> }[] | undefined) ?? []);
   return { app, bridge, events, setContext: (c: Partial<AnalyticsContextReply>) => void (current = { ...current!, ...c }) };
 }
 

@@ -51,6 +51,24 @@ public final class AnalyticsIdentityStore {
   static let consentKey = "still.analytics.consent"
   static let noticeKey = "still.analytics.notice-seen"
   static let lastVersionKey = "still.analytics.last-version"
+  /// Set once the app has read the install record. The Safari extension can create the record
+  /// first (it runs on page loads); the app's first read still has to report the install or update
+  /// and share the anchor through iCloud.
+  static let appSeenKey = "still.analytics.app-seen"
+  /// Used as `previousVersion` when an earlier install is certain but its version is not.
+  public static let unknownEarlierVersion = "0"
+
+  /// Whether this device ran Still before this launch, judged from App Group state that every
+  /// earlier release wrote (onboarding completion, the install-generation id, synced settings).
+  /// Must be read at the very start of a launch, before this launch writes any of them.
+  public static func earlierInstallEvidence(_ defaults: UserDefaults) -> Bool {
+    defaults.object(forKey: "still.onboarding.completed.v1") != nil
+      || defaults.object(forKey: "still.installGeneration.v1") != nil
+      || defaults.object(forKey: "still:settings") != nil
+  }
+
+  /// Captured by the app delegate at launch; see `earlierInstallEvidence`.
+  nonisolated(unsafe) public static var earlierInstallAtLaunch = false
 
   private let group: AnalyticsKeyValue
   private let newId: () -> String
@@ -87,26 +105,31 @@ public final class AnalyticsIdentityStore {
     ubiquitous: AnalyticsKeyValue?,
     earlierInstallVersion: String?
   ) -> AnalyticsAppContext {
-    var created = false
+    // "Created" from the app's point of view: the first time the app reads the record, whether it
+    // makes it now or the Safari extension made it earlier on a page load.
+    let created = group.object(forKey: Self.appSeenKey) == nil
     var returning = false
-    let install: AnalyticsInstall
+    var install: AnalyticsInstall
     if let existing = storedInstall() {
       install = existing
     } else {
-      created = true
       let installId = newId()
-      var anchorId = installId
+      install = AnalyticsInstall(installId: installId, anchorId: installId)
+    }
+    if created {
       if let ubiquitous {
         if let shared = ubiquitous.string(forKey: Self.anchorKey), Self.isId(shared) {
-          anchorId = shared
-          returning = true
+          returning = shared != install.anchorId
+          install = AnalyticsInstall(installId: install.installId, anchorId: shared)
         } else {
-          anchorId = newId()
-          ubiquitous.set(anchorId, forKey: Self.anchorKey)
+          // A record made by the extension carries its install id as the anchor; share a separate
+          // anchor so the install id itself never leaves the device through iCloud.
+          if install.anchorId == install.installId { install = AnalyticsInstall(installId: install.installId, anchorId: newId()) }
+          ubiquitous.set(install.anchorId, forKey: Self.anchorKey)
         }
       }
-      install = AnalyticsInstall(installId: installId, anchorId: anchorId)
       save(install)
+      group.set(true, forKey: Self.appSeenKey)
     }
 
     let last = group.string(forKey: Self.lastVersionKey)

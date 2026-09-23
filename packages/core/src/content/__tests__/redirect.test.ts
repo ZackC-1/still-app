@@ -607,6 +607,26 @@ describe("content script — root service class scopes the packaged CSS", () => 
 });
 
 describe("onServiceActive (the blocking-worked signal)", () => {
+  it("an ordinary page reports nothing; a page with a Shorts shelf to remove does", async () => {
+    document.body.innerHTML = "<main id='ordinary'></main>";
+    const win = makeWin("https://www.youtube.com/feed/subscriptions");
+    const onServiceActive = vi.fn();
+    const cs = createContentScript({ win, doc: document, ruleSet, cache: cacheWith(null), schedule: sync, onServiceActive });
+    try {
+      await cs.start();
+      cs.reapply();
+      expect(onServiceActive).not.toHaveBeenCalled();
+      // A Shorts shelf arrives; the subscriptions rule removes it, and the report sees it first.
+      document.body.innerHTML = "<ytd-reel-shelf-renderer></ytd-reel-shelf-renderer>";
+      cs.reapply();
+      expect(onServiceActive.mock.calls).toEqual([["youtube"]]);
+      expect(document.querySelector("ytd-reel-shelf-renderer")).toBeNull();
+    } finally {
+      cs.stop();
+      document.body.innerHTML = "";
+    }
+  });
+
   it("reports only the service id, once per page, when Still blocks there", async () => {
     const win = makeWin("https://www.youtube.com/shorts/abc123");
     const onServiceActive = vi.fn();

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { AnalyticsClient, BATCH_SIZE, MAX_QUEUE, STATE_KEY, analyticsConfigured, type AnalyticsClientDeps } from "../client.js";
+import { AnalyticsClient, BATCH_SIZE, MAX_QUEUE, QUEUE_KEY, analyticsConfigured, type AnalyticsClientDeps } from "../client.js";
 import type { AnalyticsIdentity, AnalyticsKeyValue } from "../identity.js";
 
 const IDENTITY: AnalyticsIdentity = {
@@ -42,7 +42,7 @@ function harness(over: Partial<AnalyticsClientDeps> = {}) {
     client, store, fetch, bodies, timers,
     setConsent: (v: boolean) => void (consent = v),
     advanceDays: (d: number) => void (clock += d * 86_400_000),
-    queue: () => ((store.data[STATE_KEY] as { queue?: unknown[] } | undefined)?.queue ?? []) as { event: string; properties: Record<string, unknown> }[],
+    queue: () => ((store.data[QUEUE_KEY] as unknown[] | undefined) ?? []) as { event: string; properties: Record<string, unknown> }[],
   };
 }
 
@@ -178,7 +178,7 @@ describe("AnalyticsClient", () => {
     expect(h.queue().map((e) => e.event)).toEqual(["$identify", "active"]);
   });
 
-  it("sign-out then a different account identifies the new account", async () => {
+  it("sign-out switches to a fresh anonymous id, and a different account identifies from it", async () => {
     const h = harness();
     await h.client.identify("user-1");
     await h.client.track("signed_out", {});
@@ -186,13 +186,51 @@ describe("AnalyticsClient", () => {
     await h.client.track("active", {});
     await h.client.identify("user-2");
     const events = h.queue();
-    expect(events.map((e) => [e.event, e.properties.distinct_id])).toEqual([
-      ["$identify", "user-1"],
-      ["signed_out", "user-1"],
-      ["active", IDENTITY.anchorId],
-      ["$identify", "user-2"],
-    ]);
-    expect(events[1]!.properties.$set).toMatchObject({ signed_in: false });
+    expect(events.map((e) => e.event)).toEqual(["$identify", "signed_out", "active", "$identify"]);
+    expect(events[1]!.properties).toMatchObject({ distinct_id: "user-1", $set: { signed_in: false } });
+    const fresh = events[2]!.properties.distinct_id;
+    // The install anchor was merged into user-1; reusing it would keep attributing this device there.
+    expect(fresh).not.toBe(IDENTITY.anchorId);
+    expect(fresh).not.toBe("user-1");
+    expect(events[3]!.properties).toMatchObject({ distinct_id: "user-2", $anon_distinct_id: fresh });
+  });
+
+  it("a deleted account's waiting events are dropped so nothing recreates the person", async () => {
+    const failing = (async () => { throw new TypeError("offline"); }) as unknown as typeof fetch;
+    const h = harness({ fetch: failing });
+    await h.client.track("active", {});
+    await h.client.identify("user-1");
+    await h.client.track("service_toggled", { service: "youtube", enabled: false });
+    await h.client.reset({ forgetAccount: true });
+    await h.client.track("account_deleted", {});
+    const events = h.queue();
+    expect(events.map((e) => e.event)).toEqual(["active", "account_deleted"]);
+    expect(JSON.stringify(events)).not.toContain("user-1");
+  });
+
+  it("stops instead of resending forever when the queue cannot be saved", async () => {
+    const store = memory();
+    let frozen = false;
+    const queueStore: AnalyticsKeyValue = {
+      get: (k) => store.get(k),
+      set: async (k, v) => {
+        if (frozen) throw new Error("quota");
+        await store.set(k, v);
+      },
+    };
+    const h = harness({ queueStore });
+    await h.client.track("active", {});
+    frozen = true;
+    await h.client.flush();
+    expect(h.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the queue out of the main store when given a queue store", async () => {
+    const queueStore = memory();
+    const h = harness({ queueStore });
+    await h.client.track("active", {});
+    expect(h.store.data[QUEUE_KEY]).toBeUndefined();
+    expect((queueStore.data[QUEUE_KEY] as unknown[]).length).toBe(1);
   });
 
   it("never throws when storage fails", async () => {
@@ -222,5 +260,16 @@ describe("AnalyticsClient.trackOnce", () => {
     h.setConsent(true);
     await h.client.trackOnce("setup", "setup_completed", {});
     expect(h.queue().map((e) => e.event)).toEqual(["setup_completed"]);
+  });
+});
+
+describe("AnalyticsClient.reset onlyIfSignedIn", () => {
+  it("keeps one anonymous id across starts while signed out", async () => {
+    const h = harness();
+    await h.client.track("active", {});
+    await h.client.reset({ onlyIfSignedIn: true });
+    await h.client.track("active", {});
+    const ids = h.queue().map((e) => e.properties.distinct_id);
+    expect(ids[0]).toBe(ids[1]);
   });
 });

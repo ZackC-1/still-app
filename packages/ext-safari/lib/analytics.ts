@@ -45,6 +45,8 @@ export interface SafariAnalyticsDeps {
   /** browser.runtime.getPlatformInfo().os: "ios" on iPhone and iPad, "mac" on the Mac. */
   readonly platform: () => Promise<string>;
   readonly local: AnalyticsKeyValue;
+  /** browser.storage.session when available: the queue, kept out of content scripts. */
+  readonly queue?: AnalyticsKeyValue | null;
   readonly isTrustedPage: (sender: MessageSender) => boolean;
   readonly fetch?: typeof fetch;
   readonly now?: () => number;
@@ -82,6 +84,7 @@ export function createSafariBackgroundAnalytics(deps: SafariAnalyticsDeps): Safa
       config: deps.config,
       appVersion: deps.appVersion,
       local: deps.local,
+      queueStore: deps.queue ?? undefined,
       identity: async () => identity,
       consent: async () => (await nativeContext())?.consent ?? false,
       noticeApplies: false,
@@ -92,11 +95,15 @@ export function createSafariBackgroundAnalytics(deps: SafariAnalyticsDeps): Safa
     });
   })().catch(() => null);
 
-  const accountId = async (): Promise<string | null> => {
+  // The app's account: an id, null when the app reports no account (signed out or deleted, so any
+  // earlier account is let go), or undefined when it could not be read (nothing changes).
+  const accountId = async (): Promise<string | null | undefined> => {
     const reply = (await deps.sendNative({ kind: "getAccountSyncStatus" }).catch(() => null)) as
       | { accountSyncStatus?: unknown }
       | null;
-    return parseAccountSyncStatus(reply?.accountSyncStatus ?? null)?.accountId ?? null;
+    if (!reply || !("accountSyncStatus" in reply)) return undefined;
+    if (reply.accountSyncStatus === null) return null;
+    return parseAccountSyncStatus(reply.accountSyncStatus)?.accountId ?? undefined;
   };
 
   return {
@@ -106,7 +113,7 @@ export function createSafariBackgroundAnalytics(deps: SafariAnalyticsDeps): Safa
       if (details.reason === "update") void host.then((h) => h?.onInstalled(details));
     },
     onStart() {
-      void Promise.all([host, accountId().catch(() => null)]).then(([h, userId]) => h?.onStart(userId));
+      void Promise.all([host, accountId().catch(() => undefined)]).then(([h, userId]) => h?.onStart(userId));
     },
     listener(message, sender, sendResponse) {
       if (typeof message !== "object" || message === null) return false;

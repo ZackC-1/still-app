@@ -53,6 +53,16 @@ export default defineBackground(() => {
         await browser.storage.local.set({ [key]: value });
       },
     },
+    queue: browser.storage.session
+      ? {
+          async get(key) {
+            return (await browser.storage.session.get(key))[key] ?? null;
+          },
+          async set(key, value) {
+            await browser.storage.session.set({ [key]: value });
+          },
+        }
+      : null,
     isTrustedPage: (sender) =>
       sender.id === browser.runtime.id && typeof sender.url === "string" && sender.url.startsWith(extensionOrigin),
   });

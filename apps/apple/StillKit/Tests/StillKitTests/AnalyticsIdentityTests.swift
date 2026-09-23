@@ -79,14 +79,40 @@ final class AnalyticsIdentityTests: XCTestCase {
     XCTAssertEqual(analytics?["consent"] as? Bool, false)
   }
 
-  func testAnExtensionThatRunsFirstCreatesARecordTheAppAdopts() {
+  func testAnExtensionThatRunsFirstStillLetsTheAppReportAndShare() {
     let group = MemoryKeyValue()
+    let cloud = MemoryKeyValue()
     let fromExtension = AnalyticsIdentityStore(group: group, newId: ids()).extensionInstall()
     XCTAssertEqual(fromExtension.anchorId, fromExtension.installId)
     let context = AnalyticsIdentityStore(group: group, newId: ids())
-      .appContext(appVersion: "2.1.0", ubiquitous: MemoryKeyValue(), earlierInstallVersion: nil)
-    XCTAssertEqual(context.install, fromExtension)
-    XCTAssertFalse(context.created)
+      .appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: "2.0.0")
+    XCTAssertTrue(context.created)
+    XCTAssertEqual(context.previousVersion, "2.0.0")
+    XCTAssertEqual(context.install.installId, fromExtension.installId)
+    XCTAssertNotEqual(context.install.anchorId, fromExtension.installId)
+    XCTAssertEqual(cloud.string(forKey: AnalyticsIdentityStore.anchorKey), context.install.anchorId)
+    // The extension now reports under the shared anchor too.
+    XCTAssertEqual(AnalyticsIdentityStore(group: group, newId: ids()).extensionInstall(), context.install)
+    XCTAssertFalse(AnalyticsIdentityStore(group: group, newId: ids())
+      .appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: nil).created)
+  }
+
+  func testAnExtensionFirstRecordAdoptsAnExistingICloudAnchor() {
+    let group = MemoryKeyValue()
+    let cloud = MemoryKeyValue()
+    cloud.set("99999999-9999-4999-8999-999999999999", forKey: AnalyticsIdentityStore.anchorKey)
+    _ = AnalyticsIdentityStore(group: group, newId: ids()).extensionInstall()
+    let context = AnalyticsIdentityStore(group: group, newId: ids())
+      .appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: nil)
+    XCTAssertTrue(context.returning)
+    XCTAssertEqual(context.install.anchorId, "99999999-9999-4999-8999-999999999999")
+  }
+
+  func testEarlierInstallEvidence() {
+    let defaults = UserDefaults(suiteName: "analytics-evidence-(UUID().uuidString)")!
+    XCTAssertFalse(AnalyticsIdentityStore.earlierInstallEvidence(defaults))
+    defaults.set(true, forKey: "still.onboarding.completed.v1")
+    XCTAssertTrue(AnalyticsIdentityStore.earlierInstallEvidence(defaults))
   }
 
   func testUnknownKindsAndCorruptRecordsAreIgnored() {

@@ -92,7 +92,7 @@ describe("UiController analytics", () => {
     expect(late.calls.at(-1)).toEqual(["sign_in_abandoned", { stage: "code" }]);
   });
 
-  it("reports sign-out and deletion before it stops attributing to the account", async () => {
+  it("reports sign-out under the account, and deletion only after forgetting it", async () => {
     const out = recordingAnalytics();
     const a = makeController({ auth: codeAuth(), analytics: out.analytics });
     a.c.userId = "u1";
@@ -103,7 +103,7 @@ describe("UiController analytics", () => {
     const b = makeController({ auth: codeAuth({ deleteAccount: vi.fn(() => Promise.resolve()) }), analytics: del.analytics });
     b.c.userId = "u1";
     await b.c.confirmDeleteAccount();
-    expect(del.calls).toEqual([["account_deleted", {}], ["$reset"]]);
+    expect(del.calls).toEqual([["$reset-forget"], ["account_deleted", {}]]);
   });
 
   it("a throwing analytics seam never breaks the UI", () => {

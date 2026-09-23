@@ -91,6 +91,30 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   let resetShortsFilterRequested = false;
   let shortsFilterSearch: string | null = null;
   const reportedServices = new Set<ServiceId>();
+  // One selector per service matching anything its rules hide or remove, so "blocking worked" means
+  // Still found something to take away on this page, not merely that the site was open.
+  const blockableSelectors = new Map<ServiceId, string>();
+  for (const [id, service] of Object.entries(ruleSet.services) as [ServiceId, (typeof ruleSet.services)[ServiceId]][]) {
+    const selectors = (service?.surfaces ?? [])
+      .filter((surface) => surface.action === "hide" || surface.action === "remove")
+      .flatMap((surface) => surface.selectors ?? []);
+    if (selectors.length > 0) blockableSelectors.set(id, selectors.join(","));
+  }
+  const pageHasBlockable = (serviceId: ServiceId): boolean => {
+    const selector = blockableSelectors.get(serviceId);
+    if (!selector) return false;
+    try {
+      return doc.querySelector(selector) !== null;
+    } catch {
+      return false; // a malformed selector in a fetched rule set must not break the page
+    }
+  };
+  /** Whether a report is still wanted for the active service (checked before applying, since a
+   * removal takes the evidence with it). */
+  const wantsMatchCheck = (): boolean => {
+    const serviceId = pageSession.activeServiceId();
+    return deps.onServiceActive !== undefined && serviceId !== null && !reportedServices.has(serviceId);
+  };
   const reportActive = (): void => {
     const serviceId = pageSession.activeServiceId();
     if (!deps.onServiceActive || serviceId === null || reportedServices.has(serviceId)) return;
@@ -205,8 +229,14 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
         setRootActive(true);
         setRootProActive(pro);
         if (pageSession.activeServiceId() === "youtube") prepareYouTubeChips(url);
-        (deps.manifestCssOwnsHides ? pageSession.applyRemovals : pageSession.applyDom)(settings, url, doc, opts);
-        reportActive();
+        {
+          // Look before applying: a removal takes the matched element with it. Only pages where
+          // Still finds something to take away count as "blocking worked".
+          const serviceId = pageSession.activeServiceId();
+          const found = serviceId !== null && wantsMatchCheck() && pageHasBlockable(serviceId);
+          (deps.manifestCssOwnsHides ? pageSession.applyRemovals : pageSession.applyDom)(settings, url, doc, opts);
+          if (found) reportActive();
+        }
         return;
       case "noop":
         resetShortsFilterRequested = false;

@@ -111,27 +111,47 @@ Deno.test("HttpPostHog posts the email as a $set on the account's distinct id", 
   assertEquals(body.batch[0]!.properties.$set, { email: "a@b.co" });
 });
 
-Deno.test("HttpPostHog deletes by distinct id with events, and treats 'no such person' as done", async () => {
+Deno.test("HttpPostHog deletes by distinct id with events", async () => {
   const sent: { url: string; auth: string | null; body: unknown }[] = [];
-  let status = 200;
-  let text = "{}";
   const ph = new HttpPostHog(
     { apiHost: "https://us.posthog.com", projectId: "123", personalApiKey: "phx_secret" },
     (url, init) => {
       sent.push({ url: String(url), auth: new Headers(init?.headers).get("Authorization"), body: JSON.parse(String(init?.body)) });
-      return Promise.resolve(new Response(text, { status }));
+      return Promise.resolve(new Response("{}", { status: 200 }));
     },
   );
   assertEquals(ph.canIdentify, false);
   await ph.deletePerson(A);
+  assertEquals(sent.length, 1);
   assertEquals(sent[0]!.url, "https://us.posthog.com/api/projects/123/persons/bulk_delete/");
   assertEquals(sent[0]!.auth, "Bearer phx_secret");
   assertEquals(sent[0]!.body, { distinct_ids: [A], delete_events: true });
-  status = 400;
-  text = '{"detail":"distinct_ids matched no person"}';
+});
+
+function scripted(responses: [number, unknown][]) {
+  const calls: unknown[] = [];
+  const ph = new HttpPostHog(
+    { apiHost: "https://us.posthog.com", projectId: "123", personalApiKey: "phx_secret" },
+    (_url, init) => {
+      calls.push(JSON.parse(String(init?.body)));
+      const [status, body] = responses.shift()!;
+      return Promise.resolve(new Response(JSON.stringify(body), { status }));
+    },
+  );
+  return { ph, calls };
+}
+
+Deno.test("a person who never shared usage counts as deleted only when PostHog confirms no match", async () => {
+  const { ph, calls } = scripted([[400, { detail: "no person" }], [200, { unmatched_distinct_ids: [A] }]]);
   await ph.deletePerson(A);
-  status = 500;
-  await assertRejects(() => ph.deletePerson(A));
+  assertEquals(calls, [{ distinct_ids: [A], delete_events: true }, { distinct_ids: [A], delete_events: false }]);
+});
+
+Deno.test("any other 400 is a failure, never a silent success", async () => {
+  await assertRejects(() => scripted([[400, { detail: "distinct_ids must be a list" }], [400, {}]]).ph.deletePerson(A));
+  // Matched on the retry: the person is gone but its events were not queued for deletion.
+  await assertRejects(() => scripted([[400, {}], [200, { unmatched_distinct_ids: [] }]]).ph.deletePerson(A));
+  await assertRejects(() => scripted([[500, {}]]).ph.deletePerson(A));
 });
 
 Deno.test("HttpPostHog without deletion config deletes nothing", async () => {

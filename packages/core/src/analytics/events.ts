@@ -50,9 +50,10 @@ export const SIGN_IN_STAGES = ["email", "code"] as const;
 /** Which Still screen was opened. */
 export const OPENED_WHERE = ["popup", "options", "app"] as const;
 
-/** Setup milestones a host can observe. `extension_enabled` is the moment Safari reports Still
- * turned on (macOS can ask; iOS learns it from the extension's first event). */
-export const SETUP_STEPS = ["app_opened", "extension_enabled", "first_popup_open"] as const;
+/** Setup milestones a host can observe. `extension_enabled` is reported by the Mac app when Safari
+ * says Still is on, and by the Safari extension itself the first time it runs (the only signal an
+ * iPhone has). */
+export const SETUP_STEPS = ["app_opened", "extension_enabled"] as const;
 
 type Spec = "boolean" | "version" | readonly string[];
 

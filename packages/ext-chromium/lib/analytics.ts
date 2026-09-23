@@ -53,6 +53,8 @@ export interface BackgroundAnalyticsDeps {
   readonly config: AnalyticsConfig;
   readonly appVersion: string;
   readonly local: AnalyticsKeyValue;
+  /** chrome.storage.session when the browser has it: the queue, kept out of content scripts. */
+  readonly queue?: AnalyticsKeyValue | null;
   /** chrome.storage.sync: follows the person's Google or Firefox account between computers. */
   readonly shared: AnalyticsKeyValue | null;
   /** Firefox permission check; injectable for tests. */
@@ -80,6 +82,7 @@ export function createBackgroundAnalytics(
     config: deps.config,
     appVersion: deps.appVersion,
     local: deps.local,
+    queueStore: deps.queue ?? undefined,
     identity: () => (identity ??= resolveAnalyticsIdentity({ local: deps.local, shared: deps.shared, uuid })),
     consent: deps.isFirefox ? granted : () => stored.get(),
     storeConsent: deps.isFirefox ? undefined : (enabled) => stored.set(enabled),

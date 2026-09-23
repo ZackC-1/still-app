@@ -29,8 +29,10 @@ export interface ExtensionAnalyticsHostDeps {
   readonly surface: AnalyticsSurface;
   readonly config: AnalyticsConfig;
   readonly appVersion: string;
-  /** This extension's local storage: the queue, markers and notice flag. */
+  /** This extension's local storage: account, markers and notice flag. */
   readonly local: AnalyticsKeyValue;
+  /** Where queued events wait: session storage where available (see AnalyticsClientDeps). */
+  readonly queueStore?: AnalyticsKeyValue;
   readonly identity: () => Promise<AnalyticsIdentity>;
   readonly consent: () => Promise<boolean>;
   /** Persist a switch change. Absent where something else owns consent (Firefox's permission,
@@ -52,8 +54,10 @@ export interface ExtensionAnalyticsHost {
   /** runtime.onInstalled: `installed` for a new install, `updated` for an update. */
   onInstalled(details: { reason: string; previousVersion?: string }): void;
   /** Background start: setup is complete (the extension is running), one `active` a day, and the
-   * current account if signed in. */
-  onStart(userId: string | null): void;
+   * current account. `null` means known to be signed out (an earlier account is let go, whether it
+   * signed out here, elsewhere or was deleted); `undefined` means it could not be read, so nothing
+   * about the account changes. */
+  onStart(userId: string | null | undefined): void;
   /** Identify the install, and once per account have the server attach the email. */
   identify(userId: string): Promise<void>;
   readonly listener: (
@@ -66,7 +70,7 @@ export interface ExtensionAnalyticsHost {
 type PageRequest =
   | { readonly action: "track"; readonly name: string; readonly props?: unknown }
   | { readonly action: "identify"; readonly userId: string }
-  | { readonly action: "reset" }
+  | { readonly action: "reset"; readonly forgetAccount: boolean }
   | { readonly action: "sharing" }
   | { readonly action: "setSharing"; readonly enabled: boolean }
   | { readonly action: "acknowledgeNotice" };
@@ -99,6 +103,7 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
     surface: deps.surface,
     appVersion: deps.appVersion,
     store: deps.local,
+    queueStore: deps.queueStore,
     identity: deps.identity,
     consent: deps.consent,
     fetch: deps.fetch ?? ((...args) => fetch(...args)),
@@ -129,7 +134,7 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
         await identify(request.userId);
         return true;
       case "reset":
-        await client.reset();
+        await client.reset({ forgetAccount: request.forgetAccount });
         return true;
       case "sharing":
         return sharing();
@@ -160,7 +165,15 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
       }
     },
     onStart(userId) {
-      if (userId) void identify(userId);
+      if (userId) {
+        void identify(userId);
+      } else if (userId === null) {
+        void client.reset({ onlyIfSignedIn: true });
+      }
+      // A running Safari extension is the only proof on iPhone that it was switched on.
+      if (deps.surface === "safari-ios" || deps.surface === "safari-macos") {
+        void client.trackOnce("extension_enabled", "setup_step", { step: "extension_enabled" });
+      }
       void client.trackOnce("setup_completed", "setup_completed", {});
       void client.trackDaily("active", "active", {});
       void client.flush();
@@ -196,6 +209,7 @@ function parsePageRequest(m: Record<string, unknown>): PageRequest | null {
     case "setSharing":
       return typeof m.enabled === "boolean" ? { action: "setSharing", enabled: m.enabled } : null;
     case "reset":
+      return { action: "reset", forgetAccount: m.forgetAccount === true };
     case "sharing":
     case "acknowledgeNotice":
       return { action: m.action };
@@ -227,7 +241,7 @@ export function createPageAnalytics(options: PageAnalyticsOptions): UiAnalytics 
   const page: UiAnalytics = {
     track: (name, props) => fire({ action: "track", name, props }),
     identify: (userId) => fire({ action: "identify", userId }),
-    reset: () => fire({ action: "reset" }),
+    reset: (options) => fire({ action: "reset", forgetAccount: options?.forgetAccount === true }),
     acknowledgeNotice: () => fire({ action: "acknowledgeNotice" }),
   };
   if (options.showsSwitch === false) return page;

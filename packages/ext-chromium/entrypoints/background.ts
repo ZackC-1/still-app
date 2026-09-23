@@ -86,6 +86,7 @@ export default defineBackground(() => {
       },
       appVersion: browser.runtime.getManifest().version,
       local: storageKeyValue(chrome.storage.local),
+      queue: chrome.storage.session ? storageKeyValue(chrome.storage.session) : null,
       shared: chrome.storage.sync ? storageKeyValue(chrome.storage.sync) : null,
       identifyOnServer: spine
         ? async () => {
@@ -136,7 +137,8 @@ export default defineBackground(() => {
   void hydrated.then(() => session?.resume());
   void hydrated
     .then(() => session?.getState())
-    .then((state) => analytics.onStart(state?.userId ?? null), () => analytics.onStart(null));
+    // No session spine (an unconfigured build) reads as signed out; a failed read changes nothing.
+    .then((state) => analytics.onStart(state ? state.userId : null), () => analytics.onStart(undefined));
 
   // ── DNR gating — Chromium only from here down. ───────────────────────────────────────────────
   if (!chrome.declarativeNetRequest?.updateEnabledRulesets) return;

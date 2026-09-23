@@ -22,6 +22,7 @@ import type { AnalyticsIdentity, AnalyticsKeyValue } from "./identity.js";
 // unconfigured build (no key) sends nothing at all.
 
 export const STATE_KEY = "still:analytics:state";
+export const QUEUE_KEY = "still:analytics:queue";
 /** Oldest events are dropped beyond this, so an install that is offline for weeks stays small. */
 export const MAX_QUEUE = 300;
 /** Events per request. */
@@ -40,8 +41,12 @@ export interface AnalyticsClientDeps {
   readonly config: AnalyticsConfig;
   readonly surface: AnalyticsSurface;
   readonly appVersion: string;
-  /** Where the queue and the per-day markers persist. */
+  /** Where the account, markers and anonymous id persist (small, rarely written). */
   readonly store: AnalyticsKeyValue;
+  /** Where queued events wait. Defaults to `store`. The browser extensions pass session storage,
+   * which content scripts do not receive change broadcasts for, so the pages Still runs on are not
+   * sent a copy of the queue on every event. */
+  readonly queueStore?: AnalyticsKeyValue;
   /** This install's ids (see identity.ts). Called once and memoised. */
   readonly identity: () => Promise<AnalyticsIdentity>;
   /** Whether this person currently allows analytics. Checked on every track and flush. */
@@ -61,27 +66,34 @@ interface QueuedEvent {
 }
 
 interface ClientState {
-  readonly queue: readonly QueuedEvent[];
   /** The signed-in account this install currently reports as, or null. */
   readonly userId: string | null;
   /** The account a `$identify` has already been queued for, so it is sent once per sign-in. */
   readonly identifiedAs: string | null;
   /** Marker → local calendar day it last fired, for once-a-day events; `once:` markers → "done". */
   readonly daily: Readonly<Record<string, string>>;
+  /** The anonymous id after a sign-out. The install's anchor was merged into the account that
+   * signed out, so reusing it would keep attributing this device to that person; a fresh id per
+   * sign-out, as posthog-js does, separates them. */
+  readonly anonId: string | null;
 }
 
-const EMPTY_STATE: ClientState = { queue: [], userId: null, identifiedAs: null, daily: {} };
+const EMPTY_STATE: ClientState = { userId: null, identifiedAs: null, daily: {}, anonId: null };
 
 function parseState(value: unknown): ClientState {
   if (typeof value !== "object" || value === null) return EMPTY_STATE;
   const v = value as Record<string, unknown>;
   return {
-    queue: Array.isArray(v.queue) ? (v.queue as QueuedEvent[]).slice(-MAX_QUEUE) : [],
     userId: typeof v.userId === "string" ? v.userId : null,
     identifiedAs: typeof v.identifiedAs === "string" ? v.identifiedAs : null,
     daily:
       typeof v.daily === "object" && v.daily !== null ? (v.daily as Record<string, string>) : {},
+    anonId: typeof v.anonId === "string" ? v.anonId : null,
   };
+}
+
+function parseQueue(value: unknown): QueuedEvent[] {
+  return Array.isArray(value) ? (value as QueuedEvent[]).slice(-MAX_QUEUE) : [];
 }
 
 /** True when a build carries a usable PostHog configuration. */
@@ -138,16 +150,7 @@ export class AnalyticsClient {
     name: E,
     props: AnalyticsEventProps<E>,
   ): Promise<void> {
-    return this.run(async () => {
-      if (!(await this.allowed())) return;
-      const valid = validateEvent(name, props);
-      if (!valid) return;
-      const state = await this.read();
-      const today = localDay(this.deps.now());
-      if (state.daily[marker] === today) return;
-      await this.write({ ...state, daily: { ...state.daily, [marker]: today } });
-      await this.enqueue(name, valid);
-    });
+    return this.trackMarked(marker, localDay(this.deps.now()), name, props);
   }
 
   /** Queue an event once in the life of this install for `marker` (setup milestones). */
@@ -156,16 +159,7 @@ export class AnalyticsClient {
     name: E,
     props: AnalyticsEventProps<E>,
   ): Promise<void> {
-    return this.run(async () => {
-      if (!(await this.allowed())) return;
-      const valid = validateEvent(name, props);
-      if (!valid) return;
-      const state = await this.read();
-      const key = `once:${marker}`;
-      if (state.daily[key] !== undefined) return;
-      await this.write({ ...state, daily: { ...state.daily, [key]: "done" } });
-      await this.enqueue(name, valid);
-    });
+    return this.trackMarked(`once:${marker}`, "done", name, props);
   }
 
   /** Attribute this install to a signed-in account from now on. Idempotent per account. */
@@ -174,24 +168,41 @@ export class AnalyticsClient {
       if (!this.configured || !userId) return;
       const state = await this.read();
       if (state.userId !== userId) await this.write({ ...state, userId });
-      if (await this.deps.consent()) await this.ensureIdentified();
+      if (await this.allowed()) await this.ensureIdentified();
     });
   }
 
-  /** Stop attributing to the account (sign-out, deletion). Later events use the anonymous id. */
-  reset(): Promise<void> {
+  /** Whether this install currently reports as a signed-in account. */
+  async signedInAs(): Promise<string | null> {
+    return (await this.read()).userId;
+  }
+
+  /**
+   * Stop attributing to the account (sign-out, deletion). Later events use a fresh anonymous id.
+   * With `forgetAccount` (the account was deleted), events still waiting under it are dropped, so
+   * nothing recreates the person the server just deleted.
+   */
+  reset(options: { readonly forgetAccount?: boolean; readonly onlyIfSignedIn?: boolean } = {}): Promise<void> {
     return this.run(async () => {
       if (!this.configured) return;
       const state = await this.read();
-      await this.write({ ...state, userId: null, identifiedAs: null });
+      // A start that finds no session: let go of an account only if one is attached, so a person who
+      // was never signed in keeps one anonymous id instead of a new one every start.
+      if (options.onlyIfSignedIn && !state.userId) return;
+      if (options.forgetAccount && state.userId) {
+        const gone = state.userId;
+        const queue = await this.readQueue();
+        const kept = queue.filter((e) => e.properties.distinct_id !== gone);
+        if (kept.length !== queue.length) await this.writeQueue(kept);
+      }
+      await this.write({ ...state, userId: null, identifiedAs: null, anonId: this.deps.uuid() });
     });
   }
 
   /** Drop everything waiting to be sent: the person turned analytics off. */
   clearQueue(): Promise<void> {
     return this.run(async () => {
-      const state = await this.read();
-      if (state.queue.length > 0) await this.write({ ...state, queue: [] });
+      if ((await this.readQueue()).length > 0) await this.writeQueue([]);
     });
   }
 
@@ -200,20 +211,40 @@ export class AnalyticsClient {
     return this.run(async () => {
       if (!(await this.allowed())) return;
       for (;;) {
-        const state = await this.read();
-        const batch = state.queue.slice(0, BATCH_SIZE);
+        const queue = await this.readQueue();
+        const batch = queue.slice(0, BATCH_SIZE);
         if (batch.length === 0) return;
         const outcome = await this.post(batch);
         if (outcome === "retry") return;
         // Sent, or rejected as malformed (retrying a 400 forever would block the queue).
-        const after = await this.read();
         const sent = new Set(batch.map((e) => e.uuid));
-        await this.write({ ...after, queue: after.queue.filter((e) => !sent.has(e.uuid)) });
+        const remaining = (await this.readQueue()).filter((e) => !sent.has(e.uuid));
+        await this.writeQueue(remaining);
+        // Storage that will not take the write would hand back the same batch forever.
+        const after = await this.readQueue();
+        if (after.some((e) => sent.has(e.uuid))) return;
       }
     });
   }
 
   // ── internals ────────────────────────────────────────────────────────────────────────────────
+
+  private trackMarked<E extends AnalyticsEventName>(
+    marker: string,
+    value: string,
+    name: E,
+    props: AnalyticsEventProps<E>,
+  ): Promise<void> {
+    return this.run(async () => {
+      if (!(await this.allowed())) return;
+      const valid = validateEvent(name, props);
+      if (!valid) return;
+      const state = await this.read();
+      if (state.daily[marker] === value) return;
+      await this.write({ ...state, daily: { ...state.daily, [marker]: value } });
+      await this.enqueue(name, valid);
+    });
+  }
 
   private run<T>(op: () => Promise<T>): Promise<T> {
     const next = this.chain.then(op, op);
@@ -251,6 +282,36 @@ export class AnalyticsClient {
     }
   }
 
+  private get queueStore(): AnalyticsKeyValue {
+    return this.deps.queueStore ?? this.deps.store;
+  }
+
+  private async readQueue(): Promise<QueuedEvent[]> {
+    try {
+      return parseQueue(await this.queueStore.get(QUEUE_KEY));
+    } catch {
+      return [];
+    }
+  }
+
+  private async writeQueue(queue: readonly QueuedEvent[]): Promise<void> {
+    try {
+      await this.queueStore.set(QUEUE_KEY, queue.slice(-MAX_QUEUE));
+    } catch {
+      /* as above */
+    }
+  }
+
+  private async push(event: QueuedEvent): Promise<void> {
+    await this.writeQueue([...(await this.readQueue()), event]);
+    this.scheduleFlush();
+  }
+
+  /** The anonymous id this install reports under while signed out. */
+  private async anonymousId(state: ClientState): Promise<string> {
+    return state.anonId ?? (await this.identity()).anchorId;
+  }
+
   /** Person properties refreshed by every event, so each profile shows every store a person
    * uses and the version they last ran there. */
   private personProperties(): { $set: Record<string, unknown>; $set_once: Record<string, unknown> } {
@@ -276,25 +337,20 @@ export class AnalyticsClient {
     if (!state.userId || state.identifiedAs === state.userId) return;
     const identity = await this.identity();
     const person = this.personProperties();
-    const event: QueuedEvent = {
+    await this.write({ ...state, identifiedAs: state.userId });
+    await this.push({
       event: "$identify",
       uuid: this.deps.uuid(),
       timestamp: new Date(this.deps.now()).toISOString(),
       properties: {
         distinct_id: state.userId,
-        $anon_distinct_id: identity.anchorId,
+        $anon_distinct_id: await this.anonymousId(state),
         $device_id: identity.installId,
         $lib: "still",
         $set: { ...person.$set, signed_in: true },
         $set_once: person.$set_once,
       },
-    };
-    await this.write({
-      ...state,
-      identifiedAs: state.userId,
-      queue: [...state.queue, event].slice(-MAX_QUEUE),
     });
-    this.scheduleFlush();
   }
 
   private async enqueue(name: string, props: Record<string, boolean | string>): Promise<void> {
@@ -303,13 +359,13 @@ export class AnalyticsClient {
     const state = await this.read();
     const { surface, appVersion } = this.deps;
     const person = this.personProperties();
-    const event: QueuedEvent = {
+    await this.push({
       event: name,
       uuid: this.deps.uuid(),
       timestamp: new Date(this.deps.now()).toISOString(),
       properties: {
         ...props,
-        distinct_id: state.userId ?? identity.anchorId,
+        distinct_id: state.userId ?? (await this.anonymousId(state)),
         $device_id: identity.installId,
         $lib: "still",
         surface,
@@ -319,9 +375,7 @@ export class AnalyticsClient {
         $set: name === "signed_out" ? { ...person.$set, signed_in: false } : person.$set,
         $set_once: person.$set_once,
       },
-    };
-    await this.write({ ...state, queue: [...state.queue, event].slice(-MAX_QUEUE) });
-    this.scheduleFlush();
+    });
   }
 
   private scheduleFlush(): void {

@@ -104,7 +104,7 @@ export function recordingAnalytics() {
   const analytics: UiAnalytics = {
     track: (name, props) => void calls.push([name, props]),
     identify: (userId) => void calls.push(["$identify", userId]),
-    reset: () => void calls.push(["$reset"]),
+    reset: (options) => void calls.push(options?.forgetAccount ? ["$reset-forget"] : ["$reset"]),
   };
   return { analytics, calls };
 }

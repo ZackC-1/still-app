@@ -95,7 +95,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
   const ui: UiAnalytics = {
     track: (name, props) => withReady((r) => r.client.track(name, props)),
     identify: (userId) => withReady((r) => r.identify(userId)),
-    reset: () => withReady((r) => r.client.reset()),
+    reset: (options) => withReady((r) => r.client.reset(options)),
     async sharing() {
       const r = await ready();
       return r ? { enabled: consent, noticeNeeded: !noticeSeen } : null;

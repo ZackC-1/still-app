@@ -212,8 +212,9 @@ export interface UiAnalytics {
   track<E extends AnalyticsEventName>(name: E, props: AnalyticsEventProps<E>): void;
   /** Attribute this install to the signed-in account. */
   identify(userId: string): void;
-  /** Stop attributing to the account (sign-out, deletion). */
-  reset(): void;
+  /** Stop attributing to the account. `forgetAccount` (deletion) also drops events still waiting
+   * under it, so nothing recreates the analytics person the server just deleted. */
+  reset(options?: { readonly forgetAccount?: boolean }): void;
   /** This device's "Share usage data" state, or null when the build has no analytics (the switch
    * then does not render). */
   sharing?(): Promise<UsageSharingState | null>;
@@ -1396,9 +1397,10 @@ export class UiController {
     try {
       await this.auth.deleteAccount();
       if (this.userId !== null && this.accountRevision !== revision) return;
-      // Account gone → mirror the signed-out reset.
+      // Account gone → mirror the signed-out reset. Forget the account first, so the deletion is
+      // counted anonymously and never recreates the person the server just deleted.
+      this.analyticsCall((a) => a.reset({ forgetAccount: true }));
       this.track("account_deleted", {});
-      this.analyticsCall((a) => a.reset());
       this.resetToSignedOut();
       this.deleteFlow = "idle";
     } catch (e) {

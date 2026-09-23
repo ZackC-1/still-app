@@ -76,6 +76,26 @@ export class HttpPostHog implements PostHogPort {
 
   async deletePerson(userId: string): Promise<void> {
     if (!this.canDelete) return;
+    const first = await this.bulkDelete(userId, true);
+    if (first.ok) return;
+    if (first.status !== 400) throw new Error(`PostHog deletion failed: ${first.status}`);
+    // With delete_events, PostHog refuses ids that match no person. Ask again without event
+    // deletion, which instead reports the unmatched ids: only an explicit "no such person" (someone
+    // who never shared usage) counts as done. Anything else is a real failure to log.
+    const check = await this.bulkDelete(userId, false);
+    if (check.ok) {
+      const unmatched = (check.body as { unmatched_distinct_ids?: unknown } | null)?.unmatched_distinct_ids;
+      if (Array.isArray(unmatched) && unmatched.includes(userId)) return;
+      // It matched after all (and is now deleted), but its events were not queued for deletion.
+      throw new Error("PostHog deleted the person but refused to delete its events");
+    }
+    throw new Error(`PostHog deletion failed: ${first.status}/${check.status}`);
+  }
+
+  private async bulkDelete(
+    userId: string,
+    deleteEvents: boolean,
+  ): Promise<{ ok: boolean; status: number; body: unknown }> {
     const url = `${trimSlash(this.config.apiHost!)}/api/projects/${this.config.projectId}/persons/bulk_delete/`;
     const res = await this.fetchImpl(url, {
       method: "POST",
@@ -83,13 +103,15 @@ export class HttpPostHog implements PostHogPort {
         "Content-Type": "application/json",
         Authorization: `Bearer ${this.config.personalApiKey!.trim()}`,
       },
-      body: JSON.stringify({ distinct_ids: [userId], delete_events: true }),
+      body: JSON.stringify({ distinct_ids: [userId], delete_events: deleteEvents }),
     });
     const text = await res.text();
-    if (res.ok) return;
-    // With delete_events, PostHog refuses ids that match no person. Someone who never shared usage
-    // has no person to delete, which is the outcome deletion wants anyway.
-    if (res.status === 400 && /distinct|match|not found/i.test(text)) return;
-    throw new Error(`PostHog deletion failed: ${res.status}`);
+    let body: unknown = null;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      /* not JSON */
+    }
+    return { ok: res.ok, status: res.status, body };
   }
 }

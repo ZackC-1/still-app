@@ -283,7 +283,17 @@ final class WebBridgeRouter {
       // iCloud key-value storage carries only the anonymous person anchor (see AnalyticsIdentity).
       let cloud = NSUbiquitousKeyValueStore.default
       cloud.synchronize()
-      let earlier = OriginalInstall.current(InstallGeneration.appGroupDefaults())?.firstRecordedAppVersion
+      // An update is recognised by the original-install record from an earlier version, or, for
+      // versions from before that record existed, by App Group state present when this launch began.
+      let recorded = OriginalInstall.current(InstallGeneration.appGroupDefaults())?.firstRecordedAppVersion
+      let earlier: String?
+      if let recorded, recorded != Self.marketingVersion {
+        earlier = recorded
+      } else if AnalyticsIdentityStore.earlierInstallAtLaunch {
+        earlier = AnalyticsIdentityStore.unknownEarlierVersion
+      } else {
+        earlier = nil
+      }
       context = analytics.appContext(
         appVersion: Self.marketingVersion, ubiquitous: cloud, earlierInstallVersion: earlier)
       analyticsContextThisLaunch = context

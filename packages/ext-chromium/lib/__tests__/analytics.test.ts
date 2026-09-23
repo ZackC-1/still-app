@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { STATE_KEY, type AnalyticsKeyValue } from "@still/core/analytics";
+import { QUEUE_KEY, type AnalyticsKeyValue } from "@still/core/analytics";
 import { ANALYTICS_MESSAGE_KIND, createBackgroundAnalytics, createPageAnalytics } from "../analytics.js";
 
 const RUNTIME_ID = "still-id";
@@ -31,7 +31,7 @@ function setup(over: { isFirefox?: boolean; granted?: boolean; shared?: Analytic
     RUNTIME_ID,
     ORIGIN,
   );
-  const queue = () => ((local.data[STATE_KEY] as { queue?: { event: string; properties: Record<string, unknown> }[] })?.queue ?? []);
+  const queue = () => ((local.data[QUEUE_KEY] as { event: string; properties: Record<string, unknown> }[] | undefined) ?? []);
   const send = (message: unknown, sender: object) =>
     new Promise<unknown>((resolve) => {
       const async = bg.listener(message, sender, resolve);
@@ -167,5 +167,30 @@ describe("server-side email attach", () => {
     const { send } = setup({ isFirefox: true, granted: false, identifyOnServer });
     await send({ kind: ANALYTICS_MESSAGE_KIND, action: "identify", userId: "u1" }, PAGE);
     expect(identifyOnServer).not.toHaveBeenCalled();
+  });
+});
+
+describe("account changes outside the popup", () => {
+  it("a start that finds no session lets go of the earlier account; an unreadable one keeps it", async () => {
+    const { bg, send, queue } = setup();
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "identify", userId: "u1" }, PAGE);
+    bg.onStart(undefined);
+    await bg.client.trackDaily("x", "active", {});
+    expect(await bg.client.signedInAs()).toBe("u1");
+    bg.onStart(null);
+    await bg.client.trackDaily("y", "active", {});
+    expect(await bg.client.signedInAs()).toBeNull();
+    const last = queue().at(-1)!;
+    expect(last.properties.distinct_id).not.toBe("u1");
+  });
+
+  it("deletion from the popup forgets the account's waiting events", async () => {
+    const { send, queue } = setup();
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "identify", userId: "u1" }, PAGE);
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "signed_in", props: {} }, PAGE);
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "reset", forgetAccount: true }, PAGE);
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "account_deleted", props: {} }, PAGE);
+    expect(JSON.stringify(queue())).not.toContain("u1");
+    expect(queue().map((e) => e.event)).toEqual(["account_deleted"]);
   });
 });
