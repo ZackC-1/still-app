@@ -4,6 +4,7 @@ import { createRuleSetRefresher } from "@still/core/rules";
 import { createAppGroupReconciler } from "../lib/app-group-reconcile.js";
 import { BrowserInstallGenerationStore, createEntitlementPull } from "../lib/entitlement-pull.js";
 import { NATIVE_APP, pushSettingsToApp } from "../lib/native-settings.js";
+import { createSafariBackgroundAnalytics } from "../lib/analytics.js";
 
 // Safari background — the native App-Group bridge (KTD4). The content/popup/options surfaces read &
 // write settings through browser.storage.local, but the *app's* WKWebView writes them into the
@@ -32,6 +33,32 @@ function parseNativeSettings(reply: unknown): StoredSettingsRecord | null {
 
 export default defineBackground(() => {
   const adapter = new ChromeStorageAdapter();
+
+  // Product analytics (lib/analytics.ts): under the app's install, following the app's switch.
+  // Registered in this first synchronous pass so onInstalled is not missed.
+  const extensionOrigin = browser.runtime.getURL("");
+  const analytics = createSafariBackgroundAnalytics({
+    config: {
+      key: import.meta.env.VITE_POSTHOG_KEY as string | undefined,
+      host: import.meta.env.VITE_POSTHOG_HOST as string | undefined,
+    },
+    appVersion: browser.runtime.getManifest().version,
+    sendNative: (message) => browser.runtime.sendNativeMessage(NATIVE_APP, message),
+    platform: async () => (await browser.runtime.getPlatformInfo()).os,
+    local: {
+      async get(key) {
+        return (await browser.storage.local.get(key))[key] ?? null;
+      },
+      async set(key, value) {
+        await browser.storage.local.set({ [key]: value });
+      },
+    },
+    isTrustedPage: (sender) =>
+      sender.id === browser.runtime.id && typeof sender.url === "string" && sender.url.startsWith(extensionOrigin),
+  });
+  browser.runtime.onInstalled.addListener((details) => analytics.onInstalled(details));
+  browser.runtime.onMessage.addListener(analytics.listener);
+  analytics.onStart();
 
   async function pullFromApp(): Promise<StoredSettingsRecord | null> {
     try {

@@ -50,7 +50,28 @@ export type NativeMessage =
   | { readonly kind: "price" }
   | { readonly kind: "setAccountSyncStatus"; readonly status: AccountSyncStatus | null }
   | { readonly kind: "signOut" }
-  | { readonly kind: "setEntitlement"; readonly entitled: boolean };
+  | { readonly kind: "setEntitlement"; readonly entitled: boolean }
+  | { readonly kind: "analyticsContext" }
+  | { readonly kind: "setAnalyticsConsent"; readonly enabled: boolean }
+  | { readonly kind: "acknowledgeAnalyticsNotice" };
+
+/** The app's analytics launch context (AnalyticsIdentity.swift / WebBridgeRouter). */
+export interface AnalyticsContextReply {
+  readonly platform: "ios" | "macos";
+  readonly appVersion: string;
+  readonly installId: string;
+  readonly anchorId: string;
+  /** This launch created the device's install record. */
+  readonly created: boolean;
+  /** A new install whose iCloud person anchor already existed. */
+  readonly returning: boolean;
+  /** The version this device last ran, when it differs (an update). */
+  readonly previousVersion: string | null;
+  readonly consent: boolean;
+  readonly noticeSeen: boolean;
+  /** Whether Safari reports the extension on; null where the app cannot know (iPhone). */
+  readonly extensionEnabled: boolean | null;
+}
 
 export class NativeBridge {
   constructor(
@@ -152,6 +173,41 @@ export class NativeBridge {
   async setAccountSyncStatus(status: AccountSyncStatus | null): Promise<void> {
     const reply = asObject(await this.post({ kind: "setAccountSyncStatus", status }));
     if (this.available && reply?.ok !== true) throw new Error("Account status could not be saved");
+  }
+
+  /** The analytics launch context, or null outside the app or on a malformed reply. */
+  async analyticsContext(): Promise<AnalyticsContextReply | null> {
+    const o = asObject(await this.post({ kind: "analyticsContext" }));
+    if (!o) return null;
+    const str = (v: unknown) => (typeof v === "string" && v.length > 0 ? v : null);
+    const platform = o.platform === "ios" || o.platform === "macos" ? o.platform : null;
+    const appVersion = str(o.appVersion);
+    const installId = str(o.installId);
+    const anchorId = str(o.anchorId);
+    if (!platform || !appVersion || !installId || !anchorId) return null;
+    return {
+      platform,
+      appVersion,
+      installId,
+      anchorId,
+      created: o.created === true,
+      returning: o.returning === true,
+      previousVersion: str(o.previousVersion),
+      consent: o.consent !== false,
+      noticeSeen: o.noticeSeen === true,
+      extensionEnabled: typeof o.extensionEnabled === "boolean" ? o.extensionEnabled : null,
+    };
+  }
+
+  /** Save the app's "Share usage data" switch (the Safari extension follows it). Resolves to the
+   * stored value. */
+  async setAnalyticsConsent(enabled: boolean): Promise<boolean> {
+    const reply = asObject(await this.post({ kind: "setAnalyticsConsent", enabled }));
+    return typeof reply?.enabled === "boolean" ? reply.enabled : !enabled;
+  }
+
+  async acknowledgeAnalyticsNotice(): Promise<void> {
+    await this.post({ kind: "acknowledgeAnalyticsNotice" });
   }
 
   private async post(message: NativeMessage): Promise<unknown> {

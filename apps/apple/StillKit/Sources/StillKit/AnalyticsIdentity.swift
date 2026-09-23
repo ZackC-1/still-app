@@ -1,0 +1,175 @@
+import Foundation
+
+/// Product-analytics identity for the Apple apps and their Safari extensions, mirroring
+/// `packages/core/src/analytics/identity.ts`:
+///
+///   * `installId` names this device's copy of Still. It lives in the App Group, so the app and its
+///     Safari extension on the same device report as one install.
+///   * `anchorId` is the anonymous person id. The app shares it through iCloud key-value storage,
+///     so an iPhone and a Mac on the same Apple ID are recognised as one person without signing in.
+///     A device with iCloud unavailable, or where the extension ran before the app, uses its
+///     install id instead.
+///
+/// No device trait, IP address or advertising identifier is involved. Nothing here is sent
+/// anywhere by StillKit; the web layer reads it through the native bridge and reports it only
+/// while the person shares usage data (`consent`).
+public struct AnalyticsInstall: Codable, Equatable, Sendable {
+  public let installId: String
+  public let anchorId: String
+}
+
+/// What the app's web view needs at launch.
+public struct AnalyticsAppContext: Equatable, Sendable {
+  public let install: AnalyticsInstall
+  /// True on the launch that created this device's install record.
+  public let created: Bool
+  /// A new install whose person anchor was already in iCloud: this Apple ID had Still before.
+  public let returning: Bool
+  /// The version this device last ran, when it differs from the current one. On the first launch
+  /// of the build that introduced analytics, an earlier install is recognised by its original-
+  /// install record, and this carries the version that record first saw.
+  public let previousVersion: String?
+  public let consent: Bool
+  public let noticeSeen: Bool
+}
+
+/// A minimal key-value slot so tests need neither an App Group nor iCloud.
+public protocol AnalyticsKeyValue: AnyObject {
+  func string(forKey key: String) -> String?
+  func object(forKey key: String) -> Any?
+  func set(_ value: Any?, forKey key: String)
+}
+
+extension UserDefaults: AnalyticsKeyValue {}
+
+/// `NSUbiquitousKeyValueStore` has the same three methods; the app passes `.default`.
+extension NSUbiquitousKeyValueStore: AnalyticsKeyValue {}
+
+public final class AnalyticsIdentityStore {
+  static let installKey = "still.analytics.install"
+  static let anchorKey = "still.analytics.anchor"
+  static let consentKey = "still.analytics.consent"
+  static let noticeKey = "still.analytics.notice-seen"
+  static let lastVersionKey = "still.analytics.last-version"
+
+  private let group: AnalyticsKeyValue
+  private let newId: () -> String
+
+  public init(group: AnalyticsKeyValue, newId: @escaping () -> String = { UUID().uuidString.lowercased() }) {
+    self.group = group
+    self.newId = newId
+  }
+
+  public static func appGroup(_ identifier: String = StillAppGroup.identifier) -> AnalyticsIdentityStore {
+    AnalyticsIdentityStore(group: UserDefaults(suiteName: identifier) ?? .standard)
+  }
+
+  // MARK: Install record
+
+  public func storedInstall() -> AnalyticsInstall? {
+    guard let raw = group.string(forKey: Self.installKey), let data = raw.data(using: .utf8),
+          let install = try? JSONDecoder().decode(AnalyticsInstall.self, from: data),
+          Self.isId(install.installId), Self.isId(install.anchorId)
+    else { return nil }
+    return install
+  }
+
+  private func save(_ install: AnalyticsInstall) {
+    if let data = try? JSONEncoder().encode(install), let raw = String(data: data, encoding: .utf8) {
+      group.set(raw, forKey: Self.installKey)
+    }
+  }
+
+  /// The app's launch read. Creates the install record on first launch, consulting iCloud for the
+  /// person anchor, and records this version as the last one run.
+  public func appContext(
+    appVersion: String,
+    ubiquitous: AnalyticsKeyValue?,
+    earlierInstallVersion: String?
+  ) -> AnalyticsAppContext {
+    var created = false
+    var returning = false
+    let install: AnalyticsInstall
+    if let existing = storedInstall() {
+      install = existing
+    } else {
+      created = true
+      let installId = newId()
+      var anchorId = installId
+      if let ubiquitous {
+        if let shared = ubiquitous.string(forKey: Self.anchorKey), Self.isId(shared) {
+          anchorId = shared
+          returning = true
+        } else {
+          anchorId = newId()
+          ubiquitous.set(anchorId, forKey: Self.anchorKey)
+        }
+      }
+      install = AnalyticsInstall(installId: installId, anchorId: anchorId)
+      save(install)
+    }
+
+    let last = group.string(forKey: Self.lastVersionKey)
+    var previousVersion: String?
+    if let last, last != appVersion {
+      previousVersion = last
+    } else if last == nil, created, let earlier = earlierInstallVersion, earlier != appVersion {
+      // Still ran here before analytics existed: this is an update, not a new install.
+      previousVersion = earlier
+    }
+    group.set(appVersion, forKey: Self.lastVersionKey)
+
+    return AnalyticsAppContext(
+      install: install,
+      created: created,
+      returning: returning && previousVersion == nil,
+      previousVersion: previousVersion,
+      consent: consent,
+      noticeSeen: group.object(forKey: Self.noticeKey) as? Bool ?? false
+    )
+  }
+
+  /// The Safari extension's read. Reuses the app's record; if the extension runs first, it creates
+  /// one without an iCloud anchor (the extension has no iCloud access), which the app then adopts.
+  public func extensionInstall() -> AnalyticsInstall {
+    if let existing = storedInstall() { return existing }
+    let installId = newId()
+    let install = AnalyticsInstall(installId: installId, anchorId: installId)
+    save(install)
+    return install
+  }
+
+  // MARK: Consent (the app's "Share usage data" switch; the extension follows it)
+
+  /// On unless the person turned it off.
+  public var consent: Bool {
+    group.object(forKey: Self.consentKey) as? Bool ?? true
+  }
+
+  public func setConsent(_ enabled: Bool) {
+    group.set(enabled, forKey: Self.consentKey)
+  }
+
+  public func acknowledgeNotice() {
+    group.set(true, forKey: Self.noticeKey)
+  }
+
+  // MARK: Native message lanes
+
+  /// The Safari extension's read-only lane: `{kind:"analyticsContext"}` →
+  /// `{analytics:{installId, anchorId, consent}}`. Unknown kinds return nil.
+  public func extensionReply(rawBody: Any) -> [String: Any]? {
+    guard let body = rawBody as? [String: Any], body["kind"] as? String == "analyticsContext"
+    else { return nil }
+    let install = extensionInstall()
+    return ["analytics": [
+      "installId": install.installId,
+      "anchorId": install.anchorId,
+      "consent": consent,
+    ]]
+  }
+
+  static func isId(_ value: String) -> Bool {
+    value.count == 36 && UUID(uuidString: value) != nil
+  }
+}

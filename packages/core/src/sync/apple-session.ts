@@ -66,6 +66,8 @@ export interface AppleSessionDeps {
   readonly exchangeAppleCredential: (
     cred: AppleCredential,
   ) => Promise<{ userId: string } | { error: string }>;
+  /** Called whenever a session is entered (sign-in or a resumed account), for analytics. */
+  readonly onAccountEntered?: (userId: string) => void;
 }
 
 export interface AppleSession {
@@ -157,6 +159,11 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
       controller.deleteError = null;
     }
     if (email !== undefined) controller.accountEmail = email;
+    try {
+      deps.onAccountEntered?.(userId);
+    } catch {
+      /* analytics never affects the session */
+    }
     const generationAtEntry = teardownGeneration; // AE13: abort side effects if teardown intervenes
     activeSessionGeneration = teardownGeneration;
     activeSessionUserId = userId;

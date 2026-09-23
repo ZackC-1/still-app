@@ -32,6 +32,14 @@
 //      the native receipt lane restamps via applyReceipt around purchase/restore/receiptStatus.
 //      The Safari extension pulls the stamp from the App Group so paid blocking activates there.
 //
+//    • Product analytics (AnalyticsIdentity.swift is the contract; the web layer sends events):
+//        { kind:"analyticsContext" }          → { platform, appVersion, installId, anchorId, created,
+//                                               returning, previousVersion|null, consent, noticeSeen,
+//                                               extensionEnabled: Bool|null }
+//        { kind:"setAnalyticsConsent", enabled } → { ok:true, enabled }
+//        { kind:"acknowledgeAnalyticsNotice" } → { ok:true }
+//      Consent lives in the App Group so the Safari extension follows the app's switch.
+//
 //  The web layer drives sign-in: the web client signs in via email code, then hands the resulting
 //  UUID back via `configurePurchases` so RevenueCat is keyed to the same account the webhook (U14)
 //  projects the entitlement onto. Purchase no longer requires a session (Guideline 5.1.1(v)).
@@ -46,6 +54,10 @@ final class WebBridgeRouter {
   private let settings: SettingsBridge
   private let entitlement: EntitlementBridge
   private let accountSyncStatus: AccountSyncStatusStore
+  private let analytics = AnalyticsIdentityStore.appGroup()
+  /// Read once per launch: `appContext` records the version it ran, so a second read in the same
+  /// launch would lose the update it just reported.
+  private var analyticsContextThisLaunch: AnalyticsAppContext?
   private let purchases = PurchaseManager.shared
   private let siwa = SignInWithAppleCoordinator()
 
@@ -196,6 +208,21 @@ final class WebBridgeRouter {
         reply(Self.json(["ok": true]), nil)
       }
 
+    case "analyticsContext":
+      Task { await self.handleAnalyticsContext(reply: reply) }
+
+    case "setAnalyticsConsent":
+      guard let enabled = dict["enabled"] as? Bool else {
+        reply(nil, "still: setAnalyticsConsent missing enabled")
+        return
+      }
+      analytics.setConsent(enabled)
+      reply(Self.json(["ok": true, "enabled": analytics.consent]), nil)
+
+    case "acknowledgeAnalyticsNotice":
+      analytics.acknowledgeNotice()
+      reply(Self.json(["ok": true]), nil)
+
     case "setAccountSyncStatus":
       // Only the trusted bundled WK frame reaches this writer. The Safari native lane only reads.
       guard let status = dict["status"], accountSyncStatus.save(rawStatus: status) else {
@@ -248,6 +275,44 @@ final class WebBridgeRouter {
   /// On this build the ask never happens at all: `shouldRequestVerifiedValues` is false for the
   /// whole of the free era, so the method stops at the local write and this app asks Apple nothing
   /// at launch. The path below stays here, unchanged, for the day paid access returns.
+  private func handleAnalyticsContext(reply: @escaping (Any?, String?) -> Void) async {
+    let context: AnalyticsAppContext
+    if let cached = analyticsContextThisLaunch {
+      context = cached
+    } else {
+      // iCloud key-value storage carries only the anonymous person anchor (see AnalyticsIdentity).
+      let cloud = NSUbiquitousKeyValueStore.default
+      cloud.synchronize()
+      let earlier = OriginalInstall.current(InstallGeneration.appGroupDefaults())?.firstRecordedAppVersion
+      context = analytics.appContext(
+        appVersion: Self.marketingVersion, ubiquitous: cloud, earlierInstallVersion: earlier)
+      analyticsContextThisLaunch = context
+    }
+    let extensionEnabled: Any
+    switch await SafariExtensionBridge.currentStatus() {
+    case .enabled: extensionEnabled = true
+    case .disabled: extensionEnabled = false
+    case .unknown: extensionEnabled = NSNull()
+    }
+    #if os(macOS)
+    let platform = "macos"
+    #else
+    let platform = "ios"
+    #endif
+    reply(Self.json([
+      "platform": platform,
+      "appVersion": Self.marketingVersion,
+      "installId": context.install.installId,
+      "anchorId": context.install.anchorId,
+      "created": context.created,
+      "returning": context.returning,
+      "previousVersion": context.previousVersion ?? NSNull(),
+      "consent": analytics.consent,
+      "noticeSeen": context.noticeSeen,
+      "extensionEnabled": extensionEnabled,
+    ]), nil)
+  }
+
   private func captureOriginalInstall() async {
     let defaults = InstallGeneration.appGroupDefaults()
     OriginalInstall.ensure(

@@ -3,6 +3,7 @@ import "@still/core/ui/tokens.css";
 import { createExtensionUiController } from "@still/core/ui";
 import { readAccountStatus } from "../../lib/account-status.js";
 import { pushSettingsToApp } from "../../lib/native-settings.js";
+import { createSafariPageAnalytics } from "../../lib/analytics.js";
 import PopupApp from "./PopupApp.svelte";
 
 // Build the (purchase-free — AE7) controller, then mount the shared UI. No per-site pause control:
@@ -19,6 +20,8 @@ function init(): void {
     accountManagedByApp: true,
     readAccountStatus,
     onLocalSettingsCommit: (record) => void pushSettingsToApp(record),
+    analytics: createSafariPageAnalytics(),
+    openedWhere: "popup",
   });
   mount(PopupApp, { target: document.getElementById("app")!, props: { controller } });
 }
