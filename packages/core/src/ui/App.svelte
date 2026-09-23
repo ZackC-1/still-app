@@ -84,9 +84,10 @@
   {/if}
 
   <!-- Usage sharing. The one-time notice appears where sharing starts on (Chrome and the Apple
-       apps) and carries its own off switch, so the compact popup needs no extra row. Roomier
-       surfaces keep a permanent settings row; Firefox, where sharing starts off, uses that row to
-       ask. -->
+       apps) and carries its own off switch, so the compact popup needs no extra row. In the popup it
+       floats over the bottom edge until answered, because the browser refuses a popup taller than
+       600px and the popup already uses that height. Roomier surfaces show it inline and keep a
+       permanent settings row; Firefox, where sharing starts off, uses that row to ask. -->
   {#if c.usageNoticeVisible}
     <section class="usage-notice card" aria-live="polite">
       <p class="muted">{STRINGS.usage.notice}</p>
@@ -461,6 +462,14 @@
   .usage-sub {
     font-size: 13px;
     color: var(--ink-secondary);
+  }
+  .app[data-density="compact"] .usage-notice {
+    position: fixed;
+    inset-inline: var(--space-3);
+    bottom: var(--space-3);
+    z-index: 10;
+    border: 1px solid var(--ink-secondary);
+    box-shadow: 0 6px 24px rgb(0 0 0 / 0.25);
   }
   .usage-notice {
     display: flex;
