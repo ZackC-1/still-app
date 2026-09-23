@@ -27,10 +27,6 @@ export default defineContentScript({
       storage: browser.storage.local,
       prod: import.meta.env.PROD,
       earlyRedirect: true,
-      // Only the service name leaves this page; the background records one event a day per service.
-      onServiceActive: (service) => {
-        void Promise.resolve(browser.runtime.sendMessage({ kind: "blocked", service })).catch(() => {});
-      },
       nudge: {
         attach: (script, context) => startSafariReconcileNudges({
           lifecycle: context as ContentScriptLifecycle,

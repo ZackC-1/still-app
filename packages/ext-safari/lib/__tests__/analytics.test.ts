@@ -68,14 +68,22 @@ describe("Safari extension analytics", () => {
 
   it("follows the app's switch, re-reading it after a short cache", async () => {
     const { send, settle, events, setConsent, advance } = setup({ consent: false });
-    await send({ kind: "blocked", service: "youtube" }, CONTENT);
+    const open = () => send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } }, PAGE);
+    await open();
     await settle();
     expect(events()).toEqual([]);
     setConsent(true);
     advance(31_000);
-    await send({ kind: "blocked", service: "youtube" }, CONTENT);
+    await open();
     await settle();
-    expect(events().map((e) => [e.event, e.properties.service])).toEqual([["blocking_worked", "youtube"]]);
+    expect(events().map((e) => e.event)).toEqual(["opened"]);
+  });
+
+  it("content scripts cannot record anything", async () => {
+    const { send, settle, events } = setup();
+    expect(await send({ kind: "blocked", service: "youtube" }, CONTENT)).toBeUndefined();
+    await settle();
+    expect(events().filter((e) => e.event !== "setup_step")).toEqual([]);
   });
 
   it("only popup/options may use the page protocol", async () => {
@@ -116,9 +124,9 @@ describe("Safari extension account changes", () => {
     const later = setup({ signedIn: false }, first.local);
     later.bg.onStart();
     await later.settle();
-    await later.send({ kind: "blocked", service: "youtube" }, CONTENT);
+    await later.send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } }, PAGE);
     await later.settle();
-    const blocked = later.events().find((e) => e.event === "blocking_worked")!;
+    const blocked = later.events().find((e) => e.event === "opened")!;
     expect(blocked.properties.distinct_id).not.toBe(ACCOUNT);
     expect(blocked.properties.distinct_id).not.toBe(ANCHOR);
     expect(blocked.properties.signed_in).toBe(false);

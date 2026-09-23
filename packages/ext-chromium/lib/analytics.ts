@@ -22,7 +22,7 @@ import { isExtensionPageSender } from "./session-messages.js";
 //     data-collection permission (at install, or from Still's settings); that permission IS the
 //     switch there, so the two can never disagree.
 
-export { ANALYTICS_MESSAGE_KIND, BLOCKED_MESSAGE_KIND } from "@still/core/analytics";
+export { ANALYTICS_MESSAGE_KIND } from "@still/core/analytics";
 
 const FIREFOX_DATA = { data_collection: ["technicalAndInteraction"] };
 

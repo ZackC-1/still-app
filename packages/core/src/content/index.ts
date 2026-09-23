@@ -2,7 +2,6 @@ import { PAID_TIER_ENABLED, type ServiceId, type SignedRuleSet } from "@still/sh
 import {
   evaluate,
   createEnginePageSession,
-  isServiceActive,
   renderPlaceholder,
   rootServiceClass,
   ROOT_ACTIVE_CLASS,
@@ -59,13 +58,6 @@ export interface ContentScriptDeps {
    * fetched/cached rule set is applied — its hide selectors aren't in the packaged CSS.
    */
   readonly manifestCssOwnsHides?: boolean;
-  /**
-   * Called at most once per page for each service Still actively blocks on (a redirect, a
-   * whole-site block, or rules applied). It receives the service id and nothing else: the host
-   * forwards that single word to its background, which records one "blocking worked" event per
-   * service per day. No address, title or page content ever leaves this script.
-   */
-  readonly onServiceActive?: (serviceId: ServiceId) => void;
 }
 
 export interface ContentScriptHandle {
@@ -90,43 +82,6 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   const shortsChipRule = ruleSet.services.youtube?.surfaces.find((s) => s.id === "yt-chips");
   let resetShortsFilterRequested = false;
   let shortsFilterSearch: string | null = null;
-  const reportedServices = new Set<ServiceId>();
-  // One selector per service matching anything its rules hide or remove, so "blocking worked" means
-  // Still found something to take away on this page, not merely that the site was open.
-  const blockableSelectors = new Map<ServiceId, string>();
-  for (const [id, service] of Object.entries(ruleSet.services) as [ServiceId, (typeof ruleSet.services)[ServiceId]][]) {
-    const selectors = (service?.surfaces ?? [])
-      .filter((surface) => surface.action === "hide" || surface.action === "remove")
-      .flatMap((surface) => surface.selectors ?? []);
-    if (selectors.length > 0) blockableSelectors.set(id, selectors.join(","));
-  }
-  const pageHasBlockable = (serviceId: ServiceId): boolean => {
-    const selector = blockableSelectors.get(serviceId);
-    if (!selector) return false;
-    try {
-      return doc.querySelector(selector) !== null;
-    } catch {
-      return false; // a malformed selector in a fetched rule set must not break the page
-    }
-  };
-  /** Whether a report is still wanted for the active service (checked before applying, since a
-   * removal takes the evidence with it). */
-  const wantsMatchCheck = (): boolean => {
-    const serviceId = pageSession.activeServiceId();
-    return deps.onServiceActive !== undefined && serviceId !== null && !reportedServices.has(serviceId);
-  };
-  const reportActive = (): void => {
-    const serviceId = pageSession.activeServiceId();
-    if (!deps.onServiceActive || serviceId === null || reportedServices.has(serviceId)) return;
-    // A page on a service the person turned off (or paused) is still evaluated; it is not blocking.
-    if (!isServiceActive(cache.current(), serviceId, currentUrl())) return;
-    reportedServices.add(serviceId);
-    try {
-      deps.onServiceActive(serviceId);
-    } catch {
-      /* reporting never affects blocking */
-    }
-  };
 
   const prepareYouTubeChips = (url: URL): void => {
     if (!shortsChipRule?.enabledByDefault || shortsChipRule.action !== "hide"
@@ -211,14 +166,12 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       case "redirect":
         setRootService(pageSession.activeServiceId());
         setRootProActive(pro);
-        reportActive();
         if (dedupe.lastRedirect !== decision.url) {
           dedupe.lastRedirect = decision.url;
           redirectPort.replace(decision.url);
         }
         return;
       case "placeholder":
-        reportActive();
         setRootActive(false);
         setRootProActive(false);
         setRootService(null);
@@ -229,14 +182,7 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
         setRootActive(true);
         setRootProActive(pro);
         if (pageSession.activeServiceId() === "youtube") prepareYouTubeChips(url);
-        {
-          // Look before applying: a removal takes the matched element with it. Only pages where
-          // Still finds something to take away count as "blocking worked".
-          const serviceId = pageSession.activeServiceId();
-          const found = serviceId !== null && wantsMatchCheck() && pageHasBlockable(serviceId);
-          (deps.manifestCssOwnsHides ? pageSession.applyRemovals : pageSession.applyDom)(settings, url, doc, opts);
-          if (found) reportActive();
-        }
+        (deps.manifestCssOwnsHides ? pageSession.applyRemovals : pageSession.applyDom)(settings, url, doc, opts);
         return;
       case "noop":
         resetShortsFilterRequested = false;

@@ -5,8 +5,7 @@ import { fileURLToPath } from "node:url";
 
 // Content scripts run inside YouTube, Instagram, Facebook and TikTok pages. The promise that Still
 // never records browsing history is kept structurally: nothing a content script loads may reach
-// the analytics module. A content script reports `blocking_worked` by messaging its background with
-// a service name, and the background owns the analytics client.
+// the analytics module; content scripts report nothing at all.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const packagesDir = resolve(here, "../../../..");

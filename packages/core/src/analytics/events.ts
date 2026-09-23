@@ -69,8 +69,8 @@ export const EVENT_SCHEMA = {
   setup_completed: {},
   global_toggled: { enabled: "boolean" },
   service_toggled: { service: SERVICE_IDS, enabled: "boolean" },
-  /** At most once a day per service: Still removed something there. Never which page. */
-  blocking_worked: { service: SERVICE_IDS },
+  // Deliberately absent: any event from a content script, or naming a service someone visited.
+  // Owner decision 2026-09-23 (ADR 0004): that would be browsing history, which Still never collects.
   // Sign-in funnel.
   sign_in_opened: {},
   code_requested: {},

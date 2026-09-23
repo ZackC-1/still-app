@@ -8,15 +8,15 @@ Portal state changes; verify it directly before acting. Never put keys in this f
 
 | Surface | Sends | Consent |
 |---|---|---|
-| Chrome extension background | installs (returning or not), updates, setup, active days, `blocking_worked`, popup/options events | On by default; one-time notice; switch in options |
+| Chrome extension background | installs (returning or not), updates, setup, active days, popup/options events | On by default; one-time notice; switch in options |
 | Firefox extension background | the same | Off until the optional `technicalAndInteraction` permission is granted |
 | iPhone / Mac app web view | installs or updates, app opened, Mac extension enabled, opens, active days, sign-in funnel | On by default; one-time notice; switch in the app |
-| Safari extension (iPhone / Mac) | setup complete, active days, `blocking_worked`, popup events, under the app's install | Follows the app's switch |
+| Safari extension (iPhone / Mac) | setup complete, extension enabled, active days, popup events, under the app's install | Follows the app's switch |
 | Supabase `analytics-identify` | the signed-in account's email onto its person | Called only while sharing is on |
 | Supabase `delete-user` | deletes the account's person and events | Always, with the account |
 
 Every event is checked against `packages/core/src/analytics/events.ts`. No page, video, search or
-free text can be sent.
+free text can be sent, and content scripts (on the sites people visit) send nothing.
 
 ## PostHog project settings (owner)
 
@@ -58,9 +58,8 @@ switch. Firefox source archives for AMO carry only the explicit allowlist of pub
 - **App Store Connect → App Privacy** (both iOS and macOS): add *Usage Data → Product Interaction*
   (Analytics) and *Identifiers → Device ID* (Analytics); add *Analytics* as a purpose on
   *Contact Info → Email Address* and *Identifiers → User ID*. All linked to the user, **not** used
-  for tracking. Decide on *Browsing History*: the daily `blocking_worked` signal names a service
-  someone used that day but never a page. Declaring it (Analytics, linked) is the cautious answer;
-  the alternative is removing that event before submission.
+  for tracking. Do **not** declare *Browsing History*: nothing about the sites people visit is
+  collected (the per-service "blocking worked" signal was removed for exactly this reason).
 - **Chrome Web Store → Privacy practices:** add *User activity* to the collected data, keep the
   existing disclosures, and re-certify the Limited Use statements.
 - **Firefox AMO:** the manifest declares the optional permission, and Firefox shows it at install.
@@ -81,7 +80,7 @@ policy's website section first.
 
 Build these insights (all filterable by `store` and by the person property `first_store`):
 daily `installed` by `store`; `installed` split by `returning`; the activation funnel
-`installed → setup_completed → blocking_worked`; the sign-in funnel
+`installed → setup_completed → active` (plus `setup_step` by `step`); the sign-in funnel
 `sign_in_opened → code_requested → account_created | signed_in` with `code_failed` by `reason` and
 `sign_in_abandoned` by `stage`; daily and weekly active persons from `active` by `store`; and
 retention from `installed` to `active` at week 1 and week 4, split by `first_store`.

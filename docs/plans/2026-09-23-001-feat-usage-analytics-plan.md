@@ -30,9 +30,9 @@ privacy policy. Decisions confirmed:
 | New installs each day, by store (iOS, macOS, Chrome, Firefox) | The `installed` event carries `surface`. PostHog chart: daily installs by surface. Check it against Apple's daily download report (needs the Sales key, see Step 0) and the Chrome and Firefox dashboards. PostHog counts the first *open*, so a download that's never opened only appears in the store's own number. |
 | First-time user or already installed somewhere else | `installed.returning = true/false` plus person property `surfaces` (see "Recognising the same person" below). |
 | Started creating an account / created one / signed into an existing one | Sign-in funnel events (see event list). |
-| Who is actively using Still | Daily `active` and `blocking_worked` per install and person, plus a retention chart. |
+| Who is actively using Still | Daily `active` per install and person, plus a retention chart. |
 | Link each of those back to the store they came from | Every person has `first_surface` (the store of their first install) and `surfaces` (every store since), so each chart can be split by the store they first downloaded from. |
-| Where the conversion flow loses people | Funnel: installed → setup_completed → blocking_worked → sign_in_opened → code_requested → account_created/signed_in → active on day 7. |
+| Where the conversion flow loses people | Funnel: installed → setup_completed → sign_in_opened → code_requested → account_created/signed_in → active on day 7. |
 
 - Things to keep: Still never records browsing history (no web addresses, video IDs, page titles or
   anything from the content scripts). Access to the four sites stays unchanged. Blocking never needs
@@ -95,10 +95,7 @@ worker, popups, the Apple app's web view and the Safari extension.
   - Activation: `setup_step {step}`, `setup_completed` (Mac: the Safari extension is really enabled,
     checked through `SFSafariExtensionManager`; iPhone: the first event from the Safari extension;
     Chrome/Firefox: first popup open), `service_toggled {service, enabled}`, `pause_started`.
-  - `blocking_worked {service}`: at most once a day per service, when Still actually removed something.
-    The content script sends only the service name to the background, and the background sends the
-    event. **Owner note:** this shows "used YouTube today" but never which page or video; the privacy
-    policy has to say so.
+  - (Removed by owner decision: a per-service daily `blocking_worked`. It would be browsing history.)
   - Sign-in funnel: `sign_in_opened`, `code_requested`, `code_failed {reason: wrong|expired|rate_limited|network}`,
     `sign_in_abandoned` (sheet closed before verifying), `account_created` (new account),
     `signed_in` (existing account), `signed_out`, `account_deleted`. New vs existing is decided on the server
@@ -162,10 +159,7 @@ using a server-only key (`POSTHOG_PERSONAL_API_KEY`). Apple requires that deleti
   since it can only send data). If it's blank, analytics is off, the same way a blank Supabase setting
   turns sync off. Add it to `.env.example` and `docs/CONNECTIONS.md`.
 - **Never** import analytics from `packages/core/src/content/**` or the extensions' `entrypoints/content/**`.
-  A test enforces this. For `blocking_worked`, the content script sends a message containing only
-  `{kind: "blocked", service}` through the existing session message router
-  (`packages/ext-chromium/lib/session-messages.ts`, content senders stay limited to allow-listed kinds).
-  The Safari extension does the same with its own background.
+  A test enforces this. Content scripts send no analytics at all.
 - **Apple iCloud key-value capability** on the iOS and macOS app targets
   (`apps/apple/Still/Still.xcodeproj`), used only to store the Still ID. It's exposed to the web view
   through the native bridge.
@@ -180,11 +174,8 @@ using a server-only key (`POSTHOG_PERSONAL_API_KEY`). Apple requires that deleti
   (linked to the user, used for analytics, not tracking).
 - **Apple privacy label in App Store Connect** (the owner does this in the portal): Usage Data → Product Interaction;
   Identifiers → User ID and Device ID; Contact Info → Email Address gets "Analytics" added as a purpose. All
-  linked to the user, **not** used for tracking. **About `blocking_worked`:** Apple's "Browsing History"
-  category covers "websites the user viewed." A daily "used YouTube" signal may count, so either declare
-  Browsing History (Analytics, linked) to be safe, or leave out `blocking_worked` and rely on `active`.
-  the owner decides before submission. Declaring it changes the privacy-label wording on the listing, not
-  whether the app gets approved.
+  linked to the user, **not** used for tracking. No Browsing History: nothing about visited sites is
+  collected.
 - **Chrome Web Store privacy tab** (the owner does this in the portal): add User activity, and certify limited use.
 - **Privacy policy** `docs/privacy.html`: a new section on usage data covering what's collected, PostHog as
   the processor, the link to the account email, how long data is kept, the off switch, and deletion.
@@ -261,3 +252,8 @@ testing, plus store review time.
 - Remaining: code review and fixes; owner PostHog settings and function secrets; on-device iPhone
   and Mac checks; store privacy declarations (including the Browsing History decision); publishing
   the policy and website with the 2.1 submissions; the Sales/Finance App Store Connect key.
+- 2026-09-23: Owner decision: the per-service daily `blocking_worked` signal is removed, so the App
+  Store label declares no Browsing History and "Still doesn't collect browsing history" stays true.
+  Content scripts send nothing; the content-script files match `main` again. Sections above that
+  describe `blocking_worked` are superseded by this entry and ADR 0004. The code review's ten
+  findings were fixed (commit 4a84cfb); a Codex review prompt was handed to the owner.

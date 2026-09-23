@@ -22,9 +22,8 @@ privacy-positioning cost (the homepage promised "no behavioral tracking") agains
    `packages/core/src/analytics/` queues a fixed set of events and posts them to `/batch/`.
 2. **A closed event schema.** `events.ts` lists every event and every property; values are
    booleans, fixed words or version numbers. There is no free-text field, so no web address, title,
-   video id or search can be sent by any caller. Content scripts cannot import the module (a test
-   walks their import graph); they may only message a service name, which becomes at most one
-   `blocking_worked` per service per day.
+   video id or search can be sent by any caller. Content scripts, which run on the sites people
+   visit, send nothing at all and cannot import the module (a test walks their import graph).
 3. **Identity without fingerprinting.** An install id per device, and an anonymous person anchor
    shared only through the person's own sync store: iCloud key-value storage for the Apple apps,
    `storage.sync` for the browser extensions. Signing in merges installs into the account. IP
@@ -44,9 +43,11 @@ privacy-positioning cost (the homepage promised "no behavioral tracking") agains
 - The privacy policy, the Apple privacy manifests and App Store label, the Chrome Web Store privacy
   tab, the Firefox manifest and the homepage all had to change together, and must keep describing
   the same data.
-- The `blocking_worked` signal reveals that someone used a service on a day. It names no page, but
-  the owner decides before each Apple submission whether the App Store label declares it under
-  Browsing History.
+- A daily per-service "blocking worked" signal was built and then removed (owner decision,
+  2026-09-23): "this person was on YouTube today" is browsing history under Apple's definition, and
+  keeping "Still doesn't collect browsing history" true is worth more than the metric. Selector
+  breakage is watched by the server-side selector canary instead. Do not reintroduce any event
+  that is sent from a content script or names a site someone visited.
 - A person who never signs in and uses Still on both Apple and a browser counts as two people.
 - Store totals remain the source of truth for downloads; PostHog counts first opens.
 

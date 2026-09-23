@@ -1,5 +1,5 @@
 import seed from "../../rules/seed.json";
-import type { ServiceId, SignedRuleSet } from "@still/shared-types";
+import type { SignedRuleSet } from "@still/shared-types";
 import { EntitlementCache, ChromeEntitlementAdapter } from "../entitlement/index.js";
 import {
   resolveRuleSetForLoad,
@@ -35,8 +35,6 @@ export interface ExtensionContentEntryDeps {
   readonly nudge?: ExtensionContentNudge;
   /** Chromium/Firefox's background nudge, deliberately fire-and-forget at document_start. */
   readonly requestReconcile?: () => void;
-  /** Forwards a service id (nothing else) when Still blocks on it; see ContentScriptDeps. */
-  readonly onServiceActive?: (serviceId: ServiceId) => void;
   /** Optional WXT invalidation check; Safari supplies `ctx.isInvalid` after the async rule-set read. */
   readonly isInvalid?: () => boolean;
   /** Test seam: the production factory otherwise uses the live document. */
@@ -88,7 +86,6 @@ export function createExtensionContentEntry(deps: ExtensionContentEntryDeps): (
       entitlement,
       redirectDedupe,
       manifestCssOwnsHides: source === "bundled",
-      onServiceActive: deps.onServiceActive,
     });
     deps.onScriptCreated?.(script);
     const nudge = deps.nudge?.attach(script, context);

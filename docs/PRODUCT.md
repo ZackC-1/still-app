@@ -111,8 +111,8 @@ optional account use sends authentication/settings data. The retained Apple Reve
 service-provider logs mean “nothing ever leaves the device when signed out” is not a valid claim.
 
 From 2.1, usage analytics goes to PostHog under [ADR 0004](adr/0004-first-party-usage-analytics.md):
-installs and updates by store, returning installs, setup, toggles, the sign-in funnel, active days,
-and one “blocking worked” per service per day. No page, video or search is ever sent. It starts on
+installs and updates by store, returning installs, setup, toggles, the sign-in funnel and active
+days. Nothing about the sites people visit is ever sent: no page, video, search or visit. It starts on
 with a one-time notice and a per-device **Share usage data** switch on Chrome and the Apple apps
 (the Safari extension follows the app); Firefox sends nothing until its optional
 `technicalAndInteraction` permission is granted. Signed-in usage is linked to the account, and the

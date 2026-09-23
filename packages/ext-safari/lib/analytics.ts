@@ -118,7 +118,7 @@ export function createSafariBackgroundAnalytics(deps: SafariAnalyticsDeps): Safa
     listener(message, sender, sendResponse) {
       if (typeof message !== "object" || message === null) return false;
       const kind = (message as { kind?: unknown }).kind;
-      if (kind !== ANALYTICS_MESSAGE_KIND && kind !== "blocked") return false;
+      if (kind !== ANALYTICS_MESSAGE_KIND) return false;
       void host.then((h) => {
         if (!h || !h.listener(message, sender, sendResponse)) sendResponse(undefined);
       });

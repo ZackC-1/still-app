@@ -1,4 +1,3 @@
-import { SERVICE_IDS, type ServiceId } from "@still/shared-types";
 import { AnalyticsClient, type AnalyticsConfig } from "./client.js";
 import type { AnalyticsSurface } from "./events.js";
 import type { AnalyticsIdentity, AnalyticsKeyValue } from "./identity.js";
@@ -6,16 +5,14 @@ import type { UiAnalytics, UsageSharingState } from "../ui/controller.svelte.js"
 
 // The analytics host every browser extension build shares (Chrome, Firefox, Safari). The
 // extension's background owns the one client, so a popup that closes mid-send loses nothing and
-// there is one queue per browser profile. Pages talk to it over ANALYTICS_MESSAGE_KIND; content
-// scripts may only send `{ kind: "blocked", service }`, a single service name, which becomes at
-// most one `blocking_worked` per service per day.
+// there is one queue per browser profile. Pages talk to it over ANALYTICS_MESSAGE_KIND. Content
+// scripts send nothing: they run on the sites people visit, and Still never records browsing.
 //
 // What differs by build is injected: where the ids come from (browser sync storage, or the Apple
 // App Group), who owns consent (a stored switch, Firefox's data-collection permission, or the
 // Apple app's switch), and whether the one-time notice applies.
 
 export const ANALYTICS_MESSAGE_KIND = "still:analytics";
-export const BLOCKED_MESSAGE_KIND = "blocked";
 export const NOTICE_KEY = "still:analytics:notice-seen";
 export const SERVER_IDENTIFIED_KEY = "still:analytics:server-identified";
 
@@ -181,14 +178,6 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
     listener(message, sender, sendResponse) {
       if (typeof message !== "object" || message === null) return false;
       const m = message as Record<string, unknown>;
-      if (m.kind === BLOCKED_MESSAGE_KIND) {
-        // The one thing a content script may say. Only a known service name is read.
-        if (typeof m.service === "string" && (SERVICE_IDS as readonly string[]).includes(m.service)) {
-          const service = m.service as ServiceId;
-          void client.trackDaily(`blocked:${service}`, "blocking_worked", { service });
-        }
-        return false;
-      }
       if (m.kind !== ANALYTICS_MESSAGE_KIND || !deps.isTrustedPage(sender)) return false;
       const request = parsePageRequest(m);
       if (!request) return false;

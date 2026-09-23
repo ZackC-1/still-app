@@ -4,8 +4,8 @@
 <dict>
 	<!-- Still Safari extension privacy manifest. The extension reads/writes the shared settings via
 	     StillKit's App-Group UserDefaults. While the app's "Share usage data" switch is on, it sends
-	     first-party usage analytics under the app's install: popup opens, toggles, and one
-	     "blocking worked" per service per day. Never a web address, page or video. No tracking. -->
+	     first-party usage analytics under the app's install: setup, active days, popup opens and
+	     toggles. Nothing from the sites people visit: no web address, page or video. No tracking. -->
 	<key>NSPrivacyTracking</key>
 	<false/>
 	<key>NSPrivacyTrackingDomains</key>

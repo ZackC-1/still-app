@@ -145,11 +145,11 @@ describe("AnalyticsClient", () => {
     const h = harness();
     await h.client.trackDaily("active", "active", {});
     await h.client.trackDaily("active", "active", {});
-    await h.client.trackDaily("blocked:youtube", "blocking_worked", { service: "youtube" });
-    expect(h.queue().map((e) => e.event)).toEqual(["active", "blocking_worked"]);
+    await h.client.trackDaily("opened-today", "opened", { where: "popup" });
+    expect(h.queue().map((e) => e.event)).toEqual(["active", "opened"]);
     h.advanceDays(1);
     await h.client.trackDaily("active", "active", {});
-    expect(h.queue().map((e) => e.event)).toEqual(["active", "blocking_worked", "active"]);
+    expect(h.queue().map((e) => e.event)).toEqual(["active", "opened", "active"]);
   });
 
   it("identify merges the anonymous anchor into the account once, and later events use the account", async () => {

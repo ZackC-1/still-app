@@ -21,7 +21,9 @@ describe("validateEvent", () => {
     expect(validateEvent("active", { url: "https://youtube.com/shorts/abc" })).toBeNull();
     expect(validateEvent("service_toggled", { service: "youtube" })).toBeNull();
     expect(validateEvent("service_toggled", { service: "youtube", enabled: "yes" })).toBeNull();
-    expect(validateEvent("blocking_worked", { service: "vimeo" })).toBeNull();
+    expect(validateEvent("service_toggled", { service: "vimeo", enabled: true })).toBeNull();
+    // Owner decision (ADR 0004): no event names a service someone visited.
+    expect(validateEvent("blocking_worked", { service: "youtube" })).toBeNull();
     expect(validateEvent("installed", [true])).toBeNull();
   });
 

@@ -66,21 +66,12 @@ describe("background analytics (Chrome)", () => {
     expect(queue().map((e) => [e.event, e.properties.from])).toEqual([["updated", "2.0.0"], ["active", undefined]]);
   });
 
-  it("content scripts may only name a known service, once a day", async () => {
+  it("content scripts cannot record anything, whatever they send", async () => {
     const { send, queue, bg } = setup();
-    await send({ kind: "blocked", service: "youtube" }, CONTENT);
-    await send({ kind: "blocked", service: "youtube" }, CONTENT);
-    await send({ kind: "blocked", service: "https://evil.example" }, CONTENT);
-    await send({ kind: "blocked", service: "instagram", url: "https://www.instagram.com/reels/x" }, CONTENT);
-    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "signed_in", props: {} }, CONTENT);
-    await bg.client.trackDaily("x", "active", {}); // drain the client's queue of pending work
-    const events = queue();
-    expect(events.map((e) => [e.event, e.properties.service])).toEqual([
-      ["blocking_worked", "youtube"],
-      ["blocking_worked", "instagram"],
-      ["active", undefined],
-    ]);
-    expect(JSON.stringify(events)).not.toContain("instagram.com");
+    expect(await send({ kind: "blocked", service: "youtube" }, CONTENT)).toBeUndefined();
+    expect(await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "active", props: {} }, CONTENT)).toBeUndefined();
+    await bg.client.flush();
+    expect(queue()).toEqual([]);
   });
 
   it("only extension pages can reach the page protocol", async () => {
@@ -108,7 +99,7 @@ describe("background analytics (Firefox)", () => {
     const { bg, send, queue, fetch } = setup({ isFirefox: true, granted: false });
     bg.onInstalled({ reason: "install" });
     bg.onStart(null);
-    await send({ kind: "blocked", service: "youtube" }, CONTENT);
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "active", props: {} }, PAGE);
     await bg.client.flush();
     expect(queue()).toEqual([]);
     expect(fetch).not.toHaveBeenCalled();
