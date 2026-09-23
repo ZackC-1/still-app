@@ -4,6 +4,7 @@ import { createRuleSetRefresher } from "@still/core/rules";
 import { createAppGroupReconciler } from "../lib/app-group-reconcile.js";
 import { BrowserInstallGenerationStore, createEntitlementPull } from "../lib/entitlement-pull.js";
 import { NATIVE_APP, pushSettingsToApp } from "../lib/native-settings.js";
+import { createIndexedDbKeyValue } from "@still/core/analytics";
 import { createSafariBackgroundAnalytics } from "../lib/analytics.js";
 
 // Safari background — the native App-Group bridge (KTD4). The content/popup/options surfaces read &
@@ -53,16 +54,7 @@ export default defineBackground(() => {
         await browser.storage.local.set({ [key]: value });
       },
     },
-    queue: browser.storage.session
-      ? {
-          async get(key) {
-            return (await browser.storage.session.get(key))[key] ?? null;
-          },
-          async set(key, value) {
-            await browser.storage.session.set({ [key]: value });
-          },
-        }
-      : null,
+    queue: createIndexedDbKeyValue(),
     isTrustedPage: (sender) =>
       sender.id === browser.runtime.id && typeof sender.url === "string" && sender.url.startsWith(extensionOrigin),
   });

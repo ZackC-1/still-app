@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { QUEUE_KEY, type AnalyticsKeyValue } from "@still/core/analytics";
 import { ANALYTICS_MESSAGE_KIND, createBackgroundAnalytics, createPageAnalytics } from "../analytics.js";
 
+const U1 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const U2 = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+
 const RUNTIME_ID = "still-id";
 const ORIGIN = "chrome-extension://still-id/";
 const PAGE = { id: RUNTIME_ID, url: `${ORIGIN}popup.html` };
@@ -78,7 +81,7 @@ describe("background analytics (Chrome)", () => {
     const { send, queue } = setup();
     expect(await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "signed_in", props: {} }, CONTENT)).toBeUndefined();
     expect(await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "signed_in", props: {} }, PAGE)).toBe(true);
-    expect(queue().map((e) => e.event)).toEqual(["signed_in"]);
+    expect(queue().map((e) => e.event)).toEqual(["signed_in", "active"]);
   });
 
   it("starts on with a one-time notice, and turning it off drops the queue", async () => {
@@ -123,7 +126,7 @@ describe("page analytics", () => {
       return true;
     });
     page.track("opened", { where: "popup" });
-    page.identify("u1");
+    page.identify(U1);
     expect(await page.sharing!()).toEqual({ enabled: true, noticeNeeded: false });
     expect(await page.setSharing!(false)).toBe(false);
     expect(sent.map((m) => m.action)).toEqual(["track", "identify", "sharing", "setSharing"]);
@@ -145,18 +148,18 @@ describe("server-side email attach", () => {
     });
     const { send } = setup({ identifyOnServer });
     const identify = (userId: string) => send({ kind: ANALYTICS_MESSAGE_KIND, action: "identify", userId }, PAGE);
-    await identify("u1");
+    await identify(U1);
     fail = false;
-    await identify("u1");
-    await identify("u1");
-    await identify("u2");
+    await identify(U1);
+    await identify(U1);
+    await identify(U2);
     expect(identifyOnServer).toHaveBeenCalledTimes(3); // failed u1, retried u1, then u2
   });
 
   it("never runs while sharing is off", async () => {
     const identifyOnServer = vi.fn(async () => {});
     const { send } = setup({ isFirefox: true, granted: false, identifyOnServer });
-    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "identify", userId: "u1" }, PAGE);
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "identify", userId: U1 }, PAGE);
     expect(identifyOnServer).not.toHaveBeenCalled();
   });
 });
@@ -164,24 +167,71 @@ describe("server-side email attach", () => {
 describe("account changes outside the popup", () => {
   it("a start that finds no session lets go of the earlier account; an unreadable one keeps it", async () => {
     const { bg, send, queue } = setup();
-    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "identify", userId: "u1" }, PAGE);
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "identify", userId: U1 }, PAGE);
     bg.onStart(undefined);
     await bg.client.trackDaily("x", "active", {});
-    expect(await bg.client.signedInAs()).toBe("u1");
+    expect(await bg.client.signedInAs()).toBe(U1);
     bg.onStart(null);
     await bg.client.trackDaily("y", "active", {});
     expect(await bg.client.signedInAs()).toBeNull();
     const last = queue().at(-1)!;
-    expect(last.properties.distinct_id).not.toBe("u1");
+    expect(last.properties.distinct_id).not.toBe(U1);
   });
 
   it("deletion from the popup forgets the account's waiting events", async () => {
     const { send, queue } = setup();
-    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "identify", userId: "u1" }, PAGE);
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "identify", userId: U1 }, PAGE);
     await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "signed_in", props: {} }, PAGE);
     await send({ kind: ANALYTICS_MESSAGE_KIND, action: "reset", forgetAccount: true }, PAGE);
     await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "account_deleted", props: {} }, PAGE);
-    expect(JSON.stringify(queue())).not.toContain("u1");
+    expect(JSON.stringify(queue())).not.toContain(U1);
     expect(queue().map((e) => e.event)).toEqual(["account_deleted"]);
+  });
+});
+
+describe("activation milestones and active days", () => {
+  it("setup completes at the first popup open, not at a background start, and use counts the day", async () => {
+    const { bg, send, queue } = setup();
+    bg.onStart(null);
+    await bg.client.trackDaily("drain", "active", {});
+    expect(queue().some((e) => e.event === "setup_completed")).toBe(false);
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } }, PAGE);
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } }, PAGE);
+    expect(queue().filter((e) => e.event === "setup_completed")).toHaveLength(1);
+  });
+
+  it("a background that lives past midnight still records the next day's use", async () => {
+    let clock = new Date(2026, 8, 23, 23, 0).getTime();
+    const local = memory();
+    const bg = createBackgroundAnalytics(
+      {
+        isFirefox: false,
+        config: { key: "phc_test", host: "https://us.i.posthog.com" },
+        appVersion: "2.1.0",
+        local,
+        shared: null,
+        fetch: (async () => { throw new TypeError("offline"); }) as unknown as typeof fetch,
+        now: () => clock,
+        uuid: (() => { let n = 0; return () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`; })(),
+      },
+      RUNTIME_ID,
+      ORIGIN,
+    );
+    const send = (m: unknown) => new Promise<unknown>((r) => { if (!bg.listener(m, PAGE, r)) r(undefined); });
+    bg.onStart(null);
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } });
+    clock += 2 * 3_600_000; // next morning, same worker
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } });
+    const actives = ((local.data[QUEUE_KEY] as { event: string }[]) ?? []).filter((e) => e.event === "active");
+    expect(actives).toHaveLength(2);
+  });
+
+  it("a start that finds the account gone drops that account's waiting events", async () => {
+    const { bg, send, queue } = setup();
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "identify", userId: U1 }, PAGE);
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "signed_in", props: {} }, PAGE);
+    bg.onStart(null); // deleted from another device
+    await bg.client.trackDaily("drain2", "active", {});
+    expect(JSON.stringify(queue())).not.toContain(U1);
   });
 });

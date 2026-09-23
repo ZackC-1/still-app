@@ -15,7 +15,9 @@
 export interface PostHogPort {
   readonly canIdentify: boolean;
   readonly canDelete: boolean;
-  setPersonEmail(userId: string, email: string): Promise<void>;
+  /** Put the email on the account's person; with `accountCreated`, also record the one
+   * `account_created` event for that account (the server decides, once per account). */
+  setPersonEmail(userId: string, email: string, options?: { readonly accountCreated?: boolean }): Promise<void>;
   /** Delete the person and queue deletion of their events. Resolves when PostHog accepted it. */
   deletePerson(userId: string): Promise<void>;
 }
@@ -56,19 +58,20 @@ export class HttpPostHog implements PostHogPort {
     );
   }
 
-  async setPersonEmail(userId: string, email: string): Promise<void> {
+  async setPersonEmail(
+    userId: string,
+    email: string,
+    options: { readonly accountCreated?: boolean } = {},
+  ): Promise<void> {
     if (!this.canIdentify) return;
+    const timestamp = new Date().toISOString();
+    const common = { distinct_id: userId, $lib: "still-server", $geoip_disable: true };
+    const batch: unknown[] = [{ event: "$set", properties: { ...common, $set: { email } }, timestamp }];
+    if (options.accountCreated) batch.push({ event: "account_created", properties: common, timestamp });
     const res = await this.fetchImpl(`${trimSlash(this.config.host!)}/batch/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        api_key: this.config.projectKey!.trim(),
-        batch: [{
-          event: "$set",
-          properties: { distinct_id: userId, $set: { email }, $lib: "still-server" },
-          timestamp: new Date().toISOString(),
-        }],
-      }),
+      body: JSON.stringify({ api_key: this.config.projectKey!.trim(), batch }),
     });
     await res.body?.cancel();
     if (!res.ok) throw new Error(`PostHog identify failed: ${res.status}`);
@@ -77,7 +80,14 @@ export class HttpPostHog implements PostHogPort {
   async deletePerson(userId: string): Promise<void> {
     if (!this.canDelete) return;
     const first = await this.bulkDelete(userId, true);
-    if (first.ok) return;
+    if (first.ok) {
+      // A 202 can still carry failures: PostHog reports them in deletion_errors, and a match that
+      // queued nothing is not a deletion either. Retry once, then report.
+      if (deletionAccepted(first.body)) return;
+      const retry = await this.bulkDelete(userId, true);
+      if (retry.ok && deletionAccepted(retry.body)) return;
+      throw new Error("PostHog accepted the request but did not queue the deletion");
+    }
     if (first.status !== 400) throw new Error(`PostHog deletion failed: ${first.status}`);
     // With delete_events, PostHog refuses ids that match no person. Ask again without event
     // deletion, which instead reports the unmatched ids: only an explicit "no such person" (someone
@@ -114,4 +124,19 @@ export class HttpPostHog implements PostHogPort {
     }
     return { ok: res.ok, status: res.status, body };
   }
+}
+
+/** Whether an accepted bulk_delete actually queued this person's deletion. PostHog's documented
+ * success signal is persons_queued_for_deletion; failures appear in deletion_errors. Fields PostHog
+ * leaves out are not read as failure. */
+export function deletionAccepted(body: unknown): boolean {
+  if (typeof body !== "object" || body === null) return true;
+  const b = body as Record<string, unknown>;
+  if (Array.isArray(b.deletion_errors) && b.deletion_errors.length > 0) return false;
+  const found = typeof b.persons_found === "number" ? b.persons_found : null;
+  const queued = (typeof b.persons_queued_for_deletion === "number" ? b.persons_queued_for_deletion : 0) +
+    (typeof b.persons_deleted === "number" ? b.persons_deleted : 0);
+  if (found !== null && found > 0 && queued === 0) return false;
+  if (found !== null && found > 0 && b.events_queued_for_deletion === false) return false;
+  return true;
 }

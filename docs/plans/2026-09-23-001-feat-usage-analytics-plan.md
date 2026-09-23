@@ -97,7 +97,7 @@ worker, popups, the Apple app's web view and the Safari extension.
     Chrome/Firefox: first popup open), `service_toggled {service, enabled}`, `pause_started`.
   - (Removed by owner decision: a per-service daily `blocking_worked`. It would be browsing history.)
   - Sign-in funnel: `sign_in_opened`, `code_requested`, `code_failed {reason: wrong|expired|rate_limited|network}`,
-    `sign_in_abandoned` (sheet closed before verifying), `account_created` (new account),
+    `sign_in_abandoned` (sheet closed before verifying), `account_created` (sent by the server once per new account),
     `signed_in` (existing account), `signed_out`, `account_deleted`. New vs existing is decided on the server
     from the account's creation time, returned by the verify step, so no email is involved.
 - `client.ts`: saves events and sends them in batches, holds them while offline and retries later, and sends
@@ -257,3 +257,17 @@ testing, plus store review time.
   Content scripts send nothing; the content-script files match `main` again. Sections above that
   describe `blocking_worked` are superseded by this entry and ADR 0004. The code review's ten
   findings were fixed (commit 4a84cfb); a Codex review prompt was handed to the owner.
+- 2026-09-23: Codex review of 4a84cfb (18 findings). #8 and #17 were resolved by removing the
+  blocking signal. Fixed the rest: deletion 202 bodies validated (deletion_errors, nothing queued)
+  with one retry; consent re-read before every request, a running flush stops when sharing turns
+  off, and any "off" discards the queue (Firefox add-on manager, the Apple app's switch); unreadable
+  consent and unsaved identity resets fail closed; Safari re-reads the app's switch, record and
+  account on every event; the Apple app lets go of an account on a session-less launch or ended
+  session; a start that finds the account gone drops its waiting events; the extension queue moves to
+  background-private IndexedDB (no storage.session dependency, iOS 15 included); ids, versions and
+  account ids are validated at ingress; a discarded $identify is re-sent; late-synced anchors and the
+  Safari extension's provisional anchor are merged with $create_alias; setup_completed is the first
+  popup open on Chrome/Firefox; any use counts the day; new accounts are counted by the server once
+  per account (app metadata marker), not by a client-side time window; location derivation is
+  disabled on every event (policy updated, no location declared); the Swift test suite name is
+  unique and cleaned up.

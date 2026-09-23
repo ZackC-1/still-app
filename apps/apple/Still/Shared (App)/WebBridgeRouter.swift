@@ -320,6 +320,7 @@ final class WebBridgeRouter {
       "consent": analytics.consent,
       "noticeSeen": context.noticeSeen,
       "extensionEnabled": extensionEnabled,
+      "previousAnchorId": context.previousAnchorId ?? NSNull(),
     ]), nil)
   }
 

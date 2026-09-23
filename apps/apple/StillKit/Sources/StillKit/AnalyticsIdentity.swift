@@ -31,6 +31,10 @@ public struct AnalyticsAppContext: Equatable, Sendable {
   public let previousVersion: String?
   public let consent: Bool
   public let noticeSeen: Bool
+  /// The anonymous id this device reported under before the app adopted `install.anchorId` (the
+  /// Safari extension's provisional id, or a local anchor replaced by one that synced late through
+  /// iCloud). The web layer merges it into the new anchor once.
+  public let previousAnchorId: String?
 }
 
 /// A minimal key-value slot so tests need neither an App Group nor iCloud.
@@ -110,12 +114,15 @@ public final class AnalyticsIdentityStore {
     let created = group.object(forKey: Self.appSeenKey) == nil
     var returning = false
     var install: AnalyticsInstall
+    var hadRecord = false
     if let existing = storedInstall() {
       install = existing
+      hadRecord = true
     } else {
       let installId = newId()
       install = AnalyticsInstall(installId: installId, anchorId: installId)
     }
+    let startingAnchor = install.anchorId
     if created {
       if let ubiquitous {
         if let shared = ubiquitous.string(forKey: Self.anchorKey), Self.isId(shared) {
@@ -130,7 +137,15 @@ public final class AnalyticsIdentityStore {
       }
       save(install)
       group.set(true, forKey: Self.appSeenKey)
+    } else if let ubiquitous, let shared = ubiquitous.string(forKey: Self.anchorKey), Self.isId(shared),
+              shared != install.anchorId {
+      // iCloud delivered this person's anchor after this device had made its own (a first launch
+      // before sync arrived, or two devices racing). Adopt it; the old one is merged below.
+      install = AnalyticsInstall(installId: install.installId, anchorId: shared)
+      save(install)
     }
+    // Only an id something may already have reported under needs merging.
+    let previousAnchorId = hadRecord && startingAnchor != install.anchorId ? startingAnchor : nil
 
     let last = group.string(forKey: Self.lastVersionKey)
     var previousVersion: String?
@@ -148,7 +163,8 @@ public final class AnalyticsIdentityStore {
       returning: returning && previousVersion == nil,
       previousVersion: previousVersion,
       consent: consent,
-      noticeSeen: group.object(forKey: Self.noticeKey) as? Bool ?? false
+      noticeSeen: group.object(forKey: Self.noticeKey) as? Bool ?? false,
+      previousAnchorId: previousAnchorId
     )
   }
 

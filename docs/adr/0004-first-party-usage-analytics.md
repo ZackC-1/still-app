@@ -49,6 +49,10 @@ privacy-positioning cost (the homepage promised "no behavioral tracking") agains
   breakage is watched by the server-side selector canary instead. Do not reintroduce any event
   that is sent from a content script or names a site someone visited.
 - A person who never signs in and uses Still on both Apple and a browser counts as two people.
+- No location: every event carries `$geoip_disable` and the project discards client IPs.
+- New accounts are counted by the server once per account, never inferred by a client.
+- Consent is re-read before every request and fails closed; anything waiting is discarded when
+  sharing turns out to be off, however it was switched off.
 - Store totals remain the source of truth for downloads; PostHog counts first opens.
 
 See the plan: [2026-09-23 usage analytics](../plans/2026-09-23-001-feat-usage-analytics-plan.md).

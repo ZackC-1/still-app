@@ -29,6 +29,10 @@ export interface AnalyticsIdentity {
   readonly created: boolean;
   /** A freshly created install that found this person's anchor already in the shared store. */
   readonly returning: boolean;
+  /** An earlier anonymous id of this install that must be merged into `anchorId`: the shared
+   * store delivered a different person anchor after this install had started with its own (sync
+   * arrived late, or two devices raced). The client sends one `$create_alias` for it. */
+  readonly aliasOf?: string;
 }
 
 export const INSTALL_KEY = "still:analytics:install";
@@ -67,7 +71,17 @@ export interface ResolveIdentityDeps {
  */
 export async function resolveAnalyticsIdentity(deps: ResolveIdentityDeps): Promise<AnalyticsIdentity> {
   const stored = parseStoredInstall(await deps.local.get(INSTALL_KEY).catch(() => null));
-  if (stored) return { ...stored, created: false, returning: false };
+  if (stored) {
+    // Sync can deliver the person's anchor after this install made its own; adopt it and ask for
+    // the earlier id to be merged, so one person does not stay split in two.
+    const shared = deps.shared ? await deps.shared.get(ANCHOR_KEY).catch(() => null) : null;
+    if (isAnalyticsId(shared) && shared !== stored.anchorId) {
+      const record: StoredInstall = { installId: stored.installId, anchorId: shared };
+      await deps.local.set(INSTALL_KEY, record).catch(() => undefined);
+      return { ...record, created: false, returning: false, aliasOf: stored.anchorId };
+    }
+    return { ...stored, created: false, returning: false };
+  }
 
   const installId = deps.uuid();
   let anchorId: string | null = null;

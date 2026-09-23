@@ -231,10 +231,6 @@ export interface UsageSharingState {
   readonly noticeNeeded: boolean;
 }
 
-/** A verified account created within this window counts as new in the sign-in funnel. The code
- * that creates an account is the same code that signs in, so the account can be minutes old. */
-export const NEW_ACCOUNT_WINDOW_MS = 30 * 60_000;
-
 export interface UiControllerDeps {
   readonly cache: SettingsCache;
   readonly host: UiHost;
@@ -1081,7 +1077,9 @@ export class UiController {
       }
       this.userId = outcome.userId;
       this.accountEmail = outcome.email ?? null;
-      this.reportSignedIn(outcome.userId, outcome.accountCreatedAt);
+      // A new account is counted once by the server (analytics-identify), never guessed here.
+      this.analyticsCall((a) => a.identify(outcome.userId));
+      this.track("signed_in", {});
       this.clearCodeFlow();
       this.authFlow = "idle";
       this.signInOpen = false;
@@ -1423,13 +1421,5 @@ export class UiController {
     } catch {
       /* analytics never affects the UI */
     }
-  }
-
-  /** Identify, then tell a brand-new account from a returning one by the server's creation time. */
-  private reportSignedIn(userId: string, createdAt: string | null | undefined): void {
-    this.analyticsCall((a) => a.identify(userId));
-    const created = createdAt ? Date.parse(createdAt) : Number.NaN;
-    const isNew = Number.isFinite(created) && this.now() - created < NEW_ACCOUNT_WINDOW_MS;
-    this.track(isNew ? "account_created" : "signed_in", {});
   }
 }

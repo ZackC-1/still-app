@@ -12,7 +12,7 @@ Portal state changes; verify it directly before acting. Never put keys in this f
 | Firefox extension background | the same | Off until the optional `technicalAndInteraction` permission is granted |
 | iPhone / Mac app web view | installs or updates, app opened, Mac extension enabled, opens, active days, sign-in funnel | On by default; one-time notice; switch in the app |
 | Safari extension (iPhone / Mac) | setup complete, extension enabled, active days, popup events, under the app's install | Follows the app's switch |
-| Supabase `analytics-identify` | the signed-in account's email onto its person | Called only while sharing is on |
+| Supabase `analytics-identify` | the signed-in account's email onto its person, and `account_created` once per new account | Called only while sharing is on |
 | Supabase `delete-user` | deletes the account's person and events | Always, with the account |
 
 Every event is checked against `packages/core/src/analytics/events.ts`. No page, video, search or
@@ -27,7 +27,9 @@ free text can be sent, and content scripts (on the sites people visit) send noth
    PostHog using the data to improve its own AI, which the policy does not permit. Leave Session
    Replay off unless the website adopts it deliberately (see Website below). If the list of AI
    providers in PostHog's subprocessor page changes, update the policy.
-3. Leave GeoIP enrichment on: the privacy policy discloses IP-derived location.
+3. In project settings, turn on **Discard client IP data**. Every event also carries
+   `$geoip_disable`, so no location is derived; the Apple privacy manifests declare no location, and
+   the privacy policy says so. Country-level download numbers come from the stores' own reports.
 4. Create a personal API key with only the **person: write** scope, for deletion.
 
 ## Server (Supabase function secrets)
@@ -81,8 +83,9 @@ policy's website section first.
 Build these insights (all filterable by `store` and by the person property `first_store`):
 daily `installed` by `store`; `installed` split by `returning`; the activation funnel
 `installed → setup_completed → active` (plus `setup_step` by `step`); the sign-in funnel
-`sign_in_opened → code_requested → account_created | signed_in` with `code_failed` by `reason` and
-`sign_in_abandoned` by `stage`; daily and weekly active persons from `active` by `store`; and
+`sign_in_opened → code_requested → signed_in` with `code_failed` by `reason` and
+`sign_in_abandoned` by `stage`, plus new accounts from `account_created` (sent by the server once per
+account); daily and weekly active persons from `active` by `store`; and
 retention from `installed` to `active` at week 1 and week 4, split by `first_store`.
 
 ## Money questions

@@ -1,6 +1,8 @@
 import type { AccountSyncStatus } from "../sync/account-status.js";
 import type { StillBridgeWindow, StillMessagePort } from "../storage/wkwebview-adapter.js";
 import { safeParse } from "../storage/settings-validation.js";
+import { isVersion } from "../analytics/events.js";
+import { isAnalyticsId } from "../analytics/identity.js";
 
 // The native action client (U19): the web→native calls beyond settings get/set, posted through the
 // same `window.webkit.messageHandlers.still` port the storage adapter uses (WebBridgeRouter.swift
@@ -71,6 +73,9 @@ export interface AnalyticsContextReply {
   readonly noticeSeen: boolean;
   /** Whether Safari reports the extension on; null where the app cannot know (iPhone). */
   readonly extensionEnabled: boolean | null;
+  /** The anonymous id this device used before the app adopted a different anchor (the Safari
+   * extension's provisional one, or an iCloud anchor that synced late), to be merged into it. */
+  readonly previousAnchorId: string | null;
 }
 
 export class NativeBridge {
@@ -179,11 +184,13 @@ export class NativeBridge {
   async analyticsContext(): Promise<AnalyticsContextReply | null> {
     const o = asObject(await this.post({ kind: "analyticsContext" }));
     if (!o) return null;
-    const str = (v: unknown) => (typeof v === "string" && v.length > 0 ? v : null);
+    // Validated at the boundary: only Still ids and a version number may reach an event.
+    const id = (v: unknown) => (isAnalyticsId(v) ? v : null);
+    const version = (v: unknown) => (isVersion(v) ? v : null);
     const platform = o.platform === "ios" || o.platform === "macos" ? o.platform : null;
-    const appVersion = str(o.appVersion);
-    const installId = str(o.installId);
-    const anchorId = str(o.anchorId);
+    const appVersion = version(o.appVersion);
+    const installId = id(o.installId);
+    const anchorId = id(o.anchorId);
     if (!platform || !appVersion || !installId || !anchorId) return null;
     return {
       platform,
@@ -192,10 +199,11 @@ export class NativeBridge {
       anchorId,
       created: o.created === true,
       returning: o.returning === true,
-      previousVersion: str(o.previousVersion),
+      previousVersion: version(o.previousVersion),
       consent: o.consent !== false,
       noticeSeen: o.noticeSeen === true,
       extensionEnabled: typeof o.extensionEnabled === "boolean" ? o.extensionEnabled : null,
+      previousAnchorId: id(o.previousAnchorId),
     };
   }
 

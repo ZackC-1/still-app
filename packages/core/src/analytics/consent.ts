@@ -19,7 +19,7 @@ export function createStoredConsent(store: AnalyticsKeyValue, defaultOn: boolean
         const value = await store.get(CONSENT_KEY);
         return typeof value === "boolean" ? value : defaultOn;
       } catch {
-        return defaultOn;
+        return false; // unreadable: fail closed rather than assume the default
       }
     },
     async set(enabled) {

@@ -20,6 +20,7 @@ import { createIdentityStore, createSessionStores } from "../lib/session-stores.
 import {
   createSessionMessageRouter,
 } from "../lib/session-messages.js";
+import { createIndexedDbKeyValue } from "@still/core/analytics";
 import { createBackgroundAnalytics, storageKeyValue } from "../lib/analytics.js";
 
 // Chromium/Firefox background (Chrome MV3 service worker / Firefox MV3 event page). Three
@@ -86,7 +87,7 @@ export default defineBackground(() => {
       },
       appVersion: browser.runtime.getManifest().version,
       local: storageKeyValue(chrome.storage.local),
-      queue: chrome.storage.session ? storageKeyValue(chrome.storage.session) : null,
+      queue: createIndexedDbKeyValue(),
       shared: chrome.storage.sync ? storageKeyValue(chrome.storage.sync) : null,
       identifyOnServer: spine
         ? async () => {

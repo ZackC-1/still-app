@@ -14,11 +14,26 @@ const jwksUrl = supabaseUrl ? `${supabaseUrl}/auth/v1/.well-known/jwks.json` : u
 const expected = authenticatedClaims(supabaseUrl || undefined);
 const posthog = new HttpPostHog(postHogConfigFromEnv((name) => Deno.env.get(name)));
 
+// The marker lives in app_metadata: writable only with the service role, never by the user.
+const SEEN_KEY = "still_analytics_seen";
 const accounts = {
-  async emailFor(userId: string): Promise<string | null> {
+  async account(userId: string) {
     const { data, error } = await admin.auth.admin.getUserById(userId);
     if (error) throw error;
-    return data.user?.email ?? null;
+    const user = data.user;
+    if (!user) return null;
+    return {
+      email: user.email ?? null,
+      createdAt: user.created_at ?? null,
+      analyticsSeen: user.app_metadata?.[SEEN_KEY] === true,
+    };
+  },
+  async markAnalyticsSeen(userId: string) {
+    const { data } = await admin.auth.admin.getUserById(userId);
+    const { error } = await admin.auth.admin.updateUserById(userId, {
+      app_metadata: { ...(data.user?.app_metadata ?? {}), [SEEN_KEY]: true },
+    });
+    if (error) throw error;
   },
 };
 

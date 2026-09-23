@@ -151,6 +151,7 @@ if (supabaseUrl && supabaseAnonKey) {
       return { userId: data.user.id };
     },
     onAccountEntered: (userId) => void analytics.identifyAccount(userId),
+    onAccountAbsent: () => void analytics.accountAbsent(),
   });
 
   controller.retrySync = () => sync.retryNow();
@@ -205,6 +206,8 @@ if (supabaseUrl && supabaseAnonKey) {
   }
 } else {
   controller = new UiController({ cache, host: { canPurchase: true }, analytics: analytics.ui });
+  // No account can exist in a build without sync; let go of any recorded earlier.
+  void analytics.accountAbsent();
   if (bridge.available) void bridge.setAccountSyncStatus(null).catch(() => {});
 }
 

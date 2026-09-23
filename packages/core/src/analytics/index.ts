@@ -7,3 +7,4 @@ export * from "./consent.js";
 export * from "./client.js";
 export * from "./extension-host.js";
 export * from "./apple-app.js";
+export * from "./idb.js";

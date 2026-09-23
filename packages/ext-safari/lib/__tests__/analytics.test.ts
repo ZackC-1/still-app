@@ -15,12 +15,13 @@ function memory(): AnalyticsKeyValue & { data: Record<string, unknown> } {
 
 function setup(native: { consent?: boolean; available?: boolean; signedIn?: boolean; os?: string } = {}, local = memory()) {
   let consent = native.consent ?? true;
+  let signedIn = native.signedIn ?? false;
   let clock = 1_000_000;
   const sendNative = vi.fn(async (message: Record<string, unknown>) => {
     if (native.available === false) throw new Error("no app");
     if (message.kind === "analyticsContext") return { analytics: { installId: INSTALL, anchorId: ANCHOR, consent } };
     if (message.kind === "getAccountSyncStatus") {
-      return native.signedIn
+      return signedIn
         ? { accountSyncStatus: JSON.stringify({ accountId: ACCOUNT, email: null, lastSyncedAt: null, pendingUpload: false, cloudReachable: true, updatedAt: 1 }) }
         : { accountSyncStatus: null };
     }
@@ -43,7 +44,7 @@ function setup(native: { consent?: boolean; available?: boolean; signedIn?: bool
     });
   const settle = () => new Promise((r) => setTimeout(r, 5));
   const events = () => ((local.data[QUEUE_KEY] as { event: string; properties: Record<string, unknown> }[] | undefined) ?? []);
-  return { bg, local, send, settle, events, sendNative, setConsent: (v: boolean) => void (consent = v), advance: (ms: number) => void (clock += ms) };
+  return { bg, local, send, settle, events, sendNative, setConsent: (v: boolean) => void (consent = v), setSignedIn: (v: boolean) => void (signedIn = v), advance: (ms: number) => void (clock += ms) };
 }
 
 describe("Safari extension analytics", () => {
@@ -66,17 +67,16 @@ describe("Safari extension analytics", () => {
     expect(events().map((e) => e.event)).toEqual(["updated"]);
   });
 
-  it("follows the app's switch, re-reading it after a short cache", async () => {
-    const { send, settle, events, setConsent, advance } = setup({ consent: false });
+  it("follows the app's switch, re-reading it on every event", async () => {
+    const { send, settle, events, setConsent } = setup({ consent: false });
     const open = () => send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } }, PAGE);
     await open();
     await settle();
     expect(events()).toEqual([]);
     setConsent(true);
-    advance(31_000);
     await open();
     await settle();
-    expect(events().map((e) => e.event)).toEqual(["opened"]);
+    expect(events().map((e) => e.event)).toEqual(["opened", "active"]);
   });
 
   it("content scripts cannot record anything", async () => {
@@ -91,7 +91,7 @@ describe("Safari extension analytics", () => {
     expect(await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "signed_in", props: {} }, CONTENT)).toBeUndefined();
     expect(await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } }, PAGE)).toBe(true);
     await settle();
-    expect(events().map((e) => e.event)).toEqual(["opened"]);
+    expect(events().map((e) => e.event)).toEqual(["opened", "active"]);
   });
 
   it("outside the app container nothing is reported and nothing waits forever", async () => {
@@ -141,5 +141,19 @@ describe("Safari extension account changes", () => {
     await later.settle();
     const state = first.local.data["still:analytics:state"] as { userId: string | null };
     expect(state.userId).toBe(ACCOUNT);
+  });
+});
+
+describe("Safari follows the app's account while running", () => {
+  it("a sign-out in the app is honoured before the next popup event, without a restart", async () => {
+    const { bg, send, settle, events, setSignedIn } = setup({ signedIn: true });
+    bg.onStart();
+    await settle();
+    setSignedIn(false);
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } }, PAGE);
+    await settle();
+    expect(JSON.stringify(events())).not.toContain(ACCOUNT);
+    const opened = events().find((e) => e.event === "opened")!;
+    expect(opened.properties.signed_in).toBe(false);
   });
 });

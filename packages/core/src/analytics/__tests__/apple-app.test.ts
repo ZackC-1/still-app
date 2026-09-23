@@ -4,6 +4,8 @@ import { QUEUE_KEY } from "../client.js";
 import type { AnalyticsKeyValue } from "../identity.js";
 import type { AnalyticsContextReply } from "../../native/bridge.js";
 
+const U1 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+
 const CONTEXT: AnalyticsContextReply = {
   platform: "macos",
   appVersion: "2.1.0",
@@ -15,6 +17,7 @@ const CONTEXT: AnalyticsContextReply = {
   consent: true,
   noticeSeen: false,
   extensionEnabled: false,
+  previousAnchorId: null,
 };
 
 function memory(): AnalyticsKeyValue & { data: Record<string, unknown> } {
@@ -103,9 +106,34 @@ describe("Apple app analytics", () => {
   it("identifies a signed-in account and attaches the email server-side once", async () => {
     const identifyOnServer = vi.fn(async () => {});
     const { app, events } = setup({}, { identifyOnServer });
-    await app.identifyAccount("user-1");
-    await app.identifyAccount("user-1");
+    await app.identifyAccount(U1);
+    await app.identifyAccount(U1);
     expect(identifyOnServer).toHaveBeenCalledTimes(1);
-    expect(events()[0]).toMatchObject({ event: "$identify", properties: { distinct_id: "user-1", $anon_distinct_id: CONTEXT.anchorId } });
+    expect(events()[0]).toMatchObject({ event: "$identify", properties: { distinct_id: U1, $anon_distinct_id: CONTEXT.anchorId } });
+  });
+});
+
+describe("Apple app account and identity reconciliation", () => {
+  it("a launch with no session lets go of an account left from before, and its waiting events", async () => {
+    const { app, events } = setup();
+    await app.identifyAccount(U1);
+    await app.accountAbsent();
+    await app.start();
+    expect(JSON.stringify(events())).not.toContain(U1);
+    expect(events().every((e) => e.properties.signed_in !== true)).toBe(true);
+  });
+
+  it("merges the Safari extension's provisional id into the anchor the app adopted", async () => {
+    const { app, events } = setup({ previousAnchorId: CONTEXT.installId });
+    await app.start();
+    const alias = events().find((e) => e.event === "$create_alias")!;
+    expect(alias.properties).toMatchObject({ distinct_id: CONTEXT.anchorId, alias: CONTEXT.installId });
+  });
+
+  it("any use in the app counts toward the day", async () => {
+    const { app, events } = setup();
+    app.ui.track("service_toggled", { service: "youtube", enabled: false });
+    await app.start();
+    expect(events().filter((e) => e.event === "active")).toHaveLength(1);
   });
 });

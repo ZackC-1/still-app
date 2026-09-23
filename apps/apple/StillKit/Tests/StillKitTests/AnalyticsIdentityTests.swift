@@ -91,6 +91,7 @@ final class AnalyticsIdentityTests: XCTestCase {
     XCTAssertEqual(context.install.installId, fromExtension.installId)
     XCTAssertNotEqual(context.install.anchorId, fromExtension.installId)
     XCTAssertEqual(cloud.string(forKey: AnalyticsIdentityStore.anchorKey), context.install.anchorId)
+    XCTAssertEqual(context.previousAnchorId, fromExtension.anchorId)
     // The extension now reports under the shared anchor too.
     XCTAssertEqual(AnalyticsIdentityStore(group: group, newId: ids()).extensionInstall(), context.install)
     XCTAssertFalse(AnalyticsIdentityStore(group: group, newId: ids())
@@ -109,7 +110,9 @@ final class AnalyticsIdentityTests: XCTestCase {
   }
 
   func testEarlierInstallEvidence() {
-    let defaults = UserDefaults(suiteName: "analytics-evidence-(UUID().uuidString)")!
+    let suite = "analytics-evidence-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
     XCTAssertFalse(AnalyticsIdentityStore.earlierInstallEvidence(defaults))
     defaults.set(true, forKey: "still.onboarding.completed.v1")
     XCTAssertTrue(AnalyticsIdentityStore.earlierInstallEvidence(defaults))
@@ -122,5 +125,18 @@ final class AnalyticsIdentityTests: XCTestCase {
     XCTAssertNil(store.extensionReply(rawBody: ["kind": "set"]))
     XCTAssertNil(store.storedInstall())
     XCTAssertTrue(AnalyticsIdentityStore.isId(store.extensionInstall().installId))
+  }
+
+  func testALateICloudAnchorIsAdoptedOnALaterLaunchAndTheOldOneMerged() {
+    let group = MemoryKeyValue()
+    let cloud = MemoryKeyValue()
+    let store = AnalyticsIdentityStore(group: group, newId: ids())
+    let first = store.appContext(appVersion: "2.1.0", ubiquitous: MemoryKeyValue(), earlierInstallVersion: nil)
+    XCTAssertNil(first.previousAnchorId)
+    cloud.set("99999999-9999-4999-8999-999999999999", forKey: AnalyticsIdentityStore.anchorKey)
+    let later = store.appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: nil)
+    XCTAssertEqual(later.install.anchorId, "99999999-9999-4999-8999-999999999999")
+    XCTAssertEqual(later.previousAnchorId, first.install.anchorId)
+    XCTAssertNil(store.appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: nil).previousAnchorId)
   }
 }

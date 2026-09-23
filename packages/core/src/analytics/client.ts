@@ -1,11 +1,12 @@
 import {
+  isVersion,
   storeForSurface,
   validateEvent,
   type AnalyticsEventName,
   type AnalyticsEventProps,
   type AnalyticsSurface,
 } from "./events.js";
-import type { AnalyticsIdentity, AnalyticsKeyValue } from "./identity.js";
+import { isAnalyticsId, type AnalyticsIdentity, type AnalyticsKeyValue } from "./identity.js";
 
 // Still's own PostHog client. It exists instead of posthog-js for three reasons:
 //
@@ -43,11 +44,12 @@ export interface AnalyticsClientDeps {
   readonly appVersion: string;
   /** Where the account, markers and anonymous id persist (small, rarely written). */
   readonly store: AnalyticsKeyValue;
-  /** Where queued events wait. Defaults to `store`. The browser extensions pass session storage,
-   * which content scripts do not receive change broadcasts for, so the pages Still runs on are not
-   * sent a copy of the queue on every event. */
+  /** Where queued events wait. Defaults to `store`. The browser extensions pass IndexedDB storage
+   * private to the background (idb.ts), so the pages Still runs on never receive storage-change
+   * broadcasts carrying the queue. */
   readonly queueStore?: AnalyticsKeyValue;
-  /** This install's ids (see identity.ts). Called once and memoised. */
+  /** This install's ids (see identity.ts). Read for every event, so a host can change them
+   * (the Safari extension follows the app's record); hosts cache it themselves. */
   readonly identity: () => Promise<AnalyticsIdentity>;
   /** Whether this person currently allows analytics. Checked on every track and flush. */
   readonly consent: () => Promise<boolean>;
@@ -118,11 +120,18 @@ function localDay(ms: number): string {
 export class AnalyticsClient {
   private readonly configured: boolean;
   private chain: Promise<unknown> = Promise.resolve();
-  private identityPromise: Promise<AnalyticsIdentity> | null = null;
   private flushScheduled = false;
+  /** Bumped (synchronously) whenever sharing is switched off, so a flush already running stops
+   * before its next request instead of finishing the queue. */
+  private epoch = 0;
+  /** Set when an identity reset could not be saved: reporting stops for the life of this client
+   * rather than risk sending under an account that should have been let go. */
+  private blocked = false;
 
   constructor(private readonly deps: AnalyticsClientDeps) {
-    this.configured = analyticsConfigured(deps.config);
+    // A malformed version (for example from a bad native reply) would ride along on every event;
+    // refuse to run rather than send it.
+    this.configured = analyticsConfigured(deps.config) && isVersion(deps.appVersion);
   }
 
   get enabled(): boolean {
@@ -165,10 +174,13 @@ export class AnalyticsClient {
   /** Attribute this install to a signed-in account from now on. Idempotent per account. */
   identify(userId: string): Promise<void> {
     return this.run(async () => {
-      if (!this.configured || !userId) return;
+      // Account ids are Supabase UUIDs; anything else never becomes a distinct id.
+      if (!this.configured || !isAnalyticsId(userId)) return;
       const state = await this.read();
       if (state.userId !== userId) await this.write({ ...state, userId });
-      if (await this.allowed()) await this.ensureIdentified();
+      if (!(await this.allowed())) return;
+      const identity = await this.identity();
+      if (identity) await this.ensureIdentified(identity);
     });
   }
 
@@ -195,22 +207,24 @@ export class AnalyticsClient {
         const kept = queue.filter((e) => e.properties.distinct_id !== gone);
         if (kept.length !== queue.length) await this.writeQueue(kept);
       }
-      await this.write({ ...state, userId: null, identifiedAs: null, anonId: this.deps.uuid() });
+      const saved = await this.write({ ...state, userId: null, identifiedAs: null, anonId: this.deps.uuid() });
+      if (!saved) this.blocked = true;
     });
   }
 
   /** Drop everything waiting to be sent: the person turned analytics off. */
   clearQueue(): Promise<void> {
-    return this.run(async () => {
-      if ((await this.readQueue()).length > 0) await this.writeQueue([]);
-    });
+    this.epoch += 1; // stop a running flush before its next request, without waiting for it
+    return this.run(() => this.discardQueue());
   }
 
   /** Send what is queued. Keeps events on a network or server failure so the next flush retries. */
   flush(): Promise<void> {
     return this.run(async () => {
-      if (!(await this.allowed())) return;
+      const epoch = this.epoch;
       for (;;) {
+        // Consent is re-read before every request: sharing can be switched off mid-flush.
+        if (epoch !== this.epoch || !(await this.allowed())) return;
         const queue = await this.readQueue();
         const batch = queue.slice(0, BATCH_SIZE);
         if (batch.length === 0) return;
@@ -252,18 +266,37 @@ export class AnalyticsClient {
     return next;
   }
 
+  /** Whether reporting may happen now. Fails closed, and when sharing turns out to be off (it can
+   * be withdrawn outside Still: Firefox's add-on manager, the Apple app's switch) anything still
+   * waiting is discarded. */
   private async allowed(): Promise<boolean> {
-    if (!this.configured) return false;
+    if (!this.configured || this.blocked) return false;
+    let consent: boolean;
     try {
-      return await this.deps.consent();
+      consent = await this.deps.consent();
     } catch {
-      return false;
+      consent = false;
     }
+    if (!consent) await this.discardQueue();
+    return consent;
   }
 
-  private identity(): Promise<AnalyticsIdentity> {
-    this.identityPromise ??= this.deps.identity();
-    return this.identityPromise;
+  /** Empty the queue. A discarded `$identify` must be sent again later, so the marker goes too. */
+  private async discardQueue(): Promise<void> {
+    if ((await this.readQueue()).length > 0) await this.writeQueue([]);
+    const state = await this.read();
+    if (state.identifiedAs !== null) await this.write({ ...state, identifiedAs: null });
+  }
+
+  /** This install's ids, refusing anything that is not a Still id. */
+  private async identity(): Promise<AnalyticsIdentity | null> {
+    try {
+      const identity = await this.deps.identity();
+      if (!isAnalyticsId(identity.installId) || !isAnalyticsId(identity.anchorId)) return null;
+      return identity;
+    } catch {
+      return null;
+    }
   }
 
   private async read(): Promise<ClientState> {
@@ -274,11 +307,12 @@ export class AnalyticsClient {
     }
   }
 
-  private async write(state: ClientState): Promise<void> {
+  private async write(state: ClientState): Promise<boolean> {
     try {
       await this.deps.store.set(STATE_KEY, state);
+      return true;
     } catch {
-      /* A failed write costs these events, never a working surface. */
+      return false; // A failed write costs these events, never a working surface.
     }
   }
 
@@ -308,8 +342,8 @@ export class AnalyticsClient {
   }
 
   /** The anonymous id this install reports under while signed out. */
-  private async anonymousId(state: ClientState): Promise<string> {
-    return state.anonId ?? (await this.identity()).anchorId;
+  private anonymousId(state: ClientState, identity: AnalyticsIdentity): string {
+    return state.anonId ?? identity.anchorId;
   }
 
   /** Person properties refreshed by every event, so each profile shows every store a person
@@ -332,10 +366,25 @@ export class AnalyticsClient {
     };
   }
 
-  private async ensureIdentified(): Promise<void> {
+  /** Merge an earlier anonymous id of this install into its current anchor, once. */
+  private async ensureAliased(identity: AnalyticsIdentity): Promise<void> {
+    const earlier = identity.aliasOf;
+    if (!earlier || !isAnalyticsId(earlier) || earlier === identity.anchorId) return;
+    const state = await this.read();
+    const marker = `once:alias:${earlier}`;
+    if (state.daily[marker] !== undefined) return;
+    await this.write({ ...state, daily: { ...state.daily, [marker]: "done" } });
+    await this.push({
+      event: "$create_alias",
+      uuid: this.deps.uuid(),
+      timestamp: new Date(this.deps.now()).toISOString(),
+      properties: { distinct_id: identity.anchorId, alias: earlier, $lib: "still", $geoip_disable: true },
+    });
+  }
+
+  private async ensureIdentified(identity: AnalyticsIdentity): Promise<void> {
     const state = await this.read();
     if (!state.userId || state.identifiedAs === state.userId) return;
-    const identity = await this.identity();
     const person = this.personProperties();
     await this.write({ ...state, identifiedAs: state.userId });
     await this.push({
@@ -344,9 +393,10 @@ export class AnalyticsClient {
       timestamp: new Date(this.deps.now()).toISOString(),
       properties: {
         distinct_id: state.userId,
-        $anon_distinct_id: await this.anonymousId(state),
+        $anon_distinct_id: this.anonymousId(state, identity),
         $device_id: identity.installId,
         $lib: "still",
+        $geoip_disable: true,
         $set: { ...person.$set, signed_in: true },
         $set_once: person.$set_once,
       },
@@ -354,8 +404,10 @@ export class AnalyticsClient {
   }
 
   private async enqueue(name: string, props: Record<string, boolean | string>): Promise<void> {
-    await this.ensureIdentified();
     const identity = await this.identity();
+    if (!identity) return;
+    await this.ensureAliased(identity);
+    await this.ensureIdentified(identity);
     const state = await this.read();
     const { surface, appVersion } = this.deps;
     const person = this.personProperties();
@@ -365,9 +417,11 @@ export class AnalyticsClient {
       timestamp: new Date(this.deps.now()).toISOString(),
       properties: {
         ...props,
-        distinct_id: state.userId ?? (await this.anonymousId(state)),
+        distinct_id: state.userId ?? this.anonymousId(state, identity),
         $device_id: identity.installId,
         $lib: "still",
+        // Location is never derived from the connection (the privacy label declares none).
+        $geoip_disable: true,
         surface,
         store: storeForSurface(surface),
         app_version: appVersion,

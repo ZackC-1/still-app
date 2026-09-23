@@ -53,7 +53,7 @@ export interface BackgroundAnalyticsDeps {
   readonly config: AnalyticsConfig;
   readonly appVersion: string;
   readonly local: AnalyticsKeyValue;
-  /** chrome.storage.session when the browser has it: the queue, kept out of content scripts. */
+  /** Where the queue waits: IndexedDB private to the background, never seen by content scripts. */
   readonly queue?: AnalyticsKeyValue | null;
   /** chrome.storage.sync: follows the person's Google or Firefox account between computers. */
   readonly shared: AnalyticsKeyValue | null;

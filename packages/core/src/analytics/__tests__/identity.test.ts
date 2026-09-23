@@ -62,3 +62,18 @@ describe("resolveAnalyticsIdentity", () => {
     expect(id.anchorId).not.toBe("https://x");
   });
 });
+
+describe("late shared anchors", () => {
+  it("adopts an anchor that arrives after this install made its own, and names the old one to merge", async () => {
+    const local = memory();
+    const shared = memory();
+    const first = await resolveAnalyticsIdentity({ local, shared: memory(), uuid }); // sync not there yet
+    shared.data[ANCHOR_KEY] = "99999999-9999-4999-8999-999999999999";
+    const later = await resolveAnalyticsIdentity({ local, shared, uuid });
+    expect(later.anchorId).toBe("99999999-9999-4999-8999-999999999999");
+    expect(later.aliasOf).toBe(first.anchorId);
+    expect(later.installId).toBe(first.installId);
+    const again = await resolveAnalyticsIdentity({ local, shared, uuid });
+    expect(again.aliasOf).toBeUndefined();
+  });
+});

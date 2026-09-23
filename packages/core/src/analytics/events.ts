@@ -76,7 +76,7 @@ export const EVENT_SCHEMA = {
   code_requested: {},
   code_failed: { reason: CODE_FAILURE_REASONS },
   sign_in_abandoned: { stage: SIGN_IN_STAGES },
-  account_created: {},
+  // account_created is sent by the server (analytics-identify), once per account, never by a client.
   signed_in: {},
   signed_out: {},
   account_deleted: {},

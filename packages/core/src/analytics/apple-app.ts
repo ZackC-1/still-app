@@ -37,6 +37,9 @@ export interface AppAnalytics {
   recheckSetup(): Promise<void>;
   /** A signed-in account (resume or sign-in). */
   identifyAccount(userId: string): Promise<void>;
+  /** There is known to be no account (a launch with no session, or the session ended). Any earlier
+   * account is let go, and its waiting events with it. */
+  accountAbsent(): Promise<void>;
 }
 
 interface Ready {
@@ -66,6 +69,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
           anchorId: context.anchorId,
           created: context.created,
           returning: context.returning,
+          aliasOf: context.previousAnchorId ?? undefined,
         }),
         consent: async () => consent,
         fetch: deps.fetch ?? ((...args) => fetch(...args)),
@@ -93,7 +97,11 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
   };
 
   const ui: UiAnalytics = {
-    track: (name, props) => withReady((r) => r.client.track(name, props)),
+    track: (name, props) =>
+      withReady(async (r) => {
+        await r.client.track(name, props);
+        await r.client.trackDaily("active", "active", {}); // any use counts toward the day
+      }),
     identify: (userId) => withReady((r) => r.identify(userId)),
     reset: (options) => withReady((r) => r.client.reset(options)),
     async sharing() {
@@ -144,6 +152,10 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
     async identifyAccount(userId) {
       const r = await ready();
       if (r) await r.identify(userId);
+    },
+    async accountAbsent() {
+      const r = await ready();
+      if (r) await r.client.reset({ onlyIfSignedIn: true, forgetAccount: true });
     },
   };
 }

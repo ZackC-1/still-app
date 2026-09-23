@@ -28,7 +28,7 @@ export interface ExtensionAnalyticsHostDeps {
   readonly appVersion: string;
   /** This extension's local storage: account, markers and notice flag. */
   readonly local: AnalyticsKeyValue;
-  /** Where queued events wait: session storage where available (see AnalyticsClientDeps). */
+  /** Where queued events wait: IndexedDB private to the background (idb.ts). */
   readonly queueStore?: AnalyticsKeyValue;
   readonly identity: () => Promise<AnalyticsIdentity>;
   readonly consent: () => Promise<boolean>;
@@ -50,8 +50,8 @@ export interface ExtensionAnalyticsHost {
   readonly client: AnalyticsClient;
   /** runtime.onInstalled: `installed` for a new install, `updated` for an update. */
   onInstalled(details: { reason: string; previousVersion?: string }): void;
-  /** Background start: setup is complete (the extension is running), one `active` a day, and the
-   * current account. `null` means known to be signed out (an earlier account is let go, whether it
+  /** Background start: one `active` a day, setup complete on Safari (the extension is running),
+   * and the current account. `null` means known to be signed out (an earlier account is let go, whether it
    * signed out here, elsewhere or was deleted); `undefined` means it could not be read, so nothing
    * about the account changes. */
   onStart(userId: string | null | undefined): void;
@@ -126,6 +126,12 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
     switch (request.action) {
       case "track":
         await client.trackUnchecked(request.name, request.props);
+        // Any use counts toward the day, not only a background start (a worker can live overnight).
+        await client.trackDaily("active", "active", {});
+        // Chrome and Firefox: setup is complete the first time someone opens Still's popup.
+        if (request.name === "opened" && (deps.surface === "chrome" || deps.surface === "firefox")) {
+          await client.trackOnce("setup_completed", "setup_completed", {});
+        }
         return true;
       case "identify":
         await identify(request.userId);
@@ -165,13 +171,15 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
       if (userId) {
         void identify(userId);
       } else if (userId === null) {
-        void client.reset({ onlyIfSignedIn: true });
+        // The account is gone (signed out elsewhere, deleted, expired). Its waiting events go with
+        // it: if it was deleted, sending them would recreate the person the server just removed.
+        void client.reset({ onlyIfSignedIn: true, forgetAccount: true });
       }
       // A running Safari extension is the only proof on iPhone that it was switched on.
       if (deps.surface === "safari-ios" || deps.surface === "safari-macos") {
         void client.trackOnce("extension_enabled", "setup_step", { step: "extension_enabled" });
+        void client.trackOnce("setup_completed", "setup_completed", {});
       }
-      void client.trackOnce("setup_completed", "setup_completed", {});
       void client.trackDaily("active", "active", {});
       void client.flush();
     },

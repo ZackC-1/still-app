@@ -27,9 +27,6 @@ interface NativeAnalytics {
   readonly consent: boolean;
 }
 
-/** How long a consent read is reused, so a burst of events costs one native round trip. */
-export const CONSENT_TTL_MS = 30_000;
-
 export function parseNativeAnalytics(reply: unknown): NativeAnalytics | null {
   const analytics = (reply as { analytics?: unknown } | null)?.analytics;
   if (typeof analytics !== "object" || analytics === null) return null;
@@ -45,7 +42,7 @@ export interface SafariAnalyticsDeps {
   /** browser.runtime.getPlatformInfo().os: "ios" on iPhone and iPad, "mac" on the Mac. */
   readonly platform: () => Promise<string>;
   readonly local: AnalyticsKeyValue;
-  /** browser.storage.session when available: the queue, kept out of content scripts. */
+  /** Where the queue waits: IndexedDB private to the background, never seen by content scripts. */
   readonly queue?: AnalyticsKeyValue | null;
   readonly isTrustedPage: (sender: MessageSender) => boolean;
   readonly fetch?: typeof fetch;
@@ -61,23 +58,20 @@ export interface SafariBackgroundAnalytics {
 }
 
 export function createSafariBackgroundAnalytics(deps: SafariAnalyticsDeps): SafariBackgroundAnalytics {
-  const now = deps.now ?? Date.now;
-  let cached: { at: number; value: NativeAnalytics | null } | null = null;
-  const nativeContext = async (): Promise<NativeAnalytics | null> => {
-    if (cached && now() - cached.at < CONSENT_TTL_MS) return cached.value;
-    const value = parseNativeAnalytics(await deps.sendNative({ kind: "analyticsContext" }).catch(() => null));
-    cached = { at: now(), value };
-    return value;
-  };
+  // Read fresh every time: the app's switch and record can change while this background runs, and
+  // events are few enough that a native round trip each is cheap.
+  const nativeContext = async (): Promise<NativeAnalytics | null> =>
+    parseNativeAnalytics(await deps.sendNative({ kind: "analyticsContext" }).catch(() => null));
 
   const host: Promise<ExtensionAnalyticsHost | null> = (async () => {
     const [first, os] = await Promise.all([nativeContext(), deps.platform().catch(() => "ios")]);
     if (!first) return null; // no app container: nothing to report under
-    const identity: AnalyticsIdentity = {
-      installId: first.installId,
-      anchorId: first.anchorId,
-      created: false,
-      returning: false,
+    // The app can replace the provisional anchor after this background started; follow it.
+    let current: AnalyticsIdentity = { installId: first.installId, anchorId: first.anchorId, created: false, returning: false };
+    const identity = async (): Promise<AnalyticsIdentity> => {
+      const latest = await nativeContext();
+      if (latest) current = { installId: latest.installId, anchorId: latest.anchorId, created: false, returning: false };
+      return current;
     };
     return createExtensionAnalyticsHost({
       surface: os === "mac" ? "safari-macos" : "safari-ios",
@@ -85,7 +79,7 @@ export function createSafariBackgroundAnalytics(deps: SafariAnalyticsDeps): Safa
       appVersion: deps.appVersion,
       local: deps.local,
       queueStore: deps.queue ?? undefined,
-      identity: async () => identity,
+      identity,
       consent: async () => (await nativeContext())?.consent ?? false,
       noticeApplies: false,
       isTrustedPage: deps.isTrustedPage,
@@ -106,6 +100,12 @@ export function createSafariBackgroundAnalytics(deps: SafariAnalyticsDeps): Safa
     return parseAccountSyncStatus(reply.accountSyncStatus)?.accountId ?? undefined;
   };
 
+  const syncAccount = async (h: ExtensionAnalyticsHost): Promise<void> => {
+    const userId = await accountId().catch(() => undefined);
+    if (userId) await h.identify(userId);
+    else if (userId === null) await h.client.reset({ onlyIfSignedIn: true, forgetAccount: true });
+  };
+
   return {
     onInstalled(details) {
       // The app reports the download itself (one install, one store); the extension only records
@@ -119,8 +119,12 @@ export function createSafariBackgroundAnalytics(deps: SafariAnalyticsDeps): Safa
       if (typeof message !== "object" || message === null) return false;
       const kind = (message as { kind?: unknown }).kind;
       if (kind !== ANALYTICS_MESSAGE_KIND) return false;
-      void host.then((h) => {
-        if (!h || !h.listener(message, sender, sendResponse)) sendResponse(undefined);
+      void host.then(async (h) => {
+        if (!h) return sendResponse(undefined);
+        // Follow the app's account before recording: it may have signed out or switched accounts
+        // since this background started.
+        if (deps.isTrustedPage(sender)) await syncAccount(h);
+        if (!h.listener(message, sender, sendResponse)) sendResponse(undefined);
       });
       return true;
     },
