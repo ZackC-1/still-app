@@ -15,12 +15,21 @@ Portal state changes; verify it directly before acting. Never put keys in this f
 | Supabase `analytics-identify` | the signed-in account's email onto its person, and `account_created` once per new account | Called only while sharing is on |
 | Supabase `delete-user` | deletes the account's person and events | Always, with the account |
 
-Every event carries `surface` (chrome, firefox, safari-ios, safari-macos, app-ios, app-macos),
-`store` (ios, macos, chrome, firefox) and `device` (phone, tablet, desktop), so Safari on an iPhone,
-an iPad and a Mac are separate lines in any chart. Switch flips carry `where` (popup, options, app).
+Three kinds of message reach PostHog:
 
-Every event is checked against `packages/core/src/analytics/events.ts`. No page, video, search or
-free text can be sent, and content scripts (on the sites people visit) send nothing.
+- **Product events** from the apps and extensions (installed, active, opened, toggles, the sign-in
+  funnel, sharing_turned_off). Each is checked against `packages/core/src/analytics/events.ts` and
+  carries `surface` (chrome, firefox, safari-ios, safari-macos, app-ios, app-macos), `store` (ios,
+  macos, chrome, firefox), `device` (phone, tablet, desktop), `app_version` and `signed_in`, so
+  Safari on an iPhone, an iPad and a Mac are separate lines in any chart. Switch flips carry
+  `where` (popup, options, app).
+- **Identity operations** from the apps and extensions (`$identify`, `$create_alias`): only Still's
+  own install/person ids and the account id, never anything else.
+- **Server events** from `analytics-identify`: the account's email as a person property, and one
+  `account_created` per account, keyed only by the account id.
+
+No page, video, search or free text can be sent, and content scripts (on the sites people visit)
+send nothing.
 
 ## PostHog project settings (owner)
 
@@ -104,9 +113,11 @@ different surfaces, so label every insight with the definition it uses.
 - **Setup.** `setup_completed` is at install on Chrome and Firefox (they block from install), and
   the Safari extension's first run on iPhone, iPad and Mac. The Mac app also reports
   `setup_step {step: extension_enabled}`.
-- **Active.** One `active` per install per local day, from any use (opening Still, a background
-  start, a switch flip). Background-start events carry only their day (local midnight) and are sent
-  later, so never read hour-of-day from them. Use weekly active persons as the headline; daily as a
+- **Active.** One `active` per install per local day, from real use only: opening a Still screen, a
+  switch flip, or the content script's nudge when a supported site is opened. A background start by
+  itself (a browser restart, the analytics alarm) records nothing. Events recorded from a nudge or a
+  background start carry only their day (local midnight) and are sent later, so never read
+  hour-of-day from them. Use weekly active persons as the headline; daily as a
   trend.
 - **Opens.** `opened {where: popup|options}` is an extension screen; `opened {where: app}` is a launch
   of the iPhone/Mac app, which most people rarely reopen once set up.

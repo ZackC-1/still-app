@@ -150,6 +150,8 @@ export class AnalyticsClient {
   /** Bumped (synchronously) whenever sharing is switched off, so a flush already running stops
    * before its next request instead of finishing the queue. */
   private epoch = 0;
+  /** Sends wait on this (holdSendsUntil). */
+  private sendGate: Promise<void> = Promise.resolve();
   /** Set when an identity reset could not be saved: reporting stops for the life of this client
    * rather than risk sending under an account that should have been let go. */
   private blocked = false;
@@ -249,6 +251,56 @@ export class AnalyticsClient {
     });
   }
 
+  /** How many events are waiting (a host deciding whether a later flush is needed). */
+  async queuedCount(): Promise<number> {
+    return (await this.readQueue()).length;
+  }
+
+  /**
+   * Hold every send until `gate` settles (the host is still learning whether anyone is signed in,
+   * and must not send an earlier account's events meanwhile). Events keep queuing.
+   */
+  holdSendsUntil(gate: Promise<unknown>): void {
+    const previous = this.sendGate;
+    this.sendGate = Promise.all([previous, gate.catch(() => undefined)]).then(() => undefined);
+  }
+
+  /**
+   * The person turned sharing off with Still's own switch. Stop at once (nothing queued is sent),
+   * then make one short, standalone attempt to record the opt-out itself. It never waits on the
+   * network before the "off" takes effect, and it never carries the discarded queue.
+   */
+  async sendOptOut(timeoutMs = 3_000): Promise<void> {
+    if (!this.configured || this.blocked) return;
+    const identity = await this.identity();
+    const state = await this.read();
+    await this.clearQueue();
+    if (!identity) return;
+    const event: QueuedEvent = {
+      event: "sharing_turned_off",
+      uuid: this.deps.uuid(),
+      timestamp: this.timestamp({}),
+      properties: {
+        distinct_id: state.userId ?? this.anonymousId(state, identity),
+        $device_id: identity.installId,
+        $lib: "still",
+        $geoip_disable: true,
+        surface: this.deps.surface,
+        store: storeForSurface(this.deps.surface),
+        ...(isDeviceClass(this.deps.device) ? { device: this.deps.device } : {}),
+        app_version: this.deps.appVersion,
+        signed_in: state.userId !== null,
+      },
+    };
+    const abort = typeof AbortController === "function" ? new AbortController() : null;
+    const timer = setTimeout(() => abort?.abort(), timeoutMs);
+    try {
+      await this.post([event], abort?.signal);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   /** Drop everything waiting to be sent: the person turned analytics off. */
   clearQueue(): Promise<void> {
     this.epoch += 1; // stop a running flush before its next request, without waiting for it
@@ -257,7 +309,8 @@ export class AnalyticsClient {
 
   /** Send what is queued. Keeps events on a network or server failure so the next flush retries. */
   flush(): Promise<void> {
-    return this.run(async () => {
+    // Wait outside the serial chain, so events keep queuing while sends are held.
+    return this.sendGate.then(() => this.run(async () => {
       const epoch = this.epoch;
       for (;;) {
         // Consent is re-read before every request: sharing can be switched off mid-flush.
@@ -275,7 +328,7 @@ export class AnalyticsClient {
         const after = await this.readQueue();
         if (after.some((e) => sent.has(e.uuid))) return;
       }
-    });
+    }));
   }
 
   // ── internals ────────────────────────────────────────────────────────────────────────────────
@@ -323,7 +376,11 @@ export class AnalyticsClient {
   private async discardQueue(): Promise<void> {
     if ((await this.readQueue()).length > 0) await this.writeQueue([]);
     const state = await this.read();
-    if (state.identifiedAs !== null) await this.write({ ...state, identifiedAs: null });
+    // Anything discarded unsent must be sent again later: the account merge and alias merges.
+    const daily = Object.fromEntries(Object.entries(state.daily).filter(([k]) => !k.startsWith("once:alias:")));
+    if (state.identifiedAs !== null || Object.keys(daily).length !== Object.keys(state.daily).length) {
+      await this.write({ ...state, identifiedAs: null, daily });
+    }
   }
 
   /** This install's ids, refusing anything that is not a Still id. */
@@ -393,7 +450,7 @@ export class AnalyticsClient {
 
   /** Person properties refreshed by every event, so each profile shows every store a person
    * uses and the version they last ran there. */
-  private personProperties(): { $set: Record<string, unknown>; $set_once: Record<string, unknown> } {
+  private personProperties(options: TrackOptions = {}): { $set: Record<string, unknown>; $set_once: Record<string, unknown> } {
     const { surface, appVersion } = this.deps;
     const store = storeForSurface(surface);
     return {
@@ -407,7 +464,8 @@ export class AnalyticsClient {
       $set_once: {
         first_surface: surface,
         first_store: store,
-        first_seen: new Date(this.deps.now()).toISOString(),
+        // Same precision as the event itself: a quiet event's day, never its moment.
+        first_seen: this.timestamp(options),
       },
     };
   }
@@ -431,7 +489,7 @@ export class AnalyticsClient {
   private async ensureIdentified(identity: AnalyticsIdentity, options: TrackOptions = {}): Promise<void> {
     const state = await this.read();
     if (!state.userId || state.identifiedAs === state.userId) return;
-    const person = this.personProperties();
+    const person = this.personProperties(options);
     await this.write({ ...state, identifiedAs: state.userId });
     await this.push({
       event: "$identify",
@@ -460,7 +518,7 @@ export class AnalyticsClient {
     await this.ensureIdentified(identity, options);
     const state = await this.read();
     const { surface, appVersion } = this.deps;
-    const person = this.personProperties();
+    const person = this.personProperties(options);
     await this.push({
       event: name,
       uuid: this.deps.uuid(),
@@ -493,13 +551,14 @@ export class AnalyticsClient {
     }, FLUSH_DELAY_MS);
   }
 
-  private async post(batch: readonly QueuedEvent[]): Promise<"done" | "retry"> {
+  private async post(batch: readonly QueuedEvent[], signal?: AbortSignal): Promise<"done" | "retry"> {
     const host = this.deps.config.host!.trim().replace(/\/+$/, "");
     try {
       const response = await this.deps.fetch(`${host}/batch/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ api_key: this.deps.config.key!.trim(), batch }),
+        signal,
       });
       if (response.ok) return "done";
       // A request PostHog will never accept: drop it rather than block everything behind it.

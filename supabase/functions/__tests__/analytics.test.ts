@@ -1,7 +1,7 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { handleAnalyticsIdentify } from "../analytics-identify/handler.ts";
 import { handleDeleteUser } from "../delete-user/handler.ts";
-import { deletionAccepted, HttpPostHog, type PostHogPort } from "../_shared/posthog.ts";
+import { accountCreatedEventId, deletionAccepted, HttpPostHog, type PostHogPort } from "../_shared/posthog.ts";
 import { mintHs256, TEST_EXPECTED_CLAIMS } from "../_shared/test-helpers.ts";
 import type { UserStore } from "../_shared/user-store.ts";
 
@@ -235,4 +235,21 @@ Deno.test("a 202 with deletion_errors is retried once, then reported as a failur
   await assertRejects(() => scripted([[202, bad], [202, bad]]).ph.deletePerson(A));
   const good = { persons_found: 1, persons_queued_for_deletion: 1, events_queued_for_deletion: true, deletion_errors: [] };
   await scripted([[202, bad], [202, good]]).ph.deletePerson(A);
+});
+
+Deno.test("account_created has a fixed id and timestamp per account, so a race cannot double-count", async () => {
+  const bodies: { batch: { event: string; uuid?: string; timestamp: string }[] }[] = [];
+  const ph = new HttpPostHog(
+    { projectKey: "phc_x", host: "https://us.i.posthog.com" },
+    (_u, init) => (bodies.push(JSON.parse(String(init?.body))), Promise.resolve(new Response("{}"))),
+  );
+  await Promise.all([
+    ph.setPersonEmail(A, "a@b.co", { accountCreated: true, createdAt: "2026-09-30T10:00:00Z" }),
+    ph.setPersonEmail(A, "a@b.co", { accountCreated: true, createdAt: "2026-09-30T10:00:00Z" }),
+  ]);
+  const created = bodies.map((b) => b.batch.find((e) => e.event === "account_created")!);
+  assertEquals(created[0]!.uuid, created[1]!.uuid);
+  assertEquals(created[0]!.timestamp, "2026-09-30T10:00:00.000Z");
+  assertEquals(created[0]!.uuid, await accountCreatedEventId(A));
+  assertEquals(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(created[0]!.uuid!), true);
 });

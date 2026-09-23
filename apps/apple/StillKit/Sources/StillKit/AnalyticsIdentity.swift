@@ -55,6 +55,9 @@ public final class AnalyticsIdentityStore {
   static let consentKey = "still.analytics.consent"
   static let noticeKey = "still.analytics.notice-seen"
   static let lastVersionKey = "still.analytics.last-version"
+  /// The anchor this device used before adopting its current one. Kept (not only returned once) so
+  /// the merge is sent whenever sharing allows; the web layer sends it once.
+  static let previousAnchorKey = "still.analytics.previous-anchor"
   /// Set once the app has read the install record. The Safari extension can create the record
   /// first (it runs on page loads); the app's first read still has to report the install or update
   /// and share the anchor through iCloud.
@@ -150,8 +153,13 @@ public final class AnalyticsIdentityStore {
       install = AnalyticsInstall(installId: install.installId, anchorId: shared)
       save(install)
     }
-    // Only an id something may already have reported under needs merging.
-    let previousAnchorId = hadRecord && startingAnchor != install.anchorId ? startingAnchor : nil
+    // Only an id something may already have reported under needs merging. Remember it until a
+    // later change replaces it, so a merge discarded while sharing was off is sent later.
+    if hadRecord && startingAnchor != install.anchorId {
+      group.set(startingAnchor, forKey: Self.previousAnchorKey)
+    }
+    let stored = group.string(forKey: Self.previousAnchorKey)
+    let previousAnchorId = stored.flatMap { Self.isId($0) && $0 != install.anchorId ? $0 : nil }
 
     let last = group.string(forKey: Self.lastVersionKey)
     var previousVersion: String?

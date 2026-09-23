@@ -11,8 +11,9 @@ import { jsonResponse } from "../_shared/store.ts";
 // never count as a second creation: the first call for an account marks it in the account's server-
 // only app metadata, and a first call for an account created on or after ACCOUNTS_COUNTED_SINCE
 // counts, however long after creation the person turned sharing on. Accounts from before analytics
-// are marked without being counted. The marker is written before the event is sent, so a failure in
-// between can lose one count but can never count an account twice.
+// are marked without being counted. The marker is written before the event is sent, and the event's
+// id and timestamp are fixed per account, so neither a retry nor two simultaneous requests can
+// count an account twice.
 
 /** Still 2.1's analytics launch: accounts created before this are not "new" to analytics. */
 export const ACCOUNTS_COUNTED_SINCE = "2026-09-23T00:00:00Z";
@@ -48,7 +49,9 @@ export function handleAnalyticsIdentify(req: Request, deps: AnalyticsIdentifyDep
     const accountCreated = !account.analyticsSeen && Number.isFinite(created) &&
       created <= now && created >= Date.parse(deps.countedSince ?? ACCOUNTS_COUNTED_SINCE);
     if (!account.analyticsSeen) await deps.accounts.markAnalyticsSeen(userId);
-    await deps.posthog.setPersonEmail(userId, account.email, { accountCreated });
+    // Two racing requests can both see "not yet marked"; the event they send is identical (same id,
+    // same timestamp: the account's creation time), and PostHog keeps it once.
+    await deps.posthog.setPersonEmail(userId, account.email, { accountCreated, createdAt: account.createdAt });
     return jsonResponse(200, { identified: true, accountCreated });
   });
 }

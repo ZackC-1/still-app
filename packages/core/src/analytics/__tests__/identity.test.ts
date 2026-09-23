@@ -73,8 +73,9 @@ describe("late shared anchors", () => {
     expect(later.anchorId).toBe("99999999-9999-4999-8999-999999999999");
     expect(later.aliasOf).toBe(first.anchorId);
     expect(later.installId).toBe(first.installId);
+    // Kept across restarts until sent; the client's marker makes sure it goes out once.
     const again = await resolveAnalyticsIdentity({ local, shared, uuid });
-    expect(again.aliasOf).toBeUndefined();
+    expect(again.aliasOf).toBe(first.anchorId);
   });
 });
 

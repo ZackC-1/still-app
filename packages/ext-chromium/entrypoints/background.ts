@@ -102,7 +102,7 @@ export default defineBackground(() => {
   );
   chrome.runtime.onInstalled.addListener((details) => analytics.onInstalled(details));
   chrome.alarms?.onAlarm.addListener((alarm) => {
-    if (alarm.name === QUIET_FLUSH_ALARM) void analytics.client.flush();
+    if (alarm.name === QUIET_FLUSH_ALARM) void analytics.flushWhenReady();
   });
   chrome.runtime.onMessage.addListener(analytics.listener);
 
@@ -115,6 +115,8 @@ export default defineBackground(() => {
     if (message && typeof message === "object" && (message as { kind?: string }).kind === "reconcile") {
       void refreshRuleSet();
       void session?.onNudge();
+      // The nudge is real use (a supported site was opened); analytics records only its day.
+      analytics.onActivity();
     }
     return false;
   });

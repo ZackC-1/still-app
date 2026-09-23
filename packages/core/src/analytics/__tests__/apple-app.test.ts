@@ -26,7 +26,10 @@ function memory(): AnalyticsKeyValue & { data: Record<string, unknown> } {
   return { data, get: async (k) => structuredClone(data[k]), set: async (k, v) => void (data[k] = structuredClone(v)) };
 }
 
-function setup(context: Partial<AnalyticsContextReply> | null = {}, over: { identifyOnServer?: () => Promise<void> } = {}) {
+function setup(
+  context: Partial<AnalyticsContextReply> | null = {},
+  over: { identifyOnServer?: () => Promise<void>; holdAccount?: boolean; fetch?: typeof globalThis.fetch } = {},
+) {
   const store = memory();
   let current = context === null ? null : { ...CONTEXT, ...context };
   const bridge: AppAnalyticsBridge & { setAnalyticsConsent: ReturnType<typeof vi.fn> } = {
@@ -34,7 +37,7 @@ function setup(context: Partial<AnalyticsContextReply> | null = {}, over: { iden
     setAnalyticsConsent: vi.fn(async (enabled: boolean) => enabled),
     acknowledgeAnalyticsNotice: vi.fn(async () => {}),
   };
-  const fetch = vi.fn(async () => { throw new TypeError("offline in tests"); });
+  const fetch = over.fetch ?? vi.fn(async () => { throw new TypeError("offline in tests"); });
   let n = 0;
   const app = createAppAnalytics({
     bridge,
@@ -44,6 +47,7 @@ function setup(context: Partial<AnalyticsContextReply> | null = {}, over: { iden
     uuid: () => `uuid-${++n}`,
     identifyOnServer: over.identifyOnServer,
   });
+  if (!over.holdAccount) app.accountResolved();
   const events = () =>
     ((store.data[QUEUE_KEY] as { event: string; properties: Record<string, unknown> }[] | undefined) ?? []);
   return { app, bridge, events, setContext: (c: Partial<AnalyticsContextReply>) => void (current = { ...current!, ...c }) };
@@ -154,5 +158,53 @@ describe("Apple app installs counted after sharing is turned on", () => {
     await app.start();
     await app.ui.setSharing!(false);
     expect(events()).toEqual([]); // discarded after the last send attempt
+  });
+});
+
+describe("Apple app sends wait for the launch's account check", () => {
+  it("a session-less launch never sends the previous account's events", async () => {
+    const posted: string[] = [];
+    const fetch = (async (_u: string, init: RequestInit) => {
+      posted.push(String(init.body));
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+    const { app } = setup({}, { holdAccount: true, fetch });
+    await app.identifyAccount(U1); // left from an earlier launch
+    void app.start();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(posted).toEqual([]); // held
+    app.accountAbsent();
+    app.accountResolved();
+    await new Promise((r) => setTimeout(r, 50));
+    await app.recheckSetup();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(posted.join("")).not.toContain(U1);
+  });
+
+  it("an update before sharing is turned on does not erase the pending install", async () => {
+    const store = (() => {
+      const data: Record<string, unknown> = {};
+      return { data, get: async (k: string) => structuredClone(data[k]), set: async (k: string, v: unknown) => void (data[k] = structuredClone(v)) };
+    })();
+    const make = (ctx: Partial<AnalyticsContextReply>) => {
+      const current = { ...CONTEXT, ...ctx };
+      const a = createAppAnalytics({
+        bridge: { analyticsContext: async () => current, setAnalyticsConsent: async (e) => e, acknowledgeAnalyticsNotice: async () => {} },
+        config: { key: "phc_test", host: "https://us.i.posthog.com" },
+        store,
+        fetch: (async () => { throw new TypeError("offline"); }) as unknown as typeof fetch,
+        uuid: (() => { let n = 0; return () => `u-${++n}`; })(),
+      });
+      a.accountResolved();
+      return a;
+    };
+    await make({ consent: false, created: true }).start();
+    await make({ consent: false, created: false, previousVersion: "2.1.0", appVersion: "2.1.1" }).start();
+    const third = make({ consent: false, created: false, appVersion: "2.1.1" });
+    await third.start();
+    await third.ui.setSharing!(true);
+    const events = ((store.data[QUEUE_KEY] as { event: string }[]) ?? []).map((e) => e.event);
+    expect(events).toContain("installed");
+    expect(events).toContain("updated");
   });
 });

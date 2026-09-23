@@ -35,6 +35,7 @@ function setup(over: { isFirefox?: boolean; granted?: boolean; shared?: Analytic
     RUNTIME_ID,
     ORIGIN,
   );
+  bg.onStart(undefined); // every real background calls this once its account check is done
   const queue = () => ((local.data[QUEUE_KEY] as { event: string; properties: Record<string, unknown> }[] | undefined) ?? []);
   const send = (message: unknown, sender: object) =>
     new Promise<unknown>((resolve) => {
@@ -269,10 +270,16 @@ describe("background starts never say when a site was visited", () => {
       ORIGIN,
     );
     bg.onStart(U1);
+    bg.onActivity(); // the content script's visit nudge
     await new Promise((r) => setTimeout(r, 20));
-    const queued = (local.data[QUEUE_KEY] as { event: string; timestamp: string }[]) ?? [];
+    const queued = (local.data[QUEUE_KEY] as { event: string; timestamp: string; properties: Record<string, unknown> }[]) ?? [];
     expect(queued.map((e) => e.event)).toEqual(["$identify", "active"]);
-    for (const e of queued) expect(e.timestamp).toBe(new Date(2026, 8, 23).toISOString());
+    const midnight = new Date(2026, 8, 23).toISOString();
+    for (const e of queued) expect(e.timestamp).toBe(midnight);
+    // Nothing anywhere in the payload is more precise than the day.
+    const serialized = JSON.stringify(queued);
+    const times = serialized.match(/\d{4}-\d{2}-\d{2}T[\d:.]+Z/g) ?? [];
+    expect(new Set(times)).toEqual(new Set([midnight]));
     await new Promise((r) => setTimeout(r, 1_700)); // past the ordinary flush delay
     expect(fetch).not.toHaveBeenCalled();
     expect(requestQuietFlush).toHaveBeenCalled();
@@ -337,5 +344,63 @@ describe("opt-out is measurable", () => {
     expect(await send({ kind: ANALYTICS_MESSAGE_KIND, action: "setSharing", enabled: false })).toBe(false);
     await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } });
     expect(posted).toEqual(["sharing_turned_off"]);
+  });
+});
+
+describe("the alarm never manufactures a day of use", () => {
+  it("a background start alone records no active day; a visit nudge or a Still screen does", async () => {
+    const { bg, send, queue } = setup();
+    await bg.flushWhenReady().catch(() => {});
+    await bg.client.trackDaily("probe", "opened", { where: "popup" }); // drain
+    expect(queue().some((e) => e.event === "active")).toBe(false);
+    bg.onActivity();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(queue().filter((e) => e.event === "active")).toHaveLength(1);
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } }, PAGE);
+    expect(queue().filter((e) => e.event === "active")).toHaveLength(1); // still one for the day
+  });
+});
+
+describe("turning sharing off", () => {
+  it("takes effect immediately, sends none of the waiting events, and never waits on the network", async () => {
+    const bodies: string[] = [];
+    let release!: () => void;
+    const hang = new Promise<void>((r) => (release = r));
+    const fetch = vi.fn(async (_u: string, init: RequestInit) => {
+      bodies.push(String(init.body));
+      await hang; // the network never answers
+      return new Response("{}", { status: 200 });
+    });
+    const local = memory();
+    const bg = createBackgroundAnalytics(
+      { isFirefox: false, config: { key: "phc_test", host: "https://us.i.posthog.com" }, appVersion: "2.1.0", local, shared: null, sharedGraceMs: 0,
+        fetch: fetch as unknown as typeof globalThis.fetch, uuid: (() => { let n = 0; return () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`; })() },
+      RUNTIME_ID, ORIGIN,
+    );
+    bg.onStart(undefined);
+    const send = (m: unknown) => new Promise<unknown>((r) => { if (!bg.listener(m, PAGE, r)) r(undefined); });
+    await bg.client.track("opened", { where: "popup" }); // waiting, not yet sent
+    const off = await Promise.race([
+      send({ kind: ANALYTICS_MESSAGE_KIND, action: "setSharing", enabled: false }),
+      new Promise((r) => setTimeout(() => r("stalled"), 500)),
+    ]);
+    expect(off).toBe(false);
+    await new Promise((r) => setTimeout(r, 20));
+    const sentEvents = bodies.flatMap((b) => JSON.parse(b).batch.map((e: { event: string }) => e.event));
+    expect(sentEvents).toEqual(["sharing_turned_off"]);
+    expect((local.data[QUEUE_KEY] as unknown[] | undefined) ?? []).toEqual([]);
+    release();
+  });
+});
+
+describe("server email attach for people already signed in", () => {
+  it("a Still screen finishes the attach a background start deferred", async () => {
+    const identifyOnServer = vi.fn(async () => {});
+    const { bg, send } = setup({ identifyOnServer });
+    bg.onStart(U1); // quiet: no server call
+    await new Promise((r) => setTimeout(r, 20));
+    expect(identifyOnServer).not.toHaveBeenCalled();
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } }, PAGE);
+    expect(identifyOnServer).toHaveBeenCalledTimes(1);
   });
 });

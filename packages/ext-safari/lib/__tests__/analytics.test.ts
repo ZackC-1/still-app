@@ -53,6 +53,7 @@ describe("Safari extension analytics", () => {
   it("reports under the app's install, with the right surface, and names the account", async () => {
     const { bg, settle, events } = setup({ signedIn: true, os: "mac" });
     bg.onStart();
+    bg.onActivity(); // real use: a supported site or the popup nudged the background
     await settle();
     const kinds = events().map((e) => e.event);
     expect(kinds).toEqual(["$identify", "setup_step", "setup_completed", "active"]);
@@ -175,9 +176,26 @@ describe("Safari on iPhone, iPad and Mac are told apart", () => {
     it(`${device} reports surface ${surface} and device ${device}`, async () => {
       const { bg, settle, events } = setup({ platform, device, os });
       bg.onStart();
+      bg.onActivity();
       await settle();
       const e = events().find((x) => x.event === "active")!;
       expect(e.properties).toMatchObject({ surface, device, store: platform === "macos" ? "macos" : "ios" });
     });
   }
+});
+
+describe("Safari's timed send follows the app's account", () => {
+  it("an alarm flush after the app signed out drops the old account's waiting events first", async () => {
+    const { bg, send, settle, events, setSignedIn } = setup({ signedIn: true });
+    bg.onStart();
+    await settle();
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } }, PAGE);
+    await settle();
+    expect(JSON.stringify(events())).toContain(ACCOUNT); // waiting under the account (offline)
+    setSignedIn(false); // the app signed out while this background slept
+    bg.flush(); // the alarm
+    await settle();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(JSON.stringify(events())).not.toContain(ACCOUNT);
+  });
 });

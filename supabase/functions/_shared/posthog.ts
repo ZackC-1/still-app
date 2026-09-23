@@ -17,9 +17,25 @@ export interface PostHogPort {
   readonly canDelete: boolean;
   /** Put the email on the account's person; with `accountCreated`, also record the one
    * `account_created` event for that account (the server decides, once per account). */
-  setPersonEmail(userId: string, email: string, options?: { readonly accountCreated?: boolean }): Promise<void>;
+  setPersonEmail(userId: string, email: string, options?: AccountCreatedOptions): Promise<void>;
   /** Delete the person and queue deletion of their events. Resolves when PostHog accepted it. */
   deletePerson(userId: string): Promise<void>;
+}
+
+export interface AccountCreatedOptions {
+  readonly accountCreated?: boolean;
+  /** The account's creation time: the event's timestamp, so every copy of it is identical. */
+  readonly createdAt?: string | null;
+}
+
+/** A UUID derived from the account id, so two racing requests produce the same event, which PostHog
+ * keeps once (it deduplicates identical uuid, distinct id, event and timestamp). */
+export async function accountCreatedEventId(userId: string): Promise<string> {
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`still:account_created:${userId}`)));
+  bytes[6] = (bytes[6]! & 0x0f) | 0x50; // version 5 layout
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80; // RFC 4122 variant
+  const hex = [...bytes.slice(0, 16)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
 }
 
 export interface PostHogConfig {
@@ -58,16 +74,17 @@ export class HttpPostHog implements PostHogPort {
     );
   }
 
-  async setPersonEmail(
-    userId: string,
-    email: string,
-    options: { readonly accountCreated?: boolean } = {},
-  ): Promise<void> {
+  async setPersonEmail(userId: string, email: string, options: AccountCreatedOptions = {}): Promise<void> {
     if (!this.canIdentify) return;
     const timestamp = new Date().toISOString();
     const common = { distinct_id: userId, $lib: "still-server", $geoip_disable: true };
     const batch: unknown[] = [{ event: "$set", properties: { ...common, $set: { email } }, timestamp }];
-    if (options.accountCreated) batch.push({ event: "account_created", properties: common, timestamp });
+    if (options.accountCreated) {
+      const created = options.createdAt && Number.isFinite(Date.parse(options.createdAt))
+        ? new Date(options.createdAt).toISOString()
+        : timestamp;
+      batch.push({ event: "account_created", uuid: await accountCreatedEventId(userId), properties: common, timestamp: created });
+    }
     const res = await this.fetchImpl(`${trimSlash(this.config.host!)}/batch/`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

@@ -292,3 +292,15 @@ testing, plus store review time.
   the Firefox listing wording and the AMO allowlist. Product call (B2), owner decision 2026-09-23: keep
   Chrome sending `installed`/`setup_completed` at install, before the one-time notice is seen; the
   Chrome privacy tab and the privacy policy disclose the collection up front.
+- 2026-09-23: Final Codex review of 08a43c5 (9 findings, all confirmed and fixed): quiet events round
+  first_seen to the day too; turning sharing off persists "off" and discards the queue before any
+  network call, then makes one bounded standalone opt-out send; every send waits for the start's
+  account check (extensions) or the launch's account resolution (Apple app), and Safari's alarm flush
+  re-reads the app's account first; account_created has a per-account fixed uuid and the account's
+  creation time as timestamp, so a race is deduplicated by PostHog; a day of use comes only from real
+  use (visit nudge, Still screen), never an alarm wake, and the alarm is requested only when events
+  wait; Apple installs and updates are kept as separate pending records; pending aliases persist
+  (browser record, App Group) and a discarded alias is re-sent; a Still screen retries a deferred or
+  failed server email attach; the runbook separates product events, identity operations and server
+  events. Owner completed PostHog steps 1-7 (IP discard, replay off, AI training opt-out, test person
+  deleted, deletion key, Supabase secrets).

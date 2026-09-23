@@ -9,10 +9,15 @@ import type { UiAnalytics, UsageSharingState } from "../ui/controller.svelte.js"
 // scripts send nothing: they run on the sites people visit, and Still never records browsing.
 //
 // A background usually starts because someone just opened YouTube, Instagram, Facebook or TikTok
-// (the content script wakes it). So everything recorded at a background start is "quiet": stamped
-// with its day only and not sent then (client.ts TrackOptions). It goes out with the next popup or
-// settings open, or at the random time the host's alarm picks, so neither the event nor its arrival
-// says when a site was visited.
+// (the content script wakes it), or because the analytics alarm fired. So:
+//   * Background work is "quiet": stamped with its day only and not sent then (client.ts
+//     TrackOptions). It goes out with the next popup or settings open, or at the random time the
+//     alarm picks, so neither the event nor its arrival says when a site was visited.
+//   * A day of use (`active`) comes only from real use: the content script's visit nudge
+//     (onActivity) or a Still screen. A background start by itself (an alarm, a browser restart)
+//     records nothing, so the alarm can never manufacture retention.
+//   * Every send waits for the start's account check, so an account that has ended is let go (and
+//     its waiting events dropped) before anything leaves.
 //
 // What differs by build is injected: where the ids come from (browser sync storage, or the Apple
 // App Group), who owns consent (a stored switch, Firefox's data-collection permission, or the
@@ -26,6 +31,8 @@ export const SERVER_IDENTIFIED_KEY = "still:analytics:server-identified";
 export const PENDING_INSTALL_KEY = "still:analytics:pending-install";
 
 const QUIET: TrackOptions = { quiet: true };
+/** Longest a send waits for the background start's account check. */
+export const START_HOLD_LIMIT_MS = 10_000;
 
 export interface MessageSender {
   readonly id?: string;
@@ -70,6 +77,11 @@ export interface ExtensionAnalyticsHost {
    * be signed out (an earlier account is let go, whether it signed out here, elsewhere or was
    * deleted); `undefined` means it could not be read, so nothing about the account changes. */
   onStart(userId: string | null | undefined): void;
+  /** The content script's visit nudge: real use. One quiet `active` for the day, and on Safari the
+   * setup milestones (the extension demonstrably runs). */
+  onActivity(): void;
+  /** Flush after the start's account check has settled (the alarm handler). */
+  flushWhenReady(): Promise<void>;
   /** Identify the install, and once per account have the server attach the email. */
   identify(userId: string, options?: TrackOptions): Promise<void>;
   readonly listener: (
@@ -144,6 +156,15 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
     identifyOnServer: deps.identifyOnServer,
   });
   const blocksAtInstall = deps.surface === "chrome" || deps.surface === "firefox";
+  const isSafari = deps.surface === "safari-ios" || deps.surface === "safari-macos";
+  // Settles once the background start has reconciled the account; every send waits for it.
+  let startSettled!: () => void;
+  const started = new Promise<void>((resolve) => (startSettled = resolve));
+  // A start that never reports (it should always) must not hold sends forever.
+  client.holdSendsUntil(Promise.race([started, new Promise((r) => setTimeout(r, START_HOLD_LIMIT_MS))]));
+  const requestFlushIfNeeded = async (): Promise<void> => {
+    if ((await client.queuedCount()) > 0) deps.requestQuietFlush?.();
+  };
 
   /** Count an install recorded earlier, on its own day, the first time sharing allows it. */
   const emitPendingInstall = async (options: TrackOptions = {}): Promise<void> => {
@@ -167,12 +188,17 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
 
   const handle = async (request: PageRequest): Promise<unknown> => {
     switch (request.action) {
-      case "track":
+      case "track": {
         await emitPendingInstall();
         await client.trackUnchecked(request.name, request.props);
         // Any use counts toward the day, not only a background start (a worker can live overnight).
         await client.trackDaily("active", "active", {});
+        // A Still screen is an ordinary moment: finish a server email attach that a background
+        // start deferred, or that failed earlier (once per account; see createAccountIdentifier).
+        const signedIn = await client.signedInAs();
+        if (signedIn) await identify(signedIn);
         return true;
+      }
       case "identify":
         await identify(request.userId);
         return true;
@@ -182,20 +208,19 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
       case "sharing":
         return sharing();
       case "setSharing": {
-        // Turning sharing off through Still's own switch sends one last, property-free event first,
-        // so the opt-out rate is measurable. (Firefox withdraws its permission before this message
-        // arrives, so nothing more can be sent there, which is correct.)
-        if (!request.enabled && (await deps.consent().catch(() => false))) {
-          await client.track("sharing_turned_off", {});
-          await client.flush();
-        }
+        const wasOn = await deps.consent().catch(() => false);
+        // The switch takes effect first, whatever the network does.
         await deps.storeConsent?.(request.enabled);
         const enabled = await deps.consent().catch(() => false);
         if (enabled) {
           await emitPendingInstall();
           void client.flush();
         } else {
+          // Nothing waiting is sent. Then one short, standalone attempt records the opt-out itself,
+          // so the opt-out rate is measurable. (Firefox withdraws its permission before this message
+          // arrives, so `wasOn` is false there and nothing more is sent, which is correct.)
           await client.clearQueue();
+          if (wasOn && !request.enabled) void client.sendOptOut();
         }
         return enabled;
       }
@@ -233,14 +258,26 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
           await client.reset({ onlyIfSignedIn: true, forgetAccount: true });
         }
         await emitPendingInstall(QUIET);
+        await requestFlushIfNeeded();
+      })()
+        .catch(() => {})
+        .finally(() => startSettled());
+    },
+    onActivity() {
+      void (async () => {
+        await started;
         // A running Safari extension is the only proof on iPhone that it was switched on.
-        if (deps.surface === "safari-ios" || deps.surface === "safari-macos") {
+        if (isSafari) {
           await client.trackOnce("extension_enabled", "setup_step", { step: "extension_enabled" }, QUIET);
           await client.trackOnce("setup_completed", "setup_completed", {}, QUIET);
         }
         await client.trackDaily("active", "active", {}, QUIET);
-        deps.requestQuietFlush?.();
+        await requestFlushIfNeeded();
       })().catch(() => {});
+    },
+    async flushWhenReady() {
+      await started;
+      await client.flush();
     },
     listener(message, sender, sendResponse) {
       if (typeof message !== "object" || message === null) return false;

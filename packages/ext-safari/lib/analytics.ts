@@ -64,8 +64,10 @@ export interface SafariAnalyticsDeps {
 
 export interface SafariBackgroundAnalytics {
   onInstalled(details: { reason: string; previousVersion?: string }): void;
-  /** Send what is queued (the quiet-flush alarm). */
+  /** Send what is queued (the quiet-flush alarm), after re-reading the app's account. */
   flush(): void;
+  /** Real use (the content script's reconcile nudge). */
+  onActivity(): void;
   /** Background start: reads the app's signed-in account, then reports setup and the active day. */
   onStart(): void;
   readonly listener: ExtensionAnalyticsHost["listener"];
@@ -126,7 +128,15 @@ export function createSafariBackgroundAnalytics(deps: SafariAnalyticsDeps): Safa
 
   return {
     flush() {
-      void host.then((h) => h?.client.flush());
+      void host.then(async (h) => {
+        if (!h) return;
+        // The app may have signed out since this background started: follow it before sending.
+        await syncAccount(h);
+        await h.flushWhenReady();
+      });
+    },
+    onActivity() {
+      void host.then((h) => h?.onActivity());
     },
     onInstalled(details) {
       // The app reports the download itself (one install, one store); the extension only records

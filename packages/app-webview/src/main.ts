@@ -180,7 +180,11 @@ if (supabaseUrl && supabaseAnonKey) {
   // Resume an existing Supabase session on launch. The userId guard closes the slow-network race
   // where the user completes a fresh code sign-in before this launch check resolves — without it,
   // two enterSession pipelines (possibly for different identities) would interleave.
-  void session.resumeAccount(() => authPort.currentAccount());
+  // Analytics sends nothing until this settles: a launch without a session must never send the
+  // previous account's waiting events.
+  void session
+    .resumeAccount(() => authPort.currentAccount())
+    .finally(() => analytics.accountResolved());
 
   // Native actions only exist inside the WKWebView host. Sign in with Apple is no longer offered
   // (email-code sign-in above is the one auth path, 2026-07-06); the native SIWA bridge + the
@@ -207,7 +211,7 @@ if (supabaseUrl && supabaseAnonKey) {
 } else {
   controller = new UiController({ cache, host: { canPurchase: true }, analytics: analytics.ui });
   // No account can exist in a build without sync; let go of any recorded earlier.
-  void analytics.accountAbsent();
+  void analytics.accountAbsent().finally(() => analytics.accountResolved());
   if (bridge.available) void bridge.setAccountSyncStatus(null).catch(() => {});
 }
 

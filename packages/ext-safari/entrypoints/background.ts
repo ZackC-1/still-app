@@ -97,6 +97,8 @@ export default defineBackground(() => {
     if (message && typeof message === "object" && (message as { kind?: string }).kind === "reconcile") {
       void reconciler.reconcile();
       void pullEntitlementFromApp();
+      // Real use (a supported site, or the popup, asked for a reconcile); only its day is recorded.
+      analytics.onActivity();
     }
     return false;
   });

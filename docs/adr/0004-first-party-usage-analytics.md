@@ -53,8 +53,12 @@ privacy-positioning cost (the homepage promised "no behavioral tracking") agains
 - No visit timing: a background usually starts because a supported site was opened, so events
   recorded at a background start carry only their day and are sent later (the next Still screen, or
   an `alarms` flush at a random time one to six hours out). Their timestamps and their arrival say
-  nothing about when a site was visited. The server email attach runs only from an ordinary,
-  non-background identify.
+  nothing about when a site was visited; that includes every timestamp inside them, such as the
+  first-seen person property. The server email attach runs only from an ordinary, non-background
+  identify, retried at the next Still screen. A day of use comes only from real use, never from the
+  alarm itself, and every send waits for the start's account check.
+- Turning sharing off takes effect before any network call: the waiting queue is discarded, and one
+  standalone `sharing_turned_off` attempt (bounded to a few seconds) is the only thing sent.
 - New accounts are counted by the server once per account, never inferred by a client.
 - Chrome and Firefox send `installed` and `setup_completed` at install, before the one-time notice
   is seen (owner decision, 2026-09-23): counting every install outweighs holding them, and the store

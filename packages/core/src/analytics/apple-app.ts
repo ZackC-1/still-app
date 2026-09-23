@@ -40,7 +40,14 @@ export interface AppAnalytics {
   /** There is known to be no account (a launch with no session, or the session ended). Any earlier
    * account is let go, and its waiting events with it. */
   accountAbsent(): Promise<void>;
+  /** The launch's account check is done (a session was resumed, or found absent). Nothing is sent
+   * before this, so a launch without a session never sends the previous account's events. */
+  accountResolved(): void;
 }
+
+/** Longest the app holds sends waiting for the launch's account check. */
+export const ACCOUNT_RESOLUTION_LIMIT_MS = 15_000;
+const PENDING_UPDATE_KEY = "still:analytics:pending-update";
 
 interface Ready {
   readonly client: AnalyticsClient;
@@ -78,6 +85,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         uuid: deps.uuid ?? (() => crypto.randomUUID()),
       });
       if (!client.enabled) return null;
+      client.holdSendsUntil(sendGate);
       const identify = createAccountIdentifier({
         client,
         local: deps.store,
@@ -102,21 +110,34 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
     readonly at: number;
   }
   const now = deps.now ?? Date.now;
-  const readPending = async (): Promise<PendingLaunch | null> => {
-    const v = (await deps.store.get(PENDING_INSTALL_KEY).catch(() => null)) as Partial<PendingLaunch> | null;
+  // Installs and updates are kept apart: an update before sharing is turned on must not erase the
+  // install still waiting to be counted.
+  const readPending = async (key: string): Promise<PendingLaunch | null> => {
+    const v = (await deps.store.get(key).catch(() => null)) as Partial<PendingLaunch> | null;
     if (!v || (v.kind !== "installed" && v.kind !== "updated") || typeof v.at !== "number") return null;
     return { kind: v.kind, returning: v.returning === true, from: typeof v.from === "string" ? v.from : null, at: v.at };
   };
   const emitPending = async (r: Ready): Promise<void> => {
-    const pending = await readPending();
-    if (!pending || !consent) return;
-    if (pending.kind === "updated" && pending.from) {
-      await r.client.trackOnce(`updated:${r.context.appVersion}`, "updated", { from: pending.from, to: r.context.appVersion }, { at: pending.at });
-    } else if (pending.kind === "installed") {
-      await r.client.trackOnce("installed", "installed", { returning: pending.returning }, { at: pending.at });
+    if (!consent) return;
+    const install = await readPending(PENDING_INSTALL_KEY);
+    if (install) {
+      await r.client.trackOnce("installed", "installed", { returning: install.returning }, { at: install.at });
+      if (await r.client.hasTrackedOnce("installed")) await deps.store.set(PENDING_INSTALL_KEY, null).catch(() => undefined);
     }
-    await deps.store.set(PENDING_INSTALL_KEY, null).catch(() => undefined);
+    const update = await readPending(PENDING_UPDATE_KEY);
+    if (update?.from) {
+      const marker = `updated:${r.context.appVersion}`;
+      await r.client.trackOnce(marker, "updated", { from: update.from, to: r.context.appVersion }, { at: update.at });
+      if (await r.client.hasTrackedOnce(marker)) await deps.store.set(PENDING_UPDATE_KEY, null).catch(() => undefined);
+    }
   };
+
+  let resolveAccount!: () => void;
+  // The latest account change (identify or let go); resolution waits for it, so the change always
+  // lands before the first send.
+  let accountOp: Promise<unknown> = Promise.resolve();
+  const accountKnown = new Promise<void>((r) => (resolveAccount = r));
+  const sendGate = Promise.race([accountKnown, new Promise((r) => setTimeout(r, ACCOUNT_RESOLUTION_LIMIT_MS))]);
 
   const reportExtensionEnabled = async (r: Ready, enabled: boolean | null): Promise<void> => {
     if (enabled === true) await r.client.trackOnce("extension_enabled", "setup_step", { step: "extension_enabled" });
@@ -137,17 +158,16 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
     async setSharing(enabled) {
       const r = await ready();
       if (!r) return !enabled;
-      if (!enabled && consent) {
-        // One last, property-free event so the opt-out rate is measurable.
-        await r.client.track("sharing_turned_off", {});
-        await r.client.flush();
-      }
+      const wasOn = consent;
+      if (!enabled) consent = false; // takes effect now, before any native or network round trip
       consent = await deps.bridge.setAnalyticsConsent(enabled).catch(() => consent);
       if (consent) {
         await emitPending(r);
         void r.client.flush();
       } else {
+        // Nothing waiting is sent; then one short standalone attempt records the opt-out.
         await r.client.clearQueue();
+        if (wasOn && !enabled) void r.client.sendOptOut();
       }
       return consent;
     },
@@ -163,13 +183,12 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       const r = await ready();
       if (!r) return;
       const { client, context } = r;
-      if (context.previousVersion || context.created) {
-        await deps.store.set(PENDING_INSTALL_KEY, {
-          kind: context.previousVersion ? "updated" : "installed",
-          returning: context.returning,
-          from: context.previousVersion,
-          at: now(),
-        }).catch(() => undefined);
+      if (context.previousVersion) {
+        await deps.store.set(PENDING_UPDATE_KEY, { kind: "updated", returning: false, from: context.previousVersion, at: now() })
+          .catch(() => undefined);
+      } else if (context.created && !(await readPending(PENDING_INSTALL_KEY))) {
+        await deps.store.set(PENDING_INSTALL_KEY, { kind: "installed", returning: context.returning, from: null, at: now() })
+          .catch(() => undefined);
       }
       await emitPending(r);
       await client.trackOnce("app_opened", "setup_step", { step: "app_opened" });
@@ -185,13 +204,24 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       await reportExtensionEnabled(r, fresh?.extensionEnabled ?? null);
       await r.client.trackDaily("active", "active", {});
     },
-    async identifyAccount(userId) {
-      const r = await ready();
-      if (r) await r.identify(userId);
+    identifyAccount(userId) {
+      const op = (async () => {
+        const r = await ready();
+        if (r) await r.identify(userId);
+      })();
+      accountOp = accountOp.then(() => op);
+      return op;
     },
-    async accountAbsent() {
-      const r = await ready();
-      if (r) await r.client.reset({ onlyIfSignedIn: true, forgetAccount: true });
+    accountResolved() {
+      void accountOp.catch(() => undefined).then(() => resolveAccount());
+    },
+    accountAbsent() {
+      const op = (async () => {
+        const r = await ready();
+        if (r) await r.client.reset({ onlyIfSignedIn: true, forgetAccount: true });
+      })();
+      accountOp = accountOp.then(() => op);
+      return op;
     },
   };
 }

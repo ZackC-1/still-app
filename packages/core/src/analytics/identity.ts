@@ -47,13 +47,16 @@ export function isAnalyticsId(value: unknown): value is string {
 interface StoredInstall {
   readonly installId: string;
   readonly anchorId: string;
+  /** An earlier anchor merged into this one, kept so the merge can be sent whenever sharing allows
+   * (the client sends it once, and again if a discarded queue lost it). */
+  readonly aliasOf?: string;
 }
 
 function parseStoredInstall(value: unknown): StoredInstall | null {
   if (typeof value !== "object" || value === null) return null;
-  const { installId, anchorId } = value as Record<string, unknown>;
+  const { installId, anchorId, aliasOf } = value as Record<string, unknown>;
   if (!isAnalyticsId(installId) || !isAnalyticsId(anchorId)) return null;
-  return { installId, anchorId };
+  return isAnalyticsId(aliasOf) && aliasOf !== anchorId ? { installId, anchorId, aliasOf } : { installId, anchorId };
 }
 
 export interface ResolveIdentityDeps {
@@ -81,9 +84,9 @@ export async function resolveAnalyticsIdentity(deps: ResolveIdentityDeps): Promi
     // the earlier id to be merged, so one person does not stay split in two.
     const shared = deps.shared ? await deps.shared.get(ANCHOR_KEY).catch(() => null) : null;
     if (isAnalyticsId(shared) && shared !== stored.anchorId) {
-      const record: StoredInstall = { installId: stored.installId, anchorId: shared };
+      const record: StoredInstall = { installId: stored.installId, anchorId: shared, aliasOf: stored.anchorId };
       await deps.local.set(INSTALL_KEY, record).catch(() => undefined);
-      return { ...record, created: false, returning: false, aliasOf: stored.anchorId };
+      return { ...record, created: false, returning: false };
     }
     return { ...stored, created: false, returning: false };
   }

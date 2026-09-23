@@ -139,6 +139,7 @@ final class AnalyticsIdentityTests: XCTestCase {
     let later = store.appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: nil)
     XCTAssertEqual(later.install.anchorId, "99999999-9999-4999-8999-999999999999")
     XCTAssertEqual(later.previousAnchorId, first.install.anchorId)
-    XCTAssertNil(store.appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: nil).previousAnchorId)
+    // Kept for later launches until replaced, so a merge lost while sharing was off is sent later.
+    XCTAssertEqual(store.appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: nil).previousAnchorId, first.install.anchorId)
   }
 }
