@@ -196,8 +196,10 @@ public final class AnalyticsIdentityStore {
   // MARK: Native message lanes
 
   /// The Safari extension's read-only lane: `{kind:"analyticsContext"}` →
-  /// `{analytics:{installId, anchorId, consent}}`. Unknown kinds return nil.
-  public func extensionReply(rawBody: Any) -> [String: Any]? {
+  /// `{analytics:{installId, anchorId, consent, platform, device}}`. Unknown kinds return nil.
+  /// `platform` ("ios"/"macos") and `device` ("phone"/"tablet"/"desktop") come from the native
+  /// handler, which knows them for certain; the browser's own platform report can mistake an iPad.
+  public func extensionReply(rawBody: Any, platform: String, device: String) -> [String: Any]? {
     guard let body = rawBody as? [String: Any], body["kind"] as? String == "analyticsContext"
     else { return nil }
     let install = extensionInstall()
@@ -205,7 +207,26 @@ public final class AnalyticsIdentityStore {
       "installId": install.installId,
       "anchorId": install.anchorId,
       "consent": consent,
+      "platform": platform,
+      "device": device,
     ]]
+  }
+
+  /// This device's class for analytics, from compile-time platform and the interface idiom.
+  public static func deviceClass(isPad: Bool) -> String {
+    #if os(macOS)
+    return "desktop"
+    #else
+    return isPad ? "tablet" : "phone"
+    #endif
+  }
+
+  public static var platformName: String {
+    #if os(macOS)
+    return "macos"
+    #else
+    return "ios"
+    #endif
   }
 
   static func isId(_ value: String) -> Bool {

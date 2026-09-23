@@ -321,6 +321,7 @@ final class WebBridgeRouter {
       "noticeSeen": context.noticeSeen,
       "extensionEnabled": extensionEnabled,
       "previousAnchorId": context.previousAnchorId ?? NSNull(),
+      "device": Self.analyticsDeviceClass,
     ]), nil)
   }
 
@@ -351,6 +352,15 @@ final class WebBridgeRouter {
 
   /// Still's own marketing version (`CFBundleShortVersionString`), which is the same namespace on
   /// every Apple platform.
+  /// Phone, tablet or desktop, for analytics.
+  private static var analyticsDeviceClass: String {
+    #if os(iOS)
+    return AnalyticsIdentityStore.deviceClass(isPad: UIDevice.current.userInterfaceIdiom == .pad)
+    #else
+    return AnalyticsIdentityStore.deviceClass(isPad: false)
+    #endif
+  }
+
   private static var marketingVersion: String {
     Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
   }

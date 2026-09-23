@@ -79,6 +79,7 @@ export function createBackgroundAnalytics(
   let identity: ReturnType<typeof resolveAnalyticsIdentity> | null = null;
   return createExtensionAnalyticsHost({
     surface: deps.isFirefox ? "firefox" : "chrome",
+    device: "desktop", // Still's Chrome and Firefox builds are desktop-only
     config: deps.config,
     appVersion: deps.appVersion,
     local: deps.local,

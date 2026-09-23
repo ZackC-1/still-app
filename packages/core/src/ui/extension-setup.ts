@@ -87,6 +87,7 @@ export function createExtensionUiController(
     persistence: purchase?.persistence,
     checkout: purchase?.checkout,
     analytics: options?.analytics,
+    where: options?.openedWhere,
   });
   if (options?.analytics && options.openedWhere) {
     options.analytics.track("opened", { where: options.openedWhere });

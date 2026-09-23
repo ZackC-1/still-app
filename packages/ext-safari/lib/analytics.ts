@@ -4,6 +4,8 @@ import {
   createExtensionAnalyticsHost,
   createPageAnalytics as createSharedPageAnalytics,
   isAnalyticsId,
+  isDeviceClass,
+  type AnalyticsDevice,
   type AnalyticsConfig,
   type AnalyticsIdentity,
   type AnalyticsKeyValue,
@@ -25,14 +27,23 @@ interface NativeAnalytics {
   readonly installId: string;
   readonly anchorId: string;
   readonly consent: boolean;
+  /** Compiled into the native handler, so it cannot confuse an iPad for a Mac. */
+  readonly platform: "ios" | "macos" | null;
+  readonly device: AnalyticsDevice | null;
 }
 
 export function parseNativeAnalytics(reply: unknown): NativeAnalytics | null {
   const analytics = (reply as { analytics?: unknown } | null)?.analytics;
   if (typeof analytics !== "object" || analytics === null) return null;
-  const { installId, anchorId, consent } = analytics as Record<string, unknown>;
+  const { installId, anchorId, consent, platform, device } = analytics as Record<string, unknown>;
   if (!isAnalyticsId(installId) || !isAnalyticsId(anchorId)) return null;
-  return { installId, anchorId, consent: consent !== false };
+  return {
+    installId,
+    anchorId,
+    consent: consent !== false,
+    platform: platform === "ios" || platform === "macos" ? platform : null,
+    device: isDeviceClass(device) ? device : null,
+  };
 }
 
 export interface SafariAnalyticsDeps {
@@ -73,8 +84,11 @@ export function createSafariBackgroundAnalytics(deps: SafariAnalyticsDeps): Safa
       if (latest) current = { installId: latest.installId, anchorId: latest.anchorId, created: false, returning: false };
       return current;
     };
+    // The native handler's own platform wins; the browser's answer is only a fallback.
+    const macos = first.platform ? first.platform === "macos" : os === "mac";
     return createExtensionAnalyticsHost({
-      surface: os === "mac" ? "safari-macos" : "safari-ios",
+      surface: macos ? "safari-macos" : "safari-ios",
+      device: first.device ?? (macos ? "desktop" : undefined),
       config: deps.config,
       appVersion: deps.appVersion,
       local: deps.local,

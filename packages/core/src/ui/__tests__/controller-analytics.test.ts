@@ -19,8 +19,8 @@ describe("UiController analytics", () => {
     c.toggleService("instagram");
     c.toggleGlobal();
     expect(calls).toEqual([
-      ["service_toggled", { service: "instagram", enabled: false }],
-      ["global_toggled", { enabled: false }],
+      ["service_toggled", { service: "instagram", enabled: false, where: "app" }],
+      ["global_toggled", { enabled: false, where: "app" }],
     ]);
   });
 

@@ -276,3 +276,6 @@ testing, plus store review time.
   `installed`), because blocking works from install; the first popup open is measured by `opened`.
   Safari keeps "the extension's first run". Verified live: a Chrome build's batches were accepted by
   PostHog (200), with the queue kept out of chrome.storage.local.
+- 2026-09-23: Owner request: switch flips carry `where` (popup, options, app), and every event carries
+  `device` (phone, tablet, desktop). The Safari extension takes platform and device from its native
+  handler (compile-time platform, UIKit idiom), so an iPad is never reported as a Mac.

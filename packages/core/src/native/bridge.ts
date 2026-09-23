@@ -1,7 +1,7 @@
 import type { AccountSyncStatus } from "../sync/account-status.js";
 import type { StillBridgeWindow, StillMessagePort } from "../storage/wkwebview-adapter.js";
 import { safeParse } from "../storage/settings-validation.js";
-import { isVersion } from "../analytics/events.js";
+import { isDeviceClass, isVersion, type AnalyticsDevice } from "../analytics/events.js";
 import { isAnalyticsId } from "../analytics/identity.js";
 
 // The native action client (U19): the web→native calls beyond settings get/set, posted through the
@@ -76,6 +76,8 @@ export interface AnalyticsContextReply {
   /** The anonymous id this device used before the app adopted a different anchor (the Safari
    * extension's provisional one, or an iCloud anchor that synced late), to be merged into it. */
   readonly previousAnchorId: string | null;
+  /** Phone, tablet or desktop, from the device itself. */
+  readonly device: AnalyticsDevice | null;
 }
 
 export class NativeBridge {
@@ -204,6 +206,7 @@ export class NativeBridge {
       noticeSeen: o.noticeSeen === true,
       extensionEnabled: typeof o.extensionEnabled === "boolean" ? o.extensionEnabled : null,
       previousAnchorId: id(o.previousAnchorId),
+      device: isDeviceClass(o.device) ? o.device : null,
     };
   }
 

@@ -19,6 +19,9 @@
 //
 
 import SafariServices
+#if os(iOS)
+import UIKit
+#endif
 import StillKit
 import os.log
 
@@ -28,6 +31,15 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
     private let entitlementBridge = EntitlementBridge(store: .appGroup(), readOnly: true)
     private let accountSyncStatus = AccountSyncStatusStore.appGroup()
     private let analytics = AnalyticsIdentityStore.appGroup()
+
+    /// Phone, tablet or desktop, for the analytics lane.
+    private static var deviceClass: String {
+        #if os(iOS)
+        return AnalyticsIdentityStore.deviceClass(isPad: UIDevice.current.userInterfaceIdiom == .pad)
+        #else
+        return AnalyticsIdentityStore.deviceClass(isPad: false)
+        #endif
+    }
 
     func beginRequest(with context: NSExtensionContext) {
         let request = context.inputItems.first as? NSExtensionItem
@@ -44,7 +56,10 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
         let payload: [String: Any]
         if let statusReply = message.flatMap({ accountSyncStatus.readReply(rawBody: $0) }) {
             payload = statusReply
-        } else if let analyticsReply = message.flatMap({ analytics.extensionReply(rawBody: $0) }) {
+        } else if let analyticsReply = message.flatMap({
+            analytics.extensionReply(
+                rawBody: $0, platform: AnalyticsIdentityStore.platformName, device: Self.deviceClass)
+        }) {
             // Read-only: the install ids and the app's "Share usage data" switch.
             payload = analyticsReply
         } else if let entitlementJSON = message.flatMap({ entitlementBridge.handle(rawBody: $0) }) {

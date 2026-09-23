@@ -15,6 +15,10 @@ Portal state changes; verify it directly before acting. Never put keys in this f
 | Supabase `analytics-identify` | the signed-in account's email onto its person, and `account_created` once per new account | Called only while sharing is on |
 | Supabase `delete-user` | deletes the account's person and events | Always, with the account |
 
+Every event carries `surface` (chrome, firefox, safari-ios, safari-macos, app-ios, app-macos),
+`store` (ios, macos, chrome, firefox) and `device` (phone, tablet, desktop), so Safari on an iPhone,
+an iPad and a Mac are separate lines in any chart. Switch flips carry `where` (popup, options, app).
+
 Every event is checked against `packages/core/src/analytics/events.ts`. No page, video, search or
 free text can be sent, and content scripts (on the sites people visit) send nothing.
 

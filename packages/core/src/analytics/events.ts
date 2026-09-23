@@ -47,8 +47,20 @@ export const CODE_FAILURE_REASONS = ["wrong", "expired", "rate_limited", "networ
 /** Where in the sheet someone gave up: before a code was sent, or while holding one. */
 export const SIGN_IN_STAGES = ["email", "code"] as const;
 
-/** Which Still screen was opened. */
+/** Which Still screen was opened, or where a switch was flipped: the extension's small toolbar popup,
+ * its full settings page, or the Apple app's own screen. */
 export const OPENED_WHERE = ["popup", "options", "app"] as const;
+export type AnalyticsWhere = (typeof OPENED_WHERE)[number];
+
+/** The kind of device, carried on every event: the Safari extension on an iPhone, an iPad and a Mac
+ * are three different things to support, and the store alone (ios / macos) cannot tell a phone
+ * from a tablet. */
+export const DEVICE_CLASSES = ["phone", "tablet", "desktop"] as const;
+export type AnalyticsDevice = (typeof DEVICE_CLASSES)[number];
+
+export function isDeviceClass(value: unknown): value is AnalyticsDevice {
+  return typeof value === "string" && (DEVICE_CLASSES as readonly string[]).includes(value);
+}
 
 /** Setup milestones a host can observe. `extension_enabled` is reported by the Mac app when Safari
  * says Still is on, and by the Safari extension itself the first time it runs (the only signal an
@@ -67,8 +79,8 @@ export const EVENT_SCHEMA = {
   // Activation.
   setup_step: { step: SETUP_STEPS },
   setup_completed: {},
-  global_toggled: { enabled: "boolean" },
-  service_toggled: { service: SERVICE_IDS, enabled: "boolean" },
+  global_toggled: { enabled: "boolean", where: OPENED_WHERE },
+  service_toggled: { service: SERVICE_IDS, enabled: "boolean", where: OPENED_WHERE },
   // Deliberately absent: any event from a content script, or naming a service someone visited.
   // Owner decision 2026-09-23 (ADR 0004): that would be browsing history, which Still never collects.
   // Sign-in funnel.

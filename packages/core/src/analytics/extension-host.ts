@@ -1,5 +1,5 @@
 import { AnalyticsClient, type AnalyticsConfig } from "./client.js";
-import type { AnalyticsSurface } from "./events.js";
+import type { AnalyticsDevice, AnalyticsSurface } from "./events.js";
 import type { AnalyticsIdentity, AnalyticsKeyValue } from "./identity.js";
 import type { UiAnalytics, UsageSharingState } from "../ui/controller.svelte.js";
 
@@ -24,6 +24,7 @@ export interface MessageSender {
 
 export interface ExtensionAnalyticsHostDeps {
   readonly surface: AnalyticsSurface;
+  readonly device?: AnalyticsDevice;
   readonly config: AnalyticsConfig;
   readonly appVersion: string;
   /** This extension's local storage: account, markers and notice flag. */
@@ -98,6 +99,7 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
   const client = new AnalyticsClient({
     config: deps.config,
     surface: deps.surface,
+    device: deps.device,
     appVersion: deps.appVersion,
     store: deps.local,
     queueStore: deps.queueStore,

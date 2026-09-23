@@ -3,10 +3,12 @@ import { EVENT_SCHEMA, storeForSurface, validateEvent, ANALYTICS_SURFACES } from
 
 describe("validateEvent", () => {
   it("accepts an event with exactly its schema properties", () => {
-    expect(validateEvent("service_toggled", { service: "youtube", enabled: false })).toEqual({
+    expect(validateEvent("service_toggled", { service: "youtube", enabled: false, where: "popup" })).toEqual({
       service: "youtube",
       enabled: false,
+      where: "popup",
     });
+    expect(validateEvent("service_toggled", { service: "youtube", enabled: false, where: "sidebar" })).toBeNull();
     expect(validateEvent("active", undefined)).toEqual({});
     expect(validateEvent("updated", { from: "2.0.0", to: "2.1.0" })).toEqual({ from: "2.0.0", to: "2.1.0" });
   });
@@ -21,7 +23,7 @@ describe("validateEvent", () => {
     expect(validateEvent("active", { url: "https://youtube.com/shorts/abc" })).toBeNull();
     expect(validateEvent("service_toggled", { service: "youtube" })).toBeNull();
     expect(validateEvent("service_toggled", { service: "youtube", enabled: "yes" })).toBeNull();
-    expect(validateEvent("service_toggled", { service: "vimeo", enabled: true })).toBeNull();
+    expect(validateEvent("service_toggled", { service: "vimeo", enabled: true, where: "popup" })).toBeNull();
     // Owner decision (ADR 0004): no event names a service someone visited.
     expect(validateEvent("blocking_worked", { service: "youtube" })).toBeNull();
     expect(validateEvent("installed", [true])).toBeNull();

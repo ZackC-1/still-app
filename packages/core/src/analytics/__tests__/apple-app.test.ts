@@ -18,6 +18,7 @@ const CONTEXT: AnalyticsContextReply = {
   noticeSeen: false,
   extensionEnabled: false,
   previousAnchorId: null,
+  device: "desktop",
 };
 
 function memory(): AnalyticsKeyValue & { data: Record<string, unknown> } {
@@ -132,7 +133,7 @@ describe("Apple app account and identity reconciliation", () => {
 
   it("any use in the app counts toward the day", async () => {
     const { app, events } = setup();
-    app.ui.track("service_toggled", { service: "youtube", enabled: false });
+    app.ui.track("service_toggled", { service: "youtube", enabled: false, where: "popup" });
     await app.start();
     expect(events().filter((e) => e.event === "active")).toHaveLength(1);
   });

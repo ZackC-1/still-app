@@ -62,6 +62,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       const client = new AnalyticsClient({
         config: deps.config,
         surface: context.platform === "macos" ? "app-macos" : "app-ios",
+        device: context.device ?? (context.platform === "macos" ? "desktop" : undefined),
         appVersion: context.appVersion,
         store: deps.store,
         identity: async () => ({

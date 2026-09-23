@@ -1,9 +1,11 @@
 import {
+  isDeviceClass,
   isVersion,
   storeForSurface,
   validateEvent,
   type AnalyticsEventName,
   type AnalyticsEventProps,
+  type AnalyticsDevice,
   type AnalyticsSurface,
 } from "./events.js";
 import { isAnalyticsId, type AnalyticsIdentity, type AnalyticsKeyValue } from "./identity.js";
@@ -41,6 +43,8 @@ export interface AnalyticsConfig {
 export interface AnalyticsClientDeps {
   readonly config: AnalyticsConfig;
   readonly surface: AnalyticsSurface;
+  /** Phone, tablet or desktop. A value that is not one of those is not sent. */
+  readonly device?: AnalyticsDevice;
   readonly appVersion: string;
   /** Where the account, markers and anonymous id persist (small, rarely written). */
   readonly store: AnalyticsKeyValue;
@@ -357,6 +361,7 @@ export class AnalyticsClient {
         [`uses_store_${store}`]: true,
         [`last_version_${surface.replace("-", "_")}`]: appVersion,
         last_surface: surface,
+        ...(isDeviceClass(this.deps.device) ? { last_device: this.deps.device } : {}),
       },
       $set_once: {
         first_surface: surface,
@@ -424,6 +429,7 @@ export class AnalyticsClient {
         $geoip_disable: true,
         surface,
         store: storeForSurface(surface),
+        ...(isDeviceClass(this.deps.device) ? { device: this.deps.device } : {}),
         app_version: appVersion,
         signed_in: state.userId !== null,
         $set: name === "signed_out" ? { ...person.$set, signed_in: false } : person.$set,

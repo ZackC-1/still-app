@@ -13,13 +13,15 @@ function memory(): AnalyticsKeyValue & { data: Record<string, unknown> } {
   return { data, get: async (k) => structuredClone(data[k]), set: async (k, v) => void (data[k] = structuredClone(v)) };
 }
 
-function setup(native: { consent?: boolean; available?: boolean; signedIn?: boolean; os?: string } = {}, local = memory()) {
+function setup(native: { consent?: boolean; available?: boolean; signedIn?: boolean; os?: string; platform?: string; device?: string } = {}, local = memory()) {
   let consent = native.consent ?? true;
   let signedIn = native.signedIn ?? false;
   let clock = 1_000_000;
   const sendNative = vi.fn(async (message: Record<string, unknown>) => {
     if (native.available === false) throw new Error("no app");
-    if (message.kind === "analyticsContext") return { analytics: { installId: INSTALL, anchorId: ANCHOR, consent } };
+    if (message.kind === "analyticsContext") {
+      return { analytics: { installId: INSTALL, anchorId: ANCHOR, consent, platform: native.platform, device: native.device } };
+    }
     if (message.kind === "getAccountSyncStatus") {
       return signedIn
         ? { accountSyncStatus: JSON.stringify({ accountId: ACCOUNT, email: null, lastSyncedAt: null, pendingUpload: false, cloudReachable: true, updatedAt: 1 }) }
@@ -111,7 +113,12 @@ describe("Safari extension analytics", () => {
   it("rejects malformed native replies", () => {
     expect(parseNativeAnalytics({ analytics: { installId: "x", anchorId: ANCHOR } })).toBeNull();
     expect(parseNativeAnalytics(null)).toBeNull();
-    expect(parseNativeAnalytics({ analytics: { installId: INSTALL, anchorId: ANCHOR } })).toEqual({ installId: INSTALL, anchorId: ANCHOR, consent: true });
+    expect(parseNativeAnalytics({ analytics: { installId: INSTALL, anchorId: ANCHOR } })).toEqual({
+      installId: INSTALL, anchorId: ANCHOR, consent: true, platform: null, device: null,
+    });
+    expect(parseNativeAnalytics({ analytics: { installId: INSTALL, anchorId: ANCHOR, platform: "ios", device: "tablet" } }))
+      .toMatchObject({ platform: "ios", device: "tablet" });
+    expect(parseNativeAnalytics({ analytics: { installId: INSTALL, anchorId: ANCHOR, device: "https://x" } })?.device).toBeNull();
   });
 });
 
@@ -156,4 +163,20 @@ describe("Safari follows the app's account while running", () => {
     const opened = events().find((e) => e.event === "opened")!;
     expect(opened.properties.signed_in).toBe(false);
   });
+});
+
+describe("Safari on iPhone, iPad and Mac are told apart", () => {
+  for (const [platform, device, os, surface] of [
+    ["ios", "phone", "ios", "safari-ios"],
+    ["ios", "tablet", "mac", "safari-ios"], // an iPad the browser reports as a Mac: native wins
+    ["macos", "desktop", "mac", "safari-macos"],
+  ] as const) {
+    it(`${device} reports surface ${surface} and device ${device}`, async () => {
+      const { bg, settle, events } = setup({ platform, device, os });
+      bg.onStart();
+      await settle();
+      const e = events().find((x) => x.event === "active")!;
+      expect(e.properties).toMatchObject({ surface, device, store: platform === "macos" ? "macos" : "ios" });
+    });
+  }
 });

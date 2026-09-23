@@ -61,7 +61,7 @@ describe("analyticsConfigured", () => {
 describe("AnalyticsClient", () => {
   it("queues a valid event with surface, store, version and person properties, then sends it", async () => {
     const h = harness();
-    await h.client.track("service_toggled", { service: "instagram", enabled: false });
+    await h.client.track("service_toggled", { service: "instagram", enabled: false, where: "popup" });
     expect(h.timers).toHaveLength(1);
     await h.client.flush();
     expect(h.fetch).toHaveBeenCalledWith("https://us.i.posthog.com/batch/", expect.objectContaining({ method: "POST" }));
@@ -202,7 +202,7 @@ describe("AnalyticsClient", () => {
     const h = harness({ fetch: failing });
     await h.client.track("active", {});
     await h.client.identify(U1);
-    await h.client.track("service_toggled", { service: "youtube", enabled: false });
+    await h.client.track("service_toggled", { service: "youtube", enabled: false, where: "popup" });
     await h.client.reset({ forgetAccount: true });
     await h.client.track("account_deleted", {});
     const events = h.queue();

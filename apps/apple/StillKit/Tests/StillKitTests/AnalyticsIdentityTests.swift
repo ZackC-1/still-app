@@ -72,11 +72,13 @@ final class AnalyticsIdentityTests: XCTestCase {
     let app = AnalyticsIdentityStore(group: group, newId: ids())
     let context = app.appContext(appVersion: "2.1.0", ubiquitous: MemoryKeyValue(), earlierInstallVersion: nil)
     app.setConsent(false)
-    let reply = AnalyticsIdentityStore(group: group, newId: ids()).extensionReply(rawBody: ["kind": "analyticsContext"])
+    let reply = AnalyticsIdentityStore(group: group, newId: ids()).extensionReply(rawBody: ["kind": "analyticsContext"], platform: "ios", device: "phone")
     let analytics = reply?["analytics"] as? [String: Any]
     XCTAssertEqual(analytics?["installId"] as? String, context.install.installId)
     XCTAssertEqual(analytics?["anchorId"] as? String, context.install.anchorId)
     XCTAssertEqual(analytics?["consent"] as? Bool, false)
+    XCTAssertEqual(analytics?["platform"] as? String, "ios")
+    XCTAssertEqual(analytics?["device"] as? String, "phone")
   }
 
   func testAnExtensionThatRunsFirstStillLetsTheAppReportAndShare() {
@@ -122,7 +124,7 @@ final class AnalyticsIdentityTests: XCTestCase {
     let group = MemoryKeyValue()
     group.set("{\"installId\":\"https://x\",\"anchorId\":\"y\"}", forKey: AnalyticsIdentityStore.installKey)
     let store = AnalyticsIdentityStore(group: group, newId: ids())
-    XCTAssertNil(store.extensionReply(rawBody: ["kind": "set"]))
+    XCTAssertNil(store.extensionReply(rawBody: ["kind": "set"], platform: "ios", device: "phone"))
     XCTAssertNil(store.storedInstall())
     XCTAssertTrue(AnalyticsIdentityStore.isId(store.extensionInstall().installId))
   }

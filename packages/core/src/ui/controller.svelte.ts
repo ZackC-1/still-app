@@ -10,7 +10,7 @@ import type {
   VerifyCodeOutcome,
   WebCheckoutOutcome,
 } from "../sync/ports.js";
-import type { AnalyticsEventName, AnalyticsEventProps } from "../analytics/events.js";
+import type { AnalyticsEventName, AnalyticsEventProps, AnalyticsWhere } from "../analytics/events.js";
 
 // The host-agnostic view-model for the shared UI (KTD4). It reads/writes settings through the
 // injected SettingsCache and exposes the sync/auth/paywall state matrix (U9). The same controller
@@ -244,6 +244,8 @@ export interface UiControllerDeps {
   readonly clock?: () => number;
   /** Product analytics (optional: absent in tests and unconfigured builds). */
   readonly analytics?: UiAnalytics;
+  /** Which screen this controller drives, reported with each switch flip. Defaults to "app". */
+  readonly where?: AnalyticsWhere;
 }
 
 export class UiController {
@@ -326,6 +328,7 @@ export class UiController {
   private readonly persistence?: AuthPersistence;
   private readonly checkout?: UiCheckout;
   private readonly analytics?: UiAnalytics;
+  private readonly where: AnalyticsWhere;
   private readonly now: () => number;
   /** When the current code was requested — drives the resend countdown and expiry detection. */
   private codeRequestedAt: number | null = null;
@@ -363,6 +366,7 @@ export class UiController {
     this.persistence = deps.persistence;
     this.checkout = deps.checkout;
     this.analytics = deps.analytics;
+    this.where = deps.where ?? "app";
     this.now = deps.clock ?? (() => Date.now());
     this.settings = deps.cache.current();
     deps.cache.subscribe((s) => {
@@ -620,13 +624,13 @@ export class UiController {
   toggleGlobal(): void {
     const enabled = !this.settings.globalOn;
     void this.cache.setGlobalOn(enabled);
-    this.track("global_toggled", { enabled });
+    this.track("global_toggled", { enabled, where: this.where });
   }
 
   toggleService(id: ServiceId): void {
     const enabled = !this.settings.services[id];
     void this.cache.setService(id, enabled);
-    this.track("service_toggled", { service: id, enabled });
+    this.track("service_toggled", { service: id, enabled, where: this.where });
   }
 
   /** True when a service's surfaces are Pro-gated and this user isn't entitled — the row renders
