@@ -8,7 +8,7 @@ Portal state changes; verify it directly before acting. Never put keys in this f
 
 | Surface | Sends | Consent |
 |---|---|---|
-| Chrome extension background | installs (returning or not), updates, setup, active days, popup/options events | On by default; one-time notice; switch in options |
+| Chrome extension background | installs (returning or not) with setup complete at install, updates, active days, popup/options events | On by default; one-time notice; switch in options |
 | Firefox extension background | the same | Off until the optional `technicalAndInteraction` permission is granted |
 | iPhone / Mac app web view | installs or updates, app opened, Mac extension enabled, opens, active days, sign-in funnel | On by default; one-time notice; switch in the app |
 | Safari extension (iPhone / Mac) | setup complete, extension enabled, active days, popup events, under the app's install | Follows the app's switch |

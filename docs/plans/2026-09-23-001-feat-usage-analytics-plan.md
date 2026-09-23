@@ -94,7 +94,8 @@ worker, popups, the Apple app's web view and the Safari extension.
     `active` (at most once a day per install).
   - Activation: `setup_step {step}`, `setup_completed` (Mac: the Safari extension is really enabled,
     checked through `SFSafariExtensionManager`; iPhone: the first event from the Safari extension;
-    Chrome/Firefox: first popup open), `service_toggled {service, enabled}`, `pause_started`.
+    Chrome/Firefox: at install, since blocking works from then on; popup opens are the separate `opened`
+    event), `service_toggled {service, enabled}`, `global_toggled {enabled}`.
   - (Removed by owner decision: a per-service daily `blocking_worked`. It would be browsing history.)
   - Sign-in funnel: `sign_in_opened`, `code_requested`, `code_failed {reason: wrong|expired|rate_limited|network}`,
     `sign_in_abandoned` (sheet closed before verifying), `account_created` (sent by the server once per new account),
@@ -271,3 +272,7 @@ testing, plus store review time.
   per account (app metadata marker), not by a client-side time window; location derivation is
   disabled on every event (policy updated, no location declared); the Swift test suite name is
   unique and cleaned up.
+- 2026-09-23: Owner decision: Chrome/Firefox `setup_completed` fires at install (immediately after
+  `installed`), because blocking works from install; the first popup open is measured by `opened`.
+  Safari keeps "the extension's first run". Verified live: a Chrome build's batches were accepted by
+  PostHog (200), with the queue kept out of chrome.storage.local.

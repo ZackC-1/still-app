@@ -128,10 +128,6 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
         await client.trackUnchecked(request.name, request.props);
         // Any use counts toward the day, not only a background start (a worker can live overnight).
         await client.trackDaily("active", "active", {});
-        // Chrome and Firefox: setup is complete the first time someone opens Still's popup.
-        if (request.name === "opened" && (deps.surface === "chrome" || deps.surface === "firefox")) {
-          await client.trackOnce("setup_completed", "setup_completed", {});
-        }
         return true;
       case "identify":
         await identify(request.userId);
@@ -161,7 +157,14 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
       if (details.reason === "install") {
         void deps
           .identity()
-          .then((id) => client.track("installed", { returning: id.returning }))
+          .then(async (id) => {
+            await client.track("installed", { returning: id.returning });
+            // Chrome and Firefox block from the moment of install; there is no further setup step.
+            // (Safari's setup is complete only once Safari runs the extension; see onStart.)
+            if (deps.surface === "chrome" || deps.surface === "firefox") {
+              await client.trackOnce("setup_completed", "setup_completed", {});
+            }
+          })
           .catch(() => {});
       } else if (details.reason === "update" && details.previousVersion !== deps.appVersion) {
         void client.trackUnchecked("updated", { from: details.previousVersion, to: deps.appVersion });

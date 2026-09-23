@@ -190,14 +190,22 @@ describe("account changes outside the popup", () => {
 });
 
 describe("activation milestones and active days", () => {
-  it("setup completes at the first popup open, not at a background start, and use counts the day", async () => {
-    const { bg, send, queue } = setup();
-    bg.onStart(null);
+  it("setup completes at install, right after installed; opening the popup is its own event", async () => {
+    const { bg, send, queue, settle } = setup();
+    bg.onInstalled({ reason: "install" });
+    await settle();
     await bg.client.trackDaily("drain", "active", {});
-    expect(queue().some((e) => e.event === "setup_completed")).toBe(false);
-    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } }, PAGE);
+    expect(queue().map((e) => e.event).slice(0, 2)).toEqual(["installed", "setup_completed"]);
     await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } }, PAGE);
     expect(queue().filter((e) => e.event === "setup_completed")).toHaveLength(1);
+    expect(queue().filter((e) => e.event === "opened")).toHaveLength(1);
+  });
+
+  it("an update never reports setup", async () => {
+    const { bg, queue } = setup();
+    bg.onInstalled({ reason: "update", previousVersion: "2.0.0" });
+    await bg.client.trackDaily("drain", "active", {});
+    expect(queue().some((e) => e.event === "setup_completed")).toBe(false);
   });
 
   it("a background that lives past midnight still records the next day's use", async () => {
