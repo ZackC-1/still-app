@@ -1,6 +1,6 @@
 # Usage analytics, download attribution and revenue check (Still 2.1)
 
-Status: in progress, unit 1 (core analytics module) implemented
+Status: in progress, all code units implemented; review and owner release steps remain
 Owner: Claude Code / founder-directed
 Created: 2026-09-23
 Source branch: `feat/usage-analytics`
@@ -251,3 +251,13 @@ testing, plus store review time.
 - 2026-09-23: Unit 1 landed: `packages/core/src/analytics/` (schema, identity, consent, client), the
   `UiController` analytics seam and sign-in funnel events, and `accountCreatedAt` on verified
   outcomes. Apple sales reports returned 403 for the App Manager API key; a Sales/Finance key is needed.
+- 2026-09-23: Units 2–5 landed on `feat/usage-analytics` (draft PR #200): Chrome/Firefox wiring and
+  Firefox optional consent; shared extension host; server email attach and deletion; Apple app,
+  StillKit identity store and Safari extension; privacy policy (including PostHog's AI analysis,
+  which the owner keeps on), website wording, ADR 0004 and the PostHog runbook. Verified locally:
+  lint, typecheck, all package tests, build, fixture Playwright (51 passed, 2 skipped), Deno (143),
+  StillKit `swift test` (139) and unsigned Xcode builds for iOS and macOS. The fixture run caught
+  the notice overflowing the 600px popup; it now floats in the compact popup.
+- Remaining: code review and fixes; owner PostHog settings and function secrets; on-device iPhone
+  and Mac checks; store privacy declarations (including the Browsing History decision); publishing
+  the policy and website with the 2.1 submissions; the Sales/Finance App Store Connect key.
