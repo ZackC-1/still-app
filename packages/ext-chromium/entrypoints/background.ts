@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { browser } from "wxt/browser";
 import { SettingsCache, ChromeStorageAdapter } from "@still/core/storage";
 import { ChromeEntitlementAdapter } from "@still/core/entitlement";
@@ -49,24 +49,6 @@ import { createBackgroundAnalytics, storageKeyValue } from "../lib/analytics.js"
 const RULESET_ID = "youtube-shorts-redirect";
 
 export default defineBackground(() => {
-  // Registered first and synchronously: onInstalled fires once, early, on a fresh install/update.
-  const analytics = createBackgroundAnalytics(
-    {
-      isFirefox: Boolean(import.meta.env.FIREFOX),
-      config: {
-        key: import.meta.env.VITE_POSTHOG_KEY as string | undefined,
-        host: import.meta.env.VITE_POSTHOG_HOST as string | undefined,
-      },
-      appVersion: browser.runtime.getManifest().version,
-      local: storageKeyValue(chrome.storage.local),
-      shared: chrome.storage.sync ? storageKeyValue(chrome.storage.sync) : null,
-    },
-    chrome.runtime.id,
-    chrome.runtime.getURL(""),
-  );
-  chrome.runtime.onInstalled.addListener((details) => analytics.onInstalled(details));
-  chrome.runtime.onMessage.addListener(analytics.listener);
-
   const refreshRuleSet = createRuleSetRefresher({
     prod: import.meta.env.PROD,
     url: import.meta.env.VITE_SUPABASE_URL as string | undefined,
@@ -90,7 +72,33 @@ export default defineBackground(() => {
   const cache = new SettingsCache(new ChromeStorageAdapter());
   cache.watch();
   const hydrated = cache.hydrate();
-  const session = createSessionSpine(cache);
+  const spine = createSessionSpine(cache);
+  const session = spine?.session ?? null;
+
+  // Registered in the background's first synchronous pass: onInstalled fires once, early, on a
+  // fresh install or update, and a listener added after an await would miss it.
+  const analytics = createBackgroundAnalytics(
+    {
+      isFirefox: Boolean(import.meta.env.FIREFOX),
+      config: {
+        key: import.meta.env.VITE_POSTHOG_KEY as string | undefined,
+        host: import.meta.env.VITE_POSTHOG_HOST as string | undefined,
+      },
+      appVersion: browser.runtime.getManifest().version,
+      local: storageKeyValue(chrome.storage.local),
+      shared: chrome.storage.sync ? storageKeyValue(chrome.storage.sync) : null,
+      identifyOnServer: spine
+        ? async () => {
+            const { error } = await spine.client.functions.invoke("analytics-identify", { body: {} });
+            if (error) throw error;
+          }
+        : undefined,
+    },
+    chrome.runtime.id,
+    chrome.runtime.getURL(""),
+  );
+  chrome.runtime.onInstalled.addListener((details) => analytics.onInstalled(details));
+  chrome.runtime.onMessage.addListener(analytics.listener);
 
   // Content-script nudge — the ONLY handler a content-script sender may reach (plan KTD sender
   // rule; these scripts run inside instagram/tiktok/facebook/youtube pages). Fired at
@@ -153,7 +161,9 @@ export default defineBackground(() => {
  * `detectSessionInUrl: false`, `autoRefreshToken: false` (refresh is lazy — getSession() on wake),
  * over the chrome.storage.local auth adapter under its distinct storageKey.
  */
-function createSessionSpine(cache: SettingsCache): ExtensionSession | null {
+function createSessionSpine(
+  cache: SettingsCache,
+): { session: ExtensionSession; client: SupabaseClient } | null {
   const config = extensionSupabaseConfig(
     import.meta.env.VITE_SUPABASE_URL as string | undefined,
     import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined,
@@ -190,7 +200,7 @@ function createSessionSpine(cache: SettingsCache): ExtensionSession | null {
   const backend = new SupabaseBackendPort(client);
   const identity = createIdentityStore();
 
-  return createExtensionSession({
+  const session = createExtensionSession({
     auth,
     backend,
     records: new ChromeEntitlementAdapter(),
@@ -206,4 +216,5 @@ function createSessionSpine(cache: SettingsCache): ExtensionSession | null {
     // it on disk for the next wake to resurrect.
     clearAuthStorage: clearExtensionAuthStorage,
   });
+  return { session, client };
 }

@@ -1,5 +1,6 @@
 import { handleDeleteUser } from "./handler.ts";
 import { authenticatedClaims } from "../_shared/jwt.ts";
+import { HttpPostHog, postHogConfigFromEnv } from "../_shared/posthog.ts";
 import { SupabaseUserStore } from "../_shared/supabase-store.ts";
 
 // Entrypoint (config.toml: verify_jwt=true). delete-user needs admin to remove the auth user.
@@ -11,5 +12,6 @@ const jwtSecret = Deno.env.get("SUPABASE_JWT_SECRET") ?? "";
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const jwksUrl = supabaseUrl ? `${supabaseUrl}/auth/v1/.well-known/jwks.json` : undefined;
 const expected = authenticatedClaims(supabaseUrl || undefined);
+const posthog = new HttpPostHog(postHogConfigFromEnv((name) => Deno.env.get(name)));
 
-Deno.serve((req) => handleDeleteUser(req, { jwtSecret, jwksUrl, expected, store }));
+Deno.serve((req) => handleDeleteUser(req, { jwtSecret, jwksUrl, expected, store, posthog }));

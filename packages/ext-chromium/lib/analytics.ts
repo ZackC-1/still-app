@@ -23,6 +23,7 @@ import { isExtensionPageSender, type SessionMessageSender } from "./session-mess
 export const ANALYTICS_MESSAGE_KIND = "still:analytics";
 export const BLOCKED_MESSAGE_KIND = "blocked";
 const NOTICE_KEY = "still:analytics:notice-seen";
+const SERVER_IDENTIFIED_KEY = "still:analytics:server-identified";
 const FIREFOX_DATA = { data_collection: ["technicalAndInteraction"] };
 
 type AnalyticsRequest =
@@ -69,6 +70,9 @@ export interface BackgroundAnalyticsDeps {
   readonly fetch?: typeof fetch;
   readonly now?: () => number;
   readonly uuid?: () => string;
+  /** Ask Still's server to put the signed-in account's email on its PostHog person
+   * (analytics-identify). Absent on builds without Supabase. */
+  readonly identifyOnServer?: () => Promise<void>;
 }
 
 export interface BackgroundAnalytics {
@@ -113,6 +117,20 @@ export function createBackgroundAnalytics(
     uuid,
   });
 
+  // Identify the install, and once per account (while sharing is on) have the server attach the
+  // account's email. The email itself never passes through this extension's analytics.
+  const identify = async (userId: string): Promise<void> => {
+    await client.identify(userId);
+    if (!deps.identifyOnServer || !client.enabled || !(await consent())) return;
+    if ((await deps.local.get(SERVER_IDENTIFIED_KEY).catch(() => null)) === userId) return;
+    try {
+      await deps.identifyOnServer();
+      await deps.local.set(SERVER_IDENTIFIED_KEY, userId);
+    } catch {
+      /* retried on the next start */
+    }
+  };
+
   const sharing = async (): Promise<UsageSharingState | null> => {
     if (!client.enabled) return null;
     const enabled = await consent();
@@ -126,7 +144,7 @@ export function createBackgroundAnalytics(
         await client.trackUnchecked(request.name, request.props);
         return true;
       case "identify":
-        await client.identify(request.userId);
+        await identify(request.userId);
         return true;
       case "reset":
         await client.reset();
@@ -161,7 +179,7 @@ export function createBackgroundAnalytics(
       }
     },
     onStart(userId) {
-      if (userId) void client.identify(userId);
+      if (userId) void identify(userId);
       void client.trackDaily("active", "active", {});
       void client.flush();
     },

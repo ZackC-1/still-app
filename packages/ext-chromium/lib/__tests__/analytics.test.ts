@@ -12,7 +12,7 @@ function memory(initial: Record<string, unknown> = {}): AnalyticsKeyValue & { da
   return { data, get: async (k) => structuredClone(data[k]), set: async (k, v) => void (data[k] = structuredClone(v)) };
 }
 
-function setup(over: { isFirefox?: boolean; granted?: boolean; shared?: AnalyticsKeyValue } = {}) {
+function setup(over: { isFirefox?: boolean; granted?: boolean; shared?: AnalyticsKeyValue; identifyOnServer?: () => Promise<void> } = {}) {
   const local = memory();
   let n = 0;
   const fetch = vi.fn(async () => new Response("{}", { status: 200 }));
@@ -26,6 +26,7 @@ function setup(over: { isFirefox?: boolean; granted?: boolean; shared?: Analytic
       firefoxPermissionGranted: async () => over.granted ?? false,
       fetch: fetch as unknown as typeof globalThis.fetch,
       uuid: () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`,
+      identifyOnServer: over.identifyOnServer,
     },
     RUNTIME_ID,
     ORIGIN,
@@ -142,5 +143,29 @@ describe("page analytics", () => {
     expect(await page.sharing!()).toBeNull();
     expect(await page.setSharing!(false)).toBe(true);
     expect(() => page.track("opened", { where: "popup" })).not.toThrow();
+  });
+});
+
+describe("server-side email attach", () => {
+  it("runs once per account while sharing is on, and retries after a failure", async () => {
+    let fail = true;
+    const identifyOnServer = vi.fn(async () => {
+      if (fail) throw new Error("offline");
+    });
+    const { send } = setup({ identifyOnServer });
+    const identify = (userId: string) => send({ kind: ANALYTICS_MESSAGE_KIND, action: "identify", userId }, PAGE);
+    await identify("u1");
+    fail = false;
+    await identify("u1");
+    await identify("u1");
+    await identify("u2");
+    expect(identifyOnServer).toHaveBeenCalledTimes(3); // failed u1, retried u1, then u2
+  });
+
+  it("never runs while sharing is off", async () => {
+    const identifyOnServer = vi.fn(async () => {});
+    const { send } = setup({ isFirefox: true, granted: false, identifyOnServer });
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "identify", userId: "u1" }, PAGE);
+    expect(identifyOnServer).not.toHaveBeenCalled();
   });
 });

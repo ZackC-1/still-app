@@ -395,6 +395,10 @@ verify_jwt = true
 [functions.export-user-data]
 verify_jwt = true
 
+[functions.analytics-identify]
+# verify_jwt=true: the subject is only the verified JWT's; the email is read server-side, never sent.
+verify_jwt = true
+
 [functions.selector-canary]
 # Invoked by Supabase cron / scheduled trigger, not by an end user. No user JWT involved. A schedule
 # is not an access boundary, so every invocation is gated inside the function by a constant-time
