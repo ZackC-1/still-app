@@ -115,3 +115,44 @@ describe("UiController analytics", () => {
     expect(spy).toHaveBeenCalled();
   });
 });
+
+describe("UiController usage sharing", () => {
+  const flush = () => new Promise((r) => setTimeout(r, 0));
+
+  it("shows no switch when the build has no analytics", async () => {
+    const { c } = makeController();
+    await flush();
+    expect(c.usageSharing).toBeNull();
+    expect(c.usageNoticeVisible).toBe(false);
+  });
+
+  it("loads the state, shows the notice once, and the notice's off button turns sharing off", async () => {
+    const { analytics } = recordingAnalytics();
+    const setSharing = vi.fn(async (enabled: boolean) => enabled);
+    const acknowledgeNotice = vi.fn();
+    const { c } = makeController({
+      analytics: { ...analytics, sharing: async () => ({ enabled: true, noticeNeeded: true }), setSharing, acknowledgeNotice },
+    });
+    await flush();
+    expect(c.usageSharing).toBe(true);
+    expect(c.usageNoticeVisible).toBe(true);
+    c.toggleUsageSharing();
+    expect(setSharing).toHaveBeenCalledWith(false); // synchronously, inside the tap
+    await flush();
+    expect(c.usageSharing).toBe(false);
+    expect(c.usageNoticeVisible).toBe(false);
+    expect(acknowledgeNotice).toHaveBeenCalledTimes(1);
+  });
+
+  it("a declined prompt leaves the switch where the host says it is", async () => {
+    const { analytics } = recordingAnalytics();
+    const { c } = makeController({
+      analytics: { ...analytics, sharing: async () => ({ enabled: false, noticeNeeded: false }), setSharing: async () => false },
+    });
+    await flush();
+    expect(c.usageNoticeVisible).toBe(false);
+    c.toggleUsageSharing();
+    await flush();
+    expect(c.usageSharing).toBe(false);
+  });
+});

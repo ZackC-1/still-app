@@ -783,3 +783,49 @@ describe("account identity and sync status", () => {
     expect(screen.queryByText("person@example.com")).toBeNull();
   });
 });
+
+describe("App usage sharing", () => {
+  function sharingController(state: { enabled: boolean; noticeNeeded: boolean }) {
+    const cache = new SettingsCache(new InMemoryStorageAdapter(null), { now: () => Date.now() });
+    return new UiController({
+      cache,
+      host: { canPurchase: false },
+      analytics: {
+        track: () => {},
+        identify: () => {},
+        reset: () => {},
+        sharing: async () => state,
+        setSharing: async (enabled) => enabled,
+        acknowledgeNotice: () => {},
+      },
+    });
+  }
+  const settle = async () => {
+    await new Promise((r) => setTimeout(r, 0));
+    await tick();
+  };
+
+  it("shows the settings switch on roomy surfaces and not in the compact popup", async () => {
+    const roomy = sharingController({ enabled: true, noticeNeeded: false });
+    const { unmount } = render(App, { controller: roomy });
+    await settle();
+    expect(screen.getByRole("switch", { name: STRINGS.usage.title })).toBeTruthy();
+    unmount();
+
+    const compact = sharingController({ enabled: true, noticeNeeded: false });
+    render(App, { controller: compact, compact: true });
+    await settle();
+    expect(screen.queryByRole("switch", { name: STRINGS.usage.title })).toBeNull();
+  });
+
+  it("the one-time notice says what is never shared and can turn sharing off", async () => {
+    const c = sharingController({ enabled: true, noticeNeeded: true });
+    render(App, { controller: c, compact: true });
+    await settle();
+    expect(screen.getByText(STRINGS.usage.notice)).toBeTruthy();
+    await fireEvent.click(screen.getByRole("button", { name: STRINGS.usage.noticeTurnOff }));
+    await settle();
+    expect(c.usageSharing).toBe(false);
+    expect(screen.queryByText(STRINGS.usage.notice)).toBeNull();
+  });
+});
