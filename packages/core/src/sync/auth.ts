@@ -150,7 +150,14 @@ export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
               refresh_token: rt,
             });
             const userId = typeof uid === "string" ? uid : data?.user?.id;
-            if (!error && userId) return { kind: "verified", userId, email: data?.user?.email ?? null };
+            if (!error && userId) {
+              return {
+                kind: "verified",
+                userId,
+                email: data?.user?.email ?? null,
+                accountCreatedAt: data?.user?.created_at ?? null,
+              };
+            }
           } catch {
             // fall to verify-failed below — never leave the flow stuck mid-verify
           }
@@ -175,7 +182,14 @@ export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
         return { kind: "verify-failed" };
       }
       const userId = data.user?.id ?? data.session?.user.id;
-      return userId ? { kind: "verified", userId, email: data.user?.email ?? data.session?.user.email ?? null } : { kind: "verify-failed" };
+      return userId
+        ? {
+            kind: "verified",
+            userId,
+            email: data.user?.email ?? data.session?.user.email ?? null,
+            accountCreatedAt: data.user?.created_at ?? data.session?.user.created_at ?? null,
+          }
+        : { kind: "verify-failed" };
     } catch {
       return { kind: "verify-failed" };
     }

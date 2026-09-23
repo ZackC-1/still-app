@@ -77,14 +77,23 @@ describe("SupabaseAuthPort.verifyCode classification (R1/R5/R7)", () => {
     new SupabaseAuthPort(codeClient({ verifyOtp })).verifyCode("a@b.c", "123456");
 
   it("session returned → verified with the user id", async () => {
-    const verifyOtp = vi.fn(async () => ({ data: { user: { id: "u1" } }, error: null }));
-    expect(await verify(verifyOtp)).toEqual({ kind: "verified", userId: "u1", email: null });
+    const verifyOtp = vi.fn(async () => ({
+      data: { user: { id: "u1", created_at: "2026-09-23T18:00:00Z" } },
+      error: null,
+    }));
+    // The creation time rides along so the sign-in funnel can tell a new account from a return.
+    expect(await verify(verifyOtp)).toEqual({
+      kind: "verified",
+      userId: "u1",
+      email: null,
+      accountCreatedAt: "2026-09-23T18:00:00Z",
+    });
     expect(verifyOtp).toHaveBeenCalledWith({ email: "a@b.c", token: "123456", type: "email" });
   });
 
   it("user id falls back to the session payload when data.user is absent", async () => {
     const verifyOtp = vi.fn(async () => ({ data: { session: { user: { id: "u2" } } }, error: null }));
-    expect(await verify(verifyOtp)).toEqual({ kind: "verified", userId: "u2", email: null });
+    expect(await verify(verifyOtp)).toEqual({ kind: "verified", userId: "u2", email: null, accountCreatedAt: null });
   });
 
   it("otp_expired (wrong OR expired token — one server error by design) → invalid-code", async () => {
@@ -250,7 +259,7 @@ describe("review sign-in branch — verifyCode (AE7/AE9, R8/R9)", () => {
       "review@example.test",
       "654321",
     );
-    expect(out).toEqual({ kind: "verified", userId: "u-review", email: null });
+    expect(out).toEqual({ kind: "verified", userId: "u-review", email: null, accountCreatedAt: null });
     expect(setSession).toHaveBeenCalledWith({ access_token: "at", refresh_token: "rt" });
   });
 
@@ -272,7 +281,7 @@ describe("review sign-in branch — verifyCode (AE7/AE9, R8/R9)", () => {
     const invoke = vi.fn(async () => httpError(404));
     const verifyOtp = vi.fn(async () => ({ data: { user: { id: "u-fallback" } }, error: null }));
     const out = await reviewPort({ invoke, verifyOtp }).verifyCode("review@example.test", "111222");
-    expect(out).toEqual({ kind: "verified", userId: "u-fallback", email: null });
+    expect(out).toEqual({ kind: "verified", userId: "u-fallback", email: null, accountCreatedAt: null });
     expect(verifyOtp).toHaveBeenCalledWith({
       email: "review@example.test",
       token: "111222",

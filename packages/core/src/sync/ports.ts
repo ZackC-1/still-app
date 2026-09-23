@@ -41,7 +41,14 @@ export type RequestCodeOutcome =
 
 /** Outcome of verifying an entered code. */
 export type VerifyCodeOutcome =
-  | { readonly kind: "verified"; readonly userId: string; readonly email?: string | null }
+  | {
+      readonly kind: "verified";
+      readonly userId: string;
+      readonly email?: string | null;
+      /** The account's server creation time (ISO), so the sign-in funnel can tell a brand-new
+       * account from a returning one without asking. Absent when the transport does not say. */
+      readonly accountCreatedAt?: string | null;
+    }
   /** Wrong or expired token — the server reports both as one error, so they share a kind. */
   | { readonly kind: "invalid-code" }
   /** GoTrue `over_request_rate_limit` (per-IP verify throttle): NOT a code attempt, and the UI

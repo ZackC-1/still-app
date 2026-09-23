@@ -7,6 +7,7 @@ import {
   type CheckoutPending,
   type CheckoutReconcileOutcome,
   type UiAuth,
+  type UiAnalytics,
   type UiCheckout,
   type UiHost,
 } from "../../controller.svelte.js";
@@ -27,6 +28,7 @@ export function makeController(
     persistence?: AuthPersistence;
     checkout?: UiCheckout;
     clock?: () => number;
+    analytics?: UiAnalytics;
   } = {},
 ) {
   const cache = new SettingsCache(new InMemoryStorageAdapter(null), {
@@ -39,6 +41,7 @@ export function makeController(
     persistence: extra.persistence,
     checkout: extra.checkout,
     clock: extra.clock,
+    analytics: extra.analytics,
   });
   return { c, cache };
 }
@@ -93,4 +96,15 @@ export function checkoutSeam(over: Partial<UiCheckout> = {}) {
     ...over,
   };
   return { seam, order };
+}
+
+/** A recording UiAnalytics: every call lands in `calls` in order. */
+export function recordingAnalytics() {
+  const calls: (readonly [string, unknown?])[] = [];
+  const analytics: UiAnalytics = {
+    track: (name, props) => void calls.push([name, props]),
+    identify: (userId) => void calls.push(["$identify", userId]),
+    reset: () => void calls.push(["$reset"]),
+  };
+  return { analytics, calls };
 }

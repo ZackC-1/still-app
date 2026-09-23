@@ -10,6 +10,7 @@ import type {
   VerifyCodeOutcome,
   WebCheckoutOutcome,
 } from "../sync/ports.js";
+import type { AnalyticsEventName, AnalyticsEventProps } from "../analytics/events.js";
 
 // The host-agnostic view-model for the shared UI (KTD4). It reads/writes settings through the
 // injected SettingsCache and exposes the sync/auth/paywall state matrix (U9). The same controller
@@ -204,6 +205,21 @@ export interface UiCheckout {
   reconcile(): Promise<CheckoutReconcileOutcome>;
 }
 
+/** Host analytics seam. The controller reports what the person did (toggles, the sign-in funnel);
+ * the host owns the client, its consent and where it runs. Fire and forget: a failing analytics
+ * call must never touch the UI, so every method returns nothing. */
+export interface UiAnalytics {
+  track<E extends AnalyticsEventName>(name: E, props: AnalyticsEventProps<E>): void;
+  /** Attribute this install to the signed-in account. */
+  identify(userId: string): void;
+  /** Stop attributing to the account (sign-out, deletion). */
+  reset(): void;
+}
+
+/** A verified account created within this window counts as new in the sign-in funnel. The code
+ * that creates an account is the same code that signs in, so the account can be minutes old. */
+export const NEW_ACCOUNT_WINDOW_MS = 30 * 60_000;
+
 export interface UiControllerDeps {
   readonly cache: SettingsCache;
   readonly host: UiHost;
@@ -215,6 +231,8 @@ export interface UiControllerDeps {
   /** Injected clock (ms epoch) for the resend cooldown / OTP expiry — Date.now in real wiring,
    * controlled in tests (same seam as SettingsCache / the entitlement adapters). */
   readonly clock?: () => number;
+  /** Product analytics (optional: absent in tests and unconfigured builds). */
+  readonly analytics?: UiAnalytics;
 }
 
 export class UiController {
@@ -292,6 +310,7 @@ export class UiController {
   private readonly auth?: UiAuth;
   private readonly persistence?: AuthPersistence;
   private readonly checkout?: UiCheckout;
+  private readonly analytics?: UiAnalytics;
   private readonly now: () => number;
   /** When the current code was requested — drives the resend countdown and expiry detection. */
   private codeRequestedAt: number | null = null;
@@ -328,6 +347,7 @@ export class UiController {
     this.auth = deps.auth;
     this.persistence = deps.persistence;
     this.checkout = deps.checkout;
+    this.analytics = deps.analytics;
     this.now = deps.clock ?? (() => Date.now());
     this.settings = deps.cache.current();
     deps.cache.subscribe((s) => {
@@ -541,11 +561,15 @@ export class UiController {
   }
 
   toggleGlobal(): void {
-    void this.cache.setGlobalOn(!this.settings.globalOn);
+    const enabled = !this.settings.globalOn;
+    void this.cache.setGlobalOn(enabled);
+    this.track("global_toggled", { enabled });
   }
 
   toggleService(id: ServiceId): void {
-    void this.cache.setService(id, !this.settings.services[id]);
+    const enabled = !this.settings.services[id];
+    void this.cache.setService(id, enabled);
+    this.track("service_toggled", { service: id, enabled });
   }
 
   /** True when a service's surfaces are Pro-gated and this user isn't entitled — the row renders
@@ -583,10 +607,12 @@ export class UiController {
   }
 
   openSignIn(): void {
+    if (!this.signInOpen) this.track("sign_in_opened", {});
     this.signInOpen = true;
   }
 
   dismissSignIn(): void {
+    if (this.signInOpen) this.track("sign_in_abandoned", { stage: this.inCodeFlow ? "code" : "email" });
     this.authFlowGeneration += 1; // cancel any in-flight send/verify/resend continuation (F6)
     this.signInOpen = false;
     this.emailConsentGiven = false; // a fresh start asks again before collecting anything
@@ -954,12 +980,16 @@ export class UiController {
     const outcome = await this.auth!.requestCode!(email);
     if (this.authFlowGeneration !== gen) return; // dismissed mid-request — don't persist or enter
     if (outcome.kind === "sent") {
+      this.track("code_requested", {});
       this.enterCodeEntry(email, this.now());
       this.persistence?.setPendingOtp({
         email,
         requestedAt: this.codeRequestedAt!,
       });
     } else {
+      this.track("code_failed", {
+        reason: outcome.kind === "send-rate-limited" ? "rate_limited" : "network",
+      });
       this.authFlow = "error";
       if (outcome.kind === "send-rate-limited")
         this.startSendBlock(outcome.retryAfterSeconds);
@@ -990,6 +1020,7 @@ export class UiController {
       }
       this.userId = outcome.userId;
       this.accountEmail = outcome.email ?? null;
+      this.reportSignedIn(outcome.userId, outcome.accountCreatedAt);
       this.clearCodeFlow();
       this.authFlow = "idle";
       this.signInOpen = false;
@@ -1008,16 +1039,19 @@ export class UiController {
     } else if (outcome.kind === "invalid-code") {
       this.codeAttempts += 1;
       this.codeErrorKind = expired ? "expired" : "wrong";
+      this.track("code_failed", { reason: expired ? "expired" : "wrong" });
       this.authFlow = "code-error";
     } else if (outcome.kind === "verify-rate-limited") {
       // Per-IP verify throttle (R3): NOT an attempt (codeAttempts untouched — the code was never
       // judged), and the verify button locks so the wait can't be extended by hammering.
       this.codeErrorKind = "verify-rate-limited";
+      this.track("code_failed", { reason: "rate_limited" });
       this.authFlow = "code-error";
       this.startVerifyBlock(outcome.retryAfterSeconds);
     } else {
       // Network/backend failure: the code may still be good — not an attempt, calm retry copy.
       this.codeErrorKind = "check-failed";
+      this.track("code_failed", { reason: "network" });
       this.authFlow = "code-error";
     }
   }
@@ -1040,6 +1074,7 @@ export class UiController {
       const outcome = await this.auth.requestCode(email);
       if (this.authFlowGeneration !== gen) return; // abandoned mid-resend
       if (outcome.kind === "sent") {
+        this.track("code_requested", {});
         this.enterCodeEntry(email, this.now());
         this.persistence?.setPendingOtp({
           email,
@@ -1272,6 +1307,8 @@ export class UiController {
       /* swallow: the user asked to sign out; clear local state regardless */
     }
     if (this.userId !== null && this.accountRevision !== revision) return;
+    this.track("signed_out", {});
+    this.analyticsCall((a) => a.reset());
     this.resetToSignedOut();
   }
 
@@ -1300,6 +1337,8 @@ export class UiController {
       await this.auth.deleteAccount();
       if (this.userId !== null && this.accountRevision !== revision) return;
       // Account gone → mirror the signed-out reset.
+      this.track("account_deleted", {});
+      this.analyticsCall((a) => a.reset());
       this.resetToSignedOut();
       this.deleteFlow = "idle";
     } catch (e) {
@@ -1307,5 +1346,28 @@ export class UiController {
       this.deleteFlow = "error";
       this.deleteError = e instanceof Error ? e.message : String(e);
     }
+  }
+
+  // ── Analytics (fire and forget) ──────────────────────────────────────────────────────────────
+
+  private track<E extends AnalyticsEventName>(name: E, props: AnalyticsEventProps<E>): void {
+    this.analyticsCall((a) => a.track(name, props));
+  }
+
+  private analyticsCall(call: (analytics: UiAnalytics) => void): void {
+    if (!this.analytics) return;
+    try {
+      call(this.analytics);
+    } catch {
+      /* analytics never affects the UI */
+    }
+  }
+
+  /** Identify, then tell a brand-new account from a returning one by the server's creation time. */
+  private reportSignedIn(userId: string, createdAt: string | null | undefined): void {
+    this.analyticsCall((a) => a.identify(userId));
+    const created = createdAt ? Date.parse(createdAt) : Number.NaN;
+    const isNew = Number.isFinite(created) && this.now() - created < NEW_ACCOUNT_WINDOW_MS;
+    this.track(isNew ? "account_created" : "signed_in", {});
   }
 }
