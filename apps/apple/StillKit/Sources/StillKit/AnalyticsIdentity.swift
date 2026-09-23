@@ -5,10 +5,11 @@ import Foundation
 ///
 ///   * `installId` names this device's copy of Still. It lives in the App Group, so the app and its
 ///     Safari extension on the same device report as one install.
-///   * `anchorId` is the anonymous person id. The app shares it through iCloud key-value storage,
-///     so an iPhone and a Mac on the same Apple ID are recognised as one person without signing in.
-///     A device with iCloud unavailable, or where the extension ran before the app, uses its
-///     install id instead.
+///   * `anchorId` is the anonymous person id. A new device takes the anchor iCloud key-value storage
+///     already holds for this Apple ID, so an iPhone and a Mac are one person without signing in; the
+///     first device shares its own. Ids never change once made: a device whose record was made
+///     before iCloud delivered an anchor (or by the Safari extension first) keeps its own, and
+///     signing in merges it into the account.
 ///
 /// No device trait, IP address or advertising identifier is involved. Nothing here is sent
 /// anywhere by StillKit; the web layer reads it through the native bridge and reports it only
@@ -31,10 +32,6 @@ public struct AnalyticsAppContext: Equatable, Sendable {
   public let previousVersion: String?
   public let consent: Bool
   public let noticeSeen: Bool
-  /// The anonymous id this device reported under before the app adopted `install.anchorId` (the
-  /// Safari extension's provisional id, or a local anchor replaced by one that synced late through
-  /// iCloud). The web layer merges it into the new anchor once.
-  public let previousAnchorId: String?
 }
 
 /// A minimal key-value slot so tests need neither an App Group nor iCloud.
@@ -55,13 +52,6 @@ public final class AnalyticsIdentityStore {
   static let consentKey = "still.analytics.consent"
   static let noticeKey = "still.analytics.notice-seen"
   static let lastVersionKey = "still.analytics.last-version"
-  /// The anchor this device used before adopting its current one. Kept (not only returned once) so
-  /// the merge is sent whenever sharing allows; the web layer sends it once.
-  static let previousAnchorKey = "still.analytics.previous-anchor"
-  /// "local" when this device made its anchor, "shared" when it came from iCloud. Only a local anchor
-  /// may be merged into another: one from iCloud may already be another device's merge destination,
-  /// and aliasing it again would build a chain PostHog refuses.
-  static let anchorOriginKey = "still.analytics.anchor-origin"
   /// Set once the app has read the install record. The Safari extension can create the record
   /// first (it runs on page loads); the app's first read still has to report the install or update
   /// and share the anchor through iCloud.
@@ -127,50 +117,29 @@ public final class AnalyticsIdentityStore {
     let created = group.object(forKey: Self.appSeenKey) == nil
     var returning = false
     var install: AnalyticsInstall
-    var hadRecord = false
     if let existing = storedInstall() {
+      // Ids never change once made (the extension may have made them): changing one would split
+      // this device's own history, and merging anonymous ids safely needs a record of every merge
+      // across devices, which nothing has. Signing in merges installs into the account instead.
       install = existing
-      hadRecord = true
     } else {
-      let installId = newId()
-      install = AnalyticsInstall(installId: installId, anchorId: installId)
+      install = AnalyticsInstall(installId: newId(), anchorId: newId())
     }
-    let startingAnchor = install.anchorId
     if created {
-      group.set("local", forKey: Self.anchorOriginKey)
       if let ubiquitous {
-        if let shared = ubiquitous.string(forKey: Self.anchorKey), Self.isId(shared) {
-          returning = shared != install.anchorId
-          install = AnalyticsInstall(installId: install.installId, anchorId: shared)
-          group.set("shared", forKey: Self.anchorOriginKey)
+        let shared = ubiquitous.string(forKey: Self.anchorKey)
+        if let shared, Self.isId(shared) {
+          // This Apple ID already has Still somewhere. A new record takes that person's anchor; a
+          // record the extension already made keeps its own (see above) but is still "returning".
+          returning = true
+          if storedInstall() == nil { install = AnalyticsInstall(installId: install.installId, anchorId: shared) }
         } else {
-          // A record made by the extension carries its install id as the anchor; share a separate
-          // anchor so the install id itself never leaves the device through iCloud.
-          if install.anchorId == install.installId { install = AnalyticsInstall(installId: install.installId, anchorId: newId()) }
           ubiquitous.set(install.anchorId, forKey: Self.anchorKey)
         }
       }
       save(install)
       group.set(true, forKey: Self.appSeenKey)
-    } else if group.string(forKey: Self.previousAnchorKey) == nil,
-              group.string(forKey: Self.anchorOriginKey) != "shared",
-              let ubiquitous, let shared = ubiquitous.string(forKey: Self.anchorKey), Self.isId(shared),
-              shared != install.anchorId {
-      // At most once per device: a second adoption would alias into an id that was itself an alias
-      // destination, which PostHog refuses. The first adopted anchor stays canonical.
-      // iCloud delivered this person's anchor after this device had made its own (a first launch
-      // before sync arrived, or two devices racing). Adopt it; the old one is merged below.
-      install = AnalyticsInstall(installId: install.installId, anchorId: shared)
-      save(install)
-      group.set("shared", forKey: Self.anchorOriginKey)
     }
-    // Only an id something may already have reported under needs merging. Remember it until a
-    // later change replaces it, so a merge discarded while sharing was off is sent later.
-    if hadRecord && startingAnchor != install.anchorId {
-      group.set(startingAnchor, forKey: Self.previousAnchorKey)
-    }
-    let stored = group.string(forKey: Self.previousAnchorKey)
-    let previousAnchorId = stored.flatMap { Self.isId($0) && $0 != install.anchorId ? $0 : nil }
 
     let last = group.string(forKey: Self.lastVersionKey)
     var previousVersion: String?
@@ -188,17 +157,15 @@ public final class AnalyticsIdentityStore {
       returning: returning && previousVersion == nil,
       previousVersion: previousVersion,
       consent: consent,
-      noticeSeen: group.object(forKey: Self.noticeKey) as? Bool ?? false,
-      previousAnchorId: previousAnchorId
+      noticeSeen: group.object(forKey: Self.noticeKey) as? Bool ?? false
     )
   }
 
   /// The Safari extension's read. Reuses the app's record; if the extension runs first, it creates
-  /// one without an iCloud anchor (the extension has no iCloud access), which the app then adopts.
+  /// one (the extension has no iCloud access), which the app then keeps and shares.
   public func extensionInstall() -> AnalyticsInstall {
     if let existing = storedInstall() { return existing }
-    let installId = newId()
-    let install = AnalyticsInstall(installId: installId, anchorId: installId)
+    let install = AnalyticsInstall(installId: newId(), anchorId: newId())
     save(install)
     return install
   }

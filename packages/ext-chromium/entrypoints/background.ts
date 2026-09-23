@@ -143,7 +143,7 @@ export default defineBackground(() => {
   // than publishing over it on its next edit.
   void hydrated.then(() => session?.resume());
   // No session spine (an unconfigured build) reads as signed out; a failed or stalled read is
-  // "unknown", which changes nothing about the account and holds account-attributed sends.
+  // "unknown", which changes nothing about the account and confirms nothing, so nothing is sent.
   const ACCOUNT_LOOKUP_LIMIT_MS = 8_000;
   void Promise.race([
     hydrated.then(() => session?.getState()).then((state) => (state ? state.userId : null)),

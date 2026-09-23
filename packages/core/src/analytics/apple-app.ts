@@ -40,13 +40,7 @@ export interface AppAnalytics {
   /** There is known to be no account (a launch with no session, or the session ended). Any earlier
    * account is let go, and its waiting events with it. */
   accountAbsent(): Promise<void>;
-  /** The launch's account check is done (a session was resumed, or found absent). Nothing is sent
-   * before this, so a launch without a session never sends the previous account's events. */
-  accountResolved(): void;
 }
-
-/** Longest the app holds sends waiting for the launch's account check. */
-export const ACCOUNT_RESOLUTION_LIMIT_MS = 15_000;
 const PENDING_UPDATE_KEY = "still:analytics:pending-update";
 
 interface Ready {
@@ -79,7 +73,6 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
           anchorId: context.anchorId,
           created: context.created,
           returning: context.returning,
-          aliasOf: context.previousAnchorId ?? undefined,
         }),
         consent: async () => consent,
         fetch: deps.fetch ?? ((...args) => fetch(...args)),
@@ -89,7 +82,6 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         startsUnconfirmed: true,
       });
       if (!client.enabled) return null;
-      client.holdSendsUntil(sendGate);
 
       const accounts = createAccountIdentifier({
         client,
@@ -100,10 +92,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       return {
         client,
         context,
-        identify: async (userId: string) => {
-          client.confirmAccount();
-          await client.identify(userId);
-        },
+        identify: (userId: string) => client.identify(userId), // confirms the account (client.ts rule 3)
         attach: () => accounts.attach(),
       };
     })());
@@ -145,19 +134,6 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
     }
   };
 
-  let resolveAccount!: (known: boolean) => void;
-  // The latest account change (identify or let go); resolution waits for it, so the change always
-  // lands before the first send.
-  let accountOp: Promise<unknown> = Promise.resolve();
-  const accountKnown = new Promise<boolean>((r) => (resolveAccount = r));
-  // One bounded result for the launch's account check. On a timeout the account is unconfirmed:
-  // only anonymous events may be sent until a sign-in or resume confirms it.
-  const accountSettled: Promise<boolean> = Promise.race([
-    accountKnown,
-    new Promise<boolean>((r) => setTimeout(() => r(false), ACCOUNT_RESOLUTION_LIMIT_MS)),
-  ]);
-  const sendGate = accountSettled;
-
   const reportExtensionEnabled = async (r: Ready, enabled: boolean | null): Promise<void> => {
     if (enabled === true) await r.client.trackOnce("extension_enabled", "setup_step", { step: "extension_enabled" });
   };
@@ -173,7 +149,11 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         await r.identify(userId); // a completed sign-in confirms the account
         void r.attach();
       }),
-    reset: (options) => withReady((r) => r.client.reset(options)),
+    // Resolves once the account is let go of (deletion waits for it).
+    reset: (options) =>
+      ready()
+        .then((r) => r?.client.reset(options))
+        .catch(() => undefined),
     async sharing() {
       const r = await ready();
       return r ? { enabled: consent, noticeNeeded: !noticeSeen } : null;
@@ -215,9 +195,9 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         await deps.store.set(PENDING_INSTALL_KEY, { kind: "installed", returning: context.returning, from: null, at: now() })
           .catch(() => undefined);
       }
-      // Then the account check. Events recorded before it confirms anything carry no person and are
-      // attributed when sent (client.ts attributeLater), so nothing can be lost to an account reset.
-      await accountSettled;
+      // Events recorded before the launch's account check confirms anything carry no person; the
+      // confirmation attributes them and sends them (client.ts rules 2-4), so nothing here waits on
+      // it and nothing can be lost to an account reset.
       await emitPending(r);
       await client.trackOnce("app_opened", "setup_step", { step: "app_opened" });
       await reportExtensionEnabled(r, context.extensionEnabled);
@@ -232,30 +212,17 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       await reportExtensionEnabled(r, fresh?.extensionEnabled ?? null);
       await r.client.trackDaily("active", "active", {});
     },
-    identifyAccount(userId) {
-      const op = (async () => {
-        const r = await ready();
-        if (!r) return;
-        await r.identify(userId); // a live session confirms the account
-      })();
-      accountOp = accountOp.then(() => op);
-      // The server attach is separate from the account check: its network time must never delay or
-      // overrule the check's result.
-      void op.then(() => ready()).then((r) => r?.attach());
-      return op;
+    async identifyAccount(userId) {
+      const r = await ready();
+      if (!r) return;
+      await r.identify(userId); // a live session confirms the account
+      // The server attach is separate from the account check: its network time never delays it.
+      void r.attach();
     },
-    accountResolved() {
-      void accountOp.catch(() => undefined).then(() => resolveAccount(true));
-    },
-    accountAbsent() {
-      const op = (async () => {
-        const r = await ready();
-        if (!r) return;
-        await r.client.reset({ onlyIfSignedIn: true, forgetAccount: true });
-        r.client.confirmAccount(); // known: nobody is signed in
-      })();
-      accountOp = accountOp.then(() => op);
-      return op;
+    async accountAbsent() {
+      const r = await ready();
+      if (!r) return;
+      await r.client.confirm(null, { forget: true }); // known: nobody is signed in
     },
   };
 }

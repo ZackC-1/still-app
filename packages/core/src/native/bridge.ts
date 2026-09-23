@@ -73,9 +73,6 @@ export interface AnalyticsContextReply {
   readonly noticeSeen: boolean;
   /** Whether Safari reports the extension on; null where the app cannot know (iPhone). */
   readonly extensionEnabled: boolean | null;
-  /** The anonymous id this device used before the app adopted a different anchor (the Safari
-   * extension's provisional one, or an iCloud anchor that synced late), to be merged into it. */
-  readonly previousAnchorId: string | null;
   /** Phone, tablet or desktop, from the device itself. */
   readonly device: AnalyticsDevice | null;
 }
@@ -205,7 +202,6 @@ export class NativeBridge {
       consent: o.consent === true, // fails closed if the field is ever missing
       noticeSeen: o.noticeSeen === true,
       extensionEnabled: typeof o.extensionEnabled === "boolean" ? o.extensionEnabled : null,
-      previousAnchorId: id(o.previousAnchorId),
       device: isDeviceClass(o.device) ? o.device : null,
     };
   }

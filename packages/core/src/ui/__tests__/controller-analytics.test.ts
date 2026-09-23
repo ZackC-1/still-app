@@ -93,6 +93,65 @@ describe("UiController analytics", () => {
     expect(del.calls).toEqual([["$reset-forget"], ["account_deleted", {}]]);
   });
 
+  it("forgets the account for analytics before the server deletes it, and waits for that", async () => {
+    const order: string[] = [];
+    let release!: () => void;
+    const analytics = {
+      track: (name: string) => void order.push(name),
+      identify: () => {},
+      reset: () => new Promise<void>((r) => (release = () => { order.push("forgotten"); r(); })),
+    };
+    const deleteAccount = vi.fn(() => { order.push("server-delete"); return Promise.resolve(); });
+    const { c } = makeController({ auth: codeAuth({ deleteAccount }), analytics });
+    c.userId = "u1";
+    const deleting = c.confirmDeleteAccount();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(deleteAccount).not.toHaveBeenCalled(); // still waiting for analytics
+    release();
+    await deleting;
+    expect(order).toEqual(["forgotten", "server-delete", "account_deleted"]);
+  });
+
+  it("never deletes an account that signed in while analytics was letting go", async () => {
+    let release!: () => void;
+    const analytics = { track: () => {}, identify: () => {}, reset: () => new Promise<void>((r) => (release = r)) };
+    const deleteAccount = vi.fn(() => Promise.resolve());
+    const { c } = makeController({ auth: codeAuth({ deleteAccount }), analytics });
+    c.userId = "u1";
+    const deleting = c.confirmDeleteAccount();
+    c.userId = "u2"; // a different account signs in meanwhile
+    c.accountRevision++;
+    release();
+    await deleting;
+    expect(deleteAccount).not.toHaveBeenCalled();
+    expect(c.deleteFlow).toBe("idle");
+  });
+
+  it("a failed deletion attributes to the account again", async () => {
+    const del = recordingAnalytics();
+    const auth = codeAuth({ deleteAccount: vi.fn(() => Promise.reject(new Error("offline"))) });
+    const { c } = makeController({ auth, analytics: del.analytics });
+    c.userId = "u1";
+    await c.confirmDeleteAccount();
+    expect(del.calls).toEqual([["$reset-forget"], ["$identify", "u1"]]);
+  });
+
+  it("analytics that never answers cannot hold up deleting the account", async () => {
+    vi.useFakeTimers();
+    try {
+      const deleteAccount = vi.fn(() => Promise.resolve());
+      const analytics = { track: () => {}, identify: () => {}, reset: () => new Promise<void>(() => {}) };
+      const { c } = makeController({ auth: codeAuth({ deleteAccount }), analytics });
+      c.userId = "u1";
+      const deleting = c.confirmDeleteAccount();
+      await vi.advanceTimersByTimeAsync(5_000);
+      await deleting;
+      expect(deleteAccount).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("a throwing analytics seam never breaks the UI", () => {
     const { c, cache } = makeController({
       analytics: { track: () => { throw new Error("boom"); }, identify: () => {}, reset: () => {} },

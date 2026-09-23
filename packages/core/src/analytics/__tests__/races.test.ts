@@ -126,8 +126,7 @@ describe("server email attach", () => {
 
   it("a sign-out while the attach reads its marker never restores the account or calls the server", async () => {
     const { client, store, accounts, calls } = setup();
-    client.confirmAccount();
-    await client.identify(U1);
+    await client.identify(U1); // confirms
     const reached = store.pauseNextRead(SERVER_IDENTIFIED_KEY);
     const attaching = accounts.attach();
     const open = await reached;
@@ -140,8 +139,7 @@ describe("server email attach", () => {
 
   it("sharing switched off while the attach reads its marker stops the request", async () => {
     const { client, store, accounts, calls, setConsent } = setup();
-    client.confirmAccount();
-    await client.identify(U1);
+    await client.identify(U1); // confirms
     const reached = store.pauseNextRead(SERVER_IDENTIFIED_KEY);
     const attaching = accounts.attach();
     const open = await reached;
@@ -152,16 +150,15 @@ describe("server email attach", () => {
   });
 
   it("never runs for an unconfirmed account", async () => {
-    const { client, accounts, calls } = setup({ startsUnconfirmed: true });
-    await client.identify(U1); // stored from before, not confirmed
+    const { store, accounts, calls } = setup({ startsUnconfirmed: true });
+    store.data[STATE_KEY] = { userId: U1, identifiedAs: U1, daily: {}, anonId: null }; // stored from before
     await accounts.attach();
     expect(calls).toEqual([]);
   });
 
   it("concurrent screens for one account make one request", async () => {
     const { client, accounts, calls, setHang } = setup();
-    client.confirmAccount();
-    await client.identify(U1);
+    await client.identify(U1); // confirms
     const g = gate();
     setHang(g.opened);
     const all = Promise.all([accounts.attach(), accounts.attach(), accounts.attach()]);
@@ -173,8 +170,7 @@ describe("server email attach", () => {
 
   it("a request still running for account A does not stand in for account B", async () => {
     const { client, accounts, calls, setHang } = setup();
-    client.confirmAccount();
-    await client.identify(U1);
+    await client.identify(U1); // confirms
     const g = gate();
     setHang(g.opened);
     const forA = accounts.attach();
@@ -192,7 +188,6 @@ describe("server email attach", () => {
     vi.useFakeTimers();
     try {
       const { client, accounts, calls, setHang } = setup();
-      client.confirmAccount();
       await client.identify(U1);
       setHang(new Promise(() => {})); // never answers
       const first = accounts.attach();
@@ -216,8 +211,7 @@ describe("unconfirmed accounts", () => {
     await client.flush(); // held: nothing attributed may leave yet
     expect(rec.events()).toEqual([]);
     expect(JSON.stringify(store.data[QUEUE_KEY])).not.toContain(U1);
-    await client.reset(); // the start finds nobody signed in
-    client.confirmAccount();
+    await client.reset(); // the start finds nobody signed in: confirms
     await client.flush();
     const opened = rec.events().find((e) => e.event === "opened")!;
     expect(opened.properties.distinct_id).not.toBe(U1);
@@ -297,33 +291,94 @@ describe("a stuck network never holds the off switch", () => {
   });
 });
 
-describe("aliases", () => {
-  const ALIAS = "33333333-3333-4333-8333-333333333333";
-
-  it("a delivered alias is never re-sent after sharing is turned off and on", async () => {
-    let consent = true;
-    const rec = recordingFetch();
-    const { client } = makeClient({ fetch: rec.fetch, consent: async () => consent, identity: async () => ({ ...IDENTITY, aliasOf: ALIAS }) });
-    await client.track("active", {});
-    await client.flush();
-    consent = false;
-    await client.clearQueue();
-    consent = true;
-    await client.track("active", {});
-    await client.flush();
-    expect(rec.events().filter((e) => e.event === "$create_alias")).toHaveLength(1);
+describe("the attribution rules (client.ts rules 1-4)", () => {
+  it("an event keeps the person it was given across failed sends, and leaves with that account", async () => {
+    const { client, store } = makeClient({ startsUnconfirmed: true }); // offline fetch
+    await client.track("opened", { where: "popup" }); // no person yet
+    await client.confirm(U1); // attributed to U1, in storage
+    await client.flush(); // fails: offline
+    const queued = () => (store.data[QUEUE_KEY] as { event: string; properties: Record<string, unknown> }[]) ?? [];
+    expect(queued().find((e) => e.event === "opened")!.properties.distinct_id).toBe(U1);
+    await client.confirm(null, { forget: true }); // U1 deleted
+    expect(JSON.stringify(queued())).not.toContain(U1);
+    await client.confirm(U2); // someone else signs in
+    expect(queued().some((e) => e.event === "opened")).toBe(false); // never re-sent under U2
   });
 
-  it("an alias discarded unsent is sent later", async () => {
-    let consent = true;
+  it("a flush can never see the confirmation before the confirmed account is installed", async () => {
+    const OLD = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
     const rec = recordingFetch();
-    const { client } = makeClient({ fetch: rec.fetch, consent: async () => consent, identity: async () => ({ ...IDENTITY, aliasOf: ALIAS }) });
-    await client.track("active", {});
-    consent = false;
-    await client.clearQueue();
-    consent = true;
-    await client.track("active", {});
+    const { client, store } = makeClient({ fetch: rec.fetch, startsUnconfirmed: true });
+    store.data[STATE_KEY] = { userId: OLD, identifiedAs: OLD, daily: {}, anonId: null };
+    await client.track("opened", { where: "popup" });
+    const reached = store.pauseNextRead(STATE_KEY); // pause inside the confirmation
+    const confirming = client.confirm(U1);
+    const open = await reached;
+    const flushing = client.flush(); // tries to run meanwhile
+    open();
+    await confirming;
+    await flushing;
     await client.flush();
-    expect(rec.events().filter((e) => e.event === "$create_alias")).toHaveLength(1);
+    expect(JSON.stringify(rec.events())).not.toContain(OLD);
+    expect(rec.events().find((e) => e.event === "opened")!.properties.distinct_id).toBe(U1);
+  });
+
+  it("a late confirmation resumes delivery of what was waiting", async () => {
+    const scheduled: (() => void)[] = [];
+    const rec = recordingFetch();
+    const { client } = makeClient({ fetch: rec.fetch, startsUnconfirmed: true, schedule: (run) => void scheduled.push(run) });
+    await client.track("opened", { where: "popup" });
+    for (const run of scheduled.splice(0)) run(); // the timed flush runs, and sends nothing: unconfirmed
+    await new Promise((r) => setTimeout(r, 10));
+    expect(rec.events()).toEqual([]);
+    await client.confirm(null); // confirmed, much later
+    expect(scheduled.length).toBeGreaterThan(0);
+    for (const run of scheduled) run();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(rec.events().map((e) => e.event)).toContain("opened");
+  });
+
+  it("an opt-out during a deletion waits for it, and never names the deleted account", async () => {
+    const rec = recordingFetch();
+    const { client, store } = makeClient({ fetch: rec.fetch });
+    await client.identify(U1);
+    const reached = store.pauseNextRead(STATE_KEY); // pause inside the deletion's reset
+    const deleting = client.reset({ forgetAccount: true });
+    const open = await reached;
+    const optingOut = client.sendOptOut(); // switched off at that moment
+    await new Promise((r) => setTimeout(r, 10));
+    open();
+    await Promise.all([deleting, optingOut]);
+    const optOut = rec.events().find((e) => e.event === "sharing_turned_off")!;
+    expect(optOut.properties.distinct_id).not.toBe(U1);
+    expect(JSON.stringify(rec.events())).not.toContain(U1);
+  });
+
+  it("a deletion abandons a send under the account that is still on its way", async () => {
+    let started!: () => void;
+    const reachedFetch = new Promise<void>((r) => (started = r));
+    let aborted = false;
+    const fetch = ((_u: string, init: RequestInit) =>
+      new Promise((_, reject) => {
+        started();
+        init.signal?.addEventListener("abort", () => { aborted = true; reject(new DOMException("aborted", "AbortError")); });
+      })) as unknown as typeof globalThis.fetch;
+    const { client, store } = makeClient({ fetch });
+    await client.identify(U1);
+    await client.track("opened", { where: "popup" });
+    void client.flush();
+    await reachedFetch; // U1's events are on the network, and the network never answers
+    await client.reset({ forgetAccount: true }); // resolves without waiting out the request
+    expect(aborted).toBe(true);
+    expect(JSON.stringify(store.data[QUEUE_KEY] ?? [])).not.toContain(U1);
+  });
+
+  it("nothing leaves before confirmation, however long it takes", async () => {
+    const rec = recordingFetch();
+    const { client } = makeClient({ fetch: rec.fetch, startsUnconfirmed: true });
+    await client.track("opened", { where: "popup" });
+    await client.flush();
+    await client.sendOptOut();
+    expect(rec.events()).toEqual([]);
   });
 });

@@ -199,17 +199,16 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
   const identify = (userId: string, options?: TrackOptions) => accounts.identify(userId, options);
   const blocksAtInstall = deps.surface === "chrome" || deps.surface === "firefox";
   const isSafari = deps.surface === "safari-ios" || deps.surface === "safari-macos";
-  // One bounded startup result that everything waits on. Only a start that actually established
-  // the account confirms it (confirmAccount); a start that never reports, or reports "unknown",
-  // leaves the account unconfirmed, so nothing attributed to an account leaves and new events wait
-  // unattributed. Elapsed time is never treated as a successful check.
+  // One bounded startup result that activity waits on. Only a start that actually established the
+  // account confirms it (client.confirm); a start that never reports, or reports "unknown", leaves
+  // the account unconfirmed, so nothing is sent and new events wait unattributed. Elapsed time is
+  // never treated as a successful check.
   let startSettled!: () => void;
   const started = new Promise<void>((resolve) => (startSettled = resolve));
   const startResult: Promise<void> = Promise.race([
     started,
     new Promise<void>((r) => setTimeout(r, START_HOLD_LIMIT_MS)),
   ]);
-  client.holdSendsUntil(startResult);
   const requestFlushIfNeeded = async (): Promise<void> => {
     if ((await client.queuedCount()) > 0) deps.requestQuietFlush?.();
   };
@@ -249,7 +248,6 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
       }
       case "identify":
         // A page reports the signed-in account from its session: that confirms the account.
-        client.confirmAccount();
         await identify(request.userId);
         return true;
       case "reset":
@@ -301,13 +299,11 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
     onStart(userId) {
       void (async () => {
         if (userId) {
-          client.confirmAccount();
           await identify(userId, QUIET);
         } else if (userId === null) {
           // The account is gone (signed out elsewhere, deleted, expired). Its waiting events go with
           // it: if it was deleted, sending them would recreate the person the server just removed.
-          await client.reset({ onlyIfSignedIn: true, forgetAccount: true });
-          client.confirmAccount();
+          await client.confirm(null, { forget: true, quiet: true });
         }
         // undefined: the account could not be read. It stays unconfirmed.
         await emitPendingInstall(QUIET);
@@ -387,7 +383,9 @@ export function createPageAnalytics(options: PageAnalyticsOptions): UiAnalytics 
   const page: UiAnalytics = {
     track: (name, props) => fire({ action: "track", name, props }),
     identify: (userId) => fire({ action: "identify", userId }),
-    reset: (options) => fire({ action: "reset", forgetAccount: options?.forgetAccount === true }),
+    // Resolves once the background has let go of the account (deletion waits for it).
+    reset: (options) =>
+      send({ action: "reset", forgetAccount: options?.forgetAccount === true }).then(() => undefined, () => undefined),
     acknowledgeNotice: () => fire({ action: "acknowledgeNotice" }),
   };
   if (options.showsSwitch === false) return page;

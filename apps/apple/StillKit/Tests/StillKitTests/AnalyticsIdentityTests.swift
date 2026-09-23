@@ -81,36 +81,6 @@ final class AnalyticsIdentityTests: XCTestCase {
     XCTAssertEqual(analytics?["device"] as? String, "phone")
   }
 
-  func testAnExtensionThatRunsFirstStillLetsTheAppReportAndShare() {
-    let group = MemoryKeyValue()
-    let cloud = MemoryKeyValue()
-    let fromExtension = AnalyticsIdentityStore(group: group, newId: ids()).extensionInstall()
-    XCTAssertEqual(fromExtension.anchorId, fromExtension.installId)
-    let context = AnalyticsIdentityStore(group: group, newId: ids())
-      .appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: "2.0.0")
-    XCTAssertTrue(context.created)
-    XCTAssertEqual(context.previousVersion, "2.0.0")
-    XCTAssertEqual(context.install.installId, fromExtension.installId)
-    XCTAssertNotEqual(context.install.anchorId, fromExtension.installId)
-    XCTAssertEqual(cloud.string(forKey: AnalyticsIdentityStore.anchorKey), context.install.anchorId)
-    XCTAssertEqual(context.previousAnchorId, fromExtension.anchorId)
-    // The extension now reports under the shared anchor too.
-    XCTAssertEqual(AnalyticsIdentityStore(group: group, newId: ids()).extensionInstall(), context.install)
-    XCTAssertFalse(AnalyticsIdentityStore(group: group, newId: ids())
-      .appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: nil).created)
-  }
-
-  func testAnExtensionFirstRecordAdoptsAnExistingICloudAnchor() {
-    let group = MemoryKeyValue()
-    let cloud = MemoryKeyValue()
-    cloud.set("99999999-9999-4999-8999-999999999999", forKey: AnalyticsIdentityStore.anchorKey)
-    _ = AnalyticsIdentityStore(group: group, newId: ids()).extensionInstall()
-    let context = AnalyticsIdentityStore(group: group, newId: ids())
-      .appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: nil)
-    XCTAssertTrue(context.returning)
-    XCTAssertEqual(context.install.anchorId, "99999999-9999-4999-8999-999999999999")
-  }
-
   func testEarlierInstallEvidence() {
     let suite = "analytics-evidence-\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suite)!
@@ -129,43 +99,37 @@ final class AnalyticsIdentityTests: XCTestCase {
     XCTAssertTrue(AnalyticsIdentityStore.isId(store.extensionInstall().installId))
   }
 
-  func testALateICloudAnchorIsAdoptedOnALaterLaunchAndTheOldOneMerged() {
+
+  func testAnExtensionThatRunsFirstKeepsItsRecordAndTheAppStillReportsAndShares() {
     let group = MemoryKeyValue()
     let cloud = MemoryKeyValue()
+    let fromExtension = AnalyticsIdentityStore(group: group, newId: ids()).extensionInstall()
+    let context = AnalyticsIdentityStore(group: group, newId: ids())
+      .appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: "2.0.0")
+    XCTAssertTrue(context.created)
+    XCTAssertEqual(context.previousVersion, "2.0.0")
+    XCTAssertEqual(context.install, fromExtension) // ids never change once made
+    XCTAssertEqual(cloud.string(forKey: AnalyticsIdentityStore.anchorKey), fromExtension.anchorId)
+  }
+
+  func testAnExtensionFirstRecordIsReturningWhenICloudAlreadyHasThisPerson() {
+    let group = MemoryKeyValue()
+    let cloud = MemoryKeyValue()
+    cloud.set("99999999-9999-4999-8999-999999999999", forKey: AnalyticsIdentityStore.anchorKey)
+    let fromExtension = AnalyticsIdentityStore(group: group, newId: ids()).extensionInstall()
+    let context = AnalyticsIdentityStore(group: group, newId: ids())
+      .appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: nil)
+    XCTAssertTrue(context.returning)
+    XCTAssertEqual(context.install, fromExtension)
+  }
+
+  func testIdsNeverChangeWhenICloudChangesLater() {
+    let group = MemoryKeyValue()
     let store = AnalyticsIdentityStore(group: group, newId: ids())
     let first = store.appContext(appVersion: "2.1.0", ubiquitous: MemoryKeyValue(), earlierInstallVersion: nil)
-    XCTAssertNil(first.previousAnchorId)
-    cloud.set("99999999-9999-4999-8999-999999999999", forKey: AnalyticsIdentityStore.anchorKey)
-    let later = store.appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: nil)
-    XCTAssertEqual(later.install.anchorId, "99999999-9999-4999-8999-999999999999")
-    XCTAssertEqual(later.previousAnchorId, first.install.anchorId)
-    // Kept for later launches until replaced, so a merge lost while sharing was off is sent later.
-    XCTAssertEqual(store.appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: nil).previousAnchorId, first.install.anchorId)
-  }
-
-  func testASecondLateAnchorIsNotAdoptedSoAliasesNeverChain() {
-    let group = MemoryKeyValue()
-    let cloud = MemoryKeyValue()
-    let store = AnalyticsIdentityStore(group: group, newId: ids())
-    _ = store.appContext(appVersion: "2.1.0", ubiquitous: MemoryKeyValue(), earlierInstallVersion: nil)
-    cloud.set("99999999-9999-4999-8999-999999999999", forKey: AnalyticsIdentityStore.anchorKey)
-    let adopted = store.appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: nil)
-    cloud.set("88888888-8888-4888-8888-888888888888", forKey: AnalyticsIdentityStore.anchorKey)
-    let later = store.appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: nil)
-    XCTAssertEqual(later.install.anchorId, adopted.install.anchorId)
-    XCTAssertEqual(later.previousAnchorId, adopted.previousAnchorId)
-  }
-
-  func testAnAnchorReceivedFromICloudIsNeverAliasedAway() {
     let cloud = MemoryKeyValue()
     cloud.set("99999999-9999-4999-8999-999999999999", forKey: AnalyticsIdentityStore.anchorKey)
-    let group = MemoryKeyValue()
-    let store = AnalyticsIdentityStore(group: group, newId: ids())
-    let created = store.appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: nil)
-    XCTAssertTrue(created.returning)
-    cloud.set("88888888-8888-4888-8888-888888888888", forKey: AnalyticsIdentityStore.anchorKey)
     let later = store.appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: nil)
-    XCTAssertEqual(later.install.anchorId, "99999999-9999-4999-8999-999999999999")
-    XCTAssertNil(later.previousAnchorId)
+    XCTAssertEqual(later.install, first.install)
   }
 }

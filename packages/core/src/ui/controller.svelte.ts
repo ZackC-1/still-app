@@ -205,6 +205,9 @@ export interface UiCheckout {
   reconcile(): Promise<CheckoutReconcileOutcome>;
 }
 
+/** Longest account deletion waits for analytics to let go of the account. */
+const ANALYTICS_FORGET_LIMIT_MS = 5_000;
+
 /** Host analytics seam. The controller reports what the person did (toggles, the sign-in funnel);
  * the host owns the client, its consent and where it runs. Fire and forget: a failing analytics
  * call must never touch the UI, so every method returns nothing. */
@@ -213,8 +216,9 @@ export interface UiAnalytics {
   /** Attribute this install to the signed-in account. */
   identify(userId: string): void;
   /** Stop attributing to the account. `forgetAccount` (deletion) also drops events still waiting
-   * under it, so nothing recreates the analytics person the server just deleted. */
-  reset(options?: { readonly forgetAccount?: boolean }): void;
+   * under it, so nothing recreates the analytics person the server is about to delete. May resolve
+   * once that is done, so deletion can wait for it (bounded; see confirmDeleteAccount). */
+  reset(options?: { readonly forgetAccount?: boolean }): Promise<void> | void;
   /** This device's "Share usage data" state, or null when the build has no analytics (the switch
    * then does not render). */
   sharing?(): Promise<UsageSharingState | null>;
@@ -1394,19 +1398,29 @@ export class UiController {
   async confirmDeleteAccount(): Promise<void> {
     if (!this.auth?.deleteAccount || this.deleteFlow === "deleting") return;
     const revision = this.accountRevision;
+    const deletingUserId = this.userId;
     this.deleteFlow = "deleting";
     this.deleteError = null;
+    // Forget the account for analytics before the server deletes it, and wait for that: an event
+    // still queued under the account must never be sent after the deletion and recreate the person.
+    await this.forgetAnalyticsAccount();
+    if (this.accountRevision !== revision || this.userId !== deletingUserId) {
+      // Someone else signed in (or out) while analytics let go: never delete an account the person
+      // did not confirm. The new account identifies itself.
+      this.deleteFlow = "idle";
+      return;
+    }
     try {
       await this.auth.deleteAccount();
       if (this.userId !== null && this.accountRevision !== revision) return;
-      // Account gone → mirror the signed-out reset. Forget the account first, so the deletion is
-      // counted anonymously and never recreates the person the server just deleted.
-      this.analyticsCall((a) => a.reset({ forgetAccount: true }));
+      // Account gone → mirror the signed-out reset. The deletion is counted anonymously.
       this.track("account_deleted", {});
       this.resetToSignedOut();
       this.deleteFlow = "idle";
     } catch (e) {
       if (this.userId !== null && this.accountRevision !== revision) return;
+      // The account still exists: attribute to it again.
+      if (deletingUserId) this.analyticsCall((a) => a.identify(deletingUserId));
       this.deleteFlow = "error";
       this.deleteError = e instanceof Error ? e.message : String(e);
     }
@@ -1416,6 +1430,21 @@ export class UiController {
 
   private track<E extends AnalyticsEventName>(name: E, props: AnalyticsEventProps<E>): void {
     this.analyticsCall((a) => a.track(name, props));
+  }
+
+  /** Forget the account for analytics (deletion), waiting at most ANALYTICS_FORGET_LIMIT_MS: a
+   * slow or broken analytics host never holds up deleting the account. */
+  private async forgetAnalyticsAccount(): Promise<void> {
+    if (!this.analytics) return;
+    try {
+      const done = this.analytics.reset({ forgetAccount: true });
+      await Promise.race([
+        Promise.resolve(done).catch(() => undefined),
+        new Promise((resolve) => setTimeout(resolve, ANALYTICS_FORGET_LIMIT_MS)),
+      ]);
+    } catch {
+      /* analytics never affects the UI */
+    }
   }
 
   private analyticsCall(call: (analytics: UiAnalytics) => void): void {

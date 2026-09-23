@@ -26,8 +26,8 @@ Three kinds of message reach PostHog:
 - **Identity operations** from the apps and extensions. `$identify` links the install to the
   account: it carries Still's install/person ids, the account id, and the same person properties as
   product events (the surface and store in use, the version, the kind of device, and the first-seen
-  day or time). `$create_alias` merges an earlier anonymous id into the current one and carries only
-  the two ids. Neither carries anything else.
+  day or time). It carries nothing else, and it is the only merge Still makes: ids are never
+  aliased, and an install's ids never change once made.
 - **Server events** from `analytics-identify`: the account's email as a person property, and one
   `account_created` per account, keyed only by the account id.
 
@@ -136,15 +136,16 @@ different surfaces, so label every insight with the definition it uses.
 - **When one person counts as two.** Persons are an estimate. Expect some people to appear twice:
   someone who uses Still on Apple and in a browser without ever signing in; someone who signs out on
   a device and keeps using it (a fresh anonymous id, on purpose); a device whose first sync arrived
-  after it had already made its own id and whose id was not merged (each install merges at most once,
-  and an id received from another device is never merged away, to keep PostHog's merge rules); and a
-  device that stayed offline through an account deletion. Two people share one person when they share
+  after it had already made its own id (ids never change once made, so only a sign-in joins the two);
+  and a device that stayed offline through an account deletion. Two people share one person when they share
   a Chrome profile or an Apple ID. Use distinct `$device_id` for install counts and persons for
   people, and treat the gap as the uncertainty.
 - **Events before the account is confirmed.** While an extension or the Apple app is still
-  confirming who is signed in, new events are held without a person and attributed when they are
-  sent. If confirmation never comes (a lookup that keeps failing), those events wait; they are never
-  sent under a guessed account.
+  confirming who is signed in, new events are held without a person, and nothing is sent. The
+  confirmation gives them their person, once, in storage, and sends them. An event keeps that person
+  through failed sends until it is delivered or its account is deleted; it is never re-attributed. If
+  confirmation never comes (a lookup that keeps failing), those events wait; they are never sent under
+  a guessed account.
 - **Installs vs persons.** Shared Chrome profiles and shared Apple IDs merge people; signing out gives
   a device a fresh anonymous id. Chart distinct `$device_id` alongside persons.
 
@@ -156,8 +157,7 @@ different surfaces, so label every insight with the definition it uses.
 - The `delete-user` logs for `ANALYTICS DELETION FAILED`, and, a week after any account deletion,
   a Persons search for the deleted account id: a device that was offline during the deletion can
   send a few events under it before it learns the session ended. Delete any such person.
-- PostHog's ingestion warnings: "cannot merge already identified" means an alias or identify was
-  refused.
+- PostHog's ingestion warnings: "cannot merge already identified" means an identify was refused.
 - Known small inaccuracy: the Apple app keeps its once-a-day and once-ever markers in the web view's
   storage, which iOS can clear under storage pressure; that can repeat an `app_opened` step or an
   `active` for a day.

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { createAppAnalytics, type AppAnalyticsBridge } from "../apple-app.js";
-import { QUEUE_KEY } from "../client.js";
+import { QUEUE_KEY, STATE_KEY } from "../client.js";
 import type { AnalyticsKeyValue } from "../identity.js";
 import type { AnalyticsContextReply } from "../../native/bridge.js";
 
@@ -17,7 +17,6 @@ const CONTEXT: AnalyticsContextReply = {
   consent: true,
   noticeSeen: false,
   extensionEnabled: false,
-  previousAnchorId: null,
   device: "desktop",
 };
 
@@ -47,14 +46,11 @@ function setup(
     uuid: () => `uuid-${++n}`,
     identifyOnServer: over.identifyOnServer,
   });
-  // The real launch always reports what it found before resolving: here, nobody signed in.
-  if (!over.holdAccount) {
-    void app.accountAbsent();
-    app.accountResolved();
-  }
+  // The real launch always reports what it found: here, nobody signed in.
+  if (!over.holdAccount) void app.accountAbsent();
   const events = () =>
     ((store.data[QUEUE_KEY] as { event: string; properties: Record<string, unknown> }[] | undefined) ?? []);
-  return { app, bridge, events, setContext: (c: Partial<AnalyticsContextReply>) => void (current = { ...current!, ...c }) };
+  return { app, bridge, events, store, setContext: (c: Partial<AnalyticsContextReply>) => void (current = { ...current!, ...c }) };
 }
 
 describe("Apple app analytics", () => {
@@ -116,7 +112,9 @@ describe("Apple app analytics", () => {
     const identifyOnServer = vi.fn(async () => {});
     const { app, events } = setup({}, { identifyOnServer });
     await app.identifyAccount(U1);
+    await new Promise((r) => setTimeout(r, 10)); // the attach runs on its own
     await app.identifyAccount(U1);
+    await new Promise((r) => setTimeout(r, 10));
     expect(identifyOnServer).toHaveBeenCalledTimes(1);
     expect(events()[0]).toMatchObject({ event: "$identify", properties: { distinct_id: U1, $anon_distinct_id: CONTEXT.anchorId } });
   });
@@ -132,12 +130,7 @@ describe("Apple app account and identity reconciliation", () => {
     expect(events().every((e) => e.properties.signed_in !== true)).toBe(true);
   });
 
-  it("merges the Safari extension's provisional id into the anchor the app adopted", async () => {
-    const { app, events } = setup({ previousAnchorId: CONTEXT.installId });
-    await app.start();
-    const alias = events().find((e) => e.event === "$create_alias")!;
-    expect(alias.properties).toMatchObject({ distinct_id: CONTEXT.anchorId, alias: CONTEXT.installId });
-  });
+
 
   it("any use in the app counts toward the day", async () => {
     const { app, events } = setup();
@@ -172,13 +165,12 @@ describe("Apple app sends wait for the launch's account check", () => {
       posted.push(String(init.body));
       return new Response("{}", { status: 200 });
     }) as unknown as typeof globalThis.fetch;
-    const { app } = setup({}, { holdAccount: true, fetch });
-    await app.identifyAccount(U1); // left from an earlier launch
+    const { app, store } = setup({}, { holdAccount: true, fetch });
+    store.data[STATE_KEY] = { userId: U1, identifiedAs: U1, daily: {}, anonId: null }; // from an earlier launch
     void app.start();
     await new Promise((r) => setTimeout(r, 50));
     expect(posted).toEqual([]); // held
-    app.accountAbsent();
-    app.accountResolved();
+    await app.accountAbsent();
     await new Promise((r) => setTimeout(r, 50));
     await app.recheckSetup();
     await new Promise((r) => setTimeout(r, 50));
@@ -200,7 +192,6 @@ describe("Apple app sends wait for the launch's account check", () => {
         uuid: (() => { let n = 0; return () => `u-${++n}`; })(),
       });
       void a.accountAbsent();
-      a.accountResolved();
       return a;
     };
     await make({ consent: false, created: true }).start();
@@ -216,13 +207,11 @@ describe("Apple app sends wait for the launch's account check", () => {
 
 describe("Apple launch attribution comes first", () => {
   it("a launch that finds the earlier account gone keeps this launch's update", async () => {
-    const { app, events } = setup({ previousVersion: "2.0.0", created: false }, { holdAccount: true });
-    await app.identifyAccount(U1); // left from before
-    const starting = app.start(); // waits for the account check before recording anything
+    const { app, events, store } = setup({ previousVersion: "2.0.0", created: false }, { holdAccount: true });
+    store.data[STATE_KEY] = { userId: U1, identifiedAs: U1, daily: {}, anonId: null }; // saved by an earlier launch
+    await app.start(); // records the update with no person yet
+    await app.accountAbsent(); // the launch finds no session
     await new Promise((r) => setTimeout(r, 20));
-    app.accountAbsent(); // the launch found no session
-    app.accountResolved();
-    await starting;
     const updated = events().filter((e) => e.event === "updated");
     expect(updated).toHaveLength(1);
     expect(updated[0]!.properties.distinct_id).not.toBe(U1);

@@ -29,10 +29,6 @@ export interface AnalyticsIdentity {
   readonly created: boolean;
   /** A freshly created install that found this person's anchor already in the shared store. */
   readonly returning: boolean;
-  /** An earlier anonymous id of this install that must be merged into `anchorId`: the shared
-   * store delivered a different person anchor after this install had started with its own (sync
-   * arrived late, or two devices raced). The client sends one `$create_alias` for it. */
-  readonly aliasOf?: string;
 }
 
 export const INSTALL_KEY = "still:analytics:install";
@@ -47,26 +43,13 @@ export function isAnalyticsId(value: unknown): value is string {
 interface StoredInstall {
   readonly installId: string;
   readonly anchorId: string;
-  /**
-   * Where the anchor came from: made by this install ("local"), or received from the shared store
-   * ("shared"). Only a local anchor may ever be merged into another one. An anchor received from the
-   * shared store may already be another install's merge destination, and aliasing it again would
-   * build a chain PostHog refuses; so a "shared" anchor is kept for good.
-   */
-  readonly origin?: "local" | "shared";
-  /** An earlier anchor merged into this one, kept so the merge can be sent whenever sharing allows
-   * (the client sends it once, and again if a discarded queue lost it). */
-  readonly aliasOf?: string;
 }
 
 function parseStoredInstall(value: unknown): StoredInstall | null {
   if (typeof value !== "object" || value === null) return null;
-  const { installId, anchorId, aliasOf, origin } = value as Record<string, unknown>;
+  const { installId, anchorId } = value as Record<string, unknown>;
   if (!isAnalyticsId(installId) || !isAnalyticsId(anchorId)) return null;
-  const from = origin === "shared" ? "shared" : "local";
-  return isAnalyticsId(aliasOf) && aliasOf !== anchorId
-    ? { installId, anchorId, aliasOf, origin: from }
-    : { installId, anchorId, origin: from };
+  return { installId, anchorId };
 }
 
 export interface ResolveIdentityDeps {
@@ -89,22 +72,9 @@ export interface ResolveIdentityDeps {
  */
 export async function resolveAnalyticsIdentity(deps: ResolveIdentityDeps): Promise<AnalyticsIdentity> {
   const stored = parseStoredInstall(await deps.local.get(INSTALL_KEY).catch(() => null));
-  if (stored) {
-    // Sync can deliver the person's anchor after this install made its own; adopt it and ask for
-    // the earlier id to be merged, so one person does not stay split in two.
-    // At most once per install: a second adoption would alias into an id that was itself an alias
-    // destination, which PostHog refuses. The first adopted anchor stays canonical.
-    const adoptable = deps.shared && !stored.aliasOf && stored.origin !== "shared";
-    const shared = adoptable ? await deps.shared!.get(ANCHOR_KEY).catch(() => null) : null;
-    if (isAnalyticsId(shared) && shared !== stored.anchorId) {
-      const record: StoredInstall = { installId: stored.installId, anchorId: shared, aliasOf: stored.anchorId, origin: "shared" };
-      await deps.local.set(INSTALL_KEY, record).catch(() => undefined);
-      return { installId: record.installId, anchorId: record.anchorId, aliasOf: record.aliasOf, created: false, returning: false };
-    }
-    return stored.aliasOf
-      ? { installId: stored.installId, anchorId: stored.anchorId, aliasOf: stored.aliasOf, created: false, returning: false }
-      : { installId: stored.installId, anchorId: stored.anchorId, created: false, returning: false };
-  }
+  // Ids never change once made: a later change would split this install's own history in two, and
+  // merging anonymous ids safely needs a record of every merge across devices, which nothing has.
+  if (stored) return { ...stored, created: false, returning: false };
 
   const installId = deps.uuid();
   let anchorId: string | null = null;
@@ -123,7 +93,7 @@ export async function resolveAnalyticsIdentity(deps: ResolveIdentityDeps): Promi
       await deps.shared.set(ANCHOR_KEY, anchorId).catch(() => undefined);
     }
   }
-  const record: StoredInstall = { installId, anchorId: anchorId ?? installId, origin: returning ? "shared" : "local" };
+  const record: StoredInstall = { installId, anchorId: anchorId ?? installId };
   await deps.local.set(INSTALL_KEY, record).catch(() => undefined);
-  return { installId: record.installId, anchorId: record.anchorId, created: true, returning };
+  return { ...record, created: true, returning };
 }

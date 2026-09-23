@@ -325,3 +325,15 @@ testing, plus store review time.
   anchor is ever aliased (anchor origin in the browser record and App Group), so chains cannot form
   across installs; the runbook lists when one person counts as two. The race tests now pause at the
   exact race boundary, and two were mutation-checked to fail without their protection.
+- 2026-09-23: Codex review of a6cf450 (DO NOT MERGE; 3 P0, 2 P1, all confirmed). The race class was
+  removed rather than patched. The client now follows four rules (client.ts header): one operation
+  at a time (every state change, flush and opt-out runs serialized, including its request); attribution
+  is decided once, in storage, by the confirmation, never at send time, so a retried event keeps its
+  person and a deleted account's events leave with it; `confirm(account | null)` is one atomic
+  operation (install the account, attribute waiting events, mark confirmed, identify, schedule a
+  flush), so a late Apple confirmation resumes delivery; nothing is sent before confirmation. Aliasing
+  was removed entirely (ids never change once made; `$identify` is the only merge), in TypeScript and
+  Swift. Account deletion now forgets the account for analytics first (bounded 5 s), abandoning any
+  send still on its way, and re-identifies if the server deletion fails. New reproductions in
+  races.test.ts and controller-analytics.test.ts; each protection was mutation-checked (removing it
+  fails a test).

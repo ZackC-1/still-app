@@ -57,10 +57,14 @@ privacy-positioning cost (the homepage promised "no behavioral tracking") agains
   first-seen person property. The server email attach runs only from an ordinary, non-background
   identify, retried at the next Still screen. A day of use comes only from real use, never from the
   alarm itself, and every send waits for the start's account check.
-- Attribution waits for confirmation: until a host confirms who is signed in (or that nobody is),
-  events are queued without a person and attributed only when sent, and nothing attributed to an
-  account leaves. A timeout never counts as confirmation. Only an anchor an install made itself can
-  be merged into another, at most once, so aliases never chain across installs.
+- Attribution is decided once: until a host confirms who is signed in (or that nobody is), events
+  are queued without a person and nothing is sent. The confirmation, a single serialized operation,
+  installs the account, gives every waiting event its person in storage, and only then allows sends;
+  an event keeps that person through retries and is never re-attributed. A timeout never counts as
+  confirmation. Every state change and every send runs one at a time in the client. Ids never change
+  once made and are never aliased; `$identify` at sign-in is the only merge.
+- Deleting an account forgets it for analytics first (queued events under it are dropped and a send
+  on its way is abandoned), and only then asks the server to delete the account and its person.
 - Turning sharing off takes effect before any network call: the waiting queue is discarded, and one
   standalone `sharing_turned_off` attempt (bounded to a few seconds) is the only thing sent.
 - New accounts are counted by the server once per account, never inferred by a client.

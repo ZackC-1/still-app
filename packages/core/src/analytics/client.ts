@@ -23,6 +23,26 @@ import { isAnalyticsId, type AnalyticsIdentity, type AnalyticsKeyValue } from ".
 // queue so a sleeping worker or a closed popup loses nothing, and posts batches to PostHog's
 // `/batch/` endpoint. Nothing is queued or sent while the person has analytics turned off, and an
 // unconfigured build (no key) sends nothing at all.
+//
+// Four rules make it safe to use from several contexts at once. Every change here must keep them.
+//
+//   1. One operation at a time. Everything that reads or writes the account, the markers or the
+//      queue runs inside `run()`, including a flush's network request and the opt-out attempt, so
+//      no operation ever observes another half done. The only work outside it is synchronous:
+//      `clearQueue`/`sendOptOut` bump the cancellation epoch and abort the request in flight.
+//   2. An event's person is decided once and saved. When the account is confirmed, an event is
+//      attributed as it is queued; before that it is queued with no person (`attributeLater`) and
+//      attributed, in storage, by the confirmation itself. Nothing is ever attributed at send time,
+//      so a retry always carries the person it was first given, and deleting an account removes
+//      every event attributed to it.
+//   3. Confirmation is one operation. `confirm()` installs the account (or lets it go), attributes
+//      the waiting events, and only then marks the account confirmed, so nothing can see "confirmed"
+//      together with a different account.
+//   4. Nothing leaves before the account is confirmed. Hosts that start without knowing who is
+//      signed in (`startsUnconfirmed`) send nothing until they confirm, and a timeout never counts
+//      as confirmation.
+//
+// The install and person ids themselves (identity.ts) never change once created.
 
 export const STATE_KEY = "still:analytics:state";
 export const QUEUE_KEY = "still:analytics:queue";
@@ -66,8 +86,7 @@ export interface AnalyticsClientDeps {
   readonly schedule?: (run: () => void, ms: number) => void;
   /**
    * Start with the account unconfirmed (the extension and Apple hosts): until the host calls
-   * `confirmAccount`, events are queued without a person and attributed only when they are sent,
-   * after confirmation. See `QueuedEvent.attributeLater`.
+   * `confirm`, events are queued without a person and nothing is sent (rules 2 and 4 above).
    */
   readonly startsUnconfirmed?: boolean;
 }
@@ -78,10 +97,8 @@ interface QueuedEvent {
   readonly timestamp: string;
   readonly properties: Record<string, unknown>;
   /**
-   * Recorded before the host confirmed who is signed in. It carries no person yet: at send time,
-   * and only once the account is confirmed, it is attributed to the account then current (or the
-   * anonymous id). So it can never go out under an account that has ended, and letting go of an
-   * earlier account never discards it.
+   * Recorded before the host confirmed who is signed in: no person yet. The confirmation gives it
+   * one, in storage, before it can ever be sent (rule 2). Never sent while set.
    */
   readonly attributeLater?: boolean;
 }
@@ -158,24 +175,32 @@ function localMidnightIso(ms: number): string {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
 }
 
+/** Who the host has established is signed in: an account id, or nobody. */
+export type ConfirmedAccount = string | null;
+
+export interface ConfirmOptions {
+  /** The account that was signed in has gone (deleted, or its session ended elsewhere): drop the
+   * events waiting under it, so nothing recreates a person the server deleted. */
+  readonly forget?: boolean;
+  /** A background start: do not send now (see TrackOptions.quiet). */
+  readonly quiet?: boolean;
+}
+
 export class AnalyticsClient {
   private readonly configured: boolean;
   private chain: Promise<unknown> = Promise.resolve();
   private flushScheduled = false;
-  /** Bumped (synchronously) whenever sharing is switched off, so a flush already running stops
-   * before its next request instead of finishing the queue. */
+  /** Bumped synchronously whenever sharing is switched off, so a flush in progress stops before its
+   * next request (rule 1's only exception). */
   private epoch = 0;
-  /** Sends wait on this (holdSendsUntil). */
-  private sendGate: Promise<void> = Promise.resolve();
-  /** Bumped whenever the account this install reports as changes (identify, reset). Work that read
-   * the account and then waited (a server attach) checks it before acting. */
+  /** Bumped (inside \`run\`) whenever the account changes. Work that reads the account and then
+   * waits outside the client (the server attach) checks it before acting. */
   private generation = 0;
-  /** Whether the host has confirmed who is signed in (or that nobody is). Until then, nothing
-   * attributed to an account leaves, and new events are queued without a person. */
+  /** Rule 4. Only \`confirm\` sets it, and only after installing the account (rule 3). */
   private confirmed: boolean;
   /** The request in flight, so switching sharing off can abandon it instead of waiting. */
   private inflight: AbortController | null = null;
-  /** Set when an identity reset could not be saved: reporting stops for the life of this client
+  /** Set when an account change could not be saved: reporting stops for the life of this client
    * rather than risk sending under an account that should have been let go. */
   private blocked = false;
 
@@ -189,6 +214,12 @@ export class AnalyticsClient {
   get enabled(): boolean {
     return this.configured;
   }
+
+  get accountConfirmed(): boolean {
+    return this.confirmed;
+  }
+
+  // ── Recording ────────────────────────────────────────────────────────────────────────────────
 
   /** Queue one event. Invalid events and events while analytics is off are dropped silently. */
   track<E extends AnalyticsEventName>(
@@ -230,112 +261,54 @@ export class AnalyticsClient {
   }
 
   /** Whether a once-marker has already fired (a host deciding whether to keep a pending record). */
-  async hasTrackedOnce(marker: string): Promise<boolean> {
-    return (await this.read()).daily[`once:${marker}`] !== undefined;
-  }
-
-  /** Attribute this install to a signed-in account from now on. Idempotent per account. */
-  identify(userId: string, options: TrackOptions = {}): Promise<void> {
-    return this.run(async () => {
-      // Account ids are Supabase UUIDs; anything else never becomes a distinct id.
-      if (!this.configured || !isAnalyticsId(userId)) return;
-      const state = await this.read();
-      if (state.userId !== userId) {
-        this.generation += 1;
-        await this.write({ ...state, userId });
-      }
-      if (!(await this.allowed())) return;
-      const identity = await this.identity();
-      if (identity) await this.ensureIdentified(identity, options);
-    });
-  }
-
-  /** Whether this install currently reports as a signed-in account. */
-  async signedInAs(): Promise<string | null> {
-    return (await this.read()).userId;
-  }
-
-  /**
-   * Stop attributing to the account (sign-out, deletion). Later events use a fresh anonymous id.
-   * With `forgetAccount` (the account was deleted), events still waiting under it are dropped, so
-   * nothing recreates the person the server just deleted.
-   */
-  reset(options: { readonly forgetAccount?: boolean; readonly onlyIfSignedIn?: boolean } = {}): Promise<void> {
-    return this.run(async () => {
-      if (!this.configured) return;
-      const state = await this.read();
-      // A start that finds no session: let go of an account only if one is attached, so a person who
-      // was never signed in keeps one anonymous id instead of a new one every start.
-      if (options.onlyIfSignedIn && !state.userId) return;
-      if (options.forgetAccount && state.userId) {
-        const gone = state.userId;
-        const queue = await this.readQueue();
-        const kept = queue.filter((e) => e.properties.distinct_id !== gone);
-        if (kept.length !== queue.length) await this.writeQueue(kept);
-      }
-      this.generation += 1;
-      const saved = await this.write({ ...state, userId: null, identifiedAs: null, anonId: this.deps.uuid() });
-      if (!saved) this.blocked = true;
-    });
+  hasTrackedOnce(marker: string): Promise<boolean> {
+    return this.run(async () => (await this.read()).daily[`once:${marker}`] !== undefined);
   }
 
   /** How many events are waiting (a host deciding whether a later flush is needed). */
-  async queuedCount(): Promise<number> {
-    return (await this.readQueue()).length;
+  queuedCount(): Promise<number> {
+    return this.run(async () => (await this.readQueue()).length);
   }
+
+  // ── The account (rule 3) ─────────────────────────────────────────────────────────────────────
 
   /**
-   * Hold every send until `gate` settles (the host is still learning whether anyone is signed in,
-   * and must not send an earlier account's events meanwhile). Events keep queuing.
+   * The host has established who is signed in (`userId`), or that nobody is (`null`). In one
+   * operation: install that account (or let the previous one go, with a fresh anonymous id), give
+   * every waiting unattributed event its person, then mark the account confirmed and, unless quiet,
+   * send what is waiting. Never undone: confirmed stays confirmed.
    */
-  holdSendsUntil(gate: Promise<unknown>): void {
-    const previous = this.sendGate;
-    this.sendGate = Promise.all([previous, gate.catch(() => undefined)]).then(() => undefined);
+  confirm(account: ConfirmedAccount, options: ConfirmOptions = {}): Promise<void> {
+    return this.run(async () => {
+      if (!this.configured) return;
+      if (account !== null && !isAnalyticsId(account)) return; // only Supabase UUIDs become accounts
+      if (!(await this.installAccount(account, options))) return;
+      await this.attributeWaiting();
+      this.confirmed = true;
+      if (account !== null && (await this.allowed())) {
+        const identity = await this.identity();
+        if (identity) await this.ensureIdentified(identity, options);
+      }
+      if (!options.quiet && (await this.readQueue()).length > 0) this.scheduleFlush();
+    });
   }
 
-  /**
-   * The person turned sharing off with Still's own switch. Stop at once (nothing queued is sent),
-   * then make one short, standalone attempt to record the opt-out itself. It never waits on the
-   * network before the "off" takes effect, and it never carries the discarded queue.
-   */
-  async sendOptOut(timeoutMs = 3_000): Promise<void> {
-    if (!this.configured || this.blocked) return;
-    const identity = await this.identity();
-    const state = await this.read();
-    await this.clearQueue();
-    if (!identity) return;
-    // Only once the host has confirmed the account: otherwise the attempt could carry an old one.
-    if (!this.confirmed) return;
-    const event: QueuedEvent = {
-      event: "sharing_turned_off",
-      uuid: this.deps.uuid(),
-      timestamp: this.timestamp({}),
-      properties: {
-        distinct_id: state.userId ?? this.anonymousId(state, identity),
-        $device_id: identity.installId,
-        $lib: "still",
-        $geoip_disable: true,
-        surface: this.deps.surface,
-        store: storeForSurface(this.deps.surface),
-        ...(isDeviceClass(this.deps.device) ? { device: this.deps.device } : {}),
-        app_version: this.deps.appVersion,
-        signed_in: state.userId !== null,
-      },
-    };
-    const abort = typeof AbortController === "function" ? new AbortController() : null;
-    const timer = setTimeout(() => abort?.abort(), timeoutMs);
-    try {
-      await this.post([event], abort?.signal);
-    } finally {
-      clearTimeout(timer);
-    }
+  /** A sign-in: shorthand for `confirm(userId)`. */
+  identify(userId: string, options: TrackOptions = {}): Promise<void> {
+    return this.confirm(userId, { quiet: options.quiet });
   }
 
-  /** Drop everything waiting to be sent: the person turned analytics off. */
-  clearQueue(): Promise<void> {
-    this.epoch += 1; // stop a running flush before its next request, without waiting for it
-    this.inflight?.abort(); // and abandon the request it is waiting on, however stuck the network
-    return this.run(() => this.discardQueue());
+  /** A sign-out (or, with `forgetAccount`, an account deletion): shorthand for `confirm(null)`.
+   * A deletion also abandons a send already under way, so nothing under the account can still be
+   * on its way once this resolves and the server deletes the person. */
+  reset(options: { readonly forgetAccount?: boolean } = {}): Promise<void> {
+    if (options.forgetAccount) this.cancel();
+    return this.confirm(null, { forget: options.forgetAccount });
+  }
+
+  /** The account this install reports as, or null. */
+  signedInAs(): Promise<string | null> {
+    return this.run(async () => (await this.read()).userId);
   }
 
   /** A snapshot of the account generation and consent epoch, for work that waits and then acts. */
@@ -348,52 +321,82 @@ export class AnalyticsClient {
     return stamp.generation === this.generation && stamp.epoch === this.epoch;
   }
 
-  /** The host has established who is signed in, or that nobody is (after any identify or reset it
-   * needed). Never undone: a later timeout cannot overrule a confirmation. */
-  confirmAccount(): void {
-    this.confirmed = true;
-  }
+  // ── Sending ──────────────────────────────────────────────────────────────────────────────────
 
-  get accountConfirmed(): boolean {
-    return this.confirmed;
-  }
-
-  /** Send what is queued. Keeps events on a network or server failure so the next flush retries. */
+  /** Send what is queued, once the account is confirmed. Keeps events on a network or server
+   * failure so the next flush retries them, with the person they were given. */
   flush(): Promise<void> {
-    // Wait outside the serial chain, so events keep queuing while sends are held.
-    return this.sendGate.then(() => this.run(async () => {
+    return this.run(async () => {
+      if (!this.confirmed) return; // rule 4
       const epoch = this.epoch;
       for (;;) {
-        if (epoch !== this.epoch) return;
-        const queue = await this.readQueue();
-        const state = await this.read();
-        const identity = await this.identity();
-        // Until the account is confirmed, only events already attributed to nobody may leave.
-        const eligible = this.confirmed
-          ? queue
-          : queue.filter((e) => !e.attributeLater && e.event !== "$identify" && e.properties.signed_in !== true);
-        const batch = eligible
-          .slice(0, BATCH_SIZE)
-          .map((e) => (e.attributeLater && identity ? this.attribute(e, state, identity) : e));
+        const batch = (await this.readQueue()).filter((e) => !e.attributeLater).slice(0, BATCH_SIZE);
         if (batch.length === 0) return;
-        // Consent is re-read before every request, and cancellation checked with nothing awaited
-        // in between: sharing can be switched off at any moment during the reads above.
+        // Sharing is re-read, and cancellation re-checked, immediately before every request.
         if (!(await this.allowed()) || epoch !== this.epoch) return;
         const outcome = await this.post(batch);
         if (outcome === "retry" || epoch !== this.epoch) return;
-        await this.markAliasesDelivered(batch);
         // Sent, or rejected as malformed (retrying a 400 forever would block the queue).
         const sent = new Set(batch.map((e) => e.uuid));
-        const remaining = (await this.readQueue()).filter((e) => !sent.has(e.uuid));
-        await this.writeQueue(remaining);
+        await this.writeQueue((await this.readQueue()).filter((e) => !sent.has(e.uuid)));
         // Storage that will not take the write would hand back the same batch forever.
-        const after = await this.readQueue();
-        if (after.some((e) => sent.has(e.uuid))) return;
+        if ((await this.readQueue()).some((e) => sent.has(e.uuid))) return;
       }
-    }));
+    });
+  }
+
+  /** Drop everything waiting to be sent: the person turned analytics off. */
+  clearQueue(): Promise<void> {
+    this.cancel();
+    return this.run(() => this.discardQueue());
+  }
+
+  /**
+   * The person turned sharing off with Still's own switch (on to off). Stop at once: nothing
+   * waiting is sent. Then, in the same operation, one short standalone attempt records only the
+   * opt-out itself, under the confirmed account of that moment. Skipped if the account is not
+   * confirmed.
+   */
+  sendOptOut(timeoutMs = 3_000): Promise<void> {
+    this.cancel();
+    return this.run(async () => {
+      await this.discardQueue();
+      if (!this.configured || this.blocked || !this.confirmed) return;
+      const identity = await this.identity();
+      if (!identity) return;
+      const state = await this.read();
+      const event: QueuedEvent = {
+        event: "sharing_turned_off",
+        uuid: this.deps.uuid(),
+        timestamp: this.timestamp({}),
+        properties: {
+          ...this.envelope(state, identity),
+          signed_in: state.userId !== null,
+        },
+      };
+      const abort = typeof AbortController === "function" ? new AbortController() : null;
+      const timer = setTimeout(() => abort?.abort(), timeoutMs);
+      try {
+        await this.post([event], abort?.signal);
+      } finally {
+        clearTimeout(timer);
+      }
+    });
   }
 
   // ── internals ────────────────────────────────────────────────────────────────────────────────
+
+  private run<T>(op: () => Promise<T>): Promise<T> {
+    const next = this.chain.then(op, op);
+    this.chain = next.catch(() => undefined);
+    return next;
+  }
+
+  /** Synchronous: stop a running flush before its next request, and abandon its request. */
+  private cancel(): void {
+    this.epoch += 1;
+    this.inflight?.abort();
+  }
 
   private trackMarked<E extends AnalyticsEventName>(
     marker: string,
@@ -413,10 +416,49 @@ export class AnalyticsClient {
     });
   }
 
-  private run<T>(op: () => Promise<T>): Promise<T> {
-    const next = this.chain.then(op, op);
-    this.chain = next.catch(() => undefined);
-    return next;
+  /** Install the account named by a confirmation. False when the change could not be saved. */
+  private async installAccount(account: ConfirmedAccount, options: ConfirmOptions): Promise<boolean> {
+    const state = await this.read();
+    if (account !== null) {
+      if (state.userId === account) return true;
+      this.generation += 1;
+      const saved = await this.write({ ...state, userId: account, identifiedAs: null });
+      if (!saved) this.blocked = true;
+      return saved;
+    }
+    if (state.userId === null) return true; // nobody, as before: keep the same anonymous id
+    if (options.forget) {
+      const gone = state.userId;
+      await this.writeQueue((await this.readQueue()).filter((e) => e.properties.distinct_id !== gone));
+    }
+    this.generation += 1;
+    const saved = await this.write({ ...state, userId: null, identifiedAs: null, anonId: this.deps.uuid() });
+    if (!saved) this.blocked = true;
+    return saved;
+  }
+
+  /** Give every waiting unattributed event the person now installed, in storage (rule 2). */
+  private async attributeWaiting(): Promise<void> {
+    const queue = await this.readQueue();
+    if (!queue.some((e) => e.attributeLater)) return;
+    const identity = await this.identity();
+    if (!identity) return;
+    const state = await this.read();
+    const signedIn = state.userId !== null;
+    const distinctId = state.userId ?? this.anonymousId(state, identity);
+    await this.writeQueue(
+      queue.map((e) => {
+        if (!e.attributeLater) return e;
+        const $set = { ...(e.properties.$set as Record<string, unknown> | undefined) };
+        if (e.event === "signed_out") $set.signed_in = false;
+        return {
+          event: e.event,
+          uuid: e.uuid,
+          timestamp: e.timestamp,
+          properties: { ...e.properties, distinct_id: distinctId, signed_in: signedIn, $set },
+        };
+      }),
+    );
   }
 
   /** Whether reporting may happen now. Fails closed, and when sharing turns out to be off (it can
@@ -434,18 +476,11 @@ export class AnalyticsClient {
     return consent;
   }
 
-  /** Empty the queue. A discarded `$identify` must be sent again later, so the marker goes too. */
+  /** Empty the queue. A discarded `$identify` must be queued again later, so its marker goes too. */
   private async discardQueue(): Promise<void> {
     if ((await this.readQueue()).length > 0) await this.writeQueue([]);
     const state = await this.read();
-    // Anything discarded unsent must be sent again later: the account merge and alias merges that
-    // were still only queued. A delivered alias is never repeated.
-    const daily = Object.fromEntries(
-      Object.entries(state.daily).filter(([k, v]) => !(k.startsWith("once:alias:") && v === "queued")),
-    );
-    if (state.identifiedAs !== null || Object.keys(daily).length !== Object.keys(state.daily).length) {
-      await this.write({ ...state, identifiedAs: null, daily });
-    }
+    if (state.identifiedAs !== null) await this.write({ ...state, identifiedAs: null });
   }
 
   /** This install's ids, refusing anything that is not a Still id. */
@@ -502,15 +537,29 @@ export class AnalyticsClient {
   }
 
   private timestamp(options: TrackOptions): string {
-    if (options.at !== undefined) {
-      return options.quiet ? localMidnightIso(options.at) : new Date(options.at).toISOString();
-    }
-    return options.quiet ? localMidnightIso(this.deps.now()) : new Date(this.deps.now()).toISOString();
+    const at = options.at ?? this.deps.now();
+    return options.quiet ? localMidnightIso(at) : new Date(at).toISOString();
   }
 
   /** The anonymous id this install reports under while signed out. */
   private anonymousId(state: ClientState, identity: AnalyticsIdentity): string {
     return state.anonId ?? identity.anchorId;
+  }
+
+  /** The properties every product event carries. */
+  private envelope(state: ClientState, identity: AnalyticsIdentity): Record<string, unknown> {
+    const { surface, appVersion } = this.deps;
+    return {
+      distinct_id: state.userId ?? this.anonymousId(state, identity),
+      $device_id: identity.installId,
+      $lib: "still",
+      // Location is never derived from the connection (the privacy label declares none).
+      $geoip_disable: true,
+      surface,
+      store: storeForSurface(surface),
+      ...(isDeviceClass(this.deps.device) ? { device: this.deps.device } : {}),
+      app_version: appVersion,
+    };
   }
 
   /** Person properties refreshed by every event, so each profile shows every store a person
@@ -535,25 +584,9 @@ export class AnalyticsClient {
     };
   }
 
-  /** Merge an earlier anonymous id of this install into its current anchor, once. */
-  private async ensureAliased(identity: AnalyticsIdentity, options: TrackOptions = {}): Promise<void> {
-    const earlier = identity.aliasOf;
-    if (!earlier || !isAnalyticsId(earlier) || earlier === identity.anchorId) return;
-    const state = await this.read();
-    const marker = `once:alias:${earlier}`;
-    if (state.daily[marker] !== undefined) return;
-    // "queued" until a send succeeds ("delivered"); only a queued alias is retried after a discard.
-    await this.write({ ...state, daily: { ...state.daily, [marker]: "queued" } });
-    await this.push({
-      event: "$create_alias",
-      uuid: this.deps.uuid(),
-      timestamp: this.timestamp({ quiet: options.quiet }),
-      properties: { distinct_id: identity.anchorId, alias: earlier, $lib: "still", $geoip_disable: true },
-    }, options);
-  }
-
+  /** Queue the `$identify` that merges this install's anonymous id into the confirmed account. */
   private async ensureIdentified(identity: AnalyticsIdentity, options: TrackOptions = {}): Promise<void> {
-    if (!this.confirmed) return; // an account merge only for a confirmed account
+    if (!this.confirmed) return;
     const state = await this.read();
     if (!state.userId || state.identifiedAs === state.userId) return;
     const person = this.personProperties(options);
@@ -574,24 +607,6 @@ export class AnalyticsClient {
     }, options);
   }
 
-  /** Give an event recorded before confirmation its person, as of now (send time, confirmed). */
-  private attribute(e: QueuedEvent, state: ClientState, identity: AnalyticsIdentity): QueuedEvent {
-    const signedIn = state.userId !== null;
-    const $set = { ...(e.properties.$set as Record<string, unknown> | undefined) };
-    if (e.event === "signed_out") $set.signed_in = false;
-    return {
-      event: e.event,
-      uuid: e.uuid,
-      timestamp: e.timestamp,
-      properties: {
-        ...e.properties,
-        distinct_id: state.userId ?? this.anonymousId(state, identity),
-        signed_in: signedIn,
-        $set,
-      },
-    };
-  }
-
   private async enqueue(
     name: string,
     props: Record<string, boolean | string>,
@@ -599,30 +614,18 @@ export class AnalyticsClient {
   ): Promise<void> {
     const identity = await this.identity();
     if (!identity) return;
-    await this.ensureAliased(identity, options);
     await this.ensureIdentified(identity, options);
     const state = await this.read();
-    const { surface, appVersion } = this.deps;
     const person = this.personProperties(options);
+    const { distinct_id: distinctId, ...common } = this.envelope(state, identity);
     if (!this.confirmed) {
-      // No person yet: attributed at send time, once the account is confirmed.
+      // No person yet: the confirmation gives it one, in storage, before it can be sent (rule 2).
       await this.push({
         event: name,
         uuid: this.deps.uuid(),
         timestamp: this.timestamp(options),
         attributeLater: true,
-        properties: {
-          ...props,
-          $device_id: identity.installId,
-          $lib: "still",
-          $geoip_disable: true,
-          surface,
-          store: storeForSurface(surface),
-          ...(isDeviceClass(this.deps.device) ? { device: this.deps.device } : {}),
-          app_version: appVersion,
-          $set: person.$set,
-          $set_once: person.$set_once,
-        },
+        properties: { ...props, ...common, $set: person.$set, $set_once: person.$set_once },
       }, options);
       return;
     }
@@ -632,15 +635,8 @@ export class AnalyticsClient {
       timestamp: this.timestamp(options),
       properties: {
         ...props,
-        distinct_id: state.userId ?? this.anonymousId(state, identity),
-        $device_id: identity.installId,
-        $lib: "still",
-        // Location is never derived from the connection (the privacy label declares none).
-        $geoip_disable: true,
-        surface,
-        store: storeForSurface(surface),
-        ...(isDeviceClass(this.deps.device) ? { device: this.deps.device } : {}),
-        app_version: appVersion,
+        distinct_id: distinctId,
+        ...common,
         signed_in: state.userId !== null,
         $set: name === "signed_out" ? { ...person.$set, signed_in: false } : person.$set,
         $set_once: person.$set_once,
@@ -658,18 +654,9 @@ export class AnalyticsClient {
     }, FLUSH_DELAY_MS);
   }
 
-  private async markAliasesDelivered(batch: readonly QueuedEvent[]): Promise<void> {
-    const aliases = batch.filter((e) => e.event === "$create_alias").map((e) => e.properties.alias);
-    if (aliases.length === 0) return;
-    const state = await this.read();
-    const daily = { ...state.daily };
-    for (const alias of aliases) daily[`once:alias:${String(alias)}`] = "delivered";
-    await this.write({ ...state, daily });
-  }
-
   private async post(batch: readonly QueuedEvent[], signal?: AbortSignal): Promise<"done" | "retry"> {
     const host = this.deps.config.host!.trim().replace(/\/+$/, "");
-    // Every request is bounded, and abandonable: switching sharing off aborts it (clearQueue), so a
+    // Every request is bounded, and abandonable: switching sharing off aborts it (cancel), so a
     // stuck network can never hold the queue, the switch, or anything behind them.
     const controller = typeof AbortController === "function" ? new AbortController() : null;
     if (signal) signal.addEventListener("abort", () => controller?.abort(), { once: true });

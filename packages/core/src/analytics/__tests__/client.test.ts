@@ -265,11 +265,11 @@ describe("AnalyticsClient.trackOnce", () => {
   });
 });
 
-describe("AnalyticsClient.reset onlyIfSignedIn", () => {
+describe("AnalyticsClient.reset when nobody is signed in", () => {
   it("keeps one anonymous id across starts while signed out", async () => {
     const h = harness();
     await h.client.track("active", {});
-    await h.client.reset({ onlyIfSignedIn: true });
+    await h.client.reset();
     await h.client.track("active", {});
     const ids = h.queue().map((e) => e.properties.distinct_id);
     expect(ids[0]).toBe(ids[1]);
@@ -354,14 +354,7 @@ describe("AnalyticsClient privacy failure modes", () => {
     expect(h.queue().map((e) => e.event)).toEqual(["$identify", "active"]);
   });
 
-  it("merges an earlier anonymous id into a late-arriving anchor, once", async () => {
-    const h = harness({ identity: async () => ({ ...IDENTITY, aliasOf: "33333333-3333-4333-8333-333333333333" }) });
-    await h.client.track("active", {});
-    await h.client.track("active", {});
-    const aliases = h.queue().filter((e) => e.event === "$create_alias");
-    expect(aliases).toHaveLength(1);
-    expect(aliases[0]!.properties).toMatchObject({ distinct_id: IDENTITY.anchorId, alias: "33333333-3333-4333-8333-333333333333" });
-  });
+
 });
 
 describe("quiet flush alarm", () => {
