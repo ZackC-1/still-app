@@ -21,11 +21,12 @@ free text can be sent.
 ## PostHog project settings (owner)
 
 1. Use the US Cloud project that holds the key in the ignored `packages/*/.env` files.
-2. The setup wizard turned on Session Replay, Error Tracking and "Self-driving" (AI) signals.
-   Still's client records no sessions and no errors, so these do nothing for the apps. Turn **off**
-   the Self-driving / AI data processing unless the privacy policy is first updated to say PostHog
-   processes usage data with AI features. Leave Session Replay off unless the website adopts it
-   deliberately (see Website below).
+2. The setup wizard turned on Session Replay, Error Tracking and "Self-driving" (AI) signals. The
+   owner keeps Self-driving on (decision 2026-09-23), so the privacy policy discloses that PostHog
+   passes usage data to its AI model providers. In the organization's AI settings, opt out of
+   PostHog using the data to improve its own AI, which the policy does not permit. Leave Session
+   Replay off unless the website adopts it deliberately (see Website below). If the list of AI
+   providers in PostHog's subprocessor page changes, update the policy.
 3. Leave GeoIP enrichment on: the privacy policy discloses IP-derived location.
 4. Create a personal API key with only the **person: write** scope, for deletion.
 

@@ -67,6 +67,14 @@
   <p>RevenueCat documents that customer country can come from a transaction or an IP-derived country,
   and that it discards the IP used for that derivation. This does not mean all services involved in
   Still keep no IP logs. See <a href="https://www.revenuecat.com/docs/dashboard-and-metrics/customer-profile">RevenueCat's customer documentation</a>.</p>
+  <p>We use PostHog's AI features, including its automated "Self-driving" analysis, to review usage
+  events, errors and our public GitHub issues and point out problems with Still. To do this, PostHog
+  passes the usage data described above to AI model providers it contracts with (currently
+  Anthropic, OpenAI and Google, with Microsoft Azure for search). PostHog's data processing terms
+  prohibit those providers from using the data to train or improve their models. PostHog states it
+  cannot yet guarantee that those providers keep no copy of the data they process. See
+  <a href="https://posthog.com/docs/posthog-ai/faq">PostHog's AI data documentation</a> and
+  <a href="https://posthog.com/subprocessors">its subprocessor list</a>.</p>
   <p>We do not sell your personal information or use it for advertising tracking, and we do not share
   usage analytics with advertisers or data brokers. We use it only to understand and improve Still.
   We do not collect browsing history. RevenueCat's purchase analytics are separate from browsing
