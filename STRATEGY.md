@@ -89,7 +89,9 @@ review, store approval, and updated messaging.
 - **Free for growth.** Still 2.0 has no purchase requirement. Do not promise permanent pricing.
 - **Disclose at the decision point.** Mobile Safari and native-app limitations belong near download
   calls to action, not only in legal copy.
-- **Private by construction.** Do not add behavioral analytics merely to make a dashboard easier.
+- **Private by construction.** Still never records the pages, videos or searches people view. Product
+  analytics (from 2.1) uses a closed event schema, no fingerprinting and a per-device off switch,
+  and is never used for advertising ([ADR 0004](docs/adr/0004-first-party-usage-analytics.md)).
 
 ## Messaging hierarchy
 
@@ -141,8 +143,9 @@ a verified launch blocker requires action.
   product truth.
 - Reusable engineering and operational lessons are captured in `docs/solutions/` and remain current.
 
-Use store dashboards and categorized support feedback for the initial baseline.
-Any future analytics proposal must be reviewed against Still's privacy promise before implementation.
+Use store dashboards, the PostHog "Still growth" dashboard and categorized support feedback.
+Any new analytics event or property must be reviewed against Still's privacy promise and ADR 0004
+before implementation, and the privacy policy and store declarations updated with it.
 
 ## Decision hierarchy
 

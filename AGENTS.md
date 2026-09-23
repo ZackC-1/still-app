@@ -135,6 +135,9 @@ with the code that proves it whenever practical.
 - Mobile support means websites opened in Safari. Still does not block short-form video inside native
   YouTube, Instagram, Facebook, or TikTok apps.
 - Say "every supported surface," never "everywhere."
+- Product analytics follows [ADR 0004](docs/adr/0004-first-party-usage-analytics.md): a closed event
+  schema with no pages, videos or searches, no fingerprinting, a per-device off switch, never used
+  for advertising. New events need a privacy review and matching store declarations.
 - Still does not collect browsing history. Host permissions remain limited to the four documented
   services and must never expand to `<all_urls>` without an explicit product and privacy review.
 - Optimize first for qualified downloads, then reliable activation and continued use, while making

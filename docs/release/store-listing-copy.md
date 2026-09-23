@@ -70,7 +70,7 @@ Description (use for both Apple listings):
 > On iPhone and iPad, Still works only on websites opened in Safari. It cannot block short-form video inside the native YouTube, Instagram, Facebook, or TikTok apps.
 >
 > PRIVATE BY DESIGN
-> Blocking runs on your device. Still does not collect browsing history or show ads. Website access is limited to YouTube, Instagram, Facebook, and TikTok.
+> Blocking runs on your device. Still does not collect browsing history or show ads. Website access is limited to YouTube, Instagram, Facebook, and TikTok. Still shares usage data to help improve the app, and you can turn it off in settings.
 >
 > Setup and support: https://stillapp.fit/support/
 > Privacy: https://stillapp.fit/privacy/
@@ -131,7 +131,7 @@ Detailed description:
 > On iPhone and iPad, Still works only on websites opened in Safari. It cannot block short-form video inside native YouTube, Instagram, Facebook, or TikTok apps. This desktop extension does not work in mobile Chrome or Firefox.
 >
 > PRIVATE BY DESIGN
-> Blocking runs on your device. Still does not collect browsing history or show ads. Website access is limited to YouTube, Instagram, Facebook, and TikTok.
+> Blocking runs on your device. Still does not collect browsing history or show ads. Website access is limited to YouTube, Instagram, Facebook, and TikTok. Still shares usage data to help improve the app, and you can turn it off in settings.
 >
 > Setup and support: https://stillapp.fit/support/
 > Privacy: https://stillapp.fit/privacy/

@@ -33,6 +33,7 @@ On iPhone/iPad, Still works in Safari websites, not native social apps. See [PRO
 | RevenueCat | [Retained infrastructure](04-revenuecat.md): identity/receipt/webhook continuity; paid gates remain disabled. |
 | Auth and reviewer access | [Account/reviewer reference](extension-purchase-deploy-checklist.md): OTP and private fixed-code configuration. |
 | Backend retention | [Counter runbook](counter-retention.md): current behavior, safe maintenance and recovery. |
+| Usage analytics | [PostHog runbook](posthog-analytics.md): project settings, function secrets, store privacy declarations and the growth dashboard. |
 | Marketing and assets | [Listing drafts](store-listing-copy.md), [screenshot manifest](screenshots/store-ready/README.md), [public contacts](public-contact-addresses.md). |
 | Evidence | [Validation index](VALIDATION.md), [September 8 historical candidate](2026-09-08-still-2-certification.md), [September 11 contact candidate](2026-09-11-public-contact-update.md). |
 
