@@ -7,12 +7,17 @@
   } from "../../lib/purchase-wiring.js";
   import { emailConsent } from "../../lib/email-consent.js";
   import { surfaceGuidance } from "../../lib/surface-guidance.js";
+  import { createPageAnalytics } from "../../lib/analytics.js";
 
   // An extension page like the popup, so it gets the same purchase-spine injection (plan U6):
   // message-closures over the background-owned session, present only when this build carries
   // Supabase config (the fail-safe env gate).
   const purchase = extensionPurchaseDeps();
-  const controller = createExtensionUiController(purchase, { emailConsent });
+  const controller = createExtensionUiController(purchase, {
+    emailConsent,
+    analytics: createPageAnalytics(Boolean(import.meta.env.FIREFOX)),
+    openedWhere: "options",
+  });
   const onRestore = purchase ? restoreHandler(controller) : undefined;
 </script>
 

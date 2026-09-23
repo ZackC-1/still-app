@@ -20,6 +20,7 @@ import { createIdentityStore, createSessionStores } from "../lib/session-stores.
 import {
   createSessionMessageRouter,
 } from "../lib/session-messages.js";
+import { createBackgroundAnalytics, storageKeyValue } from "../lib/analytics.js";
 
 // Chromium/Firefox background (Chrome MV3 service worker / Firefox MV3 event page). Three
 // independent jobs:
@@ -39,12 +40,33 @@ import {
 //     Firefox build ships no DNR ruleset (it redirects via the content script), so that wiring
 //     bails cleanly when the API is absent.
 //
+// Product analytics (lib/analytics.ts) also lives here: this context owns the one PostHog client,
+// pages report to it by message, and content scripts may only name a service they blocked on.
+//
 // Plus one write that happens once in the life of an install: the record of when this browser
 // first ran Still and on which version (lib/original-install.ts). It is local, never transmitted,
 // and it is how the people who installed while everything was included can be recognised later.
 const RULESET_ID = "youtube-shorts-redirect";
 
 export default defineBackground(() => {
+  // Registered first and synchronously: onInstalled fires once, early, on a fresh install/update.
+  const analytics = createBackgroundAnalytics(
+    {
+      isFirefox: Boolean(import.meta.env.FIREFOX),
+      config: {
+        key: import.meta.env.VITE_POSTHOG_KEY as string | undefined,
+        host: import.meta.env.VITE_POSTHOG_HOST as string | undefined,
+      },
+      appVersion: browser.runtime.getManifest().version,
+      local: storageKeyValue(chrome.storage.local),
+      shared: chrome.storage.sync ? storageKeyValue(chrome.storage.sync) : null,
+    },
+    chrome.runtime.id,
+    chrome.runtime.getURL(""),
+  );
+  chrome.runtime.onInstalled.addListener((details) => analytics.onInstalled(details));
+  chrome.runtime.onMessage.addListener(analytics.listener);
+
   const refreshRuleSet = createRuleSetRefresher({
     prod: import.meta.env.PROD,
     url: import.meta.env.VITE_SUPABASE_URL as string | undefined,
@@ -104,6 +126,9 @@ export default defineBackground(() => {
   // browser that was closed while another device changed something learns about it here rather
   // than publishing over it on its next edit.
   void hydrated.then(() => session?.resume());
+  void hydrated
+    .then(() => session?.getState())
+    .then((state) => analytics.onStart(state?.userId ?? null), () => analytics.onStart(null));
 
   // ── DNR gating — Chromium only from here down. ───────────────────────────────────────────────
   if (!chrome.declarativeNetRequest?.updateEnabledRulesets) return;

@@ -7,6 +7,7 @@ import {
 } from "../../lib/purchase-wiring.js";
 import { emailConsent } from "../../lib/email-consent.js";
 import { surfaceGuidance } from "../../lib/surface-guidance.js";
+import { createPageAnalytics } from "../../lib/analytics.js";
 import PopupApp from "./PopupApp.svelte";
 
 // Build the controller — with the purchase-spine injection when this build carries Supabase config
@@ -15,7 +16,11 @@ import PopupApp from "./PopupApp.svelte";
 // 2026-07-06; only the dormant `pauses` settings field remains in core.
 function init(): void {
   const purchase = extensionPurchaseDeps();
-  const controller = createExtensionUiController(purchase, { emailConsent });
+  const controller = createExtensionUiController(purchase, {
+    emailConsent,
+    analytics: createPageAnalytics(Boolean(import.meta.env.FIREFOX)),
+    openedWhere: "popup",
+  });
   mount(PopupApp, {
     target: document.getElementById("app")!,
     props: {

@@ -254,6 +254,16 @@ export const STRINGS = {
   },
 
   // Account management (App Store Guideline 5.1.1): in-app deletion + a reachable privacy policy.
+  usage: {
+    // The settings row. States what is shared and, in the same breath, what never is.
+    title: "Share usage data",
+    body: "Helps improve Still. Never includes the sites or videos you visit.",
+    // The one-time notice where analytics starts on by default (Chrome and the Apple apps).
+    notice: "Still shares usage data to help improve the app. It never includes the sites or videos you visit.",
+    noticeOk: "OK",
+    noticeTurnOff: "Turn off",
+  },
+
   account: {
     privacyPolicy: "Privacy policy",
     delete: "Delete account",

@@ -17,6 +17,7 @@ export type {
   CheckoutFlow,
   CheckoutReconcileOutcome,
   UiAnalytics,
+  UsageSharingState,
 } from "./controller.svelte.js";
 export {
   RESEND_COOLDOWN_MS,

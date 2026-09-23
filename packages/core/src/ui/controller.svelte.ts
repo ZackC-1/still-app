@@ -214,6 +214,20 @@ export interface UiAnalytics {
   identify(userId: string): void;
   /** Stop attributing to the account (sign-out, deletion). */
   reset(): void;
+  /** This device's "Share usage data" state, or null when the build has no analytics (the switch
+   * then does not render). */
+  sharing?(): Promise<UsageSharingState | null>;
+  /** Change it; resolves to the resulting state (Firefox's permission prompt can be declined).
+   * Called synchronously from the tap, so a host that must prompt still has the user gesture. */
+  setSharing?(enabled: boolean): Promise<boolean>;
+  /** Remember that the one-time notice was seen. */
+  acknowledgeNotice?(): void;
+}
+
+export interface UsageSharingState {
+  readonly enabled: boolean;
+  /** True until the person has seen the one-time notice on a surface where sharing starts on. */
+  readonly noticeNeeded: boolean;
 }
 
 /** A verified account created within this window counts as new in the sign-in funnel. The code
@@ -304,6 +318,10 @@ export class UiController {
   /** The checkout-pending presentation (plan U4/R3): persisted-flag lifecycle across popup deaths,
    * orthogonal to purchaseFlow (which tracks one tap's in-flight purchase). */
   checkoutFlow = $state<CheckoutFlow>("none");
+  /** "Share usage data" on this device; null hides the switch (no analytics in this build). */
+  usageSharing = $state<boolean | null>(null);
+  /** The one-time notice that usage sharing is on (Chrome and the Apple apps). */
+  usageNoticeVisible = $state(false);
 
   readonly host: UiHost;
   private readonly cache: SettingsCache;
@@ -353,6 +371,48 @@ export class UiController {
     deps.cache.subscribe((s) => {
       this.settings = s;
     });
+    void this.loadUsageSharing();
+  }
+
+  // ── "Share usage data" ───────────────────────────────────────────────────────────────────────
+
+  private async loadUsageSharing(): Promise<void> {
+    try {
+      const state = await this.analytics?.sharing?.();
+      if (!state) return;
+      this.usageSharing = state.enabled;
+      this.usageNoticeVisible = state.enabled && state.noticeNeeded;
+    } catch {
+      /* no switch rather than a wrong one */
+    }
+  }
+
+  toggleUsageSharing(): void {
+    const setSharing = this.analytics?.setSharing;
+    if (this.usageSharing === null || !setSharing) return;
+    const wanted = !this.usageSharing;
+    this.dismissUsageNotice();
+    let request: Promise<boolean>;
+    try {
+      // No await before this call: Firefox's permission prompt needs the tap's user gesture.
+      request = setSharing.call(this.analytics, wanted);
+    } catch {
+      return;
+    }
+    void request.then(
+      (enabled) => {
+        this.usageSharing = enabled;
+      },
+      () => {
+        /* the previous state stands */
+      },
+    );
+  }
+
+  dismissUsageNotice(): void {
+    if (!this.usageNoticeVisible) return;
+    this.usageNoticeVisible = false;
+    this.analyticsCall((a) => a.acknowledgeNotice?.());
   }
 
   /** Entitlement as the UI renders it. Hosts still assign it like a plain property (apple-session's

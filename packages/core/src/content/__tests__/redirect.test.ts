@@ -605,3 +605,41 @@ describe("content script — root service class scopes the packaged CSS", () => 
     cs.stop();
   });
 });
+
+describe("onServiceActive (the blocking-worked signal)", () => {
+  it("reports only the service id, once per page, when Still blocks there", async () => {
+    const win = makeWin("https://www.youtube.com/shorts/abc123");
+    const onServiceActive = vi.fn();
+    const cs = createContentScript({
+      win, doc: document, ruleSet, cache: cacheWith(null), redirectPort: { replace: vi.fn() }, schedule: sync, onServiceActive,
+    });
+    await cs.start();
+    win.setHref("https://www.youtube.com/feed/subscriptions");
+    cs.reapply();
+    cs.reapply();
+    expect(onServiceActive.mock.calls).toEqual([["youtube"]]);
+    cs.stop();
+  });
+
+  it("reports nothing when the service is turned off", async () => {
+    const win = makeWin("https://www.instagram.com/reels/");
+    const onServiceActive = vi.fn();
+    const off: StillSettings = { ...DEFAULT_SETTINGS, services: { ...DEFAULT_SETTINGS.services, instagram: false }, updatedAt: 1 };
+    const cs = createContentScript({ win, doc: document, ruleSet, cache: cacheWith(off), schedule: sync, onServiceActive });
+    await cs.start();
+    expect(onServiceActive).not.toHaveBeenCalled();
+    cs.stop();
+  });
+
+  it("a throwing reporter never affects blocking", async () => {
+    const win = makeWin("https://www.youtube.com/shorts/abc123");
+    const redirectPort = { replace: vi.fn() };
+    const cs = createContentScript({
+      win, doc: document, ruleSet, cache: cacheWith(null), redirectPort, schedule: sync,
+      onServiceActive: () => { throw new Error("background gone"); },
+    });
+    await cs.start();
+    expect(redirectPort.replace).toHaveBeenCalledWith("https://www.youtube.com/watch?v=abc123");
+    cs.stop();
+  });
+});
