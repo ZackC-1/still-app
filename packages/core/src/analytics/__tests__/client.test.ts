@@ -205,3 +205,22 @@ describe("AnalyticsClient", () => {
     await expect(h.client.flush()).resolves.toBeUndefined();
   });
 });
+
+describe("AnalyticsClient.trackOnce", () => {
+  it("fires once for the life of the install, across days", async () => {
+    const h = harness();
+    await h.client.trackOnce("setup", "setup_completed", {});
+    h.advanceDays(3);
+    await h.client.trackOnce("setup", "setup_completed", {});
+    expect(h.queue().map((e) => e.event)).toEqual(["setup_completed"]);
+  });
+
+  it("does not use up the marker while analytics is off", async () => {
+    const h = harness();
+    h.setConsent(false);
+    await h.client.trackOnce("setup", "setup_completed", {});
+    h.setConsent(true);
+    await h.client.trackOnce("setup", "setup_completed", {});
+    expect(h.queue().map((e) => e.event)).toEqual(["setup_completed"]);
+  });
+});

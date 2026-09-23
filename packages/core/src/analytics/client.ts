@@ -66,7 +66,7 @@ interface ClientState {
   readonly userId: string | null;
   /** The account a `$identify` has already been queued for, so it is sent once per sign-in. */
   readonly identifiedAs: string | null;
-  /** Marker → local calendar day it last fired, for once-a-day events. */
+  /** Marker → local calendar day it last fired, for once-a-day events; `once:` markers → "done". */
   readonly daily: Readonly<Record<string, string>>;
 }
 
@@ -146,6 +146,24 @@ export class AnalyticsClient {
       const today = localDay(this.deps.now());
       if (state.daily[marker] === today) return;
       await this.write({ ...state, daily: { ...state.daily, [marker]: today } });
+      await this.enqueue(name, valid);
+    });
+  }
+
+  /** Queue an event once in the life of this install for `marker` (setup milestones). */
+  trackOnce<E extends AnalyticsEventName>(
+    marker: string,
+    name: E,
+    props: AnalyticsEventProps<E>,
+  ): Promise<void> {
+    return this.run(async () => {
+      if (!(await this.allowed())) return;
+      const valid = validateEvent(name, props);
+      if (!valid) return;
+      const state = await this.read();
+      const key = `once:${marker}`;
+      if (state.daily[key] !== undefined) return;
+      await this.write({ ...state, daily: { ...state.daily, [key]: "done" } });
       await this.enqueue(name, valid);
     });
   }
