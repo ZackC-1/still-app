@@ -56,6 +56,9 @@ privacy-positioning cost (the homepage promised "no behavioral tracking") agains
   nothing about when a site was visited. The server email attach runs only from an ordinary,
   non-background identify.
 - New accounts are counted by the server once per account, never inferred by a client.
+- Chrome and Firefox send `installed` and `setup_completed` at install, before the one-time notice
+  is seen (owner decision, 2026-09-23): counting every install outweighs holding them, and the store
+  privacy declarations and the privacy policy disclose the collection up front.
 - Consent is re-read before every request and fails closed; anything waiting is discarded when
   sharing turns out to be off, however it was switched off.
 - Store totals remain the source of truth for downloads; PostHog counts first opens.

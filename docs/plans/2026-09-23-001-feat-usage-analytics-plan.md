@@ -289,5 +289,6 @@ testing, plus store review time.
   Documented instead of coded: HogQL definitions for returning persons and first store, sign-in drop-off
   as a funnel, per-surface semantics, weekly health checks (including the stale-device ghost after a
   deletion and web-view marker loss), the live two-device identity test, the `alarms` justification,
-  the Firefox listing wording and the AMO allowlist. Open product call (B2): Chrome sends
-  `installed`/`setup_completed` before the one-time notice is seen.
+  the Firefox listing wording and the AMO allowlist. Product call (B2), owner decision 2026-09-23: keep
+  Chrome sending `installed`/`setup_completed` at install, before the one-time notice is seen; the
+  Chrome privacy tab and the privacy policy disclose the collection up front.
