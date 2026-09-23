@@ -71,7 +71,8 @@ describe("Safari extension analytics", () => {
   });
 
   it("follows the app's switch, re-reading it on every event", async () => {
-    const { send, settle, events, setConsent } = setup({ consent: false });
+    const { bg, send, settle, events, setConsent } = setup({ consent: false });
+    bg.onStart();
     const open = () => send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } }, PAGE);
     await open();
     await settle();
@@ -90,7 +91,8 @@ describe("Safari extension analytics", () => {
   });
 
   it("only popup/options may use the page protocol", async () => {
-    const { send, settle, events } = setup();
+    const { bg, send, settle, events } = setup();
+    bg.onStart();
     expect(await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "signed_in", props: {} }, CONTENT)).toBeUndefined();
     expect(await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } }, PAGE)).toBe(true);
     await settle();

@@ -32,6 +32,8 @@ export const MAX_QUEUE = 300;
 export const BATCH_SIZE = 50;
 /** How long after the last event to wait before sending, so a burst goes out as one request. */
 export const FLUSH_DELAY_MS = 1_500;
+/** Longest one request may take; a stuck network must never hold the queue. */
+export const REQUEST_TIMEOUT_MS = 30_000;
 
 export interface AnalyticsConfig {
   /** PostHog project API key (public by design: it can only send events). */
@@ -152,6 +154,14 @@ export class AnalyticsClient {
   private epoch = 0;
   /** Sends wait on this (holdSendsUntil). */
   private sendGate: Promise<void> = Promise.resolve();
+  /** Bumped whenever the account this install reports as changes (identify, reset). Work that read
+   * the account and then waited (a server attach) checks it before acting. */
+  private generation = 0;
+  /** False while the host could not confirm who is signed in (a startup check that timed out).
+   * Then only anonymous events may be sent; anything attributed to an account waits. */
+  private accountVerified = true;
+  /** The request in flight, so switching sharing off can abandon it instead of waiting. */
+  private inflight: AbortController | null = null;
   /** Set when an identity reset could not be saved: reporting stops for the life of this client
    * rather than risk sending under an account that should have been let go. */
   private blocked = false;
@@ -216,7 +226,10 @@ export class AnalyticsClient {
       // Account ids are Supabase UUIDs; anything else never becomes a distinct id.
       if (!this.configured || !isAnalyticsId(userId)) return;
       const state = await this.read();
-      if (state.userId !== userId) await this.write({ ...state, userId });
+      if (state.userId !== userId) {
+        this.generation += 1;
+        await this.write({ ...state, userId });
+      }
       if (!(await this.allowed())) return;
       const identity = await this.identity();
       if (identity) await this.ensureIdentified(identity, options);
@@ -246,6 +259,7 @@ export class AnalyticsClient {
         const kept = queue.filter((e) => e.properties.distinct_id !== gone);
         if (kept.length !== queue.length) await this.writeQueue(kept);
       }
+      this.generation += 1;
       const saved = await this.write({ ...state, userId: null, identifiedAs: null, anonId: this.deps.uuid() });
       if (!saved) this.blocked = true;
     });
@@ -276,6 +290,8 @@ export class AnalyticsClient {
     const state = await this.read();
     await this.clearQueue();
     if (!identity) return;
+    // Never under an account the host has not confirmed (a stalled startup check).
+    if (state.userId && !this.accountVerified) return;
     const event: QueuedEvent = {
       event: "sharing_turned_off",
       uuid: this.deps.uuid(),
@@ -304,7 +320,23 @@ export class AnalyticsClient {
   /** Drop everything waiting to be sent: the person turned analytics off. */
   clearQueue(): Promise<void> {
     this.epoch += 1; // stop a running flush before its next request, without waiting for it
+    this.inflight?.abort(); // and abandon the request it is waiting on, however stuck the network
     return this.run(() => this.discardQueue());
+  }
+
+  /** A snapshot of the account generation and consent epoch, for work that waits and then acts. */
+  stamp(): { readonly generation: number; readonly epoch: number } {
+    return { generation: this.generation, epoch: this.epoch };
+  }
+
+  /** Whether nothing about the account or sharing has changed since `stamp`. */
+  isCurrent(stamp: { readonly generation: number; readonly epoch: number }): boolean {
+    return stamp.generation === this.generation && stamp.epoch === this.epoch;
+  }
+
+  /** The host's word on whether it knows who is signed in. See `accountVerified`. */
+  setAccountVerified(verified: boolean): void {
+    this.accountVerified = verified;
   }
 
   /** Send what is queued. Keeps events on a network or server failure so the next flush retries. */
@@ -316,10 +348,15 @@ export class AnalyticsClient {
         // Consent is re-read before every request: sharing can be switched off mid-flush.
         if (epoch !== this.epoch || !(await this.allowed())) return;
         const queue = await this.readQueue();
-        const batch = queue.slice(0, BATCH_SIZE);
+        // With the account unconfirmed, only anonymous events may leave; the rest wait for it.
+        const eligible = this.accountVerified
+          ? queue
+          : queue.filter((e) => e.event !== "$identify" && e.properties.signed_in !== true);
+        const batch = eligible.slice(0, BATCH_SIZE);
         if (batch.length === 0) return;
         const outcome = await this.post(batch);
-        if (outcome === "retry") return;
+        if (outcome === "retry" || epoch !== this.epoch) return;
+        await this.markAliasesDelivered(batch);
         // Sent, or rejected as malformed (retrying a 400 forever would block the queue).
         const sent = new Set(batch.map((e) => e.uuid));
         const remaining = (await this.readQueue()).filter((e) => !sent.has(e.uuid));
@@ -376,8 +413,11 @@ export class AnalyticsClient {
   private async discardQueue(): Promise<void> {
     if ((await this.readQueue()).length > 0) await this.writeQueue([]);
     const state = await this.read();
-    // Anything discarded unsent must be sent again later: the account merge and alias merges.
-    const daily = Object.fromEntries(Object.entries(state.daily).filter(([k]) => !k.startsWith("once:alias:")));
+    // Anything discarded unsent must be sent again later: the account merge and alias merges that
+    // were still only queued. A delivered alias is never repeated.
+    const daily = Object.fromEntries(
+      Object.entries(state.daily).filter(([k, v]) => !(k.startsWith("once:alias:") && v === "queued")),
+    );
     if (state.identifiedAs !== null || Object.keys(daily).length !== Object.keys(state.daily).length) {
       await this.write({ ...state, identifiedAs: null, daily });
     }
@@ -477,7 +517,8 @@ export class AnalyticsClient {
     const state = await this.read();
     const marker = `once:alias:${earlier}`;
     if (state.daily[marker] !== undefined) return;
-    await this.write({ ...state, daily: { ...state.daily, [marker]: "done" } });
+    // "queued" until a send succeeds ("delivered"); only a queued alias is retried after a discard.
+    await this.write({ ...state, daily: { ...state.daily, [marker]: "queued" } });
     await this.push({
       event: "$create_alias",
       uuid: this.deps.uuid(),
@@ -551,21 +592,45 @@ export class AnalyticsClient {
     }, FLUSH_DELAY_MS);
   }
 
+  private async markAliasesDelivered(batch: readonly QueuedEvent[]): Promise<void> {
+    const aliases = batch.filter((e) => e.event === "$create_alias").map((e) => e.properties.alias);
+    if (aliases.length === 0) return;
+    const state = await this.read();
+    const daily = { ...state.daily };
+    for (const alias of aliases) daily[`once:alias:${String(alias)}`] = "delivered";
+    await this.write({ ...state, daily });
+  }
+
   private async post(batch: readonly QueuedEvent[], signal?: AbortSignal): Promise<"done" | "retry"> {
     const host = this.deps.config.host!.trim().replace(/\/+$/, "");
+    // Every request is bounded, and abandonable: switching sharing off aborts it (clearQueue), so a
+    // stuck network can never hold the queue, the switch, or anything behind them.
+    const controller = typeof AbortController === "function" ? new AbortController() : null;
+    if (signal) signal.addEventListener("abort", () => controller?.abort(), { once: true });
+    this.inflight = controller;
+    const timer = setTimeout(() => controller?.abort(), REQUEST_TIMEOUT_MS);
+    const aborted = new Promise<never>((_, reject) =>
+      controller?.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }),
+    );
     try {
-      const response = await this.deps.fetch(`${host}/batch/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ api_key: this.deps.config.key!.trim(), batch }),
-        signal,
-      });
+      const response = await Promise.race([
+        this.deps.fetch(`${host}/batch/`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ api_key: this.deps.config.key!.trim(), batch }),
+          signal: controller?.signal,
+        }),
+        aborted,
+      ]);
       if (response.ok) return "done";
       // A request PostHog will never accept: drop it rather than block everything behind it.
       if (response.status === 400 || response.status === 413) return "done";
       return "retry";
     } catch {
       return "retry";
+    } finally {
+      clearTimeout(timer);
+      if (this.inflight === controller) this.inflight = null;
     }
   }
 }

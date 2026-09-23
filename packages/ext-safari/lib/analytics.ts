@@ -112,9 +112,11 @@ export function createSafariBackgroundAnalytics(deps: SafariAnalyticsDeps): Safa
   // The app's account: an id, null when the app reports no account (signed out or deleted, so any
   // earlier account is let go), or undefined when it could not be read (nothing changes).
   const accountId = async (): Promise<string | null | undefined> => {
-    const reply = (await deps.sendNative({ kind: "getAccountSyncStatus" }).catch(() => null)) as
-      | { accountSyncStatus?: unknown }
-      | null;
+    // A native reply that never comes is "unknown" after a few seconds, never a hang.
+    const reply = (await Promise.race([
+      deps.sendNative({ kind: "getAccountSyncStatus" }).catch(() => null),
+      new Promise<null>((r) => setTimeout(() => r(null), 5_000)),
+    ])) as { accountSyncStatus?: unknown } | null;
     if (!reply || !("accountSyncStatus" in reply)) return undefined;
     if (reply.accountSyncStatus === null) return null;
     return parseAccountSyncStatus(reply.accountSyncStatus)?.accountId ?? undefined;

@@ -95,3 +95,17 @@ describe("waiting for sync on a fresh install", () => {
     expect(id.returning).toBe(false);
   });
 });
+
+describe("no alias chains", () => {
+  it("adopts a synced anchor at most once, so no id is aliased after being an alias destination", async () => {
+    const local = memory();
+    const shared = memory();
+    await resolveAnalyticsIdentity({ local, shared: memory(), uuid });
+    shared.data[ANCHOR_KEY] = "99999999-9999-4999-8999-999999999999";
+    const adopted = await resolveAnalyticsIdentity({ local, shared, uuid });
+    shared.data[ANCHOR_KEY] = "88888888-8888-4888-8888-888888888888"; // another device raced later
+    const later = await resolveAnalyticsIdentity({ local, shared, uuid });
+    expect(later.anchorId).toBe(adopted.anchorId);
+    expect(later.aliasOf).toBe(adopted.aliasOf);
+  });
+});

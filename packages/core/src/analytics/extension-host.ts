@@ -99,26 +99,55 @@ type PageRequest =
   | { readonly action: "setSharing"; readonly enabled: boolean }
   | { readonly action: "acknowledgeNotice" };
 
-/** Identify an install and, once per account while sharing is on, run the server email attach.
- * Shared by the extension host and the Apple app. A quiet identify (a background start) skips the
- * server call, whose arrival time would otherwise mark a site visit; the next ordinary one runs it. */
+export interface AccountIdentifier {
+  /** Identify the install as this account; an ordinary (not quiet) identify also runs the attach. */
+  identify(userId: string, options?: TrackOptions): Promise<void>;
+  /**
+   * The server email attach for whichever account the client reports as right now, once per
+   * account while sharing is on. It never changes the account itself (a stale read must not restore
+   * an account that signed out meanwhile), it re-checks the account and sharing immediately before
+   * the request, and concurrent calls share one attempt. A quiet identify (a background start)
+   * never runs it: its arrival time would mark a site visit.
+   */
+  attach(): Promise<void>;
+}
+
+/** Shared by the extension host and the Apple app. */
 export function createAccountIdentifier(deps: {
   readonly client: AnalyticsClient;
   readonly local: AnalyticsKeyValue;
   readonly consent: () => Promise<boolean>;
   readonly identifyOnServer?: () => Promise<void>;
-}): (userId: string, options?: TrackOptions) => Promise<void> {
-  return async (userId, options = {}) => {
-    await deps.client.identify(userId, options);
-    if (options.quiet) return;
-    if (!deps.identifyOnServer || !deps.client.enabled || !(await deps.consent().catch(() => false))) return;
-    if ((await deps.local.get(SERVER_IDENTIFIED_KEY).catch(() => null)) === userId) return;
-    try {
-      await deps.identifyOnServer();
-      await deps.local.set(SERVER_IDENTIFIED_KEY, userId);
-    } catch {
-      /* retried on the next start */
-    }
+}): AccountIdentifier {
+  const { client } = deps;
+  const consented = () => deps.consent().catch(() => false);
+  let inflight: Promise<void> | null = null;
+  const attach = (): Promise<void> => {
+    if (!deps.identifyOnServer || !client.enabled) return Promise.resolve();
+    inflight ??= (async () => {
+      const stamp = client.stamp();
+      const userId = await client.signedInAs();
+      if (!userId || !(await consented())) return;
+      if ((await deps.local.get(SERVER_IDENTIFIED_KEY).catch(() => null)) === userId) return;
+      // Immediately before the request: same account, sharing still on, nothing reset meanwhile.
+      if ((await client.signedInAs()) !== userId || !(await consented()) || !client.isCurrent(stamp)) return;
+      try {
+        await deps.identifyOnServer!();
+        if (client.isCurrent(stamp)) await deps.local.set(SERVER_IDENTIFIED_KEY, userId);
+      } catch {
+        /* retried at the next Still screen */
+      }
+    })().finally(() => {
+      inflight = null;
+    });
+    return inflight;
+  };
+  return {
+    async identify(userId, options = {}) {
+      await client.identify(userId, options);
+      if (!options.quiet) await attach();
+    },
+    attach,
   };
 }
 
@@ -149,19 +178,27 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
     now,
     uuid,
   });
-  const identify = createAccountIdentifier({
+  const accounts = createAccountIdentifier({
     client,
     local: deps.local,
     consent: deps.consent,
     identifyOnServer: deps.identifyOnServer,
   });
+  const identify = (userId: string, options?: TrackOptions) => accounts.identify(userId, options);
   const blocksAtInstall = deps.surface === "chrome" || deps.surface === "firefox";
   const isSafari = deps.surface === "safari-ios" || deps.surface === "safari-macos";
-  // Settles once the background start has reconciled the account; every send waits for it.
-  let startSettled!: () => void;
-  const started = new Promise<void>((resolve) => (startSettled = resolve));
-  // A start that never reports (it should always) must not hold sends forever.
-  client.holdSendsUntil(Promise.race([started, new Promise((r) => setTimeout(r, START_HOLD_LIMIT_MS))]));
+  // One bounded startup result that everything waits on. "known": the start reconciled the account.
+  // "unknown": it never reported, or could not read the account; then only anonymous events may be
+  // sent until an account is confirmed. Elapsed time is never treated as a successful check.
+  let startSettled!: (known: boolean) => void;
+  const started = new Promise<boolean>((resolve) => (startSettled = resolve));
+  const startResult: Promise<void> = Promise.race([
+    started,
+    new Promise<boolean>((r) => setTimeout(() => r(false), START_HOLD_LIMIT_MS)),
+  ]).then((known) => {
+    if (!known) client.setAccountVerified(false);
+  });
+  client.holdSendsUntil(startResult);
   const requestFlushIfNeeded = async (): Promise<void> => {
     if ((await client.queuedCount()) > 0) deps.requestQuietFlush?.();
   };
@@ -189,17 +226,19 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
   const handle = async (request: PageRequest): Promise<unknown> => {
     switch (request.action) {
       case "track": {
+        await startResult;
         await emitPendingInstall();
         await client.trackUnchecked(request.name, request.props);
         // Any use counts toward the day, not only a background start (a worker can live overnight).
         await client.trackDaily("active", "active", {});
         // A Still screen is an ordinary moment: finish a server email attach that a background
-        // start deferred, or that failed earlier (once per account; see createAccountIdentifier).
-        const signedIn = await client.signedInAs();
-        if (signedIn) await identify(signedIn);
+        // start deferred, or that failed earlier. It never changes the account (see attach).
+        await accounts.attach();
         return true;
       }
       case "identify":
+        // A page reports the signed-in account from its session: that confirms the account.
+        client.setAccountVerified(true);
         await identify(request.userId);
         return true;
       case "reset":
@@ -250,6 +289,7 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
     },
     onStart(userId) {
       void (async () => {
+        client.setAccountVerified(userId !== undefined);
         if (userId) {
           await identify(userId, QUIET);
         } else if (userId === null) {
@@ -261,11 +301,11 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
         await requestFlushIfNeeded();
       })()
         .catch(() => {})
-        .finally(() => startSettled());
+        .finally(() => startSettled(userId !== undefined));
     },
     onActivity() {
       void (async () => {
-        await started;
+        await startResult;
         // A running Safari extension is the only proof on iPhone that it was switched on.
         if (isSafari) {
           await client.trackOnce("extension_enabled", "setup_step", { step: "extension_enabled" }, QUIET);
@@ -276,7 +316,7 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
       })().catch(() => {});
     },
     async flushWhenReady() {
-      await started;
+      await startResult;
       await client.flush();
     },
     listener(message, sender, sendResponse) {

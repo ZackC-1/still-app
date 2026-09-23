@@ -23,8 +23,11 @@ Three kinds of message reach PostHog:
   macos, chrome, firefox), `device` (phone, tablet, desktop), `app_version` and `signed_in`, so
   Safari on an iPhone, an iPad and a Mac are separate lines in any chart. Switch flips carry
   `where` (popup, options, app).
-- **Identity operations** from the apps and extensions (`$identify`, `$create_alias`): only Still's
-  own install/person ids and the account id, never anything else.
+- **Identity operations** from the apps and extensions. `$identify` links the install to the
+  account: it carries Still's install/person ids, the account id, and the same person properties as
+  product events (the surface and store in use, the version, the kind of device, and the first-seen
+  day or time). `$create_alias` merges an earlier anonymous id into the current one and carries only
+  the two ids. Neither carries anything else.
 - **Server events** from `analytics-identify`: the account's email as a person property, and one
   `account_created` per account, keyed only by the account id.
 

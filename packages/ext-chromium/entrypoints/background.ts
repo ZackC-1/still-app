@@ -142,10 +142,13 @@ export default defineBackground(() => {
   // browser that was closed while another device changed something learns about it here rather
   // than publishing over it on its next edit.
   void hydrated.then(() => session?.resume());
-  void hydrated
-    .then(() => session?.getState())
-    // No session spine (an unconfigured build) reads as signed out; a failed read changes nothing.
-    .then((state) => analytics.onStart(state ? state.userId : null), () => analytics.onStart(undefined));
+  // No session spine (an unconfigured build) reads as signed out; a failed or stalled read is
+  // "unknown", which changes nothing about the account and holds account-attributed sends.
+  const ACCOUNT_LOOKUP_LIMIT_MS = 8_000;
+  void Promise.race([
+    hydrated.then(() => session?.getState()).then((state) => (state ? state.userId : null)),
+    new Promise<undefined>((r) => setTimeout(() => r(undefined), ACCOUNT_LOOKUP_LIMIT_MS)),
+  ]).then((userId) => analytics.onStart(userId), () => analytics.onStart(undefined));
 
   // ── DNR gating — Chromium only from here down. ───────────────────────────────────────────────
   if (!chrome.declarativeNetRequest?.updateEnabledRulesets) return;

@@ -304,3 +304,13 @@ testing, plus store review time.
   failed server email attach; the runbook separates product events, identity operations and server
   events. Owner completed PostHog steps 1-7 (IP discard, replay off, AI training opt-out, test person
   deleted, deletion key, Supabase secrets).
+- 2026-09-23: Codex follow-up on 797fa00 (7 findings, all confirmed and fixed): the server email
+  attach is separate from identity (it never changes the account), re-checks account generation and
+  consent immediately before the request, and shares one in-flight attempt; startup has one bounded
+  result, and an unknown or timed-out account check suppresses account-attributed sends (anonymous
+  events may still go) instead of counting as success; the opt-out attempt is skipped under an
+  unconfirmed account; every request is bounded (30 s) and abandonable, so turning sharing off never
+  waits on the network; the Apple app records a launch's events only after the account settles;
+  a shared anchor is adopted at most once per install (no alias chains) and delivered aliases are
+  never re-sent; the runbook and privacy policy describe identity payloads and the one opt-out
+  attempt accurately. Race reproductions live in packages/core/src/analytics/__tests__/races.test.ts.

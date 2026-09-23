@@ -86,13 +86,14 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       });
       if (!client.enabled) return null;
       client.holdSendsUntil(sendGate);
-      const identify = createAccountIdentifier({
+      void accountSettled.then((known) => client.setAccountVerified(known));
+      const accounts = createAccountIdentifier({
         client,
         local: deps.store,
         consent: async () => consent,
         identifyOnServer: deps.identifyOnServer,
       });
-      return { client, context, identify };
+      return { client, context, identify: (userId: string) => accounts.identify(userId) };
     })());
 
   const withReady = (run: (r: Ready) => Promise<unknown> | void): void => {
@@ -132,12 +133,18 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
     }
   };
 
-  let resolveAccount!: () => void;
+  let resolveAccount!: (known: boolean) => void;
   // The latest account change (identify or let go); resolution waits for it, so the change always
   // lands before the first send.
   let accountOp: Promise<unknown> = Promise.resolve();
-  const accountKnown = new Promise<void>((r) => (resolveAccount = r));
-  const sendGate = Promise.race([accountKnown, new Promise((r) => setTimeout(r, ACCOUNT_RESOLUTION_LIMIT_MS))]);
+  const accountKnown = new Promise<boolean>((r) => (resolveAccount = r));
+  // One bounded result for the launch's account check. On a timeout the account is unconfirmed:
+  // only anonymous events may be sent until a sign-in or resume confirms it.
+  const accountSettled: Promise<boolean> = Promise.race([
+    accountKnown,
+    new Promise<boolean>((r) => setTimeout(() => r(false), ACCOUNT_RESOLUTION_LIMIT_MS)),
+  ]);
+  const sendGate = accountSettled;
 
   const reportExtensionEnabled = async (r: Ready, enabled: boolean | null): Promise<void> => {
     if (enabled === true) await r.client.trackOnce("extension_enabled", "setup_step", { step: "extension_enabled" });
@@ -182,6 +189,9 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
     async start() {
       const r = await ready();
       if (!r) return;
+      // Attribution first: this launch's events are recorded only once the account is settled, so a
+      // previous account being let go can never discard them.
+      await accountSettled;
       const { client, context } = r;
       if (context.previousVersion) {
         await deps.store.set(PENDING_UPDATE_KEY, { kind: "updated", returning: false, from: context.previousVersion, at: now() })
@@ -207,13 +217,15 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
     identifyAccount(userId) {
       const op = (async () => {
         const r = await ready();
-        if (r) await r.identify(userId);
+        if (!r) return;
+        r.client.setAccountVerified(true); // a live session confirms the account
+        await r.identify(userId);
       })();
       accountOp = accountOp.then(() => op);
       return op;
     },
     accountResolved() {
-      void accountOp.catch(() => undefined).then(() => resolveAccount());
+      void accountOp.catch(() => undefined).then(() => resolveAccount(true));
     },
     accountAbsent() {
       const op = (async () => {

@@ -146,8 +146,11 @@ public final class AnalyticsIdentityStore {
       }
       save(install)
       group.set(true, forKey: Self.appSeenKey)
-    } else if let ubiquitous, let shared = ubiquitous.string(forKey: Self.anchorKey), Self.isId(shared),
+    } else if group.string(forKey: Self.previousAnchorKey) == nil,
+              let ubiquitous, let shared = ubiquitous.string(forKey: Self.anchorKey), Self.isId(shared),
               shared != install.anchorId {
+      // At most once per device: a second adoption would alias into an id that was itself an alias
+      // destination, which PostHog refuses. The first adopted anchor stays canonical.
       // iCloud delivered this person's anchor after this device had made its own (a first launch
       // before sync arrived, or two devices racing). Adopt it; the old one is merged below.
       install = AnalyticsInstall(installId: install.installId, anchorId: shared)

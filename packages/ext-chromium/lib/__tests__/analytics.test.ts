@@ -308,6 +308,7 @@ describe("installs counted after sharing is allowed", () => {
       RUNTIME_ID,
       ORIGIN,
     );
+    bg.onStart(null);
     bg.onInstalled({ reason: "install" });
     await new Promise((r) => setTimeout(r, 10));
     expect((local.data[QUEUE_KEY] as unknown[] | undefined) ?? []).toEqual([]);
@@ -339,6 +340,7 @@ describe("opt-out is measurable", () => {
           fetch: fetch as unknown as typeof globalThis.fetch, uuid: (() => { let n = 0; return () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`; })() },
         RUNTIME_ID, ORIGIN,
       );
+      bg.onStart(null);
       return { send: (m: unknown) => new Promise<unknown>((r) => { if (!bg.listener(m, PAGE, r)) r(undefined); }) };
     })();
     expect(await send({ kind: ANALYTICS_MESSAGE_KIND, action: "setSharing", enabled: false })).toBe(false);

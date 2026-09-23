@@ -208,3 +208,19 @@ describe("Apple app sends wait for the launch's account check", () => {
     expect(events).toContain("updated");
   });
 });
+
+describe("Apple launch attribution comes first", () => {
+  it("a launch that finds the earlier account gone keeps this launch's update", async () => {
+    const { app, events } = setup({ previousVersion: "2.0.0", created: false }, { holdAccount: true });
+    await app.identifyAccount(U1); // left from before
+    const starting = app.start(); // waits for the account check before recording anything
+    await new Promise((r) => setTimeout(r, 20));
+    app.accountAbsent(); // the launch found no session
+    app.accountResolved();
+    await starting;
+    const updated = events().filter((e) => e.event === "updated");
+    expect(updated).toHaveLength(1);
+    expect(updated[0]!.properties.distinct_id).not.toBe(U1);
+    expect(JSON.stringify(events())).not.toContain(U1);
+  });
+});

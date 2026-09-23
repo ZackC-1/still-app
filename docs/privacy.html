@@ -128,7 +128,8 @@
   <h3>Usage analytics</h3>
   <p>PostHog keeps usage events for one year on our current plan (a paid plan would keep them for up
   to seven years). Turning off <strong>Share usage data</strong> stops new events and discards any
-  still waiting on your device; it does not delete events already sent. Deleting your Still account
+  still waiting on your device. Still then makes one brief attempt to record only that sharing was
+  turned off, so we can see how many people choose to. It does not delete events already sent. Deleting your Still account
   asks PostHog to delete the person record linked to that account along with its events. PostHog
   processes event deletions in weekly batches, and its own logs and backups follow its schedule. Usage
   from a device that was never signed in is not linked to an account; contact us to have it removed.</p>

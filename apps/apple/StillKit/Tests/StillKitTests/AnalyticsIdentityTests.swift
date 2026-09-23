@@ -142,4 +142,17 @@ final class AnalyticsIdentityTests: XCTestCase {
     // Kept for later launches until replaced, so a merge lost while sharing was off is sent later.
     XCTAssertEqual(store.appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: nil).previousAnchorId, first.install.anchorId)
   }
+
+  func testASecondLateAnchorIsNotAdoptedSoAliasesNeverChain() {
+    let group = MemoryKeyValue()
+    let cloud = MemoryKeyValue()
+    let store = AnalyticsIdentityStore(group: group, newId: ids())
+    _ = store.appContext(appVersion: "2.1.0", ubiquitous: MemoryKeyValue(), earlierInstallVersion: nil)
+    cloud.set("99999999-9999-4999-8999-999999999999", forKey: AnalyticsIdentityStore.anchorKey)
+    let adopted = store.appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: nil)
+    cloud.set("88888888-8888-4888-8888-888888888888", forKey: AnalyticsIdentityStore.anchorKey)
+    let later = store.appContext(appVersion: "2.1.0", ubiquitous: cloud, earlierInstallVersion: nil)
+    XCTAssertEqual(later.install.anchorId, adopted.install.anchorId)
+    XCTAssertEqual(later.previousAnchorId, adopted.previousAnchorId)
+  }
 }

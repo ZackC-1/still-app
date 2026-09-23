@@ -82,7 +82,9 @@ export async function resolveAnalyticsIdentity(deps: ResolveIdentityDeps): Promi
   if (stored) {
     // Sync can deliver the person's anchor after this install made its own; adopt it and ask for
     // the earlier id to be merged, so one person does not stay split in two.
-    const shared = deps.shared ? await deps.shared.get(ANCHOR_KEY).catch(() => null) : null;
+    // At most once per install: a second adoption would alias into an id that was itself an alias
+    // destination, which PostHog refuses. The first adopted anchor stays canonical.
+    const shared = deps.shared && !stored.aliasOf ? await deps.shared.get(ANCHOR_KEY).catch(() => null) : null;
     if (isAnalyticsId(shared) && shared !== stored.anchorId) {
       const record: StoredInstall = { installId: stored.installId, anchorId: shared, aliasOf: stored.anchorId };
       await deps.local.set(INSTALL_KEY, record).catch(() => undefined);
