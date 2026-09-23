@@ -92,6 +92,8 @@ export const EVENT_SCHEMA = {
   signed_in: {},
   signed_out: {},
   account_deleted: {},
+  /** Sent once, just before sharing stops, when someone turns it off with Still's own switch. */
+  sharing_turned_off: {},
 } as const satisfies Record<string, Record<string, Spec>>;
 
 export type AnalyticsEventName = keyof typeof EVENT_SCHEMA;

@@ -9,10 +9,13 @@ import { jsonResponse } from "../_shared/store.ts";
 //
 // "New account" is decided here, not by the client, so signing in again, or on another device, can
 // never count as a second creation: the first call for an account marks it in the account's server-
-// only app metadata, and only a first call for an account created within NEW_ACCOUNT_WINDOW_MS counts.
-// Accounts that existed before analytics are marked without being counted.
+// only app metadata, and a first call for an account created on or after ACCOUNTS_COUNTED_SINCE
+// counts, however long after creation the person turned sharing on. Accounts from before analytics
+// are marked without being counted. The marker is written before the event is sent, so a failure in
+// between can lose one count but can never count an account twice.
 
-export const NEW_ACCOUNT_WINDOW_MS = 24 * 60 * 60_000;
+/** Still 2.1's analytics launch: accounts created before this are not "new" to analytics. */
+export const ACCOUNTS_COUNTED_SINCE = "2026-09-23T00:00:00Z";
 
 export interface AnalyticsAccount {
   readonly email: string | null;
@@ -31,6 +34,8 @@ export interface AnalyticsIdentifyDeps extends AuthDeps {
   readonly accounts: AccountLookup;
   readonly posthog: PostHogPort;
   readonly now?: () => number;
+  /** Override for ACCOUNTS_COUNTED_SINCE (tests). */
+  readonly countedSince?: string;
 }
 
 export function handleAnalyticsIdentify(req: Request, deps: AnalyticsIdentifyDeps): Promise<Response> {
@@ -41,9 +46,9 @@ export function handleAnalyticsIdentify(req: Request, deps: AnalyticsIdentifyDep
     const now = (deps.now ?? Date.now)();
     const created = account.createdAt ? Date.parse(account.createdAt) : Number.NaN;
     const accountCreated = !account.analyticsSeen && Number.isFinite(created) &&
-      created <= now && now - created < NEW_ACCOUNT_WINDOW_MS;
-    await deps.posthog.setPersonEmail(userId, account.email, { accountCreated });
+      created <= now && created >= Date.parse(deps.countedSince ?? ACCOUNTS_COUNTED_SINCE);
     if (!account.analyticsSeen) await deps.accounts.markAnalyticsSeen(userId);
+    await deps.posthog.setPersonEmail(userId, account.email, { accountCreated });
     return jsonResponse(200, { identified: true, accountCreated });
   });
 }

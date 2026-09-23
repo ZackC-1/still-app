@@ -99,7 +99,7 @@ worker, popups, the Apple app's web view and the Safari extension.
   - (Removed by owner decision: a per-service daily `blocking_worked`. It would be browsing history.)
   - Sign-in funnel: `sign_in_opened`, `code_requested`, `code_failed {reason: wrong|expired|rate_limited|network}`,
     `sign_in_abandoned` (sheet closed before verifying), `account_created` (sent by the server once per new account),
-    `signed_in` (existing account), `signed_out`, `account_deleted`. New vs existing is decided on the server
+    `signed_in` (every successful sign-in), `signed_out`, `account_deleted`. New vs existing is decided on the server
     from the account's creation time, returned by the verify step, so no email is involved.
 - `client.ts`: saves events and sends them in batches, holds them while offline and retries later, and sends
   nothing when turned off. It exposes `identify(userId)` and `reset()`. Its dependencies (fetch, clock,
@@ -279,3 +279,15 @@ testing, plus store review time.
 - 2026-09-23: Owner request: switch flips carry `where` (popup, options, app), and every event carries
   `device` (phone, tablet, desktop). The Safari extension takes platform and device from its native
   handler (compile-time platform, UIKit idiom), so an iPad is never reported as a Mac.
+- 2026-09-23: Fable 5.1 dual review (product analytics + engineering) of bedd9c1. Fixed: background-
+  start events are day-stamped and sent later (next Still screen or a random 1-6 h `alarms` flush), so
+  nothing reveals when a site was visited; installs seen while sharing was off are kept and counted on
+  their real day once sharing is on (extensions and the Apple app); fresh installs wait for storage.sync
+  (4 s) or iCloud's initial sync (5 s) before deciding `returning`; native consent fails closed;
+  `account_created` counts any account created since the 2.1 launch and writes its marker first;
+  deletion treats a body without a queued person as a failure; `sharing_turned_off` measures opt-out.
+  Documented instead of coded: HogQL definitions for returning persons and first store, sign-in drop-off
+  as a funnel, per-surface semantics, weekly health checks (including the stale-device ghost after a
+  deletion and web-view marker loss), the live two-device identity test, the `alarms` justification,
+  the Firefox listing wording and the AMO allowlist. Open product call (B2): Chrome sends
+  `installed`/`setup_completed` before the one-time notice is seen.

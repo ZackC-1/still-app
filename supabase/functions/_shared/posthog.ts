@@ -127,16 +127,16 @@ export class HttpPostHog implements PostHogPort {
 }
 
 /** Whether an accepted bulk_delete actually queued this person's deletion. PostHog's documented
- * success signal is persons_queued_for_deletion; failures appear in deletion_errors. Fields PostHog
- * leaves out are not read as failure. */
+ * success signal is persons_queued_for_deletion (or persons_deleted); failures appear in
+ * deletion_errors. A body that proves neither is not a deletion: the failure is logged for follow-up
+ * rather than reported as done. */
 export function deletionAccepted(body: unknown): boolean {
-  if (typeof body !== "object" || body === null) return true;
+  if (typeof body !== "object" || body === null) return false;
   const b = body as Record<string, unknown>;
   if (Array.isArray(b.deletion_errors) && b.deletion_errors.length > 0) return false;
-  const found = typeof b.persons_found === "number" ? b.persons_found : null;
   const queued = (typeof b.persons_queued_for_deletion === "number" ? b.persons_queued_for_deletion : 0) +
     (typeof b.persons_deleted === "number" ? b.persons_deleted : 0);
-  if (found !== null && found > 0 && queued === 0) return false;
-  if (found !== null && found > 0 && b.events_queued_for_deletion === false) return false;
+  if (queued < 1) return false;
+  if (b.events_queued_for_deletion === false) return false;
   return true;
 }

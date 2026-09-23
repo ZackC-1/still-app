@@ -20,7 +20,7 @@ import { createIdentityStore, createSessionStores } from "../lib/session-stores.
 import {
   createSessionMessageRouter,
 } from "../lib/session-messages.js";
-import { createIndexedDbKeyValue } from "@still/core/analytics";
+import { createIndexedDbKeyValue, QUIET_FLUSH_ALARM, requestQuietFlush } from "@still/core/analytics";
 import { createBackgroundAnalytics, storageKeyValue } from "../lib/analytics.js";
 
 // Chromium/Firefox background (Chrome MV3 service worker / Firefox MV3 event page). Three
@@ -89,6 +89,7 @@ export default defineBackground(() => {
       local: storageKeyValue(chrome.storage.local),
       queue: createIndexedDbKeyValue(),
       shared: chrome.storage.sync ? storageKeyValue(chrome.storage.sync) : null,
+      requestQuietFlush: () => requestQuietFlush(chrome.alarms),
       identifyOnServer: spine
         ? async () => {
             const { error } = await spine.client.functions.invoke("analytics-identify", { body: {} });
@@ -100,6 +101,9 @@ export default defineBackground(() => {
     chrome.runtime.getURL(""),
   );
   chrome.runtime.onInstalled.addListener((details) => analytics.onInstalled(details));
+  chrome.alarms?.onAlarm.addListener((alarm) => {
+    if (alarm.name === QUIET_FLUSH_ALARM) void analytics.client.flush();
+  });
   chrome.runtime.onMessage.addListener(analytics.listener);
 
   // Content-script nudge — the ONLY handler a content-script sender may reach (plan KTD sender

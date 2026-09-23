@@ -50,6 +50,11 @@ privacy-positioning cost (the homepage promised "no behavioral tracking") agains
   that is sent from a content script or names a site someone visited.
 - A person who never signs in and uses Still on both Apple and a browser counts as two people.
 - No location: every event carries `$geoip_disable` and the project discards client IPs.
+- No visit timing: a background usually starts because a supported site was opened, so events
+  recorded at a background start carry only their day and are sent later (the next Still screen, or
+  an `alarms` flush at a random time one to six hours out). Their timestamps and their arrival say
+  nothing about when a site was visited. The server email attach runs only from an ordinary,
+  non-background identify.
 - New accounts are counted by the server once per account, never inferred by a client.
 - Consent is re-read before every request and fails closed; anything waiting is discarded when
   sharing turns out to be off, however it was switched off.

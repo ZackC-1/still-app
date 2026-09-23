@@ -121,6 +121,28 @@ function localDay(ms: number): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/**
+ * How an event is recorded.
+ *
+ * `quiet` is for events that happen when a background wakes, which is usually because the person
+ * just opened YouTube, Instagram, Facebook or TikTok. A precise timestamp, or sending right then,
+ * would say when they visited one of those sites. So a quiet event carries only its local day
+ * (midnight), and it does not trigger a send: it waits for the next ordinary send (the person opening
+ * Still) or the host's randomly timed flush.
+ *
+ * `at` records an event with an earlier time: an install that happened while sharing was off.
+ */
+export interface TrackOptions {
+  readonly quiet?: boolean;
+  readonly at?: number;
+}
+
+/** Local midnight of the day containing `ms`, as an ISO timestamp. */
+function localMidnightIso(ms: number): string {
+  const d = new Date(ms);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
+}
+
 export class AnalyticsClient {
   private readonly configured: boolean;
   private chain: Promise<unknown> = Promise.resolve();
@@ -143,17 +165,21 @@ export class AnalyticsClient {
   }
 
   /** Queue one event. Invalid events and events while analytics is off are dropped silently. */
-  track<E extends AnalyticsEventName>(name: E, props: AnalyticsEventProps<E>): Promise<void> {
-    return this.trackUnchecked(name, props);
+  track<E extends AnalyticsEventName>(
+    name: E,
+    props: AnalyticsEventProps<E>,
+    options: TrackOptions = {},
+  ): Promise<void> {
+    return this.trackUnchecked(name, props, options);
   }
 
   /** `track` for input that arrived untyped (a runtime message); validated the same way. */
-  trackUnchecked(name: unknown, props: unknown): Promise<void> {
+  trackUnchecked(name: unknown, props: unknown, options: TrackOptions = {}): Promise<void> {
     return this.run(async () => {
       if (!(await this.allowed())) return;
       const valid = validateEvent(name, props);
       if (!valid) return;
-      await this.enqueue(name as string, valid);
+      await this.enqueue(name as string, valid, options);
     });
   }
 
@@ -162,8 +188,9 @@ export class AnalyticsClient {
     marker: string,
     name: E,
     props: AnalyticsEventProps<E>,
+    options: TrackOptions = {},
   ): Promise<void> {
-    return this.trackMarked(marker, localDay(this.deps.now()), name, props);
+    return this.trackMarked(marker, localDay(this.deps.now()), name, props, options);
   }
 
   /** Queue an event once in the life of this install for `marker` (setup milestones). */
@@ -171,12 +198,18 @@ export class AnalyticsClient {
     marker: string,
     name: E,
     props: AnalyticsEventProps<E>,
+    options: TrackOptions = {},
   ): Promise<void> {
-    return this.trackMarked(`once:${marker}`, "done", name, props);
+    return this.trackMarked(`once:${marker}`, "done", name, props, options);
+  }
+
+  /** Whether a once-marker has already fired (a host deciding whether to keep a pending record). */
+  async hasTrackedOnce(marker: string): Promise<boolean> {
+    return (await this.read()).daily[`once:${marker}`] !== undefined;
   }
 
   /** Attribute this install to a signed-in account from now on. Idempotent per account. */
-  identify(userId: string): Promise<void> {
+  identify(userId: string, options: TrackOptions = {}): Promise<void> {
     return this.run(async () => {
       // Account ids are Supabase UUIDs; anything else never becomes a distinct id.
       if (!this.configured || !isAnalyticsId(userId)) return;
@@ -184,7 +217,7 @@ export class AnalyticsClient {
       if (state.userId !== userId) await this.write({ ...state, userId });
       if (!(await this.allowed())) return;
       const identity = await this.identity();
-      if (identity) await this.ensureIdentified(identity);
+      if (identity) await this.ensureIdentified(identity, options);
     });
   }
 
@@ -252,6 +285,7 @@ export class AnalyticsClient {
     value: string,
     name: E,
     props: AnalyticsEventProps<E>,
+    options: TrackOptions,
   ): Promise<void> {
     return this.run(async () => {
       if (!(await this.allowed())) return;
@@ -260,7 +294,7 @@ export class AnalyticsClient {
       const state = await this.read();
       if (state.daily[marker] === value) return;
       await this.write({ ...state, daily: { ...state.daily, [marker]: value } });
-      await this.enqueue(name, valid);
+      await this.enqueue(name, valid, options);
     });
   }
 
@@ -340,9 +374,16 @@ export class AnalyticsClient {
     }
   }
 
-  private async push(event: QueuedEvent): Promise<void> {
+  private async push(event: QueuedEvent, options: TrackOptions = {}): Promise<void> {
     await this.writeQueue([...(await this.readQueue()), event]);
-    this.scheduleFlush();
+    if (!options.quiet) this.scheduleFlush();
+  }
+
+  private timestamp(options: TrackOptions): string {
+    if (options.at !== undefined) {
+      return options.quiet ? localMidnightIso(options.at) : new Date(options.at).toISOString();
+    }
+    return options.quiet ? localMidnightIso(this.deps.now()) : new Date(this.deps.now()).toISOString();
   }
 
   /** The anonymous id this install reports under while signed out. */
@@ -372,7 +413,7 @@ export class AnalyticsClient {
   }
 
   /** Merge an earlier anonymous id of this install into its current anchor, once. */
-  private async ensureAliased(identity: AnalyticsIdentity): Promise<void> {
+  private async ensureAliased(identity: AnalyticsIdentity, options: TrackOptions = {}): Promise<void> {
     const earlier = identity.aliasOf;
     if (!earlier || !isAnalyticsId(earlier) || earlier === identity.anchorId) return;
     const state = await this.read();
@@ -382,12 +423,12 @@ export class AnalyticsClient {
     await this.push({
       event: "$create_alias",
       uuid: this.deps.uuid(),
-      timestamp: new Date(this.deps.now()).toISOString(),
+      timestamp: this.timestamp({ quiet: options.quiet }),
       properties: { distinct_id: identity.anchorId, alias: earlier, $lib: "still", $geoip_disable: true },
-    });
+    }, options);
   }
 
-  private async ensureIdentified(identity: AnalyticsIdentity): Promise<void> {
+  private async ensureIdentified(identity: AnalyticsIdentity, options: TrackOptions = {}): Promise<void> {
     const state = await this.read();
     if (!state.userId || state.identifiedAs === state.userId) return;
     const person = this.personProperties();
@@ -395,7 +436,7 @@ export class AnalyticsClient {
     await this.push({
       event: "$identify",
       uuid: this.deps.uuid(),
-      timestamp: new Date(this.deps.now()).toISOString(),
+      timestamp: this.timestamp({ quiet: options.quiet }),
       properties: {
         distinct_id: state.userId,
         $anon_distinct_id: this.anonymousId(state, identity),
@@ -405,21 +446,25 @@ export class AnalyticsClient {
         $set: { ...person.$set, signed_in: true },
         $set_once: person.$set_once,
       },
-    });
+    }, options);
   }
 
-  private async enqueue(name: string, props: Record<string, boolean | string>): Promise<void> {
+  private async enqueue(
+    name: string,
+    props: Record<string, boolean | string>,
+    options: TrackOptions = {},
+  ): Promise<void> {
     const identity = await this.identity();
     if (!identity) return;
-    await this.ensureAliased(identity);
-    await this.ensureIdentified(identity);
+    await this.ensureAliased(identity, options);
+    await this.ensureIdentified(identity, options);
     const state = await this.read();
     const { surface, appVersion } = this.deps;
     const person = this.personProperties();
     await this.push({
       event: name,
       uuid: this.deps.uuid(),
-      timestamp: new Date(this.deps.now()).toISOString(),
+      timestamp: this.timestamp(options),
       properties: {
         ...props,
         distinct_id: state.userId ?? this.anonymousId(state, identity),
@@ -435,7 +480,7 @@ export class AnalyticsClient {
         $set: name === "signed_out" ? { ...person.$set, signed_in: false } : person.$set,
         $set_once: person.$set_once,
       },
-    });
+    }, options);
   }
 
   private scheduleFlush(): void {

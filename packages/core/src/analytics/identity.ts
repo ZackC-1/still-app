@@ -62,6 +62,11 @@ export interface ResolveIdentityDeps {
   /** The per-person synced store, when the platform has one. */
   readonly shared?: AnalyticsKeyValue | null;
   readonly uuid: () => string;
+  /** On a fresh install, how long to wait for the shared store to deliver this person's anchor
+   * before deciding they are new. Browser sync fills storage.sync some moments after install; a
+   * decision made before then calls a second computer a first install. */
+  readonly sharedGraceMs?: number;
+  readonly sleep?: (ms: number) => Promise<void>;
 }
 
 /**
@@ -87,7 +92,11 @@ export async function resolveAnalyticsIdentity(deps: ResolveIdentityDeps): Promi
   let anchorId: string | null = null;
   let returning = false;
   if (deps.shared) {
-    const existing = await deps.shared.get(ANCHOR_KEY).catch(() => null);
+    let existing = await deps.shared.get(ANCHOR_KEY).catch(() => null);
+    if (!isAnalyticsId(existing) && deps.sharedGraceMs) {
+      await (deps.sleep ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms))))(deps.sharedGraceMs);
+      existing = await deps.shared.get(ANCHOR_KEY).catch(() => null);
+    }
     if (isAnalyticsId(existing)) {
       anchorId = existing;
       returning = true;

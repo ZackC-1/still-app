@@ -40,7 +40,7 @@ export function parseNativeAnalytics(reply: unknown): NativeAnalytics | null {
   return {
     installId,
     anchorId,
-    consent: consent !== false,
+    consent: consent === true, // fails closed if the field is ever missing
     platform: platform === "ios" || platform === "macos" ? platform : null,
     device: isDeviceClass(device) ? device : null,
   };
@@ -56,6 +56,7 @@ export interface SafariAnalyticsDeps {
   /** Where the queue waits: IndexedDB private to the background, never seen by content scripts. */
   readonly queue?: AnalyticsKeyValue | null;
   readonly isTrustedPage: (sender: MessageSender) => boolean;
+  readonly requestQuietFlush?: () => void;
   readonly fetch?: typeof fetch;
   readonly now?: () => number;
   readonly uuid?: () => string;
@@ -63,6 +64,8 @@ export interface SafariAnalyticsDeps {
 
 export interface SafariBackgroundAnalytics {
   onInstalled(details: { reason: string; previousVersion?: string }): void;
+  /** Send what is queued (the quiet-flush alarm). */
+  flush(): void;
   /** Background start: reads the app's signed-in account, then reports setup and the active day. */
   onStart(): void;
   readonly listener: ExtensionAnalyticsHost["listener"];
@@ -97,6 +100,7 @@ export function createSafariBackgroundAnalytics(deps: SafariAnalyticsDeps): Safa
       consent: async () => (await nativeContext())?.consent ?? false,
       noticeApplies: false,
       isTrustedPage: deps.isTrustedPage,
+      requestQuietFlush: deps.requestQuietFlush,
       fetch: deps.fetch,
       now: deps.now,
       uuid: deps.uuid,
@@ -121,6 +125,9 @@ export function createSafariBackgroundAnalytics(deps: SafariAnalyticsDeps): Safa
   };
 
   return {
+    flush() {
+      void host.then((h) => h?.client.flush());
+    },
     onInstalled(details) {
       // The app reports the download itself (one install, one store); the extension only records
       // its own updates so the version it runs is visible.

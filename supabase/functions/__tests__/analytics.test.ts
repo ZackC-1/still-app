@@ -128,13 +128,27 @@ Deno.test("HttpPostHog posts the email as a $set on the account's distinct id", 
   assertEquals(body.batch[0]!.properties.$set, { email: "a@b.co" });
 });
 
+Deno.test("a person who turns sharing on days after creating the account is still counted, once", async () => {
+  const now = Date.parse("2026-10-05T12:00:00Z");
+  const order: string[] = [];
+  const { port } = fakePostHog({
+    setPersonEmail: (_u, _e, o) => (order.push(o?.accountCreated ? "send:created" : "send"), Promise.resolve()),
+  });
+  const accounts = accountsWith({ [A]: { email: "a@b.co", createdAt: "2026-09-30T00:00:00Z", analyticsSeen: false } });
+  const mark = accounts.lookup.markAnalyticsSeen;
+  accounts.lookup.markAnalyticsSeen = (id: string) => (order.push("mark"), mark(id));
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  await handleAnalyticsIdentify(req(jwt), { jwtSecret: SECRET, expected: TEST_EXPECTED_CLAIMS, accounts: accounts.lookup, posthog: port, now: () => now });
+  assertEquals(order, ["mark", "send:created"]); // marker first: a failure can lose a count, never double it
+});
+
 Deno.test("HttpPostHog deletes by distinct id with events", async () => {
   const sent: { url: string; auth: string | null; body: unknown }[] = [];
   const ph = new HttpPostHog(
     { apiHost: "https://us.posthog.com", projectId: "123", personalApiKey: "phx_secret" },
     (url, init) => {
       sent.push({ url: String(url), auth: new Headers(init?.headers).get("Authorization"), body: JSON.parse(String(init?.body)) });
-      return Promise.resolve(new Response("{}", { status: 200 }));
+      return Promise.resolve(new Response(JSON.stringify({ persons_found: 1, persons_queued_for_deletion: 1, events_queued_for_deletion: true, deletion_errors: [] }), { status: 202 }));
     },
   );
   assertEquals(ph.canIdentify, false);
@@ -166,6 +180,7 @@ Deno.test("a person who never shared usage counts as deleted only when PostHog c
 
 Deno.test("any other 400 is a failure, never a silent success", async () => {
   await assertRejects(() => scripted([[400, { detail: "distinct_ids must be a list" }], [400, {}]]).ph.deletePerson(A));
+  await assertRejects(() => scripted([[202, {}], [202, {}]]).ph.deletePerson(A));
   // Matched on the retry: the person is gone but its events were not queued for deletion.
   await assertRejects(() => scripted([[400, {}], [200, { unmatched_distinct_ids: [] }]]).ph.deletePerson(A));
   await assertRejects(() => scripted([[500, {}]]).ph.deletePerson(A));
@@ -211,7 +226,8 @@ Deno.test("deletionAccepted reads PostHog's 202 body", () => {
   assertEquals(deletionAccepted({ persons_found: 1, persons_queued_for_deletion: 0, persons_deleted: 0, deletion_errors: [{ step: "x" }] }), false);
   assertEquals(deletionAccepted({ persons_found: 1, persons_queued_for_deletion: 0, persons_deleted: 0 }), false);
   assertEquals(deletionAccepted({ persons_found: 1, persons_queued_for_deletion: 1, events_queued_for_deletion: false }), false);
-  assertEquals(deletionAccepted({}), true);
+  assertEquals(deletionAccepted({}), false); // proves nothing, so it is not a deletion
+  assertEquals(deletionAccepted(null), false);
 });
 
 Deno.test("a 202 with deletion_errors is retried once, then reported as a failure", async () => {

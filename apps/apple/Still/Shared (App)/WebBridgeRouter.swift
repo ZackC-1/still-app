@@ -283,6 +283,11 @@ final class WebBridgeRouter {
       // iCloud key-value storage carries only the anonymous person anchor (see AnalyticsIdentity).
       let cloud = NSUbiquitousKeyValueStore.default
       cloud.synchronize()
+      // On a fresh install iCloud's key-value store starts empty and fills asynchronously; deciding
+      // before then would call a person's second device a first install.
+      if !analytics.appHasReadRecord, cloud.string(forKey: AnalyticsIdentityStore.iCloudAnchorKey) == nil {
+        await Self.waitForICloudChange(timeoutSeconds: 5)
+      }
       // An update is recognised by the original-install record from an earlier version, or, for
       // versions from before that record existed, by App Group state present when this launch began.
       let recorded = OriginalInstall.current(InstallGeneration.appGroupDefaults())?.firstRecordedAppVersion
@@ -323,6 +328,24 @@ final class WebBridgeRouter {
       "previousAnchorId": context.previousAnchorId ?? NSNull(),
       "device": Self.analyticsDeviceClass,
     ]), nil)
+  }
+
+  /// Wait for iCloud key-value storage to report a change from the server (its initial sync), or
+  /// give up after `timeoutSeconds`. Either way the caller reads the store again.
+  private static func waitForICloudChange(timeoutSeconds: Double) async {
+    guard #available(iOS 15.0, macOS 12.0, *) else { return }
+    await withTaskGroup(of: Void.self) { group in
+      group.addTask {
+        let changes = NotificationCenter.default.notifications(
+          named: NSUbiquitousKeyValueStore.didChangeExternallyNotification)
+        for await _ in changes { return }
+      }
+      group.addTask {
+        try? await Task.sleep(nanoseconds: UInt64(timeoutSeconds * 1_000_000_000))
+      }
+      await group.next()
+      group.cancelAll()
+    }
   }
 
   private func captureOriginalInstall() async {

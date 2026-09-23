@@ -86,6 +86,12 @@ public final class AnalyticsIdentityStore {
     AnalyticsIdentityStore(group: UserDefaults(suiteName: identifier) ?? .standard)
   }
 
+  /// The iCloud key holding the person anchor (for code that waits on iCloud's initial sync).
+  public static var iCloudAnchorKey: String { anchorKey }
+
+  /// Whether the app has read this device's record before; a first read waits for iCloud.
+  public var appHasReadRecord: Bool { group.object(forKey: Self.appSeenKey) != nil }
+
   // MARK: Install record
 
   public func storedInstall() -> AnalyticsInstall? {

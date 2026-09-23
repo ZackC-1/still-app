@@ -1,4 +1,4 @@
-import { AnalyticsClient, type AnalyticsConfig } from "./client.js";
+import { AnalyticsClient, type AnalyticsConfig, type TrackOptions } from "./client.js";
 import type { AnalyticsDevice, AnalyticsSurface } from "./events.js";
 import type { AnalyticsIdentity, AnalyticsKeyValue } from "./identity.js";
 import type { UiAnalytics, UsageSharingState } from "../ui/controller.svelte.js";
@@ -8,6 +8,12 @@ import type { UiAnalytics, UsageSharingState } from "../ui/controller.svelte.js"
 // there is one queue per browser profile. Pages talk to it over ANALYTICS_MESSAGE_KIND. Content
 // scripts send nothing: they run on the sites people visit, and Still never records browsing.
 //
+// A background usually starts because someone just opened YouTube, Instagram, Facebook or TikTok
+// (the content script wakes it). So everything recorded at a background start is "quiet": stamped
+// with its day only and not sent then (client.ts TrackOptions). It goes out with the next popup or
+// settings open, or at the random time the host's alarm picks, so neither the event nor its arrival
+// says when a site was visited.
+//
 // What differs by build is injected: where the ids come from (browser sync storage, or the Apple
 // App Group), who owns consent (a stored switch, Firefox's data-collection permission, or the
 // Apple app's switch), and whether the one-time notice applies.
@@ -15,6 +21,11 @@ import type { UiAnalytics, UsageSharingState } from "../ui/controller.svelte.js"
 export const ANALYTICS_MESSAGE_KIND = "still:analytics";
 export const NOTICE_KEY = "still:analytics:notice-seen";
 export const SERVER_IDENTIFIED_KEY = "still:analytics:server-identified";
+/** An install recorded while sharing was off (or unreadable), kept so it can still be counted, on
+ * its real day, once sharing is on. Holds only the returning flag and the install time. */
+export const PENDING_INSTALL_KEY = "still:analytics:pending-install";
+
+const QUIET: TrackOptions = { quiet: true };
 
 export interface MessageSender {
   readonly id?: string;
@@ -27,7 +38,7 @@ export interface ExtensionAnalyticsHostDeps {
   readonly device?: AnalyticsDevice;
   readonly config: AnalyticsConfig;
   readonly appVersion: string;
-  /** This extension's local storage: account, markers and notice flag. */
+  /** This extension's local storage: account, markers, notice flag and a pending install. */
   readonly local: AnalyticsKeyValue;
   /** Where queued events wait: IndexedDB private to the background (idb.ts). */
   readonly queueStore?: AnalyticsKeyValue;
@@ -42,6 +53,9 @@ export interface ExtensionAnalyticsHostDeps {
   readonly isTrustedPage: (sender: MessageSender) => boolean;
   /** Ask Still's server to attach the signed-in account's email (analytics-identify). */
   readonly identifyOnServer?: () => Promise<void>;
+  /** Ask for a flush at a random later time (an alarm), for events recorded quietly at a
+   * background start. Without it they wait for the next popup or settings open. */
+  readonly requestQuietFlush?: () => void;
   readonly fetch?: typeof fetch;
   readonly now?: () => number;
   readonly uuid?: () => string;
@@ -51,13 +65,13 @@ export interface ExtensionAnalyticsHost {
   readonly client: AnalyticsClient;
   /** runtime.onInstalled: `installed` for a new install, `updated` for an update. */
   onInstalled(details: { reason: string; previousVersion?: string }): void;
-  /** Background start: one `active` a day, setup complete on Safari (the extension is running),
-   * and the current account. `null` means known to be signed out (an earlier account is let go, whether it
-   * signed out here, elsewhere or was deleted); `undefined` means it could not be read, so nothing
-   * about the account changes. */
+  /** Background start: one quiet `active` a day, setup complete on Safari (the extension is
+   * running), a pending install if sharing is now on, and the current account. `null` means known to
+   * be signed out (an earlier account is let go, whether it signed out here, elsewhere or was
+   * deleted); `undefined` means it could not be read, so nothing about the account changes. */
   onStart(userId: string | null | undefined): void;
   /** Identify the install, and once per account have the server attach the email. */
-  identify(userId: string): Promise<void>;
+  identify(userId: string, options?: TrackOptions): Promise<void>;
   readonly listener: (
     message: unknown,
     sender: MessageSender,
@@ -74,15 +88,17 @@ type PageRequest =
   | { readonly action: "acknowledgeNotice" };
 
 /** Identify an install and, once per account while sharing is on, run the server email attach.
- * Shared by the extension host and the Apple app. */
+ * Shared by the extension host and the Apple app. A quiet identify (a background start) skips the
+ * server call, whose arrival time would otherwise mark a site visit; the next ordinary one runs it. */
 export function createAccountIdentifier(deps: {
   readonly client: AnalyticsClient;
   readonly local: AnalyticsKeyValue;
   readonly consent: () => Promise<boolean>;
   readonly identifyOnServer?: () => Promise<void>;
-}): (userId: string) => Promise<void> {
-  return async (userId) => {
-    await deps.client.identify(userId);
+}): (userId: string, options?: TrackOptions) => Promise<void> {
+  return async (userId, options = {}) => {
+    await deps.client.identify(userId, options);
+    if (options.quiet) return;
     if (!deps.identifyOnServer || !deps.client.enabled || !(await deps.consent().catch(() => false))) return;
     if ((await deps.local.get(SERVER_IDENTIFIED_KEY).catch(() => null)) === userId) return;
     try {
@@ -94,8 +110,20 @@ export function createAccountIdentifier(deps: {
   };
 }
 
+interface PendingInstall {
+  readonly returning: boolean;
+  readonly at: number;
+}
+
+function parsePendingInstall(value: unknown): PendingInstall | null {
+  if (typeof value !== "object" || value === null) return null;
+  const { returning, at } = value as Record<string, unknown>;
+  return typeof returning === "boolean" && typeof at === "number" && Number.isFinite(at) ? { returning, at } : null;
+}
+
 export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): ExtensionAnalyticsHost {
   const uuid = deps.uuid ?? (() => crypto.randomUUID());
+  const now = deps.now ?? Date.now;
   const client = new AnalyticsClient({
     config: deps.config,
     surface: deps.surface,
@@ -106,7 +134,7 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
     identity: deps.identity,
     consent: deps.consent,
     fetch: deps.fetch ?? ((...args) => fetch(...args)),
-    now: deps.now ?? Date.now,
+    now,
     uuid,
   });
   const identify = createAccountIdentifier({
@@ -115,6 +143,19 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
     consent: deps.consent,
     identifyOnServer: deps.identifyOnServer,
   });
+  const blocksAtInstall = deps.surface === "chrome" || deps.surface === "firefox";
+
+  /** Count an install recorded earlier, on its own day, the first time sharing allows it. */
+  const emitPendingInstall = async (options: TrackOptions = {}): Promise<void> => {
+    const pending = parsePendingInstall(await deps.local.get(PENDING_INSTALL_KEY).catch(() => null));
+    if (!pending || !(await deps.consent().catch(() => false))) return;
+    const at: TrackOptions = { ...options, at: pending.at };
+    await client.trackOnce("installed", "installed", { returning: pending.returning }, at);
+    // Chrome and Firefox block from the moment of install; there is no further setup step.
+    // (Safari's setup is complete only once Safari runs the extension; see onStart.)
+    if (blocksAtInstall) await client.trackOnce("setup_completed", "setup_completed", {}, at);
+    if (await client.hasTrackedOnce("installed")) await deps.local.set(PENDING_INSTALL_KEY, null).catch(() => undefined);
+  };
 
   const sharing = async (): Promise<UsageSharingState | null> => {
     if (!client.enabled) return null;
@@ -127,6 +168,7 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
   const handle = async (request: PageRequest): Promise<unknown> => {
     switch (request.action) {
       case "track":
+        await emitPendingInstall();
         await client.trackUnchecked(request.name, request.props);
         // Any use counts toward the day, not only a background start (a worker can live overnight).
         await client.trackDaily("active", "active", {});
@@ -140,10 +182,21 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
       case "sharing":
         return sharing();
       case "setSharing": {
+        // Turning sharing off through Still's own switch sends one last, property-free event first,
+        // so the opt-out rate is measurable. (Firefox withdraws its permission before this message
+        // arrives, so nothing more can be sent there, which is correct.)
+        if (!request.enabled && (await deps.consent().catch(() => false))) {
+          await client.track("sharing_turned_off", {});
+          await client.flush();
+        }
         await deps.storeConsent?.(request.enabled);
         const enabled = await deps.consent().catch(() => false);
-        if (enabled) void client.flush();
-        else await client.clearQueue();
+        if (enabled) {
+          await emitPendingInstall();
+          void client.flush();
+        } else {
+          await client.clearQueue();
+        }
         return enabled;
       }
       case "acknowledgeNotice":
@@ -160,12 +213,10 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
         void deps
           .identity()
           .then(async (id) => {
-            await client.track("installed", { returning: id.returning });
-            // Chrome and Firefox block from the moment of install; there is no further setup step.
-            // (Safari's setup is complete only once Safari runs the extension; see onStart.)
-            if (deps.surface === "chrome" || deps.surface === "firefox") {
-              await client.trackOnce("setup_completed", "setup_completed", {});
-            }
+            // Kept whatever the consent answer is right now: someone who allows sharing later (Firefox's
+            // install prompt left unticked, or a consent read that failed) is still counted.
+            await deps.local.set(PENDING_INSTALL_KEY, { returning: id.returning, at: now() });
+            await emitPendingInstall();
           })
           .catch(() => {});
       } else if (details.reason === "update" && details.previousVersion !== deps.appVersion) {
@@ -173,20 +224,23 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
       }
     },
     onStart(userId) {
-      if (userId) {
-        void identify(userId);
-      } else if (userId === null) {
-        // The account is gone (signed out elsewhere, deleted, expired). Its waiting events go with
-        // it: if it was deleted, sending them would recreate the person the server just removed.
-        void client.reset({ onlyIfSignedIn: true, forgetAccount: true });
-      }
-      // A running Safari extension is the only proof on iPhone that it was switched on.
-      if (deps.surface === "safari-ios" || deps.surface === "safari-macos") {
-        void client.trackOnce("extension_enabled", "setup_step", { step: "extension_enabled" });
-        void client.trackOnce("setup_completed", "setup_completed", {});
-      }
-      void client.trackDaily("active", "active", {});
-      void client.flush();
+      void (async () => {
+        if (userId) {
+          await identify(userId, QUIET);
+        } else if (userId === null) {
+          // The account is gone (signed out elsewhere, deleted, expired). Its waiting events go with
+          // it: if it was deleted, sending them would recreate the person the server just removed.
+          await client.reset({ onlyIfSignedIn: true, forgetAccount: true });
+        }
+        await emitPendingInstall(QUIET);
+        // A running Safari extension is the only proof on iPhone that it was switched on.
+        if (deps.surface === "safari-ios" || deps.surface === "safari-macos") {
+          await client.trackOnce("extension_enabled", "setup_step", { step: "extension_enabled" }, QUIET);
+          await client.trackOnce("setup_completed", "setup_completed", {}, QUIET);
+        }
+        await client.trackDaily("active", "active", {}, QUIET);
+        deps.requestQuietFlush?.();
+      })().catch(() => {});
     },
     listener(message, sender, sendResponse) {
       if (typeof message !== "object" || message === null) return false;

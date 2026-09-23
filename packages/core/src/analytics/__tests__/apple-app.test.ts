@@ -138,3 +138,21 @@ describe("Apple app account and identity reconciliation", () => {
     expect(events().filter((e) => e.event === "active")).toHaveLength(1);
   });
 });
+
+describe("Apple app installs counted after sharing is turned on", () => {
+  it("an install while sharing was off is reported, once, when sharing turns on", async () => {
+    const { app, events } = setup({ consent: false });
+    await app.start();
+    expect(events()).toEqual([]);
+    expect(await app.ui.setSharing!(true)).toBe(true);
+    await app.recheckSetup();
+    expect(events().filter((e) => e.event === "installed")).toHaveLength(1);
+  });
+
+  it("turning sharing off sends one property-free event first", async () => {
+    const { app, events } = setup();
+    await app.start();
+    await app.ui.setSharing!(false);
+    expect(events()).toEqual([]); // discarded after the last send attempt
+  });
+});

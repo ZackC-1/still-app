@@ -1,5 +1,5 @@
 import { AnalyticsClient, type AnalyticsConfig } from "./client.js";
-import { createAccountIdentifier } from "./extension-host.js";
+import { createAccountIdentifier, PENDING_INSTALL_KEY } from "./extension-host.js";
 import type { AnalyticsKeyValue } from "./identity.js";
 import type { AnalyticsContextReply } from "../native/bridge.js";
 import type { UiAnalytics } from "../ui/controller.svelte.js";
@@ -93,6 +93,31 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       .catch(() => {});
   };
 
+  // An install or update seen while sharing was off is kept (kind, versions, day) and reported the
+  // first time sharing is on, so a person who turns sharing on later is still counted.
+  interface PendingLaunch {
+    readonly kind: "installed" | "updated";
+    readonly returning: boolean;
+    readonly from: string | null;
+    readonly at: number;
+  }
+  const now = deps.now ?? Date.now;
+  const readPending = async (): Promise<PendingLaunch | null> => {
+    const v = (await deps.store.get(PENDING_INSTALL_KEY).catch(() => null)) as Partial<PendingLaunch> | null;
+    if (!v || (v.kind !== "installed" && v.kind !== "updated") || typeof v.at !== "number") return null;
+    return { kind: v.kind, returning: v.returning === true, from: typeof v.from === "string" ? v.from : null, at: v.at };
+  };
+  const emitPending = async (r: Ready): Promise<void> => {
+    const pending = await readPending();
+    if (!pending || !consent) return;
+    if (pending.kind === "updated" && pending.from) {
+      await r.client.trackOnce(`updated:${r.context.appVersion}`, "updated", { from: pending.from, to: r.context.appVersion }, { at: pending.at });
+    } else if (pending.kind === "installed") {
+      await r.client.trackOnce("installed", "installed", { returning: pending.returning }, { at: pending.at });
+    }
+    await deps.store.set(PENDING_INSTALL_KEY, null).catch(() => undefined);
+  };
+
   const reportExtensionEnabled = async (r: Ready, enabled: boolean | null): Promise<void> => {
     if (enabled === true) await r.client.trackOnce("extension_enabled", "setup_step", { step: "extension_enabled" });
   };
@@ -112,9 +137,18 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
     async setSharing(enabled) {
       const r = await ready();
       if (!r) return !enabled;
+      if (!enabled && consent) {
+        // One last, property-free event so the opt-out rate is measurable.
+        await r.client.track("sharing_turned_off", {});
+        await r.client.flush();
+      }
       consent = await deps.bridge.setAnalyticsConsent(enabled).catch(() => consent);
-      if (consent) void r.client.flush();
-      else await r.client.clearQueue();
+      if (consent) {
+        await emitPending(r);
+        void r.client.flush();
+      } else {
+        await r.client.clearQueue();
+      }
       return consent;
     },
     acknowledgeNotice() {
@@ -129,14 +163,15 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       const r = await ready();
       if (!r) return;
       const { client, context } = r;
-      if (context.previousVersion) {
-        await client.trackOnce(`updated:${context.appVersion}`, "updated", {
+      if (context.previousVersion || context.created) {
+        await deps.store.set(PENDING_INSTALL_KEY, {
+          kind: context.previousVersion ? "updated" : "installed",
+          returning: context.returning,
           from: context.previousVersion,
-          to: context.appVersion,
-        });
-      } else if (context.created) {
-        await client.trackOnce("installed", "installed", { returning: context.returning });
+          at: now(),
+        }).catch(() => undefined);
       }
+      await emitPending(r);
       await client.trackOnce("app_opened", "setup_step", { step: "app_opened" });
       await reportExtensionEnabled(r, context.extensionEnabled);
       await client.track("opened", { where: "app" });

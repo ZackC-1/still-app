@@ -77,3 +77,20 @@ describe("late shared anchors", () => {
     expect(again.aliasOf).toBeUndefined();
   });
 });
+
+describe("waiting for sync on a fresh install", () => {
+  it("an anchor that arrives during the grace period makes the install returning", async () => {
+    const shared = memory();
+    const id = await resolveAnalyticsIdentity({
+      local: memory(), shared, uuid, sharedGraceMs: 3_000,
+      sleep: async () => { shared.data[ANCHOR_KEY] = "99999999-9999-4999-8999-999999999999"; },
+    });
+    expect(id.returning).toBe(true);
+    expect(id.anchorId).toBe("99999999-9999-4999-8999-999999999999");
+  });
+
+  it("no anchor after the grace period: a new person", async () => {
+    const id = await resolveAnalyticsIdentity({ local: memory(), shared: memory(), uuid, sharedGraceMs: 3_000, sleep: async () => {} });
+    expect(id.returning).toBe(false);
+  });
+});

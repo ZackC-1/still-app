@@ -4,7 +4,7 @@ import { createRuleSetRefresher } from "@still/core/rules";
 import { createAppGroupReconciler } from "../lib/app-group-reconcile.js";
 import { BrowserInstallGenerationStore, createEntitlementPull } from "../lib/entitlement-pull.js";
 import { NATIVE_APP, pushSettingsToApp } from "../lib/native-settings.js";
-import { createIndexedDbKeyValue } from "@still/core/analytics";
+import { createIndexedDbKeyValue, QUIET_FLUSH_ALARM, requestQuietFlush } from "@still/core/analytics";
 import { createSafariBackgroundAnalytics } from "../lib/analytics.js";
 
 // Safari background — the native App-Group bridge (KTD4). The content/popup/options surfaces read &
@@ -55,11 +55,15 @@ export default defineBackground(() => {
       },
     },
     queue: createIndexedDbKeyValue(),
+    requestQuietFlush: () => requestQuietFlush(browser.alarms),
     isTrustedPage: (sender) =>
       sender.id === browser.runtime.id && typeof sender.url === "string" && sender.url.startsWith(extensionOrigin),
   });
   browser.runtime.onInstalled.addListener((details) => analytics.onInstalled(details));
   browser.runtime.onMessage.addListener(analytics.listener);
+  browser.alarms?.onAlarm.addListener((alarm) => {
+    if (alarm.name === QUIET_FLUSH_ALARM) analytics.flush();
+  });
   analytics.onStart();
 
   async function pullFromApp(): Promise<StoredSettingsRecord | null> {

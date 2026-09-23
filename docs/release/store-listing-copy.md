@@ -161,7 +161,10 @@ Summary (250-character limit):
 
 > Remove YouTube Shorts and Instagram/Facebook Reels, and block the TikTok website for free. No account needed. Optional free settings sync with desktop Chrome and Safari on Mac, iPhone, and iPad. This extension supports desktop Firefox.
 
-Description: use the Chrome detailed description above. Release notes: use What's New above.
+Description: use the Chrome detailed description above, replacing its last privacy sentence ("Still
+shares usage data to help improve the app, and you can turn it off in settings.") with: "You can
+choose to share usage data to help improve Still; it stays off unless you allow it." Firefox keeps
+usage data off until the person grants it. Release notes: use What's New above.
 
 Payment: mark no payment required for 2.0 functionality. Keep the actual source-available license;
 do not describe Still as open-source licensed. Maintain data declarations against the approved

@@ -202,7 +202,7 @@ export class NativeBridge {
       created: o.created === true,
       returning: o.returning === true,
       previousVersion: version(o.previousVersion),
-      consent: o.consent !== false,
+      consent: o.consent === true, // fails closed if the field is ever missing
       noticeSeen: o.noticeSeen === true,
       extensionEnabled: typeof o.extensionEnabled === "boolean" ? o.extensionEnabled : null,
       previousAnchorId: id(o.previousAnchorId),

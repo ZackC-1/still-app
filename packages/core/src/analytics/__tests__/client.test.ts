@@ -363,3 +363,20 @@ describe("AnalyticsClient privacy failure modes", () => {
     expect(aliases[0]!.properties).toMatchObject({ distinct_id: IDENTITY.anchorId, alias: "33333333-3333-4333-8333-333333333333" });
   });
 });
+
+describe("quiet flush alarm", () => {
+  it("sets one alarm between one and six hours out, and leaves an existing one alone", async () => {
+    const { requestQuietFlush, QUIET_FLUSH_ALARM, quietFlushDelayMinutes } = await import("../quiet-flush.js");
+    expect(quietFlushDelayMinutes(() => 0)).toBe(60);
+    expect(quietFlushDelayMinutes(() => 0.9999)).toBeLessThan(360);
+    const created: [string, number][] = [];
+    let existing: unknown = null;
+    const alarms = { get: async () => existing, create: (n: string, i: { delayInMinutes: number }) => void created.push([n, i.delayInMinutes]) };
+    requestQuietFlush(alarms, () => 0.5);
+    await new Promise((r) => setTimeout(r, 0));
+    existing = { name: QUIET_FLUSH_ALARM };
+    requestQuietFlush(alarms, () => 0.5);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(created).toEqual([[QUIET_FLUSH_ALARM, 210]]);
+  });
+});

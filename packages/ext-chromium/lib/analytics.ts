@@ -57,6 +57,9 @@ export interface BackgroundAnalyticsDeps {
   readonly queue?: AnalyticsKeyValue | null;
   /** chrome.storage.sync: follows the person's Google or Firefox account between computers. */
   readonly shared: AnalyticsKeyValue | null;
+  /** How long a fresh install waits for storage.sync to deliver an anchor (default 4s). */
+  readonly sharedGraceMs?: number;
+  readonly sleep?: (ms: number) => Promise<void>;
   /** Firefox permission check; injectable for tests. */
   readonly firefoxPermissionGranted?: () => Promise<boolean>;
   readonly fetch?: typeof fetch;
@@ -65,6 +68,8 @@ export interface BackgroundAnalyticsDeps {
   /** Ask Still's server to put the signed-in account's email on its PostHog person
    * (analytics-identify). Absent on builds without Supabase. */
   readonly identifyOnServer?: () => Promise<void>;
+  /** Random-time flush for quietly recorded events (chrome.alarms). */
+  readonly requestQuietFlush?: () => void;
 }
 
 export function createBackgroundAnalytics(
@@ -84,12 +89,21 @@ export function createBackgroundAnalytics(
     appVersion: deps.appVersion,
     local: deps.local,
     queueStore: deps.queue ?? undefined,
-    identity: () => (identity ??= resolveAnalyticsIdentity({ local: deps.local, shared: deps.shared, uuid })),
+    // Wait briefly on a fresh install for Chrome/Firefox sync to bring this account's anchor.
+    identity: () =>
+      (identity ??= resolveAnalyticsIdentity({
+        local: deps.local,
+        shared: deps.shared,
+        uuid,
+        sharedGraceMs: deps.sharedGraceMs ?? 4_000,
+        sleep: deps.sleep,
+      })),
     consent: deps.isFirefox ? granted : () => stored.get(),
     storeConsent: deps.isFirefox ? undefined : (enabled) => stored.set(enabled),
     noticeApplies: !deps.isFirefox,
     isTrustedPage: (sender) => isExtensionPageSender(sender, runtimeId, extensionOrigin),
     identifyOnServer: deps.identifyOnServer,
+    requestQuietFlush: deps.requestQuietFlush,
     fetch: deps.fetch,
     now: deps.now,
     uuid,

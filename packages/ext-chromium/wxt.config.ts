@@ -39,6 +39,9 @@ export function stillManifest(browser: string) {
       "Remove YouTube Shorts, Instagram and Facebook Reels, and block the TikTok website for free. Sign in optionally to sync settings.",
     permissions: [
       "storage",
+      // Sends quietly recorded analytics at a random later time, so arrival never marks a site
+      // visit (packages/core/src/analytics/extension-host.ts). Shows no install warning.
+      "alarms",
       // DNR is Chromium-only here (see header); Firefox uses the content-script redirect.
       ...(isFirefox ? [] : ["declarativeNetRequestWithHostAccess"]),
     ],

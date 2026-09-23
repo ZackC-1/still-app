@@ -114,8 +114,9 @@ describe("Safari extension analytics", () => {
     expect(parseNativeAnalytics({ analytics: { installId: "x", anchorId: ANCHOR } })).toBeNull();
     expect(parseNativeAnalytics(null)).toBeNull();
     expect(parseNativeAnalytics({ analytics: { installId: INSTALL, anchorId: ANCHOR } })).toEqual({
-      installId: INSTALL, anchorId: ANCHOR, consent: true, platform: null, device: null,
+      installId: INSTALL, anchorId: ANCHOR, consent: false, platform: null, device: null, // no field: off
     });
+    expect(parseNativeAnalytics({ analytics: { installId: INSTALL, anchorId: ANCHOR, consent: true } })?.consent).toBe(true);
     expect(parseNativeAnalytics({ analytics: { installId: INSTALL, anchorId: ANCHOR, platform: "ios", device: "tablet" } }))
       .toMatchObject({ platform: "ios", device: "tablet" });
     expect(parseNativeAnalytics({ analytics: { installId: INSTALL, anchorId: ANCHOR, device: "https://x" } })?.device).toBeNull();

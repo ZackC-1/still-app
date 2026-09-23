@@ -26,6 +26,7 @@ function setup(over: { isFirefox?: boolean; granted?: boolean; shared?: Analytic
       appVersion: "2.1.0",
       local,
       shared: over.shared ?? memory(),
+      sharedGraceMs: 0,
       firefoxPermissionGranted: async () => over.granted ?? false,
       fetch: fetch as unknown as typeof globalThis.fetch,
       uuid: () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`,
@@ -218,6 +219,7 @@ describe("activation milestones and active days", () => {
         appVersion: "2.1.0",
         local,
         shared: null,
+        sharedGraceMs: 0,
         fetch: (async () => { throw new TypeError("offline"); }) as unknown as typeof fetch,
         now: () => clock,
         uuid: (() => { let n = 0; return () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`; })(),
@@ -241,5 +243,99 @@ describe("activation milestones and active days", () => {
     bg.onStart(null); // deleted from another device
     await bg.client.trackDaily("drain2", "active", {});
     expect(JSON.stringify(queue())).not.toContain(U1);
+  });
+});
+
+describe("background starts never say when a site was visited", () => {
+  it("events recorded at a start carry only their day and wait for a later send", async () => {
+    const fetch = vi.fn(async () => new Response("{}", { status: 200 }));
+    const requestQuietFlush = vi.fn();
+    const local = memory();
+    const at = new Date(2026, 8, 23, 21, 3, 17).getTime();
+    const bg = createBackgroundAnalytics(
+      {
+        isFirefox: false,
+        config: { key: "phc_test", host: "https://us.i.posthog.com" },
+        appVersion: "2.1.0",
+        local,
+        shared: null,
+        sharedGraceMs: 0,
+        fetch: fetch as unknown as typeof globalThis.fetch,
+        now: () => at,
+        uuid: (() => { let n = 0; return () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`; })(),
+        requestQuietFlush,
+      },
+      RUNTIME_ID,
+      ORIGIN,
+    );
+    bg.onStart(U1);
+    await new Promise((r) => setTimeout(r, 20));
+    const queued = (local.data[QUEUE_KEY] as { event: string; timestamp: string }[]) ?? [];
+    expect(queued.map((e) => e.event)).toEqual(["$identify", "active"]);
+    for (const e of queued) expect(e.timestamp).toBe(new Date(2026, 8, 23).toISOString());
+    await new Promise((r) => setTimeout(r, 1_700)); // past the ordinary flush delay
+    expect(fetch).not.toHaveBeenCalled();
+    expect(requestQuietFlush).toHaveBeenCalled();
+  }, 5_000);
+});
+
+describe("installs counted after sharing is allowed", () => {
+  it("a Firefox install with sharing off is counted, on its day, once the permission is granted", async () => {
+    let granted = false;
+    const local = memory();
+    const installAt = new Date(2026, 8, 20, 10, 0).getTime();
+    let clock = installAt;
+    const bg = createBackgroundAnalytics(
+      {
+        isFirefox: true,
+        config: { key: "phc_test", host: "https://us.i.posthog.com" },
+        appVersion: "2.1.0",
+        local,
+        shared: null,
+        sharedGraceMs: 0,
+        firefoxPermissionGranted: async () => granted,
+        fetch: (async () => { throw new TypeError("offline"); }) as unknown as typeof fetch,
+        now: () => clock,
+        uuid: (() => { let n = 0; return () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`; })(),
+      },
+      RUNTIME_ID,
+      ORIGIN,
+    );
+    bg.onInstalled({ reason: "install" });
+    await new Promise((r) => setTimeout(r, 10));
+    expect((local.data[QUEUE_KEY] as unknown[] | undefined) ?? []).toEqual([]);
+    clock = new Date(2026, 8, 23, 9, 0).getTime();
+    granted = true;
+    const send = (m: unknown) => new Promise<unknown>((r) => { if (!bg.listener(m, PAGE, r)) r(undefined); });
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "setSharing", enabled: true });
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } });
+    const events = (local.data[QUEUE_KEY] as { event: string; timestamp: string }[]);
+    const installed = events.filter((e) => e.event === "installed");
+    expect(installed).toHaveLength(1);
+    expect(installed[0]!.timestamp).toBe(new Date(installAt).toISOString());
+    expect(events.filter((e) => e.event === "setup_completed")).toHaveLength(1);
+    expect(local.data["still:analytics:pending-install"]).toBeNull();
+  });
+});
+
+describe("opt-out is measurable", () => {
+  it("turning sharing off with Still's switch sends one last event, then nothing", async () => {
+    const posted: string[] = [];
+    const fetch = vi.fn(async (_u: string, init: RequestInit) => {
+      for (const e of JSON.parse(String(init.body)).batch) posted.push(e.event);
+      return new Response("{}", { status: 200 });
+    });
+    const { send } = (() => {
+      const local = memory();
+      const bg = createBackgroundAnalytics(
+        { isFirefox: false, config: { key: "phc_test", host: "https://us.i.posthog.com" }, appVersion: "2.1.0", local, shared: null,
+          fetch: fetch as unknown as typeof globalThis.fetch, uuid: (() => { let n = 0; return () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`; })() },
+        RUNTIME_ID, ORIGIN,
+      );
+      return { send: (m: unknown) => new Promise<unknown>((r) => { if (!bg.listener(m, PAGE, r)) r(undefined); }) };
+    })();
+    expect(await send({ kind: ANALYTICS_MESSAGE_KIND, action: "setSharing", enabled: false })).toBe(false);
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } });
+    expect(posted).toEqual(["sharing_turned_off"]);
   });
 });

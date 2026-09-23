@@ -10,7 +10,7 @@ Portal state changes; verify it directly before acting. Never put keys in this f
 |---|---|---|
 | Chrome extension background | installs (returning or not) with setup complete at install, updates, active days, popup/options events | On by default; one-time notice; switch in options |
 | Firefox extension background | the same | Off until the optional `technicalAndInteraction` permission is granted |
-| iPhone / Mac app web view | installs or updates, app opened, Mac extension enabled, opens, active days, sign-in funnel | On by default; one-time notice; switch in the app |
+| iPhone / Mac app web view | installs or updates, app opened, Mac extension enabled, opens, switch flips (`where: app`), active days, sign-in funnel | On by default; one-time notice; switch in the app |
 | Safari extension (iPhone / Mac) | setup complete, extension enabled, active days, popup events, under the app's install | Follows the app's switch |
 | Supabase `analytics-identify` | the signed-in account's email onto its person, and `account_created` once per new account | Called only while sharing is on |
 | Supabase `delete-user` | deletes the account's person and events | Always, with the account |
@@ -70,6 +70,11 @@ switch. Firefox source archives for AMO carry only the explicit allowlist of pub
   existing disclosures, and re-certify the Limited Use statements.
 - **Firefox AMO:** the manifest declares the optional permission, and Firefox shows it at install.
   Mention usage data in the listing's privacy section.
+- **Chrome Web Store permission justification** for the new `alarms` permission: "Sends
+  Still's usage statistics at a random later time, so they never reveal when a supported site was
+  visited." It shows no warning to users.
+- Confirm **Discard client IP data** is on in PostHog before publishing the privacy policy, which
+  states it.
 - The privacy policy (`docs/privacy.html`) and homepage wording must be published to
   `stillapp.fit` before or with the store submissions, so every declaration matches.
 
@@ -81,6 +86,62 @@ Web Store and AMO, and `?pt=<provider token>&ct=<page>` for the App Store (the p
 App Store Connect → App Analytics → Campaigns and needs an Admin login). PostHog on the website is
 optional; if added, use cookieless mode so no cookie banner is needed, and add it to the privacy
 policy's website section first.
+
+## Reading the data correctly
+
+These definitions are the ones to build on. Several events mean slightly different things on
+different surfaces, so label every insight with the definition it uses.
+
+- **Installs.** `installed`, broken down by `store`. PostHog counts the first run with sharing on
+  (an install with sharing off is counted later, on its real day, once sharing is turned on), so
+  expect it to sit below the stores' own download numbers by a steady gap. Compare weekly.
+- **Returning person.** Do not rely on the `returning` flag alone; iCloud and browser sync can
+  arrive after an install decides. Use a HogQL insight: an `installed` is returning when the same
+  person already has an earlier event from a different `$device_id`.
+- **First store.** The `first_store` person property is set by whichever device signed in first.
+  For "where did this person first install", use the `store` of the person's earliest `installed`
+  (HogQL `argMin(properties.store, timestamp)` over `installed`).
+- **Setup.** `setup_completed` is at install on Chrome and Firefox (they block from install), and
+  the Safari extension's first run on iPhone, iPad and Mac. The Mac app also reports
+  `setup_step {step: extension_enabled}`.
+- **Active.** One `active` per install per local day, from any use (opening Still, a background
+  start, a switch flip). Background-start events carry only their day (local midnight) and are sent
+  later, so never read hour-of-day from them. Use weekly active persons as the headline; daily as a
+  trend.
+- **Opens.** `opened {where: popup|options}` is an extension screen; `opened {where: app}` is a launch
+  of the iPhone/Mac app, which most people rarely reopen once set up.
+- **Sign-in drop-off.** Measure it as a funnel, `sign_in_opened → code_requested → signed_in` within
+  24 hours, unique persons. `sign_in_abandoned` only fires when someone presses the sheet's close
+  button; a popup that closes because focus moved fires nothing, so it undercounts.
+- **New accounts.** `account_created` is sent by the server once per account created since the 2.1
+  launch, when the account first shares usage. Break it down by the person's first store. It counts
+  only people who share usage.
+- **Opt-out rate.** `sharing_turned_off` is sent once when someone turns sharing off with Still's own
+  switch (not when Firefox's permission is withdrawn in the add-on manager). Read Firefox separately:
+  it is an opt-in sample.
+- **Installs vs persons.** Shared Chrome profiles and shared Apple IDs merge people; signing out gives
+  a device a fresh anonymous id. Chart distinct `$device_id` alongside persons.
+
+## Weekly health checks
+
+- `installed` by store against App Store Connect units and the Chrome/AMO dashboards.
+- Persons whose distinct id is an account UUID but have no email (a stuck identify).
+- The `code_failed` reason mix: a jump in `network` means the backend.
+- The `delete-user` logs for `ANALYTICS DELETION FAILED`, and, a week after any account deletion,
+  a Persons search for the deleted account id: a device that was offline during the deletion can
+  send a few events under it before it learns the session ended. Delete any such person.
+- PostHog's ingestion warnings: "cannot merge already identified" means an alias or identify was
+  refused.
+- Known small inaccuracy: the Apple app keeps its once-a-day and once-ever markers in the web view's
+  storage, which iOS can clear under storage pressure; that can repeat an `app_opened` step or an
+  `active` for a day.
+
+## Before relying on identity numbers
+
+Run the plan's returning-user checks against the live project with two real devices (iPhone and Mac
+on one Apple ID; two computers on one Google account; then sign in on both) and record the results
+in the plan: which person survives, whether its email and first store are right, and whether any
+ingestion warning appeared.
 
 ## The "Still growth" dashboard
 
