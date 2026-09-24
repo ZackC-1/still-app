@@ -35,7 +35,11 @@
 
   .pill.logo { padding: .55em 1.05em; }
   .pill.logo::before { display: none; }
+  .pill.logo { gap: .45em; }
   .pill.logo img { display: block; height: 1.25em; width: auto; }
+  .pill.logo img[src*="instagram-wordmark"] { height: 1.5em; margin-top: .15em; }
+  .pill.logo img[src*="facebook"] { height: 1.05em; }
+  .pill.logo img[src*="tiktok"] { height: 1.45em; }
   .label { font-weight: 720; letter-spacing: .09em; text-transform: uppercase; color: rgba(255,255,255,.7); white-space: nowrap; }
   .label.good { color: white; }
 
@@ -51,14 +55,14 @@
 </head>
 <body>
 <script>
-// Service accents appear only on the domain pill: the canvas stays Still blue.
+// Each service is named by its own logo at the top (owner decision), so a glance says which site Still
+// is changing; the canvas stays Still blue. Sources are listed in logos/README.md.
 const SERVICES = {
-  // YouTube shows its own logo (owner decision): logos/youtube.svg, the official 2017 wordmark.
-  youtube: { domain: "youtube.com", accent: "#ff0033", logo: "logos/youtube.svg" },
-  "m.youtube": { domain: "m.youtube.com", accent: "#ff0033", logo: "logos/youtube.svg" },
-  instagram: { domain: "instagram.com", accent: "#e1306c" },
-  facebook: { domain: "facebook.com", accent: "#0866ff" },
-  tiktok: { domain: "tiktok.com", accent: "#25f4ee" },
+  youtube: { domain: "youtube.com", accent: "#ff0033", logo: ["logos/youtube.svg"] },
+  "m.youtube": { domain: "m.youtube.com", accent: "#ff0033", logo: ["logos/youtube.svg"] },
+  instagram: { domain: "instagram.com", accent: "#e1306c", logo: ["logos/instagram-glyph.svg", "logos/instagram-wordmark.svg"] },
+  facebook: { domain: "facebook.com", accent: "#0866ff", logo: ["logos/facebook.svg"] },
+  tiktok: { domain: "tiktok.com", accent: "#25f4ee", logo: ["logos/tiktok.svg"] },
 };
 const CHECK = `<svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12.5l5 5L20 6.5"/></svg>`;
 const md = (s = "") => s.replace(/\*\*(.+?)\*\*/g, "<b>$1</b>");
@@ -121,10 +125,12 @@ function pill(service, u, size = 2.4) {
   p.style.setProperty("--accent", s.accent);
   if (s.logo) {
     p.classList.add("logo");
-    const img = new Image();
-    img.src = s.logo;
-    img.alt = s.domain;
-    p.appendChild(img);
+    for (const src of s.logo) {
+      const img = new Image();
+      img.src = src;
+      img.alt = s.domain;
+      p.appendChild(img);
+    }
   } else p.textContent = s.domain;
   return p;
 }

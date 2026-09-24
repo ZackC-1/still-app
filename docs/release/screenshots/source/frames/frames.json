@@ -97,7 +97,7 @@
           "crop": {
             "x": 0,
             "y": 0,
-            "w": 700
+            "w": 680
           }
         },
         {
@@ -105,7 +105,7 @@
           "crop": {
             "x": 0,
             "y": 0,
-            "w": 700
+            "w": 680
           }
         }
       ]
@@ -329,17 +329,17 @@
         {
           "src": "captures/desktop/instagram-before.png",
           "crop": {
-            "x": 0,
+            "x": 270,
             "y": 0,
-            "w": 560
+            "w": 330
           }
         },
         {
           "src": "captures/desktop/instagram-after.png",
           "crop": {
-            "x": 0,
+            "x": 270,
             "y": 0,
-            "w": 560
+            "w": 330
           }
         }
       ]

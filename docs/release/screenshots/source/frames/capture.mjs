@@ -112,33 +112,27 @@ if (wanted("tiktok")) await pair("tiktok", TIKTOK, { settle: 9000, headless: fal
 
 // 4. Instagram, signed in to the test account: home feed, and the Reels page itself.
 if (wanted("instagram")) {
-  await pair("instagram", "https://www.instagram.com/", { signedIn: true, settle: 7000 });
+  await feedPair("instagram", "https://www.instagram.com/", () => {
+    const reel = [...document.querySelectorAll('article a[href*="/reel/"], article video')].map((e) => e.closest("article")).find(Boolean);
+    return reel ? Math.max(1, reel.getBoundingClientRect().top + scrollY - 20) : 0;
+  });
   await pair("instagram-reels", "https://www.instagram.com/reels/", { signedIn: true, settle: 7000,
     marks: { circle: ['a[href="/reels/"]'], largestMedia: true } });
 }
 
-// 5. Facebook, signed in to the test account: the feed scrolled to its first Reel (the "after" shot keeps
-// the same scroll, so the Reel is simply gone), and a public food Page's Reels tab.
-async function scrollToFirstReel(page) {
-  const y = await page.evaluate(() => {
-    const reel = document.querySelector('[role="feed"] a[href*="/reel/"], [role="main"] a[href*="/reel/"]');
-    const post = reel?.closest('[role="article"]') ?? reel?.closest('[aria-posinset]') ?? reel;
-    return post ? Math.max(0, post.getBoundingClientRect().top + scrollY - 140) : 0;
-  });
-  return y;
-}
-if (wanted("facebook")) {
+// A feed captured at its first short-form post: the "before" shot scrolls until one is in view, and
+// the "after" shot keeps the same scroll, so the post is simply gone.
+async function feedPair(name, url, find) {
   let offset = 0;
   for (const on of [false, true]) {
     const ctx = await launch({ ext: on, signedIn: true });
-    await shoot(ctx, "https://www.facebook.com/", `facebook-${on ? "after" : "before"}.png`, {
+    await shoot(ctx, url, `${name}-${on ? "after" : "before"}.png`, {
       mark: !on, settle: 8000,
       prepare: async (page) => {
-        // Scroll a little at a time so the feed loads; stop at the first Reel ("before") or at the same spot ("after").
-        for (let i = 0; i < 12 && !offset && !on; i++) {
-          const y = await scrollToFirstReel(page);
+        for (let i = 0; i < 14 && !offset && !on; i++) {
+          const y = await page.evaluate(find);
           if (y) { offset = y; break; }
-          await page.mouse.wheel(0, 900); await page.waitForTimeout(1200);
+          await page.mouse.wheel(0, 900); await page.waitForTimeout(1300);
         }
         await page.evaluate((y) => scrollTo(0, y), offset);
         await page.waitForTimeout(1500);
@@ -146,7 +140,16 @@ if (wanted("facebook")) {
     });
     await ctx.close();
   }
-  await pair("facebook-page", "https://www.facebook.com/buzzfeedtasty", { signedIn: true, settle: 8000 });
+}
+
+// 5. Facebook, signed in to the test account. Only the Page Reels tab is used in images: the home
+// feed is random and shows private people, so feedPair here is for checking behaviour, not for stores.
+if (wanted("facebook")) {
+  await feedPair("facebook", "https://www.facebook.com/", () => {
+    const reel = document.querySelector('[role="feed"] a[href*="/reel/"], [role="main"] a[href*="/reel/"]');
+    const post = reel?.closest('[role="article"]') ?? reel?.closest("[aria-posinset]") ?? reel;
+    return post ? Math.max(1, post.getBoundingClientRect().top + scrollY - 140) : 0;
+  });
 }
 
 if (wanted("facebook") || wanted("facebook-reels")) {
