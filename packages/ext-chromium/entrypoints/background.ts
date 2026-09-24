@@ -1,4 +1,4 @@
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { browser } from "wxt/browser";
 import { SettingsCache, ChromeStorageAdapter } from "@still/core/storage";
 import { ChromeEntitlementAdapter } from "@still/core/entitlement";
@@ -20,6 +20,8 @@ import { createIdentityStore, createSessionStores } from "../lib/session-stores.
 import {
   createSessionMessageRouter,
 } from "../lib/session-messages.js";
+import { createIndexedDbKeyValue, QUIET_FLUSH_ALARM, requestQuietFlush } from "@still/core/analytics";
+import { createBackgroundAnalytics, storageKeyValue } from "../lib/analytics.js";
 
 // Chromium/Firefox background (Chrome MV3 service worker / Firefox MV3 event page). Three
 // independent jobs:
@@ -38,6 +40,9 @@ import {
 //     isServiceActive composes (R2), so this gate can't drift from the content script's. The
 //     Firefox build ships no DNR ruleset (it redirects via the content script), so that wiring
 //     bails cleanly when the API is absent.
+//
+// Product analytics (lib/analytics.ts) also lives here: this context owns the one PostHog client,
+// pages report to it by message, and content scripts may only name a service they blocked on.
 //
 // Plus one write that happens once in the life of an install: the record of when this browser
 // first ran Still and on which version (lib/original-install.ts). It is local, never transmitted,
@@ -68,7 +73,38 @@ export default defineBackground(() => {
   const cache = new SettingsCache(new ChromeStorageAdapter());
   cache.watch();
   const hydrated = cache.hydrate();
-  const session = createSessionSpine(cache);
+  const spine = createSessionSpine(cache);
+  const session = spine?.session ?? null;
+
+  // Registered in the background's first synchronous pass: onInstalled fires once, early, on a
+  // fresh install or update, and a listener added after an await would miss it.
+  const analytics = createBackgroundAnalytics(
+    {
+      isFirefox: Boolean(import.meta.env.FIREFOX),
+      config: {
+        key: import.meta.env.VITE_POSTHOG_KEY as string | undefined,
+        host: import.meta.env.VITE_POSTHOG_HOST as string | undefined,
+      },
+      appVersion: browser.runtime.getManifest().version,
+      local: storageKeyValue(chrome.storage.local),
+      queue: createIndexedDbKeyValue(),
+      shared: chrome.storage.sync ? storageKeyValue(chrome.storage.sync) : null,
+      requestQuietFlush: () => requestQuietFlush(chrome.alarms),
+      identifyOnServer: spine
+        ? async () => {
+            const { error } = await spine.client.functions.invoke("analytics-identify", { body: {} });
+            if (error) throw error;
+          }
+        : undefined,
+    },
+    chrome.runtime.id,
+    chrome.runtime.getURL(""),
+  );
+  chrome.runtime.onInstalled.addListener((details) => analytics.onInstalled(details));
+  chrome.alarms?.onAlarm.addListener((alarm) => {
+    if (alarm.name === QUIET_FLUSH_ALARM) void analytics.flushWhenReady();
+  });
+  chrome.runtime.onMessage.addListener(analytics.listener);
 
   // Content-script nudge — the ONLY handler a content-script sender may reach (plan KTD sender
   // rule; these scripts run inside instagram/tiktok/facebook/youtube pages). Fired at
@@ -79,6 +115,8 @@ export default defineBackground(() => {
     if (message && typeof message === "object" && (message as { kind?: string }).kind === "reconcile") {
       void refreshRuleSet();
       void session?.onNudge();
+      // The nudge is real use (a supported site was opened); analytics records only its day.
+      analytics.onActivity();
     }
     return false;
   });
@@ -104,6 +142,13 @@ export default defineBackground(() => {
   // browser that was closed while another device changed something learns about it here rather
   // than publishing over it on its next edit.
   void hydrated.then(() => session?.resume());
+  // No session spine (an unconfigured build) reads as signed out; a failed or stalled read is
+  // "unknown", which changes nothing about the account and confirms nothing, so nothing is sent.
+  const ACCOUNT_LOOKUP_LIMIT_MS = 8_000;
+  void Promise.race([
+    hydrated.then(() => session?.getState()).then((state) => (state ? state.userId : null)),
+    new Promise<undefined>((r) => setTimeout(() => r(undefined), ACCOUNT_LOOKUP_LIMIT_MS)),
+  ]).then((userId) => analytics.onStart(userId), () => analytics.onStart(undefined));
 
   // ── DNR gating — Chromium only from here down. ───────────────────────────────────────────────
   if (!chrome.declarativeNetRequest?.updateEnabledRulesets) return;
@@ -128,7 +173,9 @@ export default defineBackground(() => {
  * `detectSessionInUrl: false`, `autoRefreshToken: false` (refresh is lazy — getSession() on wake),
  * over the chrome.storage.local auth adapter under its distinct storageKey.
  */
-function createSessionSpine(cache: SettingsCache): ExtensionSession | null {
+function createSessionSpine(
+  cache: SettingsCache,
+): { session: ExtensionSession; client: SupabaseClient } | null {
   const config = extensionSupabaseConfig(
     import.meta.env.VITE_SUPABASE_URL as string | undefined,
     import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined,
@@ -165,7 +212,7 @@ function createSessionSpine(cache: SettingsCache): ExtensionSession | null {
   const backend = new SupabaseBackendPort(client);
   const identity = createIdentityStore();
 
-  return createExtensionSession({
+  const session = createExtensionSession({
     auth,
     backend,
     records: new ChromeEntitlementAdapter(),
@@ -181,4 +228,5 @@ function createSessionSpine(cache: SettingsCache): ExtensionSession | null {
     // it on disk for the next wake to resurrect.
     clearAuthStorage: clearExtensionAuthStorage,
   });
+  return { session, client };
 }

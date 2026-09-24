@@ -11,7 +11,7 @@
 </head>
 <body>
   <h1>Still — Privacy Policy</h1>
-  <p class="updated">Last updated: September 11, 2026</p>
+  <p class="updated">Last updated: September 23, 2026</p>
   <p>Still is made by Cadmus Labs LLC. This policy covers our apps, browser extensions, website
   and support service.</p>
   <p>Still removes YouTube Shorts and Instagram/Facebook Reels and blocks the TikTok website
@@ -23,6 +23,8 @@
   <p>Still does not collect your browsing history or the content of pages you visit. Access to the
   supported websites lets Still remove or block the features you select. Your blocking settings can
   stay on your device, and blocking works without signing in.</p>
+  <p>Usage data (below) covers how you use Still itself. Still never records which sites, pages,
+  videos, accounts or searches you view, or when you visit a supported website.</p>
   <p>Using Still without an account does not mean no information reaches service providers. The Apple
   app connects to RevenueCat before sign-in, and online requests involve connection information.</p>
 
@@ -43,6 +45,17 @@
     your account. RevenueCat also records connections and customer country information and provides
     purchase analytics. Apple holds underlying App Store purchase records. No purchase is needed
     for Still.</li>
+    <li><strong>Usage analytics:</strong> while <strong>Share usage data</strong> is on, PostHog
+    processes events about how you use Still: installs and updates, which store you downloaded from,
+    opening Still, turning services on or off, setup and sign-in steps, and the days you use Still.
+    Usage events carry Still's own random
+    install and person identifiers, the Still version and the kind of device (iPhone, iPad or Mac, and
+    whether it is Chrome, Firefox, Safari or the Still app). Still asks PostHog not to work out your location from your connection, and our PostHog
+    project discards IP addresses. The iPhone and
+    Mac apps keep an anonymous person identifier in your iCloud key-value storage so the same person
+    on two Apple devices is counted once. If you sign in, your usage is linked to your Still account
+    ID, and our server adds your account email to that record. See
+    <a href="https://posthog.com/privacy">PostHog's privacy policy</a>.</li>
     <li><strong>Support correspondence:</strong> our support, privacy and general-contact addresses
     forward to a Google Workspace mailbox. We receive your address, message and any attachments
     so we can respond.</li>
@@ -54,9 +67,18 @@
   <p>RevenueCat documents that customer country can come from a transaction or an IP-derived country,
   and that it discards the IP used for that derivation. This does not mean all services involved in
   Still keep no IP logs. See <a href="https://www.revenuecat.com/docs/dashboard-and-metrics/customer-profile">RevenueCat's customer documentation</a>.</p>
-  <p>We do not sell your personal information or use it for advertising tracking. We do not collect
-  browsing analytics. RevenueCat's purchase analytics are separate from browsing activity. Its only
-  configured integration for Still sends events to our Supabase backend.</p>
+  <p>We use PostHog's AI features, including its automated "Self-driving" analysis, to review usage
+  events, errors and our public GitHub issues and point out problems with Still. To do this, PostHog
+  passes the usage data described above to AI model providers it contracts with (currently
+  Anthropic, OpenAI and Google, with Microsoft Azure for search). PostHog's data processing terms
+  prohibit those providers from using the data to train or improve their models. PostHog states it
+  cannot yet guarantee that those providers keep no copy of the data they process. See
+  <a href="https://posthog.com/docs/posthog-ai/faq">PostHog's AI data documentation</a> and
+  <a href="https://posthog.com/subprocessors">its subprocessor list</a>.</p>
+  <p>We do not sell your personal information or use it for advertising tracking, and we do not share
+  usage analytics with advertisers or data brokers. We use it only to understand and improve Still.
+  We do not collect browsing history. RevenueCat's purchase analytics are separate from browsing
+  activity. Its only configured integration for Still sends events to our Supabase backend.</p>
   <p>Providers may process information outside your country. For example, Resend documents that it
   stores customer email data in the United States; selecting an email sending region does not change
   that storage location. See <a href="https://resend.com/security/gdpr">Resend's processing information</a>.</p>
@@ -103,6 +125,15 @@
   a specific message can be requested through Resend. These periods do not describe copies in your
   email account or our support mailbox. See <a href="https://resend.com/security/gdpr">Resend's retention information</a>.</p>
 
+  <h3>Usage analytics</h3>
+  <p>PostHog keeps usage events for one year on our current plan (a paid plan would keep them for up
+  to seven years). Turning off <strong>Share usage data</strong> stops new events and discards any
+  still waiting on your device. Still then makes one brief attempt to record only that sharing was
+  turned off, so we can see how many people choose to. It does not delete events already sent. Deleting your Still account
+  asks PostHog to delete the person record linked to that account along with its events. PostHog
+  processes event deletions in weekly batches, and its own logs and backups follow its schedule. Usage
+  from a device that was never signed in is not linked to an account; contact us to have it removed.</p>
+
   <h3>RevenueCat and purchase records</h3>
   <p>Deleting a Still account does not automatically delete its RevenueCat customer identity, aliases,
   historical purchases or separate backend billing-event records. Our current account-deletion flow
@@ -122,9 +153,14 @@
   <h2>Your choices and account deletion</h2>
   <p>You can use blocking without an account, stop settings sync by signing out, and request a copy
   of your account data by contacting <a href="mailto:privacy@stillapp.fit">privacy@stillapp.fit</a>.</p>
+  <p>Usage sharing starts on in the iPhone and Mac apps and the Chrome extension, which tell you so the
+  first time you open them. Turn it off at any time with <strong>Share usage data</strong> in Still's
+  settings (in the Still app for Safari on iPhone and Mac). In Firefox it starts off: nothing is sent
+  unless you allow Firefox's "technical and interaction data" permission when installing or later in
+  Still's settings.</p>
   <p>Choose <strong>Delete account</strong> in the app's signed-in screen to remove the authentication
   account, synced settings, account entitlement record and account-linked security counters from our
-  active application database. Temporary connection counters may finish their existing short security
+  active application database, and to ask PostHog to delete the usage record linked to the account. Temporary connection counters may finish their existing short security
   window so deleting an account does not reset protection for other people using the same connection.</p>
   <p>Local settings and the account-safety marker can remain on your device. Provider logs, database
   audit records, backups, email correspondence, RevenueCat history and underlying store records have

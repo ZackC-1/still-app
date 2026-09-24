@@ -47,7 +47,9 @@ Use the candidate's pinned toolchain. Current main's toolchain is documented in 
 build prerequisites. Do not retrofit them with current dependencies.
 
 WXT's package-only source ZIP is insufficient for this monorepo. Pair the extension ZIP with the
-complete tracked workspace, frozen lockfile, explicit allowlisted public build configuration and
+complete tracked workspace, frozen lockfile, explicit allowlisted public build configuration (from
+2.1 it must include `VITE_POSTHOG_KEY` and `VITE_POSTHOG_HOST`, which are public, or the rebuilt
+add-on will not match the submitted one) and
 its `AMO-REBUILD.mjs` instructions. Never copy an ignored `.env` wholesale. Extract in a clean
 directory, reproduce all packaged files and compare their contents before uploading. Store and
 record source/package hashes together; ZIP timestamp differences are not payload differences.

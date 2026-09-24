@@ -4,6 +4,8 @@ import { createRuleSetRefresher } from "@still/core/rules";
 import { createAppGroupReconciler } from "../lib/app-group-reconcile.js";
 import { BrowserInstallGenerationStore, createEntitlementPull } from "../lib/entitlement-pull.js";
 import { NATIVE_APP, pushSettingsToApp } from "../lib/native-settings.js";
+import { createIndexedDbKeyValue, QUIET_FLUSH_ALARM, requestQuietFlush } from "@still/core/analytics";
+import { createSafariBackgroundAnalytics } from "../lib/analytics.js";
 
 // Safari background — the native App-Group bridge (KTD4). The content/popup/options surfaces read &
 // write settings through browser.storage.local, but the *app's* WKWebView writes them into the
@@ -32,6 +34,37 @@ function parseNativeSettings(reply: unknown): StoredSettingsRecord | null {
 
 export default defineBackground(() => {
   const adapter = new ChromeStorageAdapter();
+
+  // Product analytics (lib/analytics.ts): under the app's install, following the app's switch.
+  // Registered in this first synchronous pass so onInstalled is not missed.
+  const extensionOrigin = browser.runtime.getURL("");
+  const analytics = createSafariBackgroundAnalytics({
+    config: {
+      key: import.meta.env.VITE_POSTHOG_KEY as string | undefined,
+      host: import.meta.env.VITE_POSTHOG_HOST as string | undefined,
+    },
+    appVersion: browser.runtime.getManifest().version,
+    sendNative: (message) => browser.runtime.sendNativeMessage(NATIVE_APP, message),
+    platform: async () => (await browser.runtime.getPlatformInfo()).os,
+    local: {
+      async get(key) {
+        return (await browser.storage.local.get(key))[key] ?? null;
+      },
+      async set(key, value) {
+        await browser.storage.local.set({ [key]: value });
+      },
+    },
+    queue: createIndexedDbKeyValue(),
+    requestQuietFlush: () => requestQuietFlush(browser.alarms),
+    isTrustedPage: (sender) =>
+      sender.id === browser.runtime.id && typeof sender.url === "string" && sender.url.startsWith(extensionOrigin),
+  });
+  browser.runtime.onInstalled.addListener((details) => analytics.onInstalled(details));
+  browser.runtime.onMessage.addListener(analytics.listener);
+  browser.alarms?.onAlarm.addListener((alarm) => {
+    if (alarm.name === QUIET_FLUSH_ALARM) analytics.flush();
+  });
+  analytics.onStart();
 
   async function pullFromApp(): Promise<StoredSettingsRecord | null> {
     try {
@@ -64,6 +97,8 @@ export default defineBackground(() => {
     if (message && typeof message === "object" && (message as { kind?: string }).kind === "reconcile") {
       void reconciler.reconcile();
       void pullEntitlementFromApp();
+      // Real use (a supported site, or the popup, asked for a reconcile); only its day is recorded.
+      analytics.onActivity();
     }
     return false;
   });

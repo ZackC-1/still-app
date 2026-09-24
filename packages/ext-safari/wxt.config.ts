@@ -17,7 +17,9 @@ export default defineConfig({
     // `nativeMessaging` lets the background bridge talk to the app's SafariWebExtensionHandler /
     // App-Group container (KTD4). No tab-access permission: the pause-on-this-site control (and
     // its activeTab grant) was removed 2026-07-06.
-    permissions: ["storage", "nativeMessaging"],
+    // "alarms" sends quietly recorded analytics at a random later time, so arrival never marks a
+    // site visit (packages/core/src/analytics/extension-host.ts).
+    permissions: ["storage", "nativeMessaging", "alarms"],
     action: {
       default_title: "Still",
       default_icon: {

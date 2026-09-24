@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./analytics": "./src/analytics/index.ts",
     "./rules": "./src/rules/index.ts",
     "./content": "./src/content/index.ts",
     "./entitlement": "./src/entitlement/index.ts",
@@ -26,9 +27,9 @@
     "typecheck": "svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
-    "@still/shared-types": "workspace:*",
     "@noble/ed25519": "^3.2.0",
     "@noble/hashes": "^2.4.0",
+    "@still/shared-types": "workspace:*",
     "@supabase/supabase-js": "^2.116.0"
   },
   "devDependencies": {
@@ -36,6 +37,7 @@
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/svelte": "^5.4.2",
     "@types/chrome": "^0.2.9",
+    "fake-indexeddb": "^6.2.5",
     "jsdom": "^30.0.1",
     "svelte": "^5.57.0",
     "svelte-check": "^4.7.6",

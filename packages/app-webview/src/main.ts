@@ -4,6 +4,7 @@ import "@still/core/ui/tokens.css";
 import { App, SAFARI_SURFACE_GUIDANCE, UiController, type AuthPersistence } from "@still/core/ui";
 import { SettingsCache, WKWebViewStorageAdapter } from "@still/core/storage";
 import { NativeBridge } from "@still/core/native";
+import { createAppAnalytics, type AnalyticsKeyValue } from "@still/core/analytics";
 import {
   SupabaseAuthPort,
   SupabaseBackendPort,
@@ -33,6 +34,19 @@ const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
 let controller: UiController;
+let identifyOnServer: (() => Promise<void>) | undefined;
+// Product analytics (packages/core/src/analytics/apple-app.ts). The native side owns the ids and
+// the "Share usage data" switch; this owns the client. It waits for the native context and does
+// nothing outside the app or in a build without a PostHog key.
+const analytics = createAppAnalytics({
+  bridge,
+  config: {
+    key: import.meta.env.VITE_POSTHOG_KEY,
+    host: import.meta.env.VITE_POSTHOG_HOST,
+  },
+  store: storageKeyValue(safeStorage()),
+  identifyOnServer: () => identifyOnServer?.() ?? Promise.resolve(),
+});
 let onGet: (() => void) | undefined;
 let onRestore: (() => void) | undefined;
 
@@ -41,6 +55,10 @@ if (supabaseUrl && supabaseAnonKey) {
   const supabase: SupabaseClient = createClient(supabaseUrl, supabaseAnonKey, {
     auth: { persistSession: true, autoRefreshToken: true, storage: sessionStorage },
   });
+  identifyOnServer = async () => {
+    const { error } = await supabase.functions.invoke("analytics-identify", { body: {} });
+    if (error) throw error;
+  };
   // Deterministic App Review sign-in (plan 2026-07-15-002, R13): Apple-build-only env. Both the
   // gate and the value are build-time — extension builds never define this, so the review branch
   // is dead code everywhere else (fail closed; gate-production-trust-by-build-mode).
@@ -94,6 +112,7 @@ if (supabaseUrl && supabaseAnonKey) {
   controller = new UiController({
     cache,
     host: { canPurchase: true },
+    analytics: analytics.ui,
     persistence,
     auth: {
       // Email-code sign-in — the SAME flow as the browser extensions (founder call 2026-07-06:
@@ -131,6 +150,8 @@ if (supabaseUrl && supabaseAnonKey) {
       if (error || !data.user) return { error: error?.message ?? "Sign in failed" };
       return { userId: data.user.id };
     },
+    onAccountEntered: (userId) => void analytics.identifyAccount(userId),
+    onAccountAbsent: () => void analytics.accountAbsent(),
   });
 
   controller.retrySync = () => sync.retryNow();
@@ -159,6 +180,8 @@ if (supabaseUrl && supabaseAnonKey) {
   // Resume an existing Supabase session on launch. The userId guard closes the slow-network race
   // where the user completes a fresh code sign-in before this launch check resolves — without it,
   // two enterSession pipelines (possibly for different identities) would interleave.
+  // Analytics sends nothing until the resume confirms the account (onAccountEntered) or its absence
+  // (onAccountAbsent); a launch without a session never sends the previous account's events.
   void session.resumeAccount(() => authPort.currentAccount());
 
   // Native actions only exist inside the WKWebView host. Sign in with Apple is no longer offered
@@ -184,9 +207,16 @@ if (supabaseUrl && supabaseAnonKey) {
       });
   }
 } else {
-  controller = new UiController({ cache, host: { canPurchase: true } });
+  controller = new UiController({ cache, host: { canPurchase: true }, analytics: analytics.ui });
+  // No account can exist in a build without sync; let go of any recorded earlier.
+  void analytics.accountAbsent();
   if (bridge.available) void bridge.setAccountSyncStatus(null).catch(() => {});
 }
+
+void analytics.start();
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") void analytics.recheckSetup();
+});
 
 mount(App, {
   target: document.getElementById("app")!,
@@ -219,5 +249,23 @@ function safeStorage(): SupportedStorage {
     getItem: (k) => mem.get(k) ?? null,
     setItem: (k, v) => void mem.set(k, v),
     removeItem: (k) => void mem.delete(k),
+  };
+}
+
+/** The analytics queue over the same storage (JSON values). */
+function storageKeyValue(storage: SupportedStorage): AnalyticsKeyValue {
+  return {
+    async get(key) {
+      const raw = await storage.getItem(key);
+      if (raw === null) return null;
+      try {
+        return JSON.parse(raw) as unknown;
+      } catch {
+        return null;
+      }
+    },
+    async set(key, value) {
+      await storage.setItem(key, JSON.stringify(value));
+    },
   };
 }

@@ -16,6 +16,7 @@ The [initial connection checklist](archive/pre-2.0-reference-refresh/docs/CONNEC
 | RevenueCat / Apple | Retained purchase identities, receipts, entitlements and webhook | Existing app/product IDs; paid access flags remain false. |
 | App Store Connect | Separate iOS/macOS submissions carrying Safari extensions | Existing app, signing identities and private reviewer access. |
 | Chrome Web Store / Firefox AMO | Desktop extension distribution | Existing listings; Firefox requires complete reproducible sources paired to the uploaded artifact. |
+| PostHog | Product analytics under [ADR 0004](adr/0004-first-party-usage-analytics.md): events from every surface, account email attached server-side, deletion with the account | Public project key per build; server-only personal key for deletion. See the [analytics runbook](release/posthog-analytics.md). |
 
 Still's runtime does not use Mem0. Mem0 is shared developer memory under
 [docs/MEMORY.md](MEMORY.md), separate from user accounts and the application backend.
@@ -32,6 +33,7 @@ Supabase CLI/Docker support local database work; Apple builds require macOS/Xcod
 | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` | Package-local build configuration for Chromium/Firefox auth+sync and signed rule fetch, Safari rule fetch, Apple webview auth+sync. |
 | `VITE_REVIEW_SIGNIN_EMAIL` | Apple app-webview store build only; must match the private deployed reviewer configuration. Never put it in browser-extension builds. |
 | `REVENUECAT_PUBLIC_API_KEY` | Native Apple SDK through local xcconfig / `RevenueCatPublicAPIKey`. |
+| `VITE_POSTHOG_KEY`, `VITE_POSTHOG_HOST` | Package-local build configuration for ext-chromium, ext-safari and app-webview analytics. Blank → no analytics and no "Share usage data" switch. |
 | Production rule public-key allowlist | `packages/core/src/rules/trusted-keys.ts`; see [signing guide](production-rule-set-keys.md). |
 
 Blank public configuration keeps blocking local with the bundled seed and disables the associated
@@ -47,8 +49,9 @@ public source archive: include only an explicit allowlist of public build values
 
 The configured function dependencies use `SUPABASE_URL`, `SUPABASE_ANON_KEY`,
 `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET`, `ENTITLEMENT_WRITER_DB_URL`,
-`REVENUECAT_SECRET_API_KEY`, `REVENUECAT_WEBHOOK_TOKEN`, review-sign-in secrets and selector-canary
-secrets as applicable. The retained checkout uses `REVENUECAT_WEB_BILLING_CHECKOUT_URL`.
+`REVENUECAT_SECRET_API_KEY`, `REVENUECAT_WEBHOOK_TOKEN`, review-sign-in secrets, selector-canary
+secrets and the PostHog function secrets (`POSTHOG_PROJECT_KEY`, `POSTHOG_HOST`,
+`POSTHOG_API_HOST`, `POSTHOG_PROJECT_ID`, `POSTHOG_PERSONAL_API_KEY`) as applicable. The retained checkout uses `REVENUECAT_WEB_BILLING_CHECKOUT_URL`.
 `REVENUECAT_WEB_PRODUCT_ID` is not a current runtime input.
 
 Keep elevated keys, database credentials, review codes and signing private keys outside tracked

@@ -10,6 +10,7 @@ import type {
   VerifyCodeOutcome,
   WebCheckoutOutcome,
 } from "../sync/ports.js";
+import type { AnalyticsEventName, AnalyticsEventProps, AnalyticsWhere } from "../analytics/events.js";
 
 // The host-agnostic view-model for the shared UI (KTD4). It reads/writes settings through the
 // injected SettingsCache and exposes the sync/auth/paywall state matrix (U9). The same controller
@@ -204,6 +205,36 @@ export interface UiCheckout {
   reconcile(): Promise<CheckoutReconcileOutcome>;
 }
 
+/** Longest account deletion waits for analytics to let go of the account. */
+const ANALYTICS_FORGET_LIMIT_MS = 5_000;
+
+/** Host analytics seam. The controller reports what the person did (toggles, the sign-in funnel);
+ * the host owns the client, its consent and where it runs. Fire and forget: a failing analytics
+ * call must never touch the UI, so every method returns nothing. */
+export interface UiAnalytics {
+  track<E extends AnalyticsEventName>(name: E, props: AnalyticsEventProps<E>): void;
+  /** Attribute this install to the signed-in account. */
+  identify(userId: string): void;
+  /** Stop attributing to the account. `forgetAccount` (deletion) also drops events still waiting
+   * under it, so nothing recreates the analytics person the server is about to delete. May resolve
+   * once that is done, so deletion can wait for it (bounded; see confirmDeleteAccount). */
+  reset(options?: { readonly forgetAccount?: boolean }): Promise<void> | void;
+  /** This device's "Share usage data" state, or null when the build has no analytics (the switch
+   * then does not render). */
+  sharing?(): Promise<UsageSharingState | null>;
+  /** Change it; resolves to the resulting state (Firefox's permission prompt can be declined).
+   * Called synchronously from the tap, so a host that must prompt still has the user gesture. */
+  setSharing?(enabled: boolean): Promise<boolean>;
+  /** Remember that the one-time notice was seen. */
+  acknowledgeNotice?(): void;
+}
+
+export interface UsageSharingState {
+  readonly enabled: boolean;
+  /** True until the person has seen the one-time notice on a surface where sharing starts on. */
+  readonly noticeNeeded: boolean;
+}
+
 export interface UiControllerDeps {
   readonly cache: SettingsCache;
   readonly host: UiHost;
@@ -215,6 +246,10 @@ export interface UiControllerDeps {
   /** Injected clock (ms epoch) for the resend cooldown / OTP expiry — Date.now in real wiring,
    * controlled in tests (same seam as SettingsCache / the entitlement adapters). */
   readonly clock?: () => number;
+  /** Product analytics (optional: absent in tests and unconfigured builds). */
+  readonly analytics?: UiAnalytics;
+  /** Which screen this controller drives, reported with each switch flip. Defaults to "app". */
+  readonly where?: AnalyticsWhere;
 }
 
 export class UiController {
@@ -286,12 +321,18 @@ export class UiController {
   /** The checkout-pending presentation (plan U4/R3): persisted-flag lifecycle across popup deaths,
    * orthogonal to purchaseFlow (which tracks one tap's in-flight purchase). */
   checkoutFlow = $state<CheckoutFlow>("none");
+  /** "Share usage data" on this device; null hides the switch (no analytics in this build). */
+  usageSharing = $state<boolean | null>(null);
+  /** The one-time notice that usage sharing is on (Chrome and the Apple apps). */
+  usageNoticeVisible = $state(false);
 
   readonly host: UiHost;
   private readonly cache: SettingsCache;
   private readonly auth?: UiAuth;
   private readonly persistence?: AuthPersistence;
   private readonly checkout?: UiCheckout;
+  private readonly analytics?: UiAnalytics;
+  private readonly where: AnalyticsWhere;
   private readonly now: () => number;
   /** When the current code was requested — drives the resend countdown and expiry detection. */
   private codeRequestedAt: number | null = null;
@@ -328,11 +369,55 @@ export class UiController {
     this.auth = deps.auth;
     this.persistence = deps.persistence;
     this.checkout = deps.checkout;
+    this.analytics = deps.analytics;
+    this.where = deps.where ?? "app";
     this.now = deps.clock ?? (() => Date.now());
     this.settings = deps.cache.current();
     deps.cache.subscribe((s) => {
       this.settings = s;
     });
+    void this.loadUsageSharing();
+  }
+
+  // ── "Share usage data" ───────────────────────────────────────────────────────────────────────
+
+  private async loadUsageSharing(): Promise<void> {
+    try {
+      const state = await this.analytics?.sharing?.();
+      if (!state) return;
+      this.usageSharing = state.enabled;
+      this.usageNoticeVisible = state.enabled && state.noticeNeeded;
+    } catch {
+      /* no switch rather than a wrong one */
+    }
+  }
+
+  toggleUsageSharing(): void {
+    const setSharing = this.analytics?.setSharing;
+    if (this.usageSharing === null || !setSharing) return;
+    const wanted = !this.usageSharing;
+    this.dismissUsageNotice();
+    let request: Promise<boolean>;
+    try {
+      // No await before this call: Firefox's permission prompt needs the tap's user gesture.
+      request = setSharing.call(this.analytics, wanted);
+    } catch {
+      return;
+    }
+    void request.then(
+      (enabled) => {
+        this.usageSharing = enabled;
+      },
+      () => {
+        /* the previous state stands */
+      },
+    );
+  }
+
+  dismissUsageNotice(): void {
+    if (!this.usageNoticeVisible) return;
+    this.usageNoticeVisible = false;
+    this.analyticsCall((a) => a.acknowledgeNotice?.());
   }
 
   /** Entitlement as the UI renders it. Hosts still assign it like a plain property (apple-session's
@@ -541,11 +626,15 @@ export class UiController {
   }
 
   toggleGlobal(): void {
-    void this.cache.setGlobalOn(!this.settings.globalOn);
+    const enabled = !this.settings.globalOn;
+    void this.cache.setGlobalOn(enabled);
+    this.track("global_toggled", { enabled, where: this.where });
   }
 
   toggleService(id: ServiceId): void {
-    void this.cache.setService(id, !this.settings.services[id]);
+    const enabled = !this.settings.services[id];
+    void this.cache.setService(id, enabled);
+    this.track("service_toggled", { service: id, enabled, where: this.where });
   }
 
   /** True when a service's surfaces are Pro-gated and this user isn't entitled — the row renders
@@ -583,10 +672,12 @@ export class UiController {
   }
 
   openSignIn(): void {
+    if (!this.signInOpen) this.track("sign_in_opened", {});
     this.signInOpen = true;
   }
 
   dismissSignIn(): void {
+    if (this.signInOpen) this.track("sign_in_abandoned", { stage: this.inCodeFlow ? "code" : "email" });
     this.authFlowGeneration += 1; // cancel any in-flight send/verify/resend continuation (F6)
     this.signInOpen = false;
     this.emailConsentGiven = false; // a fresh start asks again before collecting anything
@@ -954,12 +1045,16 @@ export class UiController {
     const outcome = await this.auth!.requestCode!(email);
     if (this.authFlowGeneration !== gen) return; // dismissed mid-request — don't persist or enter
     if (outcome.kind === "sent") {
+      this.track("code_requested", {});
       this.enterCodeEntry(email, this.now());
       this.persistence?.setPendingOtp({
         email,
         requestedAt: this.codeRequestedAt!,
       });
     } else {
+      this.track("code_failed", {
+        reason: outcome.kind === "send-rate-limited" ? "rate_limited" : "network",
+      });
       this.authFlow = "error";
       if (outcome.kind === "send-rate-limited")
         this.startSendBlock(outcome.retryAfterSeconds);
@@ -990,6 +1085,9 @@ export class UiController {
       }
       this.userId = outcome.userId;
       this.accountEmail = outcome.email ?? null;
+      // A new account is counted once by the server (analytics-identify), never guessed here.
+      this.analyticsCall((a) => a.identify(outcome.userId));
+      this.track("signed_in", {});
       this.clearCodeFlow();
       this.authFlow = "idle";
       this.signInOpen = false;
@@ -1008,16 +1106,19 @@ export class UiController {
     } else if (outcome.kind === "invalid-code") {
       this.codeAttempts += 1;
       this.codeErrorKind = expired ? "expired" : "wrong";
+      this.track("code_failed", { reason: expired ? "expired" : "wrong" });
       this.authFlow = "code-error";
     } else if (outcome.kind === "verify-rate-limited") {
       // Per-IP verify throttle (R3): NOT an attempt (codeAttempts untouched — the code was never
       // judged), and the verify button locks so the wait can't be extended by hammering.
       this.codeErrorKind = "verify-rate-limited";
+      this.track("code_failed", { reason: "rate_limited" });
       this.authFlow = "code-error";
       this.startVerifyBlock(outcome.retryAfterSeconds);
     } else {
       // Network/backend failure: the code may still be good — not an attempt, calm retry copy.
       this.codeErrorKind = "check-failed";
+      this.track("code_failed", { reason: "network" });
       this.authFlow = "code-error";
     }
   }
@@ -1040,6 +1141,7 @@ export class UiController {
       const outcome = await this.auth.requestCode(email);
       if (this.authFlowGeneration !== gen) return; // abandoned mid-resend
       if (outcome.kind === "sent") {
+        this.track("code_requested", {});
         this.enterCodeEntry(email, this.now());
         this.persistence?.setPendingOtp({
           email,
@@ -1248,6 +1350,10 @@ export class UiController {
     this.userId = null;
     this.entitled = false; // server lane only — the setter never touches #receiptEntitled
     this.authFlow = "idle";
+    // A deletion in progress belongs to the session that just ended: signed out, there is nobody
+    // to show its outcome to, and the next session must be able to start its own.
+    this.deleteFlow = "idle";
+    this.deleteError = null;
     this.emailConsentGiven = false;
     this.paywallOpen = false;
     this.successScreen = "none";
@@ -1272,6 +1378,8 @@ export class UiController {
       /* swallow: the user asked to sign out; clear local state regardless */
     }
     if (this.userId !== null && this.accountRevision !== revision) return;
+    this.track("signed_out", {});
+    this.analyticsCall((a) => a.reset());
     this.resetToSignedOut();
   }
 
@@ -1294,18 +1402,63 @@ export class UiController {
   async confirmDeleteAccount(): Promise<void> {
     if (!this.auth?.deleteAccount || this.deleteFlow === "deleting") return;
     const revision = this.accountRevision;
+    const deletingUserId = this.userId;
     this.deleteFlow = "deleting";
     this.deleteError = null;
+    // Forget the account for analytics before the server deletes it, and wait for that: an event
+    // still queued under the account must never be sent after the deletion and recreate the person.
+    await this.forgetAnalyticsAccount();
+    if (this.accountRevision !== revision || this.userId !== deletingUserId) {
+      // Someone else signed in (or out) while analytics let go: never delete an account the person
+      // did not confirm. The new account identifies itself.
+      this.deleteFlow = "idle";
+      return;
+    }
     try {
       await this.auth.deleteAccount();
+      // Someone else signed in meanwhile: their session stands (they already reset this flow).
       if (this.userId !== null && this.accountRevision !== revision) return;
-      // Account gone → mirror the signed-out reset.
+      // Account gone → mirror the signed-out reset. The deletion is counted anonymously.
+      this.track("account_deleted", {});
       this.resetToSignedOut();
-      this.deleteFlow = "idle";
     } catch (e) {
-      if (this.userId !== null && this.accountRevision !== revision) return;
+      // The account still exists, so attribute to it again, but only for the session that asked:
+      // after a sign-out (or another sign-in) meanwhile the UI is no longer this account's, and
+      // re-identifying it would attribute whatever follows to a person who is signed out.
+      if (this.accountRevision !== revision || this.userId !== deletingUserId) return;
+      if (deletingUserId) this.analyticsCall((a) => a.identify(deletingUserId));
       this.deleteFlow = "error";
       this.deleteError = e instanceof Error ? e.message : String(e);
+    }
+  }
+
+  // ── Analytics (fire and forget) ──────────────────────────────────────────────────────────────
+
+  private track<E extends AnalyticsEventName>(name: E, props: AnalyticsEventProps<E>): void {
+    this.analyticsCall((a) => a.track(name, props));
+  }
+
+  /** Forget the account for analytics (deletion), waiting at most ANALYTICS_FORGET_LIMIT_MS: a
+   * slow or broken analytics host never holds up deleting the account. */
+  private async forgetAnalyticsAccount(): Promise<void> {
+    if (!this.analytics) return;
+    try {
+      const done = this.analytics.reset({ forgetAccount: true });
+      await Promise.race([
+        Promise.resolve(done).catch(() => undefined),
+        new Promise((resolve) => setTimeout(resolve, ANALYTICS_FORGET_LIMIT_MS)),
+      ]);
+    } catch {
+      /* analytics never affects the UI */
+    }
+  }
+
+  private analyticsCall(call: (analytics: UiAnalytics) => void): void {
+    if (!this.analytics) return;
+    try {
+      call(this.analytics);
+    } catch {
+      /* analytics never affects the UI */
     }
   }
 }

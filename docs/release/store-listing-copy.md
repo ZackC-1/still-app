@@ -70,7 +70,7 @@ Description (use for both Apple listings):
 > On iPhone and iPad, Still works only on websites opened in Safari. It cannot block short-form video inside the native YouTube, Instagram, Facebook, or TikTok apps.
 >
 > PRIVATE BY DESIGN
-> Blocking runs on your device. Still does not collect browsing history or show ads. Website access is limited to YouTube, Instagram, Facebook, and TikTok.
+> Blocking runs on your device. Still does not collect browsing history or show ads. Website access is limited to YouTube, Instagram, Facebook, and TikTok. Still shares usage data to help improve the app, and you can turn it off in settings.
 >
 > Setup and support: https://stillapp.fit/support/
 > Privacy: https://stillapp.fit/privacy/
@@ -131,7 +131,7 @@ Detailed description:
 > On iPhone and iPad, Still works only on websites opened in Safari. It cannot block short-form video inside native YouTube, Instagram, Facebook, or TikTok apps. This desktop extension does not work in mobile Chrome or Firefox.
 >
 > PRIVATE BY DESIGN
-> Blocking runs on your device. Still does not collect browsing history or show ads. Website access is limited to YouTube, Instagram, Facebook, and TikTok.
+> Blocking runs on your device. Still does not collect browsing history or show ads. Website access is limited to YouTube, Instagram, Facebook, and TikTok. Still shares usage data to help improve the app, and you can turn it off in settings.
 >
 > Setup and support: https://stillapp.fit/support/
 > Privacy: https://stillapp.fit/privacy/
@@ -161,7 +161,10 @@ Summary (250-character limit):
 
 > Remove YouTube Shorts and Instagram/Facebook Reels, and block the TikTok website for free. No account needed. Optional free settings sync with desktop Chrome and Safari on Mac, iPhone, and iPad. This extension supports desktop Firefox.
 
-Description: use the Chrome detailed description above. Release notes: use What's New above.
+Description: use the Chrome detailed description above, replacing its last privacy sentence ("Still
+shares usage data to help improve the app, and you can turn it off in settings.") with: "You can
+choose to share usage data to help improve Still; it stays off unless you allow it." Firefox keeps
+usage data off until the person grants it. Release notes: use What's New above.
 
 Payment: mark no payment required for 2.0 functionality. Keep the actual source-available license;
 do not describe Still as open-source licensed. Maintain data declarations against the approved

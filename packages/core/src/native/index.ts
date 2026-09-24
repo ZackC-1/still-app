@@ -6,4 +6,5 @@ export type {
   PurchaseOutcome,
   PurchaseResult,
   NativeMessage,
+  AnalyticsContextReply,
 } from "./bridge.js";

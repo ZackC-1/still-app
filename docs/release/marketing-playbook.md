@@ -10,8 +10,9 @@ paid-conversion launch plan, which remains available in Git history.
 3. Continued use: blocking is reliable, regular content stays useful, and optional free sync is clear.
 4. Trust: website, store listing, screenshots, support, and actual installed behavior agree.
 
-Use store dashboards and categorized support feedback. Do not add browsing analytics or tracking
-as part of this launch. Do not promise permanent free pricing.
+Use store dashboards, the PostHog "Still growth" dashboard and categorized support feedback.
+Product analytics (Still 2.1, [ADR 0004](../adr/0004-first-party-usage-analytics.md)) never includes
+pages, videos or searches, and is never used for advertising. Do not promise permanent free pricing.
 
 ## Message order
 

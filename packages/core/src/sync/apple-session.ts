@@ -66,6 +66,11 @@ export interface AppleSessionDeps {
   readonly exchangeAppleCredential: (
     cred: AppleCredential,
   ) => Promise<{ userId: string } | { error: string }>;
+  /** Called whenever a session is entered (sign-in or a resumed account), for analytics. */
+  readonly onAccountEntered?: (userId: string) => void;
+  /** Called when there is known to be no account: a launch with no session, or the session ending
+   * (signed out, deleted or expired, here or elsewhere). Analytics lets go of any earlier account. */
+  readonly onAccountAbsent?: () => void;
 }
 
 export interface AppleSession {
@@ -109,6 +114,14 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
   // The last receipt verdict this session observed — the mirror-skip input (a doomed server-lane
   // false is not proposed when the device provably owns Pro).
   let lastReceiptStatus: ReceiptStatusValue = "noSignal";
+
+  const notifyAbsent = (): void => {
+    try {
+      deps.onAccountAbsent?.();
+    } catch {
+      /* analytics never affects the session */
+    }
+  };
 
   let statusWrite: Promise<void> = Promise.resolve();
   const publishStatus = (status: AccountSyncStatus | null): Promise<void> => {
@@ -157,6 +170,11 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
       controller.deleteError = null;
     }
     if (email !== undefined) controller.accountEmail = email;
+    try {
+      deps.onAccountEntered?.(userId);
+    } catch {
+      /* analytics never affects the session */
+    }
     const generationAtEntry = teardownGeneration; // AE13: abort side effects if teardown intervenes
     activeSessionGeneration = teardownGeneration;
     activeSessionUserId = userId;
@@ -226,6 +244,8 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
         (activeSessionGeneration !== teardownGeneration || state.userId !== activeSessionUserId)
       ) return;
       if (state.userId === null) {
+        // Only a session that really ended: the service can report "no user" before a resume.
+        if (activeSessionUserId !== null) notifyAbsent();
         activeSessionUserId = null;
         controller.accountRevision++;
         controller.accountEmail = null;
@@ -266,7 +286,10 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
         const account = await read();
         if (controller.accountRevision !== revision || controller.userId !== null) return;
         if (account) await enterSession(account.id, account.email);
-        else await publishStatus(null);
+        else {
+          notifyAbsent();
+          await publishStatus(null);
+        }
       } catch {
         if (controller.accountRevision === revision && controller.userId === null) {
           controller.cloudReachable = false;

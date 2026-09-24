@@ -3,6 +3,7 @@
   import { createExtensionUiController } from "@still/core/ui";
   import { readAccountStatus } from "../../lib/account-status.js";
 import { pushSettingsToApp } from "../../lib/native-settings.js";
+  import { createSafariPageAnalytics } from "../../lib/analytics.js";
 
   // Push each local edit straight to the App Group (see popup/main.ts — the background reconciler
   // may be asleep on iOS and miss the browser.storage write).
@@ -12,6 +13,8 @@ import { pushSettingsToApp } from "../../lib/native-settings.js";
     accountManagedByApp: true,
     readAccountStatus,
     onLocalSettingsCommit: (record) => void pushSettingsToApp(record),
+    analytics: createSafariPageAnalytics(),
+    openedWhere: "options",
   });
 </script>
 

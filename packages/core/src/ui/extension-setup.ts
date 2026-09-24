@@ -7,6 +7,7 @@ import type { ExtensionSessionState } from "../sync/extension-session.js";
 import {
   UiController,
   type AuthPersistence,
+  type UiAnalytics,
   type UiAuth,
   type UiCheckout,
 } from "./controller.svelte.js";
@@ -57,6 +58,10 @@ export interface ExtensionUiOptions {
    * asleep on iOS and never wake for the popup's storage write. Chromium omits it (no App Group;
    * its background session owns the mirror). */
   readonly onLocalSettingsCommit?: (record: StoredSettingsRecord) => void;
+  /** Product analytics, backed by the extension's background (which owns the client). */
+  readonly analytics?: UiAnalytics;
+  /** Which page this controller drives, reported once as `opened`. */
+  readonly openedWhere?: "popup" | "options";
 }
 
 export function createExtensionUiController(
@@ -81,7 +86,12 @@ export function createExtensionUiController(
     auth: purchase?.auth,
     persistence: purchase?.persistence,
     checkout: purchase?.checkout,
+    analytics: options?.analytics,
+    where: options?.openedWhere,
   });
+  if (options?.analytics && options.openedWhere) {
+    options.analytics.track("opened", { where: options.openedWhere });
+  }
   controller.accountManagedByApp = options?.accountManagedByApp ?? false;
   controller.retrySync = purchase?.retrySync;
   if (purchase) controller.paywallPrice = purchase.displayPrice;

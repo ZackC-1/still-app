@@ -83,6 +83,34 @@
     </a>
   {/if}
 
+  <!-- Usage sharing. The one-time notice appears where sharing starts on (Chrome and the Apple
+       apps) and carries its own off switch, so the compact popup needs no extra row. In the popup it
+       floats over the bottom edge until answered, because the browser refuses a popup taller than
+       600px and the popup already uses that height. Roomier surfaces show it inline and keep a
+       permanent settings row; Firefox, where sharing starts off, uses that row to ask. -->
+  {#if c.usageNoticeVisible}
+    <section class="usage-notice card" aria-live="polite">
+      <p class="muted">{STRINGS.usage.notice}</p>
+      <div class="usage-notice-actions">
+        <button class="link" onclick={() => c.toggleUsageSharing()}>{STRINGS.usage.noticeTurnOff}</button>
+        <button class="secondary" onclick={() => c.dismissUsageNotice()}>{STRINGS.usage.noticeOk}</button>
+      </div>
+    </section>
+  {/if}
+  {#if c.usageSharing !== null && !compact}
+    <section class="usage card">
+      <div class="usage-text">
+        <span class="usage-title">{STRINGS.usage.title}</span>
+        <span class="usage-sub">{STRINGS.usage.body}</span>
+      </div>
+      <Toggle
+        checked={c.usageSharing}
+        label={STRINGS.usage.title}
+        onchange={() => c.toggleUsageSharing()}
+      />
+    </section>
+  {/if}
+
   <!-- Per-site pause UI removed 2026-07-06 (founder call: popup must fit one panel; feature may
        return). The controller/cache pause mutators went with it (R1) — only the dormant `pauses`
        settings field and engine.isPaused remain as the seam for its return. -->
@@ -413,6 +441,48 @@
   }
   .setup-guide {
     font-size: 14px;
+  }
+  .usage {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--sync-padding, var(--space-4));
+  }
+  .usage-text {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    flex: 1;
+    min-inline-size: 0;
+  }
+  .usage-title {
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .usage-sub {
+    font-size: 13px;
+    color: var(--ink-secondary);
+  }
+  .app[data-density="compact"] .usage-notice {
+    position: fixed;
+    inset-inline: var(--space-3);
+    bottom: var(--space-3);
+    z-index: 10;
+    border: 1px solid var(--ink-secondary);
+    box-shadow: 0 6px 24px rgb(0 0 0 / 0.25);
+  }
+  .usage-notice {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2, 8px);
+    padding: var(--space-3);
+    font-size: 13px;
+  }
+  .usage-notice-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: var(--space-3);
   }
   .syncrow {
     display: flex;

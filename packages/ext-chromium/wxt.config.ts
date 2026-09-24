@@ -9,7 +9,13 @@ export const firefoxBrowserSpecificSettings = {
     strict_min_version: "140.0",
     // Optional account sign-in uses an emailed one-time code and persists a Supabase session. Settings
     // sync carries only the signed-in user's own Still preferences under that account.
-    data_collection_permissions: { required: ["authenticationInfo"] },
+    // Usage analytics is "technicalAndInteraction", which Firefox only allows as optional: the
+    // person can switch it on at install, or later from Still's settings (lib/analytics.ts), and
+    // nothing is sent until they do.
+    data_collection_permissions: {
+      required: ["authenticationInfo"],
+      optional: ["technicalAndInteraction"],
+    },
   },
 };
 
@@ -33,6 +39,9 @@ export function stillManifest(browser: string) {
       "Remove YouTube Shorts, Instagram and Facebook Reels, and block the TikTok website for free. Sign in optionally to sync settings.",
     permissions: [
       "storage",
+      // Sends quietly recorded analytics at a random later time, so arrival never marks a site
+      // visit (packages/core/src/analytics/extension-host.ts). Shows no install warning.
+      "alarms",
       // DNR is Chromium-only here (see header); Firefox uses the content-script redirect.
       ...(isFirefox ? [] : ["declarativeNetRequestWithHostAccess"]),
     ],
