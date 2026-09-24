@@ -253,16 +253,16 @@
           "src": "captures/desktop/youtube-before.png",
           "crop": {
             "x": 0,
-            "y": 20,
-            "w": 520
+            "y": 0,
+            "w": 400
           }
         },
         {
           "src": "captures/desktop/youtube-after.png",
           "crop": {
             "x": 0,
-            "y": 20,
-            "w": 520
+            "y": 0,
+            "w": 400
           }
         }
       ]
