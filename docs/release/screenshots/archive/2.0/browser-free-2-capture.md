@@ -28,13 +28,13 @@ release ZIP byte for byte; both ZIP hashes matched the release manifest.
 ### Chrome hashes
 
 - ZIP SHA-256: `c2df39724a2d9c8f9bca640710c86202e469e10e3d4db91074118a3a5c878751`
-- Screenshot: [`still-chrome-free-2-1280x800.png`](../store-ready/chrome/still-chrome-free-2-1280x800.png)
+- Screenshot: [`still-chrome-free-2-1280x800.png`](chrome/still-chrome-free-2-1280x800.png)
 - PNG SHA-256: `365aabbdd5939e90e1d2cd95bc4bed4c8720a05d84a3605c9cfbd08370339c2d`
 
 ### Firefox hashes
 
 - ZIP SHA-256: `339fea7a8a978f4f2302cbb9f92ba5d9b85ea896405bee1d5f16a938aa7ae815`
-- Screenshot: [`still-firefox-free-2-1280x800.png`](../store-ready/firefox/still-firefox-free-2-1280x800.png)
+- Screenshot: [`still-firefox-free-2-1280x800.png`](firefox/still-firefox-free-2-1280x800.png)
 - PNG SHA-256: `8fea626642aaca9a30c6d7f8b750f0c9be129a621f31460751960552514f58fa`
 
 ## Refresh procedure
@@ -56,7 +56,7 @@ The `render.mjs` tool renders brand assets only; the paid-popup compositor was r
 Running it does not refresh these real UI captures. Apple requires a separate capture from the
 candidate native app; these browser images do not stand in for iPhone, iPad or Mac screenshots.
 
-Related: [upload manifest](../store-ready/README.md),
-[store-asset review conventions](../../../solutions/conventions/codify-store-asset-compliance-in-tests.md),
+Related: [upload manifest](../../store-ready/README.md),
+[store-asset review conventions](../../../../solutions/conventions/codify-store-asset-compliance-in-tests.md),
 [Chrome image requirements](https://developer.chrome.com/docs/webstore/images), and
 [Firefox listing guidance](https://extensionworkshop.com/documentation/develop/create-an-appealing-listing/).

@@ -297,7 +297,7 @@
   }
 
   // Each site's "open the app" nag covers the page; closing it changes nothing Still does.
-  function dismissNags(service) {
+  function dismissNags() {
     const labels = /^(not now|close|dismiss)$/i;
     for (const b of document.querySelectorAll('button, [role="button"], a')) {
       if (labels.test((b.textContent || b.getAttribute("aria-label") || "").trim())) b.click();
@@ -308,7 +308,7 @@
     const service = config.service || serviceFor(location.hostname);
     if (!service) return { service: null, marks: 0 };
     for (const old of document.querySelectorAll("[data-still-annotate]")) old.remove();
-    if (config.dismiss !== false) dismissNags(service);
+    if (config.dismiss !== false) dismissNags();
     if (config.blur === true) {
       const style = document.createElement("style");
       style.setAttribute("data-still-annotate", "");

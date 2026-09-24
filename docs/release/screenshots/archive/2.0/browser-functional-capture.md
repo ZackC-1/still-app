@@ -48,7 +48,7 @@ size. The controls and optional-sync pair passed for readability, complete contr
 paid locks/prices and absence of customer data. The third image passed only as an optional result
 with a caption naming the TikTok website; its generic message is insufficient as a standalone
 explanation. Chrome uses the controls/sync pair; its TikTok capture is retained as evidence only.
-Firefox can use the captioned third image. Use the [upload manifest](../store-ready/README.md) for
+Firefox can use the captioned third image. Use the [upload manifest](../../store-ready/README.md) for
 order and captions.
 
 ## Package and screenshot hashes
@@ -62,12 +62,12 @@ PNG header checks confirmed all six output dimensions. Chromium emits RGB and Fi
 
 | Screenshot | SHA-256 |
 |---|---|
-| [chrome 01-controls](../store-ready/chrome/still-chrome-functional-01-controls-1280x800.png) | `b5af98ed2cbbec39684d3f5bf62258a6fe6b01a4de6a03e456c52c2b0b9b9330` |
-| [chrome 02-sync](../store-ready/chrome/still-chrome-functional-02-sync-1280x800.png) | `3ec11d27c740dc53870fe4910b48d25f986748188dc7bc3272d6b66cbe0e0bb7` |
-| [chrome 03-tiktok](../store-ready/chrome/still-chrome-functional-03-tiktok-1280x800.png) | `f762532312ec1b32b32dc744332497d4ce1126a791d398485d08e733b3243b01` |
-| [firefox 01-controls](../store-ready/firefox/still-firefox-functional-01-controls-1280x800.png) | `369f016e6da63761a8905a86aac8009d18392da7f9ecd3213b967d15d7c4416c` |
-| [firefox 02-sync](../store-ready/firefox/still-firefox-functional-02-sync-1280x800.png) | `544ec4ea76bbeae99ce44454076a735e21aabf53e69abc149b74c806b0e90783` |
-| [firefox 03-tiktok](../store-ready/firefox/still-firefox-functional-03-tiktok-1280x800.png) | `07d214d7e5e0eedcafe61a6a012a3b0e1cf7edd1ba72c39eb64cf4193c25e2b0` |
+| [chrome 01-controls](chrome/still-chrome-functional-01-controls-1280x800.png) | `b5af98ed2cbbec39684d3f5bf62258a6fe6b01a4de6a03e456c52c2b0b9b9330` |
+| [chrome 02-sync](chrome/still-chrome-functional-02-sync-1280x800.png) | `3ec11d27c740dc53870fe4910b48d25f986748188dc7bc3272d6b66cbe0e0bb7` |
+| [chrome 03-tiktok](chrome/still-chrome-functional-03-tiktok-1280x800.png) | `f762532312ec1b32b32dc744332497d4ce1126a791d398485d08e733b3243b01` |
+| [firefox 01-controls](firefox/still-firefox-functional-01-controls-1280x800.png) | `369f016e6da63761a8905a86aac8009d18392da7f9ecd3213b967d15d7c4416c` |
+| [firefox 02-sync](firefox/still-firefox-functional-02-sync-1280x800.png) | `544ec4ea76bbeae99ce44454076a735e21aabf53e69abc149b74c806b0e90783` |
+| [firefox 03-tiktok](firefox/still-firefox-functional-03-tiktok-1280x800.png) | `07d214d7e5e0eedcafe61a6a012a3b0e1cf7edd1ba72c39eb64cf4193c25e2b0` |
 
 ## Refresh procedure
 
@@ -94,6 +94,6 @@ setup and the mobile boundary. Browser descriptions/captions retain the Safari-o
 This record makes no claim that the full cross-store screenshot brief is complete.
 The `render.mjs` tool renders brand assets only; capture functional screenshots from the app.
 
-Related: [store-asset review conventions](../../../solutions/conventions/codify-store-asset-compliance-in-tests.md),
+Related: [store-asset review conventions](../../../../solutions/conventions/codify-store-asset-compliance-in-tests.md),
 [Chrome image requirements](https://developer.chrome.com/docs/webstore/images), and
 [Firefox listing guidance](https://extensionworkshop.com/documentation/develop/create-an-appealing-listing/).
