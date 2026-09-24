@@ -153,9 +153,15 @@ Data used to track you: **none**. Data linked to you, all collected for the purp
 | Identifiers → User ID | App Functionality, Analytics | Yes | No |
 | Identifiers → Device ID | Analytics | Yes | No |
 | Usage Data → Product Interaction | Analytics | Yes | No |
+| Purchases → Purchase History | App Functionality (earlier Still Pro purchases and entitlements, kept via StoreKit/RevenueCat) | Yes | No |
+| Other Data → Other Data Types | App Functionality (the synced Still settings: which sites are switched on) | Yes | No |
 
-Not collected: Browsing History, Search History, Location, Contacts, Purchases (2.1 sells nothing),
-Diagnostics beyond the above. Keep this identical to the privacy manifests and privacy policy.
+Not collected: Browsing History, Search History, Location, Contacts, Diagnostics beyond the above.
+This table matches `Shared (App)/PrivacyInfo.xcprivacy` exactly (six types); the Safari extension's
+manifest declares a subset (Product Interaction, Device ID, User ID).
+Purchase History stays declared even though 2.1 sells nothing: the app keeps historical entitlements,
+and `Shared (App)/PrivacyInfo.xcprivacy` declares it. The label must match the privacy manifests and the
+privacy policy.
 
 ## 5. Apple — screenshots (images, not text boxes; captions to put on them)
 
