@@ -313,9 +313,8 @@
       "canvas": "mac",
       "layout": "split",
       "service": "youtube",
-      "draft": "desktop Chrome capture until Safari on Mac is captured",
-      "headline": "Shorts, **gone from Safari.**",
-      "subline": "Also in Chrome and Firefox. Your videos, search and subscriptions stay.",
+      "headline": "YouTube, **without the Shorts.**",
+      "subline": "In Safari, Chrome and Firefox on your Mac. Search, subscriptions and videos stay.",
       "captures": [
         {
           "src": "captures/desktop/youtube-before.png",
@@ -331,6 +330,121 @@
             "x": 0,
             "y": 0,
             "w": 760
+          }
+        }
+      ]
+    },
+    {
+      "id": "mac-02-instagram",
+      "canvas": "mac",
+      "layout": "split",
+      "service": "instagram",
+      "headline": "Instagram, **minus the Reels.**",
+      "subline": "Posts, Stories and messages stay. The Reels tab and the Reels in your feed are gone.",
+      "captures": [
+        {
+          "src": "captures/desktop/instagram-before.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 680
+          }
+        },
+        {
+          "src": "captures/desktop/instagram-after.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 680
+          }
+        }
+      ]
+    },
+    {
+      "id": "mac-03-facebook",
+      "canvas": "mac",
+      "layout": "split",
+      "service": "facebook",
+      "headline": "Facebook, **minus the Reels.**",
+      "subline": "Pages, posts and friends stay. Reels are cleared away.",
+      "captures": [
+        {
+          "src": "captures/desktop/facebook-reels-before.png",
+          "crop": {
+            "x": 0,
+            "y": 60,
+            "w": 820
+          }
+        },
+        {
+          "src": "captures/desktop/facebook-reels-after.png",
+          "crop": {
+            "x": 240,
+            "y": 180,
+            "w": 820
+          }
+        }
+      ]
+    },
+    {
+      "id": "mac-04-tiktok",
+      "canvas": "mac",
+      "layout": "split",
+      "service": "tiktok",
+      "headline": "TikTok, **closed.**",
+      "subline": "While Still is on, the TikTok website is blocked in your browser.",
+      "captures": [
+        {
+          "src": "captures/desktop/tiktok-before.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 900
+          }
+        },
+        {
+          "src": "captures/desktop/tiktok-after.png",
+          "crop": {
+            "x": 340,
+            "y": 180,
+            "w": 600
+          }
+        }
+      ]
+    },
+    {
+      "id": "mac-05-app",
+      "canvas": "mac",
+      "layout": "surface",
+      "headline": "**One switch** per site.",
+      "subline": "The Still app on your Mac. Change a switch and Safari, Chrome and Firefox follow.<br><b>No timers. No stats. Just the blocking.</b>",
+      "captures": [
+        {
+          "src": "captures/mac/app-window.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 480,
+            "h": 640,
+            "density": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "mac-06-chrome",
+      "canvas": "mac",
+      "layout": "single",
+      "headline": "**Right in your browser.**",
+      "subline": "Still sits in Chrome and Firefox's toolbar too. Sign in free to sync your settings.",
+      "captures": [
+        {
+          "src": "captures/chrome-ui/window-popup.png",
+          "crop": {
+            "x": 420,
+            "y": 40,
+            "w": 1020,
+            "density": 2
           }
         }
       ]
