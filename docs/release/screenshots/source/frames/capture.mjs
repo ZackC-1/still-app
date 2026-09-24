@@ -117,10 +117,41 @@ if (wanted("instagram")) {
     marks: { circle: ['a[href="/reels/"]'], largestMedia: true } });
 }
 
-// 5. Facebook, signed in to the test account: home feed, and the Reels page itself.
+// 5. Facebook, signed in to the test account: the feed scrolled to its first Reel (the "after" shot keeps
+// the same scroll, so the Reel is simply gone), and a public food Page's Reels tab.
+async function scrollToFirstReel(page) {
+  const y = await page.evaluate(() => {
+    const reel = document.querySelector('[role="feed"] a[href*="/reel/"], [role="main"] a[href*="/reel/"]');
+    const post = reel?.closest('[role="article"]') ?? reel?.closest('[aria-posinset]') ?? reel;
+    return post ? Math.max(0, post.getBoundingClientRect().top + scrollY - 140) : 0;
+  });
+  return y;
+}
 if (wanted("facebook")) {
-  await pair("facebook", "https://www.facebook.com/", { signedIn: true, settle: 8000 });
-  await pair("facebook-reels", "https://www.facebook.com/reel/", { signedIn: true, settle: 8000 });
+  let offset = 0;
+  for (const on of [false, true]) {
+    const ctx = await launch({ ext: on, signedIn: true });
+    await shoot(ctx, "https://www.facebook.com/", `facebook-${on ? "after" : "before"}.png`, {
+      mark: !on, settle: 8000,
+      prepare: async (page) => {
+        // Scroll a little at a time so the feed loads; stop at the first Reel ("before") or at the same spot ("after").
+        for (let i = 0; i < 12 && !offset && !on; i++) {
+          const y = await scrollToFirstReel(page);
+          if (y) { offset = y; break; }
+          await page.mouse.wheel(0, 900); await page.waitForTimeout(1200);
+        }
+        await page.evaluate((y) => scrollTo(0, y), offset);
+        await page.waitForTimeout(1500);
+      },
+    });
+    await ctx.close();
+  }
+  await pair("facebook-page", "https://www.facebook.com/buzzfeedtasty", { signedIn: true, settle: 8000 });
+}
+
+if (wanted("facebook") || wanted("facebook-reels")) {
+  // A public food Page's Reels tab (FB_PAGE overrides, to compare candidates for safe content).
+  await pair(process.env.FB_NAME || "facebook-reels", `https://www.facebook.com/${process.env.FB_PAGE || "bonappetitmag"}/reels/`, { signedIn: true, settle: 8000 });
 }
 
 // 6. Draft phone captures (layout only, never uploaded to Apple): m.youtube.com and the TikTok website.

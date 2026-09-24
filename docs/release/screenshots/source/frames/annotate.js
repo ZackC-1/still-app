@@ -51,7 +51,8 @@
   };
 
   // Blocks that fill a whole region are crossed out even when their rule "hides" rather than "removes".
-  const isSmall = (r) => r.width < 260 && r.height < 140;
+  // Entry points (a tab, a chip, a menu row) get a loop; anything bigger is crossed out picture by picture.
+  const isSmall = (r) => (r.width < 260 && r.height < 140) || (r.height < 70 && r.width < 420);
 
   // Deterministic noise so the same page renders the same marks every time.
   function rng(seed) {
@@ -103,6 +104,22 @@
     return outer.flatMap((t) => (t.kind === "x" ? parts(t) : [t]));
   }
 
+  // False when something else is on top of the element's centre, or a clipping ancestor (a carousel)
+  // hides it: only pictures a viewer can actually see get an X.
+  function visible(el, r) {
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    const hit = document.elementFromPoint(cx, cy);
+    const tile = el.parentElement?.parentElement?.parentElement || el;
+    if (!hit || !(hit === el || el.contains(hit) || tile.contains(hit))) return false;
+    for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+      const st = getComputedStyle(a);
+      if (st.overflowX === "visible" && st.overflowY === "visible") continue;
+      const ar = a.getBoundingClientRect();
+      if (cx < ar.left || cx > ar.right || cy < ar.top || cy > ar.bottom) return false;
+    }
+    return true;
+  }
+
   const inView = (r) => r.width >= 8 && r.height >= 8 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth;
   const overlaps = (a, b) => !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top);
 
@@ -118,18 +135,20 @@
     const b = block.r, found = [];
     // Section header: a short heading in the top part of the block, such as "Shorts".
     const heads = [...block.el.querySelectorAll('h2, h3, [role="heading"], #title, yt-shelf-header-layout h2, .reel-shelf-title, .shelf-title')]
-      .filter((h) => { const t = h.textContent.trim(); const r = tight(h); return t && t.length < 40 && inView(r) && r.top < b.top + Math.max(80, b.height * 0.25); });
-    if (heads[0]) found.push({ el: heads[0], r: tight(heads[0]), kind: "x", header: true });
+      .filter((h) => { const t = h.textContent.trim(); const r = tight(h); return /shorts|reels/i.test(t) && t.length < 40 && inView(r) && r.top < b.top + Math.max(80, b.height * 0.25); });
+    const named = [...block.el.querySelectorAll("span, div")].find((n) => n.children.length === 0 && /^(Shorts|Reels)$/.test(n.textContent.trim()) && inView(tight(n)) && tight(n).top < b.top + Math.max(80, b.height * 0.25));
+    const head = heads[0] || named;
+    if (head) found.push({ el: head, r: tight(head), kind: "x", header: true });
     // Pictures: each visible thumbnail or video in the block, one X each, without doubles.
     const media = [];
     for (const m of block.el.querySelectorAll("img, video")) {
       const r = m.getBoundingClientRect();
-      if (!inView(r) || r.width * r.height < 4000) continue;
+      if (!inView(r) || r.width * r.height < 4000 || !visible(m, r)) continue;
       if (media.some((x) => overlaps(x.r, r))) continue;
       media.push({ el: m, r, kind: "x" });
     }
     found.push(...media);
-    return found.length ? found : [block];
+    return found.length ? found : visible(block.el, b) ? [block] : [];
   }
 
   // Extra "before" targets that the rule set identifies only once Still is running.
