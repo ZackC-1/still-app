@@ -165,17 +165,17 @@
     {
       "id": "chrome-05-switches",
       "canvas": "chrome",
-      "layout": "surface",
-      "headline": "**One switch** per site.",
-      "subline": "YouTube Shorts, Instagram and Facebook Reels, and the TikTok website.<br><b>No timers. No stats. Just the blocking.</b>",
+      "layout": "single",
+      "headline": "**One switch** per site, right in Chrome.",
+      "subline": "YouTube Shorts, Instagram and Facebook Reels, and the TikTok website. <b>No timers. No stats. Just the blocking.</b>",
       "captures": [
         {
-          "src": "captures/desktop/popup.png",
+          "src": "captures/chrome-ui/window-popup.png",
           "crop": {
-            "x": 0,
-            "y": 0,
-            "w": 380,
-            "h": 600
+            "x": 420,
+            "y": 40,
+            "w": 1020,
+            "density": 2
           }
         }
       ]
