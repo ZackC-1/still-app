@@ -1,0 +1,31 @@
+# Still: Block Shorts & Reels
+
+> Still is a free app and browser extension that removes YouTube Shorts and Instagram and Facebook Reels, and blocks the TikTok website, in Safari on iPhone, iPad and Mac and in Chrome and Firefox on desktop. Settings sync across all of them with an optional free sign-in. Made by Cadmus Labs.
+
+Key facts:
+- Price: free. Blocking needs no account and no purchase.
+- YouTube: Shorts shelves, tabs and entry points are removed; a Shorts link opens in the normal video player. Regular videos, search and subscriptions stay.
+- Instagram and Facebook: Reels are removed. Posts, friends and messages stay.
+- TikTok: the whole website is blocked.
+- Where it works: Safari on iPhone, iPad and Mac; Chrome and Firefox on desktop. Each browser or device needs Still installed.
+- Where it does not work: inside the native YouTube, Instagram, Facebook or TikTok apps; Chrome or Firefox on phones; Android.
+- Control: the Still app on iPhone or Mac, or the Chrome or Firefox extension. One switch per site. No timers, schedules, streaks or screen-time statistics.
+- Sync: sign in free with the same email on each device, and the latest settings follow you.
+- Privacy: blocking runs on the device. Still only has access to youtube.com, instagram.com, facebook.com and tiktok.com, does not collect browsing history and shows no ads. It shares usage data to improve the app, with an off switch (off by default on Firefox).
+
+## Get Still
+- [App Store (iPhone, iPad, Mac)](https://apps.apple.com/app/id6784061138)
+- [Chrome Web Store](https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf)
+- [Firefox Add-ons](https://addons.mozilla.org/en-US/firefox/addon/still-free-yourself/)
+
+## Guides
+- [How to block YouTube Shorts without blocking YouTube](https://stillapp.fit/block-youtube-shorts.html)
+- [Remove Instagram Reels in Safari](https://stillapp.fit/remove-instagram-reels-safari.html)
+- [A short-form video blocker for Safari, Chrome and Firefox](https://stillapp.fit/short-form-video-blocker.html)
+- [Why browser extensions cannot block native iPhone apps](https://stillapp.fit/browser-extensions-native-iphone-apps.html)
+- [Set up Still](https://stillapp.fit/setup/)
+
+## Help
+- [Support](https://stillapp.fit/support/)
+- [Privacy policy](https://stillapp.fit/privacy/)
+- [Terms](https://stillapp.fit/terms/)
