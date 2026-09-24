@@ -480,6 +480,61 @@
       ]
     },
     {
+      "id": "ipad-01-safari-popup",
+      "canvas": "ipad",
+      "layout": "surface",
+      "device": "ipad",
+      "service": "instagram",
+      "headline": "Instagram, **minus the Reels.**",
+      "subline": "Still sits in Safari's toolbar on iPad. One tap to see every switch.",
+      "captures": [
+        {
+          "src": "captures/ipad/safari-popup-instagram.png",
+          "crop": {
+            "x": 80,
+            "y": 0,
+            "w": 620
+          }
+        }
+      ]
+    },
+    {
+      "id": "ipad-02-switches",
+      "canvas": "ipad",
+      "layout": "surface",
+      "device": "ipad",
+      "headline": "**One switch** per site.",
+      "subline": "YouTube Shorts, Instagram and Facebook Reels, and the TikTok website. Free, no account needed.",
+      "captures": [
+        {
+          "src": "captures/ipad/app-main.png",
+          "crop": {
+            "x": 266,
+            "y": 0,
+            "w": 500
+          }
+        }
+      ]
+    },
+    {
+      "id": "ipad-03-setup",
+      "canvas": "ipad",
+      "layout": "surface",
+      "device": "ipad",
+      "headline": "**Turn it on** in Safari.",
+      "subline": "Works on websites in Safari, not inside other apps.",
+      "captures": [
+        {
+          "src": "captures/ipad/onboarding-2.png",
+          "crop": {
+            "x": 241,
+            "y": 120,
+            "w": 550
+          }
+        }
+      ]
+    },
+    {
       "id": "ig-01-youtube",
       "canvas": "ig",
       "layout": "ig-split",

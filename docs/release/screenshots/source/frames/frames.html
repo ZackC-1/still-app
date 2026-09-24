@@ -121,6 +121,18 @@ function phone(src, { x, y, w, crop, rotate = 0 }) {
   return p;
 }
 
+// A CSS iPad (13-inch, portrait): the screen keeps the capture's own 1032x1376-point aspect.
+function tablet(src, { x, y, w, crop }) {
+  const bez = w * 0.028, sw = w - bez * 2, sh = sw * 1376 / 1032, h = sh + bez * 2;
+  const p = el("div", "phone", { left: x + "px", top: y + "px", width: w + "px", height: h + "px", borderRadius: w * 0.06 + "px" });
+  const screen = document.createElement("div");
+  screen.className = "screen";
+  Object.assign(screen.style, { left: bez + "px", top: bez + "px", right: bez + "px", bottom: bez + "px", borderRadius: w * 0.035 + "px" });
+  p.appendChild(screen);
+  shot(src, { x: 0, y: 0, w: sw, h: sh }, { crop: { density: 2, ...crop }, parent: screen });
+  return p;
+}
+
 function brand(W, H, u, pos = "tr") {
   const b = el("div", "brand", { fontSize: u * 3.4 + "px" }, "<i></i>st.ll");
   if (pos === "tr") Object.assign(b.style, { right: u * 5 + "px", top: u * 4.4 + "px" });
@@ -254,6 +266,13 @@ const LAYOUTS = {
         top = u * 9 + p.offsetHeight + u * 3.2;
       }
       const bottom = heading(e, u, { x: pad, y: top, w: W - pad * 2, size: u * 11.5, subSize: u * 4.2 });
+      if (e.device === "ipad") {
+        // The iPad runs off the bottom edge so its screen reads at full size; `crop` picks the part shown.
+        // A whole-page capture (e.g. Still's blocked page) shows the full iPad so its centre is in view.
+        const tw = e.wholeDevice ? Math.min(W * 0.86, (H - bottom - u * 10) / (1376 / 1032 * 0.944 + 0.056)) : W * 0.88;
+        tablet(ui.src, { x: (W - tw) / 2, y: bottom + u * 7, w: tw, crop: ui.crop });
+        return;
+      }
       // With a pop-out card the phone sits left to make room; on its own it's centred and larger.
       // A single phone always fits whole, so Safari's address bar (the site's name) stays in view.
       const pw = e.breakout ? W * 0.72 : Math.min(W * 0.78, (H - bottom - u * 14) / 2.06);
