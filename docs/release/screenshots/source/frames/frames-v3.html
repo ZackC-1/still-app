@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Still store frames</title>
+<!-- Captioned store screenshots (1280x800). Each frame shows a real capture of Still or of a site
+     with Still on or off; other people's pictures, names and text are blurred at capture time
+     (capture.mjs). Render with render-frames-v3.mjs: ?frame=<id>. -->
+<style>
+  @font-face { font-family: Inter; src: url("../../../../assets/InterVariable.woff2") format("woff2"); font-weight: 100 900; }
+  :root { --blue: #2948e8; --blue-dark: #1836cc; --ink: #101426; }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 1280px; height: 800px; overflow: hidden; }
+  body { font-family: Inter, system-ui, sans-serif; color: white; background:
+    radial-gradient(120% 90% at 20% 0%, #3a5cff 0%, var(--blue) 45%, var(--blue-dark) 100%); }
+  .frame { position: absolute; inset: 0; padding: 56px 72px 0; display: none; }
+  .frame.on { display: block; }
+  .brand { position: absolute; top: 44px; right: 64px; display: flex; align-items: center; gap: 10px; font-size: 26px; font-weight: 650; letter-spacing: -.05em; opacity: .95; }
+  .mark { width: 30px; height: 30px; border-radius: 8px; background: white; display: grid; place-items: center; }
+  .mark span { width: 16px; height: 7px; border-bottom: 2px solid var(--blue); position: relative; }
+  .mark span::before { content: ""; width: 3px; height: 3px; border-radius: 50%; background: var(--blue); position: absolute; left: 6px; bottom: -2.5px; }
+  h1 { font-size: 60px; line-height: 1.02; letter-spacing: -.045em; font-weight: 760; max-width: 900px; }
+  .sub { margin-top: 16px; font-size: 24px; line-height: 1.35; color: rgba(255,255,255,.88); max-width: 880px; font-weight: 450; }
+  .card { background: white; border-radius: 22px; overflow: hidden; box-shadow: 0 30px 70px rgba(6, 15, 70, .35); }
+  .card img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top left; }
+  .card.zoom img { width: 175%; height: auto; max-width: none; object-fit: unset; }
+  .label { font-size: 17px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 12px; color: rgba(255,255,255,.75); }
+  .label.good { color: white; }
+  .row { position: absolute; left: 72px; right: 72px; bottom: 0; display: flex; gap: 32px; align-items: flex-end; }
+  .pill { display: inline-block; margin-bottom: 12px; padding: 7px 16px; border-radius: 999px; background: rgba(255,255,255,.16); font-size: 18px; font-weight: 600; letter-spacing: .01em; }
+  .phone { width: 300px; height: 620px; border-radius: 48px; background: #0b0f1f; padding: 12px; box-shadow: 0 30px 70px rgba(6,15,70,.4); }
+  .phone .screen { width: 100%; height: 100%; border-radius: 38px; overflow: hidden; background: white; }
+  .phone img { width: 100%; display: block; }
+  .sync { align-self: center; margin-bottom: 170px; font-size: 18px; font-weight: 700; text-align: center; color: white; width: 120px; }
+  .sync svg { display: block; margin: 0 auto 10px; }
+</style>
+</head>
+<body>
+  <!-- 1. Before/after on YouTube -->
+  <section class="frame" id="youtube">
+    <div class="brand"><span class="mark"><span></span></span>st.ll</div>
+    <h1>Shorts, gone. YouTube stays.</h1>
+    <p class="sub">Without Still, Shorts take over the page: a tab, a filter and shelf after shelf. With Still they're gone, and your videos, search and subscriptions stay.</p>
+    <div class="row" style="bottom: -24px">
+      <div style="flex: 1">
+        <div class="label">Without Still</div>
+        <div class="card zoom" style="height: 540px; border-radius: 22px 22px 0 0"><img src="captures/yt-before.png" alt=""></div>
+      </div>
+      <div style="flex: 1">
+        <div class="label good">✓ With Still</div>
+        <div class="card zoom" style="height: 540px; border-radius: 22px 22px 0 0"><img src="captures/yt-after.png" alt=""></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. One switch per site -->
+  <section class="frame" id="switches">
+    <div style="display: flex; gap: 64px; align-items: flex-start">
+      <div style="flex: 1; padding-top: 70px">
+        <h1>One switch per site.</h1>
+        <p class="sub">YouTube Shorts, Instagram and Facebook Reels, and the TikTok website. Turn any of them on or off, whenever you want.</p>
+        <p class="sub" style="margin-top: 28px; font-weight: 650; color: white">No timers. No stats. Just the blocking.</p>
+      </div>
+      <div class="card" style="width: 440px; height: 800px; margin-top: 8px"><img src="captures/popup.png" alt=""></div>
+    </div>
+  </section>
+
+  <!-- 3. Settings follow you -->
+  <section class="frame" id="sync">
+    <div class="brand"><span class="mark"><span></span></span>st.ll</div>
+    <h1>Your settings follow you.</h1>
+    <p class="sub">Change them in the Still app on iPhone or Mac, or in Chrome or Firefox. Sign in free, and your other devices keep up.</p>
+    <div class="row" style="justify-content: center; bottom: -70px; gap: 40px">
+      <div class="phone"><div class="screen"><img src="captures/app-iphone.png" alt=""></div></div>
+      <div class="sync">
+        <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 1-15.5 6.2"/><path d="M3 12a9 9 0 0 1 15.5-6.2"/><polyline points="18 2 18.5 5.8 14.8 6.3"/><polyline points="6 22 5.5 18.2 9.2 17.7"/></svg>
+        Free sync
+      </div>
+      <div>
+        <div class="pill">Chrome · Firefox</div>
+        <div class="card" style="width: 380px; height: 560px"><img src="captures/popup.png" alt=""></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. TikTok website -->
+  <section class="frame" id="tiktok">
+    <div class="brand"><span class="mark"><span></span></span>st.ll</div>
+    <h1>The TikTok website stays closed.</h1>
+    <p class="sub">While Still is on, tiktok.com is blocked in your browser. Still works on websites; it can't change the TikTok app.</p>
+    <div class="row" style="bottom: -30px; justify-content: center">
+      <div style="width: 900px">
+        <div class="pill">tiktok.com, with Still on</div>
+        <div class="card" style="height: 420px; border-radius: 22px 22px 0 0; background: white url(captures/tiktok.png) 50% 58% / 210% auto no-repeat"></div>
+      </div>
+    </div>
+  </section>
+
+<script>
+  const id = new URLSearchParams(location.search).get("frame") || "youtube";
+  document.getElementById(id)?.classList.add("on");
+</script>
+</body>
+</html>

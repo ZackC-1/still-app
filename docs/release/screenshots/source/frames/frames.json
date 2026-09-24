@@ -1,0 +1,271 @@
+{
+  "canvases": {
+    "chrome": {
+      "w": 1280,
+      "h": 800,
+      "scale": 1,
+      "out": "chrome",
+      "format": "png"
+    },
+    "firefox": {
+      "w": 1280,
+      "h": 800,
+      "scale": 1,
+      "out": "firefox",
+      "format": "png"
+    },
+    "mac": {
+      "w": 1440,
+      "h": 900,
+      "scale": 2,
+      "out": "mac",
+      "format": "png"
+    },
+    "iphone": {
+      "w": 440,
+      "h": 956,
+      "scale": 3,
+      "out": "iphone",
+      "format": "png"
+    },
+    "ipad": {
+      "w": 1032,
+      "h": 1376,
+      "scale": 2,
+      "out": "ipad",
+      "format": "png"
+    },
+    "ig": {
+      "w": 540,
+      "h": 675,
+      "scale": 2,
+      "out": "instagram",
+      "format": "jpg"
+    },
+    "story": {
+      "w": 540,
+      "h": 960,
+      "scale": 2,
+      "out": "instagram",
+      "format": "jpg"
+    },
+    "og": {
+      "w": 1200,
+      "h": 630,
+      "scale": 1,
+      "out": "web",
+      "format": "jpg"
+    }
+  },
+  "frames": [
+    {
+      "id": "chrome-01-youtube",
+      "canvas": "chrome",
+      "layout": "split",
+      "service": "youtube",
+      "headline": "YouTube, **without the Shorts.**",
+      "subline": "Search, subscriptions and videos stay. The Shorts tab, filter and shelves are gone.",
+      "captures": [
+        {
+          "src": "captures/desktop/youtube-before.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 760
+          }
+        },
+        {
+          "src": "captures/desktop/youtube-after.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 760
+          }
+        }
+      ]
+    },
+    {
+      "id": "chrome-04-tiktok",
+      "canvas": "chrome",
+      "layout": "split",
+      "service": "tiktok",
+      "headline": "TikTok, **closed.**",
+      "subline": "While Still is on, the TikTok website is blocked in your browser.",
+      "captures": [
+        {
+          "src": "captures/desktop/tiktok-before.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 900
+          }
+        },
+        {
+          "src": "captures/desktop/tiktok-after.png",
+          "crop": {
+            "x": 340,
+            "y": 180,
+            "w": 600
+          }
+        }
+      ]
+    },
+    {
+      "id": "chrome-06-shorts-link",
+      "canvas": "chrome",
+      "layout": "split",
+      "service": "youtube",
+      "headline": "A Shorts link? **Just a video.**",
+      "subline": "Links to Shorts open in YouTube's normal player, with no swipe to the next one.",
+      "labels": [
+        "Without Still",
+        "With Still"
+      ],
+      "captures": [
+        {
+          "src": "captures/desktop/shorts-link-before.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 1000
+          }
+        },
+        {
+          "src": "captures/desktop/shorts-link-after.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 1000
+          }
+        }
+      ]
+    },
+    {
+      "id": "chrome-05-switches",
+      "canvas": "chrome",
+      "layout": "surface",
+      "headline": "**One switch** per site.",
+      "subline": "YouTube Shorts, Instagram and Facebook Reels, and the TikTok website.<br><b>No timers. No stats. Just the blocking.</b>",
+      "captures": [
+        {
+          "src": "captures/desktop/popup.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 380,
+            "h": 600
+          }
+        }
+      ]
+    },
+    {
+      "id": "mac-01-youtube",
+      "canvas": "mac",
+      "layout": "split",
+      "service": "youtube",
+      "draft": "desktop Chrome capture until Safari on Mac is captured",
+      "headline": "Shorts, **gone from Safari.**",
+      "subline": "Also in Chrome and Firefox. Your videos, search and subscriptions stay.",
+      "captures": [
+        {
+          "src": "captures/desktop/youtube-before.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 760
+          }
+        },
+        {
+          "src": "captures/desktop/youtube-after.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 760
+          }
+        }
+      ]
+    },
+    {
+      "id": "iphone-01-youtube",
+      "canvas": "iphone",
+      "layout": "phone-split",
+      "service": "m.youtube",
+      "draft": "Chromium phone emulation until the Simulator captures exist",
+      "headline": "YouTube, **without the Shorts.**",
+      "subline": "In Safari on iPhone. Instagram, Facebook and TikTok too.",
+      "captures": [
+        {
+          "src": "captures/mobile-draft/youtube-before.png"
+        },
+        {
+          "src": "captures/mobile-draft/youtube-after.png"
+        }
+      ],
+      "split": 0.6
+    },
+    {
+      "id": "iphone-03-switches",
+      "canvas": "iphone",
+      "layout": "surface",
+      "draft": "app web UI outside the native shell",
+      "headline": "**One switch** per site.",
+      "subline": "Free. No account needed to block.",
+      "captures": [
+        {
+          "src": "captures/desktop/app-iphone.png"
+        }
+      ],
+      "breakout": {
+        "crop": {
+          "x": 6,
+          "y": 204,
+          "w": 381,
+          "h": 292
+        },
+        "at": 0.62
+      }
+    },
+    {
+      "id": "iphone-05-tiktok",
+      "canvas": "iphone",
+      "layout": "phone-duo",
+      "service": "tiktok",
+      "draft": "Chromium phone emulation until the Simulator captures exist",
+      "headline": "TikTok, **closed.**",
+      "subline": "The TikTok website is blocked in Safari while Still is on.",
+      "captures": [
+        {
+          "src": "captures/mobile-draft/tiktok-before.png"
+        },
+        {
+          "src": "captures/mobile-draft/tiktok-after.png"
+        }
+      ]
+    },
+    {
+      "id": "ig-01-youtube",
+      "canvas": "ig",
+      "layout": "ig-split",
+      "service": "youtube",
+      "headline": "This is YouTube **without the Shorts.**",
+      "captures": [
+        {
+          "src": "captures/desktop/youtube-before.png",
+          "crop": {
+            "x": 0,
+            "y": 20,
+            "w": 520
+          }
+        },
+        {
+          "src": "captures/desktop/youtube-after.png",
+          "crop": {
+            "x": 0,
+            "y": 20,
+            "w": 520
+          }
+        }
+      ]
+    }
+  ]
+}
