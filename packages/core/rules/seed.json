@@ -1,5 +1,5 @@
 {
-  "version": "1.1.9",
+  "version": "1.1.10",
   "services": {
     "youtube": {
       "matches": [
@@ -275,8 +275,9 @@
           "action": "hide",
           "enabledByDefault": true,
           "selectors": [
-            "a[role=\"tab\"][href*=\"/reels_tab\"]",
-            "[role=\"tablist\"] a[href*=\"/reels_tab\"]"
+            "a[role=\"tab\"][href*=\"/reels_tab\"] > *",
+            "[role=\"tablist\"] a[href*=\"/reels_tab\"] > *",
+            "[role=\"menu\"] a[role=\"menuitemradio\"][aria-checked][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"])"
           ]
         },
         {
@@ -333,6 +334,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "b3dee460e0c2efac964b40319d100d266f8edfcb7d9c8f231bc4239429f61b0224bb8af7428b65d5e809d22930b3ba5a85cc1889222fc5d5607bba42ce238b0f"
+    "value": "31eda7a3245a31ea02ceb07df5edcb1c5ccf72e7e78290f2cb48f85e86b91d80eadc3a53fdb2f1d6c4bfa677543ba548d8c20707cb18efe0519f3780a4edab05"
   }
 }
