@@ -109,7 +109,14 @@
   function visible(el, r) {
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
     const hit = document.elementFromPoint(cx, cy);
-    const tile = el.parentElement?.parentElement?.parentElement || el;
+    // The picture's own tile: its highest ancestor that is still about the picture's size, so an
+    // overlay (a duration badge, a play icon) laid on top counts as the picture.
+    let tile = el;
+    for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
+      const ar = a.getBoundingClientRect();
+      if (ar.width * ar.height > r.width * r.height * 1.8) break;
+      tile = a;
+    }
     if (!hit || !(hit === el || el.contains(hit) || tile.contains(hit))) return false;
     for (let a = el.parentElement; a && a !== document.body; a = a.parentElement) {
       const st = getComputedStyle(a);
