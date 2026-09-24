@@ -125,3 +125,38 @@ are governed by [ADR 0003](docs/adr/0003-entitlement-authority-receipt-and-serve
   is never a purge signal (offline never-downgrade), and a null `entitled` in the reply envelope is
   never read as entitled (it gates a paid feature). The marker key must never be bumped as a soft
   reset — every device would look reinstalled and mass-relock Pro; migrate the value forward instead.
+
+## Usage analytics
+
+Still's first-party product analytics: a closed event schema, no pages or videos, sent by one
+serialized client per surface. These terms have precise meanings in that client and its hosts.
+
+- **Install id** — the id of one installation of Still on one device, carried on every event as
+  the device id. Made once and never changed. Distinct from **Install generation** above, which is
+  the entitlement lane's reinstall detector.
+- **Anchor id** — the anonymous person id shared across a person's installs through their own sync
+  store (browser sync storage, iCloud), so signed-out use on two devices can still be one person.
+  Never changed once made and never aliased; a sign-in's `$identify` is the only merge. After a
+  sign-out the install reports under a fresh anonymous id rather than the anchor, so later use is
+  not attributed to the account that signed out.
+- **Confirmation** — the host establishing who is signed in (an account, or nobody) and telling the
+  client, which installs that account, attributes every waiting event in storage, and only then
+  allows sends. Until confirmed, events queue with no person and nothing leaves; a timeout never
+  counts as confirmation. A confirmation that cannot be installed withdraws the previous one, and
+  the client keeps the host's latest ask and retries it before the next send.
+- **Forget** — a confirmation that the account is gone (deleted, or its session ended elsewhere):
+  the account is recorded as forgotten before its queued events are dropped, the drop is verified,
+  and no queued event is sent until it is done, in that process or the next. Asking to forget fences
+  the account at once: the request in flight is abandoned and every send asked for before that
+  moment sends nothing. Distinct from a plain sign-out, which keeps the account's queued events.
+- **Quiet event** — an event recorded when a background wakes, which on the extensions usually
+  means someone opened a supported site. It carries only its local day, not the moment, and does not
+  trigger a send; it waits for the next ordinary send (a Still screen) or the randomly timed flush,
+  so neither the event nor its arrival says when a site was visited.
+- **Server attach** — the once-per-account server call that puts the signed-in account's email on
+  its analytics person, made only from an ordinary (not quiet) moment with a confirmed account and
+  sharing on. It never changes the account, re-checks the account after every awaited read, and
+  records completion per account so it is not repeated.
+- **Pending install** — the local record that an install (or update) happened while sharing was
+  off or unreadable, kept so it can still be counted on its real day once sharing allows, and
+  cleared only after every milestone it stands for has been queued.

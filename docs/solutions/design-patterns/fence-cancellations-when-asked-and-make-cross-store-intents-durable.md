@@ -16,8 +16,9 @@ status: active
 
 The analytics client (`packages/core/src/analytics/client.ts`) runs every operation one at a time
 through a promise chain. Deleting an account must guarantee that nothing queued under the account
-is sent after the server deletes its PostHog person, or the person is recreated. Eight review rounds
-kept finding a new interleaving in this one path. The last three (Codex, 2026-09-23, at `6ab3f8c`)
+is sent after the server deletes its PostHog person, or the person is recreated. Ten review rounds
+kept finding a new interleaving in this one path (the method that finally closed the loop is in
+[close-review-loops-by-fixing-the-class](../conventions/close-review-loops-by-fixing-the-class.md)). The last three (Codex, 2026-09-23, at `6ab3f8c`)
 were:
 
 - Two flushes queued; the deletion aborted the first, but the second started with the already
@@ -67,7 +68,8 @@ next writer overwrite the account and the record of the debt.
   and an unreadable confirmation stays pending, with reporting withdrawn until it succeeds. A
   failed account-state write still blocks reporting for that client because persistence is uncertain.
   Substituting an empty default for a failed read is how a durable record gets both overlooked and
-  overwritten.
+  overwritten. The same rule, found the same way on the server side, is in
+  [supabase-export-read-errors-are-not-missing-rows](../logic-errors/supabase-export-read-errors-are-not-missing-rows.md).
 - **Make guards symmetric.** Re-identify after a failed deletion only when both the revision and the
   user match the values captured when the deletion was asked; signing out resets the delete flow.
 - **A failed change withdraws the old truth, and the ask is kept.** When the host says "the person
@@ -155,8 +157,12 @@ permanent storage loss or a device that has not learned that the session ended.
   the other, and gate the effect on the verified state.
 - When writing a guard after an `await`, copy the guard from before the `await`; a shorter guard
   is a different guard.
-- Mutation-check every new protection before claiming it: remove it and watch a test fail.
+- Reproduce every reviewer finding first, fix the class, and mutation-check every protection before
+  claiming it; the method and its harness are in
+  [close-review-loops-by-fixing-the-class](../conventions/close-review-loops-by-fixing-the-class.md).
 
 Related: [ADR 0004](../../adr/0004-first-party-usage-analytics.md),
 [plan 2026-09-23-001](../../plans/2026-09-23-001-feat-usage-analytics-plan.md),
-[invalidate sync work by session lifecycle](../logic-errors/invalidate-sync-work-by-session-lifecycle.md).
+[close review loops by fixing the class](../conventions/close-review-loops-by-fixing-the-class.md),
+[invalidate sync work by session lifecycle](../logic-errors/invalidate-sync-work-by-session-lifecycle.md),
+[Supabase export read errors are not missing rows](../logic-errors/supabase-export-read-errors-are-not-missing-rows.md).
