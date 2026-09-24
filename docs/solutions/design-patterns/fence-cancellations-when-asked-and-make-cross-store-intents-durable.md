@@ -78,7 +78,10 @@ next writer overwrite the account and the record of the debt.
   another account is installed. Installation alone is not completion: attribution returns success
   only after the waiting queue can be read and its write verified. Without those results, the same
   confirmation remains retryable. The generation for external server-attach work changes when the
-  host asks, even when confirmation fails; an attach checks confirmation after all awaited reads.
+  host asks for a different account than last time, even when confirmation fails; an attach checks
+  confirmation after all awaited reads. Asking for the same account again must not change it:
+  bumping on every ask made a worker start or a session event overlapping a running attach discard
+  its completion marker, so the idempotent server call was repeated at the next screen.
 - **Write the marker after the thing it marks.** A once-marker or the `$identify` marker is written
   only after its event is queued, from a re-read state so the write undoes nothing queued meanwhile.
   Marker-first meant a failure in between consumed the marker and lost the event for good; a host
@@ -103,9 +106,10 @@ The residual window is the process boundary: the popup asks the background to fo
 message, and the controller stops waiting after 5 s. That is documented in the runbook's weekly
 check, not claimed away. An intent not yet accepted by storage also cannot survive termination
 of the process holding it. Once the account is recorded in `forgotten`, recovery survives a restart;
-before that write, the running client retains the forget and the next host must establish the account
-again. These guarantees do not cover permanent storage loss or a device that has not learned that
-the session ended.
+before that write, the running client retains the forget and the next process cannot know the account
+was deleted: it drops the queued events only if it learns that nobody is signed in, and a different
+account established first lets them go out under the deleted one. These guarantees do not cover
+permanent storage loss or a device that has not learned that the session ended.
 
 ## Verification
 

@@ -164,8 +164,9 @@ different surfaces, so label every insight with the definition it uses.
   send events under it until it learns the session ended, and an extension background that receives
   the popup's forget request late (deletion waits at most 5 s for it) can send whatever it had
   queued in between. A forget also cannot survive process termination before storage accepts any
-  record of it; the next host must establish the account again. Neither window is bounded by the
-  client; this search is the remedy. Delete any such person.
+  record of it: the next process drops the account's queued events only if it learns that nobody is
+  signed in, and can still send them if a different account is established first. Neither window is
+  bounded by the client; this search is the remedy. Delete any such person.
 - PostHog's ingestion warnings: "cannot merge already identified" means an identify was refused.
 - Known small inaccuracy: the Apple app keeps its once-a-day and once-ever markers in the web view's
   storage, which iOS can clear under storage pressure; that can repeat an `app_opened` step or an

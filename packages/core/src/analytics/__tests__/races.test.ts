@@ -1040,6 +1040,46 @@ describe("cancelled or unreadable recovery", () => {
   });
 });
 
+describe("the server attach and a repeated confirmation of the same account", () => {
+  it("keeps its completion marker, so the server is not asked again", async () => {
+    const { client, store } = makeClient();
+    await client.confirm(U1);
+    const entered = gate();
+    const release = gate();
+    const served: string[] = [];
+    const accounts = createAccountIdentifier({
+      client, local: store, consent: async () => true,
+      identifyOnServer: async () => { served.push(U1); if (served.length === 1) { entered.open(); await release.opened; } },
+    });
+    const attaching = accounts.attach();
+    await entered.opened;
+    await client.confirm(U1); // a worker start or a session event re-establishes the same account meanwhile
+    release.open();
+    await attaching;
+    expect(store.data[SERVER_IDENTIFIED_KEY]).toBe(U1);
+    await accounts.attach();
+    expect(served).toEqual([U1]);
+  });
+
+  it("still discards the marker when the account asked for is a different one", async () => {
+    const { client, store } = makeClient();
+    await client.confirm(U1);
+    const entered = gate();
+    const release = gate();
+    const accounts = createAccountIdentifier({
+      client, local: store, consent: async () => true,
+      identifyOnServer: async () => { entered.open(); await release.opened; },
+    });
+    const attaching = accounts.attach();
+    await entered.opened;
+    store.failNextRead(STATE_KEY);
+    await client.confirm(U2); // asked for, even though it could not be installed
+    release.open();
+    await attaching;
+    expect(store.data[SERVER_IDENTIFIED_KEY]).toBeUndefined();
+  });
+});
+
 it("an unreadable forget survives until storage recovers and another account signs in", async () => {
   const rec = recordingFetch();
   const state = refusable(pausable());

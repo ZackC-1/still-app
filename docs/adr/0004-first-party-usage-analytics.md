@@ -76,8 +76,11 @@ privacy-positioning cost (the homepage promised "no behavioral tracking") agains
   Outside the client's reach: a device that is offline, or an extension background that receives
   the popup's request after the wait ended, can still deliver what it had queued under the account;
   the runbook's weekly check is the remedy, not a bound. An unfinished forget is held by the running
-  client until storage accepts its durable record; termination before that write requires the next
-  host to establish the account again. Permanent storage loss is outside this guarantee.
+  client until storage accepts its durable record. If the process ends before either store accepts
+  that record, the next process cannot know the account was deleted: it drops the account's queued
+  events only if it learns that nobody is signed in; if a different account is established first,
+  those events can still be sent under the deleted account. Permanent storage loss is outside this
+  guarantee.
 - Turning sharing off takes effect before any network call: the waiting queue is discarded, and one
   standalone `sharing_turned_off` attempt (bounded to a few seconds) is the only thing sent.
 - New accounts are counted by the server once per account, never inferred by a client.

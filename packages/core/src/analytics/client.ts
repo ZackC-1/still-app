@@ -29,8 +29,9 @@ import { isAnalyticsId, type AnalyticsIdentity, type AnalyticsKeyValue } from ".
 //   1. One operation at a time. Everything that reads or writes the account, the markers or the
 //      queue runs inside `run()`, including a flush's network request and the opt-out attempt, so
 //      no operation ever observes another half done. The only work outside it is synchronous and
-//      happens the moment the caller asks, before anything is queued: a confirmation invalidates
-//      the generation used by external server-attach work; forgetting an account, turning
+//      happens the moment the caller asks, before anything is queued: a confirmation of a
+//      different account invalidates the generation used by external server-attach work (the same
+//      account asked again leaves a completed attach standing); forgetting an account, turning
 //      sharing off and the opt-out bump the cancellation epoch and abort the request in flight. A
 //      flush or opt-out remembers the epoch it was asked under, and no request starts under a
 //      stale one: `post` refuses at its entry, synchronously, after every awaited read is done.
@@ -224,9 +225,11 @@ export class AnalyticsClient {
    * in progress stops before its next request and one still waiting its turn never starts (rule
    * 1's only exception). */
   private epoch = 0;
-  /** Bumped when the host asks to confirm an account, even if storage later refuses it. Work that
-   * waits outside the client (the server attach) must not act on an earlier confirmation. */
+  /** Bumped when the host asks to confirm a different account than it last asked for, even if
+   * storage later refuses it. Work that waits outside the client (the server attach) must not act
+   * on an earlier confirmation; asking for the same account again changes nothing it relies on. */
   private generation = 0;
+  private lastAsked: ConfirmedAccount | undefined;
   /** Rule 4. Only \`confirm\` sets it, and only after installing the account (rule 3). */
   private confirmed: boolean;
   /** Latest ask to reach the operation chain, retained until installation AND attribution succeed. */
@@ -323,7 +326,10 @@ export class AnalyticsClient {
   confirm(account: ConfirmedAccount, options: ConfirmOptions = {}): Promise<void> {
     if (!this.configured || (account !== null && !isAnalyticsId(account))) return Promise.resolve();
     if (options.forget) this.cancel();
-    this.generation += 1;
+    if (account !== this.lastAsked) {
+      this.generation += 1;
+      this.lastAsked = account;
+    }
     return this.run(async () => {
       this.confirmed = false;
       this.pending = { account, options };

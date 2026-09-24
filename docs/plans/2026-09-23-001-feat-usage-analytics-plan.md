@@ -1,6 +1,6 @@
 # Usage analytics, download attribution and revenue check (Still 2.1)
 
-Status: in progress, all code units implemented; review and owner release steps remain
+Status: verified and ready to merge; owner release steps remain
 Owner: Claude Code / founder-directed
 Created: 2026-09-23
 Source branch: `feat/usage-analytics`
@@ -406,3 +406,13 @@ testing, plus store review time.
   suspension, portal or deployment validation was performed. The runbook retains the delayed-message
   window and now also states that termination before any durable forget record cannot preserve that
   in-memory intent; the next host must establish the account again.
+- 2026-09-23: Independent verification of 324cc7d (Claude Code, read-only): all eight repairs
+  verified, Codex's 52 checks and 31 mutations reproduced (every mutant fails on a real test), and
+  every gate green including Deno, Swift, both unsigned Xcode builds and Playwright after the builds.
+  Two non-blocking findings, both fixed here: the attach generation was bumped on every ask, so a
+  same-account re-confirmation (a worker start, a session event) overlapping a running attach
+  discarded its completion marker and repeated the idempotent server call; it now changes only when
+  the host asks for a different account than last time, with regressions for both cases. And the
+  wording for a forget that never reached storage was imprecise: the next process drops the queued
+  events only if it learns nobody is signed in; a different account established first can still
+  send them under the deleted one. ADR, runbook and the solution doc now say so.
