@@ -218,3 +218,49 @@ describe("Apple launch attribution comes first", () => {
     expect(JSON.stringify(events())).not.toContain(U1);
   });
 });
+
+describe("Apple app server identification recovery", () => {
+  it("a launch retries attachment after its account confirmation recovers", async () => {
+    vi.useFakeTimers();
+    try {
+      const identifyOnServer = vi.fn(async () => {});
+      const { app, store } = setup({}, { holdAccount: true, identifyOnServer });
+      const get = store.get;
+      let fail = true;
+      store.get = async (key) => {
+        if (key === STATE_KEY && fail) { fail = false; throw new Error("account read once"); }
+        return get(key);
+      };
+      await app.identifyAccount(U1);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(identifyOnServer).not.toHaveBeenCalled();
+      await app.start();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(identifyOnServer).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(["track", "foreground"] as const)("%s retries a failed attach, and successful attachment stays once per account", async (use) => {
+    vi.useFakeTimers();
+    try {
+      const identifyOnServer = vi.fn(async () => {}).mockRejectedValueOnce(new Error("offline"));
+      const { app } = setup({}, { holdAccount: true, identifyOnServer });
+      await app.identifyAccount(U1);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(identifyOnServer).toHaveBeenCalledTimes(1);
+      const useApp = async () => {
+        if (use === "track") app.ui.track("opened", { where: "app" });
+        else await app.recheckSetup();
+        await vi.advanceTimersByTimeAsync(0);
+      };
+      await useApp();
+      expect(identifyOnServer).toHaveBeenCalledTimes(2);
+      await useApp();
+      expect(identifyOnServer).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

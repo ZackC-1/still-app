@@ -142,8 +142,9 @@ different surfaces, so label every insight with the definition it uses.
   people, and treat the gap as the uncertainty.
 - **Events before the account is confirmed.** While an extension or the Apple app is still
   confirming who is signed in, new events are held without a person, and nothing is sent. The
-  confirmation gives them their person, once, in storage, and sends them. An event keeps that person
-  through failed sends until it is delivered or its account is deleted; it is never re-attributed. If
+  confirmation gives them their person, once, in storage, and sends them. Failed installation or
+  attribution remains pending and is retried before a send; a newer account answer cannot erase an
+  unfinished forget. An event keeps that person through failed sends until it is delivered or its account is deleted; it is never re-attributed. If
   confirmation never comes (a lookup that keeps failing), those events wait; they are never sent under
   a guessed account. When an account is deleted, or a device learns its session ended, everything
   still waiting under it is dropped before any queued event is sent; if the device's storage refuses
@@ -162,8 +163,9 @@ different surfaces, so label every insight with the definition it uses.
   a Persons search for the deleted account id: a device that was offline during the deletion can
   send events under it until it learns the session ended, and an extension background that receives
   the popup's forget request late (deletion waits at most 5 s for it) can send whatever it had
-  queued in between. Neither is bounded by the client; this search is the remedy. Delete any such
-  person.
+  queued in between. A forget also cannot survive process termination before storage accepts any
+  record of it; the next host must establish the account again. Neither window is bounded by the
+  client; this search is the remedy. Delete any such person.
 - PostHog's ingestion warnings: "cannot merge already identified" means an identify was refused.
 - Known small inaccuracy: the Apple app keeps its once-a-day and once-ever markers in the web view's
   storage, which iOS can clear under storage pressure; that can repeat an `app_opened` step or an

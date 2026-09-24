@@ -805,3 +805,252 @@ describe("recovering from a storage failure", () => {
     expect(state.daily["once:installed"]).toBe("done");
   });
 });
+
+describe("completing recovery before reporting", () => {
+  it("a later sign-in cannot replace a forget that failed to read the previous account", async () => {
+    const rec = recordingFetch();
+    const { client, store } = makeClient({ fetch: rec.fetch });
+    await client.confirm(U1);
+    await client.track("opened", { where: "popup" });
+    store.failNextRead(STATE_KEY);
+    const reached = store.pauseNextRead(STATE_KEY);
+    const forgetting = client.confirm(null, { forget: true });
+    const release = await reached;
+    const identifying = client.confirm(U2);
+    release();
+    await Promise.all([forgetting, identifying]);
+    await client.track("opened", { where: "popup" });
+    await client.flush();
+    expect(rec.events().some((e) => e.properties.distinct_id === U1)).toBe(false);
+    expect(rec.events().filter((e) => e.event === "opened").map((e) => e.properties.distinct_id)).toEqual([U2]);
+  });
+
+  it("a cancelled flush cannot install a future account ahead of the forget", async () => {
+    const rec = recordingFetch();
+    const { client: previous, store } = makeClient();
+    await previous.confirm(U1);
+    await previous.track("opened", { where: "popup" });
+    const { client } = makeClient({ store, fetch: rec.fetch, startsUnconfirmed: true });
+    const reached = store.pauseNextRead(STATE_KEY);
+    const reading = client.signedInAs();
+    const release = await reached;
+    const flushing = client.flush();
+    const forgetting = client.confirm(null, { forget: true });
+    const identifying = client.confirm(U2);
+    release();
+    await Promise.all([reading, flushing, forgetting, identifying]);
+    await client.flush();
+    expect(rec.events().some((e) => e.properties.distinct_id === U1)).toBe(false);
+    expect(await client.signedInAs()).toBe(U2);
+  });
+
+  it.each([false, true])("failed attribution stays retryable (retrying confirmation: %s)", async (retrying) => {
+    const rec = recordingFetch();
+    const { client, store } = makeClient({ fetch: rec.fetch, startsUnconfirmed: true });
+    if (retrying) {
+      store.failNextRead(STATE_KEY);
+      await client.confirm(U2);
+    }
+    await client.trackOnce("installed", "installed", { returning: false });
+    const reached = store.pauseNextRead(QUEUE_KEY); // attribution reads the waiting queue
+    const confirming = retrying ? client.flush() : client.confirm(U2);
+    const release = await reached;
+    store.failNextRead(STATE_KEY); // the account read inside attribution
+    release();
+    await confirming;
+    expect(client.accountConfirmed).toBe(false);
+    expect(rec.events()).toEqual([]);
+    await client.flush();
+    expect(client.accountConfirmed).toBe(true);
+    expect(rec.events().filter((e) => e.event === "installed").map((e) => e.properties.distinct_id)).toEqual([U2]);
+    expect(store.data[QUEUE_KEY]).toEqual([]);
+  });
+
+  it("an attribution write acknowledged without being kept does not complete confirmation", async () => {
+    const rec = recordingFetch();
+    const backing = pausable();
+    const queue = refusable(backing);
+    const { client } = makeClient({ queueStore: queue.store, fetch: rec.fetch, startsUnconfirmed: true });
+    await client.trackOnce("installed", "installed", { returning: false });
+    queue.refuse("silently");
+    await client.confirm(U2);
+    expect(client.accountConfirmed).toBe(false);
+    queue.refuse("none");
+    await client.flush();
+    expect(rec.events().filter((e) => e.event === "installed")).toHaveLength(1);
+    expect(backing.data[QUEUE_KEY]).toEqual([]);
+  });
+
+  it("a failed queue read cannot overwrite an already recorded install", async () => {
+    const { client, store } = makeClient({ startsUnconfirmed: true });
+    await client.trackOnce("installed", "installed", { returning: false });
+    store.failNextRead(QUEUE_KEY);
+    await client.track("opened", { where: "popup" });
+    expect((store.data[QUEUE_KEY] as { event: string }[]).map((e) => e.event)).toEqual(["installed"]);
+    expect(await client.hasTrackedOnce("installed")).toBe(true);
+  });
+
+  it("one unreadable marker check never repeats a recorded active day", async () => {
+    const { client, store } = makeClient({ startsUnconfirmed: true });
+    await client.trackDaily("active", "active", {});
+    const reached = store.pauseNextRead(STATE_KEY);
+    store.failNextRead(STATE_KEY);
+    const tracking = client.trackDaily("active", "active", {});
+    const release = await reached;
+    release();
+    await tracking;
+    expect((store.data[QUEUE_KEY] as { event: string }[]).map((e) => e.event)).toEqual(["active"]);
+  });
+
+  it.each(["consent", "request"] as const)("withdrawn confirmation invalidates an attach paused at %s", async (boundary) => {
+    const { client, store } = makeClient();
+    await client.confirm(U1);
+    const reached = gate();
+    const release = gate();
+    const served: string[] = [];
+    let authenticatedAs = U1;
+    let reads = 0;
+    const accounts = createAccountIdentifier({
+      client, local: store,
+      consent: async () => {
+        if (++reads === 2 && boundary === "consent") { reached.open(); await release.opened; }
+        return true;
+      },
+      identifyOnServer: async () => {
+        served.push(authenticatedAs);
+        if (boundary === "request") { reached.open(); await release.opened; }
+      },
+    });
+    const attaching = accounts.attach();
+    await reached.opened;
+    authenticatedAs = U2;
+    store.failNextRead(STATE_KEY);
+    await client.confirm(U2);
+    expect(client.accountConfirmed).toBe(false);
+    release.open();
+    await attaching;
+    expect(served).toEqual(boundary === "request" ? [U1] : []);
+    expect(store.data[SERVER_IDENTIFIED_KEY]).toBeUndefined();
+    await client.flush();
+    await accounts.attach();
+    expect(served.at(-1)).toBe(U2);
+    expect(store.data[SERVER_IDENTIFIED_KEY]).toBe(U2);
+  });
+
+  it.each(["chrome", "firefox"] as const)("%s retains pending evidence until both install milestones are queued", async (surface) => {
+    vi.useFakeTimers();
+    try {
+      const rec = recordingFetch();
+      const local = pausable();
+      let failSetup = true;
+      const queue: AnalyticsKeyValue = {
+        get: (key) => local.get(key),
+        async set(key, value) {
+          if (failSetup && (value as { event: string }[]).some((e) => e.event === "setup_completed")) {
+            failSetup = false;
+            throw new Error("setup queue write refused once");
+          }
+          await local.set(key, value);
+        },
+      };
+      const deps = {
+        surface, config: { key: "phc_test", host: "https://us.i.posthog.com" }, appVersion: "2.1.0",
+        local, queueStore: queue, identity: async () => IDENTITY, consent: async () => true,
+        noticeApplies: false, isTrustedPage: () => true, uuid, fetch: rec.fetch,
+      };
+      const host = createExtensionAnalyticsHost(deps);
+      local.data[PENDING_INSTALL_KEY] = { returning: false, at: Date.now() };
+      const send = (m: unknown) => new Promise<unknown>((r) => { if (!host.listener(m, PAGE, r)) r(undefined); });
+      await send({ kind: ANALYTICS_MESSAGE_KIND, action: "setSharing", enabled: true });
+      expect(local.data[PENDING_INSTALL_KEY]).not.toBeNull();
+      expect(await host.client.hasTrackedOnce("installed")).toBe(true);
+      expect(await host.client.hasTrackedOnce("setup_completed")).toBe(false);
+      const restarted = createExtensionAnalyticsHost(deps);
+      restarted.onStart(null);
+      await restarted.flushWhenReady();
+      expect(rec.events().filter((e) => e.event === "installed")).toHaveLength(1);
+      expect(rec.events().filter((e) => e.event === "setup_completed")).toHaveLength(1);
+      expect(local.data[PENDING_INSTALL_KEY]).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("recovery respects operation order", () => {
+  it("a flush cannot run a quiet confirmation that has not reached its turn", async () => {
+    const rec = recordingFetch();
+    const { client, store } = makeClient({ fetch: rec.fetch, startsUnconfirmed: true });
+    await client.track("active", {}, { quiet: true });
+    const reached = store.pauseNextRead(STATE_KEY);
+    const reading = client.signedInAs();
+    const release = await reached;
+    const flushing = client.flush();
+    const confirming = client.confirm(U2, { quiet: true });
+    release();
+    await Promise.all([reading, flushing, confirming]);
+    expect(rec.events()).toEqual([]);
+    await client.flush();
+    expect(rec.events().filter((e) => e.event === "active")).toHaveLength(1);
+  });
+
+  it("a failed read after sending keeps the remaining queue for retry", async () => {
+    const rec = recordingFetch();
+    const { client, store } = makeClient({ fetch: (async (...args: Parameters<typeof fetch>) => {
+      const response = await rec.fetch(...args);
+      store.failNextRead(QUEUE_KEY); // queue removal must not substitute an empty queue
+      return response;
+    }) as typeof fetch });
+    for (let i = 0; i < 60; i++) await client.track("opened", { where: "popup" });
+    const before = structuredClone(store.data[QUEUE_KEY]);
+    await client.flush();
+    expect(rec.events()).toHaveLength(50);
+    expect(store.data[QUEUE_KEY]).toEqual(before);
+  });
+});
+
+describe("cancelled or unreadable recovery", () => {
+  it("a cancelled flush cannot retry an earlier failed account change", async () => {
+    const rec = recordingFetch();
+    const { client, store } = makeClient({ fetch: rec.fetch });
+    await client.confirm(U1);
+    await client.track("opened", { where: "popup" });
+    store.failNextRead(STATE_KEY);
+    await client.confirm(U2);
+    const reached = store.pauseNextRead(STATE_KEY);
+    const reading = client.signedInAs();
+    const release = await reached;
+    const flushing = client.flush();
+    const forgetting = client.confirm(null, { forget: true });
+    release();
+    await Promise.all([reading, flushing, forgetting]);
+    await client.flush();
+    expect(rec.events()).toEqual([]);
+  });
+
+  it("an unreadable attribution queue leaves confirmation pending", async () => {
+    const rec = recordingFetch();
+    const { client, store } = makeClient({ fetch: rec.fetch, startsUnconfirmed: true });
+    await client.trackOnce("installed", "installed", { returning: false });
+    store.failNextRead(QUEUE_KEY);
+    await client.confirm(U2);
+    expect(client.accountConfirmed).toBe(false);
+    await client.flush();
+    expect(rec.events().filter((e) => e.event === "installed")).toHaveLength(1);
+  });
+});
+
+it("an unreadable forget survives until storage recovers and another account signs in", async () => {
+  const rec = recordingFetch();
+  const state = refusable(pausable());
+  const { client } = makeClient({ store: state.store, fetch: rec.fetch });
+  await client.confirm(U1);
+  await client.track("opened", { where: "popup" });
+  state.refuse("reads");
+  await client.confirm(null, { forget: true });
+  expect(client.accountConfirmed).toBe(false);
+  state.refuse("none");
+  await client.confirm(U2);
+  await client.flush();
+  expect(rec.events().some((e) => e.properties.distinct_id === U1)).toBe(false);
+});

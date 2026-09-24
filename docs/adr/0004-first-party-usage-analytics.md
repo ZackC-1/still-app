@@ -60,8 +60,9 @@ privacy-positioning cost (the homepage promised "no behavioral tracking") agains
 - Attribution is decided once: until a host confirms who is signed in (or that nobody is), events
   are queued without a person and nothing is sent. The confirmation, a single serialized operation,
   installs the account, gives every waiting event its person in storage, and only then allows sends;
-  an event keeps that person through retries and is never re-attributed. A timeout never counts as
-  confirmation. Every state change and every send runs one at a time in the client. Ids never change
+  failed installation or attribution stays pending and is retried before sending. A newer account
+  answer cannot erase an unfinished forget. An event keeps its person through retries and is never
+  re-attributed. A timeout never counts as confirmation. Every state change and every send runs one at a time in the client. Ids never change
   once made and are never aliased; `$identify` at sign-in is the only merge.
 - Deleting an account forgets it for analytics first, and only then asks the server to delete the
   account and its person. Forgetting fences the account the moment it is asked: the send on its way
@@ -74,7 +75,9 @@ privacy-positioning cost (the homepage promised "no behavioral tracking") agains
   that fails re-attributes the account only to the session that asked, never after a sign-out.
   Outside the client's reach: a device that is offline, or an extension background that receives
   the popup's request after the wait ended, can still deliver what it had queued under the account;
-  the runbook's weekly check is the remedy, not a bound.
+  the runbook's weekly check is the remedy, not a bound. An unfinished forget is held by the running
+  client until storage accepts its durable record; termination before that write requires the next
+  host to establish the account again. Permanent storage loss is outside this guarantee.
 - Turning sharing off takes effect before any network call: the waiting queue is discarded, and one
   standalone `sharing_turned_off` attempt (bounded to a few seconds) is the only thing sent.
 - New accounts are counted by the server once per account, never inferred by a client.

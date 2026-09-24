@@ -29,7 +29,8 @@ import { isAnalyticsId, type AnalyticsIdentity, type AnalyticsKeyValue } from ".
 //   1. One operation at a time. Everything that reads or writes the account, the markers or the
 //      queue runs inside `run()`, including a flush's network request and the opt-out attempt, so
 //      no operation ever observes another half done. The only work outside it is synchronous and
-//      happens the moment the caller asks, before anything is queued: forgetting an account, turning
+//      happens the moment the caller asks, before anything is queued: a confirmation invalidates
+//      the generation used by external server-attach work; forgetting an account, turning
 //      sharing off and the opt-out bump the cancellation epoch and abort the request in flight. A
 //      flush or opt-out remembers the epoch it was asked under, and no request starts under a
 //      stale one: `post` refuses at its entry, synchronously, after every awaited read is done.
@@ -49,9 +50,11 @@ import { isAnalyticsId, type AnalyticsIdentity, type AnalyticsKeyValue } from ".
 //      that was lost (a lost install could never be counted again).
 //   3. Confirmation is one operation. `confirm()` installs the account (or lets it go), tries any
 //      owed drop, attributes the waiting events, and only then marks the account confirmed, so
-//      nothing can see "confirmed" together with a different account. A confirmation that cannot
-//      be installed withdraws the previous one: what the host established is not what is stored,
-//      so events wait unattributed and nothing is sent. The ask is kept and tried again before
+//      nothing can see "confirmed" together with a different account. Pending work changes only
+//      inside that operation chain. An unfinished forget survives a newer account answer and
+//      reaches the durable drop record before that account is installed. Until installation and
+//      attribution both succeed, confirmation stays withdrawn: events wait unattributed and
+//      nothing is sent. The ask is kept and tried again before
 //      the next send, so a transient storage failure delays reporting rather than ending it.
 //   4. Nothing leaves before the account is confirmed. Hosts that start without knowing who is
 //      signed in (`startsUnconfirmed`) send nothing until they confirm, and a timeout never counts
@@ -221,14 +224,15 @@ export class AnalyticsClient {
    * in progress stops before its next request and one still waiting its turn never starts (rule
    * 1's only exception). */
   private epoch = 0;
-  /** Bumped (inside \`run\`) whenever the account changes. Work that reads the account and then
-   * waits outside the client (the server attach) checks it before acting. */
+  /** Bumped when the host asks to confirm an account, even if storage later refuses it. Work that
+   * waits outside the client (the server attach) must not act on an earlier confirmation. */
   private generation = 0;
   /** Rule 4. Only \`confirm\` sets it, and only after installing the account (rule 3). */
   private confirmed: boolean;
-  /** The host's latest ask, until it is installed: a confirmation that failed on storage is tried
-   * again before the next send (rule 3). A later ask replaces it. */
+  /** Latest ask to reach the operation chain, retained until installation AND attribution succeed. */
   private pending: Confirmation | null = null;
+  /** A newer account answer cannot replace a forget that has not reached durable state yet. */
+  private forgetPending = false;
   /** The request in flight, so switching sharing off can abandon it instead of waiting. */
   private inflight: AbortController | null = null;
   /** Set when an account change could not be saved: reporting stops for the life of this client
@@ -317,28 +321,31 @@ export class AnalyticsClient {
    * (account deletion waits a bounded time) and the server deletes the person meanwhile.
    */
   confirm(account: ConfirmedAccount, options: ConfirmOptions = {}): Promise<void> {
+    if (!this.configured || (account !== null && !isAnalyticsId(account))) return Promise.resolve();
     if (options.forget) this.cancel();
-    const ask: Confirmation = { account, options };
-    this.pending = ask; // the latest ask wins; cleared once it is installed
-    return this.run(() => this.establish(ask));
+    this.generation += 1;
+    return this.run(async () => {
+      this.confirmed = false;
+      this.pending = { account, options };
+      this.forgetPending ||= options.forget === true;
+      await this.establish();
+    });
   }
 
   /** The body of a confirmation; also how `flush` retries the host's latest ask (`retrying`). */
-  private async establish(ask: Confirmation, retrying = false): Promise<void> {
-    if (!this.configured) return;
-    const { account, options } = ask;
-    if (account !== null && !isAnalyticsId(account)) {
-      // Only Supabase UUIDs become accounts; anything else cannot be one and is ignored, as before.
-      if (this.pending === ask) this.pending = null;
-      return;
+  private async establish(retrying = false): Promise<void> {
+    if (!this.pending) return;
+    const { account, options } = this.pending;
+    if (this.forgetPending) {
+      // Persist the old account's drop before installing any newer account. Once recorded, the
+      // existing durable `forgotten` list owns recovery, including after a restart.
+      if (!(await this.installAccount(null, { forget: true }))) return;
+      this.forgetPending = false;
     }
-    if (!(await this.installAccount(account, options))) {
-      this.confirmed = false; // rule 3; `pending` keeps the ask for the next send
-      return;
-    }
-    if (this.pending === ask) this.pending = null;
+    if (!(await this.installAccount(account, options))) return;
     await this.dropForgotten(); // tried here; `flush` is the gate that refuses to send until it is done
-    await this.attributeWaiting();
+    if (!(await this.attributeWaiting())) return;
+    this.pending = null;
     this.confirmed = true;
     if (account !== null && (await this.allowed())) {
       const identity = await this.identity();
@@ -382,9 +389,10 @@ export class AnalyticsClient {
     // forgotten, sharing switched off) means it must send nothing when it runs (rule 1).
     const epoch = this.epoch;
     return this.run(async () => {
+      if (epoch !== this.epoch) return; // cancelled work must not change attribution either
       // A confirmation that failed on storage is tried again here, so reporting resumes on its own
       // once the store recovers, without waiting for the host to confirm again (rule 3).
-      if (!this.confirmed && this.pending) await this.establish(this.pending, true);
+      if (!this.confirmed) await this.establish(true);
       if (!this.confirmed || epoch !== this.epoch) return; // rule 4; rule 1
       if (!(await this.dropForgotten())) return; // rule 2: a forgotten account's events never leave
       for (;;) {
@@ -396,7 +404,8 @@ export class AnalyticsClient {
         // Sent, or rejected as malformed (retrying a 400 forever would block the queue).
         const sent = new Set(batch.map((e) => e.uuid));
         // Storage that will not take the write would hand back the same batch forever.
-        if (!(await this.writeQueue((await this.readQueue()).filter((e) => !sent.has(e.uuid))))) return;
+        const remaining = await this.loadQueue();
+        if (remaining === null || !(await this.writeQueue(remaining.filter((e) => !sent.has(e.uuid))))) return;
         if ((await this.readQueue()).some((e) => sent.has(e.uuid))) return;
       }
     });
@@ -491,13 +500,11 @@ export class AnalyticsClient {
     if (!state) return false;
     if (account !== null) {
       if (state.userId === account) return true;
-      this.generation += 1;
       const saved = await this.write({ ...state, userId: account, identifiedAs: null });
       if (!saved) this.blocked = true;
       return saved;
     }
     if (state.userId === null) return true; // nobody, as before: keep the same anonymous id
-    this.generation += 1;
     const forgotten = options.forget && !state.forgotten.includes(state.userId)
       ? [...state.forgotten, state.userId]
       : state.forgotten;
@@ -539,16 +546,17 @@ export class AnalyticsClient {
   }
 
   /** Give every waiting unattributed event the person now installed, in storage (rule 2). */
-  private async attributeWaiting(): Promise<void> {
-    const queue = await this.readQueue();
-    if (!queue.some((e) => e.attributeLater)) return;
+  private async attributeWaiting(): Promise<boolean> {
+    const queue = await this.loadQueue();
+    if (queue === null) return false;
+    if (!queue.some((e) => e.attributeLater)) return true;
     const identity = await this.identity();
-    if (!identity) return;
+    if (!identity) return false;
     const state = await this.read();
-    if (!state) return; // they keep waiting; the next confirmation tries again
+    if (!state) return false;
     const signedIn = state.userId !== null;
     const distinctId = state.userId ?? this.anonymousId(state, identity);
-    await this.writeQueue(
+    if (!(await this.writeQueue(
       queue.map((e) => {
         if (!e.attributeLater) return e;
         const $set = { ...(e.properties.$set as Record<string, unknown> | undefined) };
@@ -560,7 +568,9 @@ export class AnalyticsClient {
           properties: { ...e.properties, distinct_id: distinctId, signed_in: signedIn, $set },
         };
       }),
-    );
+    ))) return false;
+    const remaining = await this.loadQueue();
+    return remaining !== null && !remaining.some((e) => e.attributeLater);
   }
 
   /** Whether reporting may happen now. Fails closed, and when sharing turns out to be off (it can
@@ -645,7 +655,8 @@ export class AnalyticsClient {
 
   /** Queue one event. False when the queue store refused it. */
   private async push(event: QueuedEvent, options: TrackOptions = {}): Promise<boolean> {
-    if (!(await this.writeQueue([...(await this.readQueue()), event]))) return false;
+    const queue = await this.loadQueue();
+    if (queue === null || !(await this.writeQueue([...queue, event]))) return false;
     if (!options.quiet) this.scheduleFlush();
     return true;
   }

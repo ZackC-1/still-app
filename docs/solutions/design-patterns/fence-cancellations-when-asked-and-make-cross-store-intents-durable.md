@@ -54,7 +54,8 @@ next writer overwrite the account and the record of the debt.
   `onStart(null)`, Safari's account re-read, the Apple app's `accountAbsent`) is fenced, not only
   `reset()`. `post()` takes the epoch its caller was asked under and refuses at entry, so the check
   sits after every awaited read a caller does, with nothing awaited between it and the network.
-  An early check in the caller is then redundant, and was removed rather than kept untestable.
+  A flush also checks before retrying a pending confirmation: cancelled work must not change
+  attribution either. That guards recovery; the check in `post` guards the network.
 - **Record the intent durably before acting, then verify.** The account is appended to a
   `forgotten` list in the state store *before* the queue drop. The drop is verified by re-reading
   the queue (a refused read is `null`, never "empty"; a write that is acknowledged but not kept is
@@ -63,7 +64,8 @@ next writer overwrite the account and the record of the debt.
   flush, in that process or the next, whoever signs in next.
 - **Unreadable is not empty.** `read()` returns `null` when the state store throws, and every
   reader fails closed: nothing is sent, nothing is written on top of a state that was never read,
-  and a forget that cannot even name its account blocks the process (the next one is asked again).
+  and an unreadable confirmation stays pending, with reporting withdrawn until it succeeds. A
+  failed account-state write still blocks reporting for that client because persistence is uncertain.
   Substituting an empty default for a failed read is how a durable record gets both overlooked and
   overwritten.
 - **Make guards symmetric.** Re-identify after a failed deletion only when both the revision and the
@@ -71,13 +73,20 @@ next writer overwrite the account and the record of the debt.
 - **A failed change withdraws the old truth, and the ask is kept.** When the host says "the person
   is now B" and that cannot be recorded, "confirmed as A" is no longer true: `confirmed` is
   withdrawn so nothing is attributed or sent, and the ask is kept in `pending` and installed before
-  the next send. Without the retry, withdrawing alone would stall reporting until the host happens
-  to confirm again (the Apple app: the next launch).
+  the next send. Pending work changes only inside the serialized operation. A separate unfinished
+  forget survives replacement of that account answer and must reach the durable drop record before
+  another account is installed. Installation alone is not completion: attribution returns success
+  only after the waiting queue can be read and its write verified. Without those results, the same
+  confirmation remains retryable. The generation for external server-attach work changes when the
+  host asks, even when confirmation fails; an attach checks confirmation after all awaited reads.
 - **Write the marker after the thing it marks.** A once-marker or the `$identify` marker is written
   only after its event is queued, from a re-read state so the write undoes nothing queued meanwhile.
   Marker-first meant a failure in between consumed the marker and lost the event for good; a host
   that clears its own record on the marker (the pending install) then lost it too. Event-first can at
-  worst repeat an event in the crash window between two local writes; it can never lose one.
+  worst repeat an event in the crash window between those two local writes; it does not consume a
+  marker for an unqueued event. Queue mutations do not substitute an empty queue for a failed read.
+  Hosts retain their pending evidence until every associated milestone is queued: on Chrome/Firefox
+  that means both `installed` and `setup_completed`.
 
 ## Why it works, and where it does not apply
 
@@ -92,7 +101,11 @@ apply when both writes go to one transactional store; use the transaction instea
 
 The residual window is the process boundary: the popup asks the background to forget over a runtime
 message, and the controller stops waiting after 5 s. That is documented in the runbook's weekly
-check, not claimed away.
+check, not claimed away. An intent not yet accepted by storage also cannot survive termination
+of the process holding it. Once the account is recorded in `forgotten`, recovery survives a restart;
+before that write, the running client retains the forget and the next host must establish the account
+again. These guarantees do not cover permanent storage loss or a device that has not learned that
+the session ended.
 
 ## Verification
 
@@ -100,24 +113,25 @@ check, not claimed away.
   a queued flush after the deadline, a host's direct forget mid-batch, a refused drop in the same
   process and across a restart (next confirmation `null` or another account), a refused queue read,
   a queue write acknowledged but not kept, an unreadable state store (nothing sent, nothing
-  overwritten), a forget on unreadable state (process blocked, next start asked again), an opt-out
+  overwritten), a forget on unreadable state (confirmation withdrawn, retry before sending), an opt-out
   overtaken by a forget before and during its own reads, and a forget during a flush's queue read.
   "unconfirmed accounts": a seeded, previously attributed queue is held.
 - `packages/core/src/ui/__tests__/controller-analytics.test.ts`: a deletion that fails after a
   sign-out never re-identifies and leaves the flow idle.
-  "recovering from a storage failure": a confirmation that fails withdraws the old one and is
+- `races.test.ts`, "recovering from a storage failure": a confirmation that fails withdraws the old one and is
   retried before the next send, the latest ask wins, no server attach or marker under a mismatch,
   a once-marker is written only once its event is queued (client and extension host, pending
   install kept), the `$identify` marker likewise, and neither marker write builds on a stale or
   unread state.
-- Mutation pass (twenty mutations: each fence, the request-entry check, the durable record, the
-  verification reread, the null-read and null-state handling, the write-on-unread guard, the
-  seeded-queue guard, withdrawal and retry of a failed confirmation, marker-after-event for both
-  marker kinds, both controller guards): every one fails at least one test. Three guards that no
-  mutation could expose (a second drop gate inside `confirm`, an early epoch check in the opt-out,
-  a process block on an unreadable forget) were removed rather than kept untestable.
-- Full gate green: lint, typecheck, all JS tests across core, Safari and Chromium, build, 51
-  Playwright fixtures; Codex's independent pass at `2d8129f` also ran Deno (151) and Swift (142).
+- `races.test.ts`, "completing recovery before reporting", "recovery respects operation order",
+  and "cancelled or unreadable recovery": later sign-in cannot replace an unfinished forget;
+  cancelled flushes cannot install an account; failed attribution remains retryable; external attach
+  is invalidated during its last consent read or request; both install milestones recover; unreadable
+  queue mutations preserve existing events; a failed marker check never duplicates an active day.
+- The independent d8f43fb review caught 19 of the claimed 20 mutations. The surviving `trackMarked`
+  null-state fallback now has its own transient-failure regression. Current verification evidence
+  is recorded in the analytics plan's Progress section, rather than assuming an earlier count still
+  describes the current source.
 
 ## Prevention
 
@@ -129,6 +143,8 @@ check, not claimed away.
   state that records an obligation, return `null` and make every reader fail closed.
 - When a state change fails, ask what the old value now means. If the caller has told you it is no
   longer true, withdraw it; do not leave it standing because the new one could not be written.
+- Do not put completion state ahead of the last required step. Installing an account is not the
+  same as attributing its waiting events; queueing one milestone is not completing both.
 - Order two writes so that a failure between them repeats work rather than loses it: the record
   first, the marker that says "recorded" second.
 - When one logical change touches two stores, write the intent to the reliable store first, verify

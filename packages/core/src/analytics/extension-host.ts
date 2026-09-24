@@ -137,8 +137,8 @@ export function createAccountIdentifier(deps: {
       if (!(await consented())) return;
       if ((await deps.local.get(SERVER_IDENTIFIED_KEY).catch(() => null)) === userId) return;
       // Immediately before the request: same confirmed account, sharing still on, nothing reset.
-      if (!client.accountConfirmed || (await client.signedInAs()) !== userId || !(await consented())) return;
-      if (!client.isCurrent(stamp)) return;
+      if ((await client.signedInAs()) !== userId || !(await consented())) return;
+      if (!client.accountConfirmed || !client.isCurrent(stamp)) return;
       try {
         await Promise.race([
           deps.identifyOnServer!(),
@@ -222,7 +222,10 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
     // Chrome and Firefox block from the moment of install; there is no further setup step.
     // (Safari's setup is complete only once Safari runs the extension; see onStart.)
     if (blocksAtInstall) await client.trackOnce("setup_completed", "setup_completed", {}, at);
-    if (await client.hasTrackedOnce("installed")) await deps.local.set(PENDING_INSTALL_KEY, null).catch(() => undefined);
+    if (await client.hasTrackedOnce("installed") &&
+        (!blocksAtInstall || await client.hasTrackedOnce("setup_completed"))) {
+      await deps.local.set(PENDING_INSTALL_KEY, null).catch(() => undefined);
+    }
   };
 
   const sharing = async (): Promise<UsageSharingState | null> => {

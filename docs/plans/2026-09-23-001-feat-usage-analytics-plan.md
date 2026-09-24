@@ -381,3 +381,28 @@ testing, plus store review time.
   from a re-read state so it cannot undo the `$identify` marker; the `$identify` marker likewise
   follows its event. A marker therefore means "queued"; the crash window between the two writes can
   at worst repeat an event, never lose one. Twenty mutations, all caught.
+- 2026-09-23: Implemented the bounded repair plan in
+  [2026-09-23-002](2026-09-23-002-fix-analytics-recovery-plan.md) after the d8f43fb review. The client
+  still has one operation chain and the existing two stores. Pending confirmation now changes only
+  inside that chain; an unfinished forget survives a later account answer and reaches the durable
+  drop record before the new account is installed. A cancelled flush returns before recovery work.
+  Attribution now reports verified success, so failed reads/writes leave the entire confirmation
+  pending for the next flush. Queue append/removal also refuse to overwrite an unreadable queue.
+  The external attach generation changes when confirmation is requested, including a failed one,
+  and the last confirmation check follows all awaited reads. Chrome/Firefox keep pending install
+  evidence until both installed and setup_completed are queued. Apple launch, normal UI use and
+  foreground return now retry a failed server attach through the existing per-account helper.
+  Corrected stale process-block wording and the earlier mutation claim: the d8f43fb review reproduced
+  19/20, and the previously surviving null-state marker fallback now has a regression. Current
+  verification caught all 31 mutations (the earlier 20 plus 11 recovery protections). All 52
+  independent review checks pass. Nineteen repository regressions were added; the original defects
+  and Apple retry gap were first run red. Final gates: lint/typecheck/build passed; JS 961 passed,
+  39 skipped (core 818, Safari 81, Chromium 62); Playwright 51 passed, 2 skipped; Deno 151 passed
+  with 32 steps, lint 44 files and check passed; Swift 142 passed; both unsigned Xcode schemes passed.
+  An earlier overlapping Playwright/Xcode run timed out on the Safari 320px dark popup. The final
+  entire fixture run passed after both builds completed; keep fixture reads separate from builds
+  that rewrite the same extension output. Simplification and code review ran locally and sequentially
+  per AGENTS.md, with no remaining actionable findings. No live PostHog, physical-device, browser
+  suspension, portal or deployment validation was performed. The runbook retains the delayed-message
+  window and now also states that termination before any durable forget record cannot preserve that
+  in-memory intent; the next host must establish the account again.

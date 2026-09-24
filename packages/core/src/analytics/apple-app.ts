@@ -143,6 +143,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       withReady(async (r) => {
         await r.client.track(name, props);
         await r.client.trackDaily("active", "active", {}); // any use counts toward the day
+        void r.attach(); // a failed launch attach is retried by ordinary app use
       }),
     identify: (userId) =>
       withReady(async (r) => {
@@ -204,6 +205,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       await client.track("opened", { where: "app" });
       await client.trackDaily("active", "active", {});
       await client.flush();
+      void r.attach(); // the flush may have recovered the launch's account confirmation
     },
     async recheckSetup() {
       const r = await ready();
@@ -211,6 +213,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       const fresh = await deps.bridge.analyticsContext().catch(() => null);
       await reportExtensionEnabled(r, fresh?.extensionEnabled ?? null);
       await r.client.trackDaily("active", "active", {});
+      void r.attach();
     },
     async identifyAccount(userId) {
       const r = await ready();
