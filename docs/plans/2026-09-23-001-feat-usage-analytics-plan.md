@@ -366,3 +366,18 @@ testing, plus store review time.
   Runbook and ADR wording corrected: "no queued event" rather than "nothing", the opt-out attempt
   described, and the page-to-background window stated as unbounded with the weekly search as remedy.
   Seventeen mutations, all caught.
+- 2026-09-23: Codex verification of 6af5397 (C1, C2, C10 fixed; all sixteen mutations caught) found
+  two recovery paths after a transient state-read failure, both reproduced here. (1) P0: a
+  confirmation of account B that failed on storage left A's confirmation standing, so B's use was
+  recorded and sent under A, and the server attach marked A for B's request. Now a confirmation that
+  cannot be installed withdraws the previous one (events wait unattributed, nothing is sent, no
+  attach), and the client keeps the host's latest ask and installs it before the next send, so
+  reporting resumes on its own once the store recovers; a later ask supersedes it. A malformed
+  account id is still ignored, as the existing test pins. The "block the process on an unreadable
+  forget" guard became redundant with this and was removed. (2) P1: a once-marker (`installed`,
+  `setup_completed`, the daily `active`) was written before its event was queued, so a read failure
+  in between consumed the marker, the host cleared its pending-install record on the marker, and the
+  install could never be counted. Now the event is queued first and the marker written only after,
+  from a re-read state so it cannot undo the `$identify` marker; the `$identify` marker likewise
+  follows its event. A marker therefore means "queued"; the crash window between the two writes can
+  at worst repeat an event, never lose one. Twenty mutations, all caught.

@@ -68,6 +68,16 @@ next writer overwrite the account and the record of the debt.
   overwritten.
 - **Make guards symmetric.** Re-identify after a failed deletion only when both the revision and the
   user match the values captured when the deletion was asked; signing out resets the delete flow.
+- **A failed change withdraws the old truth, and the ask is kept.** When the host says "the person
+  is now B" and that cannot be recorded, "confirmed as A" is no longer true: `confirmed` is
+  withdrawn so nothing is attributed or sent, and the ask is kept in `pending` and installed before
+  the next send. Without the retry, withdrawing alone would stall reporting until the host happens
+  to confirm again (the Apple app: the next launch).
+- **Write the marker after the thing it marks.** A once-marker or the `$identify` marker is written
+  only after its event is queued, from a re-read state so the write undoes nothing queued meanwhile.
+  Marker-first meant a failure in between consumed the marker and lost the event for good; a host
+  that clears its own record on the marker (the pending install) then lost it too. Event-first can at
+  worst repeat an event in the crash window between two local writes; it can never lose one.
 
 ## Why it works, and where it does not apply
 
@@ -95,11 +105,17 @@ check, not claimed away.
   "unconfirmed accounts": a seeded, previously attributed queue is held.
 - `packages/core/src/ui/__tests__/controller-analytics.test.ts`: a deletion that fails after a
   sign-out never re-identifies and leaves the flow idle.
-- Mutation pass (sixteen mutations: each fence, the request-entry check, the durable record, the
+  "recovering from a storage failure": a confirmation that fails withdraws the old one and is
+  retried before the next send, the latest ask wins, no server attach or marker under a mismatch,
+  a once-marker is written only once its event is queued (client and extension host, pending
+  install kept), the `$identify` marker likewise, and neither marker write builds on a stale or
+  unread state.
+- Mutation pass (twenty mutations: each fence, the request-entry check, the durable record, the
   verification reread, the null-read and null-state handling, the write-on-unread guard, the
-  seeded-queue guard, both controller guards): every one fails at least one test. Two guards that
-  no mutation could expose (a second drop gate inside `confirm`, an early epoch check in the
-  opt-out) were removed rather than kept untestable.
+  seeded-queue guard, withdrawal and retry of a failed confirmation, marker-after-event for both
+  marker kinds, both controller guards): every one fails at least one test. Three guards that no
+  mutation could expose (a second drop gate inside `confirm`, an early epoch check in the opt-out,
+  a process block on an unreadable forget) were removed rather than kept untestable.
 - Full gate green: lint, typecheck, all JS tests across core, Safari and Chromium, build, 51
   Playwright fixtures; Codex's independent pass at `2d8129f` also ran Deno (151) and Swift (142).
 
@@ -111,6 +127,10 @@ check, not claimed away.
   request, it is not the last check. Put it inside the function that sends.
 - A `catch` that returns a default value turns "I could not read" into "there is nothing". For
   state that records an obligation, return `null` and make every reader fail closed.
+- When a state change fails, ask what the old value now means. If the caller has told you it is no
+  longer true, withdraw it; do not leave it standing because the new one could not be written.
+- Order two writes so that a failure between them repeats work rather than loses it: the record
+  first, the marker that says "recorded" second.
 - When one logical change touches two stores, write the intent to the reliable store first, verify
   the other, and gate the effect on the verified state.
 - When writing a guard after an `await`, copy the guard from before the `await`; a shorter guard

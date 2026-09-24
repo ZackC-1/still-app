@@ -44,9 +44,15 @@ import { isAnalyticsId, type AnalyticsIdentity, type AnalyticsKeyValue } from ".
 //      to the next confirmation or flush, in this process or the next. A state store that cannot
 //      be read is never taken as empty: every reader fails closed (nothing sent, nothing written),
 //      so the record of what is owed can neither be overlooked nor overwritten.
+//      A once-a-day or once-ever marker is written only after its event is safely queued, and the
+//      `$identify` marker only after the `$identify` is, so a marker never stands for an event
+//      that was lost (a lost install could never be counted again).
 //   3. Confirmation is one operation. `confirm()` installs the account (or lets it go), tries any
 //      owed drop, attributes the waiting events, and only then marks the account confirmed, so
-//      nothing can see "confirmed" together with a different account.
+//      nothing can see "confirmed" together with a different account. A confirmation that cannot
+//      be installed withdraws the previous one: what the host established is not what is stored,
+//      so events wait unattributed and nothing is sent. The ask is kept and tried again before
+//      the next send, so a transient storage failure delays reporting rather than ending it.
 //   4. Nothing leaves before the account is confirmed. Hosts that start without knowing who is
 //      signed in (`startsUnconfirmed`) send nothing until they confirm, and a timeout never counts
 //      as confirmation.
@@ -193,6 +199,11 @@ function localMidnightIso(ms: number): string {
 /** Who the host has established is signed in: an account id, or nobody. */
 export type ConfirmedAccount = string | null;
 
+interface Confirmation {
+  readonly account: ConfirmedAccount;
+  readonly options: ConfirmOptions;
+}
+
 export interface ConfirmOptions {
   /** The account that was signed in has gone (deleted, or its session ended elsewhere): abandon
    * any send under it and drop the events waiting under it, so nothing recreates a person the
@@ -215,6 +226,9 @@ export class AnalyticsClient {
   private generation = 0;
   /** Rule 4. Only \`confirm\` sets it, and only after installing the account (rule 3). */
   private confirmed: boolean;
+  /** The host's latest ask, until it is installed: a confirmation that failed on storage is tried
+   * again before the next send (rule 3). A later ask replaces it. */
+  private pending: Confirmation | null = null;
   /** The request in flight, so switching sharing off can abandon it instead of waiting. */
   private inflight: AbortController | null = null;
   /** Set when an account change could not be saved: reporting stops for the life of this client
@@ -294,8 +308,8 @@ export class AnalyticsClient {
    * The host has established who is signed in (`userId`), or that nobody is (`null`). In one
    * operation: install that account (or let the previous one go, with a fresh anonymous id), drop
    * what a forgotten account still owns, give every waiting unattributed event its person, then
-   * mark the account confirmed and, unless quiet, send what is waiting. Never undone: confirmed
-   * stays confirmed.
+   * mark the account confirmed and, unless quiet, send what is waiting. Undone only by a later
+   * confirmation that cannot be installed: then nothing is attributed or sent until one succeeds.
    *
    * With `forget`, the account is fenced the moment this is called, before anything waits its turn:
    * the request in flight is abandoned and every flush asked for before now sends nothing, so
@@ -304,19 +318,33 @@ export class AnalyticsClient {
    */
   confirm(account: ConfirmedAccount, options: ConfirmOptions = {}): Promise<void> {
     if (options.forget) this.cancel();
-    return this.run(async () => {
-      if (!this.configured) return;
-      if (account !== null && !isAnalyticsId(account)) return; // only Supabase UUIDs become accounts
-      if (!(await this.installAccount(account, options))) return;
-      await this.dropForgotten(); // tried here; `flush` is the gate that refuses to send until it is done
-      await this.attributeWaiting();
-      this.confirmed = true;
-      if (account !== null && (await this.allowed())) {
-        const identity = await this.identity();
-        if (identity) await this.ensureIdentified(identity, options);
-      }
-      if (!options.quiet && (await this.readQueue()).length > 0) this.scheduleFlush();
-    });
+    const ask: Confirmation = { account, options };
+    this.pending = ask; // the latest ask wins; cleared once it is installed
+    return this.run(() => this.establish(ask));
+  }
+
+  /** The body of a confirmation; also how `flush` retries the host's latest ask (`retrying`). */
+  private async establish(ask: Confirmation, retrying = false): Promise<void> {
+    if (!this.configured) return;
+    const { account, options } = ask;
+    if (account !== null && !isAnalyticsId(account)) {
+      // Only Supabase UUIDs become accounts; anything else cannot be one and is ignored, as before.
+      if (this.pending === ask) this.pending = null;
+      return;
+    }
+    if (!(await this.installAccount(account, options))) {
+      this.confirmed = false; // rule 3; `pending` keeps the ask for the next send
+      return;
+    }
+    if (this.pending === ask) this.pending = null;
+    await this.dropForgotten(); // tried here; `flush` is the gate that refuses to send until it is done
+    await this.attributeWaiting();
+    this.confirmed = true;
+    if (account !== null && (await this.allowed())) {
+      const identity = await this.identity();
+      if (identity) await this.ensureIdentified(identity, options);
+    }
+    if (!retrying && !options.quiet && (await this.readQueue()).length > 0) this.scheduleFlush();
   }
 
   /** A sign-in: shorthand for `confirm(userId)`. */
@@ -354,6 +382,9 @@ export class AnalyticsClient {
     // forgotten, sharing switched off) means it must send nothing when it runs (rule 1).
     const epoch = this.epoch;
     return this.run(async () => {
+      // A confirmation that failed on storage is tried again here, so reporting resumes on its own
+      // once the store recovers, without waiting for the host to confirm again (rule 3).
+      if (!this.confirmed && this.pending) await this.establish(this.pending, true);
       if (!this.confirmed || epoch !== this.epoch) return; // rule 4; rule 1
       if (!(await this.dropForgotten())) return; // rule 2: a forgotten account's events never leave
       for (;;) {
@@ -441,8 +472,12 @@ export class AnalyticsClient {
       if (!valid) return;
       const state = await this.read();
       if (!state || state.daily[marker] === value) return;
-      await this.write({ ...state, daily: { ...state.daily, [marker]: value } });
-      await this.enqueue(name, valid, options);
+      // The event first, the marker only once it is safely queued: a marker must never stand for
+      // an event that was lost, and a host clears its own record (a pending install) on the marker.
+      if (!(await this.enqueue(name, valid, options))) return;
+      // Re-read: queueing may have marked the `$identify`, which this write must not undo.
+      const latest = await this.read();
+      if (latest) await this.write({ ...latest, daily: { ...latest.daily, [marker]: value } });
     });
   }
 
@@ -451,12 +486,9 @@ export class AnalyticsClient {
    * (`dropForgotten`), so the drop is owed even if this process ends first. */
   private async installAccount(account: ConfirmedAccount, options: ConfirmOptions): Promise<boolean> {
     const state = await this.read();
-    if (!state) {
-      // Who is signed in cannot be known, so nothing changes and the host confirms again later. A
-      // forget that cannot be recorded stops this process for good: the next one is asked again.
-      if (options.forget) this.blocked = true;
-      return false;
-    }
+    // Who is signed in cannot be known: nothing changes, the confirmation stands withdrawn, and the
+    // ask (a forget included: its sends are already fenced) is tried again before the next send.
+    if (!state) return false;
     if (account !== null) {
       if (state.userId === account) return true;
       this.generation += 1;
@@ -611,9 +643,11 @@ export class AnalyticsClient {
     }
   }
 
-  private async push(event: QueuedEvent, options: TrackOptions = {}): Promise<void> {
-    await this.writeQueue([...(await this.readQueue()), event]);
+  /** Queue one event. False when the queue store refused it. */
+  private async push(event: QueuedEvent, options: TrackOptions = {}): Promise<boolean> {
+    if (!(await this.writeQueue([...(await this.readQueue()), event]))) return false;
     if (!options.quiet) this.scheduleFlush();
+    return true;
   }
 
   private timestamp(options: TrackOptions): string {
@@ -670,8 +704,7 @@ export class AnalyticsClient {
     const state = await this.read();
     if (!state?.userId || state.identifiedAs === state.userId) return;
     const person = this.personProperties(options);
-    await this.write({ ...state, identifiedAs: state.userId });
-    await this.push({
+    const queued = await this.push({
       event: "$identify",
       uuid: this.deps.uuid(),
       timestamp: this.timestamp({ quiet: options.quiet }),
@@ -685,32 +718,34 @@ export class AnalyticsClient {
         $set_once: person.$set_once,
       },
     }, options);
+    // Marked only once queued: an install that never merges into its account is a person lost.
+    if (queued) await this.write({ ...state, identifiedAs: state.userId });
   }
 
+  /** Queue one product event. False when it could not be queued (nothing was recorded). */
   private async enqueue(
     name: string,
     props: Record<string, boolean | string>,
     options: TrackOptions = {},
-  ): Promise<void> {
+  ): Promise<boolean> {
     const identity = await this.identity();
-    if (!identity) return;
+    if (!identity) return false;
     await this.ensureIdentified(identity, options);
     const state = await this.read();
-    if (!state) return; // an event costs less than one recorded under the wrong person
+    if (!state) return false; // an event costs less than one recorded under the wrong person
     const person = this.personProperties(options);
     const { distinct_id: distinctId, ...common } = this.envelope(state, identity);
     if (!this.confirmed) {
       // No person yet: the confirmation gives it one, in storage, before it can be sent (rule 2).
-      await this.push({
+      return this.push({
         event: name,
         uuid: this.deps.uuid(),
         timestamp: this.timestamp(options),
         attributeLater: true,
         properties: { ...props, ...common, $set: person.$set, $set_once: person.$set_once },
       }, options);
-      return;
     }
-    await this.push({
+    return this.push({
       event: name,
       uuid: this.deps.uuid(),
       timestamp: this.timestamp(options),

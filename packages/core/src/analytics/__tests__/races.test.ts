@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import { AnalyticsClient, QUEUE_KEY, STATE_KEY, type AnalyticsClientDeps } from "../client.js";
 import {
   ANALYTICS_MESSAGE_KIND,
+  PENDING_INSTALL_KEY,
   SERVER_ATTACH_LIMIT_MS,
   SERVER_IDENTIFIED_KEY,
   START_HOLD_LIMIT_MS,
@@ -31,20 +32,36 @@ function gate() {
   return { open, opened };
 }
 
-/** Memory storage whose reads of one key can be paused. */
+/** Memory storage whose reads of one key can be paused, or made to fail once. */
 function pausable() {
   const data: Record<string, unknown> = {};
   let pause: { key: string; gate: ReturnType<typeof gate>; reached: () => void } | null = null;
-  const store: AnalyticsKeyValue & { data: Record<string, unknown>; pauseNextRead(key: string): Promise<() => void> } = {
+  let failing: { key: string; skip: number } | null = null;
+  const store: AnalyticsKeyValue & {
+    data: Record<string, unknown>;
+    pauseNextRead(key: string): Promise<() => void>;
+    /** Make a later read of `key` fail once: the next one, or the one after `skip` more. Decided
+     * when a read begins, so arming this while a read is paused targets the reads after it. */
+    failNextRead(key: string, skip?: number): void;
+  } = {
     data,
     async get(k) {
+      let fail = false;
+      if (failing && failing.key === k) {
+        if (failing.skip > 0) failing.skip -= 1;
+        else { fail = true; failing = null; }
+      }
       if (pause && pause.key === k) {
         const p = pause;
         pause = null;
         p.reached();
         await p.gate.opened;
       }
+      if (fail) throw new Error("unreadable once");
       return structuredClone(data[k]);
+    },
+    failNextRead(key, skip = 0) {
+      failing = { key, skip };
     },
     async set(k, v) {
       data[k] = structuredClone(v);
@@ -570,7 +587,7 @@ describe("forgetting an account (it was deleted)", () => {
     expect(rec.events().some((e) => e.properties.distinct_id === U2)).toBe(true);
   });
 
-  it("a forget that cannot be recorded stops this process, and the next one is asked again", async () => {
+  it("a forget that cannot be recorded sends nothing, and is completed before the next send", async () => {
     const rec = recordingFetch();
     const backing = pausable();
     const state = refusable(backing);
@@ -579,13 +596,17 @@ describe("forgetting an account (it was deleted)", () => {
     await client.track("opened", { where: "popup" });
     state.refuse("reads");
     await client.reset({ forgetAccount: true }); // cannot even tell who to forget
-    state.refuse("none");
-    await client.flush(); // this process sends nothing more
+    expect(client.accountConfirmed).toBe(false);
+    await client.flush(); // nothing while it cannot be completed
     expect(rec.events()).toEqual([]);
-    const next = makeClient({ store: state.store, fetch: rec.fetch, startsUnconfirmed: true }).client;
-    await next.confirm(null, { forget: true }); // the session is gone, so the next start forgets again
-    await next.flush();
-    expect(JSON.stringify(rec.events())).not.toContain(U1);
+    state.refuse("none");
+    await client.flush(); // completed here: U1 recorded as forgotten, its events dropped
+    expect(rec.events()).toEqual([]);
+    expect((backing.data[STATE_KEY] as { userId: string | null }).userId).toBeNull();
+    expect(JSON.stringify(backing.data[QUEUE_KEY] ?? [])).not.toContain(U1);
+    await client.track("opened", { where: "popup" }); // anonymous from here on
+    await client.flush();
+    expect(rec.events().map((e) => e.properties.signed_in)).toEqual([false]);
   });
 
   it("an opt-out asked for before the forget never names the account", async () => {
@@ -629,5 +650,158 @@ describe("forgetting an account (it was deleted)", () => {
     open();
     await Promise.all([flushing, forgetting]);
     expect(rec.events()).toEqual([]);
+  });
+});
+
+describe("recovering from a storage failure", () => {
+  const opened = (rec: ReturnType<typeof recordingFetch>) =>
+    rec.events().filter((e) => e.event === "opened").map((e) => e.properties.distinct_id);
+
+  it("a confirmation that cannot be installed withdraws the previous one, and is tried again before the next send", async () => {
+    const rec = recordingFetch();
+    const backing = pausable();
+    const state = refusable(backing);
+    const { client } = makeClient({ store: state.store, fetch: rec.fetch });
+    await client.confirm(U1);
+    await client.track("opened", { where: "popup" });
+    await client.flush();
+    state.refuse("reads");
+    await client.confirm(U2); // the person is now U2, but that could not be recorded
+    expect(client.accountConfirmed).toBe(false);
+    await client.flush();
+    expect(opened(rec)).toEqual([U1]); // nothing more goes out while it stands withdrawn
+    state.refuse("none");
+    await client.track("opened", { where: "popup" }); // U2's use, before any confirmation: held
+    const held = (backing.data[QUEUE_KEY] as { properties: Record<string, unknown> }[]).at(-1)!;
+    expect(held.properties.distinct_id).toBeUndefined(); // no person, and never U1
+    await client.flush(); // the store recovered: the ask is installed here, without the host's help
+    expect(client.accountConfirmed).toBe(true);
+    expect(opened(rec)).toEqual([U1, U2]);
+  });
+
+  it("the host's latest ask wins over one that failed", async () => {
+    const state = refusable(pausable());
+    const { client } = makeClient({ store: state.store });
+    await client.confirm(U1);
+    state.refuse("reads");
+    await client.confirm(U2); // failed
+    state.refuse("none");
+    await client.confirm(null); // then the person signed out
+    await client.flush();
+    expect(await client.signedInAs()).toBeNull(); // U2 is never installed behind the sign-out
+    expect(client.accountConfirmed).toBe(true);
+  });
+
+  it("the server attach never runs, or marks, for an account the client could not install", async () => {
+    const backing = pausable();
+    const state = refusable(backing);
+    const { client } = makeClient({ store: state.store });
+    const served: string[] = [];
+    let authenticatedAs = U1;
+    const accounts = createAccountIdentifier({
+      client, local: state.store, consent: async () => true,
+      identifyOnServer: async () => void served.push(authenticatedAs),
+    });
+    await accounts.identify(U1);
+    expect(served).toEqual([U1]);
+    authenticatedAs = U2;
+    state.refuse("reads");
+    await accounts.identify(U2); // the client still holds U1; the session is U2's
+    expect(served).toEqual([U1]); // no request under a mismatch
+    expect(backing.data[SERVER_IDENTIFIED_KEY]).toBe(U1); // U1's marker is not rewritten for U2's request
+    state.refuse("none");
+    await accounts.identify(U2);
+    expect(served).toEqual([U1, U2]);
+    expect(backing.data[SERVER_IDENTIFIED_KEY]).toBe(U2);
+  });
+
+  it("a once-marker is written only once its event is queued, so a lost install is tried again", async () => {
+    const { client, store } = makeClient({ startsUnconfirmed: true });
+    const reached = store.pauseNextRead(STATE_KEY); // the marker check passes...
+    const tracking = client.trackOnce("installed", "installed", { returning: false });
+    const open = await reached;
+    store.failNextRead(STATE_KEY); // ...then the read that would record the event fails
+    open();
+    await tracking;
+    expect(await client.hasTrackedOnce("installed")).toBe(false); // the marker still stands open
+    expect((store.data[QUEUE_KEY] as unknown[] | undefined) ?? []).toEqual([]);
+    await client.trackOnce("installed", "installed", { returning: false }); // the host tries again
+    expect(await client.hasTrackedOnce("installed")).toBe(true);
+    expect((store.data[QUEUE_KEY] as { event: string }[]).map((e) => e.event)).toEqual(["installed"]);
+  });
+
+  it("an extension keeps its pending install until the install is really queued", async () => {
+    vi.useFakeTimers();
+    try {
+      const rec = recordingFetch();
+      const local = pausable();
+      const host = createExtensionAnalyticsHost({
+        surface: "chrome", config: { key: "phc_test", host: "https://us.i.posthog.com" }, appVersion: "2.1.0",
+        local, identity: async () => IDENTITY, consent: async () => true, storeConsent: async () => {},
+        noticeApplies: false, isTrustedPage: () => true, uuid, fetch: rec.fetch,
+      });
+      local.data[PENDING_INSTALL_KEY] = { returning: false, at: Date.now() };
+      const send = (m: unknown) => new Promise<unknown>((r) => { if (!host.listener(m, PAGE, r)) r(undefined); });
+      const reached = local.pauseNextRead(STATE_KEY);
+      const sharing = send({ kind: ANALYTICS_MESSAGE_KIND, action: "setSharing", enabled: true }); // counts the install
+      const open = await reached;
+      local.failNextRead(STATE_KEY); // the install's event is lost at its second read
+      open();
+      await sharing;
+      expect(local.data[PENDING_INSTALL_KEY]).not.toBeNull(); // the evidence stays
+      host.onStart(null); // the next start counts it
+      await vi.advanceTimersByTimeAsync(10);
+      await host.flushWhenReady();
+      expect(rec.events().filter((e) => e.event === "installed")).toHaveLength(1);
+      expect(local.data[PENDING_INSTALL_KEY]).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("the $identify is marked only once it is queued", async () => {
+    const backing = pausable();
+    const queue = refusable(pausable());
+    const { client } = makeClient({ store: backing, queueStore: queue.store });
+    queue.refuse("writes");
+    await client.identify(U1); // the $identify could not be queued
+    expect((backing.data[STATE_KEY] as { identifiedAs: string | null }).identifiedAs).toBeNull();
+    queue.refuse("none");
+    await client.track("opened", { where: "popup" }); // the next event queues it first
+    expect((backing.data[STATE_KEY] as { identifiedAs: string | null }).identifiedAs).toBe(U1);
+    expect(((await queue.store.get(QUEUE_KEY)) as { event: string }[]).map((e) => e.event)).toEqual(["$identify", "opened"]);
+  });
+
+  it("a marker whose final read fails is left open rather than written over an unread state", async () => {
+    const backing = pausable();
+    const queue = refusable(pausable());
+    const { client } = makeClient({ store: backing, queueStore: queue.store });
+    await client.identify(U1);
+    queue.refuse("writes");
+    await client.reset({ forgetAccount: true }); // U1 forgotten, its drop owed
+    queue.refuse("none");
+    const reached = backing.pauseNextRead(STATE_KEY); // the marker check
+    const tracking = client.trackDaily("active", "active", {});
+    const open = await reached;
+    backing.failNextRead(STATE_KEY, 2); // past the two reads that queue the event, the re-read fails
+    open();
+    await tracking;
+    const state = backing.data[STATE_KEY] as { userId: string | null; forgotten: string[]; daily: Record<string, string> };
+    expect(state.forgotten).toEqual([U1]); // the owed drop survives
+    expect(state.userId).toBeNull();
+    expect(state.daily.active).toBeUndefined(); // open, so the day may be counted again, never lost
+  });
+
+  it("writing a once-marker keeps what queueing its event marked", async () => {
+    const backing = pausable();
+    const queue = refusable(pausable());
+    const { client } = makeClient({ store: backing, queueStore: queue.store });
+    queue.refuse("writes");
+    await client.identify(U1); // $identify not queued, so not marked
+    queue.refuse("none");
+    await client.trackOnce("installed", "installed", { returning: false }); // queues $identify, marks it, then marks itself
+    const state = backing.data[STATE_KEY] as { identifiedAs: string | null; daily: Record<string, string> };
+    expect(state.identifiedAs).toBe(U1);
+    expect(state.daily["once:installed"]).toBe("done");
   });
 });
