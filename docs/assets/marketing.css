@@ -118,7 +118,9 @@ h2 { max-width: 790px; margin: 0; font-size: clamp(38px, 4vw, 58px); line-height
 .get-still-section { padding: 64px 0; text-align: center; }
 .get-still-section > h2 { margin-inline: auto; }
 .get-still-lede { max-width: 640px; margin: 18px auto 40px; color: var(--muted); font-size: 18px; line-height: 1.6; }
-.store-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; max-width: 760px; margin: 0 auto; }
+.store-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; max-width: 980px; margin: 0 auto; }
+.store-btn img { height: 48px; width: auto; max-width: 100%; }
+@media (max-width: 1020px) and (min-width: 521px) { .store-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .store-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; min-height: 104px; padding: 22px; border: 1px solid var(--line); border-radius: 16px; background: white; text-decoration: none; color: var(--ink); transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
 .store-btn:hover { transform: translateY(-3px); border-color: var(--blue); box-shadow: 0 18px 40px rgba(41, 72, 232, .12); }
 .store-name { font-size: 18px; font-weight: 720; letter-spacing: -.02em; }
@@ -159,3 +161,9 @@ footer div { display: flex; flex-wrap: wrap; gap: 22px; }
   .outcome-grid { grid-template-columns: 1fr; }
   .pricing-grid { grid-template-columns: 1fr; }
 }
+
+/* Official store badges (Apple, Google, Mozilla artwork, unaltered). Apple's badge comes first and
+   keeps at least a quarter of its height as clear space. */
+.store-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin: 20px 0 8px; }
+.store-badges a { display: inline-flex; line-height: 0; border-radius: 8px; }
+.store-badges img { height: 48px; width: auto; }
