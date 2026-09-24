@@ -1,3 +1,10 @@
 contact-sheet.html
 bookmarklets.html
 bookmarklets.txt
+
+# Signed-in captures show the test account and suggested private accounts; only the cropped
+# store images built from them are committed.
+captures/desktop/instagram*
+captures/desktop/facebook*
+captures/*/instagram*
+captures/*/facebook*

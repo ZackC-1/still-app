@@ -156,6 +156,15 @@
     return out;
   }
 
+  function largestMedia() {
+    let best = null, area = 0;
+    for (const m of document.querySelectorAll("video, main img")) {
+      const r = m.getBoundingClientRect();
+      if (r.width * r.height > area && r.top < innerHeight && r.bottom > 0) { best = m; area = r.width * r.height; }
+    }
+    return best ? [{ el: best, kind: "x" }] : [];
+  }
+
   function path(points) {
     return points.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
   }
@@ -264,8 +273,13 @@
     }
     let marks = [];
     if (config.mark) {
-      const rules = (config.rules && config.rules[service]) || [];
-      marks = targets(rules, extraTargets(service)).slice(0, config.maxMarks || 24);
+      // A page Still replaces outright (a Reels page) takes explicit marks: its nav entry and the one
+      // video, instead of every link the rule set would also hide on it.
+      const rules = config.mark.circle
+        ? [{ action: "hide", selectors: config.mark.circle }, { action: "remove", selectors: config.mark.x || [] }]
+        : (config.rules && config.rules[service]) || [];
+      const extra = config.mark.largestMedia ? largestMedia() : extraTargets(service);
+      marks = targets(rules, extra).slice(0, config.maxMarks || 24);
       draw(marks, config);
     }
     return { service, marks: marks.length, rects: marks.map((m) => [m.kind, Math.round(m.r.left), Math.round(m.r.top), Math.round(m.r.width), Math.round(m.r.height)]) };

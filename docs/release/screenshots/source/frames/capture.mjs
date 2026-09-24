@@ -64,10 +64,10 @@ async function shoot(ctx, url, file, { mark, settle = 6000, scroll = 0, labels, 
 }
 
 // Same page, without Still then with it.
-async function pair(name, url, { signedIn = false, headless = true, device = {}, dir = "", ...opts } = {}) {
+async function pair(name, url, { signedIn = false, headless = true, device = {}, dir = "", marks = true, ...opts } = {}) {
   for (const on of [false, true]) {
     const ctx = await launch({ ext: on, signedIn, headless, ...device });
-    await shoot(ctx, url, `${dir}${name}-${on ? "after" : "before"}.png`, { ...opts, mark: !on });
+    await shoot(ctx, url, `${dir}${name}-${on ? "after" : "before"}.png`, { ...opts, mark: on ? false : marks });
     await ctx.close();
   }
 }
@@ -113,7 +113,8 @@ if (wanted("tiktok")) await pair("tiktok", TIKTOK, { settle: 9000, headless: fal
 // 4. Instagram, signed in to the test account: home feed, and the Reels page itself.
 if (wanted("instagram")) {
   await pair("instagram", "https://www.instagram.com/", { signedIn: true, settle: 7000 });
-  await pair("instagram-reels", "https://www.instagram.com/reels/", { signedIn: true, settle: 7000 });
+  await pair("instagram-reels", "https://www.instagram.com/reels/", { signedIn: true, settle: 7000,
+    marks: { circle: ['a[href="/reels/"]'], largestMedia: true } });
 }
 
 // 5. Facebook, signed in to the test account: home feed, and the Reels page itself.
