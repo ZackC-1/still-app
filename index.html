@@ -76,11 +76,12 @@
   <main id="top">
     <section class="hero section-shell">
       <div class="hero-copy">
-        <p class="eyebrow">Your favorite websites, without short-form videos</p>
         <p class="hero-display">Do what you came to do</p>
-        <h1 class="hero-heading">Block YouTube Shorts and Instagram Reels in Safari, Chrome and Firefox</h1>
-        <p class="hero-lede">Still removes Shorts and Reels, and blocks TikTok, on the websites you use. One intentional visit doesn't become hours of scrolling.</p>
-        <a class="button button-primary device-cta" data-device-cta hidden href="#get-still">Get Still — free</a>
+        <h1 class="hero-heading">Block YouTube Shorts and Instagram Reels in Safari, Chrome and Firefox on both mobile and desktop</h1>
+        <p class="hero-lede">Still is a mobile and desktop app, as well as a browser extension. Your blocking settings sync automatically between your devices when you sign in.</p>
+      </div>
+
+      <div class="hero-downloads">
         <p class="device-note" data-device-note hidden>Still isn't available on Android. It works in Safari on iPhone, iPad and Mac, and in Chrome and Firefox on a computer.</p>
         <div class="store-badges hero-badges">
           <a data-store="ios" data-apple-store href="https://apps.apple.com/app/apple-store/id6784061138?pt=129084033&amp;ct=web-home&amp;mt=8&amp;platform=iphone"><img src="/assets/badges/app-store.svg" alt="Download on the App Store (iPhone and iPad)" width="144" height="48"></a>
@@ -88,17 +89,20 @@
           <a data-store="cws" href="https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf?utm_source=stillapp.fit&amp;utm_medium=website&amp;utm_campaign=home"><img src="/assets/badges/chrome-web-store.png" alt="Available in the Chrome Web Store" width="159" height="48"></a>
           <a data-store="amo" href="https://addons.mozilla.org/en-US/firefox/addon/still-free-yourself/?utm_source=stillapp.fit&amp;utm_medium=website&amp;utm_campaign=home"><img src="/assets/badges/firefox-add-ons.svg" alt="Get the add-on for Firefox" width="138" height="48"></a>
         </div>
-        <p class="price-line">Still is free to use. Sign in to sync your blocking settings across Safari, Chrome, and Firefox on desktop and iOS.</p>
       </div>
 
       <figure class="hero-media">
         <img class="hero-video" src="./assets/still-launch-poster.jpg"
              alt="Still’s balance mark on a blue background" width="1920" height="1080">
+        <canvas class="hero-animation" hidden role="img" aria-label="YouTube Shorts, Instagram Reels, and TikTok videos rush past until the Still logo appears and brings everything to a stop."></canvas>
+        <button class="hero-animation-toggle" type="button" hidden aria-label="Pause animation">
+          <svg class="animation-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14" /></svg>
+          <svg class="animation-play" viewBox="0 0 24 24" aria-hidden="true"><path d="m8 5 11 7-11 7Z" /></svg>
+        </button>
       </figure>
     </section>
 
     <section id="see-it-work" class="showcase section-shell" aria-labelledby="showcase-title">
-      <p class="eyebrow">See it work</p>
       <h2 id="showcase-title">Shorts and Reels gone. Everything else stays.</h2>
       <figure class="showcase-main">
         <img src="/assets/screens/still-01-youtube.jpg" width="1280" height="800" loading="lazy"
@@ -117,27 +121,80 @@
     </section>
 
     <section class="outcome-section section-shell" aria-labelledby="outcome-title">
-      <p class="eyebrow">A quieter default</p>
       <h2 id="outcome-title">Keep the useful parts. Lose the part that keeps pulling.</h2>
       <div class="outcome-grid">
-        <article><span>01</span><h3>Arrive with a purpose</h3><p>Watch the video, check the post, or reply to the message you opened the site for.</p></article>
-        <article><span>02</span><h3>Skip the accidental scroll</h3><p>The short-form entry points and feeds simply aren’t there to catch your attention.</p></article>
-        <article><span>03</span><h3>Leave with a clear mind</h3><p>No timers, shame, streaks, or willpower games. Just a calmer version of the web.</p></article>
+        <article>
+          <div class="benefit-copy"><span>01</span><h3>Arrive with a purpose</h3><p>Watch the video, check the post, or reply to the message you opened the site for.</p></div>
+          <svg class="benefit-art" viewBox="0 0 360 200" fill="none" aria-hidden="true">
+            <rect x="42" y="29" width="242" height="147" rx="12" fill="#fff" stroke="#c8d0ed" stroke-width="2"/>
+            <path d="M42 55h242" stroke="#c8d0ed" stroke-width="2"/>
+            <circle cx="57" cy="42" r="3" fill="#2948e8"/><circle cx="69" cy="42" r="3" fill="#c8d0ed"/><circle cx="81" cy="42" r="3" fill="#c8d0ed"/>
+            <rect x="58" y="70" width="129" height="89" rx="8" fill="#eef1ff"/>
+            <circle cx="123" cy="114" r="24" fill="#2948e8"/>
+            <path d="m117 103 17 11-17 11Z" fill="#fff"/>
+            <path d="M204 83h61m-61 13h46m-46 26h55m-55 13h36" stroke="#b4bddc" stroke-width="5" stroke-linecap="round"/>
+            <path d="m252 130 41 18-18 6-7 19Z" fill="#2948e8" stroke="#fbfcff" stroke-width="4" stroke-linejoin="round"/>
+            <path d="m291 119 8-10m1 24 13-2m-35-21 1-12" stroke="#2948e8" stroke-width="2" stroke-linecap="round"/>
+          </svg>
+        </article>
+        <article>
+          <div class="benefit-copy"><span>02</span><h3>Skip the accidental scroll</h3><p>The short-form entry points and feeds simply aren’t there to catch your attention.</p></div>
+          <svg class="benefit-art" viewBox="0 0 360 200" fill="none" aria-hidden="true">
+            <rect x="40" y="46" width="75" height="115" rx="10" fill="#eef1ff" stroke="#c8d0ed" stroke-width="2"/>
+            <path d="m69 88 20 14-20 14Z" fill="#aab7eb"/>
+            <rect x="137" y="33" width="86" height="133" rx="11" stroke="#b4bddc" stroke-width="2" stroke-dasharray="6 7"/>
+            <rect x="245" y="46" width="75" height="115" rx="10" fill="#eef1ff" stroke="#c8d0ed" stroke-width="2"/>
+            <path d="m274 88 20 14-20 14Z" fill="#aab7eb"/>
+            <circle cx="180" cy="100" r="32" fill="#2948e8"/>
+            <path d="m167 100 9 9 18-20" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M58 177h244" stroke="#2948e8" stroke-width="2" stroke-linecap="round"/>
+            <path d="m294 169 9 8-9 8" stroke="#2948e8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </article>
+        <article>
+          <div class="benefit-copy"><span>03</span><h3>Leave with a clear mind</h3><p>No timers, shame, streaks, or willpower games. Just a calmer version of the web.</p></div>
+          <svg class="benefit-art" viewBox="0 0 360 200" fill="none" aria-hidden="true">
+            <path d="M47 169h269" stroke="#c8d0ed" stroke-width="2" stroke-linecap="round"/>
+            <path d="M100 168V37a8 8 0 0 1 8-8h102a8 8 0 0 1 8 8v131" fill="#eef1ff" stroke="#c8d0ed" stroke-width="2"/>
+            <path d="m100 29 81 18v121h-81Z" fill="#fff" stroke="#2948e8" stroke-width="2" stroke-linejoin="round"/>
+            <circle cx="165" cy="107" r="4" fill="#2948e8"/>
+            <path d="M220 116h77m-12-12 13 12-13 12" stroke="#2948e8" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="264" cy="65" r="10" fill="#2948e8"/>
+            <path d="M235 77h58" stroke="#2948e8" stroke-width="3" stroke-linecap="round"/>
+          </svg>
+        </article>
       </div>
     </section>
 
-    <section id="how-it-works" class="how-section section-shell split-section">
-      <div>
-        <p class="eyebrow">Quiet infrastructure</p>
-        <h2>Still removes the invitation to scroll.</h2>
-        <p>It works as a browser extension on the four supported websites. You keep regular videos, posts, and messages on YouTube, Instagram, and Facebook. Still removes their short-form surfaces and blocks the TikTok website.</p>
+    <section id="how-it-works" class="how-section section-shell split-section" aria-labelledby="setup-title">
+      <h2 id="setup-title">Set up Still. Get on with your day.</h2>
+      <div class="setup-grid">
+        <div>
+          <h3 class="setup-device-heading"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="6.5" y="2" width="11" height="20" rx="2.5"/><path d="M10 5h4m-3 14h2"/></svg>On mobile</h3>
+          <p class="setup-platform">iPhone &amp; iPad</p>
+          <ol>
+            <li><strong>Download Still</strong> from the App Store.</li>
+            <li><strong>Open the app</strong> and follow the steps to enable Still in Safari.</li>
+            <li><strong>Browse in Safari.</strong> Still blocks short-form distractions automatically.</li>
+          </ol>
+          <p class="setup-note">Works on websites in Safari, not inside social-media apps. Android isn’t supported.</p>
+        </div>
+        <div>
+          <h3 class="setup-device-heading"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M12 17v4m-5 0h10M2 13h20"/></svg>On desktop</h3>
+          <p class="setup-platform">Chrome, Safari and Firefox</p>
+          <ol>
+            <li><strong>Install Still for your browser:</strong> the Mac app for Safari, or the extension for Chrome or Firefox.</li>
+            <li><strong>Enable Still and allow website access.</strong> On Safari, follow the setup steps in the Mac app.</li>
+            <li><strong>Browse as usual.</strong> Open Still from the app or browser toolbar to choose what to block.</li>
+          </ol>
+          <p class="setup-note">Install Still separately in each browser you use.</p>
+        </div>
       </div>
-      <ul class="service-list" aria-label="Supported services">
-        <li><span>YouTube</span><strong>Shorts removed</strong></li>
-        <li><span>Instagram</span><strong>Reels removed</strong></li>
-        <li><span>Facebook</span><strong>Reels removed</strong></li>
-        <li><span>TikTok</span><strong>Website blocked</strong></li>
-      </ul>
+      <div class="setup-sync">
+        <h3>Want your settings to sync?</h3>
+        <p>Open Still on each device or browser. Sign in with the same email and enter the code we send you. Your blocking settings sync automatically.</p>
+        <a class="text-link" href="./setup.html">See the full setup guide →</a>
+      </div>
     </section>
 
     <section id="included" class="pricing-section section-shell" aria-labelledby="included-title">
@@ -154,31 +211,23 @@
           <p class="plan-name">Optional settings sync</p>
           <p class="price">Free <small>too</small></p>
           <p>Keep your choices consistent across supported browsers and devices.</p>
-          <ul><li>Sign in with an emailed code</li><li>Use the same email on your devices</li><li>Sync your Still settings</li><li>Keep blocking when signed out</li></ul>
+          <ul><li>Sign in with an emailed code</li><li>Use the same email on your devices</li><li>Instantly sync your Still settings</li><li>Keep blocking when signed out</li></ul>
         </article>
       </div>
     </section>
 
     <section id="where-it-works" class="compatibility-section section-shell" aria-labelledby="compatibility-title">
       <div class="compatibility-heading">
-        <p class="eyebrow">Still: free on every supported surface.</p>
         <h2 id="compatibility-title">Your quieter web follows you.</h2>
-        <p>Use Still without an account. If you want your settings to follow you, sign in with the same email on your supported browsers and devices. Sync is free too.</p>
       </div>
       <div class="compatibility-card">
         <div class="compat-row"><strong>iPhone &amp; iPad</strong><span>Safari</span><em>Supported</em></div>
-        <div class="compat-row"><strong>Mac</strong><span>Safari, Chrome, Firefox</span><em>Supported</em></div>
-        <div class="compat-row"><strong>Desktop</strong><span>Chrome, Firefox</span><em>Supported</em></div>
+        <div class="compat-row"><strong>Desktop</strong><span>Chrome, Safari, Firefox</span><em>Supported</em></div>
         <div class="compat-row limitation"><strong>Native mobile apps</strong><span>Instagram, YouTube, Facebook, TikTok apps</span><em>Not blocked</em></div>
-      </div>
-      <div class="scope-notice">
-        <strong>Important mobile note</strong>
-        <p>On iPhone and iPad, Still works only while you browse in Safari. It cannot remove short-form video inside native social-media apps. Chrome on mobile does not support Still.</p>
       </div>
     </section>
 
     <section id="get-still" class="get-still-section section-shell" aria-labelledby="get-still-title">
-      <p class="eyebrow">Get Still</p>
       <h2 id="get-still-title">Add Still to the browser you use.</h2>
       <p class="get-still-lede">Still removes YouTube Shorts, Instagram and Facebook Reels, and blocks the TikTok website. All included, with no purchase needed.</p>
       <div id="release-status" class="store-grid">
@@ -210,17 +259,6 @@
       <div><p>Blocking happens on your device. Still has no ads and never records the pages or videos you visit. It shares usage data to help improve the app, and you can turn that off in settings. Optional sign-in lets you sync your Still settings across supported devices. See our privacy policy for account and service-provider details.</p><a class="text-link" href="./privacy.html">Read the privacy policy →</a></div>
     </section>
 
-    <section class="final-cta section-shell">
-      <p class="eyebrow">A small change to your browser</p>
-      <h2>A little more stillness in your day.</h2>
-      <p>Remove the feed before it asks for your attention.</p>
-      <div class="store-badges badges-centered">
-        <a data-store="ios" data-apple-store href="https://apps.apple.com/app/apple-store/id6784061138?pt=129084033&amp;ct=web-home-final&amp;mt=8&amp;platform=iphone"><img src="/assets/badges/app-store.svg" alt="Download on the App Store (iPhone and iPad)" width="144" height="48"></a>
-        <a data-store="mac" href="https://apps.apple.com/app/apple-store/id6784061138?pt=129084033&amp;ct=web-home-final-mac&amp;mt=12&amp;platform=mac"><img src="/assets/badges/mac-app-store.svg" alt="Download on the Mac App Store" width="187" height="48"></a>
-        <a data-store="cws" href="https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf?utm_source=stillapp.fit&amp;utm_medium=website&amp;utm_campaign=home-final"><img src="/assets/badges/chrome-web-store.png" alt="Available in the Chrome Web Store" width="159" height="48"></a>
-        <a data-store="amo" href="https://addons.mozilla.org/en-US/firefox/addon/still-free-yourself/?utm_source=stillapp.fit&amp;utm_medium=website&amp;utm_campaign=home-final"><img src="/assets/badges/firefox-add-ons.svg" alt="Get the add-on for Firefox" width="138" height="48"></a>
-      </div>
-    </section>
   </main>
 
   <footer>
@@ -229,9 +267,10 @@
   </footer>
 
 
+  <script src="./assets/hero-animation.js" defer></script>
   <script>
     // Point each visitor to the right store. The badge row keeps Apple's required order; this only
-    // adds one direct button for the current device and marks its badge card.
+    // updates the navigation button for the current device and marks its badge card.
     (() => {
       const ua = navigator.userAgent;
       const isIPad = /iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
