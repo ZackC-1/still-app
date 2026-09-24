@@ -176,3 +176,12 @@ footer div { display: flex; flex-wrap: wrap; gap: 22px; }
 .store-btn.is-recommended { border: 2px solid var(--blue); box-shadow: 0 18px 40px rgba(41, 72, 232, .12); }
 .store-btn.is-recommended::before { content: "For this device"; color: var(--blue); font-size: 12px; font-weight: 720; letter-spacing: .06em; text-transform: uppercase; }
 @media (max-width: 520px) { .device-cta { width: 100%; } }
+.showcase { padding: 24px 0 72px; text-align: center; }
+.showcase h2 { margin-inline: auto; }
+.showcase figure { margin: 0; }
+.showcase img { display: block; width: 100%; height: auto; border-radius: 18px; box-shadow: 0 24px 60px rgba(20, 30, 90, .16); }
+.showcase-main { margin-top: 32px !important; }
+.showcase-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-top: 24px; }
+.showcase figcaption { margin-top: 12px; color: var(--muted); font-size: 15px; }
+@media (max-width: 720px) { .showcase-grid { grid-template-columns: 1fr; } }
+

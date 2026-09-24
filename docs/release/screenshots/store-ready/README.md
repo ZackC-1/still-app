@@ -1,5 +1,8 @@
 # Store-ready screenshot upload manifest
 
+> **2.1 browser set:** use the captioned screenshots in [`browser-v3/`](browser-v3/README.md) for
+> Chrome and Firefox. The functional captures below remain as 2.0 evidence.
+
 Current browser screenshots were captured September 11, 2026 from the configured Still 2.0.0
 release packages. Use the functional assets below. The earlier free-2 captures remain as explicit
 baselines. Paid-era screenshots and their duplicate generated copies were removed during the
