@@ -59,7 +59,9 @@ const FORBIDDEN_SELECTOR_TOKENS = [
 /** Characters allowed in a selector after the forbidden-token and pseudo checks. */
 // `/` is allowed (appears in href attribute values like [href*="/reel/"]); the `/*` and `*/`
 // comment sequences are already rejected by FORBIDDEN_SELECTOR_TOKENS above.
-const SELECTOR_CHAR_RE = /^[\w\s.#[\]="':,>+~*()^$|@/-]+$/;
+// `?` allows href query-string guards such as :not([href*="?"]). It introduces no CSS
+// execution capability; forbidden tokens and pseudo-class restrictions still apply above.
+const SELECTOR_CHAR_RE = /^[\w\s.#[\]="':,>+~*()^$|@/?-]+$/;
 // note: '@' is allowed as a char only so the forbidden "@import" check (run first) is what gates it;
 // a bare '@' never forms a valid simple selector and is harmless if it slips through char-validation.
 

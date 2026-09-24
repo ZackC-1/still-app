@@ -109,6 +109,13 @@
       <a role="menuitemradio" aria-checked="false" href="https://www.facebook.com/stillapp/live_videos" id="keep-page-more-live"
         ><span dir="auto">Live</span></a
       >
+      <!-- Ordinary destinations must survive even inside a radio menu. -->
+      <a role="menuitemradio" aria-checked="false" href="https://www.facebook.com/reels_tab_productions" id="keep-more-vanity-prefix">Reels Tab Productions</a>
+      <a role="menuitemradio" aria-checked="false" href="https://www.facebook.com/reels_tab" id="keep-more-vanity-exact">Reels Tab</a>
+      <a role="menuitemradio" aria-checked="false" href="https://www.facebook.com/groups/reels_tab" id="keep-more-group">A group</a>
+      <a role="menuitemradio" aria-checked="false" href="https://example.com/stillapp/reels_tab" id="keep-more-external">External page</a>
+      <a role="menuitemradio" aria-checked="false" href="https://www.facebook.com/search?q=/reels_tab" id="keep-more-query">Search</a>
+      <a role="menuitem" href="https://www.facebook.com/stillapp/reels_tab" id="keep-more-ordinary-link">Shared Page link</a>
     </div>
 
     <!--
@@ -160,11 +167,17 @@
 
     <!-- Feed: a Reel article (fb-feed, remove) + normal posts (must survive) -->
     <main role="feed">
+      <!-- A shorter grid ancestry must never turn the containing feed into a hidden shelf. -->
+      <div role="feed" id="keep-shallow-feed">
+        <div><div><div><div role="grid" aria-label="Reels"></div></div></div></div>
+        <div role="article" id="keep-shallow-feed-post">An ordinary sibling post</div>
+      </div>
       <!--
         The home feed's Reels shelf card, in the shape recorded on 2026-09-24 (class names and
         creator names dropped). fb-watch removes each tile, which used to leave the card behind as
-        a header reading "Reels" with nothing under it; fb-feed-shelf hides the card itself. The
-        card is exactly four levels above the grid Facebook labels "Reels".
+        a header reading "Reels" with nothing under it. The
+        card was exactly four levels above the grid Facebook labels "Reels" in that capture.
+        Header cleanup is deferred: an ancestor count does not identify a safe card boundary.
       -->
       <div id="reels-shelf-card">
         <div>

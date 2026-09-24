@@ -485,15 +485,27 @@ test("facebook page: the Reels tab stays hidden instead of flickering with Faceb
   await expect(page.locator("#keep-page-more-live")).toBeVisible();
 });
 
-test("facebook home: the Reels shelf card goes with its reels, other carousels stay", async ({ context, extensionId }) => {
+test("facebook menus: ordinary destinations survive the Page overflow rule", async ({ context, extensionId }) => {
+  await setEntitled(context, extensionId, true);
+  const page = await context.newPage();
+  await serve(page, "**://*.facebook.com/**", fixture("facebook.html"));
+  await page.goto("https://www.facebook.com/stillapp");
+  await expect(page.locator("#page-more-reels")).toBeHidden();
+  for (const id of ["vanity-prefix", "vanity-exact", "group", "external", "query", "ordinary-link"]) {
+    await expect(page.locator(`#keep-more-${id}`)).toBeVisible();
+  }
+});
+
+test("facebook home: a Reels grid cannot hide its containing feed or ordinary posts", async ({ context, extensionId }) => {
   await setEntitled(context, extensionId, true);
   const page = await context.newPage();
   await serve(page, "**://*.facebook.com/**", fixture("facebook.html"));
   await page.goto("https://www.facebook.com/");
 
-  // Before this rule the tiles went and a card reading only "Reels" stayed in the feed.
-  await expect(page.locator("#reels-shelf-card")).toBeHidden();
-  await expect(page.locator("#reels-shelf-header")).toBeHidden();
+  // Header cleanup is deferred until a shelf boundary can be identified safely.
+  await expect(page.locator("#keep-shallow-feed-post")).toBeVisible();
+  await expect(page.locator("#reels-shelf-header")).toBeVisible();
+  await expect(page.locator("#reels-shelf-card [role='gridcell']")).toHaveCount(0);
   await expect(page.locator("#keep-people-shelf-card")).toBeVisible();
   await expect(page.locator("#keep-people-shelf-header")).toBeVisible();
   await expect(page.locator("#keep-article")).toBeVisible();

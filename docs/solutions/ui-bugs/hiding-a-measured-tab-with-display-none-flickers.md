@@ -40,8 +40,10 @@ still looped: any `display:none` on the tab removes its box, which is the trigge
 
 Hide the tab's contents: `a[role="tab"][href*="/reels_tab"] > *`. The tab keeps a zero-width box,
 Facebook counts it as fitting, never strips the address, and the following tabs close up with no
-gap. Also hide the tab's entry in the row's "More" menu, `[role="menu"] a[href*="/reels_tab"]`,
-where Facebook puts it when a narrow window really does overflow. This is the same shape as the
+gap. Also hide the recorded radio-menu entry in the row's "More" menu. Match its `menuitemradio`
+role, checked-state attribute, absolute Facebook origin and exact `/reels_tab` ending; exclude root
+vanity Pages, group routes and query/fragment values. A generic menu substring selector hides
+ordinary Pages such as `/reels_tab_productions`. Unknown shapes should remain visible. This is the same shape as the
 mobile rule from issue #58 (`[role="tab"][aria-label*="reels" i] > *`). The label must be wrapped
 in an element; a bare text node child would stay visible.
 
@@ -55,6 +57,19 @@ in an element; a bare text node child would stay visible.
   rule fails it with 20 of 40 frames visible.
 - Before release, check live signed-in Pages with Still on and off (the capture profile under
   `~/.still-capture/`, copied, never committed).
+
+## Delivery and selector limits
+
+Rebuild the store packages to replace the old packaged CSS. A newer fetched rule set adds JS hides
+but does not disable that CSS. Applying the new JS hides alongside the old stylesheet left 39 to
+40 href mutations in 40 fixture frames, so remote publication alone is not a complete fix.
+
+Do not identify a feed card by counting ancestors from a Reels grid. The rejected selector
+`div:has(> div > div > div > div[role="grid"][aria-label="Reels"])` hid an ordinary sibling post
+when one wrapper disappeared and the selected ancestor became the whole feed. Header cleanup is
+deferred until the card boundary can be identified independently. Existing rules still remove tiles.
+The replacement tab/menu rules introduce no `:has()` dependency; older Safari compatibility of
+pre-existing rules is a separate limitation.
 
 ## Prevention
 

@@ -547,6 +547,26 @@ describe("applyDom", () => {
     expect(document.querySelector("#ig-wrapped-post")).not.toBeNull();
   });
 
+  it("hides only the recorded Page overflow entry in a Facebook menu through the JS sweep", () => {
+    const links = [
+      ["reels", "https://www.facebook.com/stillapp/reels_tab", "menuitemradio"],
+      ["live", "https://www.facebook.com/stillapp/live_videos", "menuitemradio"],
+      ["prefix", "https://www.facebook.com/reels_tab_productions", "menuitemradio"],
+      ["vanity", "https://www.facebook.com/reels_tab", "menuitemradio"],
+      ["group", "https://www.facebook.com/groups/reels_tab", "menuitemradio"],
+      ["external", "https://example.com/stillapp/reels_tab", "menuitemradio"],
+      ["query", "https://www.facebook.com/search?q=/reels_tab", "menuitemradio"],
+      ["ordinary", "https://www.facebook.com/stillapp/reels_tab", "menuitem"],
+    ];
+    document.body.innerHTML = `<div role="menu">${links.map(([id, href, role]) =>
+      `<a id="${id}" role="${role}" aria-checked="false" href="${href}">Menu entry</a>`,
+    ).join("")}</div>`;
+    applyDom(ruleSet, allOn, new URL("https://www.facebook.com/stillapp"), document);
+    for (const [id] of links) {
+      expect(document.getElementById(id!)!.style.display, id).toBe(id === "reels" ? "none" : "");
+    }
+  });
+
   it("removes mobile Facebook Reels surfaces while keeping normal mobile feed posts", () => {
     document.body.innerHTML = `
       <nav>

@@ -96,6 +96,12 @@ describe("isSafeSelector (KTD13 safe-CSS allowlist)", () => {
     expect(isSafeSelector('a[style="background:url(//evil/x)"]')).toBe(false);
   });
 
+  it("accepts literal href query guards without allowing CSS injection", () => {
+    expect(isSafeSelector('a[href$="/reels_tab"]:not([href*="?"])')).toBe(true);
+    expect(isSafeSelector('a[href*="?"]:visited')).toBe(false);
+    expect(isSafeSelector('a[href*="?"]{background:url(//evil/x)}')).toBe(false);
+  });
+
   it("rejects @import", () => {
     expect(isSafeSelector("@import url(//evil)")).toBe(false);
   });

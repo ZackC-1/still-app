@@ -255,17 +255,6 @@
           ]
         },
         {
-          "id": "fb-feed-shelf",
-          "label": "Reels shelf card in Home feed",
-          "tier": "pro",
-          "requiredCapability": "surface.facebook.reels",
-          "action": "hide",
-          "enabledByDefault": true,
-          "selectors": [
-            "div:has(> div > div > div > div[role=\"grid\"][aria-label=\"Reels\"])"
-          ]
-        },
-        {
           "id": "fb-left-menu",
           "label": "Reels shortcut in left menu",
           "tier": "pro",
@@ -288,7 +277,7 @@
           "selectors": [
             "a[role=\"tab\"][href*=\"/reels_tab\"] > *",
             "[role=\"tablist\"] a[href*=\"/reels_tab\"] > *",
-            "[role=\"menu\"] a[href*=\"/reels_tab\"]"
+            "[role=\"menu\"] a[role=\"menuitemradio\"][aria-checked][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"])"
           ]
         },
         {
@@ -345,6 +334,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "69dbc4b3a6340189e005ffffb0232fc711dde8b0a3a6ef60b13aea29e9d6718253357243d4272a452341a8428e78c34f09b994004581b4d674d97d91ac89ac0c"
+    "value": "31eda7a3245a31ea02ceb07df5edcb1c5ccf72e7e78290f2cb48f85e86b91d80eadc3a53fdb2f1d6c4bfa677543ba548d8c20707cb18efe0519f3780a4edab05"
   }
 }
