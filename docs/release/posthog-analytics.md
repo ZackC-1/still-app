@@ -52,9 +52,18 @@ send nothing.
 
 Set these on the hosted project (`supabase secrets set --env-file <private file>`; never inline):
 `POSTHOG_PROJECT_KEY`, `POSTHOG_HOST` (`https://us.i.posthog.com`), `POSTHOG_API_HOST`
-(`https://us.posthog.com`), `POSTHOG_PROJECT_ID`, `POSTHOG_PERSONAL_API_KEY`. Then deploy
-`analytics-identify` and `delete-user`. Either function skips its PostHog step quietly when its
-settings are missing.
+(`https://us.posthog.com`), `POSTHOG_PROJECT_ID`, `POSTHOG_PERSONAL_API_KEY`. Then deploy both
+functions with the shared import map (without it the hosted bundler rejects the bare
+`@supabase/supabase-js` import):
+
+```bash
+supabase functions deploy analytics-identify delete-user \
+  --project-ref kikpgrreradotvvefdgd --import-map supabase/functions/deno.json
+```
+
+Check both are `ACTIVE` with `verify_jwt: true` (`supabase functions list`) and that an
+unauthenticated POST to each returns 401. Either function skips its PostHog step quietly when its
+settings are missing. Deployed 2026-09-23 (analytics-identify v1, delete-user v18), verified as above.
 
 **Deletion follow-up.** If PostHog is down during an account deletion, the account is still deleted
 and the function logs `ANALYTICS DELETION FAILED for account <uuid>`. Check the `delete-user` logs

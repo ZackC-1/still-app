@@ -34,9 +34,12 @@ export const firefoxBrowserSpecificSettings = {
 export function stillManifest(browser: string) {
   const isFirefox = browser === "firefox";
   return {
-    name: "Still: Block Shorts & Reels",
-    description:
-      "Remove YouTube Shorts, Instagram and Facebook Reels, and block the TikTok website for free. Sign in optionally to sync settings.",
+    // Store-search copy (docs/release/store-listing-copy.md): the stores read the listing's name and
+    // summary from here. Chrome caps the description at 132 characters, AMO's summary at 250.
+    name: "Still: Remove Shorts & Reels, Stop Doomscrolling",
+    description: isFirefox
+      ? "Remove YouTube Shorts and Instagram & Facebook Reels, and block the TikTok website. Free, with no timers or stats. Sign in free to sync your settings with Chrome and with Safari on iPhone, iPad and Mac. Desktop Firefox."
+      : "Remove YouTube Shorts and Instagram & Facebook Reels. Block the TikTok website. Free, no timers. Syncs with Still on iPhone & Mac.",
     permissions: [
       "storage",
       // Sends quietly recorded analytics at a random later time, so arrival never marks a site
