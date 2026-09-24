@@ -1,6 +1,6 @@
 # Usage analytics, download attribution and revenue check (Still 2.1)
 
-Status: verified and ready to merge; owner release steps remain
+Status: merged to main on 2026-09-23 (63841ac); owner release steps remain
 Owner: Claude Code / founder-directed
 Created: 2026-09-23
 Source branch: `feat/usage-analytics`
