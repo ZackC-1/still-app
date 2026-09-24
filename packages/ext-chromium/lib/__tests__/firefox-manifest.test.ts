@@ -31,4 +31,12 @@ describe("Firefox manifest compatibility", () => {
     });
     expect(stillManifest("chrome").action).toEqual({ default_title: "Still" });
   });
+
+  it("keeps the store name and summary within each store's limits", () => {
+    // AMO's validator rejects a name over 45 characters; the Chrome Web Store rejects a description
+    // over 132; AMO shows at most 250 characters of summary.
+    for (const browser of ["chrome", "firefox"]) expect(stillManifest(browser).name.length).toBeLessThanOrEqual(45);
+    expect(stillManifest("chrome").description.length).toBeLessThanOrEqual(132);
+    expect(stillManifest("firefox").description.length).toBeLessThanOrEqual(250);
+  });
 });

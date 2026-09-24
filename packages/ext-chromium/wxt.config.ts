@@ -35,8 +35,9 @@ export function stillManifest(browser: string) {
   const isFirefox = browser === "firefox";
   return {
     // Store-search copy (docs/release/store-listing-copy.md): the stores read the listing's name and
-    // summary from here. Chrome caps the description at 132 characters, AMO's summary at 250.
-    name: "Still: Remove Shorts & Reels, Stop Doomscrolling",
+    // summary from here. Firefox's validator caps the name at 45 characters; Chrome caps the
+    // description at 132 and AMO's summary at 250 (lib/__tests__/firefox-manifest.test.ts).
+    name: "Still: Remove Shorts & Reels, Stop Scrolling",
     description: isFirefox
       ? "Remove YouTube Shorts and Instagram & Facebook Reels, and block the TikTok website. Free, with no timers or stats. Sign in free to sync your settings with Chrome and with Safari on iPhone, iPad and Mac. Desktop Firefox."
       : "Remove YouTube Shorts and Instagram & Facebook Reels. Block the TikTok website. Free, no timers. Syncs with Still on iPhone & Mac.",
