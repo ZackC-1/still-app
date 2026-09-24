@@ -85,6 +85,32 @@
       ]
     },
     {
+      "id": "chrome-02-instagram",
+      "canvas": "chrome",
+      "layout": "split",
+      "service": "instagram",
+      "headline": "Instagram, **minus the Reels.**",
+      "subline": "Posts, Stories and messages stay. The Reels tab and the Reels in your feed are gone.",
+      "captures": [
+        {
+          "src": "captures/desktop/instagram-before.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 700
+          }
+        },
+        {
+          "src": "captures/desktop/instagram-after.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 700
+          }
+        }
+      ]
+    },
+    {
       "id": "chrome-04-tiktok",
       "canvas": "chrome",
       "layout": "split",
@@ -263,6 +289,31 @@
             "x": 0,
             "y": 0,
             "w": 400
+          }
+        }
+      ]
+    },
+    {
+      "id": "ig-02-instagram",
+      "canvas": "ig",
+      "layout": "ig-split",
+      "service": "instagram",
+      "headline": "Instagram, **minus the Reels.**",
+      "captures": [
+        {
+          "src": "captures/desktop/instagram-before.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 560
+          }
+        },
+        {
+          "src": "captures/desktop/instagram-after.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 560
           }
         }
       ]
