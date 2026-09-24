@@ -19,7 +19,9 @@ const STORE_SIZES: Record<string, [number, number]> = {
   chrome: [1280, 800], firefox: [1280, 800], iphone: [1320, 2868], ipad: [2064, 2752],
   mac: [2880, 1800], ig: [1080, 1350], story: [1080, 1920], og: [1200, 630],
 };
-const BANNED = [/everywhere/i, /forever/i, /no tracking/i, /\bapps?\b.*\bblock/i];
+// The last rule catches a claim that Still blocks inside apps (it works on websites only), e.g.
+// "blocks Reels in the Instagram app", without flagging "the Still app … Just the blocking".
+const BANNED = [/everywhere/i, /forever/i, /no tracking/i, /\bblock\w*\b[^.]*\b(?:in|inside)\s+(?:the\s+)?(?:\w+\s+)?apps?\b/i];
 
 function dimensions(file: string): [number, number] {
   const b = readFileSync(file);
