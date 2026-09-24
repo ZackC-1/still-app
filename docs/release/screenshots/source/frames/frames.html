@@ -54,6 +54,7 @@
 </style>
 </head>
 <body>
+<script src="annotate.js"></script>
 <script>
 // Each service is named by its own logo at the top (owner decision), so a glance says which site Still
 // is changing; the canvas stays Still blue. Sources are listed in logos/README.md.
@@ -77,7 +78,9 @@ function el(tag, cls, style = {}, html) {
 }
 
 // A capture shown inside a box: `crop` is {x, y, w} in the capture's CSS pixels (its left, top and
-// visible width); the height follows from the box. `scale` is the capture's pixel density.
+// visible width); the height follows from the box; `density` is the capture's pixel density. Safari
+// captures can't be marked in the page, so `crop.marks` lists red marks at fixed positions in the
+// capture's CSS pixels, drawn here with the same hand-drawn style (annotate.js).
 function shot(src, box, { crop = {}, radius = 0, cls = "shot", parent } = {}) {
   const s = document.createElement("div");
   s.className = cls;
@@ -86,9 +89,15 @@ function shot(src, box, { crop = {}, radius = 0, cls = "shot", parent } = {}) {
   img.src = src;
   img.onload = () => {
     const density = crop.density || 2;
-    const natW = img.naturalWidth / density;
+    const natW = img.naturalWidth / density, natH = img.naturalHeight / density;
     const k = box.w / (crop.w || natW);
-    Object.assign(img.style, { width: natW * k + "px", left: -(crop.x || 0) * k + "px", top: -(crop.y || 0) * k + "px" });
+    const place = { width: natW * k + "px", left: -(crop.x || 0) * k + "px", top: -(crop.y || 0) * k + "px" };
+    Object.assign(img.style, place);
+    if (crop.marks?.length) {
+      const svg = StillAnnotate.marksSvg(crop.marks, natW, natH, { stroke: crop.stroke });
+      Object.assign(svg.style, { position: "absolute", height: natH * k + "px", ...place });
+      s.appendChild(svg);
+    }
   };
   s.appendChild(img);
   (parent || document.body).appendChild(s);
@@ -238,9 +247,17 @@ const LAYOUTS = {
     } else {
       brand(W, H, u);
       const pad = u * 7;
-      const bottom = heading(e, u, { x: pad, y: u * 12, w: W - pad * 2, size: u * 11.5, subSize: u * 4.2 });
-      const pw = W * 0.72;
-      phone(ui.src, { x: pad - u * 2, y: bottom + u * 10, w: pw, crop: ui.crop });
+      let top = u * 12;
+      if (e.service) {
+        const p = pill(e.service, u, 3);
+        Object.assign(p.style, { position: "absolute", left: pad + "px", top: u * 9 + "px" });
+        top = u * 9 + p.offsetHeight + u * 3.2;
+      }
+      const bottom = heading(e, u, { x: pad, y: top, w: W - pad * 2, size: u * 11.5, subSize: u * 4.2 });
+      // With a pop-out card the phone sits left to make room; on its own it's centred and larger.
+      // A single phone always fits whole, so Safari's address bar (the site's name) stays in view.
+      const pw = e.breakout ? W * 0.72 : Math.min(W * 0.78, (H - bottom - u * 14) / 2.06);
+      phone(ui.src, { x: e.breakout ? pad - u * 2 : (W - pw) / 2, y: bottom + u * 10, w: pw, crop: ui.crop });
       // Enlarged rows from the same capture, breaking out of the phone.
       if (e.breakout) {
         const b = e.breakout, bw = W * 0.74;

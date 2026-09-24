@@ -13,6 +13,9 @@
 (function () {
   "use strict";
   const RED = "#f5222d";
+  // The area marks are drawn in: the browser window when run in a page, or a capture's own size when
+  // the compositor (frames.html) draws marks at fixed positions on a Safari capture.
+  let AREA = { w: 0, h: 0 };
   const SVGNS = "http://www.w3.org/2000/svg";
 
   const BLUR = {
@@ -201,8 +204,8 @@
     const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
     // Keep the loop inside the viewport so it never runs off the capture's edge.
     const edge = 5 + width;
-    const rx = Math.max(r.width / 2, Math.min(r.width / 2 + pad, cx - edge, innerWidth - edge - cx) / 1.1);
-    const ry = Math.max(r.height / 2, Math.min(r.height / 2 + pad, cy - edge, innerHeight - edge - cy) / 1.1);
+    const rx = Math.max(r.width / 2, Math.min(r.width / 2 + pad, cx - edge, AREA.w - edge - cx) / 1.1);
+    const ry = Math.max(r.height / 2, Math.min(r.height / 2 + pad, cy - edge, AREA.h - edge - cy) / 1.1);
     const start = -Math.PI * (0.55 + rand() * 0.2);
     const turns = 1.08 + rand() * 0.06;
     const p1 = rand() * 6.28, p2 = rand() * 6.28;
@@ -238,11 +241,20 @@
   }
 
   function draw(marks, opts) {
+    const svg = svgFor(marks, opts, innerWidth, innerHeight);
+    Object.assign(svg.style, { position: "fixed", inset: "0", zIndex: "2147483647", pointerEvents: "none", overflow: "visible" });
+    document.documentElement.appendChild(svg);
+    return svg;
+  }
+
+  // The marks as one SVG of the given size (in the marks' own coordinate space).
+  function svgFor(marks, opts, w, h) {
+    AREA = { w, h };
     const svg = document.createElementNS(SVGNS, "svg");
     svg.setAttribute("data-still-annotate", "");
-    svg.setAttribute("width", String(innerWidth));
-    svg.setAttribute("height", String(innerHeight));
-    Object.assign(svg.style, { position: "fixed", inset: "0", zIndex: "2147483647", pointerEvents: "none", overflow: "visible" });
+    svg.setAttribute("width", String(w));
+    svg.setAttribute("height", String(h));
+    svg.setAttribute("viewBox", `0 0 ${w} ${h}`);
     const rand = rng(opts.seed || 7);
     marks.forEach((m, i) => {
       const small = isSmall(m.r);
@@ -274,8 +286,14 @@
         svg.appendChild(t);
       }
     });
-    document.documentElement.appendChild(svg);
     return svg;
+  }
+
+  // Marks at fixed positions, [{kind: "circle"|"x", x, y, w, h}], for captures taken where the page
+  // can't be scripted (Safari on the Simulator and the Mac). Positions are measured from the capture.
+  function marksSvg(list, w, h, opts = {}) {
+    const marks = list.map((m) => ({ kind: m.kind, r: { left: m.x, top: m.y, width: m.w, height: m.h, right: m.x + m.w, bottom: m.y + m.h } }));
+    return svgFor(marks, opts, w, h);
   }
 
   // Each site's "open the app" nag covers the page; closing it changes nothing Still does.
@@ -311,5 +329,5 @@
     return { service, marks: marks.length, rects: marks.map((m) => [m.kind, Math.round(m.r.left), Math.round(m.r.top), Math.round(m.r.width), Math.round(m.r.height)]) };
   }
 
-  globalThis.StillAnnotate = { run, serviceFor };
+  globalThis.StillAnnotate = { run, serviceFor, marksSvg };
 })();

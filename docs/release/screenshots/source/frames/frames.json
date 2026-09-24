@@ -340,55 +340,142 @@
       "canvas": "iphone",
       "layout": "phone-split",
       "service": "m.youtube",
-      "draft": "Chromium phone emulation until the Simulator captures exist",
+      "split": 0.55,
       "headline": "YouTube, **without the Shorts.**",
       "subline": "In Safari on iPhone. Instagram, Facebook and TikTok too.",
       "captures": [
         {
-          "src": "captures/mobile-draft/youtube-before.png"
+          "src": "captures/iphone/safari-youtube-before.png",
+          "crop": {
+            "density": 3,
+            "marks": [
+              {
+                "kind": "x",
+                "x": 16,
+                "y": 134,
+                "w": 200,
+                "h": 300
+              },
+              {
+                "kind": "x",
+                "x": 224,
+                "y": 134,
+                "w": 200,
+                "h": 300
+              },
+              {
+                "kind": "x",
+                "x": 16,
+                "y": 502,
+                "w": 200,
+                "h": 298
+              },
+              {
+                "kind": "x",
+                "x": 224,
+                "y": 502,
+                "w": 200,
+                "h": 298
+              },
+              {
+                "kind": "circle",
+                "x": 200,
+                "y": 810,
+                "w": 40,
+                "h": 38
+              }
+            ]
+          }
         },
         {
-          "src": "captures/mobile-draft/youtube-after.png"
+          "src": "captures/iphone/safari-youtube-after.png",
+          "crop": {
+            "density": 3
+          }
         }
-      ],
-      "split": 0.6
+      ]
+    },
+    {
+      "id": "iphone-02-instagram",
+      "canvas": "iphone",
+      "layout": "surface",
+      "service": "instagram",
+      "headline": "Instagram, **minus the Reels.**",
+      "subline": "Open a Reel in Safari and Still clears it away. Posts and messages stay.",
+      "captures": [
+        {
+          "src": "captures/iphone/safari-instagram-reels-after.png"
+        }
+      ]
     },
     {
       "id": "iphone-03-switches",
       "canvas": "iphone",
       "layout": "surface",
-      "draft": "app web UI outside the native shell",
       "headline": "**One switch** per site.",
       "subline": "Free. No account needed to block.",
       "captures": [
         {
-          "src": "captures/desktop/app-iphone.png"
+          "src": "captures/iphone/app-main.png"
         }
       ],
       "breakout": {
         "crop": {
-          "x": 6,
-          "y": 204,
-          "w": 381,
-          "h": 292
+          "x": 18,
+          "y": 270,
+          "w": 404,
+          "h": 296
         },
-        "at": 0.62
+        "at": 0.52
       }
+    },
+    {
+      "id": "iphone-04-facebook",
+      "canvas": "iphone",
+      "layout": "surface",
+      "service": "facebook",
+      "headline": "Facebook, **minus the Reels.**",
+      "subline": "Reels are cleared away in Safari. Your feed and friends stay.",
+      "captures": [
+        {
+          "src": "captures/iphone/safari-facebook-reels-after.png"
+        }
+      ]
     },
     {
       "id": "iphone-05-tiktok",
       "canvas": "iphone",
-      "layout": "phone-duo",
+      "layout": "surface",
       "service": "tiktok",
-      "draft": "Chromium phone emulation until the Simulator captures exist",
       "headline": "TikTok, **closed.**",
       "subline": "The TikTok website is blocked in Safari while Still is on.",
       "captures": [
         {
-          "src": "captures/mobile-draft/tiktok-before.png"
-        },
+          "src": "captures/iphone/safari-tiktok-after.png"
+        }
+      ]
+    },
+    {
+      "id": "iphone-06-safari-menu",
+      "canvas": "iphone",
+      "layout": "surface",
+      "headline": "**Right in Safari.**",
+      "subline": "Open Still from Safari's page menu to change a switch on the spot.",
+      "captures": [
         {
-          "src": "captures/mobile-draft/tiktok-after.png"
+          "src": "captures/iphone/safari-still-menu.png"
+        }
+      ]
+    },
+    {
+      "id": "iphone-07-setup",
+      "canvas": "iphone",
+      "layout": "surface",
+      "headline": "**Turn it on** in Safari.",
+      "subline": "Works on websites in Safari, not inside other apps.",
+      "captures": [
+        {
+          "src": "captures/iphone/onboarding-2.png"
         }
       ]
     },
