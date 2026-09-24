@@ -89,15 +89,19 @@ function recordingFetch() {
   return { fetch, bodies, events: () => bodies.flat() };
 }
 
-/** The queue store's writes (or reads) can be refused, the way IndexedDB can refuse on its own
- * while the extension's local storage keeps working. */
-function refusable(store: ReturnType<typeof pausable>) {
-  let refuse: "none" | "writes" | "reads" = "none";
-  const queueStore: AnalyticsKeyValue = {
-    get: (k) => { if (refuse === "reads") throw new Error("IDB unavailable"); return store.get(k); },
-    set: (k, v) => { if (refuse === "writes") throw new Error("IDB unavailable"); return store.set(k, v); },
+/** A store whose writes or reads can be refused, or whose writes can be "accepted" without being
+ * kept: IndexedDB and the extension's local storage each fail on their own, so either one can. */
+function refusable(backing: ReturnType<typeof pausable>) {
+  let refuse: "none" | "writes" | "reads" | "silently" = "none";
+  const store: AnalyticsKeyValue = {
+    get: (k) => { if (refuse === "reads") throw new Error("unavailable"); return backing.get(k); },
+    set: async (k, v) => {
+      if (refuse === "writes") throw new Error("unavailable");
+      if (refuse === "silently") return; // acknowledged, not kept
+      await backing.set(k, v);
+    },
   };
-  return { queueStore, refuse: (what: typeof refuse) => void (refuse = what) };
+  return { store, refuse: (what: typeof refuse) => void (refuse = what) };
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 10));
@@ -472,7 +476,7 @@ describe("forgetting an account (it was deleted)", () => {
   it("a drop the queue store refuses is owed: nothing leaves until it is done, in this process or the next", async () => {
     const rec = recordingFetch();
     const store = pausable();
-    const { queueStore, refuse } = refusable(store);
+    const { store: queueStore, refuse } = refusable(store);
     const { client } = makeClient({ store, queueStore, fetch: rec.fetch });
     await client.identify(U1);
     await client.track("opened", { where: "popup" });
@@ -492,7 +496,7 @@ describe("forgetting an account (it was deleted)", () => {
     for (const next of [null, U2]) {
       const rec = recordingFetch();
       const store = pausable();
-      const { queueStore, refuse } = refusable(store);
+      const { store: queueStore, refuse } = refusable(store);
       const { client } = makeClient({ store, queueStore, fetch: rec.fetch });
       await client.identify(U1);
       await client.track("opened", { where: "popup" });
@@ -510,7 +514,7 @@ describe("forgetting an account (it was deleted)", () => {
   it("a queue store that refuses to be read is never taken as empty", async () => {
     const rec = recordingFetch();
     const store = pausable();
-    const { queueStore, refuse } = refusable(store);
+    const { store: queueStore, refuse } = refusable(store);
     const { client } = makeClient({ store, queueStore, fetch: rec.fetch });
     await client.identify(U1);
     await client.track("opened", { where: "popup" });
@@ -518,6 +522,69 @@ describe("forgetting an account (it was deleted)", () => {
     await client.reset({ forgetAccount: true });
     refuse("none");
     await client.flush();
+    expect(JSON.stringify(rec.events())).not.toContain(U1);
+  });
+
+  it("a queue store that acknowledges the drop without keeping it still owes it", async () => {
+    const rec = recordingFetch();
+    const store = pausable();
+    const { store: queueStore, refuse } = refusable(store);
+    const { client } = makeClient({ store, queueStore, fetch: rec.fetch });
+    await client.identify(U1);
+    await client.track("opened", { where: "popup" });
+    refuse("silently");
+    await client.reset({ forgetAccount: true }); // the drop "succeeds", and changes nothing
+    await client.flush();
+    expect(rec.events()).toEqual([]);
+    expect((store.data[STATE_KEY] as { forgotten: string[] }).forgotten).toEqual([U1]); // still owed
+    refuse("none");
+    await client.flush();
+    expect(JSON.stringify(rec.events())).not.toContain(U1);
+    expect((store.data[STATE_KEY] as { forgotten: string[] }).forgotten).toEqual([]);
+  });
+
+  it("a state store that cannot be read is never taken as empty, and never overwritten", async () => {
+    const rec = recordingFetch();
+    const backing = pausable();
+    const state = refusable(backing);
+    const queue = refusable(pausable());
+    const { client } = makeClient({ store: state.store, queueStore: queue.store, fetch: rec.fetch });
+    await client.identify(U1);
+    await client.track("opened", { where: "popup" });
+    queue.refuse("writes");
+    await client.reset({ forgetAccount: true }); // owed: U1 is recorded as forgotten
+    queue.refuse("none");
+    state.refuse("reads");
+    await client.flush(); // "unreadable" is not "nothing owed"
+    expect(rec.events()).toEqual([]);
+    await client.trackDaily("active", "active", {}); // writers must not build on an empty state either
+    await client.track("opened", { where: "popup" });
+    await client.confirm(U2);
+    expect((backing.data[STATE_KEY] as { forgotten: string[]; userId: string | null }).forgotten).toEqual([U1]);
+    expect((backing.data[STATE_KEY] as { userId: string | null }).userId).toBeNull();
+    state.refuse("none");
+    await client.confirm(U2); // readable again: the drop is done, then U2's own events go
+    await client.track("opened", { where: "popup" });
+    await client.flush();
+    expect(JSON.stringify(rec.events())).not.toContain(U1);
+    expect(rec.events().some((e) => e.properties.distinct_id === U2)).toBe(true);
+  });
+
+  it("a forget that cannot be recorded stops this process, and the next one is asked again", async () => {
+    const rec = recordingFetch();
+    const backing = pausable();
+    const state = refusable(backing);
+    const { client } = makeClient({ store: state.store, fetch: rec.fetch });
+    await client.identify(U1);
+    await client.track("opened", { where: "popup" });
+    state.refuse("reads");
+    await client.reset({ forgetAccount: true }); // cannot even tell who to forget
+    state.refuse("none");
+    await client.flush(); // this process sends nothing more
+    expect(rec.events()).toEqual([]);
+    const next = makeClient({ store: state.store, fetch: rec.fetch, startsUnconfirmed: true }).client;
+    await next.confirm(null, { forget: true }); // the session is gone, so the next start forgets again
+    await next.flush();
     expect(JSON.stringify(rec.events())).not.toContain(U1);
   });
 
@@ -532,5 +599,35 @@ describe("forgetting an account (it was deleted)", () => {
     open();
     await Promise.all([optingOut, forgetting]);
     expect(JSON.stringify(rec.events())).not.toContain(U1);
+  });
+
+  it("an opt-out overtaken by a forget during its own reads names nobody", async () => {
+    const rec = recordingFetch();
+    const { client, store } = makeClient({ fetch: rec.fetch });
+    await client.identify(U1);
+    const first = store.pauseNextRead(STATE_KEY); // the queue discard's read, before the epoch check
+    const optingOut = client.sendOptOut();
+    const openFirst = await first;
+    const second = store.pauseNextRead(STATE_KEY); // the opt-out's own read, after the epoch check
+    openFirst();
+    const open = await second;
+    const forgetting = client.confirm(null, { forget: true }); // the account is deleted meanwhile
+    open();
+    await Promise.all([optingOut, forgetting]);
+    expect(rec.events()).toEqual([]);
+  });
+
+  it("a forget during a flush's queue read stops it before its request", async () => {
+    const rec = recordingFetch();
+    const { client, store } = makeClient({ fetch: rec.fetch });
+    await client.identify(U1);
+    await client.track("opened", { where: "popup" });
+    const reached = store.pauseNextRead(QUEUE_KEY); // the flush passed its first check; now reading
+    const flushing = client.flush();
+    const open = await reached;
+    const forgetting = client.confirm(null, { forget: true });
+    open();
+    await Promise.all([flushing, forgetting]);
+    expect(rec.events()).toEqual([]);
   });
 });

@@ -353,3 +353,16 @@ testing, plus store review time.
   with a user present), so a deletion that failed after a sign-out re-identified the signed-out
   account; it now re-identifies only for the session that asked, and signing out resets a deletion
   flow. Seeded-queue regression added for the confirmation send guard. Ten mutations, all caught.
+- 2026-09-23: Codex verification of 2d8129f (B1-B4 and the coverage gap confirmed fixed; 2 P0 + 1 P2
+  remained, both P0s reproduced here). Same two shapes one level down. (1) The opt-out checked its
+  epoch, then awaited two more reads with nothing re-checked before its request, so a forget landing
+  in between sent `sharing_turned_off` under the deleted account. Now `post()` takes the epoch its
+  caller was asked under and refuses at entry, synchronously, as the last check before the network,
+  for the flush and the opt-out alike. (2) A state store read that threw was answered with an empty
+  state, which hid the owed drop (and let the next writer overwrite the account and the record of
+  the debt). `read()` now returns null for "unreadable" and every reader fails closed: nothing sent,
+  nothing written, a forget that cannot even name its account blocks the process. The drop's
+  verification reread now has its own regression (a queue store that acknowledges without keeping).
+  Runbook and ADR wording corrected: "no queued event" rather than "nothing", the opt-out attempt
+  described, and the page-to-background window stated as unbounded with the weekly search as remedy.
+  Seventeen mutations, all caught.

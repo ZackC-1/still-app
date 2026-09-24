@@ -31,8 +31,9 @@ import { isAnalyticsId, type AnalyticsIdentity, type AnalyticsKeyValue } from ".
 //      no operation ever observes another half done. The only work outside it is synchronous and
 //      happens the moment the caller asks, before anything is queued: forgetting an account, turning
 //      sharing off and the opt-out bump the cancellation epoch and abort the request in flight. A
-//      flush or opt-out remembers the epoch it was asked under, so one asked before that moment
-//      sends nothing when its turn comes, however long it waited.
+//      flush or opt-out remembers the epoch it was asked under, and no request starts under a
+//      stale one: `post` refuses at its entry, synchronously, after every awaited read is done.
+//      So one asked before that moment sends nothing when its turn comes, however long it waited.
 //   2. An event's person is decided once and saved. When the account is confirmed, an event is
 //      attributed as it is queued; before that it is queued with no person (`attributeLater`) and
 //      attributed, in storage, by the confirmation itself. Nothing is ever attributed at send time,
@@ -40,7 +41,9 @@ import { isAnalyticsId, type AnalyticsIdentity, type AnalyticsKeyValue } from ".
 //      deleted) drops every event attributed to it. That drop is owed durably: the account is
 //      recorded as forgotten before its events are dropped, the drop is verified, and until it is
 //      verified `flush` sends nothing, so a queue store that refuses the write only delays the drop
-//      to the next confirmation or flush, in this process or the next.
+//      to the next confirmation or flush, in this process or the next. A state store that cannot
+//      be read is never taken as empty: every reader fails closed (nothing sent, nothing written),
+//      so the record of what is owed can neither be overlooked nor overwritten.
 //   3. Confirmation is one operation. `confirm()` installs the account (or lets it go), tries any
 //      owed drop, attributes the waiting events, and only then marks the account confirmed, so
 //      nothing can see "confirmed" together with a different account.
@@ -274,9 +277,10 @@ export class AnalyticsClient {
     return this.trackMarked(`once:${marker}`, "done", name, props, options);
   }
 
-  /** Whether a once-marker has already fired (a host deciding whether to keep a pending record). */
+  /** Whether a once-marker has already fired (a host deciding whether to keep a pending record).
+   * Unreadable state answers no, so the host keeps its record and asks again later. */
   hasTrackedOnce(marker: string): Promise<boolean> {
-    return this.run(async () => (await this.read()).daily[`once:${marker}`] !== undefined);
+    return this.run(async () => (await this.read())?.daily[`once:${marker}`] !== undefined);
   }
 
   /** How many events are waiting (a host deciding whether a later flush is needed). */
@@ -325,9 +329,10 @@ export class AnalyticsClient {
     return this.confirm(null, { forget: options.forgetAccount });
   }
 
-  /** The account this install reports as, or null. */
+  /** The account this install reports as, or null (also when the state cannot be read: work that
+   * needs the account, such as the server attach, then does nothing). */
   signedInAs(): Promise<string | null> {
-    return this.run(async () => (await this.read()).userId);
+    return this.run(async () => (await this.read())?.userId ?? null);
   }
 
   /** A snapshot of the account generation and consent epoch, for work that waits and then acts. */
@@ -354,10 +359,9 @@ export class AnalyticsClient {
       for (;;) {
         const batch = (await this.readQueue()).filter((e) => !e.attributeLater).slice(0, BATCH_SIZE);
         if (batch.length === 0) return;
-        // Sharing is re-read, and cancellation re-checked, immediately before every request.
-        if (!(await this.allowed()) || epoch !== this.epoch) return;
-        const outcome = await this.post(batch);
-        if (outcome === "retry" || epoch !== this.epoch) return;
+        // Sharing is re-read immediately before every request; `post` re-checks cancellation.
+        if (!(await this.allowed())) return;
+        if ((await this.post(batch, epoch)) === "retry") return;
         // Sent, or rejected as malformed (retrying a 400 forever would block the queue).
         const sent = new Set(batch.map((e) => e.uuid));
         // Storage that will not take the write would hand back the same batch forever.
@@ -381,13 +385,14 @@ export class AnalyticsClient {
    */
   sendOptOut(timeoutMs = 3_000): Promise<void> {
     this.cancel();
-    const epoch = this.epoch; // an account forgotten before its turn: nothing to record it under
+    const epoch = this.epoch; // an account forgotten before the request: nothing to record it under
     return this.run(async () => {
       await this.discardQueue();
-      if (!this.configured || this.blocked || !this.confirmed || epoch !== this.epoch) return;
+      if (!this.configured || this.blocked || !this.confirmed) return;
       const identity = await this.identity();
       if (!identity) return;
       const state = await this.read();
+      if (!state) return;
       const event: QueuedEvent = {
         event: "sharing_turned_off",
         uuid: this.deps.uuid(),
@@ -400,7 +405,8 @@ export class AnalyticsClient {
       const abort = typeof AbortController === "function" ? new AbortController() : null;
       const timer = setTimeout(() => abort?.abort(), timeoutMs);
       try {
-        await this.post([event], abort?.signal);
+        // The reads above took time; an account forgotten meanwhile must not be named (`post` checks).
+        await this.post([event], epoch, abort?.signal);
       } finally {
         clearTimeout(timer);
       }
@@ -434,7 +440,7 @@ export class AnalyticsClient {
       const valid = validateEvent(name, props);
       if (!valid) return;
       const state = await this.read();
-      if (state.daily[marker] === value) return;
+      if (!state || state.daily[marker] === value) return;
       await this.write({ ...state, daily: { ...state.daily, [marker]: value } });
       await this.enqueue(name, valid, options);
     });
@@ -445,6 +451,12 @@ export class AnalyticsClient {
    * (`dropForgotten`), so the drop is owed even if this process ends first. */
   private async installAccount(account: ConfirmedAccount, options: ConfirmOptions): Promise<boolean> {
     const state = await this.read();
+    if (!state) {
+      // Who is signed in cannot be known, so nothing changes and the host confirms again later. A
+      // forget that cannot be recorded stops this process for good: the next one is asked again.
+      if (options.forget) this.blocked = true;
+      return false;
+    }
     if (account !== null) {
       if (state.userId === account) return true;
       this.generation += 1;
@@ -475,6 +487,7 @@ export class AnalyticsClient {
    */
   private async dropForgotten(): Promise<boolean> {
     const state = await this.read();
+    if (!state) return false; // what is owed cannot be known: nothing leaves
     if (state.forgotten.length === 0) return true;
     if (!(await this.dropEventsOf(new Set(state.forgotten)))) return false;
     // Verified gone. If this write fails the drop simply runs again later and finds nothing.
@@ -500,6 +513,7 @@ export class AnalyticsClient {
     const identity = await this.identity();
     if (!identity) return;
     const state = await this.read();
+    if (!state) return; // they keep waiting; the next confirmation tries again
     const signedIn = state.userId !== null;
     const distinctId = state.userId ?? this.anonymousId(state, identity);
     await this.writeQueue(
@@ -536,7 +550,7 @@ export class AnalyticsClient {
   private async discardQueue(): Promise<void> {
     if ((await this.readQueue()).length > 0) await this.writeQueue([]);
     const state = await this.read();
-    if (state.identifiedAs !== null) await this.write({ ...state, identifiedAs: null });
+    if (state && state.identifiedAs !== null) await this.write({ ...state, identifiedAs: null });
   }
 
   /** This install's ids, refusing anything that is not a Still id. */
@@ -550,11 +564,14 @@ export class AnalyticsClient {
     }
   }
 
-  private async read(): Promise<ClientState> {
+  /** The state, or null when the store refuses to answer. Never an empty state in its place: a
+   * reader that took "unreadable" for "nothing there" would send what is owed a drop, and a writer
+   * that built on it would erase the account and the record of that debt. */
+  private async read(): Promise<ClientState | null> {
     try {
       return parseState(await this.deps.store.get(STATE_KEY));
     } catch {
-      return EMPTY_STATE;
+      return null;
     }
   }
 
@@ -651,7 +668,7 @@ export class AnalyticsClient {
   private async ensureIdentified(identity: AnalyticsIdentity, options: TrackOptions = {}): Promise<void> {
     if (!this.confirmed) return;
     const state = await this.read();
-    if (!state.userId || state.identifiedAs === state.userId) return;
+    if (!state?.userId || state.identifiedAs === state.userId) return;
     const person = this.personProperties(options);
     await this.write({ ...state, identifiedAs: state.userId });
     await this.push({
@@ -679,6 +696,7 @@ export class AnalyticsClient {
     if (!identity) return;
     await this.ensureIdentified(identity, options);
     const state = await this.read();
+    if (!state) return; // an event costs less than one recorded under the wrong person
     const person = this.personProperties(options);
     const { distinct_id: distinctId, ...common } = this.envelope(state, identity);
     if (!this.confirmed) {
@@ -717,7 +735,11 @@ export class AnalyticsClient {
     }, FLUSH_DELAY_MS);
   }
 
-  private async post(batch: readonly QueuedEvent[], signal?: AbortSignal): Promise<"done" | "retry"> {
+  /** One request, for a caller that was asked under `epoch`. Refused, synchronously and before
+   * anything else, when a cancellation has overtaken that caller since: this is the last check
+   * before the network, after every awaited read a caller does (rule 1). */
+  private async post(batch: readonly QueuedEvent[], epoch: number, signal?: AbortSignal): Promise<"done" | "retry"> {
+    if (epoch !== this.epoch) return "retry";
     const host = this.deps.config.host!.trim().replace(/\/+$/, "");
     // Every request is bounded, and abandonable: switching sharing off aborts it (cancel), so a
     // stuck network can never hold the queue, the switch, or anything behind them.

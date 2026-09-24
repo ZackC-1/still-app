@@ -66,12 +66,15 @@ privacy-positioning cost (the homepage promised "no behavioral tracking") agains
 - Deleting an account forgets it for analytics first, and only then asks the server to delete the
   account and its person. Forgetting fences the account the moment it is asked: the send on its way
   is abandoned and every send asked for before that moment sends nothing at its turn, so the bounded
-  wait (5 s) can end without releasing anything under the account. The account is recorded as
-  forgotten before its queued events are dropped, and the drop is verified; if the queue store
-  refuses it, nothing is sent until a later confirmation or flush completes the drop, in that
-  process or the next. A deletion that fails re-attributes the account only to the session that
-  asked, never after a sign-out. A device that is offline, or whose background receives the request
-  late, can still deliver a few events under the account; the weekly check catches those.
+  wait (5 s) can end without releasing anything under the account: no request starts under a
+  cancelled epoch, checked last, after every read. The account is recorded as forgotten before its
+  queued events are dropped, and the drop is verified by re-reading the queue; if the queue store
+  refuses or does not keep the drop, or the state store cannot be read, no queued event is sent
+  until a later confirmation or flush completes the drop, in that process or the next. A deletion
+  that fails re-attributes the account only to the session that asked, never after a sign-out.
+  Outside the client's reach: a device that is offline, or an extension background that receives
+  the popup's request after the wait ended, can still deliver what it had queued under the account;
+  the runbook's weekly check is the remedy, not a bound.
 - Turning sharing off takes effect before any network call: the waiting queue is discarded, and one
   standalone `sharing_turned_off` attempt (bounded to a few seconds) is the only thing sent.
 - New accounts are counted by the server once per account, never inferred by a client.
