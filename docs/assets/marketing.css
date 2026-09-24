@@ -50,6 +50,8 @@ nav a { text-decoration: none; color: #464e68; font-size: 14px; font-weight: 580
 .eyebrow { margin: 0 0 14px; color: var(--blue); font-size: 13px; font-weight: 760; letter-spacing: .11em; text-transform: uppercase; }
 h1, h2, h3, p { text-wrap: pretty; }
 h1 { margin: 0; font-size: clamp(54px, 6vw, 84px); line-height: .98; letter-spacing: -.065em; font-weight: 730; }
+.hero-display { margin: 0; font-size: clamp(54px, 6vw, 84px); line-height: .98; letter-spacing: -.065em; font-weight: 730; color: var(--ink, inherit); }
+.hero-copy h1.hero-heading { margin: 18px 0 0; font-size: clamp(20px, 2vw, 24px); line-height: 1.3; letter-spacing: -.01em; font-weight: 680; }
 h2 { max-width: 790px; margin: 0; font-size: clamp(38px, 4vw, 58px); line-height: 1.03; letter-spacing: -.045em; font-weight: 700; }
 .hero-lede { max-width: 620px; margin: 26px 0 30px; color: #4c556f; font-size: 20px; line-height: 1.55; }
 .hero-actions { display: flex; flex-wrap: wrap; gap: 12px; }
@@ -148,7 +150,8 @@ footer div { display: flex; flex-wrap: wrap; gap: 22px; }
 
 @media (max-width: 520px) {
   .section-shell, .site-header { width: min(100% - 28px, 1160px); }
-  h1 { font-size: 52px; }
+  h1, .hero-display { font-size: 52px; }
+  .hero-copy h1.hero-heading { font-size: 20px; }
   .hero { min-height: 0; padding-bottom: 44px; }
   .hero-actions, .hero-actions .button { width: 100%; }
   .store-grid { grid-template-columns: 1fr; }
