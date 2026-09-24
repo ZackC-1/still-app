@@ -49,6 +49,23 @@ Do not restore removed homepage notices during a documentation refresh.
 Provider privacy, device testing, portal pricing, fresh screenshots, and store submission are tracked
 in the [release runbook](README.md). Updating this document does not complete those gates.
 
+## Search engines
+
+stillapp.fit is verified in Google Search Console (a Domain property, through a Namecheap TXT record
+that must stay in place) and imported into Bing Webmaster Tools. The sitemap is
+`https://stillapp.fit/sitemap.xml`; keep its `lastmod` dates current when pages change. After each
+`gh-pages` publish, notify IndexNow (Bing, and through it other engines) of the changed pages:
+
+```bash
+curl -s -X POST https://api.indexnow.org/indexnow -H 'Content-Type: application/json' \
+  -d '{"host":"stillapp.fit","key":"b205442c7a364db6b06dd1aa11098111",
+       "keyLocation":"https://stillapp.fit/b205442c7a364db6b06dd1aa11098111.txt",
+       "urlList":["https://stillapp.fit/"]}'
+```
+
+The key is public by design; its file (`docs/b205442c7a364db6b06dd1aa11098111.txt`) must stay published.
+First submitted 2026-09-24: all 10 sitemap pages accepted (202 from api.indexnow.org, 200 from Bing).
+
 ## Earlier buyers
 
 Still 2.0 needs no purchase restore. Keep support available for earlier receipts and refunds.
