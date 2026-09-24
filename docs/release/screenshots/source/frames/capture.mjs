@@ -27,6 +27,36 @@ for (const [on, name] of [[false, "yt-before"], [true, "yt-after"]]) {
   await p.goto("https://www.youtube.com/results?search_query=pasta+recipe", { waitUntil: "domcontentloaded" });
   await p.waitForTimeout(6000);
   await p.addStyleTag({ content: BLUR });
+  // Without Still, circle every Shorts entry point in red so it's clear how much of the page they take.
+  if (!on) {
+    await p.evaluate(() => {
+      const mark = (el, label, pad = 8, below = false) => {
+        if (!el) return;
+        const r = el.getBoundingClientRect();
+        if (!r.width || !r.height) return;
+        const box = document.createElement("div");
+        Object.assign(box.style, { position: "absolute", left: `${r.left + scrollX - pad}px`, top: `${r.top + scrollY - pad}px`,
+          width: `${r.width + pad * 2}px`, height: `${r.height + pad * 2}px`, border: "6px solid #ff2d2d", borderRadius: "22px",
+          boxShadow: "0 0 0 3px rgba(255,45,45,.25)", zIndex: 99999, pointerEvents: "none" });
+        if (label) {
+          const tag = document.createElement("span");
+          tag.textContent = label;
+          Object.assign(tag.style, { position: "absolute", right: below ? "auto" : "10px", left: below ? "-4px" : "auto",
+            top: below ? "calc(100% + 8px)" : "-15px", whiteSpace: "nowrap", background: "#ff2d2d", color: "white",
+            font: "700 13px/1 Roboto, Arial, sans-serif", padding: "6px 10px", borderRadius: "999px", letterSpacing: ".02em" });
+          box.appendChild(tag);
+        }
+        document.body.appendChild(box);
+      };
+      const byText = (sel, text) => [...document.querySelectorAll(sel)].find((e) => e.textContent.trim() === text);
+      mark(byText("yt-chip-cloud-chip-renderer, chip-view-model, yt-chip-cloud-chip-renderer button", "Shorts"), "", 5);
+      const tab = [...document.querySelectorAll('ytd-mini-guide-entry-renderer, ytd-guide-entry-renderer, a[title="Shorts"]')]
+        .find((e) => /^\s*Shorts\s*$/.test(e.textContent) || e.getAttribute("title") === "Shorts" || e.querySelector('[title="Shorts"]'));
+      mark(tab?.closest("ytd-mini-guide-entry-renderer, ytd-guide-entry-renderer") ?? tab, "", 4);
+      const shelves = [...document.querySelectorAll("grid-shelf-view-model, ytd-reel-shelf-renderer")].filter((e) => e.getBoundingClientRect().height > 50);
+      shelves.forEach((s, i) => mark(s, i === 0 ? "Shorts shelf" : "More Shorts", 6));
+    });
+  }
   await p.waitForTimeout(800);
   await p.screenshot({ path: OUT + name + ".png" });
   await ctx.close();
