@@ -1,7 +1,7 @@
 // Writes two Safari bookmarklets built from annotate.js, for captures on the iOS Simulator, the iPad
 // Simulator and Safari on the Mac, where Playwright can't load the Safari extension:
-//   "Still before": blur other people's content and draw red marker marks on what Still removes
-//   "Still after":  blur only
+//   "Still before": close any "open the app" nag and draw red marker marks on what Still removes
+//   "Still after":  close any "open the app" nag
 // Output: bookmarklets.html (open it in Safari and bookmark each link) and bookmarklets.txt.
 import { writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";

@@ -1,7 +1,8 @@
 // Captures the raw desktop screens used by frames.html, with the release Chrome build loaded where
 // noted. Each page is captured twice, without Still and with it; nothing else changes between the two.
-// Other people's pictures, faces, names and captions are blurred before capture (annotate.js), and
-// the "before" shot carries red marker marks on exactly what Still's rule set removes.
+// Pages are captured as they really look, unblurred (owner decision); pick queries and accounts so the
+// content is safe for a store listing, and review every capture before use. The "before" shot carries
+// red marker marks on exactly what Still's rule set removes (annotate.js).
 //
 // Run from the repo root after `pnpm build` (the Chrome build must be the release candidate):
 //   node docs/release/screenshots/source/frames/capture.mjs [youtube|shorts-link|tiktok|instagram|facebook|ui ...]
@@ -44,7 +45,7 @@ async function launch({ ext, signedIn, headless = true, viewport = VIEWPORT, sca
   });
 }
 
-// Loads `url`, lets the page settle, blurs, marks the "before" shot, and saves it.
+// Loads `url`, lets the page settle, marks the "before" shot, and saves it.
 async function shoot(ctx, url, file, { mark, settle = 6000, scroll = 0, labels, prepare } = {}) {
   const page = await ctx.newPage();
   await page.goto(url, { waitUntil: "domcontentloaded" }).catch(() => {});
@@ -52,7 +53,7 @@ async function shoot(ctx, url, file, { mark, settle = 6000, scroll = 0, labels, 
   if (scroll) { await page.mouse.wheel(0, scroll); await page.waitForTimeout(1500); }
   if (prepare) await prepare(page);
   await page.addScriptTag({ content: annotateLibrary() });
-  // First pass closes any "open the app" nag and blurs; the marks are drawn once the page is still.
+  // First pass closes any "open the app" nag; the marks are drawn once the page is still.
   await page.evaluate(() => globalThis.StillAnnotate.run({ mark: false }));
   await page.waitForTimeout(1200);
   const result = await page.evaluate((cfg) => globalThis.StillAnnotate.run(cfg), { rules: RULES, mark, labels });
@@ -104,8 +105,10 @@ if (wanted("shorts-link")) {
   }
 }
 
-// 3. The TikTok website: the For You feed, then Still's blocked page.
-if (wanted("tiktok")) await pair("tiktok", "https://www.tiktok.com/", { settle: 9000, headless: false });
+// 3. The TikTok website: a public food hashtag (not the For You feed, whose videos are random), then
+// Still's blocked page.
+const TIKTOK = "https://www.tiktok.com/tag/pastarecipe";
+if (wanted("tiktok")) await pair("tiktok", TIKTOK, { settle: 9000, headless: false });
 
 // 4. Instagram, signed in to the test account: home feed, and the Reels page itself.
 if (wanted("instagram")) {
@@ -124,7 +127,7 @@ if (wanted("mobile-draft")) {
   mkdirSync(resolve(OUT, "../mobile-draft"), { recursive: true });
   const draft = { device: IPHONE, dir: "../mobile-draft/" };
   await pair("youtube", "https://m.youtube.com/results?search_query=pasta+recipe", { ...draft, settle: 7000 });
-  await pair("tiktok", "https://www.tiktok.com/", { ...draft, settle: 9000, headless: false });
+  await pair("tiktok", TIKTOK, { ...draft, settle: 9000, headless: false });
 }
 
 // 7. Still's own UI: the Chrome popup (signed out, defaults) and the Apple app's web UI at iPhone size.

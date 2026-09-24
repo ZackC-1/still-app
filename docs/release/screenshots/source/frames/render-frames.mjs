@@ -22,7 +22,7 @@ for (const f of chosen) {
   await page.goto(pathToFileURL(resolve(HERE, "frames.html")).href);
   await page.evaluate(() => document.fonts.ready);
   await page.evaluate((e) => window.render(e), f);
-  await page.waitForFunction(() => [...document.images].every((i) => i.complete && i.style.width));
+  await page.waitForFunction(() => [...document.images].every((i) => i.complete && (i.style.width || !i.closest(".shot"))));
   await page.waitForTimeout(200);
   const dir = resolve(OUT, c.out);
   mkdirSync(dir, { recursive: true });

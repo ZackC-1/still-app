@@ -33,6 +33,9 @@
     font-weight: 650; letter-spacing: -.01em; padding: .42em .95em .42em .75em; box-shadow: 0 .3em 1.2em rgba(6,15,70,.25); }
   .pill::before { content: ""; width: .62em; height: .62em; border-radius: 50%; background: var(--accent, #999); box-shadow: 0 0 0 .22em color-mix(in srgb, var(--accent) 22%, transparent); }
 
+  .pill.logo { padding: .55em 1.05em; }
+  .pill.logo::before { display: none; }
+  .pill.logo img { display: block; height: 1.25em; width: auto; }
   .label { font-weight: 720; letter-spacing: .09em; text-transform: uppercase; color: rgba(255,255,255,.7); white-space: nowrap; }
   .label.good { color: white; }
 
@@ -50,8 +53,9 @@
 <script>
 // Service accents appear only on the domain pill: the canvas stays Still blue.
 const SERVICES = {
-  youtube: { domain: "youtube.com", accent: "#ff0033" },
-  "m.youtube": { domain: "m.youtube.com", accent: "#ff0033" },
+  // YouTube shows its own logo (owner decision): logos/youtube.svg, the official 2017 wordmark.
+  youtube: { domain: "youtube.com", accent: "#ff0033", logo: "logos/youtube.svg" },
+  "m.youtube": { domain: "m.youtube.com", accent: "#ff0033", logo: "logos/youtube.svg" },
   instagram: { domain: "instagram.com", accent: "#e1306c" },
   facebook: { domain: "facebook.com", accent: "#0866ff" },
   tiktok: { domain: "tiktok.com", accent: "#25f4ee" },
@@ -115,7 +119,13 @@ function pill(service, u, size = 2.4) {
   const s = SERVICES[service];
   const p = el("div", "pill", { fontSize: u * size + "px", "--accent": s.accent });
   p.style.setProperty("--accent", s.accent);
-  p.textContent = s.domain;
+  if (s.logo) {
+    p.classList.add("logo");
+    const img = new Image();
+    img.src = s.logo;
+    img.alt = s.domain;
+    p.appendChild(img);
+  } else p.textContent = s.domain;
   return p;
 }
 

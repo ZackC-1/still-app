@@ -1,8 +1,8 @@
 // Prepares a live page for a store capture. Runs in the page: Playwright injects it on desktop, and a
 // bookmarklet built from it (build-bookmarklet.mjs) runs it in Safari on the Simulator and the Mac.
 //
-//   blur: blurs other people's pictures, faces, names and captions, keeping each site's navigation
-//         and Still's own UI sharp.
+//   blur: off by default (the owner chose real, unblurred pages, 2026-09-24). When asked for, blurs
+//         other people's pictures, faces, names and captions, keeping navigation and Still's UI sharp.
 //   mark: on a "before" shot (Still off), draws a hand-drawn red marker over each element Still
 //         would remove. The selectors come from the shipped rule set (packages/core/rules/seed.json),
 //         so a mark can only land on something Still actually takes away: rules that hide an entry
@@ -96,8 +96,40 @@
       if (r.bottom < 0 || r.right < 0 || r.top > vh || r.left > vw) continue;
       out.push({ ...t, r, kind: isSmall(r) ? "circle" : "x" }); // entry points get a loop, blocks get crossed out
     }
-    // Drop anything inside another target: one mark per block.
-    return out.filter((t) => !out.some((o) => o !== t && o.el.contains(t.el)));
+    // Drop anything inside another target, then split each block into the things a viewer sees:
+    // its section header and each of its pictures get their own X (owner decision: one X per image or
+    // header, never one X across several pictures). Small entry points keep their loop.
+    const outer = out.filter((t) => !out.some((o) => o !== t && o.el.contains(t.el)));
+    return outer.flatMap((t) => (t.kind === "x" ? parts(t) : [t]));
+  }
+
+  const inView = (r) => r.width >= 8 && r.height >= 8 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth;
+  const overlaps = (a, b) => !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top);
+
+  // The tight box around an element's text and icon, so a header's X covers the words, not the row.
+  function tight(el) {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const r = range.getBoundingClientRect();
+    return r.width && r.height ? r : el.getBoundingClientRect();
+  }
+
+  function parts(block) {
+    const b = block.r, found = [];
+    // Section header: a short heading in the top part of the block, such as "Shorts".
+    const heads = [...block.el.querySelectorAll('h2, h3, [role="heading"], #title, yt-shelf-header-layout h2, .reel-shelf-title, .shelf-title')]
+      .filter((h) => { const t = h.textContent.trim(); const r = tight(h); return t && t.length < 40 && inView(r) && r.top < b.top + Math.max(80, b.height * 0.25); });
+    if (heads[0]) found.push({ el: heads[0], r: tight(heads[0]), kind: "x", header: true });
+    // Pictures: each visible thumbnail or video in the block, one X each, without doubles.
+    const media = [];
+    for (const m of block.el.querySelectorAll("img, video")) {
+      const r = m.getBoundingClientRect();
+      if (!inView(r) || r.width * r.height < 4000) continue;
+      if (media.some((x) => overlaps(x.r, r))) continue;
+      media.push({ el: m, r, kind: "x" });
+    }
+    found.push(...media);
+    return found.length ? found : [block];
   }
 
   // Extra "before" targets that the rule set identifies only once Still is running.
@@ -110,11 +142,16 @@
       }
     }
     if (service === "tiktok") {
-      // Still blocks the whole TikTok website, so the video in view is crossed out as a block.
-      const video = [...document.querySelectorAll("video")].find((v) => v.getBoundingClientRect().height > 300);
-      let box = video;
-      while (box && box.parentElement && box.parentElement.getBoundingClientRect().width < innerWidth * 0.45) box = box.parentElement;
-      if (box) out.push({ el: box, kind: "x" });
+      // Still blocks the whole TikTok website: cross out each video in a grid, or the one video playing.
+      let tiles = query('[data-e2e="challenge-item"], [data-e2e="search_top-item"], [data-e2e="user-post-item"], [data-e2e="explore-item"]');
+      if (!tiles.length) tiles = query('a[href*="/video/"]').filter((a) => a.querySelector("img, video")); // mobile web
+      if (tiles.length) for (const t of tiles) out.push({ el: t.querySelector("img, video") || t, kind: "x" });
+      else {
+        const video = [...document.querySelectorAll("video")].find((v) => v.getBoundingClientRect().height > 300);
+        let box = video;
+        while (box && box.parentElement && box.parentElement.getBoundingClientRect().width < innerWidth * 0.45) box = box.parentElement;
+        if (box) out.push({ el: box, kind: "x" });
+      }
     }
     return out;
   }
@@ -146,8 +183,8 @@
   }
 
   // A marker X: two slightly curved strokes corner to corner, inset from the block's edges.
-  function cross(r, rand, width) {
-    const ix = Math.min(r.width * 0.12, 60), iy = Math.min(r.height * 0.12, 60);
+  function cross(r, rand, width, header) {
+    const ix = header ? -6 : Math.min(r.width * 0.12, 60), iy = header ? -4 : Math.min(r.height * 0.12, 60);
     const x0 = r.left + ix, x1 = r.right - ix, y0 = r.top + iy, y1 = r.bottom - iy;
     const stroke = (ax, ay, bx, by) => {
       const pts = [];
@@ -175,8 +212,8 @@
     marks.forEach((m, i) => {
       const small = isSmall(m.r);
       const kind = m.kind;
-      const width = opts.stroke || Math.max(4, Math.min(9, Math.min(m.r.width, m.r.height) * 0.05));
-      const strokes = kind === "circle" ? loop(m.r, rand, width) : cross(m.r, rand, width * 1.35);
+      const width = opts.stroke || (m.header ? 4 : Math.max(4, Math.min(8, Math.min(m.r.width, m.r.height) * 0.04)));
+      const strokes = kind === "circle" ? loop(m.r, rand, width) : cross(m.r, rand, width * 1.35, m.header);
       for (const s of strokes) {
         const p = document.createElementNS(SVGNS, "path");
         p.setAttribute("d", s.d);
@@ -219,7 +256,7 @@
     if (!service) return { service: null, marks: 0 };
     for (const old of document.querySelectorAll("[data-still-annotate]")) old.remove();
     if (config.dismiss !== false) dismissNags(service);
-    if (config.blur !== false) {
+    if (config.blur === true) {
       const style = document.createElement("style");
       style.setAttribute("data-still-annotate", "");
       style.textContent = (BLUR[service] || "") + (config.extraCss || "");
@@ -228,7 +265,7 @@
     let marks = [];
     if (config.mark) {
       const rules = (config.rules && config.rules[service]) || [];
-      marks = targets(rules, extraTargets(service)).slice(0, config.maxMarks || 8);
+      marks = targets(rules, extraTargets(service)).slice(0, config.maxMarks || 24);
       draw(marks, config);
     }
     return { service, marks: marks.length, rects: marks.map((m) => [m.kind, Math.round(m.r.left), Math.round(m.r.top), Math.round(m.r.width), Math.round(m.r.height)]) };
