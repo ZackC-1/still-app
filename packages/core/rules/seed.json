@@ -1,5 +1,5 @@
 {
-  "version": "1.1.9",
+  "version": "1.1.10",
   "services": {
     "youtube": {
       "matches": [
@@ -255,6 +255,17 @@
           ]
         },
         {
+          "id": "fb-feed-shelf",
+          "label": "Reels shelf card in Home feed",
+          "tier": "pro",
+          "requiredCapability": "surface.facebook.reels",
+          "action": "hide",
+          "enabledByDefault": true,
+          "selectors": [
+            "div:has(> div > div > div > div[role=\"grid\"][aria-label=\"Reels\"])"
+          ]
+        },
+        {
           "id": "fb-left-menu",
           "label": "Reels shortcut in left menu",
           "tier": "pro",
@@ -275,8 +286,9 @@
           "action": "hide",
           "enabledByDefault": true,
           "selectors": [
-            "a[role=\"tab\"][href*=\"/reels_tab\"]",
-            "[role=\"tablist\"] a[href*=\"/reels_tab\"]"
+            "a[role=\"tab\"][href*=\"/reels_tab\"] > *",
+            "[role=\"tablist\"] a[href*=\"/reels_tab\"] > *",
+            "[role=\"menu\"] a[href*=\"/reels_tab\"]"
           ]
         },
         {
@@ -333,6 +345,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "b3dee460e0c2efac964b40319d100d266f8edfcb7d9c8f231bc4239429f61b0224bb8af7428b65d5e809d22930b3ba5a85cc1889222fc5d5607bba42ce238b0f"
+    "value": "69dbc4b3a6340189e005ffffb0232fc711dde8b0a3a6ef60b13aea29e9d6718253357243d4272a452341a8428e78c34f09b994004581b4d674d97d91ac89ac0c"
   }
 }

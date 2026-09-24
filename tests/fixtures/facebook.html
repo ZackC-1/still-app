@@ -40,14 +40,75 @@
     </nav>
 
     <!--
-      Page profile tabs. Every Facebook Page carries a Reels tab pointing at /<page>/reels_tab
-      (fb-page-tabs, hide); the other tabs must survive. Copied from a signed-out capture of
-      facebook.com/facebook, where the tab is an <a role="tab"> with an absolute address.
+      Page profile tabs. Every Facebook Page and profile carries a Reels tab pointing at
+      /<page>/reels_tab (fb-page-tabs, hide); the other tabs must survive. The markup is the shape
+      recorded on signed-in Pages on 2026-09-24 (class names dropped): an <a role="tab"> with an
+      absolute address whose label is wrapped in a div, never a bare text node.
     -->
     <div role="tablist" id="page-tabs">
-      <a role="tab" href="https://www.facebook.com/stillapp/" id="keep-page-posts-tab">Posts</a>
-      <a role="tab" href="https://www.facebook.com/stillapp/reels_tab" id="page-reels-tab">Reels</a>
-      <a role="tab" href="https://www.facebook.com/stillapp/photos" id="keep-page-photos-tab">Photos</a>
+      <a role="tab" aria-hidden="false" aria-selected="true" tabindex="0" href="/stillapp/" id="keep-page-posts-tab"
+        ><div><span dir="auto">All</span><div></div></div><div role="none"></div
+      ></a>
+      <a
+        role="tab"
+        aria-hidden="false"
+        aria-selected="false"
+        tabindex="0"
+        href="https://www.facebook.com/stillapp/reels_tab"
+        id="page-reels-tab"
+        ><div><span dir="auto">Reels</span><div></div></div><div role="none"></div
+      ></a>
+      <a
+        role="tab"
+        aria-hidden="false"
+        aria-selected="false"
+        tabindex="0"
+        href="https://www.facebook.com/stillapp/photos"
+        id="keep-page-photos-tab"
+        ><div><span dir="auto">Photos</span><div></div></div><div role="none"></div
+      ></a>
+    </div>
+    <!--
+      A model of Facebook's tab-overflow contract, observed live and reproduced in Chromium, WebKit
+      and Firefox: a tab with no layout box counts as overflowed. Facebook then strips its address,
+      marks it aria-hidden and disabled, and offers it in the row's "More" menu instead; once the
+      tab has a box again it is restored. Hiding the tab itself with display:none therefore made it
+      flip between the two states every frame, visible in half of them. This is a synthetic model
+      of that behavior, not Facebook's code.
+    -->
+    <script>
+      (() => {
+        const observer = new IntersectionObserver((entries) => {
+          for (const { target, isIntersecting } of entries) {
+            if (!isIntersecting && target.hasAttribute("href")) {
+              target.dataset.href = target.getAttribute("href");
+              target.removeAttribute("href");
+              target.setAttribute("aria-hidden", "true");
+              target.setAttribute("aria-disabled", "true");
+              target.setAttribute("tabindex", "-1");
+            } else if (isIntersecting && target.dataset.href) {
+              target.setAttribute("href", target.dataset.href);
+              delete target.dataset.href;
+              target.setAttribute("aria-hidden", "false");
+              target.removeAttribute("aria-disabled");
+              target.setAttribute("tabindex", "0");
+            }
+          }
+        });
+        for (const tab of document.querySelectorAll('#page-tabs a[role="tab"]')) observer.observe(tab);
+      })();
+    </script>
+    <!--
+      The tab row's "More" menu, as Facebook renders it when the window is too narrow for the Reels
+      tab (recorded: at 480px Followers moved here the same way). Only the Reels entry goes.
+    -->
+    <div role="menu" id="page-tabs-more-menu">
+      <a role="menuitemradio" aria-checked="false" href="https://www.facebook.com/stillapp/reels_tab" id="page-more-reels"
+        ><span dir="auto">Reels</span></a
+      >
+      <a role="menuitemradio" aria-checked="false" href="https://www.facebook.com/stillapp/live_videos" id="keep-page-more-live"
+        ><span dir="auto">Live</span></a
+      >
     </div>
 
     <!--
@@ -99,6 +160,51 @@
 
     <!-- Feed: a Reel article (fb-feed, remove) + normal posts (must survive) -->
     <main role="feed">
+      <!--
+        The home feed's Reels shelf card, in the shape recorded on 2026-09-24 (class names and
+        creator names dropped). fb-watch removes each tile, which used to leave the card behind as
+        a header reading "Reels" with nothing under it; fb-feed-shelf hides the card itself. The
+        card is exactly four levels above the grid Facebook labels "Reels".
+      -->
+      <div id="reels-shelf-card">
+        <div>
+          <div>
+            <div>
+              <div role="button"><div><span id="reels-shelf-header">Reels</span></div></div>
+              <h3>Reels</h3>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div>
+            <div>
+              <div role="grid" aria-label="Reels">
+                <div role="row">
+                  <div>
+                    <div role="gridcell"><a role="link" aria-label="Reel by a creator" href="/reel/555/?s=ifu">a reel tile</a></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!--
+        Over-blocking control: a feed card with a carousel at the same depth that is not Reels.
+        Facebook labels its carousels by what they hold; only "Reels" is short-form video.
+      -->
+      <div id="keep-people-shelf-card">
+        <div><span id="keep-people-shelf-header">People you may know</span></div>
+        <div>
+          <div>
+            <div>
+              <div role="grid" aria-label="People you may know">
+                <div role="row"><div role="gridcell"><a href="/someone">Someone</a></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
       <div role="article" id="reel-article"><a href="/reel/123">a reel</a></div>
       <div role="article" id="keep-article">A normal status update</div>
       <div role="article" id="keep-lookalike-article">

@@ -438,6 +438,67 @@ test("facebook page: the Reels tab goes, the other Page tabs stay", async ({ con
   await expect(page.locator("#keep-menu-reels-tab-page a")).toBeVisible();
 });
 
+// Facebook counts a tab with no layout box as overflowed: it strips the tab's address, which the
+// rule keys on, so the old display:none rule stopped matching, the tab reappeared, Facebook
+// restored the address, and the two flipped every frame. The tab was visible in half of them, so
+// whether a screenshot showed it was chance. The fixture models that contract; hiding the tab's
+// contents keeps a zero-width box that Facebook counts as fitting, so nothing flips.
+test("facebook page: the Reels tab stays hidden instead of flickering with Facebook's tab overflow", async ({
+  context,
+  extensionId,
+}) => {
+  await setEntitled(context, extensionId, true);
+  const page = await context.newPage();
+  await serve(page, "**://*.facebook.com/**", fixture("facebook.html"));
+  await page.goto("https://www.facebook.com/stillapp");
+  await expect(page.locator("html")).toHaveClass(/still-pro-active/);
+
+  const sampled = await page.evaluate(async () => {
+    const tab = document.querySelector<HTMLElement>("#page-reels-tab")!;
+    let addressChanges = 0;
+    const observer = new MutationObserver((records) => (addressChanges += records.length));
+    observer.observe(tab, { attributes: true, attributeFilter: ["href"] });
+    let visibleFrames = 0;
+    const frames = 40;
+    for (let i = 0; i < frames; i++) {
+      await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+      const box = tab.getBoundingClientRect();
+      if (box.width > 0 && box.height > 0) visibleFrames++;
+    }
+    observer.disconnect();
+    return { frames, visibleFrames, addressChanges, href: tab.getAttribute("href") };
+  });
+  expect(sampled.visibleFrames, `Reels tab was visible in ${sampled.visibleFrames} of ${sampled.frames} frames`).toBe(0);
+  expect(sampled.addressChanges, "Facebook's overflow logic is fighting the rule").toBe(0);
+  expect(sampled.href).toBe("https://www.facebook.com/stillapp/reels_tab");
+
+  await expect(page.locator("#keep-page-posts-tab")).toBeVisible();
+  await expect(page.locator("#keep-page-photos-tab")).toBeVisible();
+  // The tab keeps no gap: Photos sits where the Reels tab would have started.
+  const [reelsX, photosX] = await page.evaluate(() =>
+    ["#page-reels-tab", "#keep-page-photos-tab"].map((id) => document.querySelector(id)!.getBoundingClientRect().x),
+  );
+  expect(photosX).toBeCloseTo(reelsX!, 0);
+
+  // When the window is too narrow for it, Facebook offers the tab in the row's "More" menu.
+  await expect(page.locator("#page-more-reels")).toBeHidden();
+  await expect(page.locator("#keep-page-more-live")).toBeVisible();
+});
+
+test("facebook home: the Reels shelf card goes with its reels, other carousels stay", async ({ context, extensionId }) => {
+  await setEntitled(context, extensionId, true);
+  const page = await context.newPage();
+  await serve(page, "**://*.facebook.com/**", fixture("facebook.html"));
+  await page.goto("https://www.facebook.com/");
+
+  // Before this rule the tiles went and a card reading only "Reels" stayed in the feed.
+  await expect(page.locator("#reels-shelf-card")).toBeHidden();
+  await expect(page.locator("#reels-shelf-header")).toBeHidden();
+  await expect(page.locator("#keep-people-shelf-card")).toBeVisible();
+  await expect(page.locator("#keep-people-shelf-header")).toBeVisible();
+  await expect(page.locator("#keep-article")).toBeVisible();
+});
+
 // Facebook's own sections live in the first path segment, so "/<name>/reels" is a Page's Reels tab
 // only when <name> is a Page. facebook.com/groups/reels is a live group that auctions fishing rods,
 // reels and tackle, facebook.com/hashtag/reels is the hashtag feed, and facebook.com/public/reels
