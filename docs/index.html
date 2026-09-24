@@ -4,27 +4,59 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Still — Block Shorts &amp; Reels in Safari, Chrome &amp; Firefox</title>
-  <meta name="description" content="Remove Shorts and Reels, block the TikTok website, and optionally sync settings with Still across Safari, Chrome, and Firefox. The free update is rolling out across stores.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="description" content="Remove YouTube Shorts and Instagram and Facebook Reels, and block the TikTok website, in Safari, Chrome and Firefox. Free. Your settings follow you.">
   <meta name="theme-color" content="#2948e8">
   <meta property="og:title" content="Still — Do what you came to do">
-  <meta property="og:description" content="Free blocking and optional settings sync across Safari, Chrome, and Firefox. Still’s free update is rolling out across stores.">
+  <meta property="og:description" content="Remove YouTube Shorts and Instagram and Facebook Reels in Safari, Chrome and Firefox. Free, and your settings follow you across devices.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://stillapp.fit/">
   <meta property="og:image" content="https://stillapp.fit/release/screenshots/v2/web/still-open-graph-v2-1200x630.jpg">
   <link rel="canonical" href="https://stillapp.fit/">
   <link rel="stylesheet" href="./assets/marketing.css">
   <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "SoftwareApplication",
-    "name": "Still",
-    "applicationCategory": "ProductivityApplication",
-    "operatingSystem": "iOS, iPadOS, macOS, desktop browsers",
-    "description": "Still removes YouTube Shorts, Instagram and Facebook Reels, and the TikTok website from supported browsers.",
-    "url": "https://stillapp.fit/",
-    "downloadUrl": "https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf",
-    "author": { "@type": "Organization", "name": "Cadmus Labs LLC" }
-  }
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://stillapp.fit/#org",
+      "name": "Cadmus Labs",
+      "url": "https://stillapp.fit/",
+      "logo": "https://stillapp.fit/assets/still-logo.png",
+      "email": "hello@stillapp.fit"
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://stillapp.fit/#app",
+      "name": "Still",
+      "alternateName": "Still: Block Shorts & Reels",
+      "applicationCategory": "ProductivityApplication",
+      "operatingSystem": "iOS, iPadOS, macOS, Chrome, Firefox",
+      "description": "Still removes YouTube Shorts and Instagram and Facebook Reels, and blocks the TikTok website, in Safari on iPhone, iPad and Mac and in Chrome and Firefox on desktop. Settings sync across devices with an optional free sign-in. It does not work inside the native YouTube, Instagram, Facebook or TikTok apps.",
+      "url": "https://stillapp.fit/",
+      "image": "https://stillapp.fit/release/screenshots/v2/web/still-open-graph-v2-1200x630.jpg",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "downloadUrl": [
+        "https://apps.apple.com/app/id6784061138",
+        "https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf",
+        "https://addons.mozilla.org/en-US/firefox/addon/still-free-yourself/"
+      ],
+      "sameAs": [
+        "https://apps.apple.com/app/id6784061138",
+        "https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf",
+        "https://addons.mozilla.org/en-US/firefox/addon/still-free-yourself/"
+      ],
+      "publisher": {
+        "@id": "https://stillapp.fit/#org"
+      }
+    }
+  ]
+}
   </script>
 </head>
 <body>
@@ -46,11 +78,11 @@
       <div class="hero-copy">
         <p class="eyebrow">Your favorite websites, without short-form videos</p>
         <h1>Do what you came to do</h1>
-        <p class="hero-lede">Still remove Shorts, Reels, and Tiktoks from the websites you use. One intentional visit doesn't become hours of scrolling</p>
+        <p class="hero-lede">Still removes Shorts and Reels, and blocks TikTok, on the websites you use. One intentional visit doesn't become hours of scrolling.</p>
         <div class="hero-actions">
-          <a class="button button-primary" data-apple-store href="https://apps.apple.com/app/id6784061138" aria-label="Get Still for Mac, iPhone and iPad on the App Store">App Store</a>
-          <a class="button button-secondary" href="https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf">Chrome</a>
-          <a class="button button-secondary" href="https://addons.mozilla.org/en-US/firefox/addon/still-free-yourself/">Firefox</a>
+          <a class="button button-primary" data-apple-store href="https://apps.apple.com/app/apple-store/id6784061138?pt=129084033&amp;ct=web-home&amp;mt=8" aria-label="Get Still for Mac, iPhone and iPad on the App Store">App Store</a>
+          <a class="button button-secondary" href="https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf?utm_source=stillapp.fit&amp;utm_medium=website&amp;utm_campaign=home">Chrome</a>
+          <a class="button button-secondary" href="https://addons.mozilla.org/en-US/firefox/addon/still-free-yourself/?utm_source=stillapp.fit&amp;utm_medium=website&amp;utm_campaign=home">Firefox</a>
         </div>
         <p class="price-line">Still is free to use. Sign in to sync your blocking settings across Safari, Chrome, and Firefox on desktop and iOS.</p>
       </div>
@@ -127,15 +159,15 @@
       <h2 id="get-still-title">Add Still to the browser you use.</h2>
       <p class="get-still-lede">Still removes YouTube Shorts, Instagram and Facebook Reels, and blocks the TikTok website. All included, with no purchase needed.</p>
       <div id="release-status" class="store-grid">
-        <a class="store-btn" data-apple-store href="https://apps.apple.com/app/id6784061138">
+        <a class="store-btn" data-apple-store href="https://apps.apple.com/app/apple-store/id6784061138?pt=129084033&amp;ct=web-home&amp;mt=8">
           <span class="store-name">App Store</span>
           <span class="store-surface">iPhone, iPad &amp; Mac — Safari</span>
         </a>
-        <a class="store-btn" href="https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf">
+        <a class="store-btn" href="https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf?utm_source=stillapp.fit&amp;utm_medium=website&amp;utm_campaign=home">
           <span class="store-name">Chrome</span>
           <span class="store-surface">Desktop</span>
         </a>
-        <a class="store-btn" href="https://addons.mozilla.org/en-US/firefox/addon/still-free-yourself/">
+        <a class="store-btn" href="https://addons.mozilla.org/en-US/firefox/addon/still-free-yourself/?utm_source=stillapp.fit&amp;utm_medium=website&amp;utm_campaign=home">
           <span class="store-name">Firefox</span>
           <span class="store-surface">Desktop</span>
         </a>
