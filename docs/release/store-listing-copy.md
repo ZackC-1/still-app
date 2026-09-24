@@ -182,7 +182,7 @@ them all from your Mac. Your iPhone follows." 3–6 as above.
 
 | Box | Value | Length |
 |---|---|---|
-| Name (from the extension's manifest) | Still: Remove Shorts & Reels, Stop Doomscrolling | 48/75 |
+| Name (from the extension's manifest) | Still: Remove Shorts & Reels, Stop Scrolling | 44/45 (Firefox's manifest limit applies to both) |
 | Summary (from the manifest) | Remove YouTube Shorts and Instagram & Facebook Reels. Block the TikTok website. Free, no timers. Syncs with Still on iPhone & Mac. | 130/132 |
 | Category | Keep the current category | |
 | Language | English | |
@@ -249,7 +249,7 @@ Privacy: https://stillapp.fit/privacy/
 
 | Box | Value | Length |
 |---|---|---|
-| Name (from the manifest) | Still: Remove Shorts & Reels, Stop Doomscrolling | 48/50 |
+| Name (from the manifest) | Still: Remove Shorts & Reels, Stop Scrolling | 44/45 |
 | Summary | Remove YouTube Shorts and Instagram & Facebook Reels, and block the TikTok website. Free, with no timers or stats. Sign in free to sync your settings with Chrome and with Safari on iPhone, iPad and Mac. Desktop Firefox. | 219/250 |
 | Categories | Social & Communication; Photos, Music & Videos | |
 | Support email | support@stillapp.fit | |
