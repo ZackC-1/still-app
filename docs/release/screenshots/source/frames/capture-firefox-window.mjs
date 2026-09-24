@@ -57,11 +57,11 @@ console.log("Firefox is open with Still installed. Click the Still icon in Firef
 
 // Wait for the popup: a small Firefox window above the main one.
 let popup;
-for (let i = 0; i < 600 && !popup; i++) {
+for (let i = 0; i < 2400 && !popup; i++) {
   await new Promise((r) => setTimeout(r, 500));
   popup = windows().find((w) => w.w < 520 && w.h > 250);
 }
-if (!popup) { console.log("No popup seen in 5 minutes; giving up."); ff.kill(); process.exit(1); }
+if (!popup) { console.log("No popup seen in 20 minutes; giving up."); ff.kill(); process.exit(1); }
 await new Promise((r) => setTimeout(r, 1200));
 const main = windows().sort((a, b) => b.w * b.h - a.w * a.h)[0];
 mkdirSync(dirname(OUT), { recursive: true });

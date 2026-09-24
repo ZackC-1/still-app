@@ -291,6 +291,24 @@
       ]
     },
     {
+      "id": "firefox-05-switches",
+      "canvas": "firefox",
+      "layout": "single",
+      "headline": "**One switch** per site, right in Firefox.",
+      "subline": "YouTube Shorts, Instagram and Facebook Reels, and the TikTok website. <b>No timers. No stats. Just the blocking.</b>",
+      "captures": [
+        {
+          "src": "captures/firefox/window-popup.png",
+          "crop": {
+            "x": 470,
+            "y": 86,
+            "w": 970,
+            "density": 2
+          }
+        }
+      ]
+    },
+    {
       "id": "mac-01-youtube",
       "canvas": "mac",
       "layout": "split",

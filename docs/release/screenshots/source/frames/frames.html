@@ -215,6 +215,16 @@ const LAYOUTS = {
     good.style.left = x + pw - good.offsetWidth + "px";
   },
 
+  // One wide capture under the headline, rising from the bottom edge (a real browser window).
+  single(e, W, H, u) {
+    brand(W, H, u);
+    const pad = u * 7;
+    const bottom = heading(e, u, { x: pad, y: u * 6.5, w: W * 0.72, size: u * 7, subSize: u * 2.6 });
+    const top = bottom + u * 5;
+    const [c] = e.captures;
+    shot(c.src, { x: pad, y: top, w: W - pad * 2, h: H - top + u * 3 }, { crop: c.crop, radius: u * 2.2 });
+  },
+
   // One surface's own UI: a device or card, with the headline and short proof lines.
   surface(e, W, H, u) {
     const landscape = W > H;
