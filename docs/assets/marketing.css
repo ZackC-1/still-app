@@ -1,3 +1,4 @@
+[hidden] { display: none !important; }
 @font-face {
   font-family: "InterVariable";
   src: url("./InterVariable.woff2") format("woff2-variations");
@@ -43,7 +44,7 @@ a:focus-visible { outline: 3px solid #8fa1ff; outline-offset: 4px; }
 .brand-mark { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 8px; background: var(--blue); }
 .brand-mark span { width: 16px; height: 7px; border-bottom: 2px solid white; position: relative; }
 .brand-mark span::before { content: ""; width: 3px; height: 3px; border-radius: 50%; background: white; position: absolute; left: 6px; bottom: -2.5px; }
-nav { display: flex; gap: 28px; }
+nav { display: flex; align-items: center; gap: 28px; }
 nav a { text-decoration: none; color: #464e68; font-size: 14px; font-weight: 580; }
 
 .hero { min-height: 560px; padding: 48px 0 56px; display: grid; grid-template-columns: 0.92fr 1.08fr; gap: 70px; align-items: center; }
@@ -138,7 +139,7 @@ footer { min-height: 100px; padding: 28px max(20px, calc((100% - 1160px) / 2)); 
 footer div { display: flex; flex-wrap: wrap; gap: 22px; }
 
 @media (max-width: 820px) {
-  nav { display: none; }
+  nav a:not(.nav-cta) { display: none; }
   .hero { grid-template-columns: 1fr; padding-top: 40px; gap: 54px; }
   .hero-media { transform: none; }
   .outcome-grid, .pricing-grid, .compatibility-section, .split-section { grid-template-columns: 1fr; }
@@ -167,3 +168,11 @@ footer div { display: flex; flex-wrap: wrap; gap: 22px; }
 .store-badges { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin: 20px 0 8px; }
 .store-badges a { display: inline-flex; line-height: 0; border-radius: 8px; }
 .store-badges img { height: 48px; width: auto; }
+.nav-cta { padding: 10px 16px; border-radius: 10px; color: white !important; background: var(--blue); font-weight: 680 !important; box-shadow: 0 8px 20px rgba(41, 72, 232, .18); }
+.nav-cta:hover { background: var(--blue-dark); }
+.device-cta { margin: 0 0 4px; min-width: 260px; font-size: 16px; }
+.device-note { margin: 0 0 8px; padding: 12px 14px; border-radius: 12px; background: #eef1ff; color: var(--ink); font-size: 14px; }
+.badges-centered { justify-content: center; }
+.store-btn.is-recommended { border: 2px solid var(--blue); box-shadow: 0 18px 40px rgba(41, 72, 232, .12); }
+.store-btn.is-recommended::before { content: "For this device"; color: var(--blue); font-size: 12px; font-weight: 720; letter-spacing: .06em; text-transform: uppercase; }
+@media (max-width: 520px) { .device-cta { width: 100%; } }
