@@ -34,12 +34,12 @@ body {
   line-height: 1.6;
 }
 
-h1,
 h2 {
   text-wrap: balance;
 }
 
 h1 {
+  text-wrap: wrap;
   margin-bottom: 0.25rem;
   font-size: 1.9rem;
 }
