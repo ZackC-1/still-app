@@ -1,0 +1,727 @@
+{
+  "canvases": {
+    "chrome": {
+      "w": 1280,
+      "h": 800,
+      "scale": 1,
+      "out": "chrome",
+      "format": "png"
+    },
+    "firefox": {
+      "w": 1280,
+      "h": 800,
+      "scale": 1,
+      "out": "firefox",
+      "format": "png"
+    },
+    "mac": {
+      "w": 1440,
+      "h": 900,
+      "scale": 2,
+      "out": "mac",
+      "format": "png"
+    },
+    "iphone": {
+      "w": 440,
+      "h": 956,
+      "scale": 3,
+      "out": "iphone",
+      "format": "png"
+    },
+    "ipad": {
+      "w": 1032,
+      "h": 1376,
+      "scale": 2,
+      "out": "ipad",
+      "format": "png"
+    },
+    "ig": {
+      "w": 540,
+      "h": 675,
+      "scale": 2,
+      "out": "instagram",
+      "format": "jpg"
+    },
+    "story": {
+      "w": 540,
+      "h": 960,
+      "scale": 2,
+      "out": "instagram",
+      "format": "jpg"
+    },
+    "og": {
+      "w": 1200,
+      "h": 630,
+      "scale": 1,
+      "out": "web",
+      "format": "jpg"
+    }
+  },
+  "frames": [
+    {
+      "id": "chrome-01-youtube",
+      "canvas": "chrome",
+      "layout": "split",
+      "service": "youtube",
+      "headline": "YouTube, **without the Shorts.**",
+      "subline": "Search, subscriptions and videos stay. The Shorts tab, filter and shelves are gone.",
+      "captures": [
+        {
+          "src": "captures/desktop/youtube-before.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 760
+          }
+        },
+        {
+          "src": "captures/desktop/youtube-after.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 760
+          }
+        }
+      ]
+    },
+    {
+      "id": "chrome-02-instagram",
+      "canvas": "chrome",
+      "layout": "split",
+      "service": "instagram",
+      "headline": "Instagram, **minus the Reels.**",
+      "subline": "Posts, Stories and messages stay. The Reels tab and the Reels in your feed are gone.",
+      "captures": [
+        {
+          "src": "captures/desktop/instagram-before.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 680
+          }
+        },
+        {
+          "src": "captures/desktop/instagram-after.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 680
+          }
+        }
+      ]
+    },
+    {
+      "id": "chrome-03-facebook",
+      "canvas": "chrome",
+      "layout": "split",
+      "service": "facebook",
+      "headline": "Facebook, **minus the Reels.**",
+      "subline": "Pages, posts and friends stay. Reels are cleared away.",
+      "captures": [
+        {
+          "src": "captures/desktop/facebook-reels-before.png",
+          "crop": {
+            "x": 0,
+            "y": 60,
+            "w": 820
+          }
+        },
+        {
+          "src": "captures/desktop/facebook-reels-after.png",
+          "crop": {
+            "x": 240,
+            "y": 180,
+            "w": 820
+          }
+        }
+      ]
+    },
+    {
+      "id": "chrome-04-tiktok",
+      "canvas": "chrome",
+      "layout": "split",
+      "service": "tiktok",
+      "headline": "TikTok, **closed.**",
+      "subline": "While Still is on, the TikTok website is blocked in your browser.",
+      "captures": [
+        {
+          "src": "captures/desktop/tiktok-before.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 900
+          }
+        },
+        {
+          "src": "captures/desktop/tiktok-after.png",
+          "crop": {
+            "x": 340,
+            "y": 180,
+            "w": 600
+          }
+        }
+      ]
+    },
+    {
+      "id": "chrome-05-switches",
+      "canvas": "chrome",
+      "layout": "single",
+      "headline": "**One switch** per site, right in Chrome.",
+      "subline": "YouTube Shorts, Instagram and Facebook Reels, and the TikTok website. <b>No timers. No stats. Just the blocking.</b>",
+      "captures": [
+        {
+          "src": "captures/chrome-ui/window-popup.png",
+          "crop": {
+            "x": 420,
+            "y": 40,
+            "w": 1020,
+            "density": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "firefox-01-youtube",
+      "canvas": "firefox",
+      "layout": "split",
+      "service": "youtube",
+      "headline": "YouTube, **without the Shorts.**",
+      "subline": "Search, subscriptions and videos stay. The Shorts tab, filter and shelves are gone.",
+      "captures": [
+        {
+          "src": "captures/firefox/youtube-before.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 760,
+            "density": 1
+          }
+        },
+        {
+          "src": "captures/firefox/youtube-after.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 760,
+            "density": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "firefox-02-instagram",
+      "canvas": "firefox",
+      "layout": "split",
+      "service": "instagram",
+      "headline": "Instagram, **minus the Reels.**",
+      "subline": "Posts, Stories and messages stay. The Reels tab and the Reels in your feed are gone.",
+      "captures": [
+        {
+          "src": "captures/desktop/instagram-before.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 680
+          }
+        },
+        {
+          "src": "captures/desktop/instagram-after.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 680
+          }
+        }
+      ],
+      "note": "page captured in Chromium: the Firefox capture profile has no Instagram/Facebook sign-in; the page and Still's rules are the same"
+    },
+    {
+      "id": "firefox-03-facebook",
+      "canvas": "firefox",
+      "layout": "split",
+      "service": "facebook",
+      "headline": "Facebook, **minus the Reels.**",
+      "subline": "Pages, posts and friends stay. Reels are cleared away.",
+      "captures": [
+        {
+          "src": "captures/desktop/facebook-reels-before.png",
+          "crop": {
+            "x": 0,
+            "y": 60,
+            "w": 820
+          }
+        },
+        {
+          "src": "captures/desktop/facebook-reels-after.png",
+          "crop": {
+            "x": 240,
+            "y": 180,
+            "w": 820
+          }
+        }
+      ],
+      "note": "page captured in Chromium: the Firefox capture profile has no Instagram/Facebook sign-in; the page and Still's rules are the same"
+    },
+    {
+      "id": "firefox-04-tiktok",
+      "canvas": "firefox",
+      "layout": "split",
+      "service": "tiktok",
+      "headline": "TikTok, **closed.**",
+      "subline": "While Still is on, the TikTok website is blocked in your browser.",
+      "captures": [
+        {
+          "src": "captures/firefox/tiktok-before.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 800,
+            "density": 1
+          }
+        },
+        {
+          "src": "captures/firefox/tiktok-after.png",
+          "crop": {
+            "x": 340,
+            "y": 180,
+            "w": 600,
+            "density": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "firefox-05-switches",
+      "canvas": "firefox",
+      "layout": "single",
+      "headline": "**One switch** per site, right in Firefox.",
+      "subline": "YouTube Shorts, Instagram and Facebook Reels, and the TikTok website. <b>No timers. No stats. Just the blocking.</b>",
+      "captures": [
+        {
+          "src": "captures/firefox/window-popup.png",
+          "crop": {
+            "x": 470,
+            "y": 86,
+            "w": 970,
+            "density": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "mac-01-youtube",
+      "canvas": "mac",
+      "layout": "split",
+      "service": "youtube",
+      "headline": "YouTube, **without the Shorts.**",
+      "subline": "In Safari, Chrome and Firefox on your Mac. Search, subscriptions and videos stay.",
+      "captures": [
+        {
+          "src": "captures/desktop/youtube-before.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 760
+          }
+        },
+        {
+          "src": "captures/desktop/youtube-after.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 760
+          }
+        }
+      ]
+    },
+    {
+      "id": "mac-02-instagram",
+      "canvas": "mac",
+      "layout": "split",
+      "service": "instagram",
+      "headline": "Instagram, **minus the Reels.**",
+      "subline": "Posts, Stories and messages stay. The Reels tab and the Reels in your feed are gone.",
+      "captures": [
+        {
+          "src": "captures/desktop/instagram-before.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 680
+          }
+        },
+        {
+          "src": "captures/desktop/instagram-after.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 680
+          }
+        }
+      ]
+    },
+    {
+      "id": "mac-03-facebook",
+      "canvas": "mac",
+      "layout": "split",
+      "service": "facebook",
+      "headline": "Facebook, **minus the Reels.**",
+      "subline": "Pages, posts and friends stay. Reels are cleared away.",
+      "captures": [
+        {
+          "src": "captures/desktop/facebook-reels-before.png",
+          "crop": {
+            "x": 0,
+            "y": 60,
+            "w": 820
+          }
+        },
+        {
+          "src": "captures/desktop/facebook-reels-after.png",
+          "crop": {
+            "x": 240,
+            "y": 180,
+            "w": 820
+          }
+        }
+      ]
+    },
+    {
+      "id": "mac-04-tiktok",
+      "canvas": "mac",
+      "layout": "split",
+      "service": "tiktok",
+      "headline": "TikTok, **closed.**",
+      "subline": "While Still is on, the TikTok website is blocked in your browser.",
+      "captures": [
+        {
+          "src": "captures/desktop/tiktok-before.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 900
+          }
+        },
+        {
+          "src": "captures/desktop/tiktok-after.png",
+          "crop": {
+            "x": 340,
+            "y": 180,
+            "w": 600
+          }
+        }
+      ]
+    },
+    {
+      "id": "mac-05-app",
+      "canvas": "mac",
+      "layout": "surface",
+      "headline": "**One switch** per site.",
+      "subline": "The Still app on your Mac. Change a switch and Safari, Chrome and Firefox follow.<br><b>No timers. No stats. Just the blocking.</b>",
+      "captures": [
+        {
+          "src": "captures/mac/app-window.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 480,
+            "h": 640,
+            "density": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "mac-06-chrome",
+      "canvas": "mac",
+      "layout": "single",
+      "headline": "**Right in your browser.**",
+      "subline": "Still sits in Chrome and Firefox's toolbar too. Sign in free to sync your settings.",
+      "captures": [
+        {
+          "src": "captures/chrome-ui/window-popup.png",
+          "crop": {
+            "x": 420,
+            "y": 40,
+            "w": 1020,
+            "density": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "iphone-01-youtube",
+      "canvas": "iphone",
+      "layout": "phone-split",
+      "service": "m.youtube",
+      "split": 0.55,
+      "headline": "YouTube, **without the Shorts.**",
+      "subline": "In Safari on iPhone. Instagram, Facebook and TikTok too.",
+      "captures": [
+        {
+          "src": "captures/iphone/safari-youtube-before.png",
+          "crop": {
+            "density": 3,
+            "marks": [
+              {
+                "kind": "x",
+                "x": 16,
+                "y": 134,
+                "w": 200,
+                "h": 300
+              },
+              {
+                "kind": "x",
+                "x": 224,
+                "y": 134,
+                "w": 200,
+                "h": 300
+              },
+              {
+                "kind": "x",
+                "x": 16,
+                "y": 502,
+                "w": 200,
+                "h": 298
+              },
+              {
+                "kind": "x",
+                "x": 224,
+                "y": 502,
+                "w": 200,
+                "h": 298
+              },
+              {
+                "kind": "circle",
+                "x": 200,
+                "y": 810,
+                "w": 40,
+                "h": 38
+              }
+            ]
+          }
+        },
+        {
+          "src": "captures/iphone/safari-youtube-after.png",
+          "crop": {
+            "density": 3
+          }
+        }
+      ]
+    },
+    {
+      "id": "iphone-02-instagram",
+      "canvas": "iphone",
+      "layout": "surface",
+      "service": "instagram",
+      "headline": "Instagram, **minus the Reels.**",
+      "subline": "Open a Reel in Safari and Still clears it away. Posts and messages stay.",
+      "captures": [
+        {
+          "src": "captures/iphone/safari-instagram-reels-after.png"
+        }
+      ]
+    },
+    {
+      "id": "iphone-03-switches",
+      "canvas": "iphone",
+      "layout": "surface",
+      "headline": "**One switch** per site.",
+      "subline": "Free. No account needed to block.",
+      "captures": [
+        {
+          "src": "captures/iphone/app-main.png"
+        }
+      ],
+      "breakout": {
+        "crop": {
+          "x": 18,
+          "y": 270,
+          "w": 404,
+          "h": 296
+        },
+        "at": 0.52
+      }
+    },
+    {
+      "id": "iphone-04-facebook",
+      "canvas": "iphone",
+      "layout": "surface",
+      "service": "facebook",
+      "headline": "Facebook, **minus the Reels.**",
+      "subline": "Reels are cleared away in Safari. Your feed and friends stay.",
+      "captures": [
+        {
+          "src": "captures/iphone/safari-facebook-reels-after.png"
+        }
+      ]
+    },
+    {
+      "id": "iphone-05-tiktok",
+      "canvas": "iphone",
+      "layout": "surface",
+      "service": "tiktok",
+      "headline": "TikTok, **closed.**",
+      "subline": "The TikTok website is blocked in Safari while Still is on.",
+      "captures": [
+        {
+          "src": "captures/iphone/safari-tiktok-after.png"
+        }
+      ]
+    },
+    {
+      "id": "iphone-06-safari-menu",
+      "canvas": "iphone",
+      "layout": "surface",
+      "headline": "**Right in Safari.**",
+      "subline": "Open Still from Safari's page menu to change a switch on the spot.",
+      "captures": [
+        {
+          "src": "captures/iphone/safari-still-menu.png"
+        }
+      ]
+    },
+    {
+      "id": "iphone-07-setup",
+      "canvas": "iphone",
+      "layout": "surface",
+      "headline": "**Turn it on** in Safari.",
+      "subline": "Works on websites in Safari, not inside other apps.",
+      "captures": [
+        {
+          "src": "captures/iphone/onboarding-2.png"
+        }
+      ]
+    },
+    {
+      "id": "ipad-01-safari-popup",
+      "canvas": "ipad",
+      "layout": "surface",
+      "device": "ipad",
+      "service": "instagram",
+      "headline": "Instagram, **minus the Reels.**",
+      "subline": "Still sits in Safari's toolbar on iPad. One tap to see every switch.",
+      "captures": [
+        {
+          "src": "captures/ipad/safari-popup-instagram.png",
+          "crop": {
+            "x": 80,
+            "y": 0,
+            "w": 620
+          }
+        }
+      ]
+    },
+    {
+      "id": "ipad-02-switches",
+      "canvas": "ipad",
+      "layout": "surface",
+      "device": "ipad",
+      "headline": "**One switch** per site.",
+      "subline": "YouTube Shorts, Instagram and Facebook Reels, and the TikTok website. Free, no account needed.",
+      "captures": [
+        {
+          "src": "captures/ipad/app-main.png",
+          "crop": {
+            "x": 266,
+            "y": 0,
+            "w": 500
+          }
+        }
+      ]
+    },
+    {
+      "id": "ipad-03-setup",
+      "canvas": "ipad",
+      "layout": "surface",
+      "device": "ipad",
+      "headline": "**Turn it on** in Safari.",
+      "subline": "Works on websites in Safari, not inside other apps.",
+      "captures": [
+        {
+          "src": "captures/ipad/onboarding-2.png",
+          "crop": {
+            "x": 241,
+            "y": 120,
+            "w": 550
+          }
+        }
+      ]
+    },
+    {
+      "id": "ig-01-youtube",
+      "canvas": "ig",
+      "layout": "ig-split",
+      "service": "youtube",
+      "headline": "This is YouTube **without the Shorts.**",
+      "captures": [
+        {
+          "src": "captures/desktop/youtube-before.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 400
+          }
+        },
+        {
+          "src": "captures/desktop/youtube-after.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 400
+          }
+        }
+      ]
+    },
+    {
+      "id": "ig-02-instagram",
+      "canvas": "ig",
+      "layout": "ig-split",
+      "service": "instagram",
+      "headline": "Instagram, **minus the Reels.**",
+      "captures": [
+        {
+          "src": "captures/desktop/instagram-before.png",
+          "crop": {
+            "x": 270,
+            "y": 0,
+            "w": 330
+          }
+        },
+        {
+          "src": "captures/desktop/instagram-after.png",
+          "crop": {
+            "x": 270,
+            "y": 0,
+            "w": 330
+          }
+        }
+      ]
+    },
+    {
+      "id": "ig-03-facebook",
+      "canvas": "ig",
+      "layout": "ig-split",
+      "service": "facebook",
+      "headline": "Facebook, **minus the Reels.**",
+      "captures": [
+        {
+          "src": "captures/desktop/facebook-reels-before.png",
+          "crop": {
+            "x": 0,
+            "y": 0,
+            "w": 370
+          }
+        },
+        {
+          "src": "captures/desktop/facebook-reels-after.png",
+          "crop": {
+            "x": 455,
+            "y": 0,
+            "w": 370
+          }
+        }
+      ]
+    }
+  ]
+}
