@@ -4,27 +4,59 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Still — Block Shorts &amp; Reels in Safari, Chrome &amp; Firefox</title>
-  <meta name="description" content="Remove Shorts and Reels, block the TikTok website, and optionally sync settings with Still across Safari, Chrome, and Firefox. The free update is rolling out across stores.">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="description" content="Remove YouTube Shorts and Instagram and Facebook Reels, and block the TikTok website, in Safari, Chrome and Firefox. Free. Your settings follow you.">
   <meta name="theme-color" content="#2948e8">
   <meta property="og:title" content="Still — Do what you came to do">
-  <meta property="og:description" content="Free blocking and optional settings sync across Safari, Chrome, and Firefox. Still’s free update is rolling out across stores.">
+  <meta property="og:description" content="Remove YouTube Shorts and Instagram and Facebook Reels in Safari, Chrome and Firefox. Free, and your settings follow you across devices.">
   <meta property="og:type" content="website">
   <meta property="og:url" content="https://stillapp.fit/">
   <meta property="og:image" content="https://stillapp.fit/release/screenshots/v2/web/still-open-graph-v2-1200x630.jpg">
   <link rel="canonical" href="https://stillapp.fit/">
   <link rel="stylesheet" href="./assets/marketing.css">
   <script type="application/ld+json">
-  {
-    "@context": "https://schema.org",
-    "@type": "SoftwareApplication",
-    "name": "Still",
-    "applicationCategory": "ProductivityApplication",
-    "operatingSystem": "iOS, iPadOS, macOS, desktop browsers",
-    "description": "Still removes YouTube Shorts, Instagram and Facebook Reels, and the TikTok website from supported browsers.",
-    "url": "https://stillapp.fit/",
-    "downloadUrl": "https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf",
-    "author": { "@type": "Organization", "name": "Cadmus Labs LLC" }
-  }
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "Organization",
+      "@id": "https://stillapp.fit/#org",
+      "name": "Cadmus Labs",
+      "url": "https://stillapp.fit/",
+      "logo": "https://stillapp.fit/assets/still-logo.png",
+      "email": "hello@stillapp.fit"
+    },
+    {
+      "@type": "SoftwareApplication",
+      "@id": "https://stillapp.fit/#app",
+      "name": "Still",
+      "alternateName": "Still: Block Shorts & Reels",
+      "applicationCategory": "ProductivityApplication",
+      "operatingSystem": "iOS, iPadOS, macOS, Chrome, Firefox",
+      "description": "Still removes YouTube Shorts and Instagram and Facebook Reels, and blocks the TikTok website, in Safari on iPhone, iPad and Mac and in Chrome and Firefox on desktop. Settings sync across devices with an optional free sign-in. It does not work inside the native YouTube, Instagram, Facebook or TikTok apps.",
+      "url": "https://stillapp.fit/",
+      "image": "https://stillapp.fit/release/screenshots/v2/web/still-open-graph-v2-1200x630.jpg",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "downloadUrl": [
+        "https://apps.apple.com/app/id6784061138",
+        "https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf",
+        "https://addons.mozilla.org/en-US/firefox/addon/still-free-yourself/"
+      ],
+      "sameAs": [
+        "https://apps.apple.com/app/id6784061138",
+        "https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf",
+        "https://addons.mozilla.org/en-US/firefox/addon/still-free-yourself/"
+      ],
+      "publisher": {
+        "@id": "https://stillapp.fit/#org"
+      }
+    }
+  ]
+}
   </script>
 </head>
 <body>
@@ -37,7 +69,7 @@
       <a href="#how-it-works">How it works</a>
       <a href="#where-it-works">Where it works</a>
       <a href="#included">What’s included</a>
-      <a href="#get-still">Get Still</a>
+      <a class="nav-cta" data-device-cta href="#get-still">Get Still — free</a>
     </nav>
   </header>
 
@@ -45,12 +77,16 @@
     <section class="hero section-shell">
       <div class="hero-copy">
         <p class="eyebrow">Your favorite websites, without short-form videos</p>
-        <h1>Do what you came to do</h1>
-        <p class="hero-lede">Still remove Shorts, Reels, and Tiktoks from the websites you use. One intentional visit doesn't become hours of scrolling</p>
-        <div class="hero-actions">
-          <a class="button button-primary" data-apple-store href="https://apps.apple.com/app/id6784061138" aria-label="Get Still for Mac, iPhone and iPad on the App Store">App Store</a>
-          <a class="button button-secondary" href="https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf">Chrome</a>
-          <a class="button button-secondary" href="https://addons.mozilla.org/en-US/firefox/addon/still-free-yourself/">Firefox</a>
+        <p class="hero-display">Do what you came to do</p>
+        <h1 class="hero-heading">Block YouTube Shorts and Instagram Reels in Safari, Chrome and Firefox</h1>
+        <p class="hero-lede">Still removes Shorts and Reels, and blocks TikTok, on the websites you use. One intentional visit doesn't become hours of scrolling.</p>
+        <a class="button button-primary device-cta" data-device-cta hidden href="#get-still">Get Still — free</a>
+        <p class="device-note" data-device-note hidden>Still isn't available on Android. It works in Safari on iPhone, iPad and Mac, and in Chrome and Firefox on a computer.</p>
+        <div class="store-badges hero-badges">
+          <a data-store="ios" data-apple-store href="https://apps.apple.com/app/apple-store/id6784061138?pt=129084033&amp;ct=web-home&amp;mt=8&amp;platform=iphone"><img src="/assets/badges/app-store.svg" alt="Download on the App Store (iPhone and iPad)" width="144" height="48"></a>
+          <a data-store="mac" href="https://apps.apple.com/app/apple-store/id6784061138?pt=129084033&amp;ct=web-home-mac&amp;mt=12&amp;platform=mac"><img src="/assets/badges/mac-app-store.svg" alt="Download on the Mac App Store" width="187" height="48"></a>
+          <a data-store="cws" href="https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf?utm_source=stillapp.fit&amp;utm_medium=website&amp;utm_campaign=home"><img src="/assets/badges/chrome-web-store.png" alt="Available in the Chrome Web Store" width="159" height="48"></a>
+          <a data-store="amo" href="https://addons.mozilla.org/en-US/firefox/addon/still-free-yourself/?utm_source=stillapp.fit&amp;utm_medium=website&amp;utm_campaign=home"><img src="/assets/badges/firefox-add-ons.svg" alt="Get the add-on for Firefox" width="138" height="48"></a>
         </div>
         <p class="price-line">Still is free to use. Sign in to sync your blocking settings across Safari, Chrome, and Firefox on desktop and iOS.</p>
       </div>
@@ -127,17 +163,21 @@
       <h2 id="get-still-title">Add Still to the browser you use.</h2>
       <p class="get-still-lede">Still removes YouTube Shorts, Instagram and Facebook Reels, and blocks the TikTok website. All included, with no purchase needed.</p>
       <div id="release-status" class="store-grid">
-        <a class="store-btn" data-apple-store href="https://apps.apple.com/app/id6784061138">
-          <span class="store-name">App Store</span>
-          <span class="store-surface">iPhone, iPad &amp; Mac — Safari</span>
+        <a class="store-btn" data-store="ios" data-apple-store href="https://apps.apple.com/app/apple-store/id6784061138?pt=129084033&amp;ct=web-home-get&amp;mt=8&amp;platform=iphone">
+          <img src="/assets/badges/app-store.svg" alt="Download on the App Store" width="144" height="48">
+          <span class="store-surface">iPhone &amp; iPad · Safari</span>
         </a>
-        <a class="store-btn" href="https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf">
-          <span class="store-name">Chrome</span>
-          <span class="store-surface">Desktop</span>
+        <a class="store-btn" data-store="mac" href="https://apps.apple.com/app/apple-store/id6784061138?pt=129084033&amp;ct=web-home-get-mac&amp;mt=12&amp;platform=mac">
+          <img src="/assets/badges/mac-app-store.svg" alt="Download on the Mac App Store" width="187" height="48">
+          <span class="store-surface">Mac · Safari</span>
         </a>
-        <a class="store-btn" href="https://addons.mozilla.org/en-US/firefox/addon/still-free-yourself/">
-          <span class="store-name">Firefox</span>
-          <span class="store-surface">Desktop</span>
+        <a class="store-btn" data-store="cws" href="https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf?utm_source=stillapp.fit&amp;utm_medium=website&amp;utm_campaign=home-get">
+          <img src="/assets/badges/chrome-web-store.png" alt="Available in the Chrome Web Store" width="159" height="48">
+          <span class="store-surface">Chrome on desktop</span>
+        </a>
+        <a class="store-btn" data-store="amo" href="https://addons.mozilla.org/en-US/firefox/addon/still-free-yourself/?utm_source=stillapp.fit&amp;utm_medium=website&amp;utm_campaign=home-get">
+          <img src="/assets/badges/firefox-add-ons.svg" alt="Get the add-on for Firefox" width="138" height="48">
+          <span class="store-surface">Firefox on desktop</span>
         </a>
       </div>
       <p class="store-note">No purchase or account needed for blocking. Sign-in is optional and enables free settings sync.</p>
@@ -155,6 +195,12 @@
       <p class="eyebrow">A small change to your browser</p>
       <h2>A little more stillness in your day.</h2>
       <p>Remove the feed before it asks for your attention.</p>
+      <div class="store-badges badges-centered">
+        <a data-store="ios" data-apple-store href="https://apps.apple.com/app/apple-store/id6784061138?pt=129084033&amp;ct=web-home-final&amp;mt=8&amp;platform=iphone"><img src="/assets/badges/app-store.svg" alt="Download on the App Store (iPhone and iPad)" width="144" height="48"></a>
+        <a data-store="mac" href="https://apps.apple.com/app/apple-store/id6784061138?pt=129084033&amp;ct=web-home-final-mac&amp;mt=12&amp;platform=mac"><img src="/assets/badges/mac-app-store.svg" alt="Download on the Mac App Store" width="187" height="48"></a>
+        <a data-store="cws" href="https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf?utm_source=stillapp.fit&amp;utm_medium=website&amp;utm_campaign=home-final"><img src="/assets/badges/chrome-web-store.png" alt="Available in the Chrome Web Store" width="159" height="48"></a>
+        <a data-store="amo" href="https://addons.mozilla.org/en-US/firefox/addon/still-free-yourself/?utm_source=stillapp.fit&amp;utm_medium=website&amp;utm_campaign=home-final"><img src="/assets/badges/firefox-add-ons.svg" alt="Get the add-on for Firefox" width="138" height="48"></a>
+      </div>
     </section>
   </main>
 
@@ -165,17 +211,40 @@
 
 
   <script>
-    // iPad can report a Mac user agent when requesting desktop websites.
-    const appleUserAgent = navigator.userAgent;
-    const isIPad = /iPad/.test(appleUserAgent) || (/Macintosh/.test(appleUserAgent) && navigator.maxTouchPoints > 1);
-    const applePlatform = isIPad ? 'ipad' : /iPhone|iPod/.test(appleUserAgent) ? 'iphone' : /Macintosh/.test(appleUserAgent) ? 'mac' : null;
-    if (applePlatform) {
-      document.querySelectorAll('[data-apple-store]').forEach(link => {
-        const url = new URL(link.href);
-        url.searchParams.set('platform', applePlatform);
-        link.href = url.href;
+    // Point each visitor to the right store. The badge row keeps Apple's required order; this only
+    // adds one direct button for the current device and marks its badge card.
+    (() => {
+      const ua = navigator.userAgent;
+      const isIPad = /iPad/.test(ua) || (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+      const isIPhone = /iPhone|iPod/.test(ua);
+      const isAndroid = /Android/.test(ua);
+      const isFirefox = /Firefox\//.test(ua) && !/Seamonkey/.test(ua);
+      const isChrome = /Chrome\//.test(ua) && !/Edg\/|OPR\//.test(ua);
+      const isMac = /Macintosh/.test(ua) && !isIPad;
+      // iPad visitors land on the iPad listing.
+      if (isIPad) document.querySelectorAll('[data-apple-store]').forEach(link => {
+        const url = new URL(link.href); url.searchParams.set('platform', 'ipad'); link.href = url.href;
       });
-    }
+      let store = null, label = null;
+      if (isAndroid) store = null;
+      else if (isIPhone || isIPad) { store = 'ios'; label = isIPad ? 'Get Still for iPad — free' : 'Get Still for iPhone — free'; }
+      else if (isFirefox) { store = 'amo'; label = 'Add Still to Firefox — free'; }
+      else if (isChrome) { store = 'cws'; label = 'Add Still to Chrome — free'; }
+      else if (isMac) { store = 'mac'; label = 'Get Still for Mac — free'; }
+      if (isAndroid) document.querySelectorAll('[data-device-note]').forEach(n => { n.hidden = false; });
+      if ((isIPhone || isIPad) && /CriOS|FxiOS|EdgiOS/.test(ua)) document.querySelectorAll('[data-device-note]').forEach(n => {
+        n.textContent = 'On iPhone and iPad, Still works in Safari. Install it here, then browse YouTube and Instagram in Safari.';
+        n.hidden = false;
+      });
+      if (!store) return;
+      const target = document.querySelector('.hero-badges [data-store="' + store + '"]');
+      if (!target) return;
+      const quick = new URL(target.href);
+      if (quick.searchParams.has('ct')) quick.searchParams.set('ct', quick.searchParams.get('ct').replace('web-home', 'web-home-quick'));
+      if (quick.searchParams.has('utm_campaign')) quick.searchParams.set('utm_campaign', 'home-quick');
+      document.querySelectorAll('[data-device-cta]').forEach(cta => { cta.href = quick.href; cta.textContent = label; cta.hidden = false; });
+      document.querySelectorAll('.store-grid [data-store="' + store + '"]').forEach(card => card.classList.add('is-recommended'));
+    })();
   </script>
 </body>
 </html>
