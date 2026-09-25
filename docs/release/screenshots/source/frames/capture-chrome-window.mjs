@@ -11,12 +11,13 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { SOURCES } from "./sources.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const EXT = resolve(HERE, "../../../../../packages/ext-chromium/dist/chrome-mv3");
 const OUT = resolve(HERE, "captures/chrome-ui");
 const WINLIST = resolve(tmpdir(), "still-winlist");
-const START = "https://www.youtube.com/results?search_query=pasta+recipe";
+const START = SOURCES.youtube;
 const CDP_PORT = 9337;
 mkdirSync(OUT, { recursive: true });
 execFileSync("swiftc", ["-O", resolve(HERE, "tools/winlist.swift"), "-o", WINLIST]);

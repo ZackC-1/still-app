@@ -1,0 +1,10 @@
+{
+  "_comment": "The pages each capture uses. Chosen for attention bait that is safe for a store listing (money hooks, supercars, luxury, mainstream glamour); every capture is still reviewed before use. Override one at run time with SOURCE_<KEY>=<url>, e.g. SOURCE_TIKTOK=https://www.tiktok.com/tag/supercars",
+  "youtube": "https://www.youtube.com/results?search_query=lamborghini",
+  "youtubeMobile": "https://m.youtube.com/results?search_query=lamborghini",
+  "tiktok": "https://www.tiktok.com/tag/supercars",
+  "instagramFeed": "https://www.instagram.com/",
+  "instagramReels": "https://www.instagram.com/reels/",
+  "facebookReels": "https://www.facebook.com/supercarblondie/reels/",
+  "instagramProfileReels": "https://www.instagram.com/supercarblondie/reels/"
+}

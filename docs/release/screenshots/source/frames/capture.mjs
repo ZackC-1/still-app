@@ -19,6 +19,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { annotateLibrary, rulesByService } from "./annotate-source.mjs";
+import { SOURCES } from "./sources.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(HERE, "captures/desktop");
@@ -84,13 +85,13 @@ if (args.includes("--login")) {
 }
 
 // 1. YouTube search, signed out: shelves of Shorts, the Shorts chip and the Shorts tab, then none of them.
-if (wanted("youtube")) await pair("youtube", "https://www.youtube.com/results?search_query=pasta+recipe");
+if (wanted("youtube")) await pair("youtube", SOURCES.youtube);
 
 // 2. A Shorts link opens as a normal video with Still on (the address bar would read /watch).
 if (wanted("shorts-link")) {
   const ctx = await launch({ ext: false, signedIn: false });
   const page = await ctx.newPage();
-  await page.goto("https://www.youtube.com/results?search_query=pasta+recipe", { waitUntil: "domcontentloaded" });
+  await page.goto(SOURCES.youtube, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(5000);
   const href = await page.evaluate(() => document.querySelector('a[href^="/shorts/"]')?.getAttribute("href"));
   await ctx.close();
@@ -105,18 +106,18 @@ if (wanted("shorts-link")) {
   }
 }
 
-// 3. The TikTok website: a public food hashtag (not the For You feed, whose videos are random), then
+// 3. The TikTok website: a public hashtag page (not the For You feed, whose videos are random), then
 // Still's blocked page.
-const TIKTOK = "https://www.tiktok.com/tag/pastarecipe";
+const TIKTOK = SOURCES.tiktok;
 if (wanted("tiktok")) await pair("tiktok", TIKTOK, { settle: 9000, headless: false });
 
 // 4. Instagram, signed in to the test account: home feed, and the Reels page itself.
 if (wanted("instagram")) {
-  await feedPair("instagram", "https://www.instagram.com/", () => {
+  await feedPair("instagram", SOURCES.instagramFeed, () => {
     const reel = [...document.querySelectorAll('article a[href*="/reel/"], article video')].map((e) => e.closest("article")).find(Boolean);
     return reel ? Math.max(1, reel.getBoundingClientRect().top + scrollY - 20) : 0;
   });
-  await pair("instagram-reels", "https://www.instagram.com/reels/", { signedIn: true, settle: 7000,
+  await pair("instagram-reels", SOURCES.instagramReels, { signedIn: true, settle: 7000,
     marks: { circle: ['a[href="/reels/"]'], largestMedia: true } });
 }
 
@@ -142,6 +143,12 @@ async function feedPair(name, url, find) {
   }
 }
 
+// 4b. A public profile's Reels grid (signed in): every Reel tile crossed out, then Still's cleared page.
+if (wanted("instagram-profile")) {
+  await pair("instagram-profile-reels", SOURCES.instagramProfileReels, { signedIn: true, settle: 8000, scroll: 420,
+    marks: { circle: ['a[href="/reels/"]', 'a[href$="/reels/"][role="tab"]', 'a[href$="/reels/"]'], x: ['main a[href*="/reel/"]'] } });
+}
+
 // 5. Facebook, signed in to the test account. Only the Page Reels tab is used in images: the home
 // feed is random and shows private people, so feedPair here is for checking behaviour, not for stores.
 if (wanted("facebook")) {
@@ -153,15 +160,15 @@ if (wanted("facebook")) {
 }
 
 if (wanted("facebook") || wanted("facebook-reels")) {
-  // A public food Page's Reels tab (FB_PAGE overrides, to compare candidates for safe content).
-  await pair(process.env.FB_NAME || "facebook-reels", `https://www.facebook.com/${process.env.FB_PAGE || "bonappetitmag"}/reels/`, { signedIn: true, settle: 8000 });
+  // A public Page's Reels tab.
+  await pair(process.env.FB_NAME || "facebook-reels", SOURCES.facebookReels, { signedIn: true, settle: 8000 });
 }
 
 // 6. Draft phone captures (layout only, never uploaded to Apple): m.youtube.com and the TikTok website.
 if (wanted("mobile-draft")) {
   mkdirSync(resolve(OUT, "../mobile-draft"), { recursive: true });
   const draft = { device: IPHONE, dir: "../mobile-draft/" };
-  await pair("youtube", "https://m.youtube.com/results?search_query=pasta+recipe", { ...draft, settle: 7000 });
+  await pair("youtube", SOURCES.youtubeMobile, { ...draft, settle: 7000 });
   await pair("tiktok", TIKTOK, { ...draft, settle: 9000, headless: false });
 }
 
