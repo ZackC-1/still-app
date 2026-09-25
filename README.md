@@ -6,7 +6,7 @@ Still removes short-form video surfaces from YouTube, Instagram, Facebook, and T
 
 This repository is public so people who install Still can inspect what runs in the browser, how privacy is handled, how optional settings sync works, and how releases are tested.
 
-> **Release status:** See the [dated release record](docs/release/2026-09-14-release-status.md)
+> **Release status:** See the [dated release record](docs/release/history/2026-09-14-release-status.md)
 > and [release runbook](docs/release/README.md) for store rollout, verified coverage and remaining
 > gates. Check live store state before a release action.
 

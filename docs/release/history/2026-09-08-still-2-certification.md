@@ -98,7 +98,7 @@ local export with destination `export`, without provisioning updates. Store expo
 ## Surface and journey matrix
 
 This matrix records the September 8 candidate test boundaries. **September 11 distribution update:**
-Firefox 2.0.0 is now public on AMO; see the [current Firefox release record](03-firefox-amo.md#current-distribution-status--verified-september-11-2026).
+Firefox 2.0.0 is now public on AMO; see the [current Firefox release record](../03-firefox-amo.md#current-distribution-status--verified-september-11-2026).
 Public availability does not itself verify a store-installed signed-XPI host run or the other
 journeys below. Those test boundaries remain separate from distribution status.
 
@@ -137,10 +137,10 @@ were not used as smoke tests and are not authorized by this record.
 
 The candidate requires backend code from `d87126aa34d599ee38bb31b2182622a4376a40eb` and migration
 **0013**. Read-only hosted inventory verified only 0001–0012; the retention implementation is not
-live. Follow [counter-retention.md](counter-retention.md) for exact preflight, approved legacy purge,
+live. Follow [counter-retention.md](../counter-retention.md) for exact preflight, approved legacy purge,
 cron/grants, `supabase functions deploy --import-map supabase/functions/deno.json`, verification and
 forward-only recovery. Do not restore raw-IP counters during recovery. Review the
-[privacy draft](privacy-retention-draft.md) before publication.
+[privacy draft](../privacy-retention-draft.md) before publication.
 
 The permitted shared-network exception lasts only through its existing throttle window. Under
 successful database/scheduler operation, maximum counter retention is 665 seconds including cleanup

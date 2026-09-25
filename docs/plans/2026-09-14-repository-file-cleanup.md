@@ -36,7 +36,7 @@ every exported symbol is exercised at runtime.
 | Ignored local directories | Keep installed dependencies, local configuration, CodeGraph/memory tooling, builds, screenshots, release evidence and the recovery bundle. These are separate from GitHub source. |
 
 The deletion manifest records 73 files (15,491,028 bytes), their hashes and per-file reasons under
-ignored `docs/build/release-gates/implementation/file-cleanup-20260914/`. Git history retains the
+ignored `docs/build/2.0-release-evidence/implementation/file-cleanup-20260914/`. Git history retains the
 removed files. Historical references should link to the baseline commit rather than missing paths.
 
 ## Implementation

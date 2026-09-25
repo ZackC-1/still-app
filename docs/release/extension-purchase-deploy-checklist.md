@@ -12,7 +12,7 @@ and existing-account “Magic Link” templates must support code entry; do not 
 links that mail scanners can consume. Current expected OTP lifetime is one hour with a 60-second
 resend cooldown. Configured production settings, not local defaults alone, determine actual delivery.
 
-The [September 14 record](2026-09-14-release-status.md#backend-email-and-operational-decisions)
+The [September 14 record](history/2026-09-14-release-status.md#backend-email-and-operational-decisions)
 credits custom SMTP, the verified `stillapp.fit` sender, receipt tests and disabled Resend click/open
 tracking. Preserve that evidence. Before a new auth/configuration change, verify the affected
 settings and new/existing-account flow; do not repeat all completed release tests without a reason.

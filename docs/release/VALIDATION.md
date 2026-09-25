@@ -1,7 +1,7 @@
 # Release Validation
 
-Current consolidated evidence and owner decisions are in [the September 14 release record](2026-09-14-release-status.md).
-The [September 8 candidate record](2026-09-08-still-2-certification.md) retains its original artifact
+Current consolidated evidence and owner decisions are in [the September 14 release record](history/2026-09-14-release-status.md).
+The [September 8 candidate record](history/2026-09-08-still-2-certification.md) retains its original artifact
 hashes and historical gaps; later deployment/signing/store and device evidence supersedes those
 specific status observations without reassigning test results to another binary. Issue #153 retains
 hosted account-lifecycle/final-certification work. Physical iPad is owner-accepted skipped/unverified.

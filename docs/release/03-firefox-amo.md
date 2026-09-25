@@ -1,7 +1,7 @@
 # Track 3 — Firefox Add-ons (AMO)
 
 Current reference for Still 2.0.0, reviewed September 14, 2026. Use the
-[dated release status](2026-09-14-release-status.md#store-snapshot) before an external action.
+[dated release status](history/2026-09-14-release-status.md#store-snapshot) before an external action.
 
 ## Current distribution status — verified September 11, 2026
 

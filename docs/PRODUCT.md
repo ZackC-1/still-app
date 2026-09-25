@@ -2,7 +2,7 @@
 
 Status: current reference. Reviewed September 14, 2026 against source and the owner's release
 decisions. [STRATEGY.md](../STRATEGY.md) defines product direction;
-[the release record](release/2026-09-14-release-status.md) distinguishes submitted artifacts,
+[the release record](release/history/2026-09-14-release-status.md) distinguishes submitted artifacts,
 public availability and verification. This specification describes behavior, not store approval.
 
 ## Included functionality
@@ -97,7 +97,7 @@ Keep the internal `still_sync` entitlement/Apple product and `still_sync_web` we
 Apple configures RevenueCat anonymously, then uses the Supabase UUID for account identity;
 browser extensions do not initialize a RevenueCat SDK. The Apple product's zero-price observation
 is recorded separately from the disabled client gates and from app-download pricing in the
-[dated release record](release/2026-09-14-release-status.md#store-snapshot).
+[dated release record](release/history/2026-09-14-release-status.md#store-snapshot).
 
 See [retained monetization design](monetization-design.md) and
 [ADR 0003](adr/0003-entitlement-authority-receipt-and-server.md). Future monetization requires an
@@ -135,7 +135,7 @@ The Chrome and Firefox package is version 2.1.1. Its 2.1.0 packages were submitt
 2026 without the Facebook Reels fixes (#213, #218), and Firefox never reuses a version number. The
 Safari extension and Xcode's checked-in marketing version are 2.1.0, default build number 9. The
 2.0.0 Apple packages in App Store Connect are build 8. Apple 2.1.0 build 9 was submitted for iOS
-and macOS review on September 25, 2026 ([release status](release/2026-09-25-release-status.md)).
+and macOS review on September 25, 2026 ([release status](release/history/2026-09-25-release-status.md)).
 These are distinct facts. A new build must use a valid unused portal build number and record its
 exact source, configuration and hashes. Do not rebuild or resubmit pending artifacts to synchronize
 documentation, and do not claim submitted binaries were built from later documentation/tooling commits.

@@ -14,7 +14,7 @@ dated record: check each portal live before acting.
 
 All four carry rule set 1.1.11, with both Facebook Reels fixes (#213 Page tab flicker, #218 home-feed
 shelf). Only store updates deliver them: installed copies can't receive packaged-CSS changes from a
-remote rule set ([production rule-set keys](../production-rule-set-keys.md), "Packaged CSS limits").
+remote rule set ([production rule-set keys](../../production-rule-set-keys.md), "Packaged CSS limits").
 
 ## Packages
 
@@ -27,7 +27,7 @@ remote rule set ([production rule-set keys](../production-rule-set-keys.md), "Pa
 | `Still.pkg` (macOS 2.1.0, build 9) | `6b2cbd9659203b12b30c425918401400f23f8f8bcb9342587eee2aaeb60d093c` | `8a67977` |
 
 The files and their manifests are kept locally (gitignored) in
-`docs/build/release-gates/artifacts/store-upload-2.1.1-20260925/` and `apple-2.1.0-20260925/`.
+`release-builds/2.1.1/` and `release-builds/2.1.0/apple/` (see the [release runbook](../README.md#where-release-files-live)).
 Organizer re-signed the Apple uploads from the same archives, so the uploaded binaries' hashes may
 differ from the exported files above.
 
@@ -50,7 +50,7 @@ differ from the exported files above.
   sale in App Store Connect, so the listing no longer advertises in-app purchases.
   - Earlier buyers keep the purchase, and restore still works.
   - The product record and RevenueCat identity stay in place.
-  - To bring paid features back, put the product on sale again (see [RevenueCat](04-revenuecat.md) for the retained setup).
+  - To bring paid features back, put the product on sale again (see [RevenueCat](../04-revenuecat.md) for the retained setup).
   - App Privacy still declares Purchase History, which matches the privacy manifest.
 - **App Privacy:** published with Email Address, User ID, Device ID, Product Interaction, Purchase
   History and Other Data Types (all linked, none used for tracking), matching `PrivacyInfo.xcprivacy`.
@@ -61,5 +61,8 @@ differ from the exported files above.
    version, screenshots, description, and whether the "In-App Purchases" label is gone on Apple.
 2. If a review is rejected, read the reason before rebuilding. A new Apple build needs build 10 or
    higher; a new browser package needs a version above 2.1.1.
-3. The earlier open items in the [September 14 status](2026-09-14-release-status.md) (#153 hosted
+3. **Next release:** redo the iPhone, iPad and Mac App Store screenshots. The owner isn't satisfied
+   with the 2.1 Apple set; the Chrome and Firefox sets are fine. The tools and content rules are in
+   [`screenshots/source/frames/README.md`](../screenshots/source/frames/README.md).
+4. The earlier open items in the [September 14 status](2026-09-14-release-status.md) (#153 hosted
    account evidence, iPad coverage marked skipped) are unchanged.

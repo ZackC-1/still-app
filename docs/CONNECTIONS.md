@@ -2,7 +2,7 @@
 
 Current reference for 2.0.0; reviewed September 14, 2026. This is the connection map for the existing
 application, not a new-project setup checklist. Dated verification lives in the
-[release record](release/2026-09-14-release-status.md). Recheck external state before changing it.
+[release record](release/history/2026-09-14-release-status.md). Recheck external state before changing it.
 The [initial connection checklist](archive/pre-2.0-reference-refresh/docs/CONNECTIONS.md) is preserved.
 
 ## Services and responsibilities

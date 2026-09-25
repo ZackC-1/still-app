@@ -23,7 +23,7 @@ still needs a message sent from a different account and receipt confirmation.
 The shared app constant, homepage, support, privacy, setup and Terms contacts are updated.
 The previously branch-only Terms page is now tracked at `docs/terms.html`; its policy text was
 preserved. Store tracks and submission-copy references link the
-[public contact checklist](public-contact-addresses.md). Live store metadata and outgoing SMTP
+[public contact checklist](../public-contact-addresses.md). Live store metadata and outgoing SMTP
 settings have not been changed. Private review accounts and the Firefox application ID are preserved.
 
 ## Verification and artifacts
@@ -35,7 +35,7 @@ signatures are valid, debugging is disabled, and macOS sandbox entitlements rema
 All 11 expected web JS/CSS resource hashes match in both Apple packages; the old contact address
 is absent from their contents.
 
-Use `docs/build/release-gates/artifacts/contacts-d2b95d9/` for the prepared packages and SHA-256
+Use `docs/build/release-gates/artifacts/contacts-d2b95d9/` (a 2.0.0 candidate, deleted on 2026-09-25; the submitted 2.0.0 browser packages are in `release-builds/2.0.0/`) for the prepared packages and SHA-256
 manifest. iOS/macOS remain version 2.0.0, build 7; browser packages remain 2.0.0. No upload occurred.
 Verify current portal build availability before uploading; repeated labels do not identify a package.
 

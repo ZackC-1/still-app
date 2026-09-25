@@ -36,7 +36,7 @@ instructions below are historical and do not govern 2.0.
 Use the [current Firefox screenshot](https://github.com/ZackC-1/still-app/blob/4877e2ed38b8ea81feaca7b1d4d807a0a2b4f7ef/docs/release/screenshots/store-ready/README.md#firefox-add-ons-amo) for 2.0.
 The older screenshot set depicts paid controls and must not accompany the free release.
 
-See [current certification](https://github.com/ZackC-1/still-app/blob/4877e2ed38b8ea81feaca7b1d4d807a0a2b4f7ef/docs/release/2026-09-08-still-2-certification.md) for exact artifacts and outstanding
+See [current certification](https://github.com/ZackC-1/still-app/blob/4877e2ed38b8ea81feaca7b1d4d807a0a2b4f7ef/docs/release/history/2026-09-08-still-2-certification.md) for exact artifacts and outstanding
 gates. Store metadata changes, upload/submission and production writes require explicit approval.
 
 ### Existing-listing update: publication boundary

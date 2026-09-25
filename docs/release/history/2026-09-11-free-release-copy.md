@@ -5,7 +5,7 @@
 > candidate-specific hashes and test results below; do not treat old next steps as new work.
 
 This records the copy-preparation snapshot. Later Firefox publication is recorded in the
-[current Firefox release status](03-firefox-amo.md#current-distribution-status--verified-september-11-2026);
+[current Firefox release status](../03-firefox-amo.md#current-distribution-status--verified-september-11-2026);
 use the release tracks for current operational state.
 
 The owner confirmed that Still 2.0 is free to grow adoption: all four blocking services without an
@@ -52,4 +52,4 @@ publication. No store metadata, uploads, pricing, or production provider setting
    preparation date. Verify both `.html` and directory URLs after the gh-pages deployment.
 
 Issue #171 remains open until the corrected policies are live. Release remains not ready pending
-these and the authentication/device/store gates in [the release runbook](README.md).
+these and the authentication/device/store gates in [the release runbook](../README.md).

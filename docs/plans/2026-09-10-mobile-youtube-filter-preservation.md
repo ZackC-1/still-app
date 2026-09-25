@@ -28,7 +28,7 @@ candidate and user account/settings. No release-branch or production updates.
 ## Evidence
 
 Pending. Private live captures and build records belong under
-`docs/build/release-gates/implementation/mobile-youtube-filters/` in the original checkout.
+`docs/build/2.0-release-evidence/implementation/mobile-youtube-filters/` in the original checkout.
 
 Initial observations: public signed-out mobile pages lack the reported filter row. In a separate
 phone-width touch test of the desktop layout, the actual Unwatched tab selects successfully with

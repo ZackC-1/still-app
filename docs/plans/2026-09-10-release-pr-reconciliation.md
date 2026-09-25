@@ -47,5 +47,5 @@ tooling/cache evidence and are preserved. The app/backend implementation matches
 tested 18dd971 candidate apart from intentional dependency and domain changes.
 
 Protected integration and final merge status are tracked by [PR #168](https://github.com/ZackC-1/still-app/pull/168).
-See [the reconciliation record](../release/2026-09-10-pr-reconciliation.md) for artifact provenance
+See [the reconciliation record](../release/history/2026-09-10-pr-reconciliation.md) for artifact provenance
 and remaining hosted/backend, device and store release boundaries.

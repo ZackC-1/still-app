@@ -1,8 +1,8 @@
 # Still 2.0.0 release runbook
 
-Start with [September 25 release status](2026-09-25-release-status.md) for the Still 2.1 rollout:
+Start with [September 25 release status](history/2026-09-25-release-status.md) for the Still 2.1 rollout:
 Firefox 2.1.1 public, Chrome 2.1.1 and Apple 2.1.0 (9) in review. The
-[September 14 status](2026-09-14-release-status.md) still holds the 2.0 owner decisions and evidence.
+[September 14 status](history/2026-09-14-release-status.md) still holds the 2.0 owner decisions and evidence.
 It records the latest known store observations, source/website integration, completed owner checks,
 accepted privacy policy and remaining certification. Portal state must be checked live before action;
 a dated record is not a claim of current approval.
@@ -24,6 +24,22 @@ On iPhone/iPad, Still works in Safari websites, not native social apps. See [PRO
 - Issue #153 remains for hosted disposable-account lifecycle evidence and final certification.
   Synthetic tests, a package upload and public availability are separate kinds of evidence.
 
+## Where release files live
+
+| What | Where | In Git |
+|---|---|---|
+| Store runbooks, listing copy, analytics and privacy references | `docs/release/*.md` | Yes |
+| Dated release records (status, certification, audits) | [`docs/release/history/`](history/) | Yes |
+| Current store images, one folder per store (+ `web/` for the site's sharing image) | [`docs/release/screenshots/store-ready/`](screenshots/store-ready/README.md) | Yes |
+| Tools and captures that make those images | [`docs/release/screenshots/source/`](screenshots/source/frames/README.md) | Yes |
+| Earlier store images kept for reference (2.0) | [`docs/release/screenshots/archive/`](screenshots/archive/) | Yes |
+| Uploaded packages: `release-builds/<version>/<store>/` (`chrome`, `firefox`, `apple`) with each version's `UPLOAD-README` and `upload-manifest` (SHA-256s) | `release-builds/` at the repo root | No (local only) |
+| 2.0 certification working evidence and receipts | `docs/build/2.0-release-evidence/` | No (local only) |
+
+Each package's SHA-256 is also recorded in its dated release record, so the evidence survives even
+if the local files are lost. Keep the packages that were submitted; delete intermediate test builds
+once a version ships.
+
 ## Tracks and references
 
 | Track | Reference |
@@ -37,7 +53,7 @@ On iPhone/iPad, Still works in Safari websites, not native social apps. See [PRO
 | Backend retention | [Counter runbook](counter-retention.md): current behavior, safe maintenance and recovery. |
 | Usage analytics | [PostHog runbook](posthog-analytics.md): project settings, function secrets, store privacy declarations and the growth dashboard. |
 | Marketing and assets | [Listing drafts](store-listing-copy.md), [screenshot manifest](screenshots/store-ready/README.md), [public contacts](public-contact-addresses.md). |
-| Evidence | [Validation index](VALIDATION.md), [September 8 historical candidate](2026-09-08-still-2-certification.md), [September 11 contact candidate](2026-09-11-public-contact-update.md). |
+| Evidence | [Validation index](VALIDATION.md), [September 8 historical candidate](history/2026-09-08-still-2-certification.md), [September 11 contact candidate](history/2026-09-11-public-contact-update.md). |
 
 ## Next release actions
 

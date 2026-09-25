@@ -37,7 +37,7 @@ this document does not establish that a live portal has already been updated.
   candidate. A source edit does not update an existing ZIP, IPA or PKG. Compare rebuilt payloads
   and artifact hashes; preserve earlier evidence with its original candidate.
 - All three forwarding tests were confirmed received by the owner, recorded September 14 in the
-  [release status](2026-09-14-release-status.md). Repeat only after a relevant delivery/configuration
+  [release status](history/2026-09-14-release-status.md). Repeat only after a relevant delivery/configuration
   change; DNS alone cannot prove delivery.
 
 ## Outgoing email
