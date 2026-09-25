@@ -150,6 +150,10 @@ async function feedPair(name, url, find) {
 if (wanted("instagram-profile")) {
   await pair("instagram-profile-reels", SOURCES.instagramProfileReels, { signedIn: true, settle: 8000, scroll: 420,
     marks: { circle: ['a[href="/reels/"]', 'a[href$="/reels/"][role="tab"]', 'a[href$="/reels/"]'], x: ['main a[href*="/reel/"]'] } });
+  // The same profile with Still on: its posts stay and the Reels tab is gone.
+  const ctx = await launch({ ext: true, signedIn: true });
+  await shoot(ctx, SOURCES.instagramProfile, "instagram-profile-after.png", { mark: false, settle: 8000, scroll: 420 });
+  await ctx.close();
 }
 
 // 5. Facebook, signed in to the test account. Only the Page Reels tab is used in images: the home

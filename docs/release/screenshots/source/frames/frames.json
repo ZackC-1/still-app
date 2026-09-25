@@ -70,7 +70,7 @@
           "src": "captures/desktop/youtube-before.png",
           "crop": {
             "x": 0,
-            "y": 0,
+            "y": 150,
             "w": 760
           }
         },
@@ -78,7 +78,7 @@
           "src": "captures/desktop/youtube-after.png",
           "crop": {
             "x": 0,
-            "y": 0,
+            "y": 150,
             "w": 760
           }
         }
@@ -93,19 +93,19 @@
       "subline": "Posts, Stories and messages stay. The Reels tab and the Reels in your feed are gone.",
       "captures": [
         {
-          "src": "captures/desktop/instagram-before.png",
+          "src": "captures/desktop/instagram-profile-reels-before.png",
           "crop": {
-            "x": 0,
+            "x": 100,
             "y": 0,
-            "w": 680
+            "w": 600
           }
         },
         {
-          "src": "captures/desktop/instagram-after.png",
+          "src": "captures/desktop/instagram-profile-after.png",
           "crop": {
-            "x": 0,
+            "x": 100,
             "y": 0,
-            "w": 680
+            "w": 600
           }
         }
       ]
@@ -192,7 +192,7 @@
           "src": "captures/firefox/youtube-before.png",
           "crop": {
             "x": 0,
-            "y": 0,
+            "y": 150,
             "w": 760,
             "density": 1
           }
@@ -201,7 +201,7 @@
           "src": "captures/firefox/youtube-after.png",
           "crop": {
             "x": 0,
-            "y": 0,
+            "y": 150,
             "w": 760,
             "density": 1
           }
@@ -217,19 +217,19 @@
       "subline": "Posts, Stories and messages stay. The Reels tab and the Reels in your feed are gone.",
       "captures": [
         {
-          "src": "captures/desktop/instagram-before.png",
+          "src": "captures/desktop/instagram-profile-reels-before.png",
           "crop": {
-            "x": 0,
+            "x": 100,
             "y": 0,
-            "w": 680
+            "w": 600
           }
         },
         {
-          "src": "captures/desktop/instagram-after.png",
+          "src": "captures/desktop/instagram-profile-after.png",
           "crop": {
-            "x": 0,
+            "x": 100,
             "y": 0,
-            "w": 680
+            "w": 600
           }
         }
       ],
@@ -276,7 +276,7 @@
             "x": 0,
             "y": 0,
             "w": 800,
-            "density": 1
+            "density": 2
           }
         },
         {
@@ -285,7 +285,7 @@
             "x": 340,
             "y": 180,
             "w": 600,
-            "density": 1
+            "density": 2
           }
         }
       ]
@@ -320,7 +320,7 @@
           "src": "captures/desktop/youtube-before.png",
           "crop": {
             "x": 0,
-            "y": 0,
+            "y": 150,
             "w": 760
           }
         },
@@ -328,7 +328,7 @@
           "src": "captures/desktop/youtube-after.png",
           "crop": {
             "x": 0,
-            "y": 0,
+            "y": 150,
             "w": 760
           }
         }
@@ -343,19 +343,19 @@
       "subline": "Posts, Stories and messages stay. The Reels tab and the Reels in your feed are gone.",
       "captures": [
         {
-          "src": "captures/desktop/instagram-before.png",
+          "src": "captures/desktop/instagram-profile-reels-before.png",
           "crop": {
-            "x": 0,
+            "x": 100,
             "y": 0,
-            "w": 680
+            "w": 600
           }
         },
         {
-          "src": "captures/desktop/instagram-after.png",
+          "src": "captures/desktop/instagram-profile-after.png",
           "crop": {
-            "x": 0,
+            "x": 100,
             "y": 0,
-            "w": 680
+            "w": 600
           }
         }
       ]
@@ -681,19 +681,19 @@
       "headline": "Instagram, **minus the Reels.**",
       "captures": [
         {
-          "src": "captures/desktop/instagram-before.png",
+          "src": "captures/desktop/instagram-profile-reels-before.png",
           "crop": {
-            "x": 270,
-            "y": 0,
-            "w": 330
+            "x": 104,
+            "y": 10,
+            "w": 396
           }
         },
         {
-          "src": "captures/desktop/instagram-after.png",
+          "src": "captures/desktop/instagram-profile-after.png",
           "crop": {
-            "x": 270,
-            "y": 0,
-            "w": 330
+            "x": 104,
+            "y": 10,
+            "w": 396
           }
         }
       ]
