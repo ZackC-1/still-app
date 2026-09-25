@@ -1,6 +1,8 @@
 # Still 2.0.0 release runbook
 
-Start with [September 14 release status and owner decisions](2026-09-14-release-status.md).
+Start with [September 25 release status](2026-09-25-release-status.md) for the Still 2.1 rollout:
+Firefox 2.1.1 public, Chrome 2.1.1 and Apple 2.1.0 (9) in review. The
+[September 14 status](2026-09-14-release-status.md) still holds the 2.0 owner decisions and evidence.
 It records the latest known store observations, source/website integration, completed owner checks,
 accepted privacy policy and remaining certification. Portal state must be checked live before action;
 a dated record is not a claim of current approval.
