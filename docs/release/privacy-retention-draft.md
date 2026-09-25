@@ -2,7 +2,7 @@
 
 **Historical proposal — superseded by the owner-approved published notice.** Issue #152 is closed.
 On September 14 the owner approved documenting current retention practice; publication is recorded
-in [the release status](2026-09-14-release-status.md). The source of current public wording is
+in [the release status](history/2026-09-14-release-status.md). The source of current public wording is
 [privacy.html](../privacy.html), live at [stillapp.fit/privacy/](https://stillapp.fit/privacy/).
 
 The proposal below is retained to explain the original counter/privacy work. Its former approval

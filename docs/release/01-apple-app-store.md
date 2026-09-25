@@ -1,7 +1,7 @@
 # Track 1 — Apple App Store: iOS, macOS and Safari
 
 Current reference for Still 2.0.0, reviewed September 14, 2026. Use the
-[dated release status](2026-09-14-release-status.md#store-snapshot) for the latest recorded portal
+[dated release status](history/2026-09-14-release-status.md#store-snapshot) for the latest recorded portal
 observations. This refresh did not recheck or change the portals. The iOS and macOS submissions
 were recorded as version 2.0.0 build 8, waiting for review with manual release.
 

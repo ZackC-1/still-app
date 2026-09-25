@@ -3,7 +3,7 @@
 Status: source integrated; website published; store rollout and final account verification pending.
 This is a dated operational snapshot, not a claim that every supported surface is certified.
 Recheck live store status before the next external action. Current product direction remains in
-[STRATEGY.md](../../STRATEGY.md).
+[STRATEGY.md](../../../STRATEGY.md).
 
 ## Product and owner decisions
 
@@ -57,7 +57,7 @@ After the source checkpoint above, shared-memory documentation merged through #1
 cleanup through #196 at `ccee37c`, and repository organization through #197 at `4877e2e`.
 PR #197 passed all three required CI checks (run `34896951640`) and local main was fast-forwarded.
 These maintenance changes preserve runtime behavior and the submitted artifacts. Current product
-reference is [PRODUCT.md](../PRODUCT.md); the [reference audit](2026-09-14-reference-audit.md)
+reference is [PRODUCT.md](../../PRODUCT.md); the [reference audit](2026-09-14-reference-audit.md)
 documents subsequent documentation corrections. This addendum makes no newer portal observation.
 
 ## Website — published and verified
@@ -96,7 +96,7 @@ route/viewport checks, 87 internal-link/anchor checks, source/publishing parity 
 passed. Seven browser scenarios checked both Apple links: Mac, iPhone, iPad, iPad desktop mode,
 Windows, Android and JavaScript disabled. This is browser emulation, not physical-device certification.
 
-References: [website plan](../plans/2026-09-14-001-docs-website-copy.md),
+References: [website plan](../../plans/2026-09-14-001-docs-website-copy.md),
 [#190](https://github.com/ZackC-1/still-app/pull/190),
 [#191](https://github.com/ZackC-1/still-app/pull/191),
 [#192](https://github.com/ZackC-1/still-app/pull/192).
@@ -164,10 +164,10 @@ full chat history is not automatically shared between all agents, profiles or fu
 Store only privacy-safe summaries, never credentials or raw transcripts. Live facts must be
 revalidated before action.
 
-Detailed receipts are intentionally ignored under `docs/build/release-gates/implementation/`,
+Detailed receipts are intentionally ignored under `docs/build/2.0-release-evidence/implementation/`,
 including `website-copy-20260914/`, `pr-cleanup-20260914/`, `github-issues-20260914/`, and
 `apple-listing-audit-20260914/`. These local records are not guaranteed to exist on another checkout.
 The user-facing system diagram is a local artifact at
-`docs/build/release-gates/artifacts/still-system-diagram/still-system-diagram.png`, with its SVG source
+`docs/build/still-system-diagram/still-system-diagram.png`, with its SVG source
 alongside. It explains on-device blocking, optional Supabase/Resend sign-in and sync, account
 functions and retained RevenueCat records; it is not website content.

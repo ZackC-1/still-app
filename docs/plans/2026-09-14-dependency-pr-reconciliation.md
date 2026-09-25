@@ -29,7 +29,7 @@ toolchain; they do not publish a new store artifact.
   artifacts and submissions unchanged.
 
 Detailed command output is local ignored evidence under
-`docs/build/release-gates/implementation/pr-cleanup-20260914/`.
+`docs/build/2.0-release-evidence/implementation/pr-cleanup-20260914/`.
 
 Local verification on Node 24.19.0 and pnpm 11.9.0 passed frozen install, lint,
 typecheck, all builds, and 788 unit tests (39 existing skips). The integrated audit

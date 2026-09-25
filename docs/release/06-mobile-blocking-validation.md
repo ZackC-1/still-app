@@ -7,8 +7,8 @@ Safari on iPhone/iPad. Native social apps and mobile Chrome/Firefox are outside 
 
 The owner completed extensive Mac/iPhone testing and confirmed Shorts removal, normal YouTube
 video behavior and Shorts-to-watch redirection. Preserve the candidate and scope of each recorded
-result in the [release status](2026-09-14-release-status.md) and linked evidence. Do not restart
-completed testing merely because the [September 8 candidate matrix](2026-09-08-still-2-certification.md)
+result in the [release status](history/2026-09-14-release-status.md) and linked evidence. Do not restart
+completed testing merely because the [September 8 candidate matrix](history/2026-09-08-still-2-certification.md)
 contains older unverified rows.
 
 Physical iPad testing is **SKIPPED / UNVERIFIED**, explicitly accepted by the owner because no device

@@ -13,6 +13,7 @@ rules (never "everywhere", "forever" or "no tracking").
 | [`chrome/`](chrome/) | Chrome Web Store (plus the two promo tiles) | 1280×800 | 5 |
 | [`firefox/`](firefox/) | Firefox Add-ons (AMO) | 1280×800 | 5 |
 | [`instagram/`](instagram/) | Instagram feed posts (not a store) | 1080×1350 | 3 |
+| [`web/`](web/) | The website's sharing (Open Graph) image, served at `stillapp.fit/release/screenshots/store-ready/web/` | 1200×630 | 1 |
 | [`apple/`](apple/) | Retained in-app purchase image, see the last section | 1024×1024 | 1 |
 
 The 2.0 functional captures and the v3 captioned set are in [`../archive/2.0/`](../archive/2.0/).

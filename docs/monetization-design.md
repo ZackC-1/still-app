@@ -43,7 +43,7 @@ mechanism. Retained entitlement cache/receipt semantics must not be confused wit
 ## Prices and presentation
 
 App-download pricing, in-app-product pricing, entitlement state and client feature gates are
-separate. The September 14 [release snapshot](release/2026-09-14-release-status.md#store-snapshot)
+separate. The September 14 [release snapshot](release/history/2026-09-14-release-status.md#store-snapshot)
 records a free Apple download and the existing Apple product at zero price; it does not assert a
 new Web Billing price or a live portal state checked during this documentation refresh.
 Apple may retain an in-app-purchase label while the historical product exists. Reviewer notes explain

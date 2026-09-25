@@ -60,6 +60,9 @@ packages/core/.secrets/
 # Local build working notes, never published
 docs/build/
 
+# Store upload packages by version (release-builds/<version>/<store>/), kept locally, never committed
+release-builds/
+
 # Local agent definitions, never published
 .claude/agents/
 

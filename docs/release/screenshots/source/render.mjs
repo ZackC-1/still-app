@@ -5,7 +5,6 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const promoSource = pathToFileURL(resolve(here, "promo.html")).href;
-const outputRoot = resolve(here, "../v2");
 const storeReadyRoot = resolve(here, "../store-ready");
 
 // Render brand assets only. Functional screenshots come from the actual release build;
@@ -15,7 +14,7 @@ const only = process.argv[2];
 const promos = [
   { name: "chrome/still-chrome-promo-v2-440x280.jpg", width: 440, height: 280, type: "store-promo", storeReady: true },
   { name: "chrome/still-chrome-marquee-v2-1400x560.jpg", width: 1400, height: 560, type: "store-promo", storeReady: true },
-  { name: "web/still-open-graph-v2-1200x630.jpg", width: 1200, height: 630, type: "promo" },
+  { name: "web/still-open-graph-v2-1200x630.jpg", width: 1200, height: 630, type: "promo", storeReady: true },
   { name: "apple/still-pro-iap-v3-1024x1024.jpg", width: 1024, height: 1024, type: "iap", storeReady: true },
 ];
 
@@ -30,7 +29,7 @@ if (only && !knownTypes.has(only)) {
 const browser = await chromium.launch({ headless: true });
 const selectedPromos = only ? promos.filter((p) => p.type === only) : promos;
 for (const promo of selectedPromos) {
-  const output = resolve(promo.storeReady ? storeReadyRoot : outputRoot, promo.name);
+  const output = resolve(storeReadyRoot, promo.name);
   await mkdir(dirname(output), { recursive: true });
   const page = await browser.newPage({ viewport: { width: promo.width, height: promo.height }, deviceScaleFactor: 1 });
   await page.goto(`${promoSource}?type=${promo.type}`);

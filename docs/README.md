@@ -66,7 +66,7 @@ not website assets. See [Pages publication lessons](solutions/conventions/github
 
 The [original v1 specification](Still-Spec-v1.md) and
 [pre-refresh references](archive/pre-2.0-reference-refresh/README.md) preserve superseded design
-and release procedures. The [reference audit](release/2026-09-14-reference-audit.md) records coverage.
+and release procedures. The [reference audit](release/history/2026-09-14-reference-audit.md) records coverage.
 
 History helps explain decisions but does not establish current behavior or store state. Completed
 handoffs and execution prompts are retired after their useful knowledge is captured. Preserve

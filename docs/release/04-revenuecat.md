@@ -10,7 +10,7 @@ or upgrade a RevenueCat plan solely to release free 2.0.
 
 **September 14 checkpoint:** the owner reviewed credentials and the existing Supabase webhook,
 with successful delivery evidence. The provider inventory and current-practice retention decision
-are recorded in [the release status](2026-09-14-release-status.md). This is not a fresh dashboard
+are recorded in [the release status](history/2026-09-14-release-status.md). This is not a fresh dashboard
 inspection or proof that every field below was independently certified. Use this checklist for a
 future relevant change; unchecked reusable items do not undo recorded results. Keep API keys,
 webhook authorization values and customer records out of screenshots, issues and release notes.

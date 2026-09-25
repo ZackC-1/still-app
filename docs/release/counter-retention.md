@@ -3,8 +3,8 @@
 Status: **implemented and deployed for this release; issue #152 closed.** Migration
 `0013_counter_retention.sql`, the reviewed Edge revisions and subsequent review-sign-in logging
 update were deployed; the owner-approved current-practice privacy notice was published. See
-[September 14 status](2026-09-14-release-status.md) and the
-[September 11 deployment evidence](2026-09-11-public-contact-update.md).
+[September 14 status](history/2026-09-14-release-status.md) and the
+[September 11 deployment evidence](history/2026-09-11-public-contact-update.md).
 
 The procedures below remain operational references for a future approved change or recovery, not
 unfinished instructions to rerun the purge or redeploy. Fresh production/provider changes require

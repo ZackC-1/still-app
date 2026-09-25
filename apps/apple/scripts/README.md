@@ -11,8 +11,8 @@ supported websites in Safari, not native social apps.
 | `archive.sh` | Rebuilds web resources, archives iOS and exports an App Store IPA with an ASC API key. It permits provisioning updates; `UPLOAD=1` additionally uploads. Both external actions require explicit approval. |
 | `ExportOptions.plist` | Existing App Store export configuration. |
 
-Use [current release status](../../../docs/release/2026-09-14-release-status.md) for submitted
-artifacts and [the historical candidate record](../../../docs/release/2026-09-08-still-2-certification.md)
+Use [current release status](../../../docs/release/history/2026-09-14-release-status.md) for submitted
+artifacts and [the historical candidate record](../../../docs/release/history/2026-09-08-still-2-certification.md)
 for its original hashes/tests. Source defaults are 2.0.0 (7); submitted Apple packages are 2.0.0 (8).
 Do not reuse an earlier archive as proof for newer source or rebuild pending packages merely to sync Git.
 

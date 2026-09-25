@@ -81,7 +81,7 @@ Separate historical billing events, RevenueCat records, support mail and provide
 [the published current-practice policy](https://stillapp.fit/privacy/). The retained Apple SDK can
 communicate while signed out; no browsing-history collection is introduced.
 
-[Connections](CONNECTIONS.md) documents actual configuration, and [the release record](release/2026-09-14-release-status.md)
+[Connections](CONNECTIONS.md) documents actual configuration, and [the release record](release/history/2026-09-14-release-status.md)
 attributes backend, website and store state. Current main, a submitted package and the live website
 can have different source commits: `gh-pages` publishes separately and later tooling/docs changes
 do not rebuild pending store artifacts.

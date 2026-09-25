@@ -13,7 +13,7 @@ native app and Safari sheet at narrow widths, light/dark and larger text on phys
 supported iPad. Use approved synthetic accounts for optional sync and deletion journeys. Previous
 mobile evidence and paid-tier procedures below do not certify the 2.0 candidate.
 
-See [current certification](https://github.com/ZackC-1/still-app/blob/4877e2ed38b8ea81feaca7b1d4d807a0a2b4f7ef/docs/release/2026-09-08-still-2-certification.md) for exact artifacts and outstanding
+See [current certification](https://github.com/ZackC-1/still-app/blob/4877e2ed38b8ea81feaca7b1d4d807a0a2b4f7ef/docs/release/history/2026-09-08-still-2-certification.md) for exact artifacts and outstanding
 gates. Store metadata changes, upload/submission and production writes require explicit approval.
 
 ## Previous release procedures (historical)

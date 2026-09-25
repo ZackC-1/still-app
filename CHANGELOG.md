@@ -19,7 +19,7 @@ Chrome and Firefox ship as 2.1.1; the Apple apps and Safari extension as 2.1.0.
 ## 2.0.0 — free release (store rollout in progress)
 
 Implementation and release changes recorded through September 14, 2026. Public availability varies
-by store; see [the dated release record](docs/release/2026-09-14-release-status.md).
+by store; see [the dated release record](docs/release/history/2026-09-14-release-status.md).
 
 - All supported blocking is free: YouTube Shorts, Instagram/Facebook Reels and the TikTok website.
   No account or purchase is required; both paid-tier flags remain disabled.

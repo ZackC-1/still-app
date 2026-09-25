@@ -2,7 +2,7 @@
 
 Current reference for Still 2.0.0, reviewed September 14, 2026. The owner reported submitting 2.0.0
 for review; the last recorded public-page check still showed 1.0.3. See the
-[dated release record](2026-09-14-release-status.md#store-snapshot). Submission is not publication;
+[dated release record](history/2026-09-14-release-status.md#store-snapshot). Submission is not publication;
 check live status before the next store action.
 
 ## Artifact and supported scope

@@ -66,7 +66,7 @@ uses 3rd Party Mac Developer Installer and nested distribution signatures. The i
 
 Fresh Chrome ZIP, Firefox ZIP, complete AMO source ZIP, iOS App Store IPA, Mac App Store PKG and a
 machine-readable SHA-256 manifest are in the ignored local directory
-`docs/build/release-gates/artifacts/reconciled-80b4ec6/`. Existing approved public client configuration
+`docs/build/release-gates/artifacts/reconciled-80b4ec6/` (a 2.0.0 candidate, deleted on 2026-09-25; the submitted 2.0.0 browser packages are in `release-builds/2.0.0/`). Existing approved public client configuration
 was used; no private server/signing key is in the complete-source ZIP. The default WXT partial source
 ZIP is not the AMO deliverable. None of these artifacts was uploaded or submitted. Match hashes,
 not merely the repeated version/build labels, when choosing packages.
@@ -78,7 +78,7 @@ HTTPS. Publishing remains on gh-pages, independent of main.
 ## Remaining public-release gates
 
 1. **Hosted compatibility:** read-only production inventory still showed migrations 0001-0012.
-   Apply reviewed 0013 and Edge changes through [counter-retention.md](counter-retention.md), with
+   Apply reviewed 0013 and Edge changes through [counter-retention.md](../counter-retention.md), with
    explicit scope and post-deployment evidence. The migration purges legacy counters once and adds
    auth triggers and scheduled cleanup. No production mutation occurred in this reconciliation.
 2. **Provider/privacy:** the existing runbook requires actual provider log/backup/deletion-policy
