@@ -129,7 +129,10 @@ if (wanted("instagram")) {
 async function feedPair(name, url, find) {
   let offset = 0;
   for (const on of [false, true]) {
-    const ctx = await launch({ ext: on, signedIn: true });
+    // FEED_AFTER_HEIGHT (CSS px) captures the "after" on a taller window, so a crop can be taken on an
+    // ordinary post rather than whatever item (often an ad) lands at the same scroll position.
+    const tall = on && process.env.FEED_AFTER_HEIGHT ? { viewport: { width: 1280, height: Number(process.env.FEED_AFTER_HEIGHT) } } : {};
+    const ctx = await launch({ ext: on, signedIn: true, ...tall });
     await shoot(ctx, url, `${name}-${on ? "after" : "before"}.png`, {
       mark: !on, settle: 8000,
       prepare: async (page) => {

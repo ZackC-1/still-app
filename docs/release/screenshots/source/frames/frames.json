@@ -130,7 +130,7 @@
           "src": "captures/desktop/facebook-after.png",
           "crop": {
             "x": 312,
-            "y": 205,
+            "y": 1878,
             "w": 656
           }
         }
@@ -255,7 +255,7 @@
           "src": "captures/desktop/facebook-after.png",
           "crop": {
             "x": 312,
-            "y": 205,
+            "y": 1878,
             "w": 656
           }
         }
@@ -380,7 +380,7 @@
           "src": "captures/desktop/facebook-after.png",
           "crop": {
             "x": 312,
-            "y": 205,
+            "y": 1878,
             "w": 656
           }
         }
@@ -717,7 +717,7 @@
           "src": "captures/desktop/facebook-after.png",
           "crop": {
             "x": 312,
-            "y": 225,
+            "y": 1878,
             "w": 420
           }
         }
