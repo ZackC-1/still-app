@@ -28,6 +28,9 @@ const APP = resolve(HERE, "../../../../../packages/app-webview/dist");
 const PROFILE = resolve(homedir(), ".still-capture/chromium");
 const VIEWPORT = { width: 1280, height: 800 };
 const RULES = rulesByService();
+// Names to cover on signed-in pages (the account's own name), passed at run time and never stored:
+// REDACT="First Last,Other Name" node capture.mjs facebook
+const REDACT = (process.env.REDACT || "").split(",").map((n) => n.trim()).filter(Boolean);
 mkdirSync(OUT, { recursive: true });
 
 const args = process.argv.slice(2);
@@ -55,9 +58,9 @@ async function shoot(ctx, url, file, { mark, settle = 6000, scroll = 0, labels, 
   if (prepare) await prepare(page);
   await page.addScriptTag({ content: annotateLibrary() });
   // First pass closes any "open the app" nag; the marks are drawn once the page is still.
-  await page.evaluate(() => globalThis.StillAnnotate.run({ mark: false }));
+  await page.evaluate((redact) => globalThis.StillAnnotate.run({ mark: false, redact }), REDACT);
   await page.waitForTimeout(1200);
-  const result = await page.evaluate((cfg) => globalThis.StillAnnotate.run(cfg), { rules: RULES, mark, labels });
+  const result = await page.evaluate((cfg) => globalThis.StillAnnotate.run(cfg), { rules: RULES, mark, labels, redact: REDACT });
   await page.waitForTimeout(800);
   await page.screenshot({ path: resolve(OUT, file) });
   console.log(file, JSON.stringify(result));
@@ -152,10 +155,13 @@ if (wanted("instagram-profile")) {
 // 5. Facebook, signed in to the test account. Only the Page Reels tab is used in images: the home
 // feed is random and shows private people, so feedPair here is for checking behaviour, not for stores.
 if (wanted("facebook")) {
-  await feedPair("facebook", "https://www.facebook.com/", () => {
-    const reel = document.querySelector('[role="feed"] a[href*="/reel/"], [role="main"] a[href*="/reel/"]');
-    const post = reel?.closest('[role="article"]') ?? reel?.closest("[aria-posinset]") ?? reel;
-    return post ? Math.max(1, post.getBoundingClientRect().top + scrollY - 140) : 0;
+  await feedPair("facebook", SOURCES.facebookFeed, () => {
+    // The feed's Reels shelf if there is one, otherwise the first Reel post; a little of the post above
+    // stays in view so the "after" reads as the same feed with the Reels gone.
+    const shelf = document.querySelector('div[role="grid"][aria-label="Reels"]');
+    const reel = shelf ?? document.querySelector('[role="feed"] a[href*="/reel/"], [role="main"] a[href*="/reel/"]');
+    const post = shelf ?? reel?.closest('[role="article"]') ?? reel?.closest("[aria-posinset]") ?? reel;
+    return post ? Math.max(1, post.getBoundingClientRect().top + scrollY - 260) : 0;
   });
 }
 

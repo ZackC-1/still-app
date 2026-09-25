@@ -304,11 +304,41 @@
     }
   }
 
+  // Covers every visible occurrence of the given names (e.g. the signed-in account's own name) with a
+  // solid block, and strips them from image alt text and labels. The names come in at capture time only.
+  function redact(names) {
+    const wanted = names.map((n) => n.trim()).filter(Boolean);
+    if (!wanted.length) return 0;
+    const re = new RegExp(wanted.map((n) => n.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "i");
+    let count = 0;
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    const hits = [];
+    for (let n = walker.nextNode(); n; n = walker.nextNode()) if (re.test(n.nodeValue)) hits.push(n);
+    for (const n of hits) {
+      const range = document.createRange();
+      range.selectNodeContents(n);
+      for (const r of range.getClientRects()) {
+        if (!r.width || !r.height) continue;
+        const box = document.createElement("div");
+        box.setAttribute("data-still-annotate", "");
+        Object.assign(box.style, { position: "fixed", left: r.left - 2 + "px", top: r.top - 2 + "px", width: r.width + 4 + "px",
+          height: r.height + 4 + "px", background: "#c9ccd6", borderRadius: "4px", zIndex: "2147483646", pointerEvents: "none" });
+        document.documentElement.appendChild(box);
+        count++;
+      }
+    }
+    for (const el of document.querySelectorAll("[aria-label], [alt], [title]")) {
+      for (const a of ["aria-label", "alt", "title"]) if (re.test(el.getAttribute(a) || "")) el.setAttribute(a, "");
+    }
+    return count;
+  }
+
   function run(config) {
     const service = config.service || serviceFor(location.hostname);
     if (!service) return { service: null, marks: 0 };
     for (const old of document.querySelectorAll("[data-still-annotate]")) old.remove();
     if (config.dismiss !== false) dismissNags();
+    const redacted = redact(config.redact || []);
     if (config.blur === true) {
       const style = document.createElement("style");
       style.setAttribute("data-still-annotate", "");
@@ -326,7 +356,7 @@
       marks = targets(rules, extra).slice(0, config.maxMarks || 24);
       draw(marks, config);
     }
-    return { service, marks: marks.length, rects: marks.map((m) => [m.kind, Math.round(m.r.left), Math.round(m.r.top), Math.round(m.r.width), Math.round(m.r.height)]) };
+    return { service, redacted, marks: marks.length, rects: marks.map((m) => [m.kind, Math.round(m.r.left), Math.round(m.r.top), Math.round(m.r.width), Math.round(m.r.height)]) };
   }
 
   globalThis.StillAnnotate = { run, serviceFor, marksSvg };
