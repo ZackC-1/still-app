@@ -2,6 +2,20 @@
 
 Still uses descriptive pull request titles and conventional commit-style summaries for changes from this point forward.
 
+## 2.1 — usage data switch, Facebook fixes and new store images (store rollout in progress)
+
+Chrome and Firefox ship as 2.1.1; the Apple apps and Safari extension as 2.1.0.
+
+- A "Share usage data" switch: Still shares how the app is used (which settings are on, whether
+  setup finished), never the pages or videos people visit, under a closed event schema
+  ([ADR 0004](docs/adr/0004-first-party-usage-analytics.md)). It can be turned off anytime.
+- Facebook: the Reels tab on Pages and profiles no longer flickers back into view (#213), and the
+  home feed's Reels shelf is removed whole, header included (#218). Rule set 1.1.11.
+- New store screenshots for iPhone, iPad, Mac, Chrome and Firefox, captured from the 2.1 build,
+  and the tooling to remake them (`docs/release/screenshots/source/frames/`).
+- Chrome and Firefox are 2.1.1 because their 2.1.0 packages were submitted before the Facebook
+  fixes, and Firefox never reuses a version number.
+
 ## 2.0.0 — free release (store rollout in progress)
 
 Implementation and release changes recorded through September 14, 2026. Public availability varies
