@@ -9,6 +9,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { SOURCES } from "./sources.mjs";
 import { installStill } from "./firefox-rdp.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -16,7 +17,7 @@ const EXT = resolve(HERE, "../../../../../packages/ext-chromium/dist/firefox-mv3
 const OUT = resolve(HERE, "captures/firefox/window-popup.png");
 const FIREFOX = "/Applications/Firefox.app/Contents/MacOS/firefox";
 const PORT = 12347;
-const URL = "https://www.youtube.com/results?search_query=pasta+recipe";
+const URL = SOURCES.youtube;
 const PROFILE = resolve(tmpdir(), "still-firefox-capture-profile");
 const WINLIST = resolve(tmpdir(), "still-winlist");
 

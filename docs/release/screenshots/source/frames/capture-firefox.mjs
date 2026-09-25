@@ -11,6 +11,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { annotateLibrary, rulesByService } from "./annotate-source.mjs";
 import { installStill } from "./firefox-rdp.mjs";
+import { SOURCES } from "./sources.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(HERE, "captures/firefox");
@@ -57,8 +58,8 @@ async function pair(name, url, settle = 7000) {
   }
 }
 
-if (wanted("youtube")) await pair("youtube", "https://www.youtube.com/results?search_query=pasta+recipe");
-if (wanted("tiktok")) await pair("tiktok", "https://www.tiktok.com/tag/pastarecipe", 9000);
+if (wanted("youtube")) await pair("youtube", SOURCES.youtube);
+if (wanted("tiktok")) await pair("tiktok", SOURCES.tiktok, 9000);
 
 // The real Firefox popup document, opened as a page at the toolbar popup's width.
 if (wanted("popup")) {

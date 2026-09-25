@@ -19,6 +19,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import { annotateLibrary, rulesByService } from "./annotate-source.mjs";
+import { SOURCES } from "./sources.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = resolve(HERE, "captures/desktop");
@@ -27,6 +28,9 @@ const APP = resolve(HERE, "../../../../../packages/app-webview/dist");
 const PROFILE = resolve(homedir(), ".still-capture/chromium");
 const VIEWPORT = { width: 1280, height: 800 };
 const RULES = rulesByService();
+// Names to cover on signed-in pages (the account's own name), passed at run time and never stored:
+// REDACT="First Last,Other Name" node capture.mjs facebook
+const REDACT = (process.env.REDACT || "").split(",").map((n) => n.trim()).filter(Boolean);
 mkdirSync(OUT, { recursive: true });
 
 const args = process.argv.slice(2);
@@ -54,9 +58,9 @@ async function shoot(ctx, url, file, { mark, settle = 6000, scroll = 0, labels, 
   if (prepare) await prepare(page);
   await page.addScriptTag({ content: annotateLibrary() });
   // First pass closes any "open the app" nag; the marks are drawn once the page is still.
-  await page.evaluate(() => globalThis.StillAnnotate.run({ mark: false }));
+  await page.evaluate((redact) => globalThis.StillAnnotate.run({ mark: false, redact }), REDACT);
   await page.waitForTimeout(1200);
-  const result = await page.evaluate((cfg) => globalThis.StillAnnotate.run(cfg), { rules: RULES, mark, labels });
+  const result = await page.evaluate((cfg) => globalThis.StillAnnotate.run(cfg), { rules: RULES, mark, labels, redact: REDACT });
   await page.waitForTimeout(800);
   await page.screenshot({ path: resolve(OUT, file) });
   console.log(file, JSON.stringify(result));
@@ -84,13 +88,13 @@ if (args.includes("--login")) {
 }
 
 // 1. YouTube search, signed out: shelves of Shorts, the Shorts chip and the Shorts tab, then none of them.
-if (wanted("youtube")) await pair("youtube", "https://www.youtube.com/results?search_query=pasta+recipe");
+if (wanted("youtube")) await pair("youtube", SOURCES.youtube);
 
 // 2. A Shorts link opens as a normal video with Still on (the address bar would read /watch).
 if (wanted("shorts-link")) {
   const ctx = await launch({ ext: false, signedIn: false });
   const page = await ctx.newPage();
-  await page.goto("https://www.youtube.com/results?search_query=pasta+recipe", { waitUntil: "domcontentloaded" });
+  await page.goto(SOURCES.youtube, { waitUntil: "domcontentloaded" });
   await page.waitForTimeout(5000);
   const href = await page.evaluate(() => document.querySelector('a[href^="/shorts/"]')?.getAttribute("href"));
   await ctx.close();
@@ -105,18 +109,18 @@ if (wanted("shorts-link")) {
   }
 }
 
-// 3. The TikTok website: a public food hashtag (not the For You feed, whose videos are random), then
+// 3. The TikTok website: a public hashtag page (not the For You feed, whose videos are random), then
 // Still's blocked page.
-const TIKTOK = "https://www.tiktok.com/tag/pastarecipe";
+const TIKTOK = SOURCES.tiktok;
 if (wanted("tiktok")) await pair("tiktok", TIKTOK, { settle: 9000, headless: false });
 
 // 4. Instagram, signed in to the test account: home feed, and the Reels page itself.
 if (wanted("instagram")) {
-  await feedPair("instagram", "https://www.instagram.com/", () => {
+  await feedPair("instagram", SOURCES.instagramFeed, () => {
     const reel = [...document.querySelectorAll('article a[href*="/reel/"], article video')].map((e) => e.closest("article")).find(Boolean);
     return reel ? Math.max(1, reel.getBoundingClientRect().top + scrollY - 20) : 0;
   });
-  await pair("instagram-reels", "https://www.instagram.com/reels/", { signedIn: true, settle: 7000,
+  await pair("instagram-reels", SOURCES.instagramReels, { signedIn: true, settle: 7000,
     marks: { circle: ['a[href="/reels/"]'], largestMedia: true } });
 }
 
@@ -125,7 +129,10 @@ if (wanted("instagram")) {
 async function feedPair(name, url, find) {
   let offset = 0;
   for (const on of [false, true]) {
-    const ctx = await launch({ ext: on, signedIn: true });
+    // FEED_AFTER_HEIGHT (CSS px) captures the "after" on a taller window, so a crop can be taken on an
+    // ordinary post rather than whatever item (often an ad) lands at the same scroll position.
+    const tall = on && process.env.FEED_AFTER_HEIGHT ? { viewport: { width: 1280, height: Number(process.env.FEED_AFTER_HEIGHT) } } : {};
+    const ctx = await launch({ ext: on, signedIn: true, ...tall });
     await shoot(ctx, url, `${name}-${on ? "after" : "before"}.png`, {
       mark: !on, settle: 8000,
       prepare: async (page) => {
@@ -142,26 +149,39 @@ async function feedPair(name, url, find) {
   }
 }
 
+// 4b. A public profile's Reels grid (signed in): every Reel tile crossed out, then Still's cleared page.
+if (wanted("instagram-profile")) {
+  await pair("instagram-profile-reels", SOURCES.instagramProfileReels, { signedIn: true, settle: 8000, scroll: 420,
+    marks: { circle: ['a[href="/reels/"]', 'a[href$="/reels/"][role="tab"]', 'a[href$="/reels/"]'], x: ['main a[href*="/reel/"]'] } });
+  // The same profile with Still on: its posts stay and the Reels tab is gone.
+  const ctx = await launch({ ext: true, signedIn: true });
+  await shoot(ctx, SOURCES.instagramProfile, "instagram-profile-after.png", { mark: false, settle: 8000, scroll: 420 });
+  await ctx.close();
+}
+
 // 5. Facebook, signed in to the test account. Only the Page Reels tab is used in images: the home
 // feed is random and shows private people, so feedPair here is for checking behaviour, not for stores.
 if (wanted("facebook")) {
-  await feedPair("facebook", "https://www.facebook.com/", () => {
-    const reel = document.querySelector('[role="feed"] a[href*="/reel/"], [role="main"] a[href*="/reel/"]');
-    const post = reel?.closest('[role="article"]') ?? reel?.closest("[aria-posinset]") ?? reel;
-    return post ? Math.max(1, post.getBoundingClientRect().top + scrollY - 140) : 0;
+  await feedPair("facebook", SOURCES.facebookFeed, () => {
+    // The feed's Reels shelf if there is one, otherwise the first Reel post; a little of the post above
+    // stays in view so the "after" reads as the same feed with the Reels gone.
+    const shelf = document.querySelector('div[role="grid"][aria-label="Reels"]');
+    const reel = shelf ?? document.querySelector('[role="feed"] a[href*="/reel/"], [role="main"] a[href*="/reel/"]');
+    const post = shelf ?? reel?.closest('[role="article"]') ?? reel?.closest("[aria-posinset]") ?? reel;
+    return post ? Math.max(1, post.getBoundingClientRect().top + scrollY - 260) : 0;
   });
 }
 
 if (wanted("facebook") || wanted("facebook-reels")) {
-  // A public food Page's Reels tab (FB_PAGE overrides, to compare candidates for safe content).
-  await pair(process.env.FB_NAME || "facebook-reels", `https://www.facebook.com/${process.env.FB_PAGE || "bonappetitmag"}/reels/`, { signedIn: true, settle: 8000 });
+  // A public Page's Reels tab.
+  await pair(process.env.FB_NAME || "facebook-reels", SOURCES.facebookReels, { signedIn: true, settle: 8000 });
 }
 
 // 6. Draft phone captures (layout only, never uploaded to Apple): m.youtube.com and the TikTok website.
 if (wanted("mobile-draft")) {
   mkdirSync(resolve(OUT, "../mobile-draft"), { recursive: true });
   const draft = { device: IPHONE, dir: "../mobile-draft/" };
-  await pair("youtube", "https://m.youtube.com/results?search_query=pasta+recipe", { ...draft, settle: 7000 });
+  await pair("youtube", SOURCES.youtubeMobile, { ...draft, settle: 7000 });
   await pair("tiktok", TIKTOK, { ...draft, settle: 9000, headless: false });
 }
 

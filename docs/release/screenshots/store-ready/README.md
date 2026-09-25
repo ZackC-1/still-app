@@ -23,15 +23,15 @@ They are history, not upload candidates.
 Upload with the Apple 2.1.0 version. Apple has no caption fields; the words are in the images.
 
 **iPhone** (`iphone/`), in order:
-1. `iphone-01-youtube`: YouTube in Safari, before and after, Shorts crossed out
-2. `iphone-02-instagram`: an Instagram Reel in Safari, cleared away
+1. `iphone-01-youtube`: YouTube "side hustle" Shorts in Safari at 1:47 AM, crossed out, then gone
+2. `iphone-02-instagram`: an Instagram Reels page in Safari, cleared away
 3. `iphone-03-switches`: the Still app, one switch per site
 4. `iphone-04-facebook`: a Facebook Reels page in Safari, cleared away
 5. `iphone-05-tiktok`: the TikTok website, blocked
-6. `iphone-06-safari-menu`: Still's menu open in Safari
+6. `iphone-06-safari-menu`: Still's menu open in Safari over the YouTube search
 7. `iphone-07-setup`: the "Turn on Still in Safari" setup screen, with "not inside other apps"
 
-**iPad** (`ipad/`): `ipad-01-safari-popup` (Still in Safari's toolbar over Instagram),
+**iPad** (`ipad/`): `ipad-01-safari-popup` (Still in Safari's toolbar over Supercar Blondie's Instagram, 1:47 AM),
 `ipad-02-switches`, `ipad-03-setup`.
 
 **Mac** (`mac/`): `mac-01-youtube`, `mac-02-instagram`, `mac-03-facebook`, `mac-04-tiktok`,
@@ -57,25 +57,13 @@ Upload in order, all 1280×800, with these captions in AMO's description fields:
 
 ## How these were made
 
-All pictures are real captures of the Still 2.1.0 build (rule set 1.1.10, with the Facebook Page
-Reels-tab fix), framed by the showcase renderer. Other people's content is shown as it really
-appears, from public food pages chosen to be safe for a store listing. Red circles and X's mark only
-what Still's rule set removes, and only on "before" shots.
+All pictures are real captures of the Still 2.1.0 build with rule set 1.1.11, which includes both
+Facebook fixes (#213 and #218). The "before" shots show real attention bait: money hooks on YouTube
+and TikTok, supercars on Instagram, and a Facebook feed's Reels shelf. Red circles and X's mark only
+what Still removes. Phone Safari shots show 1:47 AM.
 
-| Set | Captured with |
-|---|---|
-| Chrome, and the page captures reused on Mac | Playwright Chromium with the release Chrome build (`capture.mjs`, `capture-chrome-window.mjs`) |
-| Firefox | Firefox with the release Firefox build installed as a temporary add-on (`capture-firefox.mjs`, `capture-firefox-window.mjs`); Instagram and Facebook reuse the Chromium captures because only that profile is signed in to the test accounts |
-| iPhone, iPad | The 2.1.0 (9) Debug build on the iPhone 17 Pro Max and iPad Pro 13-inch Simulators (iOS 26.2), Still enabled in Safari, status bar set to 9:41 |
-| Mac app window | The 2.1.0 (9) build, ad-hoc signed with its Safari extension removed, so it could not affect the installed Still |
-
-Instagram and Facebook "before" shots use dedicated test accounts, signed in to a local profile
-outside the repo; the raw captures are gitignored and only cropped images are committed. Capture
-builds pointed analytics at an unreachable local address, so no capture sent usage data.
-
-To refresh: `pnpm build`, then run the capture scripts in `../source/frames/`, then
-`node docs/release/screenshots/source/frames/render-frames.mjs [store]`, and review
-`contact-sheet.html` at full and thumbnail size. Each image is described in `frames.json`.
+Which content was chosen and why, what was rejected, and step-by-step instructions to remake any
+image are in [`../source/frames/README.md`](../source/frames/README.md).
 
 ## Still Pro in-app purchase image
 
