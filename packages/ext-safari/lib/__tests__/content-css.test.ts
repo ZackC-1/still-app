@@ -62,6 +62,11 @@ describe("generated content CSS monetization gating", () => {
       // the rule keys on, so the tab flickered back every other frame.
       expect(proCss).toContain('a[role="tab"][href*="/reels_tab"] > *');
       expect(proCss).not.toMatch(/a\[role="tab"\]\[href\*="\/reels_tab"\]\{/);
+      // The home-feed Reels shelf card: hidden only in CSS on the fast path, and hidden as the
+      // feed unit's CHILD so the unit Facebook measures keeps its box (the same lesson as above).
+      expect(proCss).toContain(
+        'html.still-pro-active.still-service-facebook div[data-virtualized] > div:has(div[role="grid"][aria-label="Reels"]):not(:has([data-virtualized])){display:none!important}',
+      );
     });
 
     // The committed stylesheets are GENERATED artifacts of the seed. PR #64's review caught the

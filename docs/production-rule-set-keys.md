@@ -11,7 +11,7 @@ floor. Production builds verify fetched/cached data against production keys; the
 development-signed remote cache. The packaged seed is a separately trusted offline input, so its
 bundled development signature is not evidence that remote production trust was disabled.
 
-Current source seed version is 1.1.10. That is a rule-data version, separate from the application version.
+Current source seed version is 1.1.11. That is a rule-data version, separate from the application version.
 The initial production migration 0006 contains an older set; applying that migration alone cannot
 make an older remote set supersede a newer bundled seed. Clients choose the newest trusted set,
 reverify cached data and keep the newer cache against stale fetches. Refresh is shared in flight and

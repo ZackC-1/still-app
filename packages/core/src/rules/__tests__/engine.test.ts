@@ -567,6 +567,69 @@ describe("applyDom", () => {
     }
   });
 
+  describe("Facebook home-feed Reels shelf", () => {
+    // Recorded 2026-09-25: every feed item is its own div[data-virtualized] unit; the shelf card holds
+    // a header row and a carousel labelled "Reels" whose gridcells fb-watch removes.
+    const shelfUnit = (id: string, tiles: string) => `
+      <div data-virtualized="false" id="${id}-unit"><div id="${id}-card"><div><div>
+        <div><div><div><div role="button"><span id="${id}-header">Reels</span></div><h3>Reels</h3></div></div></div>
+        <div><div><div><div role="grid" aria-label="Reels" id="${id}-grid"><div role="row"><div><div>${tiles}</div></div></div></div></div></div></div>
+      </div></div></div></div>`;
+    const tile = (n: number) =>
+      `<div role="gridcell"><a role="link" aria-label="Reel by a creator" href="/reel/${n}/">tile</a></div>`;
+    const home = new URL("https://www.facebook.com/");
+    const facebookSelectors = (action: "hide" | "remove") =>
+      ruleSet.services.facebook!.surfaces.filter((s) => s.action === action).flatMap((s) => s.selectors ?? []);
+
+    beforeEach(() => {
+      document.body.innerHTML = `<main>
+        ${shelfUnit("shelf", tile(1) + tile(2))}
+        ${shelfUnit("emptied", "")}
+        <div data-virtualized="false" id="post-unit"><div id="post-card"><div role="article"><h4>A friend</h4>An update</div></div></div>
+        <div data-virtualized="false" id="people-unit"><div id="people-card"><h3>People you may know</h3>
+          <div role="grid" aria-label="People you may know"><div role="row"><div role="gridcell"><a href="/someone">Someone</a></div></div></div></div></div>
+        <div data-virtualized="false" id="outer-unit"><div id="outer-card">
+          ${shelfUnit("nested", tile(3))}
+          <div role="article" id="outer-post">An ordinary post beside a nested unit</div>
+        </div></div>
+      </main>`;
+    });
+
+    it("hides the whole card through the JS sweep, tiles or not, and nothing else", () => {
+      applyDom(ruleSet, allOn, home, document);
+      for (const id of ["shelf", "emptied", "nested"]) {
+        expect(document.getElementById(`${id}-card`)!.style.display, id).toBe("none");
+        // The measured unit keeps its box; only its child is hidden.
+        expect(document.getElementById(`${id}-unit`)!.style.display, id).toBe("");
+      }
+      expect(document.querySelectorAll('a[href*="/reel/"]')).toHaveLength(0);
+      for (const id of ["post-unit", "post-card", "people-unit", "people-card", "outer-unit", "outer-card", "outer-post"]) {
+        expect(document.getElementById(id)!.style.display, id).toBe("");
+      }
+    });
+
+    it("still finds the card after the tiles were removed first", () => {
+      applyRemovals(ruleSet, allOn, home, document);
+      expect(document.querySelectorAll('[role="gridcell"]')).toHaveLength(1); // People you may know
+      applyDom(ruleSet, allOn, home, document);
+      expect(document.getElementById("shelf-card")!.style.display).toBe("none");
+    });
+
+    it("anchors on a carousel no Facebook remove rule can take away", () => {
+      // The order-independence invariant: the shelf rule keys on the grid, so no remove selector may
+      // match the grid or any of its ancestors, or the card would lose its anchor mid-sweep.
+      const grid = document.getElementById("shelf-grid")!;
+      for (const selector of facebookSelectors("remove")) {
+        for (const el of document.querySelectorAll(selector)) {
+          expect(el.contains(grid), selector).toBe(false);
+        }
+      }
+      expect(facebookSelectors("hide")).toContain(
+        'div[data-virtualized] > div:has(div[role="grid"][aria-label="Reels"]):not(:has([data-virtualized]))',
+      );
+    });
+  });
+
   it("removes mobile Facebook Reels surfaces while keeping normal mobile feed posts", () => {
     document.body.innerHTML = `
       <nav>
