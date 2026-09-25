@@ -131,9 +131,11 @@ uses manual operational monitoring; check email capacity before a large campaign
 
 ## Version and evidence boundaries
 
-Browser packages are version 2.1.0. Xcode's checked-in marketing version is 2.1.0 and its default
-build number is 9. The 2.0.0 Apple packages in App Store Connect are build 8, as recorded in the
-release evidence; 2.1.0 has not been built or submitted yet.
+The Chrome and Firefox package is version 2.1.1. Its 2.1.0 packages were submitted on September 24,
+2026 without the Facebook Reels fixes (#213, #218), and Firefox never reuses a version number. The
+Safari extension and Xcode's checked-in marketing version are 2.1.0, default build number 9. The
+2.0.0 Apple packages in App Store Connect are build 8, as recorded in the release evidence; Apple
+2.1.0 has not been built or submitted yet.
 These are distinct facts. A new build must use a valid unused portal build number and record its
 exact source, configuration and hashes. Do not rebuild or resubmit pending artifacts to synchronize
 documentation, and do not claim submitted binaries were built from later documentation/tooling commits.
