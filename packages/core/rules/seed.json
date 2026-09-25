@@ -1,5 +1,5 @@
 {
-  "version": "1.1.10",
+  "version": "1.1.11",
   "services": {
     "youtube": {
       "matches": [
@@ -255,6 +255,17 @@
           ]
         },
         {
+          "id": "fb-feed-shelf",
+          "label": "Reels shelf card in Home feed",
+          "tier": "pro",
+          "requiredCapability": "surface.facebook.reels",
+          "action": "hide",
+          "enabledByDefault": true,
+          "selectors": [
+            "div[data-virtualized] > div:has(div[role=\"grid\"][aria-label=\"Reels\"]):not(:has([data-virtualized]))"
+          ]
+        },
+        {
           "id": "fb-left-menu",
           "label": "Reels shortcut in left menu",
           "tier": "pro",
@@ -334,6 +345,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "31eda7a3245a31ea02ceb07df5edcb1c5ccf72e7e78290f2cb48f85e86b91d80eadc3a53fdb2f1d6c4bfa677543ba548d8c20707cb18efe0519f3780a4edab05"
+    "value": "8a29bdf46dc9d5a9ffa5ddaf520bde9dffd0a36c78d1e07612023856f9169cefd9a7314b8437b02fdf8132a36c03da45b33b25635e766c162e2a10b7cd6a2d08"
   }
 }

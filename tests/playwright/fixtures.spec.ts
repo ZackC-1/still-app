@@ -496,19 +496,81 @@ test("facebook menus: ordinary destinations survive the Page overflow rule", asy
   }
 });
 
-test("facebook home: a Reels grid cannot hide its containing feed or ordinary posts", async ({ context, extensionId }) => {
+// fb-watch removes the shelf's tiles, which used to leave the card behind as an empty "Reels"
+// header. fb-feed-shelf hides the whole card, bounded by Facebook's own per-item feed unit rather
+// than by counting ancestors from the grid, so nothing outside that unit can go with it.
+test("facebook home: the whole Reels shelf goes, header included, and every other feed card stays", async ({
+  context,
+  extensionId,
+}) => {
   await setEntitled(context, extensionId, true);
   const page = await context.newPage();
   await serve(page, "**://*.facebook.com/**", fixture("facebook.html"));
   await page.goto("https://www.facebook.com/");
+  await expect(page.locator("html")).toHaveClass(/still-pro-active/);
 
-  // Header cleanup is deferred until a shelf boundary can be identified safely.
-  await expect(page.locator("#keep-shallow-feed-post")).toBeVisible();
-  await expect(page.locator("#reels-shelf-header")).toBeVisible();
+  for (const id of ["reels-shelf", "emptied-reels-shelf", "nested-reels-shelf"]) {
+    await expect(page.locator(`#${id}-card`)).toBeHidden();
+    await expect(page.locator(`#${id}-header`)).toBeHidden();
+  }
+  await expect(page.locator("#reels-shelf-more")).toBeHidden();
   await expect(page.locator("#reels-shelf-card [role='gridcell']")).toHaveCount(0);
-  await expect(page.locator("#keep-people-shelf-card")).toBeVisible();
-  await expect(page.locator("#keep-people-shelf-header")).toBeVisible();
-  await expect(page.locator("#keep-article")).toBeVisible();
+  // The unit Facebook measures keeps a laid-out box of zero height rather than losing its box.
+  const unit = await page.evaluate(() => {
+    const el = document.querySelector("#reels-shelf-unit")!;
+    return { display: getComputedStyle(el).display, height: el.getBoundingClientRect().height };
+  });
+  expect(unit).toEqual({ display: "block", height: 0 });
+
+  for (const id of [
+    "keep-unit-post",
+    "keep-sponsored-post",
+    "keep-stories-tray",
+    "keep-people-shelf-card",
+    "keep-people-shelf-header",
+    "keep-outer-unit-post",
+    "keep-shallow-feed-post",
+    "keep-article",
+  ]) {
+    await expect(page.locator(`#${id}`), id).toBeVisible();
+  }
+});
+
+// The shelf must go whichever runs first: the stylesheet hiding the card or the sweep removing its
+// tiles. The anchor is the carousel, which no rule removes, so a shelf that arrives after load and
+// then loses its tiles stays hidden in every sampled frame.
+test("facebook home: a shelf added after load never shows its header, before or after its tiles go", async ({
+  context,
+  extensionId,
+}) => {
+  await setEntitled(context, extensionId, true);
+  const page = await context.newPage();
+  await serve(page, "**://*.facebook.com/**", fixture("facebook.html"));
+  await page.goto("https://www.facebook.com/");
+  await expect(page.locator("html")).toHaveClass(/still-pro-active/);
+
+  const sampled = await page.evaluate(async () => {
+    const unit = document.querySelector("#reels-shelf-unit")!.cloneNode(true) as HTMLElement;
+    for (const el of unit.querySelectorAll("[id]")) el.removeAttribute("id");
+    unit.id = "late-reels-shelf-unit";
+    const grid = unit.querySelector('[role="grid"]')!;
+    grid.querySelector("[role='row'] > div > div")!.innerHTML =
+      '<div role="gridcell"><a role="link" aria-label="Reel by a creator" href="/reel/777/">a late reel</a></div>';
+    const header = unit.querySelector("span")!;
+    document.querySelector("main")!.append(unit);
+    let visibleFrames = 0;
+    let frames = 0;
+    for (; frames < 30; frames++) {
+      if (frames === 15) for (const cell of grid.querySelectorAll('[role="gridcell"]')) cell.remove();
+      await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+      const box = header.getBoundingClientRect();
+      if (box.width > 0 && box.height > 0) visibleFrames++;
+    }
+    return { frames, visibleFrames, tiles: unit.querySelectorAll('a[href*="/reel/"]').length };
+  });
+  expect(sampled.visibleFrames, `Reels header was visible in ${sampled.visibleFrames} of ${sampled.frames} frames`).toBe(0);
+  expect(sampled.tiles).toBe(0);
+  await expect(page.locator("#keep-unit-post")).toBeVisible();
 });
 
 // Facebook's own sections live in the first path segment, so "/<name>/reels" is a Page's Reels tab

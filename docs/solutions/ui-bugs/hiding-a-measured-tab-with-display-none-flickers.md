@@ -6,6 +6,7 @@ problem_type: integration_error
 module: packages/core/rules
 applies_when: A hide rule targets a tab or menu item that the site measures to decide what overflows, and the element keeps reappearing, flickers, or passes one check and fails the next
 date: 2026-09-24
+last_updated: 2026-09-25
 status: active
 tags: [facebook, selectors, tabs, overflow, flicker, selector-drift]
 ---
@@ -66,8 +67,9 @@ but does not disable that CSS. Applying the new JS hides alongside the old style
 
 Do not identify a feed card by counting ancestors from a Reels grid. The rejected selector
 `div:has(> div > div > div > div[role="grid"][aria-label="Reels"])` hid an ordinary sibling post
-when one wrapper disappeared and the selected ancestor became the whole feed. Header cleanup is
-deferred until the card boundary can be identified independently. Existing rules still remove tiles.
+when one wrapper disappeared and the selected ancestor became the whole feed. The card was later
+bounded by Facebook's own per-item feed unit instead; see
+[identify a feed card by the site's item wrapper](identify-a-feed-card-by-the-sites-item-wrapper.md).
 The replacement tab/menu rules introduce no `:has()` dependency; older Safari compatibility of
 pre-existing rules is a separate limitation.
 

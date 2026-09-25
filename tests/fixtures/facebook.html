@@ -173,29 +173,82 @@
         <div role="article" id="keep-shallow-feed-post">An ordinary sibling post</div>
       </div>
       <!--
-        The home feed's Reels shelf card, in the shape recorded on 2026-09-24 (class names and
-        creator names dropped). fb-watch removes each tile, which used to leave the card behind as
-        a header reading "Reels" with nothing under it. The
-        card was exactly four levels above the grid Facebook labels "Reels" in that capture.
-        Header cleanup is deferred: an ancestor count does not identify a safe card boundary.
+        The home feed as recorded signed in on 2026-09-25 (class names, styles and people dropped).
+        Facebook wraps every feed item in its own div[data-virtualized] unit, and no unit contains
+        another. The Reels shelf is one unit: a card whose body holds a header row (icon button,
+        a visually hidden "Reels" heading, a "..." button) and a carousel labelled "Reels".
+        fb-watch removes each tile; before fb-feed-shelf the rest of the card stayed behind as an
+        empty "Reels" header. The rule hides the unit's child, so the unit Facebook measures keeps
+        a zero-height box.
       -->
-      <div id="reels-shelf-card">
-        <div>
+      <div data-virtualized="false" id="reels-shelf-unit">
+        <div id="reels-shelf-card">
           <div>
-            <div>
-              <div role="button"><div><span id="reels-shelf-header">Reels</span></div></div>
-              <h3>Reels</h3>
+            <div id="reels-shelf-body">
+              <div>
+                <div>
+                  <div>
+                    <div role="button"><div><svg aria-hidden="true" width="20" height="20"></svg><div><span id="reels-shelf-header">Reels</span></div></div></div>
+                    <h3>Reels</h3>
+                    <div><div role="button" aria-label="More options" id="reels-shelf-more">...</div></div>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <div>
+                  <div><div role="button" aria-label="Previous"></div></div>
+                  <div>
+                    <div role="grid" aria-label="Reels">
+                      <div role="row">
+                        <div>
+                          <div>
+                            <div role="gridcell"><a role="link" aria-label="Reel by a creator" href="/reel/555/?s=ifu">a reel tile</a></div>
+                            <div role="gridcell"><a role="link" aria-label="Reel by another creator" href="/reel/556/?s=ifu">another reel tile</a></div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div><div role="button" aria-label="Next"></div></div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-        <div>
+      </div>
+      <!-- The same shelf after its tiles are already gone: the empty carousel still anchors it. -->
+      <div data-virtualized="false" id="emptied-reels-shelf-unit">
+        <div id="emptied-reels-shelf-card">
           <div>
             <div>
-              <div role="grid" aria-label="Reels">
-                <div role="row">
-                  <div>
-                    <div role="gridcell"><a role="link" aria-label="Reel by a creator" href="/reel/555/?s=ifu">a reel tile</a></div>
-                  </div>
+              <div><div><div><div role="button"><span id="emptied-reels-shelf-header">Reels</span></div><h3>Reels</h3></div></div></div>
+              <div><div><div><div role="grid" aria-label="Reels"><div role="row"><div><div></div></div></div></div></div></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <!-- Ordinary feed units that must survive: a post, a sponsored post, Stories, People you may know. -->
+      <div data-virtualized="false" id="keep-post-unit">
+        <div><div role="article" id="keep-unit-post"><h4>A friend</h4><p>An ordinary status update</p></div></div>
+      </div>
+      <div data-virtualized="false" id="keep-sponsored-unit">
+        <div><div id="keep-sponsored-post"><h4>A shop</h4><span>Sponsored</span><a href="https://example.com/shop">Shop now</a></div></div>
+      </div>
+      <div data-virtualized="false" id="keep-stories-unit">
+        <div><div role="region" aria-label="Stories" id="keep-stories-tray"><a href="/stories/create/">Create story</a></div></div>
+      </div>
+      <!--
+        Over-blocking control: a feed card with a carousel that is not Reels. Facebook labels its
+        carousels by what they hold; only "Reels" is short-form video.
+      -->
+      <div data-virtualized="false" id="keep-people-unit">
+        <div id="keep-people-shelf-card">
+          <div><span id="keep-people-shelf-header">People you may know</span><h3>People you may know</h3></div>
+          <div>
+            <div>
+              <div>
+                <div role="grid" aria-label="People you may know">
+                  <div role="row"><div role="gridcell"><a href="/someone">Someone</a></div></div>
                 </div>
               </div>
             </div>
@@ -203,19 +256,18 @@
         </div>
       </div>
       <!--
-        Over-blocking control: a feed card with a carousel at the same depth that is not Reels.
-        Facebook labels its carousels by what they hold; only "Reels" is short-form video.
+        Guard: a unit that wraps another unit. Only the innermost unit's card may hide; the outer
+        unit's ordinary post must survive even though a Reels grid sits somewhere inside it.
       -->
-      <div id="keep-people-shelf-card">
-        <div><span id="keep-people-shelf-header">People you may know</span></div>
-        <div>
-          <div>
-            <div>
-              <div role="grid" aria-label="People you may know">
-                <div role="row"><div role="gridcell"><a href="/someone">Someone</a></div></div>
-              </div>
+      <div data-virtualized="false" id="keep-outer-unit">
+        <div id="keep-outer-unit-child">
+          <div data-virtualized="false" id="nested-reels-shelf-unit">
+            <div id="nested-reels-shelf-card">
+              <div><span id="nested-reels-shelf-header">Reels</span></div>
+              <div><div role="grid" aria-label="Reels"><div role="row"><div></div></div></div></div>
             </div>
           </div>
+          <div role="article" id="keep-outer-unit-post">An ordinary post beside a nested unit</div>
         </div>
       </div>
       <div role="article" id="reel-article"><a href="/reel/123">a reel</a></div>
