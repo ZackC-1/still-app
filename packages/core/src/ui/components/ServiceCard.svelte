@@ -79,7 +79,7 @@
     display: flex;
     align-items: center;
     gap: var(--space-3);
-    background: var(--surface-raised);
+    background: var(--service-card-background, var(--surface-raised));
     border-radius: var(--radius-card);
     padding: var(--service-card-padding-block, var(--space-3))
       var(--service-card-padding-inline, var(--space-4));

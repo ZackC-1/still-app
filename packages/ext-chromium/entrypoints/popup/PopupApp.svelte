@@ -21,8 +21,11 @@
 </script>
 
 <div class="popup">
-  <App {controller} {onRestore} compact />
-  <OpenSettingsButton {surfaceGuidance} onOpen={openOptions} />
+  <App {controller} {onRestore} compact>
+    {#snippet footer()}
+      <OpenSettingsButton {surfaceGuidance} onOpen={openOptions} />
+    {/snippet}
+  </App>
 </div>
 
 <style>

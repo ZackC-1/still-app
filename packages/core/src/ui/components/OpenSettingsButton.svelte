@@ -12,30 +12,26 @@
 <!-- The accessible name starts with the exact visible text (WCAG 2.5.3 Label in Name). -->
 <button
   class="open-options"
-  aria-label={`Open settings & setup guide. ${surfaceGuidance.title}.`}
+  aria-label={`Settings & setup guide. ${surfaceGuidance.title}.`}
   onclick={onOpen}
 >
-  Open settings &amp; setup guide
+  Settings &amp; setup guide
 </button>
 
 <style>
+  /* A text link in the compact popup's footer, beside the privacy policy link. */
   .open-options {
-    display: block;
-    inline-size: 100%;
     background: transparent;
     border: none;
-    border-block-start: 1px solid var(--border);
     color: var(--still-blue);
     font: inherit;
-    padding: var(--space-3);
+    padding: 0;
     cursor: pointer;
+    text-align: start;
   }
   .open-options:hover {
-    background: var(--surface-raised);
     color: var(--still-blue-pressed);
-  }
-  .open-options:focus-visible {
-    /* Inward: the popup's overflow clip would swallow the outward outline of this flush button. */
-    outline-offset: -3px;
+    text-decoration: underline;
+    text-underline-offset: 2px;
   }
 </style>

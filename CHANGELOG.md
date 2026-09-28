@@ -2,6 +2,14 @@
 
 Still uses descriptive pull request titles and conventional commit-style summaries for changes from this point forward.
 
+## Unreleased
+
+- A more compact browser popup (Chrome, Firefox and Safari): no logo, a one-line hero that now reads
+  "Still is active", the four services as one grouped list, a one-row settings sync card, and a
+  footer with "Settings & setup guide" and "Privacy policy". The signed-out popup drops from 600px
+  (the browser's limit) to 428px. Store screenshots still show the old popup and the old
+  "Still is on" wording.
+
 ## 2.1 — usage data switch, Facebook fixes and new store images (store rollout in progress)
 
 Chrome and Firefox ship as 2.1.1; the Apple apps and Safari extension as 2.1.0.

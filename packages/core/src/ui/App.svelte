@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import { PAID_TIER_ENABLED, SERVICE_IDS } from "@still/shared-types";
   import type { UiController } from "./controller.svelte.js";
   import Toggle from "./components/Toggle.svelte";
@@ -20,6 +21,8 @@
     surfaceGuidance?: SurfaceGuidance;
     /** Deprecated Apple host hook. Kept as a no-op prop so older host wiring cannot surface SIWA. */
     onSignInWithApple?: () => void;
+    /** Compact popups only: the host's own footer action, shown beside the privacy policy link. */
+    footer?: Snippet;
   }
   let {
     controller: c,
@@ -27,18 +30,35 @@
     onGet,
     onRestore,
     surfaceGuidance,
+    footer,
   }: Props = $props();
+
+  // The compact popup folds the signed-out invitation into one row (text beside a small button)
+  // so the whole popup fits well inside the 600px a browser will show. Roomier surfaces keep the
+  // stacked card with its full-width button.
+  const compactSignInRow = $derived(
+    compact &&
+      !PAID_TIER_ENABLED &&
+      !c.accountManagedByApp &&
+      c.popupState === "signed-out" &&
+      c.canSignIn,
+  );
 </script>
 
 <div class="still-ui app" data-density={compact ? "compact" : "comfortable"}>
-  <header class="appbar">
-    <Logo />
-  </header>
+  <!-- The popup drops the logo: the toolbar icon that opened it already says which extension this is,
+       and the height goes to the controls instead. -->
+  {#if !compact}
+    <header class="appbar">
+      <Logo />
+    </header>
+  {/if}
 
   <!-- Global on/off — the hero card -->
   <section class="hero" class:off={!c.settings.globalOn}>
     <div class="hero-text">
       <h1>{c.settings.globalOn ? STRINGS.global.on : STRINGS.global.off}</h1>
+      {#if !compact}
       <p>
         <!-- With every service included there is one line for everyone: "on enabled sites" already
              hedges per-service state. The two paid-era alternatives below it were written for a
@@ -53,6 +73,7 @@
               : STRINGS.global.onFreeYoutubeOff
           : STRINGS.global.offSecondary}
       </p>
+      {/if}
     </div>
     <Toggle
       checked={c.settings.globalOn}
@@ -121,14 +142,16 @@
       {#if compact}
         <button class="link" onclick={() => c.signOut()}>{STRINGS.auth.signOut}</button>
       {/if}
-      <a
-        class="link"
-        href={PRIVACY_POLICY_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        {STRINGS.account.privacyPolicy}
-      </a>
+      {#if !compact}
+        <a
+          class="link"
+          href={PRIVACY_POLICY_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {STRINGS.account.privacyPolicy}
+        </a>
+      {/if}
       {#if c.canDeleteAccount}
         {#if c.deleteFlow === "confirming"}
           <div
@@ -170,7 +193,7 @@
        correctly for a free user: with no purchase to offer, sign-in becomes the primary button.
        The branches themselves are preserved, not deleted. -->
   <section class="sync card" data-state={c.popupState}>
-    {#if !PAID_TIER_ENABLED}
+    {#if !PAID_TIER_ENABLED && !compactSignInRow}
       <!-- Naming the section is what keeps the invitation calm: someone reading it can see that
            this card is about settings following them between devices, and about nothing else. -->
       <h2 class="sync-title">{STRINGS.sync.sectionTitle}</h2>
@@ -178,7 +201,17 @@
     {#if c.userId && c.accountEmail}
       <p class="account-email">{c.accountEmail}</p>
     {/if}
-    {#if c.accountManagedByApp}
+    {#if compactSignInRow}
+      <div class="sync-row">
+        <div class="sync-row-text">
+          <h2 class="sync-row-title">{STRINGS.sync.sectionTitle}</h2>
+          <p class="muted sync-row-sub">{STRINGS.sync.signedOutCompact}</p>
+        </div>
+        <button class="primary inline" onclick={() => c.openSignIn()}>
+          {STRINGS.auth.signInCta}
+        </button>
+      </div>
+    {:else if c.accountManagedByApp}
       {#if !c.userId || !compact}
         <p class="muted">{c.userId ? STRINGS.sync.appManaged : STRINGS.sync.deviceOnly}</p>
       {/if}
@@ -191,7 +224,9 @@
 
         {/if}
       {/if}
-      <a class="link" href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer">{STRINGS.account.privacyPolicy}</a>
+      {#if !compact}
+        <a class="link" href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer">{STRINGS.account.privacyPolicy}</a>
+      {/if}
     {:else if c.popupState === "signed-out"}
       {#if c.canSignIn}
         {#if PAID_TIER_ENABLED && c.host.canPurchase}
@@ -217,14 +252,16 @@
              plain fact; the host app is where signing in is offered. -->
         <p class="muted">{STRINGS.sync.deviceOnly}</p>
       {/if}
-      <a
-        class="link center"
-        href={PRIVACY_POLICY_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        {STRINGS.account.privacyPolicy}
-      </a>
+      {#if !compact}
+        <a
+          class="link center"
+          href={PRIVACY_POLICY_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {STRINGS.account.privacyPolicy}
+        </a>
+      {/if}
     {:else if c.popupState === "pro-no-account"}
       <!-- Receipt-entitled with no session (purchase-first, R3/R9): Pro is ACTIVE — never a buy
            CTA here (startUpgrade would no-op against it). Sign-in stays visible as the path to
@@ -250,14 +287,16 @@
           {STRINGS.paywall.restoreSignedOut}
         </button>
       {/if}
-      <a
-        class="link center"
-        href={PRIVACY_POLICY_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        {STRINGS.account.privacyPolicy}
-      </a>
+      {#if !compact}
+        <a
+          class="link center"
+          href={PRIVACY_POLICY_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {STRINGS.account.privacyPolicy}
+        </a>
+      {/if}
     {:else if c.popupState === "not-entitled"}
       {#if PAID_TIER_ENABLED}
         {#if c.host.canPurchase}
@@ -308,6 +347,17 @@
       <p class="sync-time">{c.accountManagedByApp ? STRINGS.sync.appLastSynced : STRINGS.sync.lastSynced} <time datetime={new Date(c.lastSyncedAt).toISOString()}>{new Date(c.lastSyncedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time></p>
     {/if}
   </section>
+
+  <!-- The compact popup's footer: the host's own action (the setup guide) and the privacy policy,
+       which App Store Guideline 5.1.1 keeps reachable in every signed-in and signed-out state. -->
+  {#if compact}
+    <footer class="popup-footer">
+      {@render footer?.()}
+      <a class="link" href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer">
+        {STRINGS.account.privacyPolicy}
+      </a>
+    </footer>
+  {/if}
 
   {#if c.signInOpen && (c.popupState === "signed-out" || c.popupState === "pro-no-account")}
     <SignInSheet controller={c} onDismiss={() => c.dismissSignIn()} />
@@ -484,6 +534,42 @@
     align-items: center;
     gap: var(--space-3);
   }
+  .sync-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  .sync-row-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1;
+    min-inline-size: 0;
+  }
+  .sync-row-title {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 600;
+  }
+  .sync-row-sub {
+    font-size: 13px;
+    line-height: 1.35;
+  }
+  .primary.inline {
+    flex: none;
+    min-block-size: 36px;
+    padding: var(--space-2) var(--space-3);
+    font-size: 14px;
+  }
+  .popup-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: var(--space-3);
+    padding-inline: var(--space-1);
+    font-size: 13px;
+  }
+
   .syncrow {
     display: flex;
     flex-direction: column;
@@ -621,23 +707,41 @@
   }
 
   .app[data-density="compact"] {
-    /* Leave room for the configured sign-in card within the desktop popup's 600px height. */
-    --app-gap: var(--space-1);
-    --app-padding: var(--space-2);
-    --appbar-padding: 0 0 var(--space-1);
+    /* The browser popup: no logo, a one-line hero, the services as one grouped list and a one-row
+       sync card, so the whole panel sits well inside the 600px a browser will show. */
+    --app-gap: var(--space-2);
+    --app-padding: var(--space-3);
     --hero-padding: var(--space-3);
-    --hero-title-size: 21px;
+    --hero-title-size: 18px;
     --service-card-padding-block: var(--space-2);
     --service-card-padding-inline: var(--space-3);
-    --service-icon-size: 36px;
-    --service-name-size: 16px;
+    --service-icon-size: 32px;
+    --service-name-size: 15px;
     --service-status-size: 13px;
-    --services-gap: var(--space-1);
-    --sync-gap: var(--space-1);
-    --sync-padding: var(--space-1);
+    --services-gap: 0;
+    --sync-gap: var(--space-2);
+    --sync-padding: var(--space-3);
     --block-button-padding: var(--space-2) var(--space-3);
-    --logo-mark-size: 24px;
-    --logo-word-size: 18px;
+  }
+
+  /* One grouped list instead of four separate cards: the list carries the fill and each row after
+     the first draws a hairline that starts where the text does. */
+  .app[data-density="compact"] .services {
+    --service-card-background: transparent;
+    background: var(--surface-raised);
+    border-radius: var(--radius-card);
+  }
+  .app[data-density="compact"] .services > :global([data-service] + [data-service]) {
+    background-image: linear-gradient(var(--border), var(--border));
+    background-repeat: no-repeat;
+    background-position: right top;
+    background-size: calc(
+        100% - var(--service-card-padding-inline) - var(--service-icon-size) - var(--space-3)
+      )
+      1px;
+  }
+  .app[data-density="compact"] .hero h1 {
+    margin: 0;
   }
 
   .app[data-density="compact"] .account {

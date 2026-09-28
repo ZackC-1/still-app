@@ -95,6 +95,40 @@ describe("App", () => {
     );
   });
 
+  it("keeps the compact popup to a one-line hero with no logo", () => {
+    render(App, { props: { controller: controller(), compact: true } });
+
+    expect(document.querySelector(".appbar")).toBeNull();
+    expect(screen.getByRole("heading", { level: 1 }).textContent).toBe(STRINGS.global.on);
+    expect(screen.queryByText(STRINGS.global.onSecondary)).toBeNull();
+  });
+
+  includedAccessIt("folds the compact signed-out invitation into one row and keeps privacy in the footer", () => {
+    const c = controller({ auth: codeCapableAuth() });
+    render(App, { props: { controller: c, compact: true } });
+
+    const row = document.querySelector(".sync-row") as HTMLElement;
+    expect(within(row).getByText(STRINGS.sync.sectionTitle)).toBeTruthy();
+    expect(within(row).getByText(STRINGS.sync.signedOutCompact)).toBeTruthy();
+    expect(within(row).getByRole("button", { name: STRINGS.auth.signInCta })).toBeTruthy();
+
+    // Exactly one privacy link, and it lives in the footer rather than the sync card.
+    const privacy = screen.getAllByText(STRINGS.account.privacyPolicy);
+    expect(privacy).toHaveLength(1);
+    expect(privacy[0]?.closest("footer.popup-footer")).toBeTruthy();
+    expect(privacy[0]?.getAttribute("href")).toBe(PRIVACY_POLICY_URL);
+  });
+
+  it("keeps the privacy link reachable in the compact popup when signed in", () => {
+    const c = controller({ deletable: true });
+    c.userId = "u";
+    render(App, { props: { controller: c, compact: true } });
+
+    const privacy = screen.getAllByText(STRINGS.account.privacyPolicy);
+    expect(privacy).toHaveLength(1);
+    expect(privacy[0]?.closest("footer.popup-footer")).toBeTruthy();
+  });
+
   it("renders a card for each of the four services", () => {
     render(App, { props: { controller: controller() } });
     expect(document.querySelectorAll("[data-service]").length).toBe(4);

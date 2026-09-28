@@ -7,7 +7,7 @@ export const STRINGS = {
   appName: "Still",
 
   global: {
-    on: "Still is on",
+    on: "Still is active",
     off: "Still is off",
     // The one "Still is on" line everyone sees, because every service is included. "On enabled
     // sites" already hedges per-service state, so it needs no variant for a row someone turned off.
@@ -233,6 +233,8 @@ export const STRINGS = {
   sync: {
     sectionTitle: "Settings sync",
     signedOut: "Sign in to keep your settings the same across your devices.",
+    // The compact popup's one-row version: the button beside it already says "Sign in to sync".
+    signedOutCompact: "Keep your settings the same across your devices.",
     // Shown where there is no sign-in path at all, which today means the Safari extension popup:
     // App Store Review Guideline 4.4 keeps promotion out of an extension, so it states the fact
     // rather than advertising an account (the host app carries the invitation instead).

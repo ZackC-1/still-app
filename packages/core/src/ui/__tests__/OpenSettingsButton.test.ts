@@ -3,7 +3,7 @@ import { render, screen, fireEvent } from "@testing-library/svelte";
 import OpenSettingsButton from "../components/OpenSettingsButton.svelte";
 import { SAFARI_SURFACE_GUIDANCE } from "../surface-guidance.js";
 
-const VISIBLE_LABEL = "Open settings & setup guide";
+const VISIBLE_LABEL = "Settings & setup guide";
 
 describe("OpenSettingsButton", () => {
   it("starts the accessible name with the visible text (WCAG 2.5.3) and names the surface", async () => {

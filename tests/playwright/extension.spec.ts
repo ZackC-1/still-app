@@ -86,7 +86,7 @@ test("the popup keeps every primary control visible without scaling or overflow"
   // Substring match on the stable visible label: the surface-specific aria-label suffix may change.
   // No scrolling first, so this asserts the control is wholly visible in the popup as it opens.
   await expect(
-    page.getByRole("button", { name: "Open settings & setup guide" }),
+    page.getByRole("button", { name: "Settings & setup guide" }),
   ).toBeInViewport({ ratio: 1 });
 });
 
@@ -215,7 +215,7 @@ for (const colorScheme of ["light", "dark"] as const) {
     expect(fit.width).toBeLessThanOrEqual(POPUP_INLINE_SIZE);
     expect(fit.height).toBeLessThanOrEqual(POPUP_MAX_BLOCK_SIZE);
     expect(fit.bottom).toBeLessThanOrEqual(POPUP_MAX_BLOCK_SIZE);
-    await expect(page.getByRole("button", { name: "Open settings & setup guide" })).toBeInViewport({ ratio: 1 });
+    await expect(page.getByRole("button", { name: "Settings & setup guide" })).toBeInViewport({ ratio: 1 });
   });
 }
 
@@ -240,6 +240,6 @@ for (const pendingUpload of [false, true]) {
     const height = await page.evaluate(() => Math.max(document.documentElement.scrollHeight,
       ...[...document.body.querySelectorAll("*")].map((el) => el.getBoundingClientRect().bottom)));
     expect(height).toBeLessThanOrEqual(POPUP_MAX_BLOCK_SIZE);
-    await expect(page.getByRole("button", { name: "Open settings & setup guide" })).toBeInViewport({ ratio: 1 });
+    await expect(page.getByRole("button", { name: "Settings & setup guide" })).toBeInViewport({ ratio: 1 });
   });
 }

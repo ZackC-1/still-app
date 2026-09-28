@@ -17,11 +17,14 @@
 </script>
 
 <div class="popup">
-  <App {controller} compact />
-  <OpenSettingsButton
-    surfaceGuidance={SAFARI_SURFACE_GUIDANCE}
-    onOpen={openOptions}
-  />
+  <App {controller} compact>
+    {#snippet footer()}
+      <OpenSettingsButton
+        surfaceGuidance={SAFARI_SURFACE_GUIDANCE}
+        onOpen={openOptions}
+      />
+    {/snippet}
+  </App>
 </div>
 
 <style>
