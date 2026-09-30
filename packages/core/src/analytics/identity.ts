@@ -40,6 +40,11 @@ export function isAnalyticsId(value: unknown): value is string {
   return typeof value === "string" && UUID.test(value);
 }
 
+/** A native install moment (ms since 1970), as the Apple app records it. */
+export function isInstallMoment(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
 interface StoredInstall {
   readonly installId: string;
   readonly anchorId: string;

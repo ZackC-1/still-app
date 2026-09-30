@@ -193,7 +193,9 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         await deps.store.set(PENDING_UPDATE_KEY, { kind: "updated", returning: false, from: context.previousVersion, at: now() })
           .catch(() => undefined);
       } else if (context.created && !(await readPending(PENDING_INSTALL_KEY))) {
-        await deps.store.set(PENDING_INSTALL_KEY, { kind: "installed", returning: context.returning, from: null, at: now() })
+        // The native moment, which the Safari extension also reads (see ExtensionAnalyticsHostDeps).
+        const at = context.installedAt ?? now();
+        await deps.store.set(PENDING_INSTALL_KEY, { kind: "installed", returning: context.returning, from: null, at })
           .catch(() => undefined);
       }
       // Events recorded before the launch's account check confirms anything carry no person; the

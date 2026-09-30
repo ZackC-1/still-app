@@ -35,7 +35,7 @@
 //    • Product analytics (AnalyticsIdentity.swift is the contract; the web layer sends events):
 //        { kind:"analyticsContext" }          → { platform, appVersion, installId, anchorId, created,
 //                                               returning, previousVersion|null, consent, noticeSeen,
-//                                               extensionEnabled: Bool|null }
+//                                               extensionEnabled: Bool|null, installedAt: ms|null }
 //        { kind:"setAnalyticsConsent", enabled } → { ok:true, enabled }
 //        { kind:"acknowledgeAnalyticsNotice" } → { ok:true }
 //      Consent lives in the App Group so the Safari extension follows the app's switch.
@@ -326,6 +326,7 @@ final class WebBridgeRouter {
       "noticeSeen": context.noticeSeen,
       "extensionEnabled": extensionEnabled,
       "device": Self.analyticsDeviceClass,
+      "installedAt": context.installedAt ?? NSNull(),
     ]), nil)
   }
 

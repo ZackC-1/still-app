@@ -5,6 +5,7 @@ import {
   createPageAnalytics as createSharedPageAnalytics,
   isAnalyticsId,
   isDeviceClass,
+  isInstallMoment,
   type AnalyticsDevice,
   type AnalyticsConfig,
   type AnalyticsIdentity,
@@ -30,12 +31,14 @@ interface NativeAnalytics {
   /** Compiled into the native handler, so it cannot confuse an iPad for a Mac. */
   readonly platform: "ios" | "macos" | null;
   readonly device: AnalyticsDevice | null;
+  /** When the app counted this install; null for an update or an app from before it was recorded. */
+  readonly installedAt: number | null;
 }
 
 export function parseNativeAnalytics(reply: unknown): NativeAnalytics | null {
   const analytics = (reply as { analytics?: unknown } | null)?.analytics;
   if (typeof analytics !== "object" || analytics === null) return null;
-  const { installId, anchorId, consent, platform, device } = analytics as Record<string, unknown>;
+  const { installId, anchorId, consent, platform, device, installedAt } = analytics as Record<string, unknown>;
   if (!isAnalyticsId(installId) || !isAnalyticsId(anchorId)) return null;
   return {
     installId,
@@ -43,6 +46,7 @@ export function parseNativeAnalytics(reply: unknown): NativeAnalytics | null {
     consent: consent === true, // fails closed if the field is ever missing
     platform: platform === "ios" || platform === "macos" ? platform : null,
     device: isDeviceClass(device) ? device : null,
+    installedAt: isInstallMoment(installedAt) ? installedAt : null,
   };
 }
 
@@ -103,6 +107,7 @@ export function createSafariBackgroundAnalytics(deps: SafariAnalyticsDeps): Safa
       noticeApplies: false,
       isTrustedPage: deps.isTrustedPage,
       requestQuietFlush: deps.requestQuietFlush,
+      installedAt: async () => (await nativeContext())?.installedAt ?? null,
       fetch: deps.fetch,
       now: deps.now,
       uuid: deps.uuid,

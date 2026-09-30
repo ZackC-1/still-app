@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { ANALYTICS_MESSAGE_KIND, QUEUE_KEY, type AnalyticsKeyValue } from "@still/core/analytics";
+import { ANALYTICS_MESSAGE_KIND, QUEUE_KEY, createAppAnalytics, type AnalyticsKeyValue } from "@still/core/analytics";
 import { createSafariBackgroundAnalytics, createSafariPageAnalytics, parseNativeAnalytics } from "../analytics.js";
 
 const INSTALL = "11111111-1111-4111-8111-111111111111";
@@ -13,14 +13,14 @@ function memory(): AnalyticsKeyValue & { data: Record<string, unknown> } {
   return { data, get: async (k) => structuredClone(data[k]), set: async (k, v) => void (data[k] = structuredClone(v)) };
 }
 
-function setup(native: { consent?: boolean; available?: boolean; signedIn?: boolean; os?: string; platform?: string; device?: string } = {}, local = memory()) {
+function setup(native: { consent?: boolean; available?: boolean; signedIn?: boolean; os?: string; platform?: string; device?: string; installedAt?: number; clock?: number } = {}, local = memory()) {
   let consent = native.consent ?? true;
   let signedIn = native.signedIn ?? false;
-  let clock = 1_000_000;
+  let clock = native.clock ?? 1_000_000;
   const sendNative = vi.fn(async (message: Record<string, unknown>) => {
     if (native.available === false) throw new Error("no app");
     if (message.kind === "analyticsContext") {
-      return { analytics: { installId: INSTALL, anchorId: ANCHOR, consent, platform: native.platform, device: native.device } };
+      return { analytics: { installId: INSTALL, anchorId: ANCHOR, consent, platform: native.platform, device: native.device, installedAt: native.installedAt } };
     }
     if (message.kind === "getAccountSyncStatus") {
       return signedIn
@@ -45,7 +45,7 @@ function setup(native: { consent?: boolean; available?: boolean; signedIn?: bool
       if (!bg.listener(message, sender, resolve)) resolve(undefined);
     });
   const settle = () => new Promise((r) => setTimeout(r, 5));
-  const events = () => ((local.data[QUEUE_KEY] as { event: string; properties: Record<string, unknown> }[] | undefined) ?? []);
+  const events = () => ((local.data[QUEUE_KEY] as { event: string; timestamp: string; properties: Record<string, unknown> }[] | undefined) ?? []);
   return { bg, local, send, settle, events, sendNative, setConsent: (v: boolean) => void (consent = v), setSignedIn: (v: boolean) => void (signedIn = v), advance: (ms: number) => void (clock += ms) };
 }
 
@@ -117,8 +117,11 @@ describe("Safari extension analytics", () => {
     expect(parseNativeAnalytics({ analytics: { installId: "x", anchorId: ANCHOR } })).toBeNull();
     expect(parseNativeAnalytics(null)).toBeNull();
     expect(parseNativeAnalytics({ analytics: { installId: INSTALL, anchorId: ANCHOR } })).toEqual({
-      installId: INSTALL, anchorId: ANCHOR, consent: false, platform: null, device: null, // no field: off
+      installId: INSTALL, anchorId: ANCHOR, consent: false, platform: null, device: null, installedAt: null, // no field: off
     });
+    expect(parseNativeAnalytics({ analytics: { installId: INSTALL, anchorId: ANCHOR, installedAt: "soon" } })?.installedAt).toBeNull();
+    expect(parseNativeAnalytics({ analytics: { installId: INSTALL, anchorId: ANCHOR, installedAt: 1_790_000_000_000 } })?.installedAt)
+      .toBe(1_790_000_000_000);
     expect(parseNativeAnalytics({ analytics: { installId: INSTALL, anchorId: ANCHOR, consent: true } })?.consent).toBe(true);
     expect(parseNativeAnalytics({ analytics: { installId: INSTALL, anchorId: ANCHOR, platform: "ios", device: "tablet" } }))
       .toMatchObject({ platform: "ios", device: "tablet" });
@@ -199,5 +202,75 @@ describe("Safari's timed send follows the app's account", () => {
     await settle();
     await new Promise((r) => setTimeout(r, 30));
     expect(JSON.stringify(events())).not.toContain(ACCOUNT);
+  });
+});
+
+describe("Safari setup is never stamped before the app's install", () => {
+  // Local times, so the day boundaries hold in any time zone.
+  const at = (day: number, hour: number, minute = 0) => new Date(2026, 8, day, hour, minute).getTime();
+  const stamps = (events: { event: string; timestamp: string }[]) =>
+    Object.fromEntries(events.filter((e) => e.event !== "$identify").map((e) => [e.event, e.timestamp]));
+
+  it("a setup on the install day is stamped at the install, not at midnight", async () => {
+    const { bg, settle, events } = setup({ installedAt: at(28, 9, 30), clock: at(28, 15) });
+    bg.onStart();
+    bg.onActivity();
+    await settle();
+    const install = new Date(at(28, 9, 30)).toISOString();
+    expect(stamps(events())).toEqual({ setup_step: install, setup_completed: install, active: install });
+  });
+
+  it("a setup on a later day keeps only its day", async () => {
+    const { bg, settle, events } = setup({ installedAt: at(27, 9, 30), clock: at(28, 15) });
+    bg.onStart();
+    bg.onActivity();
+    await settle();
+    expect(stamps(events()).setup_completed).toBe(new Date(at(28, 0)).toISOString());
+  });
+
+  it("without an install moment (an update, an older app) it keeps only its day", async () => {
+    const { bg, settle, events } = setup({ clock: at(28, 15) });
+    bg.onStart();
+    bg.onActivity();
+    await settle();
+    expect(stamps(events()).setup_completed).toBe(new Date(at(28, 0)).toISOString());
+  });
+
+  it("an install moment later than the activity is ignored", async () => {
+    const { bg, settle, events } = setup({ installedAt: at(28, 16), clock: at(28, 15) });
+    bg.onStart();
+    bg.onActivity();
+    await settle();
+    expect(stamps(events()).setup_completed).toBe(new Date(at(28, 0)).toISOString());
+  });
+
+  it("the app's installed and the extension's setup_completed on one day are in funnel order", async () => {
+    const installedAt = at(28, 9, 30);
+    const appStore = memory();
+    const app = createAppAnalytics({
+      bridge: {
+        analyticsContext: async () => ({
+          platform: "ios", appVersion: "2.1.0", installId: INSTALL, anchorId: ANCHOR, created: true, returning: false,
+          previousVersion: null, consent: true, noticeSeen: true, extensionEnabled: null, device: "phone", installedAt,
+        }),
+        setAnalyticsConsent: async (e) => e,
+        acknowledgeAnalyticsNotice: async () => {},
+      },
+      config: { key: "phc_test", host: "https://us.i.posthog.com" },
+      store: appStore,
+      fetch: (async () => { throw new TypeError("offline in tests"); }) as unknown as typeof fetch,
+      now: () => installedAt + 2_000,
+    });
+    void app.accountAbsent();
+    await app.start();
+    const installed = (appStore.data[QUEUE_KEY] as { event: string; timestamp: string }[]).find((e) => e.event === "installed")!;
+
+    const { bg, settle, events } = setup({ installedAt, clock: at(28, 15) });
+    bg.onStart();
+    bg.onActivity();
+    await settle();
+    const setupCompleted = events().find((e) => e.event === "setup_completed")!;
+    expect(installed.timestamp).toBe(new Date(installedAt).toISOString());
+    expect(Date.parse(setupCompleted.timestamp)).toBeGreaterThanOrEqual(Date.parse(installed.timestamp));
   });
 });

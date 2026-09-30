@@ -2,7 +2,7 @@ import type { AccountSyncStatus } from "../sync/account-status.js";
 import type { StillBridgeWindow, StillMessagePort } from "../storage/wkwebview-adapter.js";
 import { safeParse } from "../storage/settings-validation.js";
 import { isDeviceClass, isVersion, type AnalyticsDevice } from "../analytics/events.js";
-import { isAnalyticsId } from "../analytics/identity.js";
+import { isAnalyticsId, isInstallMoment } from "../analytics/identity.js";
 
 // The native action client (U19): the web→native calls beyond settings get/set, posted through the
 // same `window.webkit.messageHandlers.still` port the storage adapter uses (WebBridgeRouter.swift
@@ -75,6 +75,8 @@ export interface AnalyticsContextReply {
   readonly extensionEnabled: boolean | null;
   /** Phone, tablet or desktop, from the device itself. */
   readonly device: AnalyticsDevice | null;
+  /** When the app counted this install (ms since 1970); null for an update or an older build. */
+  readonly installedAt: number | null;
 }
 
 export class NativeBridge {
@@ -203,6 +205,7 @@ export class NativeBridge {
       noticeSeen: o.noticeSeen === true,
       extensionEnabled: typeof o.extensionEnabled === "boolean" ? o.extensionEnabled : null,
       device: isDeviceClass(o.device) ? o.device : null,
+      installedAt: isInstallMoment(o.installedAt) ? o.installedAt : null,
     };
   }
 

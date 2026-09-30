@@ -188,16 +188,21 @@ function localDay(ms: number): string {
  * Still) or the host's randomly timed flush.
  *
  * `at` records an event with an earlier time: an install that happened while sharing was off.
+ *
+ * `notBefore` is a moment already reported precisely (the install). A quiet event on that day is
+ * stamped at it instead of midnight, so the day's setup does not precede the install. It is ignored
+ * when it is later than the event, and it adds nothing about the event's own moment.
  */
 export interface TrackOptions {
   readonly quiet?: boolean;
   readonly at?: number;
+  readonly notBefore?: number;
 }
 
-/** Local midnight of the day containing `ms`, as an ISO timestamp. */
-function localMidnightIso(ms: number): string {
+/** Local midnight of the day containing `ms`. */
+function localMidnight(ms: number): number {
   const d = new Date(ms);
-  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).toISOString();
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
 }
 
 /** Who the host has established is signed in: an account id, or nobody. */
@@ -669,7 +674,10 @@ export class AnalyticsClient {
 
   private timestamp(options: TrackOptions): string {
     const at = options.at ?? this.deps.now();
-    return options.quiet ? localMidnightIso(at) : new Date(at).toISOString();
+    if (!options.quiet) return new Date(at).toISOString();
+    const day = localMidnight(at);
+    const floor = options.notBefore;
+    return new Date(floor !== undefined && floor > day && floor <= at ? floor : day).toISOString();
   }
 
   /** The anonymous id this install reports under while signed out. */

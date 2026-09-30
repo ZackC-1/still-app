@@ -18,6 +18,7 @@ const CONTEXT: AnalyticsContextReply = {
   noticeSeen: false,
   extensionEnabled: false,
   device: "desktop",
+  installedAt: null,
 };
 
 function memory(): AnalyticsKeyValue & { data: Record<string, unknown> } {
@@ -64,6 +65,12 @@ describe("Apple app analytics", () => {
       ["active", undefined],
     ]);
     expect(events()[0]!.properties).toMatchObject({ surface: "app-macos", store: "macos", distinct_id: CONTEXT.anchorId });
+  });
+
+  it("a new install is reported at the moment the native side recorded", async () => {
+    const { app, events } = setup({ installedAt: 1_790_000_000_000 });
+    await app.start();
+    expect(events()[0]).toMatchObject({ event: "installed", timestamp: new Date(1_790_000_000_000).toISOString() });
   });
 
   it("an update from 2.0 reports updated, not installed", async () => {

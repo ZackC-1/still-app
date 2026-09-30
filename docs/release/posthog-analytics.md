@@ -124,7 +124,9 @@ different surfaces, so label every insight with the definition it uses.
   (HogQL `argMin(properties.store, timestamp)` over `installed`).
 - **Setup.** `setup_completed` is at install on Chrome and Firefox (they block from install), and
   the Safari extension's first run on iPhone, iPad and Mac. The Mac app also reports
-  `setup_step {step: extension_enabled}`.
+  `setup_step {step: extension_enabled}`. The extension's day-only events on the install day are
+  stamped at the app's install moment, not at midnight, so they never come before `installed`.
+  Apple builds from before that change stamp them at midnight, which is before `installed`.
 - **Active.** One `active` per install per local day, from real use only: opening a Still screen, a
   switch flip, or the content script's nudge when a supported site is opened. A background start by
   itself (a browser restart, the analytics alarm) records nothing. Events recorded from a nudge or a
