@@ -59,9 +59,7 @@ public final class AnalyticsIdentityStore {
   /// first (it runs on page loads); the app's first read still has to report the install or update
   /// and share the anchor through iCloud.
   static let appSeenKey = "still.analytics.app-seen"
-  /// The moment the app counted this install (ms since 1970). The web view reports `installed` at
-  /// it, and the Safari extension never stamps a day-only event before it, so a setup finished on
-  /// the install day does not precede the install.
+  /// See `AnalyticsAppContext.installedAt`; the Safari extension floors its day-only events to it.
   static let installedAtKey = "still.analytics.installed-at"
   /// Used as `previousVersion` when an earlier install is certain but its version is not.
   public static let unknownEarlierVersion = "0"

@@ -321,8 +321,7 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
     onActivity() {
       void (async () => {
         await startResult;
-        const installedAt = await deps.installedAt?.().catch(() => null);
-        const quiet: TrackOptions = installedAt ? { ...QUIET, notBefore: installedAt } : QUIET;
+        const quiet: TrackOptions = { ...QUIET, notBefore: (await deps.installedAt?.().catch(() => null)) ?? undefined };
         // A running Safari extension is the only proof on iPhone that it was switched on.
         if (isSafari) {
           await client.trackOnce("extension_enabled", "setup_step", { step: "extension_enabled" }, quiet);

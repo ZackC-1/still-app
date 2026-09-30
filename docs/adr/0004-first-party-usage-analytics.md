@@ -54,8 +54,8 @@ privacy-positioning cost (the homepage promised "no behavioral tracking") agains
   recorded at a background start carry only their day and are sent later (the next Still screen, or
   an `alarms` flush at a random time one to six hours out). Their timestamps and their arrival say
   nothing about when a site was visited; that includes every timestamp inside them, such as the
-  first-seen person property. On the install day, the Safari extension stamps them at the app's
-  install moment instead of midnight, so setup does not come before `installed`; that moment is
+  first-seen person property. On the install day, the Safari extension stamps its setup and `active`
+  events at the app's install moment instead of midnight, so setup does not come before `installed`; that moment is
   already reported, so it adds nothing about a visit. The server email attach runs only from an ordinary, non-background
   identify, retried at the next Still screen. A day of use comes only from real use, never from the
   alarm itself, and every send waits for the start's account check.

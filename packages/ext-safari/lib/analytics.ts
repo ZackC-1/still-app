@@ -88,9 +88,14 @@ export function createSafariBackgroundAnalytics(deps: SafariAnalyticsDeps): Safa
     if (!first) return null; // no app container: nothing to report under
     // The app can replace the provisional anchor after this background started; follow it.
     let current: AnalyticsIdentity = { installId: first.installId, anchorId: first.anchorId, created: false, returning: false };
+    // Written once by the app, so the reads made for the ids keep it current without a native call.
+    let installedAt = first.installedAt;
     const identity = async (): Promise<AnalyticsIdentity> => {
       const latest = await nativeContext();
-      if (latest) current = { installId: latest.installId, anchorId: latest.anchorId, created: false, returning: false };
+      if (latest) {
+        current = { installId: latest.installId, anchorId: latest.anchorId, created: false, returning: false };
+        installedAt = latest.installedAt;
+      }
       return current;
     };
     // The native handler's own platform wins; the browser's answer is only a fallback.
@@ -107,7 +112,7 @@ export function createSafariBackgroundAnalytics(deps: SafariAnalyticsDeps): Safa
       noticeApplies: false,
       isTrustedPage: deps.isTrustedPage,
       requestQuietFlush: deps.requestQuietFlush,
-      installedAt: async () => (await nativeContext())?.installedAt ?? null,
+      installedAt: async () => installedAt,
       fetch: deps.fetch,
       now: deps.now,
       uuid: deps.uuid,

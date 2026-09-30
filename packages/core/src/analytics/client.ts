@@ -676,8 +676,8 @@ export class AnalyticsClient {
     const at = options.at ?? this.deps.now();
     if (!options.quiet) return new Date(at).toISOString();
     const day = localMidnight(at);
-    const floor = options.notBefore;
-    return new Date(floor !== undefined && floor > day && floor <= at ? floor : day).toISOString();
+    const { notBefore } = options;
+    return new Date(notBefore !== undefined && notBefore > day && notBefore <= at ? notBefore : day).toISOString();
   }
 
   /** The anonymous id this install reports under while signed out. */

@@ -220,24 +220,12 @@ describe("Safari setup is never stamped before the app's install", () => {
     expect(stamps(events())).toEqual({ setup_step: install, setup_completed: install, active: install });
   });
 
-  it("a setup on a later day keeps only its day", async () => {
-    const { bg, settle, events } = setup({ installedAt: at(27, 9, 30), clock: at(28, 15) });
-    bg.onStart();
-    bg.onActivity();
-    await settle();
-    expect(stamps(events()).setup_completed).toBe(new Date(at(28, 0)).toISOString());
-  });
-
-  it("without an install moment (an update, an older app) it keeps only its day", async () => {
-    const { bg, settle, events } = setup({ clock: at(28, 15) });
-    bg.onStart();
-    bg.onActivity();
-    await settle();
-    expect(stamps(events()).setup_completed).toBe(new Date(at(28, 0)).toISOString());
-  });
-
-  it("an install moment later than the activity is ignored", async () => {
-    const { bg, settle, events } = setup({ installedAt: at(28, 16), clock: at(28, 15) });
+  it.each([
+    ["a setup on a later day", at(27, 9, 30)],
+    ["no install moment (an update, an older app)", undefined],
+    ["an install moment later than the activity", at(28, 16)],
+  ])("%s keeps only its day", async (_, installedAt) => {
+    const { bg, settle, events } = setup({ installedAt, clock: at(28, 15) });
     bg.onStart();
     bg.onActivity();
     await settle();
