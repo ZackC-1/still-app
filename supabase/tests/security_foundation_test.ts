@@ -89,6 +89,13 @@ Deno.test({
         await sql`select to_jsonb(p) as row from public.profiles p where id=${B}::uuid`;
       const preserved =
         await sql`select to_jsonb(e) as row from public.entitlements e where user_id=${B}::uuid`;
+      await sql.unsafe("create sequence public.u1_sequence_probe");
+      assertEquals(
+        (await sql`select relkind::text as kind from pg_catalog.pg_class where oid in ('auth.instances'::regclass, 'public.entitlements'::regclass, 'public.u1_sequence_probe'::regclass)`)
+          .map((r) => r.kind).sort(),
+        ["S", "r", "r"],
+        "audit catalog includes actual tables and a sequence",
+      );
       await sql.unsafe(await source("security-audit-candidate"));
       await t.step(
         "characterize unsafe baseline before changing grants",
@@ -152,6 +159,66 @@ Deno.test({
           await tx.unsafe(assertion);
         });
       };
+      await t.step(
+        "mixed table/sequence audit rejects each auditor sequence grant and restores clean state",
+        async () => {
+          assertEquals(
+            (await sql`select issue from still_security.audit()`).map((r) =>
+              r.issue
+            ),
+            [],
+          );
+          for (const privilege of ["USAGE", "SELECT", "UPDATE"]) {
+            assertEquals(
+              (await sql`select has_sequence_privilege('still_security_auditor','public.u1_sequence_probe',${privilege}) as allowed`)[
+                0
+              ]
+                .allowed,
+              false,
+            );
+            await probeMutation(
+              `grant ${privilege} on sequence public.u1_sequence_probe to still_security_auditor`,
+              async (mutant) => {
+                assertEquals(
+                  (await mutant`select has_sequence_privilege('still_security_auditor','public.u1_sequence_probe',${privilege}) as allowed`)[
+                    0
+                  ]
+                    .allowed,
+                  true,
+                  "sequence grant injection succeeded before validation",
+                );
+                assertEquals(
+                  (await mutant`select issue from still_security.audit()`)
+                    .map((r) => r.issue),
+                  ["audit_role_not_narrow"],
+                );
+                await assertRejects(
+                  () =>
+                    mutant.savepoint((validation) =>
+                      validation.unsafe(assertion)
+                    ),
+                  Error,
+                  "Still security assertions failed",
+                );
+              },
+            );
+            assertEquals(
+              (await sql`select has_sequence_privilege('still_security_auditor','public.u1_sequence_probe',${privilege}) as allowed`)[
+                0
+              ]
+                .allowed,
+              false,
+              "rollback removed the excessive sequence privilege",
+            );
+            assertEquals(
+              (await sql`select issue from still_security.audit()`).map((r) =>
+                r.issue
+              ),
+              [],
+            );
+          }
+        },
+      );
       await t.step(
         "preserve historical rights byte-for-byte and free own-account sync",
         async () => {
@@ -514,6 +581,7 @@ Deno.test({
               "select id from public.profiles",
               "select user_id from public.entitlements",
               "select payload from public.u1_customer_probe",
+              "select last_value from public.u1_sequence_probe",
               `select public.set_entitlement('${A}',true,'forged','forged')`,
               `select public.write_profile_settings('{"globalOn":true}'::jsonb,'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaab'::uuid)`,
               `select public.claim_revenuecat_event('u1-auditor','${A}','{}'::jsonb)`,

@@ -53,14 +53,18 @@ with recursive clients as (
     where n.nspname = 'public' and p.proname = 'write_profile_settings'
       and pg_catalog.has_function_privilege('anon', p.oid, 'EXECUTE'))
   union all select 'client_table_write' where exists (
-    select 1 from protected_tables c, reachable r where
+    select 1 from protected_tables c, reachable r where case
+      when c.relkind in ('r', 'p', 'v', 'm', 'f') then
       pg_catalog.has_table_privilege(r.oid, c.oid, 'INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
-      or pg_catalog.has_any_column_privilege(r.oid, c.oid, 'INSERT,UPDATE,REFERENCES'))
+      or pg_catalog.has_any_column_privilege(r.oid, c.oid, 'INSERT,UPDATE,REFERENCES')
+      else false end)
   union all select 'private_entitlement_column' where exists (
     select 1 from pg_catalog.pg_attribute a join protected_tables c on c.oid = a.attrelid, reachable r
     where c.relname = 'entitlements' and a.attnum > 0 and not a.attisdropped
       and (a.attname not in ('user_id', 'still_sync') or r.rolname = 'anon')
-      and pg_catalog.has_column_privilege(r.oid, c.oid, a.attnum, 'SELECT'))
+      and case when c.relkind in ('r', 'p', 'v', 'm', 'f') and a.attnum > 0 and not a.attisdropped
+        then pg_catalog.has_column_privilege(r.oid, c.oid, a.attnum, 'SELECT')
+        else false end)
   union all select 'rls_disabled' where exists (select 1 from protected_tables where not relrowsecurity)
   union all select 'unpinned_definer' where exists (
     select 1 from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid = p.pronamespace
@@ -92,11 +96,15 @@ with recursive clients as (
         or exists (select 1 from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid=p.pronamespace
           where n.nspname in ('auth', 'public', 'storage') and p.prosecdef
             and pg_catalog.has_function_privilege(r.oid,p.oid,'EXECUTE'))
-        or exists (select 1 from customer_relations c where c.relkind <> 'S' and (
+        -- WHERE conjuncts can be reordered; keep type-sensitive calls inside CASE.
+        or exists (select 1 from customer_relations c where case
+          when c.relkind in ('r', 'p', 'v', 'm', 'f') then
           pg_catalog.has_table_privilege(r.oid, c.oid, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN')
-          or pg_catalog.has_any_column_privilege(r.oid, c.oid, 'SELECT,INSERT,UPDATE,REFERENCES')))
-        or exists (select 1 from customer_relations c where c.relkind = 'S'
-          and pg_catalog.has_sequence_privilege(r.oid, c.oid, 'USAGE,SELECT,UPDATE'))))
+          or pg_catalog.has_any_column_privilege(r.oid, c.oid, 'SELECT,INSERT,UPDATE,REFERENCES')
+          else false end)
+        or exists (select 1 from customer_relations c where case when c.relkind = 'S'
+          then pg_catalog.has_sequence_privilege(r.oid, c.oid, 'USAGE,SELECT,UPDATE')
+          else false end)))
 ) select distinct issue from violations order by issue;
 $$;
 revoke all on function still_security.audit() from public, anon, authenticated, service_role, still_entitlement_writer;
