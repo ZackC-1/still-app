@@ -566,39 +566,102 @@ Deno.test({
       await t.step(
         "audit role can read only status, and partial hardening failure rolls back safely",
         async () => {
-          await sql.begin(async (tx) => {
-            await tx.unsafe(
-              "set local role still_security_auditor; set local transaction read only",
-            );
-            assertEquals(
-              (await tx`select issue from still_security.audit()`).length,
-              0,
-            );
-          });
-          for (
-            const statement of [
-              "select id from auth.users",
-              "select id from public.profiles",
-              "select user_id from public.entitlements",
-              "select payload from public.u1_customer_probe",
-              "select last_value from public.u1_sequence_probe",
-              `select public.set_entitlement('${A}',true,'forged','forged')`,
-              `select public.write_profile_settings('{"globalOn":true}'::jsonb,'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaab'::uuid)`,
-              `select public.claim_revenuecat_event('u1-auditor','${A}','{}'::jsonb)`,
-            ]
-          ) {
-            const denied = await assertRejects(
-              () =>
-                sql.begin(async (tx) => {
-                  await tx.unsafe("set local role still_security_auditor");
-                  await tx.unsafe(statement);
-                }),
-              Error,
-              "permission denied",
-            );
-            assertEquals((denied as Error & { code?: string }).code, "42501");
-          }
-          // Grant injection was rolled back; auth.users must again deny a real auditor read.
+          const membership = () =>
+            sql`select roleid, member, grantor, admin_option, inherit_option, set_option from pg_catalog.pg_auth_members where roleid='still_security_auditor'::regrole and member=current_user::regrole order by grantor`;
+          const beforeMembership = await membership();
+          const rollbackProbe = new Error(
+            "rollback synthetic auditor admission",
+          );
+          const probeFailure = await assertRejects(
+            () =>
+              sql.begin(async (tx) => {
+                // The hosted postgres role is not a superuser. Temporarily permit SET only;
+                // retain the creator's original ADMIN option and roll back all admission changes.
+                await tx.unsafe(
+                  "grant still_security_auditor to current_user with inherit false, set true",
+                );
+                await tx.unsafe("set local role still_security_auditor");
+                assertEquals(
+                  (await tx`select current_user as name`)[0].name,
+                  "still_security_auditor",
+                );
+                const beforeReadOnly =
+                  (await tx`select current_setting('transaction_read_only') as mode`)[
+                    0
+                  ].mode;
+                const statusRollback = new Error(
+                  "restore audit read-only scope",
+                );
+                const statusFailure = await assertRejects(
+                  () =>
+                    tx.savepoint(async (status) => {
+                      await status.unsafe("set local transaction read only");
+                      assertEquals(
+                        (await status`select current_setting('transaction_read_only') as mode`)[
+                          0
+                        ].mode,
+                        "on",
+                      );
+                      assertEquals(
+                        (await status`select issue from still_security.audit()`)
+                          .length,
+                        0,
+                      );
+                      throw statusRollback;
+                    }),
+                  Error,
+                  statusRollback.message,
+                );
+                assertEquals(statusFailure, statusRollback);
+                assertEquals(
+                  (await tx`select current_setting('transaction_read_only') as mode`)[
+                    0
+                  ].mode,
+                  beforeReadOnly,
+                );
+                for (
+                  const statement of [
+                    "select id from auth.users",
+                    "select id from public.profiles",
+                    "select user_id from public.entitlements",
+                    "select payload from public.u1_customer_probe",
+                    "select last_value from public.u1_sequence_probe",
+                    `select public.set_entitlement('${A}',true,'forged','forged')`,
+                    `select public.write_profile_settings('{"globalOn":true}'::jsonb,'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaab'::uuid)`,
+                    `select public.claim_revenuecat_event('u1-auditor','${A}','{}'::jsonb)`,
+                  ]
+                ) {
+                  const denied = await assertRejects(
+                    () =>
+                      tx.savepoint(async (restricted) => {
+                        assertEquals(
+                          (await restricted`select current_user as name`)[0]
+                            .name,
+                          "still_security_auditor",
+                        );
+                        await restricted.unsafe(statement);
+                      }),
+                    Error,
+                    "permission denied",
+                  );
+                  assertEquals(
+                    (denied as Error & { code?: string }).code,
+                    "42501",
+                  );
+                }
+                await tx.unsafe("reset role");
+                throw rollbackProbe;
+              }),
+            Error,
+            rollbackProbe.message,
+          );
+          assertEquals(probeFailure, rollbackProbe);
+          assertEquals(
+            await membership(),
+            beforeMembership,
+            "synthetic SET admission must roll back exactly",
+          );
+          // Auditor admission was rolled back; the remaining probe proves grant rollback and free sync.
           const before =
             (await sql`select has_function_privilege('authenticated','public.write_profile_settings(jsonb,uuid)','EXECUTE') as allowed`)[
               0
