@@ -870,9 +870,14 @@ export class SyncService {
 
   private async reconcileAtomic(userId: string, lifecycle: number): Promise<ReconcileOutcome> {
     if (this.atomicScope === null) {
-      const authenticated = await this.auth.currentSettingsSession?.();
+      const [subject, authenticated] = await Promise.all([
+        this.auth.currentUserId().catch(() => null),
+        this.auth.currentSettingsSession?.().catch(() => null),
+      ]);
       if (lifecycle !== this.lifecycle || this.state.userId !== userId) return "abandoned";
-      if (!authenticated || authenticated.userId !== userId) throw new SettingsStorageRecovery("session-unconfirmed");
+      // Unknown authentication cannot retire saved intent, including a failed sign-out boundary.
+      if (subject !== userId || !authenticated || authenticated.userId !== userId)
+        throw new SettingsStorageRecovery("session-unconfirmed");
       if (this.atomicRetirementPending) {
         await this.cache.enterAtomicScope(null);
         if (lifecycle !== this.lifecycle || this.state.userId !== userId) return "abandoned";
@@ -926,10 +931,21 @@ export class SyncService {
   }
 
   private async ownsAtomicSession(captured: SettingsScope, lifecycle: number): Promise<boolean> {
+    if (lifecycle !== this.lifecycle || this.state.userId !== captured.accountId) return false;
     // Retain the existing authenticated getUser check as well as stable verified session claims.
-    const [authenticated, current] = await Promise.all([this.auth.currentUserId(), this.auth.currentSettingsSession?.()]);
-    return lifecycle === this.lifecycle && this.state.userId === captured.accountId && authenticated === captured.accountId && current !== null && current !== undefined &&
-      current.userId === captured.accountId && captured.sessionId !== undefined && current.sessionId === captured.sessionId;
+    const [authenticated, current] = await Promise.all([
+      this.auth.currentUserId().catch(() => null),
+      this.auth.currentSettingsSession?.().catch(() => null),
+    ]);
+    // Late proof failures belong to their original owner, never a replacement lifecycle.
+    if (lifecycle !== this.lifecycle || this.state.userId !== captured.accountId) return false;
+    if (authenticated !== null && authenticated !== captured.accountId) return false;
+    if (current && (current.userId !== captured.accountId ||
+      (captured.sessionId !== undefined && current.sessionId !== captured.sessionId))) return false;
+    // Missing SDK proof holds the immutable request and uses the existing bounded retry path.
+    if (authenticated === null || !current || captured.sessionId === undefined)
+      throw new SettingsStorageRecovery("session-unconfirmed");
+    return true;
   }
 
   private recordFailure(): void {
