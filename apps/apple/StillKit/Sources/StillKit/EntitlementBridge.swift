@@ -110,8 +110,8 @@ public final class SharedEntitlementStore {
 
   private func decodeAccess(_ object: Any) throws -> AccessCacheRecord {
     let result = try decoder.decode(AccessCacheRecord.self, from: JSONSerialization.data(withJSONObject: object))
-    guard result.schema == 1, accessInteger(result.generation), result.accountId.map(accessUUID) ?? true,
-      result.rights.count <= 32, result.revocations.count <= 64, result.localProtection?.valid ?? true,
+    guard result.schema == 1, accessInteger(result.generation), result.accountId.map(accessUUID) ?? true, result.sessionId.map(accessUUID) ?? true,
+      result.rights.count <= 32, result.revocations.count <= 64,
       result.rights.allSatisfy({ $0.envelope.utf8.count <= 6_144 && ($0.accountGeneration.map(accessInteger) ?? true) }),
       result.revocations.allSatisfy({ accessUUID($0.right) && accessInteger($0.revision) }) else { throw AccessProofFailure.invalid }
     return result
@@ -122,21 +122,43 @@ public final class SharedEntitlementStore {
   private func transactionAccess<T>(_ body: (inout AccessCacheRecord) throws -> T) throws -> T {
     guard coordinationAvailable else { throw AccessProofFailure.verificationRequired }
     return try backing.transaction { data in
+      guard data.map({ $0.count <= 131_072 }) ?? true else { throw AccessProofFailure.verificationRequired }
       var object = try data.map { try JSONSerialization.jsonObject(with: $0) as? [String: Any] ?? { throw AccessProofFailure.invalid }() } ?? [:]
       var record = try object["access"].map(decodeAccess) ?? AccessCacheRecord()
       let result = try body(&record)
       let encoded = try JSONSerialization.jsonObject(with: encoder.encode(record)) as? [String: Any] ?? [:]
       var access = object["access"] as? [String: Any] ?? [:]
-      for (key, value) in encoded { access[key] = value }
+      for (key, value) in encoded {
+        if let values = value as? [[String: Any]], ["rights", "revocations"].contains(key) {
+          var old = access[key] as? [[String: Any]] ?? []
+          let identity = key == "rights" ? "envelope" : "right"
+          access[key] = values.map { replacement in
+            let index = old.firstIndex { ($0[identity] as? String) == (replacement[identity] as? String) }
+            let prior = index.map { old.remove(at: $0) }
+            return Self.overlay(replacement, over: prior)
+          }
+        } else { access[key] = Self.overlay(value, over: access[key]) }
+      }
       object["access"] = access
-      data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+      let complete = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+      guard complete.count <= 131_072 else { throw AccessProofFailure.verificationRequired }
+      data = complete
       return result
     }
+  }
+
+  // Overlay only fields emitted by the maintained typed record. Unknown nested members and raw
+  // envelopes remain associated with the same right; removing a right still removes that row.
+  private static func overlay(_ replacement: Any, over old: Any?) -> Any {
+    guard let fields = replacement as? [String: Any], var complete = old as? [String: Any] else { return replacement }
+    for (key, value) in fields { complete[key] = overlay(value, over: complete[key]) }
+    return complete
   }
 
   /// Internal host action only; no extension bridge route accepts declaration/policy fields.
   public func mutateLocalProtection(_ mutation: LocalProtectionMutation) throws -> AccessCacheRecord {
     try transactionAccess { record in
+      guard !record.localProtectionUnavailable else { throw AccessProofFailure.verificationRequired }
       record.localProtection = try StillKit.mutateLocalProtection(record.localProtection, mutation: mutation)
       return record
     }
@@ -146,7 +168,7 @@ public final class SharedEntitlementStore {
     guard #available(macOS 10.15, *) else { throw AccessProofFailure.verificationRequired }
     return try transactionAccess { record in
       guard accountId.map(accessUUID) ?? true, record.generation < 9_007_199_254_740_991 else { throw AccessProofFailure.invalid }
-      record.accountId = accountId; record.generation += 1
+      record.accountId = accountId; record.sessionId = nil; record.generation += 1
       record.rights = record.rights.filter {
         guard let proof = try? VerifiedAccessProof.verify($0.envelope, trust: trust) else { return true }
         return !proof.claims.isAccount
@@ -194,15 +216,54 @@ public final class SharedEntitlementStore {
   public func observeAccess(wall: Int, runningEstimate: Int? = nil) throws -> (AccessCacheRecord, [ScopedAccessEvidence]) {
     guard #available(macOS 10.15, *) else { throw AccessProofFailure.verificationRequired }
     return try transactionAccess { record in
-      var evidence: [ScopedAccessEvidence] = []
-      for i in record.rights.indices {
-        guard let proof = try? VerifiedAccessProof.verify(record.rights[i].envelope, trust: trust) else { continue }
-        let revoked = (proof.claims.isAccount && record.rights[i].accountGeneration != record.generation) || record.revocations.contains { $0.right == proof.claims.right && $0.revision >= proof.claims.ownership_revision }
-        if revoked { record.rights[i].clock?.revoked = true }
-        let valid = record.rights[i].clock?.observe(proof, wall: wall, runningEstimate: runningEstimate) ?? false
-        evidence.append(ScopedAccessEvidence(proof: proof, validPaid: valid, revoked: revoked))
-      }
+      let evidence = observeRecord(&record, wall: wall, runningEstimate: runningEstimate)
       return (record, evidence)
+    }
+  }
+
+  @available(macOS 10.15, *)
+  private func observeRecord(_ record: inout AccessCacheRecord, wall: Int, runningEstimate: Int? = nil) -> [ScopedAccessEvidence] {
+    var evidence: [ScopedAccessEvidence] = []
+    for i in record.rights.indices {
+      guard let proof = try? VerifiedAccessProof.verify(record.rights[i].envelope, trust: trust) else { continue }
+      let revoked = (proof.claims.isAccount && record.rights[i].accountGeneration != record.generation) || record.revocations.contains { $0.right == proof.claims.right && $0.revision >= proof.claims.ownership_revision }
+      if revoked { record.rights[i].clock?.revoked = true }
+      let valid = record.rights[i].clock?.observe(proof, wall: wall, runningEstimate: runningEstimate) ?? false
+      evidence.append(ScopedAccessEvidence(proof: proof, validPaid: valid, revoked: revoked))
+    }
+    return evidence
+  }
+
+  /// Same verified sub/session survives ordinary wakes; a new session even for the same UUID
+  /// advances the existing durable generation and excludes delayed account snapshots.
+  public func changeAccessSession(accountId: String?, sessionId: String?) throws -> AccessCacheRecord {
+    guard #available(macOS 10.15, *) else { throw AccessProofFailure.verificationRequired }
+    return try transactionAccess { record in
+      try bindSession(&record, accountId: accountId, sessionId: sessionId)
+      return record
+    }
+  }
+  @available(macOS 10.15, *)
+  private func bindSession(_ record: inout AccessCacheRecord, accountId: String?, sessionId: String?) throws {
+    guard (accountId == nil && sessionId == nil) || (accountId.map(accessUUID) == true && sessionId.map(accessUUID) == true) else { throw AccessProofFailure.invalid }
+    if record.accountId == accountId && record.sessionId == sessionId { return }
+    guard record.generation < 9_007_199_254_740_991 else { throw AccessProofFailure.invalid }
+    record.accountId = accountId; record.sessionId = sessionId; record.generation += 1
+    record.rights = record.rights.filter {
+      guard let proof = try? VerifiedAccessProof.verify($0.envelope, trust: trust) else { return true }
+      return !proof.claims.isAccount
+    }
+  }
+
+  /// Resolve inside the actual transaction, publish only after full durable commit succeeds.
+  /// A free-mode read requires neither backing coordination nor account/native verification.
+  public func observeBenefits(wall: Int, context: NativeAccessContext = NativeAccessContext()) throws -> (AccessCacheRecord, BenefitAccessSnapshot) {
+    if !context.paidMode { return (AccessCacheRecord(), resolveAccessSnapshot(AccessCacheRecord(), evidence: [], context: context)) }
+    guard #available(macOS 10.15, *) else { throw AccessProofFailure.verificationRequired }
+    return try transactionAccess { record in
+      if context.sessionKnown { try bindSession(&record, accountId: context.accountId, sessionId: context.sessionId) }
+      let evidence = observeRecord(&record, wall: wall)
+      return (record, resolveAccessSnapshot(record, evidence: evidence, context: context))
     }
   }
 
@@ -252,6 +313,7 @@ extension EntitlementReplyEnvelope: Encodable {
 public enum EntitlementRequest: Equatable, Sendable {
   case get
   case getAccess
+  case getBenefitAccess
   case set(entitled: Bool)
 
   /// Parse a raw message body into a request; nil means "not an entitlement message" so hosts can
@@ -259,6 +321,9 @@ public enum EntitlementRequest: Equatable, Sendable {
   public static func parse(_ body: Any) -> EntitlementRequest? {
     guard let dict = body as? [String: Any], let kind = dict["kind"] as? String else { return nil }
     switch kind {
+    case "getBenefitAccess":
+      guard dict.count == 1 else { return nil }
+      return .getBenefitAccess
     case "getAccess":
       guard dict.count == 1 else { return nil }
       return .getAccess
@@ -289,6 +354,7 @@ public struct EntitlementBridge {
   private let receiptStatus: () -> ReceiptStatus
   private let proposalSource: EntitlementSource
   private let readOnly: Bool
+  private let accessContext: () -> NativeAccessContext
 
   public init(
     store: SharedEntitlementStore,
@@ -296,7 +362,8 @@ public struct EntitlementBridge {
     installId: @escaping () -> String? = { InstallGeneration.current(InstallGeneration.appGroupDefaults()) },
     receiptStatus: @escaping () -> ReceiptStatus = { .noSignal },
     proposalSource: EntitlementSource = .server,
-    readOnly: Bool = false
+    readOnly: Bool = false,
+    accessContext: @escaping () -> NativeAccessContext = { NativeAccessContext() }
   ) {
     self.store = store
     self.now = now
@@ -304,10 +371,18 @@ public struct EntitlementBridge {
     self.receiptStatus = receiptStatus
     self.proposalSource = proposalSource
     self.readOnly = readOnly
+    self.accessContext = accessContext
   }
 
   public func handle(_ request: EntitlementRequest) -> String {
     switch request {
+    case .getBenefitAccess:
+      do {
+        let snapshot = try store.observeBenefits(wall: now(), context: accessContext()).1
+        let value = try JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot))
+        let data = try JSONSerialization.data(withJSONObject: ["ok": true, "snapshot": value], options: [.sortedKeys])
+        return String(data: data, encoding: .utf8) ?? "{\"ok\":false}"
+      } catch { return "{\"ok\":false}" }
     case .getAccess:
       do {
         let record = try store.observeAccess(wall: now()).0

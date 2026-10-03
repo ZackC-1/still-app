@@ -234,7 +234,7 @@ final class WebBridgeRouter {
       }
       reply(Self.json(["ok": true]), nil)
 
-    case "setEntitlement", "getEntitlement", "getAccess":
+    case "setEntitlement", "getEntitlement", "getAccess", "getBenefitAccess":
       // Entitlement mirror: the web layer proposes its server-reconciled value (server lane);
       // EntitlementBridge routes it through StampPolicy (R13). Only the bundled web build reaches
       // this handler (the navigation lockdown in ViewController), the same trust boundary as

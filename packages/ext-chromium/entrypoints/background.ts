@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { browser } from "wxt/browser";
 import { SettingsCache, ChromeStorageAdapter, createSettingsIntentRouter } from "@still/core/storage";
-import { ChromeEntitlementAdapter, createEntitlementMessageRouter } from "@still/core/entitlement";
+import { ChromeEntitlementAdapter, createEntitlementMessageRouter, packagedAccessContext, type TrustedAccessContext } from "@still/core/entitlement";
 import {
   isServiceEnabledGlobally,
   createRuleSetRefresher,
@@ -50,7 +50,14 @@ import { createBackgroundAnalytics, storageKeyValue } from "../lib/analytics.js"
 const RULESET_ID = "youtube-shorts-redirect";
 
 export default defineBackground(() => {
-  const entitlements = new ChromeEntitlementAdapter(Date.now, { authority: true });
+  let verifiedAccessSession: (() => Promise<TrustedAccessContext["session"]>) | null = null;
+  const entitlements = new ChromeEntitlementAdapter(Date.now, { authority: true, context: async () => {
+    const context = packagedAccessContext();
+    if (!context.paidMode) return context;
+    // Existing SDK verified-claims grammar; requester body, raw cached user and purchase Boolean
+    // cannot select a scope. Unavailable verification remains unknown, not signed-out/absent.
+    return { ...context, session: verifiedAccessSession ? await verifiedAccessSession().catch(() => undefined) : undefined };
+  } });
   chrome.runtime.onMessage.addListener(createEntitlementMessageRouter(entitlements, chrome.runtime.id, chrome.runtime.getURL("")));
   const refreshRuleSet = createRuleSetRefresher({
     prod: import.meta.env.PROD,
@@ -81,6 +88,11 @@ export default defineBackground(() => {
   const hydrated = cache.hydrate();
   const spine = createSessionSpine(cache, entitlements);
   const session = spine?.session ?? null;
+  if (spine) {
+    const accessAuth = new SupabaseAuthPort(spine.client);
+    verifiedAccessSession = async () => (await accessAuth.currentSettingsSession()) ?? undefined;
+    spine.client.auth.onAuthStateChange(() => entitlements.invalidateAccessContext());
+  }
 
   // Registered in the background's first synchronous pass: onInstalled fires once, early, on a
   // fresh install or update, and a listener added after an await would miss it.

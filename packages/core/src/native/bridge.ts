@@ -1,3 +1,5 @@
+import type { BenefitAccessSnapshot } from "@still/shared-types";
+import { boundedAccessRead, parseBenefitAccessSnapshot } from "../entitlement/access-policy.js";
 import type { AccountSyncStatus } from "../sync/account-status.js";
 import type { StillBridgeWindow, StillMessagePort } from "../storage/wkwebview-adapter.js";
 import { safeParse } from "../storage/settings-validation.js";
@@ -55,6 +57,7 @@ export type NativeMessage =
   | { readonly kind: "signOut" }
   | { readonly kind: "setEntitlement"; readonly entitled: boolean }
   | { readonly kind: "getAccess" }
+  | { readonly kind: "getBenefitAccess" }
   | { readonly kind: "analyticsContext" }
   | { readonly kind: "setAnalyticsConsent"; readonly enabled: boolean }
   | { readonly kind: "acknowledgeAnalyticsNotice" };
@@ -184,6 +187,13 @@ export class NativeBridge {
     const reply = asObject(await this.post({ kind: "getAccess" }));
     if (reply?.ok !== true) throw new Error("Native access requires verification");
     return parseAccessCacheRecord(reply.record);
+  }
+
+  /** Resolved native projection only. The native host owns account/mapping/trust/time context. */
+  async observeBenefits(): Promise<BenefitAccessSnapshot> {
+    const reply = asObject(await boundedAccessRead(() => this.post({ kind: "getBenefitAccess" })));
+    if (reply?.ok !== true) throw new Error("Native benefit access requires verification");
+    return parseBenefitAccessSnapshot(reply.snapshot);
   }
 
   async setAccountSyncStatus(status: AccountSyncStatus | null): Promise<void> {

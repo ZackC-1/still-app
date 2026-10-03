@@ -3,6 +3,7 @@ import {
   createExtensionContentEntry,
   type ExtensionContentNudge,
 } from "../extension-entry.js";
+import { EntitlementCache } from "../../entitlement/cache.js";
 import type { ContentScriptHandle } from "../index.js";
 import { signRuleSet } from "../../rules/signature.js";
 import { writeCachedRuleSet, type ReadableArea, type WritableArea } from "../../rules/loader.js";
@@ -202,4 +203,25 @@ describe("createExtensionContentEntry", () => {
 
     expect(win.location.replace).toHaveBeenCalledTimes(1);
   });
+  it("wires a real synchronous free access cache without any account/native/runtime wait and tears it down", async () => {
+    installChrome();
+    const captured: EntitlementCache[] = [];
+    const original = EntitlementCache.prototype.refreshAccess;
+    const refreshing = vi.spyOn(EntitlementCache.prototype, "refreshAccess").mockImplementation(function (this: EntitlementCache) {
+      captured.push(this);
+      return original.call(this);
+    });
+    const entry = createExtensionContentEntry({ storage: ruleSetStorage, prod: false, earlyRedirect: false,
+      win: makeWin("https://www.youtube.com/") as never, doc: document,
+      onScriptCreated: script => startedScripts.add(script),
+    });
+    await entry(); await new Promise(resolve => setTimeout(resolve, 0));
+    expect(captured[0]?.currentAccess("youtube.shorts")).toBe("free");
+    expect(captured[0]?.currentAccess("tiktok.all")).toBe("free");
+    expect(captured[0]?.currentAccess("youtube.comments")).toBe("unsupported");
+    expect(Object.keys(captured[0]!.currentAccessSnapshot().states)).toHaveLength(16);
+    for (const script of startedScripts) script.stop();
+    refreshing.mockRestore();
+  });
+
 });

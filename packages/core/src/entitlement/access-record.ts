@@ -1,4 +1,3 @@
-import { parseLocalProtection } from "./local-protection.js";
 import { type LocalProtectionRecord, type PaidAccessClock } from "@still/shared-types";
 import { accessProofMatchesHolder, observePaidClock, installPaidClock, type AccessObservation, type ScopedAccessEvidence } from "./access-policy.js";
 import { isAccessUUID, isPaidAccess, isSafeAccessInteger, isVerifiedAccessProof, verifyAccessProof, type AccessTrust, type VerifiedAccessProof } from "./access-proof.js";
@@ -12,6 +11,7 @@ export interface AccessCacheRecord {
   readonly schema: 1;
   readonly accountId: string | null;
   readonly generation: number;
+  readonly sessionId?: string | null;
   readonly rights: readonly CachedAccessRight[];
   readonly localProtection?: LocalProtectionRecord | null;
   readonly revocations: readonly { readonly right: string; readonly revision: number }[];
@@ -26,19 +26,26 @@ export function parseAccessCacheRecord(value: unknown): AccessCacheRecord {
       !Array.isArray(c.rights) || c.rights.length > 32 || !Array.isArray(c.revocations) || c.revocations.length > 64 ||
       !c.rights.every(r => r && typeof r === "object" && typeof r.envelope === "string" && r.envelope.length <= 6144 && (r.clock === null || typeof r.clock === "object") && (r.accountGeneration === undefined || r.accountGeneration === null || isSafeAccessInteger(r.accountGeneration))) ||
       !c.revocations.every(r => r && typeof r === "object" && isAccessUUID(r.right) && isSafeAccessInteger(r.revision))) throw new Error("Unreadable access record");
-  parseLocalProtection(c.localProtection);
+  if (c.sessionId !== undefined && c.sessionId !== null && !isAccessUUID(c.sessionId)) throw new Error("Unreadable access session");
+  // Optional malformed protection is isolated by the resolver, retained verbatim, and never
+  // interpreted as fresh absence. It must not erase independently valid signed rights.
   return c as unknown as AccessCacheRecord;
 }
 
 export type AccessMutation =
   | { readonly kind: "observe"; readonly observation: AccessObservation }
   | { readonly kind: "account"; readonly accountId: string | null }
+  | { readonly kind: "session"; readonly session: { readonly userId: string; readonly sessionId: string } | null }
   | { readonly kind: "install"; readonly proof: VerifiedAccessProof; readonly generation: number; readonly issuerNow: number; readonly wall: number; readonly localRights: ReadonlySet<string> }
   | { readonly kind: "revoke"; readonly right: string; readonly revision: number; readonly generation: number };
 
 /** Must execute within the existing durable entitlement writer's transaction. Consumers receive
  * evidence only after this entire result has committed. No caller creates trusted online proof. */
 export async function mutateAccessRecord(current: AccessCacheRecord, mutation: AccessMutation, trust: AccessTrust): Promise<{ readonly record: AccessCacheRecord; readonly evidence: readonly ScopedAccessEvidence[] }> {
+  if (mutation.kind === "session" && current.accountId === (mutation.session?.userId ?? null) && current.sessionId === (mutation.session?.sessionId ?? null)) {
+    if (mutation.session && (!isAccessUUID(mutation.session.userId) || !isAccessUUID(mutation.session.sessionId))) throw new Error("Invalid access session");
+    return { record: current, evidence: [] };
+  }
   const decoded: { cached: CachedAccessRight; proof: VerifiedAccessProof }[] = [];
   const unresolved: CachedAccessRight[] = [];
   for (const cached of current.rights) {
@@ -47,10 +54,13 @@ export async function mutateAccessRecord(current: AccessCacheRecord, mutation: A
     else decoded.push({ cached, proof: result.proof });
   }
   let record = current;
-  if (mutation.kind === "account") {
-    if (!(mutation.accountId === null || isAccessUUID(mutation.accountId)) || current.generation >= Number.MAX_SAFE_INTEGER) throw new Error("Invalid access scope");
+  if (mutation.kind === "account" || mutation.kind === "session") {
+    const accountId = mutation.kind === "account" ? mutation.accountId : mutation.session?.userId ?? null;
+    const sessionId = mutation.kind === "session" ? mutation.session?.sessionId ?? null : null;
+    if (sessionId !== null && !isAccessUUID(sessionId)) throw new Error("Invalid access session");
+    if (!(accountId === null || isAccessUUID(accountId)) || current.generation >= Number.MAX_SAFE_INTEGER) throw new Error("Invalid access scope");
     // Even A -> A is a new session lifecycle; account IDs alone cannot fence delayed work.
-    record = { ...current, accountId: mutation.accountId, generation: current.generation + 1,
+    record = { ...current, accountId, sessionId, generation: current.generation + 1,
       rights: [...unresolved, ...decoded.filter(r => r.proof.claims.kind === "paid_apple_local" || r.proof.claims.kind === "protected_local").map(r => r.cached)] };
   } else if (mutation.kind === "install") {
     const p = mutation.proof;
@@ -81,7 +91,8 @@ export async function mutateAccessRecord(current: AccessCacheRecord, mutation: A
   const evidence: ScopedAccessEvidence[] = [];
   const rights: CachedAccessRight[] = [];
   for (const cached of record.rights) {
-    const result = await verifyAccessProof(cached.envelope, trust);
+    const retained = decoded.find(item => item.cached.envelope === cached.envelope)?.proof;
+    const result = retained ? { status: "verified" as const, proof: retained } : await verifyAccessProof(cached.envelope, trust);
     if (result.status !== "verified") { rights.push(cached); continue; }
     const p = result.proof;
     const account = p.claims.kind === "paid_account" || p.claims.kind === "protected_account";

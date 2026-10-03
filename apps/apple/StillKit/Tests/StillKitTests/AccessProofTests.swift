@@ -170,4 +170,101 @@ final class AccessProofTests: XCTestCase {
     XCTAssertNil(EntitlementRequest.parse(["kind": "getAccess", "wall": 1]))
     XCTAssertNil(EntitlementRequest.parse(["kind": "installAccess", "proof": "anything"]))
   }
+  func testMalformedOptionalProtectionDoesNotEraseSignedProtection() throws {
+    let f = try fixtures(), p = try proof(f, "protected-local")
+    let backing = InMemoryBacking(), store = SharedEntitlementStore(backing: backing, trust: trust(f))
+    _ = try store.installAccess(p, generation: 0, issuerNow: f.verifiedAt, wall: 1000, localRights: [f.localRight])
+    var object = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(backing.read())) as? [String: Any])
+    var access = try XCTUnwrap(object["access"] as? [String: Any])
+    access["localProtection"] = ["broken": "retain-me"]
+    access["future"] = ["opaque": "retained"]
+    var rights = try XCTUnwrap(access["rights"] as? [[String: Any]])
+    rights[0]["future"] = ["raw": "retain-right"]
+    var duplicate = rights[0]; duplicate["future"] = ["raw": "retain-duplicate"]
+    rights.append(duplicate)
+    access["rights"] = rights
+    object["access"] = access; backing.write(try JSONSerialization.data(withJSONObject: object))
+    let observed = try store.observeAccess(wall: 1000)
+    XCTAssertEqual(resolveBenefitAccess("youtube.comments", evidence: observed.1, paidMode: true, supported: true,
+      free: false, accountId: nil, localRights: [f.localRight], evidenceStatus: "unknown"), .protected)
+    let after = try XCTUnwrap(JSONSerialization.jsonObject(with: XCTUnwrap(backing.read())) as? [String: Any])
+    let retained = try XCTUnwrap(after["access"] as? [String: Any])
+    XCTAssertEqual(retained["localProtection"] as? [String: String], ["broken": "retain-me"])
+    XCTAssertEqual(retained["future"] as? [String: String], ["opaque": "retained"])
+    XCTAssertEqual((retained["rights"] as? [[String: Any]])?.first?["future"] as? [String: String], ["raw": "retain-right"])
+    XCTAssertEqual((retained["rights"] as? [[String: Any]])?.last?["future"] as? [String: String], ["raw": "retain-duplicate"])
+  }
+
+  func testCommittedBenefitProjectionAndVerifiedSessionContinuity() throws {
+    let f = try fixtures(), paid = try proof(f), local = try proof(f, "protected-local")
+    let backing = InMemoryBacking(), store = SharedEntitlementStore(backing: backing, trust: trust(f))
+    let session = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    let context = NativeAccessContext(paidMode: true, supported: Set(PackagedFeatureRegistry.featureIDs + ["tiktok.all"]),
+      accountId: f.account, sessionId: session, sessionKnown: true, localRights: [f.localRight])
+    let scope = try store.changeAccessSession(accountId: f.account, sessionId: session)
+    _ = try store.installAccess(paid, generation: scope.generation, issuerNow: f.verifiedAt, wall: 1000, localRights: [])
+    _ = try store.installAccess(local, generation: scope.generation, issuerNow: f.verifiedAt, wall: 1000, localRights: [f.localRight])
+    let first = try store.observeBenefits(wall: 1001, context: context)
+    XCTAssertEqual(first.1.states.count, 16)
+    XCTAssertEqual(first.1.states["youtube.comments"], "purchased")
+    let waking = SharedEntitlementStore(backing: backing, trust: trust(f))
+    XCTAssertEqual(try waking.observeBenefits(wall: 1002, context: context).0.generation, scope.generation)
+    XCTAssertEqual(try waking.observeBenefits(wall: 1002, context: context).1.states["youtube.comments"], "purchased")
+    let replacement = NativeAccessContext(paidMode: true, supported: context.supported, accountId: f.account,
+      sessionId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", sessionKnown: true, localRights: [f.localRight])
+    let next = try waking.observeBenefits(wall: 1003, context: replacement)
+    XCTAssertGreaterThan(next.0.generation, scope.generation)
+    XCTAssertEqual(next.1.states["youtube.comments"], "protected")
+    XCTAssertThrowsError(try store.installAccess(paid, generation: scope.generation, issuerNow: f.verifiedAt, wall: 1003, localRights: []))
+    let unknown = NativeAccessContext(paidMode: true, supported: context.supported, localRights: [f.localRight])
+    XCTAssertEqual(try store.observeBenefits(wall: 1004, context: unknown).1.states["youtube.comments"], "protected")
+    XCTAssertEqual(try store.observeBenefits(wall: 1004, context: unknown).1.states["youtube.related"], "verification_required")
+  }
+  func testBenefitProjectionCommitFailureAndFreeUnavailableBacking() throws {
+    let f = try fixtures(), p = try proof(f)
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let backing = AtomicSettingsBacking(directory: directory, name: "entitlement")
+    let store = SharedEntitlementStore(backing: backing, trust: trust(f))
+    let session = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    let scope = try store.changeAccessSession(accountId: f.account, sessionId: session)
+    _ = try store.installAccess(p, generation: scope.generation, issuerNow: f.verifiedAt, wall: 1000, localRights: [])
+    let before = try Data(contentsOf: directory.appendingPathComponent("entitlement.json"))
+    let context = NativeAccessContext(paidMode: true, supported: Set(PackagedFeatureRegistry.featureIDs + ["tiktok.all"]),
+      accountId: f.account, sessionId: session, sessionKnown: true)
+    let broken = SharedEntitlementStore(backing: AtomicSettingsBacking(directory: directory, name: "entitlement", beforeReplace: { throw AccessProofFailure.invalid }), trust: trust(f))
+    let bridge = EntitlementBridge(store: broken, now: { 1001 }, accessContext: { context })
+    XCTAssertEqual(bridge.handle(.getBenefitAccess), "{\"ok\":false}")
+    XCTAssertEqual(try Data(contentsOf: directory.appendingPathComponent("entitlement.json")), before)
+    let unavailable = SharedEntitlementStore(backing: InMemoryBacking(), coordinationAvailable: false)
+    let free = try unavailable.observeBenefits(wall: 1000).1
+    XCTAssertEqual(free.states["youtube.shorts"], "free")
+    XCTAssertEqual(free.states["tiktok.all"], "free")
+    XCTAssertEqual(free.states["youtube.comments"], "unsupported")
+    XCTAssertNil(free.refreshAfterMs)
+    XCTAssertNil(EntitlementRequest.parse(["kind": "getBenefitAccess", "paidMode": true]))
+    XCTAssertNil(EntitlementRequest.parse(["kind": "getBenefitAccess", "sessionId": session]))
+  }
+  func testNativeResolvedWireDeadlineAndMappingIsolation() throws {
+    let f = try fixtures(), p = try proof(f, "paid-apple-local")
+    let store = SharedEntitlementStore(backing: InMemoryBacking(), trust: trust(f))
+    _ = try store.installAccess(p, generation: 0, issuerNow: f.verifiedAt, wall: 1000, localRights: [f.localRight])
+    let all = Set(PackagedFeatureRegistry.featureIDs + ["tiktok.all"])
+    let unknown = NativeAccessContext(paidMode: true, supported: all)
+    store.save(EntitlementRecord(entitled: true, updatedAt: 1000, source: .receipt))
+    XCTAssertEqual(try store.observeBenefits(wall: 1000, context: unknown).1.states["youtube.comments"], "verification_required")
+    let context = NativeAccessContext(paidMode: true, supported: all, localRights: [f.localRight])
+    let near = try store.observeBenefits(wall: 1000 + f.expiresAt - f.verifiedAt - 1, context: context)
+    XCTAssertEqual(near.1.states["youtube.comments"], "purchased")
+    XCTAssertEqual(near.1.refreshAfterMs, 1)
+    let bridge = EntitlementBridge(store: store, now: { 1000 + f.expiresAt - f.verifiedAt }, accessContext: { context })
+    let json = try XCTUnwrap(bridge.handle(rawBody: ["kind": "getBenefitAccess"])?.data(using: .utf8))
+    let reply = try XCTUnwrap(JSONSerialization.jsonObject(with: json) as? [String: Any])
+    XCTAssertNil(reply["record"])
+    let snapshot = try XCTUnwrap(reply["snapshot"] as? [String: Any])
+    XCTAssertEqual((snapshot["states"] as? [String: String])?["youtube.comments"], "verification_required")
+    XCTAssertEqual((snapshot["states"] as? [String: String])?["youtube.shorts"], "free")
+    XCTAssertTrue(try store.observeAccess(wall: 1000).0.rights.first?.clock?.expired == true)
+  }
+
 }

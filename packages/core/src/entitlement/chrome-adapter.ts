@@ -3,17 +3,23 @@ import type { EntitlementAdapter, EntitlementRecord, EntitlementRecordStore } fr
 import { recordMatchesSession } from "./cache.js";
 import { mutateAccessRecord, parseAccessCacheRecord, type AccessMutation, type AccessCacheRecord } from "./access-record.js";
 import { isAccessUUID, type AccessTrust } from "./access-proof.js";
-import type { ScopedAccessEvidence } from "./access-policy.js";
+import { boundedAccessRead, initialAccessSnapshot, packagedAccessContext, parseBenefitAccessSnapshot, resolveAccessSnapshot, type ScopedAccessEvidence, type TrustedAccessContext } from "./access-policy.js";
+import type { BenefitAccessSnapshot } from "@still/shared-types";
 
 const STORAGE_KEY = "still:entitlement";
 const NO_ACCESS_TRUST: AccessTrust = { environment: "production", keys: [] };
 // One background writer per storage area. Distinct authority instances in that background share
 // the same queue; popup/content instances must use the runtime broker instead of get/set CAS.
 const queues = new WeakMap<object, Promise<unknown>>();
+const writerRevisions = new WeakMap<object, number>();
 
 export interface EntitlementAuthorityOptions {
   readonly authority?: boolean;
   readonly trust?: AccessTrust;
+  /** Trusted internal host only; never constructed from a runtime request. */
+  readonly context?: () => TrustedAccessContext | Promise<TrustedAccessContext>;
+  /** Safari delegates observation to the existing atomic native entitlement authority. */
+  readonly nativeObservation?: () => Promise<BenefitAccessSnapshot>;
 }
 
 /**
@@ -95,6 +101,7 @@ export class ChromeEntitlementAdapter implements EntitlementAdapter, Entitlement
       else next.userId = userId;
       if (new TextEncoder().encode(JSON.stringify(next)).length > 131_072) throw new Error("Access record full");
       await chrome.storage.local.set({ [STORAGE_KEY]: next });
+      this.committedWrite();
     });
   }
 
@@ -110,6 +117,7 @@ export class ChromeEntitlementAdapter implements EntitlementAdapter, Entitlement
       const next = await mutateAccessRecord(current, mutation, this.options.trust ?? NO_ACCESS_TRUST);
       if (new TextEncoder().encode(JSON.stringify({ ...stored, access: next.record })).length > 131_072) throw new Error("Access record full");
       await chrome.storage.local.set({ [STORAGE_KEY]: { ...stored, access: next.record } });
+      this.committedWrite();
       return next; // publish only after durable commit; storage failure leaves prior state authoritative
     });
   }
@@ -126,6 +134,7 @@ export class ChromeEntitlementAdapter implements EntitlementAdapter, Entitlement
       const next = { ...stored, access: record };
       if (new TextEncoder().encode(JSON.stringify(next)).length > 131_072) throw new Error("Access record full");
       await chrome.storage.local.set({ [STORAGE_KEY]: next });
+      this.committedWrite();
       return record;
     });
   }
@@ -135,6 +144,103 @@ export class ChromeEntitlementAdapter implements EntitlementAdapter, Entitlement
     const reply: unknown = await chrome.runtime.sendMessage({ kind: "observeAccess" });
     if (!reply || typeof reply !== "object" || (reply as { ok?: unknown }).ok !== true) throw new Error("Entitlement authority unavailable");
     return parseAccessCacheRecord((reply as { record?: unknown }).record);
+  }
+
+  private contextEpoch = 0;
+  private benefitSnapshot: BenefitAccessSnapshot | null = null;
+  private benefitRevision = -1;
+  private benefitContextEpoch = -1;
+  private benefitDeadline = 0;
+  private benefitObservedWall = 0;
+  private committedWrite(): void {
+    const area = chrome.storage.local;
+    writerRevisions.set(area, (writerRevisions.get(area) ?? 0) + 1);
+  }
+  invalidateAccessContext(): void { this.contextEpoch++; }
+
+  private benefitFlight: Promise<BenefitAccessSnapshot> | null = null;
+
+  /** One resolved projection per background observation, shared across page consumers. */
+  observeBenefits(signal?: AbortSignal): Promise<BenefitAccessSnapshot> {
+    if (this.benefitFlight) return this.benefitFlight;
+    if (this.options.authority && this.benefitSnapshot && this.benefitContextEpoch === this.contextEpoch &&
+        this.benefitRevision === (writerRevisions.get(chrome.storage.local) ?? 0) && this.now() >= this.benefitObservedWall && this.now() < this.benefitDeadline) {
+      return Promise.resolve(this.benefitSnapshot);
+    }
+    const epoch = this.contextEpoch;
+    const operation = boundedAccessRead(() => this.options.authority ? this.observeOwnedBenefits() : this.observeBrokerBenefits(), signal);
+    const flight = operation.then(snapshot => {
+      if (this.options.authority && epoch === this.contextEpoch) {
+        this.benefitSnapshot = snapshot; this.benefitContextEpoch = epoch;
+        this.benefitRevision = writerRevisions.get(chrome.storage.local) ?? 0;
+        this.benefitObservedWall = this.now();
+        this.benefitDeadline = this.benefitObservedWall + (snapshot.refreshAfterMs ?? 60_000);
+      }
+      return snapshot;
+    }, error => {
+      if (epoch === this.contextEpoch) this.invalidateAccessContext();
+      throw error;
+    }).finally(() => { if (this.benefitFlight === flight) this.benefitFlight = null; });
+    this.benefitFlight = flight;
+    return flight;
+  }
+
+  private async observeBrokerBenefits(): Promise<BenefitAccessSnapshot> {
+    const reply: unknown = await chrome.runtime.sendMessage({ kind: "observeBenefits" });
+    if (!reply || typeof reply !== "object" || (reply as { ok?: unknown }).ok !== true) throw new Error("Benefit authority unavailable");
+    return parseBenefitAccessSnapshot((reply as { snapshot?: unknown }).snapshot);
+  }
+
+  private async observeOwnedBenefits(): Promise<BenefitAccessSnapshot> {
+    const epoch = this.contextEpoch;
+    const supplied = this.options.context ? await this.options.context() : packagedAccessContext();
+    const context: TrustedAccessContext = { ...supplied, session: supplied.session && { ...supplied.session },
+      supported: new Set(supplied.supported), localRights: new Set(supplied.localRights) };
+    if (epoch !== this.contextEpoch) throw new Error("Stale access context");
+    // Current packaged free operation has no account, native, crypto, storage or network wait.
+    if (!context.paidMode) return initialAccessSnapshot(context);
+    if (this.options.nativeObservation) {
+      const snapshot = parseBenefitAccessSnapshot(await this.options.nativeObservation());
+      if (epoch !== this.contextEpoch) throw new Error("Stale access context");
+      return snapshot;
+    }
+    return this.serialize(async () => {
+      const value: unknown = (await chrome.storage.local.get(STORAGE_KEY))[STORAGE_KEY];
+      if (value !== undefined && (!value || typeof value !== "object" || Array.isArray(value))) throw new Error("Unreadable entitlement record");
+      const stored = (value ?? {}) as Record<string, unknown>;
+      let current = parseAccessCacheRecord(stored.access);
+      if (context.session !== undefined) current = (await mutateAccessRecord(current, { kind: "session", session: context.session }, this.options.trust ?? NO_ACCESS_TRUST)).record;
+      const next = await mutateAccessRecord(current, { kind: "observe", observation: { wall: this.now() } }, this.options.trust ?? NO_ACCESS_TRUST);
+      const complete = { ...stored, access: next.record };
+      if (epoch !== this.contextEpoch) throw new Error("Stale access context");
+      if (new TextEncoder().encode(JSON.stringify(complete)).length > 131_072) throw new Error("Access record full");
+      await chrome.storage.local.set({ [STORAGE_KEY]: complete });
+      this.committedWrite();
+      if (epoch !== this.contextEpoch) throw new Error("Stale access context");
+      return resolveAccessSnapshot(next.record, next.evidence, context);
+    });
+  }
+
+  /** Observe only material access changes. Clock high-water writes from our own observation do
+   * not trigger a feedback loop; changed latches/rights/session/protection always invalidate. */
+  subscribeAccess(listener: () => void): () => void {
+    let previous: string | undefined;
+    const handler = (changes: Record<string, chrome.storage.StorageChange>, area: string): void => {
+      if (area !== "local" || !(STORAGE_KEY in changes)) return;
+      const raw = changes[STORAGE_KEY]?.newValue as { access?: AccessCacheRecord } | undefined;
+      let signature: string;
+      try {
+        const access = parseAccessCacheRecord(raw?.access);
+        signature = JSON.stringify({ ...access, rights: access.rights.map(right => ({ ...right, clock: right.clock && {
+          proofIdentity: right.clock.proofIdentity, expired: right.clock.expired, paused: right.clock.paused, revoked: right.clock.revoked,
+        } })) });
+      } catch { signature = "unreadable"; }
+      if (signature === previous) return;
+      previous = signature;
+      listener();
+    };
+    chrome.storage.onChanged.addListener(handler);
+    return () => chrome.storage.onChanged.removeListener(handler);
   }
 
   private serialize<T>(body: () => Promise<T>): Promise<T> {

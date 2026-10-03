@@ -1,5 +1,5 @@
 import { ChromeStorageAdapter, createSettingsIntentRouter, parseStoredSettingsRecord, type StoredSettingsRecord } from "@still/core/storage";
-import { ChromeEntitlementAdapter, createEntitlementMessageRouter } from "@still/core/entitlement";
+import { ChromeEntitlementAdapter, createEntitlementMessageRouter, parseBenefitAccessSnapshot } from "@still/core/entitlement";
 import { createRuleSetRefresher } from "@still/core/rules";
 import { createAppGroupReconciler } from "../lib/app-group-reconcile.js";
 import { BrowserInstallGenerationStore, createEntitlementPull } from "../lib/entitlement-pull.js";
@@ -33,7 +33,13 @@ function parseNativeSettings(reply: unknown): StoredSettingsRecord | null {
 }
 
 export default defineBackground(() => {
-  const entitlements = new ChromeEntitlementAdapter(Date.now, { authority: true });
+  const entitlements = new ChromeEntitlementAdapter(Date.now, { authority: true, nativeObservation: async () => {
+    const reply = await browser.runtime.sendNativeMessage(NATIVE_APP, { kind: "getBenefitAccess" });
+    const envelope = reply && typeof reply === "object" ? (reply as { settings?: unknown }).settings : null;
+    const value: unknown = typeof envelope === "string" ? JSON.parse(envelope) : envelope;
+    if (!value || typeof value !== "object" || (value as { ok?: unknown }).ok !== true) throw new Error("Native benefit authority unavailable");
+    return parseBenefitAccessSnapshot((value as { snapshot?: unknown }).snapshot);
+  } });
   browser.runtime.onMessage.addListener(createEntitlementMessageRouter(entitlements, browser.runtime.id, browser.runtime.getURL("")));
   const adapter = new ChromeStorageAdapter({ authority: true, nativeMirror: true });
   browser.runtime.onMessage.addListener(createSettingsIntentRouter(

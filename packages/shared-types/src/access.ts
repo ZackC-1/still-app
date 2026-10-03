@@ -65,3 +65,13 @@ export interface LocalProtectionRecord {
   readonly original: { readonly firstRecordedAt: number; readonly firstRecordedAppVersion: string } | null;
   readonly grant: (ProtectedBenefitSnapshot & { readonly activatedAt: number }) | null;
 }
+
+/** A bounded resolved projection, never a transported cryptographic authority or proof. */
+export interface BenefitAccessSnapshot {
+  readonly schema: 1;
+  readonly generation: number;
+  readonly states: Readonly<Record<BenefitId, AccessState>>;
+  readonly refreshAfterMs: number | null;
+  /** Only independently verified permanent local protection, never account-scoped grants. */
+  readonly independentProtection: readonly BenefitId[];
+}

@@ -181,15 +181,32 @@ public struct AccessCacheRecord: Codable, Equatable {
   public var schema = 1
   public var accountId: String?
   public var generation = 0
+  public var sessionId: String?
+  public var localProtectionUnavailable = false
   public var rights: [CachedAccessRight] = []
   public var revocations: [AccessRevocation] = []
   public var localProtection: LocalProtectionRecord?
   public init() {}
-  private enum CodingKeys: String, CodingKey { case schema, accountId, generation, rights, revocations, localProtection }
+  private enum CodingKeys: String, CodingKey { case schema, accountId, generation, sessionId, rights, revocations, localProtection }
+  public init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    schema = try c.decode(Int.self, forKey: .schema)
+    accountId = try c.decodeIfPresent(String.self, forKey: .accountId)
+    generation = try c.decode(Int.self, forKey: .generation)
+    sessionId = try c.decodeIfPresent(String.self, forKey: .sessionId)
+    rights = try c.decode([CachedAccessRight].self, forKey: .rights)
+    revocations = try c.decode([AccessRevocation].self, forKey: .revocations)
+    if c.contains(.localProtection), !(try c.decodeNil(forKey: .localProtection)) {
+      localProtection = try? c.decode(LocalProtectionRecord.self, forKey: .localProtection)
+      localProtectionUnavailable = !(localProtection?.valid ?? false)
+      if localProtectionUnavailable { localProtection = nil }
+    }
+  }
   public func encode(to encoder: Encoder) throws {
     var c = encoder.container(keyedBy: CodingKeys.self)
     try c.encode(schema, forKey: .schema); try c.encode(accountId, forKey: .accountId)
-    try c.encode(generation, forKey: .generation); try c.encode(rights, forKey: .rights)
+    try c.encode(generation, forKey: .generation); try c.encodeIfPresent(sessionId, forKey: .sessionId)
+    try c.encode(rights, forKey: .rights)
     try c.encode(revocations, forKey: .revocations)
     try c.encodeIfPresent(localProtection, forKey: .localProtection)
   }
@@ -214,4 +231,68 @@ public func resolveBenefitAccess(_ benefit: String, evidence: [ScopedAccessEvide
   if protectedRight { return .protected }
   if unresolved || evidenceStatus == "unknown" { return .verification_required }
   return evidenceStatus == "checking" ? .checking : .locked
+}
+
+/// Native host context only. No request body carries account, transaction mapping, time or mode.
+/// Missing verified session/local mapping stays unknown; SDK/receipt Booleans cannot fill it.
+public struct NativeAccessContext {
+  public let paidMode: Bool
+  public let supported: Set<String>
+  public let accountId: String?
+  public let sessionId: String?
+  public let sessionKnown: Bool
+  public let localRights: Set<String>
+  public let evidenceStatus: String
+  public init(paidMode: Bool = MonetizationConfig.paidTierEnabled,
+              supported: Set<String> = Set(PackagedFeatureRegistry.features.filter { $0.tier == "free" }.map { $0.id } + [PackagedFeatureRegistry.tiktokAlias]),
+              accountId: String? = nil, sessionId: String? = nil, sessionKnown: Bool = false,
+              localRights: Set<String> = [], evidenceStatus: String = "unknown") {
+    self.paidMode = paidMode; self.supported = supported
+    self.accountId = accountId; self.sessionId = sessionId; self.sessionKnown = sessionKnown
+    self.localRights = localRights; self.evidenceStatus = evidenceStatus
+  }
+}
+public struct BenefitAccessSnapshot: Encodable {
+  public let schema = 1
+  public let generation: Int
+  public let states: [String: String]
+  public let refreshAfterMs: Int?
+  public let independentProtection: [String]
+  private enum CodingKeys: String, CodingKey { case schema, generation, states, refreshAfterMs, independentProtection }
+  public func encode(to encoder: Encoder) throws {
+    var c = encoder.container(keyedBy: CodingKeys.self)
+    try c.encode(schema, forKey: .schema); try c.encode(generation, forKey: .generation)
+    try c.encode(states, forKey: .states); try c.encode(refreshAfterMs, forKey: .refreshAfterMs)
+    try c.encode(independentProtection, forKey: .independentProtection)
+  }
+}
+func resolveAccessSnapshot(_ record: AccessCacheRecord, evidence: [ScopedAccessEvidence], context: NativeAccessContext) -> BenefitAccessSnapshot {
+  let matchingSession = context.sessionKnown && context.accountId == record.accountId && context.sessionId == record.sessionId
+  let status = record.localProtectionUnavailable || evidence.count != record.rights.count ? "unknown" : context.evidenceStatus
+  var states: [String: String] = [:]
+  for feature in PackagedFeatureRegistry.features {
+    states[feature.id] = resolveBenefitAccess(feature.id, evidence: evidence, paidMode: context.paidMode,
+      supported: context.supported.contains(feature.id), free: feature.tier == "free",
+      accountId: matchingSession ? context.accountId : nil, localRights: context.localRights,
+      evidenceStatus: status, localProtection: record.localProtection).rawValue
+  }
+  let tiktok = PackagedFeatureRegistry.tiktokAlias
+  states[tiktok] = resolveBenefitAccess(tiktok, evidence: evidence, paidMode: context.paidMode,
+    supported: context.supported.contains(tiktok), free: true, accountId: nil, localRights: [], evidenceStatus: status).rawValue
+  var delay: Int? = context.paidMode ? 60_000 : nil
+  if context.paidMode {
+    for right in record.rights {
+      if let clock = right.clock, !clock.expired && !clock.paused && !clock.revoked,
+        accessInteger(clock.highWater), accessInteger(clock.expiresAt) {
+        delay = min(delay ?? 60_000, max(1, clock.expiresAt - clock.highWater))
+      }
+    }
+  }
+  let local = evidence.filter { $0.proof.claims.kind == "protected_local" }
+  let independent = (PackagedFeatureRegistry.featureIDs + [PackagedFeatureRegistry.tiktokAlias]).filter { benefit in
+    ["purchased", "protected"].contains(states[benefit] ?? "") && resolveBenefitAccess(benefit, evidence: local,
+      paidMode: true, supported: context.supported.contains(benefit), free: false, accountId: nil,
+      localRights: context.localRights, evidenceStatus: "unknown", localProtection: record.localProtection) == .protected
+  }
+  return BenefitAccessSnapshot(generation: record.generation, states: states, refreshAfterMs: delay, independentProtection: independent)
 }
