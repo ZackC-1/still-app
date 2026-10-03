@@ -14,6 +14,7 @@ import {
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
 import { SettingsCache } from "../../storage/cache.js";
 import {
+  ACCESS_BENEFITS,
   initialAccessSnapshot,
   isBenefitEffective,
 } from "../../entitlement/access-policy.js";
@@ -33,10 +34,7 @@ async function fixture(state: AccessState = "free") {
   await cache.hydrate();
   const access = initialAccessSnapshot({
     paidMode: false,
-    supported: new Set([
-      ...FEATURE_REGISTRY.map((row) => row.id),
-      "tiktok.all",
-    ]),
+    supported: new Set(ACCESS_BENEFITS),
   });
   const states = { ...access.states };
   for (const row of FEATURE_REGISTRY)

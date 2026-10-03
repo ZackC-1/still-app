@@ -188,7 +188,7 @@
                         onChange={(next) => onFeatureChange(row.id, next)}
                         disabled={inactive || !usable}
                         labelledBy={`${key}-l`}
-                        describedBy={note || srNote ? `${key}-s` : undefined}
+                        describedBy={srNote ? `${key}-s` : undefined}
                       />
                     {:else if state === "locked"}
                       <button
