@@ -100,6 +100,9 @@ export interface EnginePageSession {
   debugStats(): { readonly serviceResolutions: number; readonly compiledSelectors?: number; readonly domQueries?: number; readonly retainedSiteNodes?: number; readonly rootWrites?: number };
   /** Releases owned reversible effects; format1 cleanup remains with its existing host path. */
   stop?(): void;
+  /** Internal modern media adapter; matches only the currently owned, effectively hidden plan. */
+  ownsHiddenMedia?(media: Element): boolean;
+  activeMediaKey?(): string;
 }
 
 /**
@@ -565,6 +568,25 @@ function createFormat2PageSession(input: unknown): EnginePageSession {
     applyDom(settings, url, doc, opts = {}) { return apply(settings, url, doc, opts); },
     applyRemovals(settings, url, doc, opts = {}) { return apply(settings, url, doc, opts); },
     activeServiceId: () => stopped ? null : serviceId,
+    activeMediaKey: () => !stopped && decision.kind === "apply" && ownedStyle?.isConnected && ownedStyle.sheet && !ownedStyle.sheet.disabled && serviceId
+      ? `${serviceId}:${effective.filter(benefit => (plans.get(serviceId!)?.get(benefit)?.length ?? 0) > 0).join("|")}` : "",
+    ownsHiddenMedia(media) {
+      if (stopped || decision.kind !== "apply" || !serviceId || !ownedRoot || !ownedStyle?.isConnected || !ownedStyle.sheet || ownedStyle.sheet.disabled || !media.isConnected || media.ownerDocument !== ownedRoot.ownerDocument) return false;
+      const view = media.ownerDocument.defaultView;
+      if (!view) return false;
+      for (const benefit of effective) {
+        if (!ownedRoot.classList.contains(featureClass(benefit))) continue;
+        for (const selector of plans.get(serviceId)?.get(benefit) ?? []) {
+          try {
+            // Exactly the selector branch/scope used by our CSS, including comma lists and
+            // nearest-card preservation. A failed/CSP-blocked style never grants a pause.
+            const target = media.closest(`.${featureClass(benefit)} :is(${selector})`);
+            if (target && view.getComputedStyle(target).display === "none") return true;
+          } catch { /* unsupported selector fails open, as its CSS rule does */ }
+        }
+      }
+      return false;
+    },
     debugStats: () => ({ serviceResolutions, compiledSelectors, domQueries: 0, retainedSiteNodes: 0, rootWrites }),
     stop() { stopped = true; effective = []; serviceId = null; clearEffects(); },
   };

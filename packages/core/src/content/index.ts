@@ -1,5 +1,6 @@
 import { PAID_TIER_ENABLED, type ServiceId, type SignedRuleSet, type SignedRuleSetV2, type BenefitId } from "@still/shared-types";
 import { initialAccessSnapshot } from "../entitlement/access-policy.js";
+import { createFeatureMediaQuieting } from "./feature-media.js";
 import {
   evaluate,
   createEnginePageSession,
@@ -161,6 +162,16 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     access: deps.entitlement?.currentAccessSnapshot() ?? fallbackAccess,
     capabilities: deps.capabilities,
   });
+  const mediaQuieting = modern ? createFeatureMediaQuieting({
+    doc,
+    activeKey: () => stopped || !hydrated ? "" : pageSession.activeMediaKey?.() ?? "",
+    isHidden: media => {
+      if (stopped || !hydrated) return false;
+      pageSession.evaluate(cache.current(), currentUrl(), modernOptions());
+      return pageSession.ownsHiddenMedia?.(media) === true;
+    },
+  }) : null;
+  if (mediaQuieting) teardowns.push(() => mediaQuieting.stop());
   const consumeModernNavigation = (target: URL): boolean => {
     // Synchronous committed state only. A pre-hydration or stopped host never guesses On.
     if (!modern || stopped || !hydrated) return false;
@@ -197,6 +208,7 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       // The existing cache is the committed authority. No account/storage read or legacy
       // service-wide CSS grant occurs on this path; CSS handles recycled nodes itself.
       pageSession.applyDom(cache.current(), url, doc, modernOptions());
+      mediaQuieting?.reconcile();
       consumeModernNavigation(url);
       return;
     }
