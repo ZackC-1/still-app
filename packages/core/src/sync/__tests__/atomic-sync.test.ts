@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS, SETTINGS_FIELDS, readSettingsOperationRequest, type SettingsField, type SettingsV2 } from "@still/shared-types";
 import { AtomicSettingsWriter } from "../../storage/atomic-settings.js";
 import { InMemoryStorageAdapter, type SyncedSettingsEnvelope } from "../../storage/adapter.js";
@@ -38,6 +38,7 @@ function harness(owner: "unknown" | "never-linked" | "previous-account" = "unkno
   let readRelease: (() => void) | null = null, readStarted: (() => void) | null = null;
   let profileListener: ((envelope: SyncedSettingsEnvelope) => void) | null = null;
   let reads = 0;
+  const failures: ("before" | "after")[] = [];
   const response = () => ({ status: "ready", protocol: 2, empty: empty && revision === 0, settings: structuredClone(settings), settingsVersion: revision,
     settingsServerUpdatedAt: "2026-10-02T00:00:00Z", writeId: lastWriteId, lineage: LINEAGE,
     receipt: { version: 1, lineage: LINEAGE, revision, mac: "A".repeat(43) } });
@@ -57,6 +58,8 @@ function harness(owner: "unknown" | "never-linked" | "previous-account" = "unkno
     if (parsed.status !== "parsed") return { data: null, error: new Error("request-shape") };
     const request = parsed.request;
     requests.push(structuredClone(request));
+    const failure = failures.shift();
+    if (failure === "before") return { data: null, error: new Error("offline before application") };
     const bytes = JSON.stringify(request), prior = claims.get(request.writeId);
     if (prior && prior !== bytes) return { data: null, error: new Error("write-id-conflict") };
     if (!prior) {
@@ -72,6 +75,7 @@ function harness(owner: "unknown" | "never-linked" | "previous-account" = "unkno
       if (changed) { revision += 1; lastWriteId = request.writeId; settings = { ...settings, updatedAt: 100 + revision }; }
     }
     const result = response();
+    if (failure === "after") return { data: null, error: new Error("applied but response lost") };
     if (release) { const wait = new Promise<void>(r => { release = r; }); started?.(); await wait; }
     return { data: result, error: null };
   });
@@ -83,6 +87,9 @@ function harness(owner: "unknown" | "never-linked" | "previous-account" = "unkno
   const auth = { currentUserId: async () => account, signOut: async () => {}, signInWithMagicLink: async () => ({}) };
   const service = new SyncService(cache, auth, backend);
   return { cache, writer, storage, service, requests, invoke, port,
+    canonicalResponse: response,
+    failNext(mode: "before" | "after" = "before") { failures.push(mode); },
+    subscriptions: () => profileListener === null ? 0 : 1,
     reads: () => reads,
     nudge() { profileListener?.({ settings: { ...settings, pauses: [] }, version: revision,
       serverUpdatedAt: "2026-10-02T00:00:00Z", lastWriteId }); },
@@ -102,8 +109,89 @@ function harness(owner: "unknown" | "never-linked" | "previous-account" = "unkno
     }, settings: () => settings };
 }
 const drain = async () => { for (let i = 0; i < 20; i++) await new Promise(r => setTimeout(r, 0)); };
+const settle = async () => { for (let i = 0; i < 150; i++) await Promise.resolve(); };
+afterEach(() => vi.useRealTimers());
 
 describe("existing SyncService and exact Supabase modern port", () => {
+  it.each(["lineage", "revision", "future", "legacy", "field-base", "damaged"])("rejects %s canonical response without changing durable bytes", async variant => {
+    const h = harness(); await h.cache.hydrate(); await h.service.onSignedIn(A); vi.useFakeTimers();
+    try {
+      const damaged = h.canonicalResponse() as unknown as Record<string, unknown>;
+      const receipt = damaged.receipt as Record<string, unknown>;
+      const settings = damaged.settings as Record<string, unknown>;
+      if (variant === "lineage") damaged.lineage = B;
+      if (variant === "revision") receipt.revision = 2;
+      if (variant === "future") settings.schemaVersion = 99;
+      if (variant === "legacy") damaged.settings = { ...DEFAULT_SETTINGS, updatedAt: 7, services: { youtube: false } };
+      if (variant === "field-base") (settings.clocks as Record<string, unknown>).globalOn = { baseRevision: 2, localStep: 1 };
+      if (variant === "damaged") settings.globalOn = 1;
+      const before = await h.storage.get();
+      h.invoke.mockResolvedValueOnce({ data: damaged as never, error: null });
+      await expect(h.port.readCanonicalSettings()).rejects.toThrow("invalid-canonical-settings");
+      h.invoke.mockResolvedValueOnce({ data: damaged as never, error: null });
+      await h.service.retryNow();
+      expect(await h.storage.get()).toEqual(before); expect(h.requests).toEqual([]);
+      expect(h.service.getState().cloudReachable).toBe(false);
+    } finally { await h.service.signOut(); h.cache.watch()(); }
+    expect(vi.getTimerCount()).toBe(0);
+  });
+  it("actually retries the complete immutable failed operation after a newer read and later local edit", async () => {
+    const h = harness(); await h.cache.hydrate(); await h.service.onSignedIn(A); vi.useFakeTimers();
+    try {
+      h.failNext(); await h.cache.setGlobalOn(false); await settle();
+      expect(h.requests).toHaveLength(1); const original = JSON.stringify(h.requests[0]);
+      expect(h.service.getState()).toMatchObject({ pendingUpload: true, cloudReachable: false });
+      expect(vi.getTimerCount()).toBe(1);
+      h.peer("services.youtube", false); const held = h.holdRead();
+      await vi.advanceTimersByTimeAsync(1_000); await held.started;
+      await h.cache.setGlobalOn(true); expect(h.requests).toHaveLength(1);
+      held.release(); await vi.advanceTimersByTimeAsync(0); await settle();
+      expect(h.requests).toHaveLength(3); expect(JSON.stringify(h.requests[1])).toBe(original);
+      expect(h.requests[2]).toMatchObject({ receipt: { revision: 1 }, operations: [{ path: "globalOn", value: true, baseRevision: 1, localStep: 2 }] });
+      expect(h.cache.current()).toMatchObject({ globalOn: true, services: { youtube: false } });
+      expect(h.cache.currentRecord().atomic!.pending).toEqual([]);
+      expect(h.service.getState().pendingUpload).toBe(false); expect(vi.getTimerCount()).toBe(0);
+    } finally { await h.service.signOut(); h.cache.watch()(); }
+    expect(h.subscriptions()).toBe(0); expect(vi.getTimerCount()).toBe(0);
+  });
+  it("an applied but lost acknowledgement retires the original intent on read without allocating a retry", async () => {
+    const h = harness(); await h.cache.hydrate(); await h.service.onSignedIn(A); vi.useFakeTimers();
+    try {
+      h.failNext("after"); await h.cache.setGlobalOn(false); await settle();
+      expect(h.requests).toHaveLength(1); const original = structuredClone(h.requests[0]);
+      expect(h.cache.currentRecord().atomic!.pending).toHaveLength(1); expect(h.service.getState().pendingUpload).toBe(true);
+      await vi.advanceTimersByTimeAsync(1_000); await settle();
+      expect(h.requests).toEqual([original]); expect(h.cache.currentRecord().atomic!.pending).toEqual([]);
+      expect(h.cache.currentRecord().atomic!.anchor!.revision).toBe(2);
+      expect(h.service.getState().pendingUpload).toBe(false); expect(vi.getTimerCount()).toBe(0);
+    } finally { await h.service.signOut(); h.cache.watch()(); }
+  });
+  it("sign-out cancels a scheduled modern retry and realtime subscription", async () => {
+    const h = harness(); await h.cache.hydrate(); await h.service.onSignedIn(A); vi.useFakeTimers();
+    h.failNext(); await h.cache.setGlobalOn(false); await settle(); expect(vi.getTimerCount()).toBe(1);
+    await h.service.signOut(); h.cache.watch()(); const calls = h.invoke.mock.calls.length;
+    expect(h.subscriptions()).toBe(0); expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(60_000); await h.cache.setService("youtube", false); await settle();
+    expect(h.invoke.mock.calls).toHaveLength(calls); expect(h.requests).toHaveLength(1); expect(vi.getTimerCount()).toBe(0);
+  });
+  it("64 committed operations drain despite a held 65th choice and survive cache restart", async () => {
+    const h = harness("never-linked", true); await h.cache.hydrate();
+    for (let i = 0; i < 65; i++) await h.cache.setGlobalOn(i % 2 !== 0);
+    expect(h.cache.currentRecord().atomic).toMatchObject({ paused: "pending-limit", held: { globalOn: false } });
+    const original = structuredClone(h.cache.currentRecord().atomic!.pending);
+    expect(original).toHaveLength(64);
+    await h.service.onSignedIn(A);
+    expect(h.requests).toHaveLength(64);
+    expect(h.requests.map(r => (r as { writeId: string }).writeId)).toEqual(original.map(p => p.writeId));
+    expect(h.cache.currentRecord().atomic!.pending).toEqual([]);
+    const restarted = new SettingsCache({ get: () => h.storage.get(), set: r => h.storage.set(r), subscribe: h.storage.subscribe.bind(h.storage) });
+    await restarted.hydrate(); expect(restarted.current().globalOn).toBe(false);
+    expect(h.service.getState().pendingUpload).toBe(true); // unresolved unranked choice is retained
+    await h.cache.setGlobalOn(true); await settle();
+    expect(h.cache.currentRecord().atomic).toMatchObject({ paused: null, held: {} });
+    expect(h.service.getState().pendingUpload).toBe(false); expect(h.requests).toHaveLength(64);
+    await h.service.signOut(); h.cache.watch()(); expect(h.subscriptions()).toBe(0);
+  });
   it("one idle realtime nudge performs one authenticated read and one durable acknowledgement", async () => {
     const h = harness(); await h.cache.hydrate(); await h.service.onSignedIn(A);
     const reads = h.reads(), sequence = h.cache.currentRecord().atomic!.sequence;
@@ -174,16 +262,14 @@ describe("existing SyncService and exact Supabase modern port", () => {
     expect(h.service.getState().pendingUpload).toBe(false);
     await h.service.signOut();
   });
-  it("old RPC acknowledgement cannot erase newer step; saved retry body is not rebased", async () => {
+  it("old RPC acknowledgement preserves a newer step with its captured receipt", async () => {
     const h = harness(); await h.cache.hydrate(); await h.service.onSignedIn(A);
     const held = h.hold();
     await h.cache.setGlobalOn(false); await held.started;
     await h.cache.setGlobalOn(true);
-    const original = JSON.stringify(h.requests[0]);
     held.release(); await drain();
     expect(h.cache.current().globalOn).toBe(true);
     expect(h.requests).toHaveLength(2);
-    expect(JSON.stringify(h.requests[0])).toBe(original);
     expect(h.requests[1]).toMatchObject({ receipt: { revision: 1 }, operations: [{ value: true, baseRevision: 1, localStep: 2 }] });
     expect(h.cache.currentRecord().atomic!.pending).toEqual([]);
     await h.service.signOut();

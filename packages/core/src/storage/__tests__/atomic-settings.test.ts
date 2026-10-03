@@ -33,6 +33,41 @@ function canonical(record: StoredSettingsRecord, revision: number): CanonicalSet
     receipt: { version: 1, lineage: LINEAGE, revision, mac: "A".repeat(43) } };
 }
 describe("existing cache and serialized complete-record authority", () => {
+  it("a pre-anchor hold resolves after acknowledgement and a deliberate later edit", async () => {
+    const h = authority(); await h.writer.initialize("never-linked");
+    const linked = await h.writer.enterScope(A);
+    await h.writer.commit({ path: "globalOn", value: false, updatedAt: 10 });
+    const account = { ...linked, settings: { ...linked.settings, globalOn: false } };
+    await h.writer.acknowledge(canonical(account, 1), linked.atomic!.scope);
+    const saved = await h.writer.commit({ path: "globalOn", value: true, updatedAt: 11 });
+    expect(saved.atomic).toMatchObject({ paused: null, held: {} });
+    expect(pendingSettingsRequest(saved.atomic!.pending[0]!, saved.atomic!)).toMatchObject({ receipt: { revision: 1 }, operations: [{ value: true, localStep: 1 }] });
+  });
+  it.each([A, B])("prior-account held choices do not overlay a nonempty replacement scope (%s)", async account => {
+    const h = authority(); await h.writer.initialize("unknown");
+    const cache = new SettingsCache(h.port, { now: () => 10 }); await cache.hydrate();
+    await cache.setGlobalOn(false); const first = await cache.enterAtomicScope(A);
+    const defaults = authority(); const baseline = await defaults.writer.initialize("unknown");
+    await cache.acknowledgeAtomic({ ...canonical(baseline, 0), empty: true }, first);
+    expect(cache.current().globalOn).toBe(false);
+    const replacement = await cache.enterAtomicScope(account);
+    await cache.acknowledgeAtomic(canonical(baseline, 1), replacement);
+    expect(cache.current().globalOn).toBe(true);
+    expect(cache.currentRecord().atomic).toMatchObject({ paused: null, held: {} });
+  });
+  it("an undelivered old A generation stays durable and inactive after A-null-B-null-A", async () => {
+    const h = authority(); await h.writer.initialize("unknown");
+    const linked = await h.writer.enterScope(A); const row = canonical(linked, 1);
+    await h.writer.acknowledge(row, linked.atomic!.scope);
+    const sent = await h.writer.commit({ path: "globalOn", value: false, updatedAt: 10 });
+    const original = structuredClone(sent.atomic!.pending);
+    await h.writer.enterScope(null); await h.writer.enterScope(B); await h.writer.enterScope(null);
+    const current = await h.writer.enterScope(A);
+    const resolved = await h.writer.acknowledge(row, current.atomic!.scope);
+    expect(resolved.settings.globalOn).toBe(true);
+    expect(resolved.atomic!.pending).toEqual(original);
+    expect(pendingSettingsRequest(original[0]!, resolved.atomic!)).toBeNull();
+  });
   it("bounded broker denies content hosts and malformed actions before allocation", async () => {
     const h = authority(); await h.writer.initialize("unknown");
     const commit = vi.fn(h.writer.commit.bind(h.writer));
@@ -219,6 +254,99 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
       expect(saved.atomic!.pending).toHaveLength(3);
       expect(new Set(saved.atomic!.pending.map(p => p.writeId)).size).toBe(3);
     } finally { await Promise.all([first.close(), peer.close()]); }
+  });
+  it("characterizes near-bound native persistence and live-holder contention on the macOS test host", async () => {
+    const directory = join(temporary, "native-latency"); const native = host(directory);
+    let holder: ReturnType<typeof spawn> | undefined;
+    try {
+      await native.post("seed"); const record = (await native.adapter.get())!;
+      const padded = { ...record, padding: Object.fromEntries(Array.from({ length: 15 }, (_, i) => [`p${i}`, "x".repeat(8_192)])) };
+      const bytes = JSON.stringify(padded); expect(Buffer.byteLength(bytes)).toBeGreaterThan(120_000);
+      expect(Buffer.byteLength(bytes)).toBeLessThan(131_072); await native.post("replace:" + bytes);
+      const reads: number[] = [], writes: number[] = [];
+      for (let i = 0; i < 20; i++) {
+        let began = performance.now(); await native.adapter.get(); reads.push(performance.now() - began);
+        began = performance.now(); await native.adapter.commitIntent({ path: "globalOn", value: i % 2 !== 0, updatedAt: 10 + i }); writes.push(performance.now() - began);
+      }
+      holder = spawn(binary, [directory, "hold"], { stdio: ["ignore", "pipe", "pipe"] });
+      const exit = new Promise<void>((resolveExit, reject) => { holder!.once("exit", code => code === 0 ? resolveExit() : reject(new Error("holder failed"))); });
+      await new Promise<void>(resolveHolding => holder!.stdout!.once("data", () => resolveHolding()));
+      const began = performance.now(); await native.adapter.get(); const contention = performance.now() - began; await exit;
+      expect(contention).toBeGreaterThan(100);
+      expect((await native.adapter.get())!.atomic!.pending).toHaveLength(20);
+      expect((await readdir(directory)).filter(name => name.endsWith(".tmp"))).toEqual([]);
+      const p95 = (samples: number[]) => samples.toSorted((a, b) => a - b)[Math.ceil(samples.length * .95) - 1];
+      process.stdout.write("native-temporary-file-characterization " + JSON.stringify({ bytes: Buffer.byteLength(bytes), samples: 20,
+        readP95Ms: p95(reads), commitP95Ms: p95(writes), liveHolderMs: contention, platform: process.platform }) + "\n");
+    } finally {
+      if (holder && holder.exitCode === null && holder.signalCode === null) { holder.kill("SIGKILL"); await new Promise(r => holder!.once("exit", r)); }
+      await native.close();
+    }
+  });
+  it("compiled native acknowledgement validates damaged and future local documents without losing bytes", async () => {
+    const native = host(join(temporary, "native-damage"));
+    try {
+      await native.post("seed"); const initial = (await native.adapter.get())!;
+      const linked = await native.adapter.enterScope(A);
+      const envelope = { ...canonical(initial, 0), empty: true };
+      for (const variant of ["future", "boolean", "missing", "legacy"] as const) {
+        const corrupted = structuredClone(linked) as unknown as { settings: Record<string, unknown> };
+        if (variant === "future") corrupted.settings.schemaVersion = 99;
+        if (variant === "boolean") corrupted.settings.globalOn = 1;
+        if (variant === "missing") delete corrupted.settings.globalOn;
+        if (variant === "legacy") { delete corrupted.settings.schemaVersion; delete corrupted.settings.clocks; delete corrupted.settings.sites; }
+        const bytes = JSON.stringify(corrupted); await native.post("replace:" + bytes);
+        await expect(native.adapter.acknowledgeAtomic(envelope, linked.atomic!.scope)).rejects.toThrow();
+        expect(await native.post({ kind: "get" })).toBe(bytes);
+      }
+    } finally { await native.close(); }
+  });
+  it("compiled native pre-anchor and pending-limit holds recover with original ranks", async () => {
+    const native = host(join(temporary, "native-recovery"));
+    try {
+      await native.post("seed:never-linked"); const linked = await native.adapter.enterScope(A);
+      await native.adapter.commitIntent({ path: "globalOn", value: false, updatedAt: 10 });
+      await native.adapter.acknowledgeAtomic(canonical({ ...linked, settings: { ...linked.settings, globalOn: false } }, 1), linked.atomic!.scope);
+      const resolved = await native.adapter.commitIntent({ path: "globalOn", value: true, updatedAt: 11 });
+      expect(resolved.atomic).toMatchObject({ paused: null, held: {} });
+      const before = structuredClone(resolved.atomic!.pending);
+      for (let i = 0; i < 63; i++) await native.adapter.commitIntent({ path: "globalOn", value: i % 2 !== 0, updatedAt: 12 + i });
+      const held = await native.adapter.commitIntent({ path: "globalOn", value: true, updatedAt: 90 });
+      expect(held.atomic).toMatchObject({ paused: "pending-limit", held: { globalOn: true } });
+      expect(held.atomic!.pending).toHaveLength(64); expect(held.atomic!.pending[0]).toEqual(before[0]);
+      const pending = structuredClone(held.atomic!.pending);
+      const ack = await native.adapter.acknowledgeAtomic(canonical(held, 2), linked.atomic!.scope);
+      expect(ack.atomic!.pending).toEqual([]);
+      expect(ack.atomic!.held).toEqual({ globalOn: true });
+      const committed = await native.adapter.commitIntent({ path: "globalOn", value: false, updatedAt: 91 });
+      expect(committed.atomic).toMatchObject({ paused: null, held: {} });
+      expect(pending[0]).toEqual(before[0]);
+    } finally { await native.close(); }
+  });
+  it("compiled native replacement adoption removes old overlays and cannot revive an old A generation", async () => {
+    const native = host(join(temporary, "native-generation"));
+    try {
+      await native.post("seed"); const baseline = (await native.adapter.get())!;
+      const cache = new SettingsCache(native.adapter, { now: () => 10 }); await cache.hydrate();
+      await cache.setGlobalOn(false); const first = await cache.enterAtomicScope(A);
+      await cache.acknowledgeAtomic({ ...canonical(baseline, 0), empty: true }, first);
+      expect(cache.current().globalOn).toBe(false);
+      const sameA = await cache.enterAtomicScope(A); await cache.acknowledgeAtomic(canonical(baseline, 1), sameA);
+      expect(cache.current().globalOn).toBe(true); expect(cache.currentRecord().atomic!.held).toEqual({});
+      await cache.setGlobalOn(false);
+      await cache.enterAtomicScope(null); const replacement = await cache.enterAtomicScope(B);
+      await cache.acknowledgeAtomic(canonical(baseline, 1), replacement);
+      expect(cache.current().globalOn).toBe(true); expect(cache.currentRecord().atomic!.held).toEqual({});
+      await cache.enterAtomicScope(null); const scopeA = await cache.enterAtomicScope(A);
+      await cache.acknowledgeAtomic(canonical(baseline, 1), scopeA);
+      await cache.setGlobalOn(false); const original = structuredClone(cache.currentRecord().atomic!.pending);
+      await cache.enterAtomicScope(null); await cache.enterAtomicScope(B); await cache.enterAtomicScope(null);
+      const laterA = await cache.enterAtomicScope(A);
+      await cache.acknowledgeAtomic(canonical(baseline, 1), laterA);
+      expect(cache.current().globalOn).toBe(true);
+      expect(cache.currentRecord().atomic!.pending).toEqual(original);
+      expect(original.map(p => pendingSettingsRequest(p, cache.currentRecord().atomic!)).filter(Boolean)).toEqual([]);
+    } finally { await native.close(); }
   });
   it("Safari popup/content startup rereads native authority after reversed direct replies", async () => {
     const { createAppGroupReconciler } = await import(resolve(import.meta.dirname, "../../../../ext-safari/lib/app-group-reconcile.ts")) as {

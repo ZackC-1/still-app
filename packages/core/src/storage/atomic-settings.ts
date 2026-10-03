@@ -88,6 +88,11 @@ export function requireModernSettings(record: StoredSettingsRecord): SettingsV2 
 function projection(settings: SettingsV2): StoredSettingsRecord["settings"] {
   return { ...settings, pauses: [] };
 }
+function resolvedPause(state: AtomicSettingsState, held: AtomicSettingsState["held"]): string | null {
+  if (Object.keys(held).length === 0 && (state.scope.accountId === null || state.anchor !== null) &&
+    ["awaiting-anchor", "ownership-hold", "pending-limit", "ordering-hold"].includes(state.paused ?? "")) return null;
+  return state.paused;
+}
 
 /** One serialized writer around the EXISTING storage value. Hosts never allocate from a cache. */
 export class AtomicSettingsWriter {
@@ -141,13 +146,13 @@ export class AtomicSettingsWriter {
         delete held[intent.path];
         const writeId = this.uuid();
         if (state.pending.some(p => p.writeId === writeId)) throw new SettingsStorageRecovery("write-id-conflict");
-        atomic = { ...state, sequence: state.sequence + 1, held, paused: state.paused === "ownership-hold" && Object.keys(held).length === 0 ? null : state.paused, pending: [...state.pending, {
+        atomic = { ...state, sequence: state.sequence + 1, held, paused: resolvedPause(state, held), pending: [...state.pending, {
           writeId, scope: state.scope, receipt: state.anchor,
           operations: [{ path: intent.path, value: intent.value, baseRevision: edit.field.stamp.baseRevision, localStep: edit.field.stamp.localStep }],
         }] };
       } else if (edit.status === "unchanged") {
         const held = { ...state.held }; delete held[intent.path];
-        atomic = { ...state, sequence: state.sequence + 1, held, paused: state.paused !== "ownership-unconfirmed" && Object.keys(held).length === 0 && state.pending.length < 64 ? null : state.paused };
+        atomic = { ...state, sequence: state.sequence + 1, held, paused: resolvedPause(state, held) };
       } else {
         let paused: string;
         if (state.paused === "ownership-unconfirmed") paused = state.paused;
@@ -173,7 +178,7 @@ export class AtomicSettingsWriter {
         // Prior operations remain durable provenance but cannot upload into a replacement scope.
         pending: state.ownership === "never-linked" && state.scope.accountId === null && accountId !== null
           ? state.pending.map(p => ({ ...p, originScope: p.scope, scope: { accountId, generation: state.scope.generation + 1 } }))
-          : state.pending, paused: accountId !== null && state.ownership !== "never-linked" && state.scope.accountId !== accountId ? "ownership-unconfirmed" : state.paused,
+          : state.pending, paused: accountId !== null && state.ownership !== "never-linked" ? "ownership-unconfirmed" : state.paused,
       } };
       await this.adapter.set(structuredClone(next));
       return next;
@@ -189,7 +194,10 @@ export class AtomicSettingsWriter {
       const receipt = readSettingsReceipt(envelope.receipt);
       if (!receipt || receipt.lineage !== envelope.lineage || receipt.revision !== envelope.version ||
         (state.anchor && (state.anchor.lineage !== envelope.lineage || receipt.revision < state.anchor.revision))) throw new SettingsStorageRecovery("invalid-anchor");
-      const canonical = requireModernSettings({ settings: envelope.settings, syncMetadata: null });
+      const migrated = migrateSettingsV2(envelope.settings, { kind: "acknowledged-account", revision: receipt.revision, provenInitialization: envelope.empty });
+      if (migrated.status !== "ready" || SETTINGS_FIELDS.some(path => migrated.settings.clocks[path].baseRevision > receipt.revision))
+        throw new SettingsStorageRecovery("invalid-canonical-settings");
+      const canonical = migrated.settings;
       let settings = requireModernSettings(current);
       settings = { ...settings, ...canonical, services: { ...settings.services, ...canonical.services },
         sites: { ...settings.sites, ...canonical.sites }, clocks: { ...settings.clocks, ...canonical.clocks } };
@@ -197,7 +205,7 @@ export class AtomicSettingsWriter {
       const original = requireModernSettings(current);
       for (const path of SETTINGS_FIELDS) clocks[path] = { ...original.clocks[path], ...canonical.clocks[path] };
       for (const p of state.pending) {
-        if (p.scope.accountId !== captured.accountId) continue;
+        if (!sameSettingsScope(p.scope, captured)) continue;
         for (const op of p.operations) {
           const winner = mergeSettingsField({ value: settingsFieldValue(settings, op.path), stamp: clocks[op.path] },
             { value: op.value, stamp: { ...clocks[op.path], baseRevision: op.baseRevision, localStep: op.localStep } });
@@ -206,12 +214,12 @@ export class AtomicSettingsWriter {
         }
       }
       settings = { ...settings, clocks };
-      const pending = state.pending.filter((p) => p.scope.accountId !== captured.accountId || p.operations.some((op) => {
+      const pending = state.pending.filter((p) => !sameSettingsScope(p.scope, captured) || p.operations.some((op) => {
         const remote = { value: settingsFieldValue(canonical, op.path), stamp: canonical.clocks[op.path] };
         const local = { value: op.value, stamp: { baseRevision: op.baseRevision, localStep: op.localStep } };
         return pendingSettingsFieldAfterAck(local, remote) !== null;
       }));
-      const bound = pending.map(p => p.scope.accountId === captured.accountId && p.receipt === null && p.originScope?.accountId === null
+      const bound = pending.map(p => sameSettingsScope(p.scope, captured) && p.receipt === null && p.originScope?.accountId === null
         ? { ...p, receipt } : p);
       const held = { ...state.held };
       let paused = state.paused;
@@ -223,7 +231,11 @@ export class AtomicSettingsWriter {
           if (local !== settingsFieldValue(settings, path)) held[path] = local;
           else delete held[path];
         }
+        else for (const path of SETTINGS_FIELDS) delete held[path];
         paused = Object.keys(held).length > 0 ? "ownership-hold" : null;
+      } else if (["awaiting-anchor", "pending-limit", "ownership-hold"].includes(paused ?? "")) {
+        for (const path of SETTINGS_FIELDS) if (held[path] === settingsFieldValue(settings, path)) delete held[path];
+        paused = resolvedPause({ ...state, anchor: receipt }, held);
       }
       const next: StoredSettingsRecord = { ...current, settings: projection(settings), syncMetadata: envelope.serverUpdatedAt === null ? null : {
         version: envelope.version, serverUpdatedAt: envelope.serverUpdatedAt, lastWriteId: envelope.lastWriteId,
@@ -262,7 +274,7 @@ export class AtomicSettingsWriter {
 
 /** Retry constructs exactly the saved body. Receipt/rank is never rebased on receiving time. */
 export function pendingSettingsRequest(pending: PendingSettingsIntent, state: AtomicSettingsState): UntrustedSettingsOperationRequest | null {
-  if (pending.scope.accountId !== state.scope.accountId || !pending.receipt) return null;
+  if (!sameSettingsScope(pending.scope, state.scope) || !pending.receipt) return null;
   const parsed = readSettingsOperationRequest({ protocol: 2, writeId: pending.writeId, expectedLineage: pending.receipt.lineage,
     receipt: pending.receipt, operations: pending.operations });
   return parsed.status === "parsed" ? parsed.request : null;

@@ -15,7 +15,8 @@ import type {
 // point to harden (e.g. depth / __proto__ checks) if needed.
 
 /** Coerce a value (a parsed object or a JSON string) into StillSettings, or null if it isn't the
- * expected shape. Reconstructs from a whitelist so unknown fields cannot ride along. */
+ * expected shape. Legacy inputs use a whitelist; supported modern inputs preserve bounded unknown
+ * fields through migration. Both branches normalize retired pauses to an empty projection. */
 export function parseSettings(value: unknown): StillSettings | null {
   if (value == null || value === "") return null;
   const obj: unknown = typeof value === "string" ? safeParse(value) : value;

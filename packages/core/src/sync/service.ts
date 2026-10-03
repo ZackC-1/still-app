@@ -888,7 +888,7 @@ export class SyncService {
       if (lifecycle !== this.lifecycle) return;
       const state = this.cache.currentRecord().atomic;
       if (!state) return;
-      if (state.paused) { this.recordExchange(true); return; }
+      if (state.paused && state.paused !== "pending-limit") { this.recordExchange(true); return; }
       const request = state.pending.map(p => pendingSettingsRequest(p, state)).find(p => p !== null);
       if (!request) { this.recordExchange(Object.keys(state.held).length > 0); return; }
       this.latestWriteId = request.writeId;

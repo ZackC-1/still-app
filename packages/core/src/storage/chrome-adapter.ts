@@ -4,22 +4,48 @@ import { AtomicSettingsWriter, SettingsStorageRecovery, type AtomicSettingsState
 import { settingsIntentMessage } from "./settings-messages.js";
 
 const STORAGE_KEY = "still:settings";
+// Reuse the existing mirror transaction for auxiliary replies in this host. It never allocates
+// intent; only native records can enter this projection, and Safari reads remain authoritative.
+const nativeProjections = new WeakMap<object, AtomicSettingsWriter>();
 export interface ChromeSettingsAuthorityOptions {
   readonly authority?: boolean;
   /** Safari background maintains only an auxiliary projection of the authoritative native store. */
   readonly nativeMirror?: boolean;
   /** Safari directly calls its native authority so an asleep background never gates free edits. */
   readonly nativeIntent?: (intent: SettingsIntent) => Promise<StoredSettingsRecord>;
+  readonly onProjectionFailure?: () => void;
 }
 export class ChromeStorageAdapter implements StorageAdapter {
   private readonly writer: AtomicSettingsWriter | null;
+  private projectionRetry: Promise<void> | null = null;
   constructor(private readonly options: ChromeSettingsAuthorityOptions = {}) {
-    this.writer = options.authority ? new AtomicSettingsWriter({
+    this.writer = options.authority ? (options.nativeMirror ? nativeProjections.get(chrome.storage.local) : undefined) ?? new AtomicSettingsWriter({
       get: () => this.getProjection(), set: record => this.write(record), subscribe: listener => this.subscribe(listener),
     }) : null;
+    if (options.nativeMirror && this.writer) nativeProjections.set(chrome.storage.local, this.writer);
   }
   private isSafari(): boolean { return chrome.runtime?.getURL?.("").startsWith("safari-web-extension:") ?? false; }
   async get(): Promise<StoredSettingsRecord | null> {
+    return this.getAuthoritative();
+  }
+  private async bounded<T>(operation: Promise<T>, signal?: AbortSignal): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let cancel = () => {};
+    try {
+      return await Promise.race([operation, new Promise<never>((_resolve, reject) => {
+        cancel = () => reject(new SettingsStorageRecovery("native-authority-unavailable"));
+        timer = setTimeout(cancel, 8_000);
+        signal?.addEventListener("abort", cancel, { once: true });
+        if (signal?.aborted) cancel();
+      })]);
+    } catch {
+      throw new SettingsStorageRecovery("native-authority-unavailable");
+    } finally {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", cancel);
+    }
+  }
+  private async getAuthoritative(signal?: AbortSignal): Promise<StoredSettingsRecord | null> {
     if (!this.isSafari() || this.options.nativeMirror) return this.getProjection();
     try {
       const operation = globalThis.location?.protocol === "safari-web-extension:"
@@ -32,13 +58,9 @@ export class ChromeStorageAdapter implements StorageAdapter {
           if (!record) throw new SettingsStorageRecovery("native-authority-unavailable");
           return record;
         });
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        return await Promise.race([operation, new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => reject(new SettingsStorageRecovery("native-authority-unavailable")), 8_000);
-        })]);
-      } finally { clearTimeout(timer); }
+      return await this.bounded(operation, signal);
     } catch {
+      if (signal?.aborted) throw new SettingsStorageRecovery("native-authority-unavailable");
       // Auxiliary browser bytes may support last-known local blocking, never confirm canonical
       // account state. Recovery stays typed so sync cannot treat this as a fresh successful read.
       throw new SettingsStorageRecovery("native-authority-unavailable", await this.getProjection());
@@ -76,17 +98,16 @@ export class ChromeStorageAdapter implements StorageAdapter {
   }
   async commitIntent(intent: SettingsIntent): Promise<StoredSettingsRecord> {
     if (this.options.nativeIntent) {
-      const record = await this.options.nativeIntent(intent);
-      const { intentCommitted: _committed, ...persisted } = record;
-      await this.write(persisted); // auxiliary projection/change signal; Safari readers reread native authority
+      const record = await this.bounded(this.options.nativeIntent(intent));
+      if (!parseStoredSettingsRecord(record)) throw new SettingsStorageRecovery("invalid-commit");
+      await this.publishNative(record);
       return record;
     }
     if (chrome.runtime.getURL("").startsWith("safari-web-extension:")) {
-      const reply: unknown = await chrome.runtime.sendNativeMessage("com.chartash.still", { kind: "settingsIntent", ...intent });
+      const reply: unknown = await this.bounded(chrome.runtime.sendNativeMessage("com.chartash.still", { kind: "settingsIntent", ...intent }));
       const record = reply && typeof reply === "object" ? parseSettingsIntentReply((reply as { settings?: unknown }).settings) : null;
       if (!record) throw new SettingsStorageRecovery("native-authority-unavailable");
-      const { intentCommitted: _committed, ...persisted } = record;
-      await this.write(persisted);
+      await this.publishNative(record);
       return record;
     }
     if (this.writer) return this.writer.commit(intent);
@@ -112,8 +133,29 @@ export class ChromeStorageAdapter implements StorageAdapter {
   private async write(record: StoredSettingsRecord): Promise<void> {
     await chrome.storage.local.set({ [STORAGE_KEY]: record });
   }
+  private mirrorNative(record: StoredSettingsRecord): Promise<StoredSettingsRecord> {
+    const area = chrome.storage.local;
+    let writer = nativeProjections.get(area);
+    if (!writer) {
+      writer = new AtomicSettingsWriter({ get: () => this.getProjection(), set: value => this.write(value), subscribe: () => () => {} });
+      nativeProjections.set(area, writer);
+    }
+    const { intentCommitted: _committed, ...persisted } = record;
+    return writer.mirror(persisted);
+  }
+  private async publishNative(record: StoredSettingsRecord): Promise<void> {
+    try { await this.mirrorNative(record); }
+    catch {
+      try { this.options.onProjectionFailure?.(); } catch { /* diagnostics cannot hide a native commit */ }
+      if (!this.isSafari()) return;
+      // One bounded authority reread/retry, never replay the already accepted intent.
+      this.projectionRetry ??= this.get().then(async latest => { if (latest) await this.mirrorNative(latest); })
+        .catch(() => undefined).finally(() => { this.projectionRetry = null; });
+    }
+  }
   subscribe(listener: (record: StoredSettingsRecord) => void): () => void {
     let active = true;
+    const reads = new AbortController();
     const handler = (changes: Record<string, chrome.storage.StorageChange>, areaName: string): void => {
       if (areaName !== "local") return;
       const change = changes[STORAGE_KEY];
@@ -122,10 +164,10 @@ export class ChromeStorageAdapter implements StorageAdapter {
       if (this.isSafari() && !this.options.nativeMirror) {
         // Projection writes are change signals. Reread the actual native authority, including
         // after an obsolete direct reply; no background wake is needed for an extension page.
-        void this.get().then(current => { if (active && current) listener(current); }, () => undefined);
+        void this.getAuthoritative(reads.signal).then(current => { if (active && current) listener(current); }, () => undefined);
       } else listener(record);
     };
     chrome.storage.onChanged.addListener(handler);
-    return () => { active = false; chrome.storage.onChanged.removeListener(handler); };
+    return () => { active = false; reads.abort(); chrome.storage.onChanged.removeListener(handler); };
   }
 }
