@@ -24,14 +24,13 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
 
     @IBOutlet var webView: WKWebView!
 
-    // The App-Group settings bridge (U17). Held directly (not just inside the router) so the Darwin
-    // observer below can re-read the stored record when the Safari extension writes settings. The
-    // store falls back to in-memory if the App Group isn't provisioned, so the UI still launches.
-    private let settingsBridge = SettingsBridge(store: .appGroup())
+    // Router requests and Darwin/foreground rereads share one off-main serial settings lane.
+    private let settingsExecutor = SettingsExecutor.appHost
+    private var settingsObserver: SettingsReadObserver?
 
     // Routes web messages to native: the App-Group settings bridge (U17) plus the U19 auth/purchase
     // actions.
-    private lazy var router = WebBridgeRouter(settings: settingsBridge)
+    private lazy var router = WebBridgeRouter(settings: settingsExecutor)
 
     // The block-based didBecomeActive observer's token — NotificationCenter retains the block, and
     // removeObserver(self) does NOT deregister a block observer, so the token is the only handle
@@ -90,11 +89,6 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
     }
 
     deinit {
-        CFNotificationCenterRemoveObserver(
-            CFNotificationCenterGetDarwinNotifyCenter(),
-            Unmanaged.passUnretained(self).toOpaque(),
-            CFNotificationName(StillSettingsChangedNotification.name as CFString),
-            nil)
         if let token = didBecomeActiveToken {
             NotificationCenter.default.removeObserver(token)
         }
@@ -115,19 +109,10 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
     // The app's own writes echo through both paths too; harmless, because the web SettingsCache
     // dedupes incoming records by updatedAt/version, so an unchanged record no-ops (no feedback loop).
     private func observeExternalSettingsChanges() {
-        CFNotificationCenterAddObserver(
-            CFNotificationCenterGetDarwinNotifyCenter(),
-            Unmanaged.passUnretained(self).toOpaque(),
-            { _, observer, _, _, _ in
-                // C-function context: no captures allowed. Recover self from the observer pointer
-                // and hop to the main actor before touching the web view.
-                guard let observer else { return }
-                let controller = Unmanaged<ViewController>.fromOpaque(observer).takeUnretainedValue()
-                Task { @MainActor in controller.pushStoredSettingsToWeb() }
-            },
-            StillSettingsChangedNotification.name as CFString,
-            nil,
-            .deliverImmediately)
+        settingsObserver = SettingsReadObserver(
+            executor: settingsExecutor,
+            darwinNotificationName: StillSettingsChangedNotification.name
+        ) { [weak self] json in self?.publishStoredSettingsToWeb(json) }
 
         #if os(iOS)
         let becameActive = UIApplication.didBecomeActiveNotification
@@ -152,7 +137,10 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
     /// structured callAsyncJavaScript argument, never concatenated into script source. Guarded so it
     /// no-ops when nothing is stored yet or the page hasn't installed __stillApplyRemote.
     private func pushStoredSettingsToWeb() {
-        let json = settingsBridge.handle(.get)
+        settingsObserver?.refresh()
+    }
+
+    private func publishStoredSettingsToWeb(_ json: String) {
         guard !json.isEmpty else { return }
         // The record travels as the JSON STRING the bridge already returns, bound to `record` via
         // callAsyncJavaScript's arguments dictionary: the web side's parseStoredSettingsRecord sees
