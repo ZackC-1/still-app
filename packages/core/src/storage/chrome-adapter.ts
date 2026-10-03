@@ -122,9 +122,9 @@ export class ChromeStorageAdapter implements StorageAdapter {
     if (!this.writer) return Promise.reject(new SettingsStorageRecovery("authority-unavailable"));
     return this.writer.initialize(ownership);
   }
-  enterScope(accountId: string | null): Promise<StoredSettingsRecord> {
+  enterScope(accountId: string | null, sessionId?: string): Promise<StoredSettingsRecord> {
     if (!this.writer) return Promise.reject(new SettingsStorageRecovery("authority-unavailable"));
-    return this.writer.enterScope(accountId);
+    return this.writer.enterScope(accountId, sessionId);
   }
   acknowledgeAtomic(envelope: CanonicalSettingsEnvelope, scope: SettingsScope): Promise<StoredSettingsRecord> {
     if (!this.writer) return Promise.reject(new SettingsStorageRecovery("authority-unavailable"));

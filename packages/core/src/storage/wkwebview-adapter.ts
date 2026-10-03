@@ -58,8 +58,8 @@ export class WKWebViewStorageAdapter implements StorageAdapter {
   initializeAtomic(ownership: AtomicSettingsState["ownership"]): Promise<StoredSettingsRecord> {
     return this.atomicCommand({ action: "initialize", ownership });
   }
-  enterScope(accountId: string | null): Promise<StoredSettingsRecord> {
-    return this.atomicCommand({ action: "scope", accountId });
+  enterScope(accountId: string | null, sessionId?: string): Promise<StoredSettingsRecord> {
+    return this.atomicCommand({ action: "scope", accountId, ...(sessionId ? { sessionId } : {}) });
   }
   acknowledgeAtomic(envelope: CanonicalSettingsEnvelope, scope: SettingsScope): Promise<StoredSettingsRecord> {
     return this.atomicCommand({ action: "acknowledge", envelope, scope });

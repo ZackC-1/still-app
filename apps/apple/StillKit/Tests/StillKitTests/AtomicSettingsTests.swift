@@ -25,8 +25,13 @@ final class AtomicSettingsTests: XCTestCase {
   func testSameAccountResumeKeepsCompleteRecordAndExplicitSignoutFencesIt() throws {
     let dir = try directory(); let store = SharedSettingsStore(backing: AtomicSettingsBacking(directory: dir)); try seed(store)
     let account = "11111111-1111-1111-1111-111111111111"
+    let session = "cccccccc-cccc-cccc-cccc-cccccccccccc"
     let initial = try root(XCTUnwrap(store.encodedRecord()))
-    func scope(_ id: Any) throws { _ = try store.atomicCommand(JSONSerialization.data(withJSONObject: ["action": "scope", "accountId": id])) }
+    func scope(_ id: Any) throws {
+      var command: [String: Any] = ["action": "scope", "accountId": id]
+      if id is String { command["sessionId"] = session }
+      _ = try store.atomicCommand(JSONSerialization.data(withJSONObject: command))
+    }
     try scope(account)
     let linked = try root(XCTUnwrap(store.encodedRecord())); let state = try XCTUnwrap(linked["atomic"] as? [String: Any])
     _ = try store.atomicCommand(acknowledgement(XCTUnwrap(initial["settings"]), scope: XCTUnwrap(state["scope"])))
@@ -36,7 +41,7 @@ final class AtomicSettingsTests: XCTestCase {
     XCTAssertEqual((beforeState["pending"] as? [Any])?.count, 64)
     XCTAssertEqual((beforeState["held"] as? [String: Bool])?["globalOn"], false)
     let peer = SharedSettingsStore(backing: AtomicSettingsBacking(directory: dir))
-    _ = try peer.atomicCommand(JSONSerialization.data(withJSONObject: ["action": "scope", "accountId": account]))
+    _ = try peer.atomicCommand(JSONSerialization.data(withJSONObject: ["action": "scope", "accountId": account, "sessionId": session]))
     XCTAssertEqual(peer.encodedRecord(), before)
     try scope(NSNull()); let signedOut = try root(XCTUnwrap(store.encodedRecord()))
     XCTAssertEqual((signedOut["atomic"] as? [String: Any])?["pending"] as? [String], [])

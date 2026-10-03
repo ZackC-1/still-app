@@ -202,4 +202,16 @@ export class SupabaseAuthPort implements AuthPort, CodeAuthPort {
     const { data } = await this.client.auth.getUser();
     return data.user?.id ?? null;
   }
+
+  async currentSettingsSession(): Promise<{ userId: string; sessionId: string } | null> {
+    // The SDK verifies claims (including expiry/signature or its authenticated getUser fallback).
+    // A refreshed access token retains session_id; a new login for the same subject does not.
+    const { data, error } = await this.client.auth.getClaims();
+    if (error || !data) return null;
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+    const userId: unknown = data.claims.sub, sessionId: unknown = data.claims.session_id;
+    return typeof userId === "string" && userId.length === 36 && uuid.test(userId) &&
+      typeof sessionId === "string" && sessionId.length === 36 && uuid.test(sessionId)
+      ? { userId, sessionId } : null;
+  }
 }

@@ -205,9 +205,9 @@ export class SettingsCache {
     return this.commitIntent(`sites.${id}`, on);
   }
 
-  async enterAtomicScope(accountId: string | null): Promise<SettingsScope> {
+  async enterAtomicScope(accountId: string | null, sessionId?: string): Promise<SettingsScope> {
     if (!this.adapter.enterScope) throw new Error("Atomic settings authority unavailable");
-    const record = await this.adapter.enterScope(accountId);
+    const record = await this.adapter.enterScope(accountId, sessionId);
     this.acceptCommitted(record, "synced");
     return record.atomic!.scope;
   }

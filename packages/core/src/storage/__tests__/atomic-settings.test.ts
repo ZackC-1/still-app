@@ -19,6 +19,7 @@ import { createSettingsIntentRouter } from "../settings-messages.js";
 const A = "11111111-1111-1111-1111-111111111111";
 const B = "22222222-2222-2222-2222-222222222222";
 const LINEAGE = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
+const SESSION = "cccccccc-cccc-cccc-cccc-cccccccccccc";
 function authority() {
   const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 1 });
   const writer = new AtomicSettingsWriter(storage);
@@ -33,6 +34,24 @@ function canonical(record: StoredSettingsRecord, revision: number): CanonicalSet
     receipt: { version: 1, lineage: LINEAGE, revision, mac: "A".repeat(43) } };
 }
 describe("existing cache and serialized complete-record authority", () => {
+  it.each(["mirror", "replace"] as const)("%s orders legacy records by epoch, metadata version, then timestamp", async operation => {
+    const current = { settings: { ...DEFAULT_SETTINGS, globalOn: false, updatedAt: 11 }, syncEpoch: 2,
+      syncMetadata: { version: 3, serverUpdatedAt: "2026-10-02T00:00:00Z", lastWriteId: A }, opaque: { preserved: true } };
+    const storage = new InMemoryStorageAdapter(current); const writer = new AtomicSettingsWriter(storage);
+    for (const stale of [
+      { ...current, syncEpoch: 1, settings: { ...current.settings, updatedAt: 999 } },
+      { ...current, syncMetadata: null, settings: { ...current.settings, updatedAt: 999 } },
+      { ...current, syncMetadata: { ...current.syncMetadata, version: 2 }, settings: { ...current.settings, updatedAt: 999 } },
+      { ...current, settings: { ...current.settings, globalOn: true, updatedAt: 10 } },
+    ]) {
+      expect(await writer[operation](stale)).toEqual(current); expect(await storage.get()).toEqual(current);
+    }
+    const newerVersion = { ...current, settings: { ...current.settings, updatedAt: 1 }, syncMetadata: { ...current.syncMetadata, version: 4 } };
+    expect(await writer[operation](newerVersion)).toEqual(newerVersion);
+    const replacementAccount = { ...current, syncEpoch: 3, settings: { ...current.settings, updatedAt: 0 }, syncMetadata: null };
+    expect(await writer[operation](replacementAccount)).toEqual(replacementAccount);
+    expect((await storage.get()) as typeof current).toHaveProperty("opaque", { preserved: true });
+  });
   it("a pre-anchor hold resolves after acknowledgement and a deliberate later edit", async () => {
     const h = authority(); await h.writer.initialize("never-linked");
     const linked = await h.writer.enterScope(A);
@@ -241,17 +260,52 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
       async close() { lines.close(); if (child.exitCode === null && child.signalCode === null) { child.kill("SIGKILL"); await new Promise(r => child.once("exit", r)); } } };
   }
 
+  it("TS and independent native hosts require session provenance and fence a new login for the same UUID", async () => {
+    const h = authority(); const baseline = await h.writer.initialize("unknown");
+    const native = host(join(temporary, "session-provenance")); const peer = host(join(temporary, "session-provenance"));
+    const nextSession = "dddddddd-dddd-dddd-dddd-dddddddddddd";
+    const exercise = async (adapter: typeof h.port | WKWebViewStorageAdapter) => {
+      const linked = await adapter.enterScope(A, SESSION);
+      await adapter.acknowledgeAtomic(canonical(baseline, 1), linked.atomic!.scope);
+      const before = await adapter.commitIntent({ path: "globalOn", value: false, updatedAt: 10 });
+      const immutable = structuredClone(before.atomic!.pending[0]!);
+      expect(await adapter.enterScope(A, SESSION)).toEqual({ ...before, intentCommitted: undefined });
+      const replacement = await adapter.enterScope(A, nextSession);
+      expect(replacement.atomic).toMatchObject({ scope: { accountId: A, sessionId: nextSession, generation: linked.atomic!.scope.generation + 1 },
+        ownership: "previous-account", pending: [] });
+      expect(replacement.settings).toEqual(before.settings);
+      expect(pendingSettingsRequest(immutable, replacement.atomic!)).toBeNull();
+      expect(await adapter.acknowledgeAtomic(canonical(baseline, 9), before.atomic!.scope)).toEqual(replacement);
+      return replacement;
+    };
+    try {
+      await native.post("seed"); const ts = await exercise(h.port); const swift = await exercise(peer.adapter);
+      expect(swift).toEqual(ts);
+      const unknown = structuredClone(ts); delete (unknown.atomic!.scope as { sessionId?: string }).sessionId;
+      await h.storage.set(unknown); await native.post("replace:" + JSON.stringify(unknown));
+      await expect(h.writer.enterScope(A, nextSession)).rejects.toThrow("session-unconfirmed");
+      await expect(peer.adapter.enterScope(A, nextSession)).rejects.toThrow("native-atomic-unavailable");
+      expect(await h.storage.get()).toEqual(unknown); expect(await native.adapter.get()).toEqual(unknown);
+      for (const invalid of ["", SESSION + "\n", "x".repeat(1000), 1]) {
+        await expect(h.writer.enterScope(A, invalid as string)).rejects.toThrow("session-unconfirmed");
+        const reply = await peer.post({ kind: "settingsAtomic", command: JSON.stringify({ action: "scope", accountId: A, sessionId: invalid }) });
+        expect(JSON.parse(reply)).toEqual({ status: "unavailable" });
+        expect(await h.storage.get()).toEqual(unknown); expect(await native.adapter.get()).toEqual(unknown);
+      }
+    } finally { await native.close(); await peer.close(); }
+  });
+
   it.each([A, B])("TS and compiled native resume immutable eligible64, retire obsolete64 and admit current intent (%s)", async account => {
     const h = authority(); await h.writer.initialize("unknown");
     const native = host(join(temporary, "retirement-" + account));
     const peer = host(join(temporary, "retirement-" + account));
     const exercise = async (adapter: typeof h.port | WKWebViewStorageAdapter) => {
-      const initial = (await adapter.get())!; const linked = await adapter.enterScope(A);
+      const initial = (await adapter.get())!; const linked = await adapter.enterScope(A, SESSION);
       await adapter.acknowledgeAtomic(canonical(initial, 1), linked.atomic!.scope);
       for (let i = 0; i < 65; i++) await adapter.commitIntent({ path: "globalOn", value: i % 2 !== 0, updatedAt: 10 + i });
       const before = (await adapter.get())!; const pending = structuredClone(before.atomic!.pending);
       expect(pending).toHaveLength(64); expect(before.atomic!.held).toEqual({ globalOn: false });
-      const resumed = await adapter.enterScope(A);
+      const resumed = await adapter.enterScope(A, SESSION);
       expect(resumed).toEqual(before); // no epoch, anchor, rank, ID or held mutation on process resume
       const acknowledged = await adapter.acknowledgeAtomic(canonical(initial, 1), resumed.atomic!.scope);
       expect(acknowledged.atomic!.pending).toEqual(pending); expect(acknowledged.atomic!.held).toEqual({ globalOn: false });

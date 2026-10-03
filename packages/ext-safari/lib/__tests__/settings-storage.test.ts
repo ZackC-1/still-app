@@ -3,9 +3,10 @@ import { DEFAULT_SETTINGS } from "@still/shared-types";
 import { AtomicSettingsWriter, ChromeStorageAdapter, InMemoryStorageAdapter, SettingsCache,
   type SettingsIntent, type StoredSettingsRecord, SettingsStorageRecovery } from "@still/core/storage";
 
-async function fixture() {
-  const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 1 });
-  const writer = new AtomicSettingsWriter(storage); let projection = await writer.initialize("unknown");
+async function fixture(modern = true) {
+  const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, globalOn: modern, updatedAt: 1 });
+  const writer = new AtomicSettingsWriter(storage);
+  let projection = modern ? await writer.initialize("unknown") : (await storage.get())!;
   const listeners = new Set<(changes: Record<string, chrome.storage.StorageChange>, area: string) => void>();
   const sendNativeMessage = vi.fn(async (_app: string, message: { kind: string } & SettingsIntent) => {
     if (message.kind === "get") return { settings: JSON.stringify(await storage.get()) };
@@ -28,6 +29,32 @@ async function fixture() {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe("Safari authoritative native settings failure boundaries", () => {
+  it("a delayed legacy native retry cannot replace newer Off projection or unavailable-authority fallback", async () => {
+    const h = await fixture(false); vi.useFakeTimers();
+    let release!: () => void; let began!: () => void;
+    const gate = new Promise<void>(r => { release = r; });
+    const started = new Promise<void>(r => { began = r; });
+    const native = h.sendNativeMessage.getMockImplementation()!;
+    h.sendNativeMessage.mockImplementation(async (app, message) => {
+      const reply = await native(app, message);
+      if (message.kind === "get") { began(); await gate; }
+      return reply;
+    });
+    const adapter = new ChromeStorageAdapter({ authority: true, nativeMirror: true });
+    h.set.mockRejectedValueOnce(new Error("quota"));
+    await adapter.commitIntent({ path: "globalOn", value: true, updatedAt: 10 }); await started;
+    const latest = await adapter.commitIntent({ path: "globalOn", value: false, updatedAt: 11 });
+    expect(h.projection().settings).toEqual(latest.settings);
+    release(); await vi.advanceTimersByTimeAsync(0);
+    expect(h.projection().settings).toEqual(latest.settings);
+    expect((await h.storage.get())!.settings.globalOn).toBe(false);
+    expect(h.sendNativeMessage.mock.calls.map(c => c[1].kind)).toEqual(["settingsIntent", "get", "settingsIntent"]);
+    h.sendNativeMessage.mockRejectedValue(new Error("unavailable"));
+    const fallback = new SettingsCache(new ChromeStorageAdapter()); await fallback.hydrate();
+    expect(fallback.current().globalOn).toBe(false);
+    await expect(fallback.whenHydrated()).rejects.toThrow("native-authority-unavailable");
+    expect(h.listeners.size).toBe(0); expect(vi.getTimerCount()).toBe(0);
+  });
   it("actual background nativeMirror retries direct native authority after transient projection failure", async () => {
     const h = await fixture(); const report = vi.fn(); vi.useFakeTimers();
     const adapter = new ChromeStorageAdapter({ authority: true, nativeMirror: true, onProjectionFailure: report });
@@ -82,8 +109,8 @@ describe("Safari authoritative native settings failure boundaries", () => {
     expect(h.projection().atomic).toEqual(latest.atomic); expect(h.projection().settings).toEqual(latest.settings);
     expect((await h.storage.get())!.atomic!.pending).toHaveLength(3); expect(vi.getTimerCount()).toBe(0);
   });
-  it("failed bounded background projection retry tears down and a later failure can retry again", async () => {
-    const h = await fixture(); vi.useFakeTimers(); const native = h.sendNativeMessage.getMockImplementation()!;
+  it.each([false, true])("failed bounded background projection retry tears down and a later failure can retry again (modern=%s)", async modern => {
+    const h = await fixture(modern); vi.useFakeTimers(); const native = h.sendNativeMessage.getMockImplementation()!;
     h.sendNativeMessage.mockImplementation(async (app, message) => message.kind === "get" ? new Promise(() => {}) : native(app, message));
     const write = h.set.getMockImplementation()!;
     h.set.mockRejectedValue(new Error("quota"));

@@ -1,6 +1,6 @@
 import type { StillSettings } from "@still/shared-types";
 import { DEFAULT_SETTINGS, PAID_TIER_ENABLED } from "@still/shared-types";
-import { pendingSettingsRequest, type SettingsScope } from "../storage/atomic-settings.js";
+import { pendingSettingsRequest, sameSettingsScope, SettingsStorageRecovery, type SettingsScope } from "../storage/atomic-settings.js";
 import type { SettingsCache, SettingsChangeSource } from "../storage/cache.js";
 import type { SettingsSyncMetadata, SyncedSettingsEnvelope } from "../storage/adapter.js";
 import type { AuthPort, BackendPort, EntitlementRead } from "./ports.js";
@@ -109,6 +109,9 @@ export class SyncService {
   private latestWriteId: string | null = null;
   // A UUID is not enough: signing out and back into the same account starts a new lifecycle.
   private lifecycle = 0;
+  // Auth teardown remains available when settings storage fails. Until retirement commits, this
+  // instance cannot resume even the same auth session; durable session provenance covers restart.
+  private atomicRetirementPending = false;
   private atomicScope: SettingsScope | null = null;
 
   constructor(
@@ -625,7 +628,11 @@ export class SyncService {
     this.stopRealtime();
     const lifecycle = this.lifecycle;
     if (this.cache.currentRecord().atomic) {
-      try { await this.cache.enterAtomicScope(null); } catch { /* lifecycle already stopped unsafe writes */ }
+      this.atomicRetirementPending = true;
+      try {
+        await this.cache.enterAtomicScope(null);
+        if (lifecycle === this.lifecycle) this.atomicRetirementPending = false;
+      } catch { /* retry before any later atomic sync */ }
       if (lifecycle !== this.lifecycle) return;
     }
     await this.auth.signOut();
@@ -650,7 +657,11 @@ export class SyncService {
     this.stopRealtime();
     const signedOutLifecycle = this.lifecycle;
     if (this.cache.currentRecord().atomic) {
-      try { await this.cache.enterAtomicScope(null); } catch { /* account is deleted; keep local choices */ }
+      this.atomicRetirementPending = true;
+      try {
+        await this.cache.enterAtomicScope(null);
+        if (signedOutLifecycle === this.lifecycle) this.atomicRetirementPending = false;
+      } catch { /* account is deleted; keep local choices */ }
       if (signedOutLifecycle !== this.lifecycle) return;
     }
     try {
@@ -859,18 +870,22 @@ export class SyncService {
 
   private async reconcileAtomic(userId: string, lifecycle: number): Promise<ReconcileOutcome> {
     if (this.atomicScope === null) {
-      // The authority resumes the durable same-account scope after a process restart;
-      // sign-out persists null, so actual re-entry still advances its generation.
-      const scope = await this.cache.enterAtomicScope(userId);
+      const authenticated = await this.auth.currentSettingsSession?.();
+      if (lifecycle !== this.lifecycle || this.state.userId !== userId) return "abandoned";
+      if (!authenticated || authenticated.userId !== userId) throw new SettingsStorageRecovery("session-unconfirmed");
+      if (this.atomicRetirementPending) {
+        await this.cache.enterAtomicScope(null);
+        if (lifecycle !== this.lifecycle || this.state.userId !== userId) return "abandoned";
+        this.atomicRetirementPending = false;
+      }
+      const scope = await this.cache.enterAtomicScope(userId, authenticated.sessionId);
       if (lifecycle !== this.lifecycle || this.state.userId !== userId) return "abandoned";
       this.atomicScope = scope;
     }
     const captured = this.atomicScope;
-    const authenticated = await this.auth.currentUserId();
-    if (lifecycle !== this.lifecycle || authenticated !== userId) return "abandoned";
+    if (!await this.ownsAtomicSession(captured, lifecycle)) return "abandoned";
     const cloud = await this.backend.readCanonicalSettings!();
-    const authenticatedAfter = await this.auth.currentUserId();
-    if (lifecycle !== this.lifecycle || authenticatedAfter !== userId) return "abandoned";
+    if (!await this.ownsAtomicSession(captured, lifecycle)) return "abandoned";
     if (lifecycle !== this.lifecycle || this.state.userId !== userId) return "abandoned";
     await this.cache.acknowledgeAtomic(cloud, captured);
     if (lifecycle !== this.lifecycle) return "abandoned";
@@ -889,16 +904,14 @@ export class SyncService {
     for (let count = 0; count < 64; count++) {
       if (lifecycle !== this.lifecycle) return;
       const state = this.cache.currentRecord().atomic;
-      if (!state) return;
+      if (!state || !sameSettingsScope(state.scope, captured)) return;
       if (state.paused && state.paused !== "pending-limit") { this.recordExchange(true); return; }
       const request = state.pending.map(p => pendingSettingsRequest(p, state)).find(p => p !== null);
       if (!request) { this.recordExchange(Object.keys(state.held).length > 0); return; }
       this.latestWriteId = request.writeId;
-      const authenticated = await this.auth.currentUserId();
-      if (lifecycle !== this.lifecycle || authenticated !== captured.accountId) return;
+      if (!await this.ownsAtomicSession(captured, lifecycle)) return;
       const envelope = await this.backend.writeSettingsOperation(request);
-      const authenticatedAfter = await this.auth.currentUserId();
-      if (lifecycle !== this.lifecycle || authenticatedAfter !== captured.accountId) return;
+      if (!await this.ownsAtomicSession(captured, lifecycle)) return;
       if (lifecycle !== this.lifecycle) return;
       await this.cache.acknowledgeAtomic(envelope, captured);
       if (lifecycle !== this.lifecycle) return;
@@ -910,6 +923,13 @@ export class SyncService {
       }
     }
     this.recordExchange(true);
+  }
+
+  private async ownsAtomicSession(captured: SettingsScope, lifecycle: number): Promise<boolean> {
+    // Retain the existing authenticated getUser check as well as stable verified session claims.
+    const [authenticated, current] = await Promise.all([this.auth.currentUserId(), this.auth.currentSettingsSession?.()]);
+    return lifecycle === this.lifecycle && this.state.userId === captured.accountId && authenticated === captured.accountId && current !== null && current !== undefined &&
+      current.userId === captured.accountId && captured.sessionId !== undefined && current.sessionId === captured.sessionId;
   }
 
   private recordFailure(): void {

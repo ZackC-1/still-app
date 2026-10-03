@@ -15,6 +15,8 @@ export interface AuthPort {
   signOut(): Promise<void>;
   /** The current session's user UUID, or null if signed out. */
   currentUserId(): Promise<string | null>;
+  /** Verified auth-session identity, stable across token refresh; required only for atomic sync. */
+  currentSettingsSession?(): Promise<{ userId: string; sessionId: string } | null>;
 }
 
 /** Display-only identity from the authenticated session; never an authorization decision. */
