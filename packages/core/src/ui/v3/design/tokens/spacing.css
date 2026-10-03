@@ -1,0 +1,28 @@
+:root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --radius-control: 8px;
+  --radius-card: 12px;
+  --radius-sheet: 16px;
+  --popup-inline-size: 380px;
+  --content-max-inline-size: 432px;
+  --sheet-max-inline-size: 420px;
+  --tap-target: 44px;
+  --service-icon-size: 42px;
+  --logo-mark-size: 28px;
+  --logo-word-size: 22px;
+  --ds-version: "3.0.1"; /* @kind other */
+  --text-scale: 1; /* @kind other */
+  --popup-max-block-size: 600px;
+  --settings-min-inline-size: 320px;
+  --switch-hit: 44px;
+  --dialog-max-inline-size: 360px;
+  --motion-expand: 220ms; /* @kind other */
+  --motion-toggle: 160ms; /* @kind other */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1); /* @kind other */
+}

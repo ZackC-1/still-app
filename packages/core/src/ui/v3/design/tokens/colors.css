@@ -1,0 +1,112 @@
+/* Still color tokens, V3 (3.0.1). Light is default; dark follows the system, or force with data-theme on <html>.
+   V3 changes: --link (dark 5.25:1 on cards, was 4.43), dark --on-blue-secondary solid (4.90:1, was 4.44),
+   --toggle-off-edge (3:1+ switch outline), --success / --caution for operation status only. No token carries access or purchase meaning. */
+:root {
+  color-scheme: light;
+  --still-blue: #2a47e8;
+  --still-blue-pressed: #1e37c2;
+  --ink: #0b1430;
+  --ink-secondary: #4a5170;
+  --surface: #ffffff;
+  --surface-raised: #f6f7fb;
+  --border: #e3e6f0;
+  --border-strong: #c8cede;
+  --on-blue: #ffffff;
+  --on-blue-secondary: rgba(255, 255, 255, 0.82);
+  --focus-ring: #2a47e8;
+  --danger: #c2261e;
+  --toggle-off: #d4d8e6;
+  --toggle-off-edge: #7d859f;
+  --link: #2a47e8;
+  --link-pressed: #1e37c2;
+  --success: #1a7046;
+  --caution: #8a5200;
+  --shadow-knob: 0 1px 3px rgba(0, 0, 0, 0.18);
+  --shadow-float: 0 6px 24px rgba(0, 0, 0, 0.25);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+  color-scheme: dark;
+  --still-blue: #5a74ff;
+  --still-blue-pressed: #7890ff;
+  --ink: #eef1fa;
+  --ink-secondary: #a7aec8;
+  --surface: #0b0f1a;
+  --surface-raised: #141a2b;
+  --border: #232a40;
+  --border-strong: #3c4664;
+  --on-blue: #0b0f1a;
+  --on-blue-secondary: #0b0f1a;
+  --focus-ring: #8da0ff;
+  --danger: #ff6b61;
+  --toggle-off: #2a3350;
+  --toggle-off-edge: #5d6789;
+  --link: #6b84ff;
+  --link-pressed: #8da0ff;
+  --success: #4fc48a;
+  --caution: #e0a34a;
+  }
+}
+[data-theme="light"] {
+  color-scheme: light;
+  --still-blue: #2a47e8;
+  --still-blue-pressed: #1e37c2;
+  --ink: #0b1430;
+  --ink-secondary: #4a5170;
+  --surface: #ffffff;
+  --surface-raised: #f6f7fb;
+  --border: #e3e6f0;
+  --border-strong: #c8cede;
+  --on-blue: #ffffff;
+  --on-blue-secondary: rgba(255, 255, 255, 0.82);
+  --focus-ring: #2a47e8;
+  --danger: #c2261e;
+  --toggle-off: #d4d8e6;
+  --toggle-off-edge: #7d859f;
+  --link: #2a47e8;
+  --link-pressed: #1e37c2;
+  --success: #1a7046;
+  --caution: #8a5200;
+  --shadow-knob: 0 1px 3px rgba(0, 0, 0, 0.18);
+  --shadow-float: 0 6px 24px rgba(0, 0, 0, 0.25);
+}
+[data-theme="dark"] {
+  color-scheme: dark;
+  --still-blue: #5a74ff;
+  --still-blue-pressed: #7890ff;
+  --ink: #eef1fa;
+  --ink-secondary: #a7aec8;
+  --surface: #0b0f1a;
+  --surface-raised: #141a2b;
+  --border: #232a40;
+  --border-strong: #3c4664;
+  --on-blue: #0b0f1a;
+  --on-blue-secondary: #0b0f1a;
+  --focus-ring: #8da0ff;
+  --danger: #ff6b61;
+  --toggle-off: #2a3350;
+  --toggle-off-edge: #5d6789;
+  --link: #6b84ff;
+  --link-pressed: #8da0ff;
+  --success: #4fc48a;
+  --caution: #e0a34a;
+}
+:root {
+  /* Semantic aliases */
+  --text-body: var(--ink);
+  --text-secondary: var(--ink-secondary);
+  --text-link: var(--link);
+  --text-on-brand: var(--on-blue);
+  --surface-page: var(--surface);
+  --surface-card: var(--surface-raised);
+  --surface-brand: var(--still-blue);
+  --action-primary: var(--still-blue);
+  --action-primary-hover: var(--still-blue-pressed);
+  --control-edge: var(--toggle-off-edge);
+  --status-pending: var(--ink-secondary);
+  --status-success: var(--success);
+  --status-caution: var(--caution);
+  --status-failed: var(--danger);
+  --scrim: rgba(11, 20, 48, 0.45);
+  --danger-solid: #c2261e;
+}
