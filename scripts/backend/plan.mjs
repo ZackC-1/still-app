@@ -24,8 +24,8 @@ export const syntheticOperationIds = Object.freeze([
 export function validateSyntheticBaseline(baseline) {
   if (
     !baseline ||
-    canonical(Object.keys(baseline).sort()) !==
-      canonical([
+    JSON.stringify(Object.keys(baseline).sort()) !==
+      JSON.stringify([
         "completed",
         "generation",
         "kind",
@@ -39,7 +39,7 @@ export function validateSyntheticBaseline(baseline) {
     baseline.securityBoundary !== true ||
     !Number.isInteger(baseline.generation) ||
     baseline.generation < 0 ||
-    baseline.generation > 2 ||
+    baseline.generation > syntheticOperationIds.length ||
     canonical(baseline.completed) !==
       canonical(syntheticOperationIds.slice(0, baseline.generation))
   ) {
@@ -148,7 +148,7 @@ export async function createOperationPlan(
 ) {
   const artifact = await createPlan(root, { revision, target });
   validateSyntheticBaseline(baseline);
-  if (baseline.generation === 2)
+  if (baseline.generation === syntheticOperationIds.length)
     throw new Error("No remaining reviewed operation");
   const manifest = {
     protocol: 1,

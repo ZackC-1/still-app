@@ -45,12 +45,14 @@ export async function executeSyntheticOperation(
   const baseline = await adapter.read();
   if (context.runId !== baseline.runId)
     throw new Error("Run changed; new synthetic preview required");
-  await verifyOperationPlan(root, plan, {
-    revision: context.revision,
-    target: context.target,
-    baseline,
-    digest: context.approvedDigest,
-  });
+  const verifySource = () =>
+    verifyOperationPlan(root, plan, {
+      revision: context.revision,
+      target: context.target,
+      baseline,
+      digest: context.approvedDigest,
+    });
+  await verifySource();
   if ((await adapter.verify()) !== true)
     throw new Error("Authoritative baseline security verification unavailable");
   const completed = [];
@@ -59,12 +61,7 @@ export async function executeSyntheticOperation(
   try {
     for (const operation of plan.operations) {
       // Verify source before each write. SQL adapter independently locks and compares the full row.
-      await verifyOperationPlan(root, plan, {
-        revision: context.revision,
-        target: context.target,
-        baseline,
-        digest: context.approvedDigest,
-      });
+      await verifySource();
       if (canonical(await adapter.read()) !== canonical(expected))
         throw new Error("Intervening state drift");
       const next = {
@@ -83,12 +80,7 @@ export async function executeSyntheticOperation(
       completed.push(operation.id);
       expected = next;
     }
-    await verifyOperationPlan(root, plan, {
-      revision: context.revision,
-      target: context.target,
-      baseline,
-      digest: context.approvedDigest,
-    });
+    await verifySource();
     return {
       status: "verified",
       productionEvidence: false,
