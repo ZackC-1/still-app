@@ -148,9 +148,14 @@ public enum AtomicSettingsRecord {
     guard var state = root["atomic"]?.object, validState(state), state["format"] == .number(1),
       let priorScope = state["scope"]?.object, validScope(priorScope),
       case .array(var pending) = state["pending"], pending.count <= 64,
-      case .number(let sequence) = state["sequence"], sequence >= 0, sequence < SettingsV2Migration.maxRevision, sequence.rounded(.towardZero) == sequence,
+      case .number(let sequence) = state["sequence"], sequence >= 0, sequence <= SettingsV2Migration.maxRevision, sequence.rounded(.towardZero) == sequence,
       state["held"]?.object != nil, state["anchor"] == .null || receipt(state["anchor"]) != nil
     else { throw Failure.unreadable }
+    // A never-linked null-to-null teardown has no account/session generation to retire.
+    // Return the original bytes before saturation checks or complete-record replacement.
+    if action["action"] == .string("scope"), Set(action.keys) == Set(["action", "accountId"]),
+      action["accountId"] == .null, priorScope["accountId"] == .null, state["ownership"] == .string("never-linked") { return raw }
+    guard sequence < SettingsV2Migration.maxRevision else { throw Failure.unreadable }
     if action["action"] == .string("scope") {
       guard Set(action.keys) == Set(["action", "accountId"]) || Set(action.keys) == Set(["action", "accountId", "sessionId"]),
         action["accountId"] == .null || canonicalUUID(action["accountId"]),

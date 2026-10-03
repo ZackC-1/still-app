@@ -96,6 +96,7 @@ function harness(owner: "unknown" | "never-linked" | "previous-account" = "unkno
   return { cache, writer, storage, service, requests, invoke, port, auth,
     newLifetime() { const nextCache = makeCache(); nextCache.watch(); return { cache: nextCache, service: new SyncService(nextCache, auth, backend) }; },
     canonicalResponse: response,
+    useUntouchedCanonicalGlobal() { settings = { ...settings, clocks: { ...settings.clocks, globalOn: { baseRevision: 0, localStep: 0 } } }; },
     failNext(mode: "before" | "after" = "before") { failures.push(mode); },
     subscriptions: () => profileListener === null ? 0 : 1,
     reads: () => reads,
@@ -127,6 +128,32 @@ const settle = async () => { for (let i = 0; i < 150; i++) await Promise.resolve
 afterEach(() => vi.useRealTimers());
 
 describe("existing SyncService and exact Supabase modern port", () => {
+  it.each(["signOut", "deleteAccount"] as const)("never-linked Off survives unavailable first-link proof, %s and later nonempty first link", async teardown => {
+    const h = harness("never-linked"); h.useUntouchedCanonicalGlobal();
+    await h.cache.hydrate(); await h.cache.setGlobalOn(false); vi.useFakeTimers();
+    const before = JSON.stringify(await h.storage.get());
+    const original = structuredClone(h.cache.currentRecord().atomic!.pending[0]!);
+    const proof = vi.spyOn(h.auth, "currentSettingsSession").mockResolvedValue(null);
+    await h.service.onSignedIn(A); await settle();
+    expect(JSON.stringify(await h.storage.get())).toBe(before);
+    expect(h.reads()).toBe(0); expect(h.requests).toEqual([]); expect(vi.getTimerCount()).toBe(1);
+    await h.service[teardown]();
+    expect.soft(JSON.stringify(await h.storage.get())).toBe(before);
+    expect(h.cache.current().globalOn).toBe(false); expect(vi.getTimerCount()).toBe(0); expect(h.subscriptions()).toBe(0);
+    proof.mockRestore(); h.switchSession(NEXT_SESSION);
+    const firstReceipt = h.canonicalResponse().receipt;
+    const write = h.hold(); const signingIn = h.service.onSignedIn(A); await Promise.race([write.started, signingIn]);
+    expect.soft(h.cache.current().globalOn).toBe(false);
+    expect.soft(h.cache.currentRecord().atomic!.pending[0]).toMatchObject({ writeId: original.writeId, operations: original.operations,
+      originScope: original.scope, scope: { accountId: A, sessionId: NEXT_SESSION } });
+    expect.soft(h.requests).toHaveLength(1);
+    expect.soft(h.requests[0]).toMatchObject({ writeId: original.writeId, operations: original.operations,
+      receipt: firstReceipt });
+    write.release(); await signingIn; await settle();
+    expect(h.cache.current().globalOn).toBe(false); expect(h.settings().globalOn).toBe(false);
+    expect(h.cache.currentRecord().atomic!.pending).toEqual([]);
+    await h.service.signOut(); h.cache.watch()(); expect(vi.getTimerCount()).toBe(0); expect(h.subscriptions()).toBe(0);
+  });
   it.each(["first-link", "replacement-session", "failed-retirement"] as const)("unconfirmed getUser cannot mutate a %s record", async kind => {
     for (const proof of ["missing", "mismatched", "failed"] as const) {
       const h = harness(); await h.cache.hydrate(); vi.useFakeTimers();

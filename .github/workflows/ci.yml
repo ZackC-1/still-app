@@ -72,7 +72,7 @@ jobs:
         run: deno check */index.ts
       - name: Test handlers (faked payloads + mocked stores — no Apple, no live DB)
         working-directory: supabase/functions
-        run: deno test
+        run: deno test --allow-read=../migrations/0013_counter_retention.sql,../../scripts/backend/sql/settings-sync-candidate.sql
 
   e2e:
     name: Playwright on fixtures
