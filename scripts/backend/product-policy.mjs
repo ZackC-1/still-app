@@ -13,6 +13,34 @@ const DIGEST = /^[a-f0-9]{64}$/;
 const PREVIEW_MS = 300_000;
 const integer = value => Number.isSafeInteger(value) && value >= 0;
 const invalid = () => { throw new Error("Invalid policy"); };
+// Snapshot data descriptors; object and array accessors must never supply hashed values.
+function detach(value) {
+  const ancestors = new Set();
+  function data(value) {
+    if (value === null || typeof value === "string" || typeof value === "boolean" ||
+        (typeof value === "number" && Number.isFinite(value))) return;
+    if (!value || typeof value !== "object" || ancestors.has(value)) invalid();
+    const array = Array.isArray(value);
+    const prototype = Object.getPrototypeOf(value);
+    if (array ? prototype !== Array.prototype : ![Object.prototype, null].includes(prototype)) invalid();
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(descriptors);
+    const length = array ? descriptors.length.value : 0;
+    if (array && keys.length !== length + 1) invalid();
+    ancestors.add(value);
+    try {
+      for (const key of keys) {
+        const descriptor = descriptors[key];
+        if (typeof key !== "string" || !Object.hasOwn(descriptor, "value")) invalid();
+        if (array && key === "length") continue;
+        if (!descriptor.enumerable || (array &&
+            (!Number.isInteger(Number(key)) || String(Number(key)) !== key || Number(key) < 0 || Number(key) >= length))) invalid();
+        data(descriptor.value);
+      }
+    } finally { ancestors.delete(value); }
+  }
+  try { data(value); return structuredClone(value); } catch { invalid(); }
+}
 function exact(value, keys) {
   if (!value || typeof value !== "object" || Array.isArray(value) ||
       ![Object.prototype, null].includes(Object.getPrototypeOf(value)) ||
@@ -54,7 +82,7 @@ function product(value, features) {
 export function createSyntheticPolicyPreviewer(ports) {
   const { readVerifiedAuth, readCurrent, now, operationId } = ports;
   if (![readVerifiedAuth, readCurrent, now, operationId].every(fn => typeof fn === "function")) invalid();
-  const context = freeze(structuredClone({ environment: ports.environment, sourceRevision: ports.sourceRevision,
+  const context = freeze(detach({ environment: ports.environment, sourceRevision: ports.sourceRevision,
     sourceDigest: ports.sourceDigest, ownerSubjects: ports.ownerSubjects, reviewed: ports.reviewed }));
   if (!["sandbox", "production"].includes(context.environment) || !/^[a-f0-9]{40}$/.test(context.sourceRevision) ||
       !DIGEST.test(context.sourceDigest) || !context.ownerSubjects?.length) invalid();
@@ -111,12 +139,14 @@ export function createSyntheticPolicyPreviewer(ports) {
     return value;
   }
   function request(value, admission = false) {
+    value = detach(value);
     exact(value, ["namespace", "environment", "expectedRevision", "draft", ...(admission ? ["operationId", "hash"] : [])]);
     if (value.environment !== context.environment || !integer(value.expectedRevision)) invalid();
     policy(value.namespace, value.draft);
-    return structuredClone(value);
+    return value;
   }
   function current(namespace, value) {
+    value = detach(value);
     exact(value, ["revision", "policy", "cutoff"]);
     if (!integer(value.revision)) invalid();
     if (value.policy !== null) policy(namespace, value.policy);
@@ -127,7 +157,7 @@ export function createSyntheticPolicyPreviewer(ports) {
       list(value.cutoff.benefits, 32, id => { if (!reviewed.features.some(f => f.id === id)) invalid(); });
       if (canonical(value.cutoff.benefits) !== canonical([...value.cutoff.benefits].sort())) invalid();
     }
-    return structuredClone(value);
+    return value;
   }
   function effective(namespace, value) {
     if (namespace === "sales") return {

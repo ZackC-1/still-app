@@ -11,35 +11,63 @@ const surfaces = {
   chrome_desktop: false, edge_desktop: false, firefox_desktop: false,
   firefox_android: false, apple_mobile_host: false, apple_macos_host: false,
 };
-function fixture() {
+function fixture({ reviewedBenefit = "youtube.comments",
+  reviewedBuilds = [{ surface: "chrome_desktop", build: "synthetic-1" }] } = {}) {
   let now = 1_800_000_000_000;
   let auth = { status: "verified", subject: owner, exp: now / 1000 + 600 };
   let state = { revision: 4, policy: null, cutoff: null };
+  let nextRead = null;
+  const features = [{ id: "youtube.shorts", tier: "free" }, { id: "youtube.comments", tier: "pro" }, { id: "tiktok.all", tier: "free" }];
+  if (reviewedBenefit !== "youtube.comments") {
+    const feature = features.find(f => f.id === reviewedBenefit);
+    if (feature) feature.tier = "pro";
+    else features.push({ id: reviewedBenefit, tier: "pro" });
+  }
   const authority = createSyntheticPolicyPreviewer({
     environment: "sandbox", sourceRevision: "a".repeat(40), sourceDigest: "b".repeat(64),
     ownerSubjects: [owner],
     reviewed: {
-      features: [{ id: "youtube.shorts", tier: "free" }, { id: "youtube.comments", tier: "pro" }, { id: "tiktok.all", tier: "free" }],
-      product: { id: "still-pro-v3", benefits: ["youtube.comments"], tier: "pro" },
-      builds: [{ surface: "chrome_desktop", build: "synthetic-1" }],
+      features,
+      product: { id: "still-pro-v3", benefits: [reviewedBenefit], tier: "pro" },
+      builds: reviewedBuilds,
       offers: [{ id: "synthetic-web-lifetime", channel: "web", product: "still-pro-v3" }],
     },
     readVerifiedAuth: async () => auth,
-    readCurrent: async () => state,
+    readCurrent: async () => {
+      const gate = nextRead; nextRead = null;
+      if (gate) { gate.started(); await gate.opened; }
+      return state;
+    },
     now: () => now, operationId: () => operationId,
   });
   const draft = {
     schema: 1, environment: "sandbox", app: "still-app", paidTierEnabled: true,
     builds: [{ surface: "chrome_desktop", build: "synthetic-1" }],
-    product: { id: "still-pro-v3", benefits: ["youtube.comments"], tier: "pro" },
+    product: { id: "still-pro-v3", benefits: [reviewedBenefit], tier: "pro" },
     channels: [{ channel: "web", offer: "synthetic-web-lifetime", enabled: true }],
   };
   const request = { namespace: "sales", environment: "sandbox", expectedRevision: 4, draft };
   return { authority, draft, request, state: () => state, setState: value => { state = value; },
-    setAuth: value => { auth = value; }, setNow: value => { now = value; }, now: () => now };
+    setAuth: value => { auth = value; }, setNow: value => { now = value; }, now: () => now,
+    pauseNextRead: () => {
+      assert.equal(nextRead, null);
+      let started, release;
+      const reached = new Promise(resolve => { started = resolve; });
+      const opened = new Promise(resolve => { release = resolve; });
+      nextRead = { started, opened };
+      return { reached, release };
+    } };
 }
 function admission(f, preview) {
   return { ...f.request, operationId: preview.operationId, hash: preview.hash };
+}
+function accessorBuild(validReads = 3) {
+  let reads = 0;
+  const builds = [];
+  Object.defineProperty(builds, "0", { enumerable: true, get: () => ({
+    surface: "chrome_desktop", build: ++reads <= validReads ? "synthetic-1" : "*",
+  }) });
+  return { builds, reads: () => reads };
 }
 
 test("valid synthetic preview binds exact body/source and retains current cutoff without publishing", async () => {
@@ -49,6 +77,8 @@ test("valid synthetic preview binds exact body/source and retains current cutoff
   assert.equal(p.productionEvidence, false);
   assert.equal(p.kind, "synthetic-policy-preview");
   assert.equal(p.expectedRevision, 4);
+  assert.equal(p.sourceRevision, "a".repeat(40));
+  assert.equal(p.sourceDigest, "b".repeat(64));
   assert.equal(p.expiresAt - p.createdAt, 300_000);
   assert.equal(p.bodyHash, hash(canonical(f.draft)));
   const { hash: digest, ...payload } = p;
@@ -59,6 +89,93 @@ test("valid synthetic preview binds exact body/source and retains current cutoff
   assert.equal(p.after.channels.web, true); // Proposed effect, never a published policy.
   assert.equal(await f.authority.admit(p, admission(f, p)), p);
   assert.deepEqual(f.state(), before);
+});
+
+test("reserved TikTok and sync benefits stay free even when reviewed as Pro", async () => {
+  const f = fixture({ reviewedBenefit: "youtube.comments" });
+  const before = structuredClone(f.state());
+  const p = await f.authority.preview(f.request);
+  assert.equal(await f.authority.admit(p, admission(f, p)), p);
+  assert.deepEqual(f.state(), before);
+  for (const reviewedBenefit of ["tiktok.all", "sync"]) {
+    assert.throws(() => fixture({ reviewedBenefit }), /Invalid policy/);
+  }
+});
+
+test("preview rejects owner expiry while its current-state read is pending", async () => {
+  const f = fixture();
+  f.setAuth({ status: "verified", subject: owner, exp: f.now() / 1000 + 60 });
+  const before = JSON.stringify(f.state());
+  const gate = f.pauseNextRead();
+  const pending = f.authority.preview(f.request);
+  await gate.reached;
+  f.setNow(f.now() + 61_000);
+  gate.release();
+  await assert.rejects(pending, /Owner verification required/);
+  assert.equal(JSON.stringify(f.state()), before);
+});
+
+test("admission rejects owner expiry during its read before the preview expires", async () => {
+  const f = fixture();
+  const p = await f.authority.preview(f.request);
+  f.setAuth({ status: "verified", subject: owner, exp: f.now() / 1000 + 60 });
+  const before = JSON.stringify(f.state());
+  const gate = f.pauseNextRead();
+  const pending = f.authority.admit(p, admission(f, p));
+  await gate.reached;
+  f.setNow(f.now() + 61_000);
+  assert.ok(f.now() < p.expiresAt);
+  gate.release();
+  await assert.rejects(pending, /Owner verification required/);
+  assert.equal(JSON.stringify(f.state()), before);
+});
+
+test("preview rejects an executable build index before cloning an unreviewed draft", async () => {
+  const f = fixture();
+  const before = structuredClone(f.state());
+  const getter = accessorBuild();
+  f.draft.builds = getter.builds;
+  await assert.rejects(f.authority.preview(f.request), /Invalid policy/);
+  assert.equal(getter.reads(), 0);
+  assert.deepEqual(f.state(), before);
+});
+
+test("admission rejects a build accessor even if every read returns the reviewed build", async () => {
+  const f = fixture();
+  const p = await f.authority.preview(f.request);
+  const before = structuredClone(f.state());
+  const getter = accessorBuild(Infinity);
+  f.draft.builds = getter.builds;
+  await assert.rejects(f.authority.admit(p, admission(f, p)), /Invalid policy/);
+  assert.equal(getter.reads(), 0);
+  assert.deepEqual(f.state(), before);
+});
+
+test("current-state policy rejects an executable build index at the actual read port", async () => {
+  const f = fixture();
+  const getter = accessorBuild();
+  const state = { revision: 4, policy: { ...f.draft, builds: getter.builds }, cutoff: null };
+  f.setState(state);
+  await assert.rejects(f.authority.preview(f.request), /Invalid policy/);
+  assert.equal(getter.reads(), 0);
+  assert.equal(f.state(), state);
+});
+
+test("reviewed constructor data rejects build accessors without executing them", () => {
+  const getter = accessorBuild(Infinity);
+  assert.throws(() => fixture({ reviewedBuilds: getter.builds }), /Invalid policy/);
+  assert.equal(getter.reads(), 0);
+});
+
+test("detachment keeps cyclic and nonplain request data invalid", async () => {
+  for (const change of [f => { f.draft.builds = new Proxy(f.draft.builds, {}); },
+    f => { f.draft.builds[0] = f.draft.builds; }, f => { f.draft.builds[0] = new Date(0); }]) {
+    const f = fixture();
+    const before = structuredClone(f.state());
+    change(f);
+    await assert.rejects(f.authority.preview(f.request));
+    assert.deepEqual(f.state(), before);
+  }
 });
 
 test("owner admission uses only current verified auth result with mandatory unexpired exp", async () => {
