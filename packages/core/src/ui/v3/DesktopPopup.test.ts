@@ -6,6 +6,8 @@ import {
   FEATURE_REGISTRY,
   type AccessState,
   type BenefitAccessSnapshot,
+  type ServiceId,
+  type FeatureId,
 } from "@still/shared-types";
 import {
   AtomicSettingsWriter,
@@ -17,6 +19,7 @@ import {
   ACCESS_BENEFITS,
   initialAccessSnapshot,
   isBenefitEffective,
+  packagedAccessContext,
 } from "../../entitlement/access-policy.js";
 import DesktopPopup from "./DesktopPopup.svelte";
 import type { DesktopPopupProps } from "./presentation.js";
@@ -53,7 +56,349 @@ async function fixture(state: AccessState = "free") {
   return { storage, writer, cache, props };
 }
 
+function bindWriter(cache: SettingsCache, props: DesktopPopupProps) {
+  let pending: Promise<unknown> = Promise.resolve();
+  props.onFeatureChange = vi.fn((id: FeatureId, next: boolean) => {
+    pending = cache.setFeature(id, next);
+  });
+  props.onServiceChange = vi.fn((id: ServiceId, next: boolean) => {
+    pending = cache.setService(id, next);
+  });
+  props.onGlobalChange = vi.fn((next: boolean) => {
+    pending = cache.setGlobalOn(next);
+  });
+  return () => pending;
+}
+
 describe("controlled D01 presentation", () => {
+  it("presents packaged unsupported choices honestly while free controls commit through the writer", async () => {
+    const { storage, cache, props } = await fixture();
+    await cache.setFeature("youtube.comments", true);
+    props.settings = requireModernSettings(cache.currentRecord());
+    const context = packagedAccessContext();
+    const access = initialAccessSnapshot();
+    expect(access).toEqual(initialAccessSnapshot(context));
+    for (const row of FEATURE_REGISTRY) {
+      expect(context.supported.has(row.id)).toBe(row.tier === "free");
+      expect(access.states[row.id]).toBe(
+        row.tier === "free" ? "free" : "unsupported",
+      );
+    }
+    expect(context.supported.has("tiktok.all")).toBe(true);
+    expect(access.states["tiktok.all"]).toBe("free");
+    props.access = access;
+    props.onPurchase = vi.fn();
+    const settled = bindWriter(cache, props);
+    const saved = await storage.get();
+    const view = render(DesktopPopup, { props });
+
+    for (const service of ["youtube", "instagram", "facebook"] as const) {
+      const title = {
+        youtube: "YouTube Blocker",
+        instagram: "Instagram Blocker",
+        facebook: "Facebook Blocker",
+      }[service];
+      await fireEvent.click(screen.getByRole("button", { name: title }));
+      const panel = screen.getByRole("group", { name: title });
+      for (const feature of FEATURE_REGISTRY.filter(
+        (row) => row.service === service,
+      )) {
+        const label =
+          feature.tier === "free"
+            ? service === "youtube"
+              ? "Shorts"
+              : "Reels"
+            : feature.name;
+        const row = within(panel)
+          .getByText(label)
+          .closest(".option-row") as HTMLElement;
+        if (feature.tier === "pro") {
+          expect(within(row).queryByRole("switch")).toBeNull();
+          expect(within(row).queryByRole("button")).toBeNull();
+          expect(
+            within(row).getByText(
+              "Not available in this browser. Your choice is saved.",
+            ),
+          ).toBeTruthy();
+        } else {
+          const control = within(row).getByRole("switch", { name: label });
+          expect(control).not.toHaveAttribute("aria-disabled", "true");
+          expect(control).toHaveAttribute("aria-checked", "true");
+        }
+      }
+      expect(
+        screen.queryByRole("button", { name: "Purchase Still Pro" }),
+      ).toBeNull();
+    }
+    expect(await storage.get()).toEqual(saved);
+    expect(props.onFeatureChange).not.toHaveBeenCalled();
+    expect(props.onPurchase).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "TikTok Blocker" })).toBeNull();
+    const tiktok = screen.getByRole("switch", { name: "TikTok website" });
+    expect(tiktok).not.toHaveAttribute("aria-disabled", "true");
+    await fireEvent.click(tiktok);
+    expect(tiktok).toHaveAttribute("aria-checked", "true");
+    await settled();
+    expect(requireModernSettings((await storage.get())!).services.tiktok).toBe(
+      false,
+    );
+    props.settings = requireModernSettings(cache.currentRecord());
+    await view.rerender(props);
+    expect(tiktok).toHaveAttribute("aria-checked", "false");
+
+    await fireEvent.click(
+      screen.getByRole("button", { name: "YouTube Blocker" }),
+    );
+    const shorts = screen.getByRole("switch", { name: "Shorts" });
+    await fireEvent.click(shorts);
+    expect(shorts).toHaveAttribute("aria-checked", "true");
+    await settled();
+    const committed = await storage.get();
+    expect(committed!.atomic!.sequence).toBe(saved!.atomic!.sequence + 2);
+    expect(requireModernSettings(committed!).sites["youtube.shorts"]).toBe(
+      false,
+    );
+    expect(requireModernSettings(committed!).sites["youtube.comments"]).toBe(
+      true,
+    );
+    expect(props.onFeatureChange).toHaveBeenCalledExactlyOnceWith(
+      "youtube.shorts",
+      false,
+    );
+    expect(props.onServiceChange).toHaveBeenCalledExactlyOnceWith(
+      "tiktok",
+      false,
+    );
+    expect(props.onGlobalChange).not.toHaveBeenCalled();
+    expect(props.onPurchase).not.toHaveBeenCalled();
+    props.settings = requireModernSettings(cache.currentRecord());
+    await view.rerender(props);
+    expect(shorts).toHaveAttribute("aria-checked", "false");
+    view.unmount();
+  });
+
+  it("preserves a saved choice across mounted access transitions without issuing settings intents", async () => {
+    const { storage, cache, props } = await fixture("purchased");
+    await cache.setFeature("youtube.comments", true);
+    props.settings = requireModernSettings(cache.currentRecord());
+    const settled = bindWriter(cache, props);
+    const saved = await storage.get();
+    const cached = cache.currentRecord();
+    const view = render(DesktopPopup, { props });
+    await fireEvent.click(
+      screen.getByRole("button", { name: "YouTube Blocker" }),
+    );
+
+    for (const state of [
+      "purchased",
+      "checking",
+      "verification_required",
+      "protected",
+      "unsupported",
+      "locked",
+      "purchased",
+    ] as const) {
+      props.access = {
+        ...props.access,
+        states: { ...props.access.states, "youtube.comments": state },
+      };
+      await view.rerender(props);
+      const row = screen
+        .getByText("Comments")
+        .closest(".option-row") as HTMLElement;
+      const usable = state === "purchased" || state === "protected";
+      if (state === "unsupported" || state === "locked") {
+        expect(within(row).queryByRole("switch")).toBeNull();
+        if (state === "unsupported") {
+          expect(
+            within(row).getByText(
+              "Not available in this browser. Your choice is saved.",
+            ),
+          ).toBeTruthy();
+        } else {
+          const locked = within(row).getByRole("button", {
+            name: "Comments. Included in Still Pro. See Still Pro",
+          });
+          expect(locked).toHaveAttribute("aria-disabled", "true");
+          await fireEvent.click(locked);
+        }
+      } else {
+        const comments = within(row).getByRole("switch", { name: "Comments" });
+        expect(comments).toHaveAttribute("aria-checked", "true");
+        if (usable) {
+          expect(comments).not.toHaveAttribute("aria-disabled", "true");
+        } else {
+          expect(comments).toHaveAttribute("aria-disabled", "true");
+          expect(comments).toHaveAccessibleDescription(/Your choice is saved/);
+          await fireEvent.click(comments);
+        }
+      }
+      await settled();
+      expect(props.onFeatureChange).not.toHaveBeenCalled();
+      expect(props.onServiceChange).not.toHaveBeenCalled();
+      expect(props.onGlobalChange).not.toHaveBeenCalled();
+      expect(await storage.get()).toEqual(saved);
+      expect(cache.currentRecord()).toEqual(cached);
+    }
+
+    const comments = screen.getByRole("switch", { name: "Comments" });
+    await fireEvent.click(comments);
+    expect(comments).toHaveAttribute("aria-checked", "true");
+    await settled();
+    expect(props.onFeatureChange).toHaveBeenCalledExactlyOnceWith(
+      "youtube.comments",
+      false,
+    );
+    expect(
+      requireModernSettings((await storage.get())!).sites["youtube.comments"],
+    ).toBe(false);
+    expect((await storage.get())!.atomic!.sequence).toBe(
+      saved!.atomic!.sequence + 1,
+    );
+    props.settings = requireModernSettings(cache.currentRecord());
+    await view.rerender(props);
+    expect(comments).toHaveAttribute("aria-checked", "false");
+    view.unmount();
+  });
+
+  it("keeps free Shorts usable through uncertain optional access and waits for committed props", async () => {
+    const { storage, cache, props } = await fixture("checking");
+    await cache.setFeature("youtube.comments", true);
+    props.settings = requireModernSettings(cache.currentRecord());
+    const settled = bindWriter(cache, props);
+    const view = render(DesktopPopup, { props });
+    await fireEvent.click(
+      screen.getByRole("button", { name: "YouTube Blocker" }),
+    );
+
+    for (const [state, next] of [
+      ["checking", false],
+      ["verification_required", true],
+    ] as const) {
+      props.access = {
+        ...props.access,
+        states: { ...props.access.states, "youtube.comments": state },
+      };
+      const before = await storage.get();
+      await view.rerender(props);
+      expect(await storage.get()).toEqual(before);
+      const shorts = screen.getByRole("switch", { name: "Shorts" });
+      expect(shorts).not.toHaveAttribute("aria-disabled", "true");
+      expect(screen.getByRole("switch", { name: "Comments" })).toHaveAttribute(
+        "aria-disabled",
+        "true",
+      );
+      await fireEvent.click(shorts);
+      expect(shorts).toHaveAttribute("aria-checked", String(!next));
+      await settled();
+      const committed = await storage.get();
+      expect(committed!.atomic!.sequence).toBe(before!.atomic!.sequence + 1);
+      expect(requireModernSettings(committed!).sites["youtube.shorts"]).toBe(
+        next,
+      );
+      expect(requireModernSettings(committed!).sites["youtube.comments"]).toBe(
+        true,
+      );
+      expect(shorts).toHaveAttribute("aria-checked", String(!next));
+      props.settings = requireModernSettings(cache.currentRecord());
+      await view.rerender(props);
+      expect(shorts).toHaveAttribute("aria-checked", String(next));
+    }
+    expect(props.onFeatureChange).toHaveBeenCalledTimes(2);
+    expect(props.onServiceChange).not.toHaveBeenCalled();
+    expect(props.onGlobalChange).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("restores a non-null section and its outgoing change on remount without writing settings or memory on restoration", async () => {
+    const { storage, cache, props } = await fixture();
+    const settled = bindWriter(cache, props);
+    let remembered: ServiceId | null = "youtube";
+    const read = vi.fn(() => remembered);
+    const write = vi.fn((service: ServiceId | null) => {
+      remembered = service;
+    });
+    props.sectionMemory = { read, write };
+    props.features = ["youtube.shorts", "instagram.reels"];
+    const saved = await storage.get();
+    const view = render(DesktopPopup, { props });
+    expect(
+      screen.getByRole("button", { name: "YouTube Blocker" }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(screen.queryByText("Comments")).toBeNull();
+    expect(write).not.toHaveBeenCalled();
+    expect(read).toHaveBeenCalledOnce();
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Instagram Blocker" }),
+    );
+    expect(write.mock.calls).toEqual([["instagram"]]);
+    expect(
+      screen.getByRole("button", { name: "YouTube Blocker" }),
+    ).toHaveAttribute("aria-expanded", "false");
+    view.unmount();
+    expect(write.mock.calls).toEqual([["instagram"]]);
+    const restored = render(DesktopPopup, { props });
+    expect(read).toHaveBeenCalledTimes(2);
+    expect(
+      screen.getByRole("button", { name: "Instagram Blocker" }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(document.querySelectorAll(".service-options.open")).toHaveLength(1);
+    expect(write.mock.calls).toEqual([["instagram"]]);
+    await settled();
+    expect(await storage.get()).toEqual(saved);
+    expect(props.onFeatureChange).not.toHaveBeenCalled();
+    expect(props.onServiceChange).not.toHaveBeenCalled();
+    expect(props.onGlobalChange).not.toHaveBeenCalled();
+    restored.unmount();
+  });
+
+  it.each(["youtube", "tiktok"] as const)(
+    "does not invent a fallback for remembered %s when it has no rendered section",
+    async (rememberedService) => {
+      const { storage, cache, props } = await fixture();
+      const settled = bindWriter(cache, props);
+      let remembered: ServiceId | null = rememberedService;
+      const write = vi.fn((service: ServiceId | null) => {
+        remembered = service;
+      });
+      props.sectionMemory = { read: () => remembered, write };
+      props.services = ["instagram", "tiktok"];
+      const saved = await storage.get();
+      const view = render(DesktopPopup, { props });
+      expect(
+        screen.queryByRole("button", { name: "YouTube Blocker" }),
+      ).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: "TikTok Blocker" }),
+      ).toBeNull();
+      expect(
+        screen.getByRole("switch", { name: "TikTok website" }),
+      ).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: "Instagram Blocker" }),
+      ).toHaveAttribute("aria-expanded", "false");
+      expect(document.querySelectorAll(".service-options.open")).toHaveLength(
+        0,
+      );
+      expect(write).not.toHaveBeenCalled();
+      await fireEvent.click(
+        screen.getByRole("button", { name: "Instagram Blocker" }),
+      );
+      view.unmount();
+      const restored = render(DesktopPopup, { props });
+      expect(
+        screen.getByRole("button", { name: "Instagram Blocker" }),
+      ).toHaveAttribute("aria-expanded", "true");
+      expect(write.mock.calls).toEqual([["instagram"]]);
+      await settled();
+      expect(await storage.get()).toEqual(saved);
+      expect(props.onFeatureChange).not.toHaveBeenCalled();
+      expect(props.onServiceChange).not.toHaveBeenCalled();
+      expect(props.onGlobalChange).not.toHaveBeenCalled();
+      restored.unmount();
+    },
+  );
+
   it("persists actual feature/master/global intents through the maintained writer and retains choices while Off", async () => {
     const { storage, cache, props } = await fixture();
     let pending: Promise<unknown> = Promise.resolve();
