@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { lstat, readdir, readFile, writeFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 export const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
@@ -8,12 +8,62 @@ export const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 export function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (value && typeof value === "object") {
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`)
-      .join(",")}}`;
+    return `{${
+      Object.keys(value)
+        .sort()
+        .map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`)
+        .join(",")
+    }}`;
   }
   return JSON.stringify(value);
+}
+
+// Exact shared-runtime closure imported by the settings endpoint and its maintained barrels.
+export const settingsRuntimeSources = Object.freeze([
+  "packages/shared-types/src/index.ts",
+  ...[
+    "rules",
+    "settings",
+    "entitlement",
+    "feature-registry",
+    "settings-v2",
+    "settings-operation",
+  ].map((name) => `packages/shared-types/src/${name}.ts`),
+  "packages/core/src/storage/settings-v2.ts",
+  "packages/core/src/sync/field-order.ts",
+  "packages/core/src/rules/canonical.ts",
+]);
+
+// Use Deno's actual graph, including transitive imports, rather than fixtures
+// created from this manifest. The CLI's pinned static walker matches raw keys.
+export function assertSettingsRuntimeClosure(
+  graph,
+  root,
+  imports,
+  mapPath,
+  sources = settingsRuntimeSources,
+) {
+  const actual = graph.modules
+    .filter((m) => m.local && relative(root, m.local).startsWith("packages/"))
+    .map((m) => relative(root, m.local))
+    .sort();
+  if (canonical(actual) !== canonical([...sources].sort()))
+    throw new Error("Settings runtime manifest differs from resolved graph");
+  for (const module of graph.modules) {
+    if (!module.local) continue;
+    for (const dep of module.dependencies ?? []) {
+      const resolved = dep.code?.specifier ?? dep.type?.specifier;
+      if (!resolved?.startsWith("file:")) continue;
+      const target = new URL(resolved).pathname;
+      const mapped = imports[dep.specifier];
+      const cliTarget = mapped
+        ? resolve(dirname(mapPath), mapped)
+        : resolve(dirname(module.local), dep.specifier);
+      if (cliTarget !== target)
+        throw new Error(`CLI raw import does not resolve: ${dep.specifier}`);
+    }
+  }
+  return actual;
 }
 
 export const syntheticOperationIds = Object.freeze([
@@ -75,15 +125,17 @@ export async function createPlan(root, { revision, target }) {
     );
   }
   const paths = [];
-  for (const path of [
-    "supabase/migrations",
-    "supabase/functions",
-    "supabase/config.toml",
-    "scripts/backend",
-    "supabase/tests",
-    ".github/workflows/supabase-security-rehearsal.yml",
-    ".github/workflows/security-audit.yml",
-  ]) {
+  for (
+    const path of [
+      "supabase/migrations",
+      "supabase/functions",
+      "supabase/config.toml",
+      "scripts/backend",
+      "supabase/tests",
+      ".github/workflows/supabase-security-rehearsal.yml",
+      ".github/workflows/security-audit.yml",
+    ]
+  ) {
     paths.push(...(await filesUnder(root, path)));
   }
   // Older rehearsal callers retain their protocol. Once present, the apply source is bound too.
@@ -92,6 +144,17 @@ export async function createPlan(root, { revision, target }) {
     paths.push(...(await filesUnder(root, deploymentWorkflow)));
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
+  }
+  if (paths.includes("supabase/functions/sync-settings/index.ts")) {
+    for (const path of settingsRuntimeSources) {
+      paths.push(...await filesUnder(root, path));
+    }
+    paths.push(
+      ...await filesUnder(
+        root,
+        ".github/workflows/supabase-settings-rehearsal.yml",
+      ),
+    );
   }
   const files = [];
   for (const path of paths.sort()) {
@@ -148,8 +211,9 @@ export async function createOperationPlan(
 ) {
   const artifact = await createPlan(root, { revision, target });
   validateSyntheticBaseline(baseline);
-  if (baseline.generation === syntheticOperationIds.length)
+  if (baseline.generation === syntheticOperationIds.length) {
     throw new Error("No remaining reviewed operation");
+  }
   const manifest = {
     protocol: 1,
     kind: "synthetic-exact-operation",

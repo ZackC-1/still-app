@@ -212,3 +212,78 @@ positive/negative rehearsal and compatibility tests, then obtain a new exact own
 Resume only the reviewed remaining steps and verify final authorized/denied behavior. If the
 state or safe repair cannot be proven, leave apply unavailable and recover through the reviewed
 incident process. This contract makes no universally lossless rollback promise.
+
+## Settings server candidate
+
+`sql/settings-sync-candidate.sql` is unnumbered source for the authenticated `sync-settings`
+consumer. It keeps canonical profiles and private per-account HMAC identity locked in the same
+PostgreSQL transaction while the maintained WebCrypto verifier and shared preserving migrator
+and field ordering execute. `still_settings_writer` has helper/rate-limit EXECUTE only, no
+settings/entitlement table access or client membership. Production login/password configuration,
+migration numbering and deployment require the protected exact-operation workflow.
+
+The candidate retains the free authenticated legacy RPC return shape. Recognized coarse writes
+require an integer timestamp no later than server UTC and strictly newer than the previous
+projection. After accepted modern field intent, coarse writes require an upgraded client. Exact
+retained retries return current canonical state. Settings write identities retain their original
+JSON for 30 days within the settings domain. Both write paths share database admission of at most
+120 new identities in a rolling minute, 4,096 retained identities and 4 MiB of retained request
+JSON per account. Exact retained retries bypass new-identity admission; full budgets reject new
+writes atomically without evicting unexpired identities. The trusted minute schedule physically
+deletes up to 4,096 expired identities per sweep, including inactive accounts. Expired retries
+use their original stamps and cannot
+receive a new rank. Account deletion cascades anchors and identities. Unsupported/malformed
+canonical data produces a typed hold and is never treated as empty.
+
+Legacy canonical validation covers every maintained field and stamp, shared structural bounds,
+future known bases and safe revision saturation. Source-equality checks and raw-input SQL probes
+guard this compatibility boundary. Modern SQL applies known values/stamp coordinates onto the
+original database JSON; opaque numeric and stamp members are not rewritten through JavaScript's
+rounded representation. The CAS baseline uses original database JSON text. Numbers outside the
+shared numeric domain return a typed hold.
+The final PostgreSQL overlay is validated again against the complete canonical grammar
+before the profile write. A bounds hold rolls back the claimed identity as well as the
+profile mutation, so an unchanged request can retry when independently retained data fits.
+
+Authenticated bodies are limited to 16 KiB and five seconds; abort starts reader cancellation
+and always releases its lock. Settings transactions use one-second lock, two-second statement
+and five-second idle transaction deadlines, with request abort propagated to pending queries.
+The account serialization lock permits FK key-share reads while still excluding deletion.
+The dedicated role suppresses normal/error bind-parameter logging; the disposable runtime also
+checks that separate audit parameter logging is disabled. Production logging/provider authority
+still requires target verification and approval.
+
+The read-only `supabase-settings-rehearsal.yml` job starts Supabase only on an ephemeral hosted
+runner. A successful run must establish actual managed-owner ordinary-role denial and rollback, explicit synthetic
+administrator apply, private/narrow grants, authenticated SQL adapter operations and actual
+Supabase CLI function serve with function-specific import aliases. Runtime source outside
+`supabase/functions` is included in the immutable plan digest and checked against Deno's actual
+resolved graph, including dropped/added dependency controls and the pinned CLI's raw-specifier
+aliases. Authenticated readiness must carry the exact env-file process marker; invalid JWT
+requests must be rejected before that marked function process. The function-specific external
+imports pin the reviewed versions in the shared Deno lock, and the actual resolved dependency
+graph is checked against that lock. SQL lifecycle and served CLI assertions live in separate
+`settings_sync_test.ts` and `settings_sync_served_test.ts` files. The measured twenty-field write
+asserts every value and stamp, exactly one revision increment, durable readback, and unchanged
+retained identity/profile state throughout the measured exact retries. EXIT and final workflow cleanup
+read back the targeted container/volume labels; passing normal cleanup does not prove the
+cancellation path unless cancellation was actually exercised. A separate hosted TERM probe
+waits for the authenticated CLI contract, then checks process and targeted runtime removal.
+Seeded SQL probes report observed request timings and assert released transactions/connections
+after success, retries, holds, statement/lock timeouts and cancelled lock waits. HTTP cancellation
+reports whether the caller aborted and database work returned to baseline; it does not attribute
+release to request-abort propagation when the configured lock deadline could also explain it.
+Parser/local double tests
+do not establish these hosted runtime outcomes.
+
+Local checks use `deno check --frozen --config supabase/functions/deno.json
+supabase/functions/sync-settings/index.ts` and `deno test --frozen --config
+supabase/functions/deno.json supabase/functions/sync-settings/handler.test.ts`. Parse both SQL and
+PL/pgSQL bodies with maintained `pglast` before publishing. Hosted checks use
+`bash scripts/backend/rehearse-settings.sh <exact revision> <source digest>` with a
+`$RUNNER_TEMP/u3-plan.json` created by `plan.mjs`. Never run Docker or a database on the owner's Mac.
+
+This candidate does not complete U2/U3/U4: browser/native atomic writers, session-generation
+fences, pending acknowledgement integration, same-account raw CAS repair, compiled native
+vectors and the effective access/proof resolver remain separate required integrations. Expanded
+client persistence stays unexposed until server compatibility protections and full reviews pass.
