@@ -1,5 +1,8 @@
-import { PAID_TIER_ENABLED, type ServiceId, type SignedRuleSet, type StillSettings } from "@still/shared-types";
-import { resolveService, etldPlusOne, applyRedirectTemplate } from "./match.js";
+import { PAID_TIER_ENABLED, type ServiceId, type SignedRuleSet, type SignedRuleSetV2, type SettingsV2, type BenefitId, type BenefitAccessSnapshot, type StillSettings } from "@still/shared-types";
+import { resolveService, etldPlusOne, applyRedirectTemplate, urlMatchesPattern } from "./match.js";
+
+import { validateRuleSetV2 } from "./schema.js";
+import { CURRENT_ACCESS_CAPABILITIES, initialAccessSnapshot, isBenefitEffective } from "../entitlement/access-policy.js";
 
 // The framework-agnostic rule engine. Pure functions over a rule set + settings + a DOM, so the
 // whole thing is unit-testable in jsdom without a browser. The content script (U7) owns side
@@ -83,15 +86,20 @@ export interface EngineOptions {
    * capability-based gate; the engine deliberately does not read them yet — one axis, no drift.)
    */
   readonly pro?: boolean;
+  /** Committed projection and actual packaged host capabilities, never downloaded rule fields. */
+  readonly access?: BenefitAccessSnapshot;
+  readonly capabilities?: ReadonlySet<BenefitId>;
 }
 
 export interface EnginePageSession {
-  evaluate(settings: StillSettings, url: URL, opts?: EngineOptions): Decision;
-  applyDom(settings: StillSettings, url: URL, doc: Document, opts?: EngineOptions): ApplyResult;
-  applyRemovals(settings: StillSettings, url: URL, doc: Document, opts?: EngineOptions): ApplyResult;
+  evaluate(settings: StillSettings | SettingsV2, url: URL, opts?: EngineOptions): Decision;
+  applyDom(settings: StillSettings | SettingsV2, url: URL, doc: Document, opts?: EngineOptions): ApplyResult;
+  applyRemovals(settings: StillSettings | SettingsV2, url: URL, doc: Document, opts?: EngineOptions): ApplyResult;
   /** The service whose rules the last prepared inputs resolved to, or null when none applies. */
   activeServiceId(): ServiceId | null;
-  debugStats(): { readonly serviceResolutions: number };
+  debugStats(): { readonly serviceResolutions: number; readonly compiledSelectors?: number; readonly domQueries?: number; readonly retainedSiteNodes?: number; readonly rootWrites?: number };
+  /** Releases owned reversible effects; format1 cleanup remains with its existing host path. */
+  stop?(): void;
 }
 
 /**
@@ -99,7 +107,8 @@ export interface EnginePageSession {
  * set; unchanged URL/settings/entitlement inputs reuse the prior navigation decision rather than
  * resolving match patterns again on every mutation frame.
  */
-export function createEnginePageSession(ruleSet: SignedRuleSet): EnginePageSession {
+export function createEnginePageSession(ruleSet: SignedRuleSet | SignedRuleSetV2): EnginePageSession {
+  if ("format" in ruleSet) return createFormat2PageSession(ruleSet);
   let lastSettings: StillSettings | null = null;
   let lastHref: string | null = null;
   let lastPro: boolean | undefined;
@@ -127,16 +136,16 @@ export function createEnginePageSession(ruleSet: SignedRuleSet): EnginePageSessi
 
   return {
     evaluate(settings, url, opts = {}) {
-      prepare(settings, url, opts);
+      prepare(settings as StillSettings, url, opts);
       lastDecision ??= evaluatePrepared(lastService, lastSurfaces, url);
       return lastDecision;
     },
     applyDom(settings, url, doc, opts = {}) {
-      prepare(settings, url, opts);
+      prepare(settings as StillSettings, url, opts);
       return applyPreparedActions(lastService, lastSweep, doc, /* includeHide */ true);
     },
     applyRemovals(settings, url, doc, opts = {}) {
-      prepare(settings, url, opts);
+      prepare(settings as StillSettings, url, opts);
       return applyPreparedActions(lastService, lastSweep, doc, /* includeHide */ false);
     },
     activeServiceId: () => lastServiceId,
@@ -437,4 +446,106 @@ function safeQueryAll(doc: Document, selector: string): Element[] {
   } catch {
     return []; // a selector the engine can't parse must not abort the whole pass
   }
+}
+
+// The format2 branch extends the same page-session interpreter. Selection is an internal host
+// seam: its caller must admit packaged or signature-verified data; loaders/seeds remain format1.
+// Root-scoped CSS owns hides, including inserted and recycled nodes, without touching renderer
+// children/styles/listeners or scanning the document on each mutation. Navigation/media adapters
+// and the approved TikTok blocked screen remain separate U7/service integration boundaries.
+let format2Sequence = 0;
+function createFormat2PageSession(input: unknown): EnginePageSession {
+  const admitted = validateRuleSetV2(input);
+  if (!admitted.ok) throw new Error("Invalid format2 interpreter input");
+  const ruleSet = admitted.value;
+  const scope = `still-feature-${++format2Sequence}`;
+  const featureClass = (benefit: BenefitId): string => `${scope}-${benefit.replace(".", "-")}`;
+  const plans = new Map<ServiceId, Map<BenefitId, readonly string[]>>();
+  const css = new Map<ServiceId, string>();
+  let compiledSelectors = 0;
+  for (const [id, service] of Object.entries(ruleSet.services)) {
+    if (!service) continue;
+    const selectors = new Map<BenefitId, Set<string>>();
+    for (const surface of service.surfaces) {
+      const selected = selectors.get(surface.feature) ?? new Set<string>();
+      if (surface.action === "hide") for (const selector of surface.selectors) selected.add(selector);
+      selectors.set(surface.feature, selected);
+    }
+    const plan = new Map([...selectors].map(([benefit, values]) => [benefit, [...values]] as const));
+    plans.set(id as ServiceId, plan);
+    const rules: string[] = [];
+    for (const [benefit, values] of plan) {
+      compiledSelectors += values.length;
+      for (const selector of values) {
+        // :is() keeps EVERY comma-list branch below the same owned feature gate. One rule per
+        // selector lets a browser reject unsupported syntax without discarding its neighbours.
+        rules.push(`.${featureClass(benefit)} :is(${selector}){display:none!important}`);
+      }
+    }
+    css.set(id as ServiceId, rules.join("\n"));
+  }
+  const defaultAccess = initialAccessSnapshot();
+  let stopped = false, serviceResolutions = 0, rootWrites = 0;
+  let previousSettings: StillSettings | SettingsV2 | null = null;
+  let previousHref: string | null = null;
+  let previousAccess: BenefitAccessSnapshot | null = null;
+  let previousCapabilities = "";
+  let serviceId: ServiceId | null = null;
+  let effective: readonly BenefitId[] = [];
+  let decision: Decision = { kind: "noop" };
+  let ownedRoot: Element | null = null;
+  let ownedStyle: HTMLStyleElement | null = null;
+  const ownedClasses = new Set<string>();
+  const clearEffects = (): void => {
+    for (const name of ownedClasses) { ownedRoot?.classList.remove(name); rootWrites++; }
+    ownedClasses.clear(); ownedStyle?.remove(); ownedStyle = null; ownedRoot = null;
+  };
+  const prepare = (settings: StillSettings | SettingsV2, url: URL, opts: EngineOptions): void => {
+    if (stopped) return;
+    const access = opts.access ?? defaultAccess;
+    const capabilities = opts.capabilities ?? CURRENT_ACCESS_CAPABILITIES;
+    const capabilityKey = [...plans.values()].flatMap(plan => [...plan.keys()]).map(benefit => `${benefit}:${capabilities.has(benefit)}`).join("|");
+    if (settings === previousSettings && url.href === previousHref && access === previousAccess && capabilityKey === previousCapabilities) return;
+    previousSettings = settings; previousHref = url.href; previousAccess = access; previousCapabilities = capabilityKey;
+    serviceResolutions++; serviceId = null; effective = []; decision = { kind: "noop" };
+    // No feature defaults/migration are invented by the engine. It consumes only the writer's
+    // current schema2 projection; a legacy/unresolved model leaves this dormant lane held.
+    if (!("schemaVersion" in settings) || settings.schemaVersion !== 2 || !settings.sites) return;
+    for (const [id, service] of Object.entries(ruleSet.services)) {
+      if (service?.matches.some(pattern => urlMatchesPattern(url, pattern))) { serviceId = id as ServiceId; break; }
+    }
+    if (!serviceId || (Array.isArray(settings.pauses) && settings.pauses.includes(etldPlusOne(url.hostname)))) return;
+    effective = [...(plans.get(serviceId)?.keys() ?? [])].filter(benefit =>
+      isBenefitEffective(settings as SettingsV2, benefit, access.states[benefit], capabilities.has(benefit)));
+    decision = effective.length === 0 ? { kind: "noop" } : effective.includes("tiktok.all") ? { kind: "placeholder", blocked: true } : { kind: "apply" };
+  };
+  const apply = (settings: StillSettings | SettingsV2, url: URL, doc: Document, opts: EngineOptions): ApplyResult => {
+    prepare(settings, url, opts);
+    if (stopped) return { hidden: 0, removed: 0 };
+    const root = doc.documentElement;
+    if (decision.kind !== "apply" || !root || !serviceId) { clearEffects(); return { hidden: 0, removed: 0 }; }
+    if (ownedRoot !== root) { clearEffects(); ownedRoot = root; }
+    const desired = new Set(effective.map(featureClass));
+    for (const name of ownedClasses) {
+      if (!desired.has(name)) { root.classList.remove(name); ownedClasses.delete(name); rootWrites++; }
+    }
+    for (const name of desired) {
+      if (!root.classList.contains(name)) { root.classList.add(name); ownedClasses.add(name); rootWrites++; }
+    }
+    ownedStyle ??= doc.createElement("style");
+    const text = css.get(serviceId) ?? "";
+    if (ownedStyle.textContent !== text) ownedStyle.textContent = text;
+    if (!ownedStyle.isConnected) (doc.head ?? root).append(ownedStyle);
+    // Counts describe explicit JS node effects. Native CSS matching is intentionally not counted
+    // or instrumented per target, and there is no retained site-node collection.
+    return { hidden: 0, removed: 0 };
+  };
+  return {
+    evaluate(settings, url, opts = {}) { prepare(settings, url, opts); return stopped ? { kind: "noop" } : decision; },
+    applyDom(settings, url, doc, opts = {}) { return apply(settings, url, doc, opts); },
+    applyRemovals(settings, url, doc, opts = {}) { return apply(settings, url, doc, opts); },
+    activeServiceId: () => stopped ? null : serviceId,
+    debugStats: () => ({ serviceResolutions, compiledSelectors, domQueries: 0, retainedSiteNodes: 0, rootWrites }),
+    stop() { stopped = true; effective = []; serviceId = null; clearEffects(); },
+  };
 }

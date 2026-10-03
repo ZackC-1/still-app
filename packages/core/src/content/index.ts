@@ -1,4 +1,5 @@
-import { PAID_TIER_ENABLED, type ServiceId, type SignedRuleSet } from "@still/shared-types";
+import { PAID_TIER_ENABLED, type ServiceId, type SignedRuleSet, type SignedRuleSetV2, type BenefitId } from "@still/shared-types";
+import { initialAccessSnapshot } from "../entitlement/access-policy.js";
 import {
   evaluate,
   createEnginePageSession,
@@ -32,6 +33,9 @@ export interface ContentScriptDeps {
   readonly win: StillWindow;
   readonly doc: Document;
   readonly ruleSet: SignedRuleSet;
+  /** Internal opt-in for an already admitted packaged/signed format2 rule set. */
+  readonly ruleSetV2?: SignedRuleSetV2;
+  readonly capabilities?: ReadonlySet<BenefitId>;
   readonly cache: SettingsCache;
   readonly entitlement?: EntitlementCache;
   /** Override the redirect mechanism (tests inject a spy; default is location.replace). */
@@ -73,11 +77,14 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   const blockedLine = deps.blockedLine ?? STILL_BLOCKED_LINE;
 
   let hydrated = false;
+  let started = false;
   let stopped = false;
   let lastHref: string | null = null;
   let lastUrl: URL | null = null;
   const dedupe = deps.redirectDedupe ?? { lastRedirect: null };
-  const pageSession = createEnginePageSession(ruleSet);
+  const modern = deps.ruleSetV2 !== undefined;
+  const pageSession = createEnginePageSession(deps.ruleSetV2 ?? ruleSet);
+  const fallbackAccess = initialAccessSnapshot();
   const teardowns: Array<() => void> = [];
   const shortsChipRule = ruleSet.services.youtube?.surfaces.find((s) => s.id === "yt-chips");
   let resetShortsFilterRequested = false;
@@ -153,6 +160,15 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     // we add nothing (off/paused users must not see content hidden-then-revealed).
     if (stopped || !hydrated) return;
     const url = currentUrl();
+    if (modern) {
+      // The existing cache is the committed authority. No account/storage read or legacy
+      // service-wide CSS grant occurs on this path; CSS handles recycled nodes itself.
+      pageSession.applyDom(cache.current(), url, doc, {
+        access: deps.entitlement?.currentAccessSnapshot() ?? fallbackAccess,
+        capabilities: deps.capabilities,
+      });
+      return;
+    }
     // The paid tier is dormant behind PAID_TIER_ENABLED, so every surface applies for everyone.
     // The switch is read synchronously, before the cached entitlement, so blocking never waits on
     // an account, a receipt, or a network answer. Turn the switch on and the original behavior
@@ -195,27 +211,37 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
 
   return {
     async start(): Promise<void> {
-      if (stopped) return;
+      if (stopped || started) return;
+      started = true;
       // Install hooks synchronously at document_start; their reapply calls are no-ops until hydrated.
       teardowns.push(installNavigationHooks(win, reapply));
-      const observer = createReapplyObserver(win, doc, reapply, deps.schedule);
-      observer.start();
-      teardowns.push(() => observer.stop());
+      if (!modern) {
+        const observer = createReapplyObserver(win, doc, reapply, deps.schedule);
+        observer.start();
+        teardowns.push(() => observer.stop());
+      } else {
+        doc.addEventListener("DOMContentLoaded", reapply, { once: true });
+        teardowns.push(() => doc.removeEventListener("DOMContentLoaded", reapply));
+      }
       teardowns.push(cache.subscribe(() => reapply()));
-      if (deps.entitlement) teardowns.push(deps.entitlement.subscribe(() => reapply()));
+      if (deps.entitlement) teardowns.push(modern
+        ? deps.entitlement.subscribeAccess(() => reapply())
+        : deps.entitlement.subscribe(() => reapply()));
 
       // The one and only async step: hydrate the snapshot, then apply with real settings and keep
       // reacting to external (cross-context / cloud) writes.
-      await Promise.all([cache.hydrate(), deps.entitlement?.hydrate()]);
+      await Promise.all([cache.hydrate(), modern ? undefined : deps.entitlement?.hydrate()]);
       if (stopped) return;
       teardowns.push(cache.watch());
       if (deps.entitlement) teardowns.push(deps.entitlement.watch());
       hydrated = true;
       reapply();
+      if (modern && deps.entitlement) void deps.entitlement.refreshAccess();
     },
     stop(): void {
       stopped = true;
       while (teardowns.length) teardowns.pop()!();
+      pageSession.stop?.();
     },
     reapply,
   };
