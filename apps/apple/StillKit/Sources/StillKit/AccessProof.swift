@@ -183,26 +183,33 @@ public struct AccessCacheRecord: Codable, Equatable {
   public var generation = 0
   public var rights: [CachedAccessRight] = []
   public var revocations: [AccessRevocation] = []
+  public var localProtection: LocalProtectionRecord?
   public init() {}
-  private enum CodingKeys: String, CodingKey { case schema, accountId, generation, rights, revocations }
+  private enum CodingKeys: String, CodingKey { case schema, accountId, generation, rights, revocations, localProtection }
   public func encode(to encoder: Encoder) throws {
     var c = encoder.container(keyedBy: CodingKeys.self)
     try c.encode(schema, forKey: .schema); try c.encode(accountId, forKey: .accountId)
     try c.encode(generation, forKey: .generation); try c.encode(rights, forKey: .rights)
     try c.encode(revocations, forKey: .revocations)
+    try c.encodeIfPresent(localProtection, forKey: .localProtection)
   }
 }
 
 public enum BenefitAccess: String { case free, purchased, protected, checking, verification_required, locked, unsupported }
 public struct ScopedAccessEvidence { public let proof: VerifiedAccessProof; public let validPaid: Bool; public let revoked: Bool }
 public func resolveBenefitAccess(_ benefit: String, evidence: [ScopedAccessEvidence], paidMode: Bool,
-  supported: Bool, free: Bool, accountId: String?, localRights: Set<String>, evidenceStatus: String) -> BenefitAccess {
+  supported: Bool, free: Bool, accountId: String?, localRights: Set<String>, evidenceStatus: String, localProtection: LocalProtectionRecord? = nil) -> BenefitAccess {
   if !supported { return .unsupported }
   if !paidMode || free { return .free }
   var unresolved = false; var protectedRight = false
   for item in evidence where item.proof.matchesHolder(accountId: accountId, localRights: localRights) && !item.revoked && item.proof.claims.benefits.contains(benefit) {
     if item.proof.claims.isPaid { if item.validPaid { return .purchased }; unresolved = true }
     else { protectedRight = true }
+  }
+  if let local = localProtection {
+    if !local.valid { unresolved = true }
+    else if local.grant?.benefits.contains(benefit) == true { protectedRight = true }
+    else if local.grant == nil { unresolved = true }
   }
   if protectedRight { return .protected }
   if unresolved || evidenceStatus == "unknown" { return .verification_required }

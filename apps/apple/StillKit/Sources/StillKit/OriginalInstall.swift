@@ -34,11 +34,10 @@ public enum OriginalAppVersionKind: String, Codable, Sendable {
 /// ## Changing this record later, which is the part that can go permanently wrong
 ///
 /// Every record already on a device must keep decoding on every future build. `OriginalInstall`
-/// reports a record it cannot decode as no record at all, and the next launch then writes a fresh
-/// one dated today, which silently moves the entire existing install base into whatever cohort is
-/// current on the day that build ships. That is exactly the permanent misclassification this
-/// record exists to prevent, arriving through the back door, and it has already happened once on a
-/// development machine while this release was being built. So, without exception:
+/// reports a record it cannot decode as unavailable. A later launch must preserve the retained
+/// bytes rather than replace them with today's date, which would silently move an existing
+/// install into a new cohort. This misclassification has happened on a development machine, so
+/// preserve unreadable history for explicit recovery. Without exception:
 ///
 ///   * Add a new field as an optional, or give it a default in `init(from:)` below. Never decode a
 ///     new field with a plain required `decode`, because every record written before it existed
@@ -99,7 +98,7 @@ public struct OriginalInstallRecord: Codable, Equatable, Sendable {
   }
 
   /// Written out by hand, and deliberately forgiving, for the reason in this type's documentation:
-  /// a record that fails to decode is treated as no record and gets overwritten with today's date.
+  /// a record that fails to decode stays unavailable and retains its original bytes for recovery.
   /// Fields a later build added are ignored, and an optional field that cannot be understood
   /// becomes nil instead of taking the whole record down with it. Only the two local facts are
   /// required, because a record without them says nothing at all.
@@ -161,8 +160,10 @@ public enum OriginalInstall {
     firstRecordedAt: Date,
     appVersion: String,
     defaults: UserDefaults
-  ) -> OriginalInstallRecord {
+  ) -> OriginalInstallRecord? {
     if let existing = current(defaults) { return existing }
+    // Corrupt retained history is unknown; preserve its exact bytes for recovery.
+    guard defaults.object(forKey: storageKey) == nil else { return nil }
     let record = OriginalInstallRecord(
       firstRecordedAt: firstRecordedAt,
       firstRecordedAppVersion: appVersion
@@ -239,8 +240,15 @@ public enum OriginalInstall {
     return filled
   }
 
+  /// Assessment reads retained bytes directly; a malformed value is distinct from no record.
+  public static func protectionEvidence(_ defaults: UserDefaults) -> OriginalProtectionEvidence {
+    guard let value = defaults.object(forKey: storageKey) else { return .absent }
+    guard let data = value as? Data else { return .unreadable }
+    return assessOriginalProtection(data)
+  }
+
   /// The stored record, or nil when there is none. Nil also covers a record this build cannot
-  /// decode, and `ensure` replaces nil with a record dated today, which is why
+  /// decode, and `ensure` writes only when the slot is genuinely absent, which is why
   /// `OriginalInstallRecord`'s decoding is forgiving and why its compatibility rules matter.
   public static func current(_ defaults: UserDefaults) -> OriginalInstallRecord? {
     guard let data = defaults.data(forKey: storageKey) else { return nil }

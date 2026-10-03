@@ -24,8 +24,8 @@ import { browser } from "wxt/browser";
 // both sides always have.
 //
 // Changing this record later is the part that can go permanently wrong, for the same reason it is
-// on the Apple side. A record that fails to parse reads as no record, and the next start writes a
-// fresh one dated today. So: add new fields as optional, never rename or repurpose an existing
+// on the Apple side. A record that fails to parse remains retained unknown history, and the next start must not
+// replace it with a fresh record dated today. So: add new fields as optional, never rename or repurpose an existing
 // field, and raise `CURRENT_SCHEMA_VERSION` only when the MEANING of a field changes.
 
 const STORAGE_KEY = "still:originalInstall";
@@ -68,8 +68,11 @@ export async function ensureOriginalInstall(
   deps: OriginalInstallDeps,
 ): Promise<OriginalInstallRecord | null> {
   try {
-    const existing = parseOriginalInstall(await deps.store.get());
+    const raw = await deps.store.get();
+    const existing = parseOriginalInstall(raw);
     if (existing) return existing;
+    // Unreadable retained history is unknown, never a pristine install to re-date.
+    if (raw !== null && raw !== undefined) return null;
     const record: OriginalInstallRecord = {
       schemaVersion: CURRENT_SCHEMA_VERSION,
       firstRecordedAt: deps.now(),
@@ -87,8 +90,8 @@ export async function ensureOriginalInstall(
  *
  * Deliberately tolerant in one direction only: unknown fields written by a later build are ignored
  * so an older build never destroys a newer record, while a missing or unusable required field
- * reads as absent. A record without a readable first-recorded date says nothing, and pretending
- * otherwise would be worse than rewriting it.
+ * reads as unusable. ensureOriginalInstall preserves nonempty unusable data rather than
+ * replacing it with newly manufactured history.
  */
 export function parseOriginalInstall(value: unknown): OriginalInstallRecord | null {
   if (typeof value !== "object" || value === null || Array.isArray(value)) return null;

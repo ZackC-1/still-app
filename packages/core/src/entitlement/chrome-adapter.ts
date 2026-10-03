@@ -1,3 +1,4 @@
+import { mutateLocalProtection, type LocalProtectionMutation } from "./local-protection.js";
 import type { EntitlementAdapter, EntitlementRecord, EntitlementRecordStore } from "./cache.js";
 import { recordMatchesSession } from "./cache.js";
 import { mutateAccessRecord, parseAccessCacheRecord, type AccessMutation, type AccessCacheRecord } from "./access-record.js";
@@ -110,6 +111,22 @@ export class ChromeEntitlementAdapter implements EntitlementAdapter, Entitlement
       if (new TextEncoder().encode(JSON.stringify({ ...stored, access: next.record })).length > 131_072) throw new Error("Access record full");
       await chrome.storage.local.set({ [STORAGE_KEY]: { ...stored, access: next.record } });
       return next; // publish only after durable commit; storage failure leaves prior state authoritative
+    });
+  }
+
+  /** Internal local host command only. The runtime router exposes no declaration or policy input. */
+  async mutateLocalProtection(mutation: LocalProtectionMutation): Promise<AccessCacheRecord> {
+    if (!this.options.authority) throw new Error("Entitlement write requires background authority");
+    return this.serialize(async () => {
+      const value: unknown = (await chrome.storage.local.get(STORAGE_KEY))[STORAGE_KEY];
+      if (value !== undefined && (!value || typeof value !== "object" || Array.isArray(value))) throw new Error("Unreadable entitlement record");
+      const stored = (value ?? {}) as Record<string, unknown>;
+      const current = parseAccessCacheRecord(stored.access);
+      const record = { ...current, localProtection: mutateLocalProtection(current.localProtection ?? null, mutation) };
+      const next = { ...stored, access: record };
+      if (new TextEncoder().encode(JSON.stringify(next)).length > 131_072) throw new Error("Access record full");
+      await chrome.storage.local.set({ [STORAGE_KEY]: next });
+      return record;
     });
   }
 

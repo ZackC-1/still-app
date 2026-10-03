@@ -56,3 +56,12 @@ export interface PaidAccessClock {
   readonly revoked: boolean;
   readonly paused: boolean;
 }
+
+/** Honest unsigned, nonexclusive local free protection. Never a paid/signed proof or account
+ * association. A null grant preserves eligibility while CP109's actual cutoff is unavailable. */
+export interface LocalProtectionRecord {
+  readonly schema: 1;
+  readonly provenance: "accepted_legacy_local" | "free_self_declaration";
+  readonly original: { readonly firstRecordedAt: number; readonly firstRecordedAppVersion: string } | null;
+  readonly grant: (ProtectedBenefitSnapshot & { readonly activatedAt: number }) | null;
+}

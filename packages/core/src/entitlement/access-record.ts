@@ -1,4 +1,5 @@
-import { type PaidAccessClock } from "@still/shared-types";
+import { parseLocalProtection } from "./local-protection.js";
+import { type LocalProtectionRecord, type PaidAccessClock } from "@still/shared-types";
 import { accessProofMatchesHolder, observePaidClock, installPaidClock, type AccessObservation, type ScopedAccessEvidence } from "./access-policy.js";
 import { isAccessUUID, isPaidAccess, isSafeAccessInteger, isVerifiedAccessProof, verifyAccessProof, type AccessTrust, type VerifiedAccessProof } from "./access-proof.js";
 
@@ -12,6 +13,7 @@ export interface AccessCacheRecord {
   readonly accountId: string | null;
   readonly generation: number;
   readonly rights: readonly CachedAccessRight[];
+  readonly localProtection?: LocalProtectionRecord | null;
   readonly revocations: readonly { readonly right: string; readonly revision: number }[];
 }
 export const EMPTY_ACCESS_RECORD: AccessCacheRecord = { schema: 1, accountId: null, generation: 0, rights: [], revocations: [] };
@@ -24,6 +26,7 @@ export function parseAccessCacheRecord(value: unknown): AccessCacheRecord {
       !Array.isArray(c.rights) || c.rights.length > 32 || !Array.isArray(c.revocations) || c.revocations.length > 64 ||
       !c.rights.every(r => r && typeof r === "object" && typeof r.envelope === "string" && r.envelope.length <= 6144 && (r.clock === null || typeof r.clock === "object") && (r.accountGeneration === undefined || r.accountGeneration === null || isSafeAccessInteger(r.accountGeneration))) ||
       !c.revocations.every(r => r && typeof r === "object" && isAccessUUID(r.right) && isSafeAccessInteger(r.revision))) throw new Error("Unreadable access record");
+  parseLocalProtection(c.localProtection);
   return c as unknown as AccessCacheRecord;
 }
 

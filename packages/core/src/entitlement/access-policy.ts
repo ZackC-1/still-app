@@ -1,4 +1,5 @@
-import { PAID_ACCESS_WINDOW_MS, type AccessState, type BenefitId, type PaidAccessClock } from "@still/shared-types";
+import { parseLocalProtection } from "./local-protection.js";
+import { PAID_ACCESS_WINDOW_MS, type AccessState, type LocalProtectionRecord, type BenefitId, type PaidAccessClock } from "@still/shared-types";
 import { isPaidAccess, isSafeAccessInteger, isVerifiedAccessProof, type VerifiedAccessProof } from "./access-proof.js";
 
 export interface AccessObservation {
@@ -50,6 +51,7 @@ export interface AccessResolutionContext {
   readonly accountId: string | null;
   /** Native verified transaction/protection mapping, not copied proof holders or a device ID. */
   readonly localRights: ReadonlySet<string>;
+  readonly localProtection?: LocalProtectionRecord | null;
   readonly evidenceStatus: "checking" | "unknown" | "absent";
 }
 
@@ -74,7 +76,10 @@ export function resolveBenefitAccess(benefit: BenefitId, evidence: readonly Scop
       unresolved = true;
     } else protectedRight = true;
   }
-  if (protectedRight) return "protected";
+  let local: LocalProtectionRecord | null = null;
+  try { local = parseLocalProtection(context.localProtection); } catch { unresolved = true; }
+  if (protectedRight || local?.grant?.benefits.includes(benefit)) return "protected";
+  if (local && !local.grant) unresolved = true;
   if (unresolved || context.evidenceStatus === "unknown") return "verification_required";
   return context.evidenceStatus === "checking" ? "checking" : "locked";
 }

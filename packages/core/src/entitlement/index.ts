@@ -15,3 +15,4 @@ export {
   ENTITLEMENT_CACHE_TTL_MS,
   entitlementStampExpired,
 } from "./chrome-adapter.js";
+export * from "./local-protection.js";

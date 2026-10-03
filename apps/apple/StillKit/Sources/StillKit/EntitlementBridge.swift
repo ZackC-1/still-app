@@ -111,7 +111,7 @@ public final class SharedEntitlementStore {
   private func decodeAccess(_ object: Any) throws -> AccessCacheRecord {
     let result = try decoder.decode(AccessCacheRecord.self, from: JSONSerialization.data(withJSONObject: object))
     guard result.schema == 1, accessInteger(result.generation), result.accountId.map(accessUUID) ?? true,
-      result.rights.count <= 32, result.revocations.count <= 64,
+      result.rights.count <= 32, result.revocations.count <= 64, result.localProtection?.valid ?? true,
       result.rights.allSatisfy({ $0.envelope.utf8.count <= 6_144 && ($0.accountGeneration.map(accessInteger) ?? true) }),
       result.revocations.allSatisfy({ accessUUID($0.right) && accessInteger($0.revision) }) else { throw AccessProofFailure.invalid }
     return result
@@ -125,9 +125,20 @@ public final class SharedEntitlementStore {
       var object = try data.map { try JSONSerialization.jsonObject(with: $0) as? [String: Any] ?? { throw AccessProofFailure.invalid }() } ?? [:]
       var record = try object["access"].map(decodeAccess) ?? AccessCacheRecord()
       let result = try body(&record)
-      object["access"] = try JSONSerialization.jsonObject(with: encoder.encode(record))
+      let encoded = try JSONSerialization.jsonObject(with: encoder.encode(record)) as? [String: Any] ?? [:]
+      var access = object["access"] as? [String: Any] ?? [:]
+      for (key, value) in encoded { access[key] = value }
+      object["access"] = access
       data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
       return result
+    }
+  }
+
+  /// Internal host action only; no extension bridge route accepts declaration/policy fields.
+  public func mutateLocalProtection(_ mutation: LocalProtectionMutation) throws -> AccessCacheRecord {
+    try transactionAccess { record in
+      record.localProtection = try StillKit.mutateLocalProtection(record.localProtection, mutation: mutation)
+      return record
     }
   }
 
