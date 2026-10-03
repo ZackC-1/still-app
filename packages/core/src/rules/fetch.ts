@@ -1,6 +1,10 @@
-import type { SignedRuleSet } from "@still/shared-types";
-import { validateRuleSet } from "./schema.js";
-import { verifyRuleSet, type TrustedKey } from "./signature.js";
+import type { SignedRuleSet, SignedRuleSetV2 } from "@still/shared-types";
+import { validateRuleSet, validateRuleSetV2 } from "./schema.js";
+import {
+  verifyRuleSet,
+  verifyRuleSetV2,
+  type TrustedKey,
+} from "./signature.js";
 import { compareVersions } from "./version.js";
 
 // Runtime rule-set fetch with bundled fallback (R11, KTD13). A fetched set is treated strictly as
@@ -16,14 +20,25 @@ export interface RuleSetEndpoint {
   readonly rpc?: string;
 }
 
-export interface FetchConfig {
+export type RuleFormat = 1 | 2;
+export type RuleSetFor<F extends RuleFormat> = F extends 2
+  ? SignedRuleSetV2
+  : SignedRuleSet;
+export type AnySignedRuleSet = SignedRuleSet | SignedRuleSetV2;
+
+/** Only the legacy channel permits omission; a format2 result requires explicit admission. */
+export type RuleFormatSelection<F extends RuleFormat> = {
+  readonly format?: F;
+} & (F extends 2 ? { readonly format: 2 } : unknown);
+
+export type FetchConfig<F extends RuleFormat = 1> = RuleFormatSelection<F> & {
   readonly endpoint: RuleSetEndpoint;
   readonly allowedKeys: readonly TrustedKey[];
   readonly minVersion: string;
   readonly fetchImpl?: typeof fetch;
   readonly timeoutMs?: number;
   readonly maxBytes?: number;
-}
+};
 
 const DEFAULT_TIMEOUT_MS = 4000;
 const DEFAULT_MAX_BYTES = 256 * 1024;
@@ -70,11 +85,16 @@ async function readCappedBody(
  * failure (offline, timeout, oversized, malformed, bad/unknown signature, below floor) — callers
  * fall back to cache/bundled.
  */
-export async function fetchCurrentRuleSet(cfg: FetchConfig): Promise<SignedRuleSet | null> {
+export async function fetchCurrentRuleSet<F extends RuleFormat = 1>(
+  cfg: FetchConfig<F>,
+): Promise<RuleSetFor<F> | null> {
   const doFetch = cfg.fetchImpl ?? fetch;
   const rpc = cfg.endpoint.rpc ?? "get_current_rule_set";
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+  const timer = setTimeout(
+    () => controller.abort(),
+    cfg.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+  );
   try {
     const res = await doFetch(`${cfg.endpoint.url}/rest/v1/rpc/${rpc}`, {
       method: "POST",
@@ -87,21 +107,37 @@ export async function fetchCurrentRuleSet(cfg: FetchConfig): Promise<SignedRuleS
       signal: controller.signal,
     });
     if (!res.ok) return null;
-    const text = await readCappedBody(res, cfg.maxBytes ?? DEFAULT_MAX_BYTES, controller);
+    const text = await readCappedBody(
+      res,
+      cfg.maxBytes ?? DEFAULT_MAX_BYTES,
+      controller,
+    );
     if (text === null) return null; // oversized / compressed / no readable body
     const parsed: unknown = JSON.parse(text);
     const row = Array.isArray(parsed) ? parsed[0] : parsed;
     if (!row || typeof row !== "object") return null;
-    const { payload, signature } = row as { payload?: Record<string, unknown>; signature?: unknown };
+    const { payload, signature } = row as {
+      payload?: Record<string, unknown>;
+      signature?: unknown;
+    };
     const candidate = { ...(payload ?? {}), signature };
 
-    const validation = validateRuleSet(candidate);
+    const validation =
+      cfg.format === 2
+        ? validateRuleSetV2(candidate)
+        : validateRuleSet(candidate);
     if (!validation.ok) return null;
-    const verdict = await verifyRuleSet(validation.value, {
+    const snapshot = validation.value;
+    const trust = {
       allowedKeys: cfg.allowedKeys,
       minVersion: cfg.minVersion,
-    });
-    return verdict.ok ? validation.value : null;
+    };
+    const verdict =
+      cfg.format === 2
+        ? await verifyRuleSetV2(snapshot, trust)
+        : await verifyRuleSet(snapshot as SignedRuleSet, trust);
+    // Return the admitted snapshot whose bytes were verified, never a mutable caller input.
+    return verdict.ok ? (snapshot as RuleSetFor<F>) : null;
   } catch {
     return null; // offline / abort / parse error
   } finally {
@@ -111,8 +147,8 @@ export async function fetchCurrentRuleSet(cfg: FetchConfig): Promise<SignedRuleS
 
 export type RuleSetSource = "fetched" | "cached" | "bundled";
 
-export interface ResolvedRuleSet {
-  readonly ruleSet: SignedRuleSet;
+export interface ResolvedRuleSet<T extends AnySignedRuleSet = SignedRuleSet> {
+  readonly ruleSet: T;
   readonly source: RuleSetSource;
 }
 
@@ -121,19 +157,23 @@ export interface ResolvedRuleSet {
  * present and trusted (packaged with the signed extension); fetched is already verified by
  * fetchCurrentRuleSet; cached was verified when stored. Ties prefer fetched, then cached.
  */
-export function resolveRuleSet(input: {
-  bundled: SignedRuleSet;
-  cached?: SignedRuleSet | null;
-  fetched?: SignedRuleSet | null;
-}): ResolvedRuleSet {
-  const ordered: Array<{ set: SignedRuleSet; source: RuleSetSource }> = [];
-  if (input.fetched) ordered.push({ set: input.fetched, source: "fetched" });
-  if (input.cached) ordered.push({ set: input.cached, source: "cached" });
+export function resolveRuleSet<T extends AnySignedRuleSet>(input: {
+  bundled: T;
+  cached?: T | null;
+  fetched?: T | null;
+}): ResolvedRuleSet<T> {
+  const sameFormat = (set: T) => "format" in set === "format" in input.bundled;
+  const ordered: Array<{ set: T; source: RuleSetSource }> = [];
+  if (input.fetched && sameFormat(input.fetched))
+    ordered.push({ set: input.fetched, source: "fetched" });
+  if (input.cached && sameFormat(input.cached))
+    ordered.push({ set: input.cached, source: "cached" });
   ordered.push({ set: input.bundled, source: "bundled" });
 
   let best = ordered[0]!;
   for (const candidate of ordered.slice(1)) {
-    if (compareVersions(candidate.set.version, best.set.version) > 0) best = candidate;
+    if (compareVersions(candidate.set.version, best.set.version) > 0)
+      best = candidate;
   }
   return { ruleSet: best.set, source: best.source };
 }

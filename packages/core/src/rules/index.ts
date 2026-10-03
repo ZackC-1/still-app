@@ -1,8 +1,18 @@
 // @still/core/rules — rule-set validation, signing, and (U6) the engine.
 
-export { canonicalize, ruleSetSigningBytes, ruleSetSigningBytesV2 } from "./canonical.js";
+export {
+  canonicalize,
+  ruleSetSigningBytes,
+  ruleSetSigningBytesV2,
+} from "./canonical.js";
 export { compareVersions, VERSION_RE } from "./version.js";
-export { validateRuleSet, validateRuleSetV2, isSafeSelector, type ValidationResult, type ValidationResultV2 } from "./schema.js";
+export {
+  validateRuleSet,
+  validateRuleSetV2,
+  isSafeSelector,
+  type ValidationResult,
+  type ValidationResultV2,
+} from "./schema.js";
 export {
   signRuleSet,
   verifyRuleSet,
@@ -46,8 +56,15 @@ export {
   type RuleSetEndpoint,
   type ResolvedRuleSet,
   type RuleSetSource,
+  type RuleFormat,
+  type RuleSetFor,
+  type AnySignedRuleSet,
 } from "./fetch.js";
-export { serviceHasFreeSurface, proServiceIds, PRO_SERVICE_IDS } from "./tiers.js";
+export {
+  serviceHasFreeSurface,
+  proServiceIds,
+  PRO_SERVICE_IDS,
+} from "./tiers.js";
 export {
   ruleSetTrustedKeys,
   ruleSetTrust,
