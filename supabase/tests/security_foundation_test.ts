@@ -3,6 +3,7 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import postgres from "postgres";
 import { verifyCreatorCatalog } from "./catalog_creator_probes.ts";
+import { inspectCatalogPreconditions } from "./catalog_preconditions.ts";
 import {
   PgEntitlementStore,
   PgRateLimiter,
@@ -143,7 +144,26 @@ Deno.test({
         "creator fixtures have no owned routines",
       );
       await sql.unsafe(await source("security-audit-candidate"));
-      await t.step(
+      const {
+        admin: adminRole,
+        provider: providerDiagnostic,
+        creators: creatorAuthority,
+      } = await inspectCatalogPreconditions(sql);
+      console.error(
+        "U1 disposable catalog preconditions",
+        JSON.stringify({
+          admin: adminRole,
+          provider: providerDiagnostic,
+          creators: creatorAuthority,
+        }),
+      );
+      assertEquals(adminRole.role, "postgres");
+      assertEquals(
+        adminRole.rolsuper,
+        false,
+        "normal admin remains non-superuser",
+      );
+      const baselinePassed = await t.step(
         "characterize unsafe baseline before changing grants",
         async () => {
           const issues = await sql`select issue from still_security.audit()`;
@@ -153,9 +173,14 @@ Deno.test({
             issues.some((r) => r.issue === "schema_default_client_privilege"),
           );
           assertEquals(
+            providerDiagnostic.generic_matches,
+            true,
+            "explicit generic descriptor matches its literal reviewed approval",
+          );
+          assertEquals(
             issues.some((r) => r.issue === "provider_routine_drift"),
             false,
-            "explicit generic descriptor matches before hardening",
+            "no unapproved or drifted provider routines before hardening",
           );
           await assertRejects(
             async () => await sql.unsafe(await source("assert-security")),
@@ -163,6 +188,8 @@ Deno.test({
           );
         },
       );
+      // A failed Deno step returns false. Preserve that failure and do not attempt hardening.
+      if (!baselinePassed) return;
       await sql.begin(async (tx) => {
         await tx.unsafe(await source("hardening-candidate"));
         await tx.unsafe(await source("assert-security"));
