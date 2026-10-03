@@ -80,6 +80,18 @@ for (const phase of ["query", "cleanup"]) {
 }
 
 
+test("settings rehearsal keeps the narrow writer on the CLI's Deno-compatible db alias", () => {
+  const source = readFileSync("scripts/backend/rehearse-settings.sh", "utf8");
+  const connection = source.match(/'SETTINGS_WRITER_DB_URL=([^']+)'/);
+  assert(connection, "Missing isolated narrow writer connection");
+  const target = new URL(connection[1]);
+  assert.equal(target.hostname, "db", "Deno rejects underscores in container hostnames");
+  assert.equal(target.username, "still_settings_writer");
+  assert.equal(target.port, "5432");
+  assert.equal(target.pathname, "/postgres");
+  assert.equal(target.protocol, "postgresql:");
+});
+
 test("settings CLI failure diagnostics expose only bounded whitelist categories", () => {
   const source = readFileSync("scripts/backend/rehearse-settings.sh", "utf8");
   const diagnostics = source.match(/<<'SETTINGS_CLI_DIAGNOSTICS'\n([\s\S]*?)\nSETTINGS_CLI_DIAGNOSTICS/);
@@ -114,6 +126,36 @@ test("settings CLI failure diagnostics expose only bounded whitelist categories"
         categories: ["reserved-env", "connection", "jwt-verification"] },
     });
     assert(!classified.stdout.includes(sentinel));
+    for (const [marker, category] of [
+      ["Error: Rate limiter unavailable", "rate-limiter-unavailable"],
+      ["code: 'ECONNREFUSED'", "driver-connection"],
+      ["TypeError: " + sentinel, "runtime-error-class"],
+      ["code: '28P01'", "database-authentication"],
+      ["SQLSTATE: 42501", "database-privilege"],
+      ["code: '53300'", "database-resource"],
+      ["code: '57014'", "database-timeout"],
+      ["SQLSTATE: 08006", "database-connection"],
+    ]) {
+      writeFileSync(log, marker + "\n" + payload.replace(/worker boot error: Module not found/g, sentinel));
+      const observed = spawnSync("node", ["--input-type=module", "-", log, "true"], {
+        input: diagnostics[1], encoding: "utf8", timeout: 5000,
+      });
+      assert.equal(observed.status, 0, observed.stderr);
+      assert.equal(observed.stderr, "");
+      assert(!observed.stdout.includes(sentinel));
+      assert.deepEqual(JSON.parse(observed.stdout), {
+        settingsCliFailure: { running: true, log: "read", truncated: false, categories: [category] },
+      }, marker);
+    }
+    writeFileSync(log, "Error: " + sentinel + "\ncode: 'PRIVATE_CODE'\nSQLSTATE: 99999");
+    const unknown = spawnSync("node", ["--input-type=module", "-", log, "true"], {
+      input: diagnostics[1], encoding: "utf8", timeout: 5000,
+    });
+    assert.equal(unknown.status, 0, unknown.stderr);
+    assert.equal(unknown.stderr, "");
+    assert.deepEqual(JSON.parse(unknown.stdout), {
+      settingsCliFailure: { running: true, log: "read", truncated: false, categories: [] },
+    });
     writeFileSync(log, payload + "x".repeat(70_000));
     const bounded = spawnSync("node", ["--input-type=module", "-", log, "true"], {
       input: diagnostics[1], encoding: "utf8", timeout: 5000,

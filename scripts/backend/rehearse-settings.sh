@@ -44,7 +44,8 @@ deno test --frozen --config supabase/functions/deno.json --allow-env --allow-rea
 umask 077
 export STILL_SETTINGS_REHEARSAL_INSTANCE
 STILL_SETTINGS_REHEARSAL_INSTANCE=$(node -e 'console.log(require("node:crypto").randomUUID())')
-printf '%s\n' 'SETTINGS_WRITER_DB_URL=postgresql://still_settings_writer:u3-synthetic-settings-only@supabase_db_still-app:5432/postgres' "SETTINGS_REHEARSAL_INSTANCE=$STILL_SETTINGS_REHEARSAL_INSTANCE" > "$RUNNER_TEMP/u3-function.env"
+# The pinned CLI uses the db network alias: Deno rejects '_' in container names.
+printf '%s\n' 'SETTINGS_WRITER_DB_URL=postgresql://still_settings_writer:u3-synthetic-settings-only@db:5432/postgres' "SETTINGS_REHEARSAL_INSTANCE=$STILL_SETTINGS_REHEARSAL_INSTANCE" > "$RUNNER_TEMP/u3-function.env"
 export STILL_SETTINGS_CLI_JWT_SECRET
 STILL_SETTINGS_CLI_JWT_SECRET=$(supabase status -o json | jq -er '.JWT_SECRET')
 export STILL_SETTINGS_CLI_ANON_KEY
@@ -78,6 +79,16 @@ try {
     ["reserved-env", /env name cannot start with supabase_/i],
     ["connection", /connection refused|could not connect|network unreachable/i],
     ["jwt-verification", /invalid jwt|jwt verification failed/i],
+    // These fixed markers locate the failing boundary; they do not prove its cause.
+    // PgRateLimiter deliberately removes the original driver error before logging.
+    ["rate-limiter-unavailable", /\bRate limiter unavailable\b/],
+    ["driver-connection", /\b(?:ECONNREFUSED|ECONNRESET|ENOTFOUND|EHOSTUNREACH|ETIMEDOUT|CONNECTION_CLOSED|CONNECTION_ENDED|CONNECT_TIMEOUT)\b/],
+    ["runtime-error-class", /\b(?:TypeError|NotSupported|NotSupportedError)\s*:/],
+    ["database-authentication", /\b(?:code|SQLSTATE)\s*[:=]\s*["']?(?:28P01|28000)\b/i],
+    ["database-privilege", /\b(?:code|SQLSTATE)\s*[:=]\s*["']?42501\b/i],
+    ["database-resource", /\b(?:code|SQLSTATE)\s*[:=]\s*["']?(?:53300|57P03)\b/i],
+    ["database-timeout", /\b(?:code|SQLSTATE)\s*[:=]\s*["']?(?:57014|55P03)\b/i],
+    ["database-connection", /\b(?:code|SQLSTATE)\s*[:=]\s*["']?(?:08000|08001|08003|08004|08006|08007|08P01)\b/i],
   ]) {
     if (pattern.test(text)) result.categories.push(category);
   }
