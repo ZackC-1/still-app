@@ -22,7 +22,9 @@ trap cleanup EXIT
 supabase start --exclude gotrue,realtime,storage-api,imgproxy,kong,mailpit,postgrest,postgres-meta,studio,edge-runtime,logflare,vector,supavisor >/dev/null
 supabase db reset --local --no-seed >/dev/null
 # Local socket in this disposable CLOUD container only. Create a generic fixture login for event
-# trigger DDL; it is separate from the non-superuser application/admin tests and never published.
+# trigger DDL and selected creator-default hardening. This explicitly privileged synthetic
+# administrator is separate from non-superuser application/admin tests; production authority
+# remains unproven. No postgres elevation or additional creator membership is installed.
 bootstrap_fixture() {
   docker exec -i supabase_db_still-app psql -U supabase_admin -d postgres -X --set=ON_ERROR_STOP=1 <<'SQL'
 do $$ begin
@@ -40,11 +42,12 @@ supabase db reset --local --no-seed >/dev/null
 # cross-account isolation against the hardened state, with extension-only test helper grants.
 bootstrap_fixture
 psql "$STILL_SECURITY_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --file=scripts/backend/sql/catalog-reconciliation.sql
-# The fixture needs superuser event-trigger DDL; only the generic test login/source is used.
+# Match the Deno path: only the declared synthetic administrator applies hardening.
 docker exec -i supabase_db_still-app psql -U u1_catalog_fixture -d postgres -X --set=ON_ERROR_STOP=1 < scripts/backend/sql/synthetic-catalog-fixture.sql
+psql "$STILL_SECURITY_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --file=scripts/backend/sql/security-audit-candidate.sql
+cat scripts/backend/sql/hardening-candidate.sql scripts/backend/sql/assert-security.sql | \
+  docker exec -i supabase_db_still-app psql -U u1_catalog_fixture -d postgres -X --set=ON_ERROR_STOP=1 --single-transaction --file=-
 psql "$STILL_SECURITY_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --single-transaction \
-  --file=scripts/backend/sql/security-audit-candidate.sql \
-  --file=scripts/backend/sql/hardening-candidate.sql \
   --file=scripts/backend/sql/prepare-hardened-rls.sql \
   --file=scripts/backend/sql/assert-security.sql
 supabase test db supabase/tests/rls_test.sql

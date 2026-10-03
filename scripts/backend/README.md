@@ -35,9 +35,20 @@ The new SQL probes check exact application policy definitions and deny-default
 rate-limit access, provider preservation/drift, creator-default creation and
 later drift, and raw-metadata access restrictions. They preserve the existing
 free-sync, writer, rule, JWT, webhook and rollback probes. The disposable cloud
-container creates a separate synthetic superuser login for event-trigger DDL.
-This login never appears in production/audit configuration. Local driver/check
-success and ignored SQL tests do not establish a cloud SQL pass.
+container creates the explicitly privileged synthetic administrator `u1_catalog_fixture`
+for event-trigger DDL and creator-default hardening in both the Deno and pgTAP setup.
+The pinned Supautils runtime assigns the generic event-trigger binding to `supabase_admin`;
+that owner is declared literally in the synthetic descriptor, alongside the complete
+reviewed function/configuration/body/binding/tags/enabled state. No live catalog is accepted
+as approval. Before administrator apply, the real non-superuser `postgres` connection
+must reject hardening with SQLSTATE `42501` at that creator-default authority boundary.
+The probe compares pre/post schema/table/column/routine/default ACLs, creator reconciliation,
+provider state and role memberships, and requires earlier synthetic writes/grants to roll back.
+Ordinary application/admin, client, free-sync and writer probes retain their existing roles;
+no `postgres` elevation or new broad membership supplies the missing authority.
+This is administrator synthetic evidence only. This login never appears in production/audit
+configuration. Local driver/check success and ignored SQL tests do not establish a cloud SQL
+pass or production execution-role readiness.
 
 Before a production candidate can be assigned or a protected apply job built:
 
@@ -54,8 +65,14 @@ Before a production candidate can be assigned or a protected apply job built:
 3. Assign a unique migration after that inventory, adapt the narrowly reviewed candidate and repeat
    real cloud positive/negative tests. Unrecognized legitimate SECURITY DEFINER paths must be
    explicitly reviewed; failed assertions must not be bypassed to make the candidate pass.
+   Establish that the exact protected production execution role has the required authority for
+   every selected creator/default ACL and operation. That authority remains unavailable evidence;
+   the privileged synthetic administrator cannot satisfy this production gate.
 4. Verify the public GitHub production environment exists with the owner as required reviewer,
-   prevention of self-review, no admin bypass and main-only trusted deployment branches. Verify
+   actual owner approval of the exact operation and main-only trusted deployment branches.
+   The single owner may initiate and approve; a distinct initiator or prevention of
+   self-review is not mandatory. Directly verify and attest that admin bypass
+   cannot skip the required approval before production credentials are obtained. Verify
    those protections directly before execution. Merely naming an environment in YAML
    would not establish protection. Planning/PR jobs must never receive writer/admin secrets.
 5. Build the protected apply job only around the exact approved operation, target, source hashes,

@@ -36,8 +36,11 @@ create event trigger u1_provider_binding on ddl_command_end
   execute function public.u1_provider_guard();
 reset role;
 -- Literal approved descriptor, never an INSERT/SELECT accepting the current catalog as trusted.
+-- The pinned Supautils runtime proxies CREATE EVENT TRIGGER and owns the binding as
+-- supabase_admin even under SET ROLE u1_event_owner. This is an explicit synthetic expectation;
+-- it does not reconcile any production provider routine or execution-role authority.
 insert into still_security.approved_provider_routines(routine, descriptor) values (
   'public.u1_provider_guard()',
-  '{"schema":"public","routine":"u1_provider_guard()","owner":"u1_provider_owner","return_type":"event_trigger","language":"plpgsql","configuration":["search_path=pg_catalog"],"security_definer":true,"body":"BEGIN RETURN; END;","bindings":[{"name":"u1_provider_binding","owner":"u1_event_owner","event":"ddl_command_end","enabled":"O","tags":["CREATE TABLE","CREATE TABLE AS","SELECT INTO"]}]}'::jsonb
+  '{"schema":"public","routine":"u1_provider_guard()","owner":"u1_provider_owner","return_type":"event_trigger","language":"plpgsql","configuration":["search_path=pg_catalog"],"security_definer":true,"body":"BEGIN RETURN; END;","bindings":[{"name":"u1_provider_binding","owner":"supabase_admin","event":"ddl_command_end","enabled":"O","tags":["CREATE TABLE","CREATE TABLE AS","SELECT INTO"]}]}'::jsonb
 ) on conflict (routine) do update set descriptor = excluded.descriptor;
 commit;

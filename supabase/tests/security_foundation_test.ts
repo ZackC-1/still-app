@@ -3,7 +3,10 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import postgres from "postgres";
 import { verifyCreatorCatalog } from "./catalog_creator_probes.ts";
-import { inspectCatalogPreconditions } from "./catalog_preconditions.ts";
+import {
+  inspectCatalogPreconditions,
+  verifySyntheticHardeningAuthority,
+} from "./catalog_preconditions.ts";
 import {
   PgEntitlementStore,
   PgRateLimiter,
@@ -116,7 +119,7 @@ Deno.test({
           { rolname: "u1_event_owner", rolsuper: true },
           { rolname: "u1_provider_owner", rolsuper: true },
         ],
-        "cloud event-trigger and function owners have matching superuser status",
+        "declared generic DDL roles have matching superuser status",
       );
       assertEquals(
         (await fixture`select rolsuper from pg_catalog.pg_roles where rolname=current_user`)[
@@ -190,7 +193,12 @@ Deno.test({
       );
       // A failed Deno step returns false. Preserve that failure and do not attempt hardening.
       if (!baselinePassed) return;
-      await sql.begin(async (tx) => {
+      const authorityPassed = await t.step(
+        "non-superuser creator denial rolls back before synthetic administrator apply",
+        () => verifySyntheticHardeningAuthority(sql, fixture, source),
+      );
+      if (!authorityPassed) return;
+      await fixture.begin(async (tx) => {
         await tx.unsafe(await source("hardening-candidate"));
         await tx.unsafe(await source("assert-security"));
       });
@@ -928,7 +936,7 @@ Deno.test({
           assertEquals(before, true);
           const failure = await assertRejects(
             () =>
-              sql.begin(async (tx) => {
+              fixture.begin(async (tx) => {
                 await tx.unsafe(await source("hardening-candidate"));
                 // Observable safe sentinel: remove free sync EXECUTE, then force rollback.
                 await tx.unsafe(
