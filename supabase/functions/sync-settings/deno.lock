@@ -1,12 +1,12 @@
 {
   "version": "5",
   "specifiers": {
-    "jsr:@std/assert@1": "1.0.19",
+    "jsr:@std/assert@1.0.19": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.14",
     "npm:@noble/hashes@2.4.0": "2.4.0",
-    "npm:@supabase/supabase-js@2": "2.108.2",
-    "npm:linkedom@0.18": "0.18.12",
-    "npm:postgres@3": "3.4.9"
+    "npm:@supabase/supabase-js@2.108.2": "2.108.2",
+    "npm:linkedom@0.18.12": "0.18.12",
+    "npm:postgres@3.4.9": "3.4.9"
   },
   "jsr": {
     "@std/assert@1.0.19": {
@@ -161,11 +161,11 @@
   },
   "workspace": {
     "dependencies": [
-      "jsr:@std/assert@1",
+      "jsr:@std/assert@1.0.19",
       "npm:@noble/hashes@2.4.0",
-      "npm:@supabase/supabase-js@2",
-      "npm:linkedom@0.18",
-      "npm:postgres@3"
+      "npm:@supabase/supabase-js@2.108.2",
+      "npm:linkedom@0.18.12",
+      "npm:postgres@3.4.9"
     ]
   }
 }

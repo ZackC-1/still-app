@@ -3,7 +3,16 @@
     "@std/assert": "jsr:@std/assert@1",
     "postgres": "npm:postgres@3",
     "@supabase/supabase-js": "npm:@supabase/supabase-js@2",
-    "linkedom": "npm:linkedom@0.18"
+    "linkedom": "npm:linkedom@0.18",
+    "@still/shared-types": "../../packages/shared-types/src/index.ts",
+    "@noble/hashes/utils.js": "npm:@noble/hashes@2.4.0/utils.js",
+    "../../packages/core/src/rules/canonical.js": "../../packages/core/src/rules/canonical.ts",
+    "../../packages/shared-types/src/rules.js": "../../packages/shared-types/src/rules.ts",
+    "../../packages/shared-types/src/settings.js": "../../packages/shared-types/src/settings.ts",
+    "../../packages/shared-types/src/entitlement.js": "../../packages/shared-types/src/entitlement.ts",
+    "../../packages/shared-types/src/feature-registry.js": "../../packages/shared-types/src/feature-registry.ts",
+    "../../packages/shared-types/src/settings-v2.js": "../../packages/shared-types/src/settings-v2.ts",
+    "../../packages/shared-types/src/settings-operation.js": "../../packages/shared-types/src/settings-operation.ts"
   },
   "nodeModulesDir": "auto"
 }

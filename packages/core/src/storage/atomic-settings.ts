@@ -187,6 +187,9 @@ export class AtomicSettingsWriter {
       if (!current?.atomic || !(accountId === null || UUID.test(accountId))) throw new SettingsStorageRecovery("missing-provenance");
       if (sessionId !== undefined && (accountId === null || typeof sessionId !== "string" || sessionId.length !== 36 || !UUID.test(sessionId))) throw new SettingsStorageRecovery("session-unconfirmed");
       const state = current.atomic;
+      // No account/session was entered: teardown must retain eligible account-free intent,
+      // including its complete record at generation bounds, until a proven first link.
+      if (accountId === null && state.scope.accountId === null && state.ownership === "never-linked") return current;
       if (accountId !== null && accountId === state.scope.accountId) {
         // UUID alone cannot prove continuity after a failed explicit retirement and process death.
         // Keep uncertain records intact; only verified same-session wakes may resume immutable work.
