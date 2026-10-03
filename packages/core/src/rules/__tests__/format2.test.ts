@@ -65,6 +65,7 @@ describe("opt-in rule format 2", () => {
     ["unsupported format", (s: any) => { s.format = 3; }],
     ["malformed version", (s: any) => { s.version = "future"; }],
     ["unbounded version", (s: any) => { s.version = `${"9".repeat(80)}.0`; }],
+    ["unsafe integer version", (s: any) => { s.version = "9007199254740992.0"; }],
     ["unknown service", (s: any) => { s.services.other = s.services.youtube; }],
     ["unknown feature", (s: any) => { s.services.youtube.surfaces[0].feature = "youtube.future"; }],
     ["cross-service feature", (s: any) => { s.services.youtube.surfaces[0].feature = "instagram.reels"; }],
@@ -150,8 +151,11 @@ describe("opt-in rule format 2", () => {
     const signed = await signRuleSetV2(payload(), privateKey, kid);
     for (const opts of [
       { ...options, allowedKeys: [{ kid, publicKeyHex: await publicKeyHexFor("10".repeat(32)) }] },
+      { ...options, allowedKeys: [{ kid, publicKeyHex: "not-hex" }] },
+      { ...options, allowedKeys: [{ kid, publicKeyHex: "ab" }] },
       { ...options, allowedKeys: [] }, { ...options, minVersion: "2.0.0" },
       { ...options, minVersion: "future" },
+      { ...options, minVersion: "9007199254740992.0" },
     ]) expect((await verifyRuleSetV2(signed, opts)).ok).toBe(false);
     expect((await verifyRuleSetV2({ ...signed, signature: { ...signed.signature, value: "ff".repeat(64) } }, options)).ok).toBe(false);
   });
