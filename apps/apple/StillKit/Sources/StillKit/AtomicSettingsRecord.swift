@@ -158,7 +158,9 @@ public enum AtomicSettingsRecord {
       }
       state["scope"] = .object(nextScope)
       state["anchor"] = .null
-      state["paused"] = .null
+      if action["accountId"] != .null, state["ownership"] != .string("never-linked"), priorScope["accountId"] != action["accountId"] {
+        state["paused"] = .string("ownership-unconfirmed")
+      }
       state["pending"] = .array(pending)
       if priorScope["accountId"] != .null || action["accountId"] != .null { state["ownership"] = .string("previous-account") }
       let oldEpoch: Double
@@ -211,6 +213,18 @@ public enum AtomicSettingsRecord {
         }
       }
       settings["clocks"] = .object(clocks)
+      if state["paused"] == .string("ownership-unconfirmed") {
+        var held = state["held"]!.object!
+        if empty {
+          for path in PackagedFeatureRegistry.settingsFields {
+            let local = held[path] ?? .bool(field(original, path)!)
+            if local != .bool(field(settings, path)!) { held[path] = local }
+            else { held.removeValue(forKey: path) }
+          }
+        }
+        state["held"] = .object(held)
+        state["paused"] = held.isEmpty ? .null : .string("ownership-hold")
+      }
       state["pending"] = .array(retained)
       state["anchor"] = .object(anchor)
       root["settings"] = .object(settings)
@@ -271,6 +285,7 @@ public enum AtomicSettingsRecord {
         nextClocks[path] = .object(next.stamp)
         settings["clocks"] = .object(nextClocks)
         held.removeValue(forKey: path)
+        if held.isEmpty && atomic["paused"] == .string("ownership-hold") { atomic["paused"] = .null }
         pending.append(.object([
           "writeId": .string(UUID().uuidString.lowercased()), "scope": .object(scope),
           "receipt": atomic["anchor"] ?? .null,
@@ -279,11 +294,13 @@ public enum AtomicSettingsRecord {
         ]))
       } else if case .unchanged = edit {
         held.removeValue(forKey: path)
-        if held.isEmpty && pending.count < 64 { atomic["paused"] = .null }
+        if held.isEmpty && pending.count < 64 && atomic["paused"] != .string("ownership-unconfirmed") { atomic["paused"] = .null }
       } else {
         // Preserve a local choice without fabricating an ordering stamp at saturation/recovery.
         held[path] = .bool(value)
-        atomic["paused"] = .string(pending.count >= 64 ? "pending-limit" : scope["accountId"] != .null && anchor == nil ? "awaiting-anchor" : "ordering-hold")
+        if atomic["paused"] != .string("ownership-unconfirmed") {
+          atomic["paused"] = .string(pending.count >= 64 ? "pending-limit" : scope["accountId"] != .null && anchor == nil ? "awaiting-anchor" : "ordering-hold")
+        }
       }
       atomic["sequence"] = .number(sequence + 1)
       atomic["pending"] = .array(pending)

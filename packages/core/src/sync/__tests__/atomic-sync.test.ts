@@ -22,20 +22,20 @@ function assign(settings: SettingsV2, path: SettingsField, on: boolean): Setting
   const group = path.startsWith("services.") ? "services" : "sites";
   return { ...settings, [group]: { ...settings[group], [path.slice(group.length + 1)]: on } };
 }
-function harness(owner: "unknown" | "never-linked" = "unknown") {
+function harness(owner: "unknown" | "never-linked" | "previous-account" = "unknown", empty = false) {
   const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 1 });
   const writer = new AtomicSettingsWriter(storage);
   const cache = new SettingsCache({ get: () => storage.get(), set: r => writer.replace(r).then(() => undefined),
     subscribe: storage.subscribe.bind(storage), commitIntent: writer.commit.bind(writer), initializeAtomic: writer.initialize.bind(writer),
     enterScope: writer.enterScope.bind(writer), acknowledgeAtomic: writer.acknowledge.bind(writer) }, { atomicOwnership: owner, now: () => 100 });
   cache.watch();
-  let account = A, revision = 1, lastWriteId: string | null = null;
-  const seed = migrateSettingsV2({ ...DEFAULT_SETTINGS, updatedAt: 1 }, { kind: "acknowledged-account", revision });
+  let account = A, revision = empty ? 0 : 1, lastWriteId: string | null = null;
+  const seed = empty ? migrateSettingsV2(null, { kind: "proven-fresh" }) : migrateSettingsV2({ ...DEFAULT_SETTINGS, updatedAt: 1 }, { kind: "acknowledged-account", revision });
   if (seed.status !== "ready") throw new Error("fixture");
   let settings = seed.settings;
   const requests: unknown[] = [], claims = new Map<string, string>();
   let release: (() => void) | null = null, started: (() => void) | null = null;
-  const response = () => ({ status: "ready", protocol: 2, empty: false, settings: structuredClone(settings), settingsVersion: revision,
+  const response = () => ({ status: "ready", protocol: 2, empty: empty && revision === 0, settings: structuredClone(settings), settingsVersion: revision,
     settingsServerUpdatedAt: "2026-10-02T00:00:00Z", writeId: lastWriteId, lineage: LINEAGE,
     receipt: { version: 1, lineage: LINEAGE, revision, mac: "A".repeat(43) } });
   const invoke = vi.fn(async (_name: string, options: { body: unknown }) => {
@@ -84,6 +84,42 @@ function harness(owner: "unknown" | "never-linked" = "unknown") {
 const drain = async () => { for (let i = 0; i < 20; i++) await new Promise(r => setTimeout(r, 0)); };
 
 describe("existing SyncService and exact Supabase modern port", () => {
+  it("empty account defaults keep unknown/previous-owner all-Off local choices held without upload", async () => {
+    for (const owner of ["unknown", "previous-account"] as const) {
+      const h = harness(owner, true); await h.cache.hydrate();
+      await h.cache.setGlobalOn(false);
+      for (const id of ["youtube", "instagram", "facebook", "tiktok"] as const) await h.cache.setService(id, false);
+      const prior = structuredClone((await h.storage.get())!.atomic!.pending);
+      await h.service.onSignedIn(A);
+      expect(h.settings().globalOn).toBe(true);
+      expect(h.cache.current().globalOn).toBe(false);
+      expect(Object.values(h.cache.current().services).every(on => !on)).toBe(true);
+      expect(h.cache.currentRecord().atomic).toMatchObject({ paused: "ownership-hold", held: { globalOn: false, "services.youtube": false } });
+      expect((await h.storage.get())!.atomic!.pending).toEqual(prior);
+      expect((await h.storage.get())!.settings.globalOn).toBe(true);
+      expect(h.requests).toEqual([]);
+      await h.service.retryNow(); expect(h.requests).toEqual([]);
+      await h.cache.setGlobalOn(true);
+      for (const id of ["youtube", "instagram", "facebook", "tiktok"] as const) await h.cache.setService(id, true);
+      await drain();
+      expect(h.cache.currentRecord().atomic!.held).toEqual({});
+      expect(h.cache.currentRecord().atomic!.paused).toBeNull();
+      expect(h.requests).toEqual([]); // resolving a hold to the canonical value is no new edit
+      expect((await h.storage.get())!.atomic!.pending).toEqual(prior);
+      await h.service.signOut(); h.cache.watch()();
+    }
+  });
+  it("existing account wins unknown/previous-owner choices while proven never-linked empty intent seeds", async () => {
+    for (const owner of ["unknown", "previous-account", "never-linked"] as const) {
+      const h = harness(owner, owner === "never-linked"); await h.cache.hydrate();
+      await h.cache.setGlobalOn(false); await h.service.onSignedIn(A);
+      expect(h.cache.current().globalOn).toBe(owner !== "never-linked");
+      expect(h.requests).toHaveLength(owner === "never-linked" ? 1 : 0);
+      expect(h.cache.currentRecord().atomic!.held).toEqual({});
+      if (owner === "never-linked") expect(h.requests[0]).toMatchObject({ receipt: { revision: 0 }, operations: [{ baseRevision: 0, localStep: 1 }] });
+      await h.service.signOut(); h.cache.watch()();
+    }
+  });
   it("uploads real cache intent as receipt-bound partial operation and preserves saved independent peer key", async () => {
     const h = harness(); await h.cache.hydrate(); await h.service.onSignedIn(A);
     h.peer("services.youtube", false);

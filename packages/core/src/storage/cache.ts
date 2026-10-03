@@ -39,6 +39,7 @@ export class SettingsCache {
   private intentsInFlight = 0;
   private unwatch: (() => void) | null = null;
   private hydration: Promise<StillSettings> | null = null;
+  private hydrationRecovery: SettingsStorageRecovery | null = null;
 
   constructor(
     private readonly adapter: StorageAdapter,
@@ -81,19 +82,37 @@ export class SettingsCache {
    * job is to wait for the answer, not to inherit the storage error.
    */
   whenHydrated(): Promise<unknown> {
-    return this.hydration === null ? Promise.resolve() : this.hydration.catch(error => { if (error instanceof SettingsStorageRecovery) throw error; });
+    return this.hydration === null ? Promise.resolve() : this.hydration.then(() => {
+      if (this.hydrationRecovery) throw this.hydrationRecovery;
+    }, error => { if (error instanceof SettingsStorageRecovery) throw error; });
   }
 
   private async load(): Promise<StillSettings> {
-    const stored = this.atomicOwnership !== undefined && this.adapter.initializeAtomic
-      ? await this.adapter.initializeAtomic(this.atomicOwnership) : await this.adapter.get();
-    if (stored) void this.applyStoredRecord(stored, "external");
-    return this.snapshot;
+    try {
+      const stored = this.atomicOwnership !== undefined && this.adapter.initializeAtomic
+        ? await this.adapter.initializeAtomic(this.atomicOwnership) : await this.adapter.get();
+      if (stored) void this.applyStoredRecord(stored, "external");
+      return this.snapshot;
+    } catch (error) {
+      if (error instanceof SettingsStorageRecovery && error.retained) {
+        // Last-known local choices keep free blocking useful during unavailable native reads.
+        // Sync hydration remains a recovery gate, never a fresh canonical receipt.
+        this.acceptCommitted(error.retained, "external");
+        if (this.atomic) this.atomic = { ...this.atomic, paused: "native-authority-unavailable" };
+        this.hydrationRecovery = error;
+        return this.snapshot;
+      }
+      throw error;
+    }
   }
 
   /** Start reacting to external writes (other contexts / cloud mirror). Returns an unsubscribe. */
   watch(): () => void {
-    this.unwatch ??= this.adapter.subscribe((record) => this.applyStoredRecord(record, "external"));
+    this.unwatch ??= this.adapter.subscribe((record) => {
+      // Safari subscriptions supply a successful authority reread, never the auxiliary signal.
+      this.hydrationRecovery = null;
+      this.applyStoredRecord(record, "external");
+    });
     return () => {
       this.unwatch?.();
       this.unwatch = null;

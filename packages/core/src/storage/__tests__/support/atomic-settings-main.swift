@@ -11,9 +11,9 @@ let backing = AtomicSettingsBacking(directory: directory, beforeReplace: pause ?
 let store = SharedSettingsStore(backing: backing)
 let bridge = SettingsBridge(store: store, notifyChanged: {})
 while let line = readLine() {
-  if line == "seed" {
+  if line == "seed" || line.hasPrefix("seed:") {
     store.save(StillSettings(globalOn: true, services: StillServices(), pauses: [], updatedAt: 1))
-    _ = try store.initializeAtomic(ownership: "unknown")
+    _ = try store.initializeAtomic(ownership: line.hasPrefix("seed:") ? String(line.dropFirst(5)) : "unknown")
     print(String(data: store.encodedRecord()!, encoding: .utf8)!)
   } else {
     let raw = try JSONSerialization.jsonObject(with: Data(line.utf8))

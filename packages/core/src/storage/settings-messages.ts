@@ -18,8 +18,17 @@ export function readSettingsIntent(message: unknown): SettingsIntent | null {
 export function createSettingsIntentRouter(
   commit: (intent: SettingsIntent) => Promise<StoredSettingsRecord>, extensionId: string, extensionOrigin: string,
   replace?: (record: StoredSettingsRecord) => Promise<void>,
+  read?: () => Promise<StoredSettingsRecord | null>,
 ): (message: unknown, sender: chrome.runtime.MessageSender, reply: (value: unknown) => void) => boolean {
   return (message, sender, reply) => {
+    if (sender.id === extensionId && read && message && typeof message === "object" && !Array.isArray(message) &&
+      Object.keys(message).length === 1 && (message as { kind?: unknown }).kind === "still:settings-read") {
+      // Read-only settings contain no auth/rights data and are already exposed to content hosts.
+      // Content cannot call Safari native messaging directly; it uses this existing background.
+      void read().then(record => reply({ status: "ready", record }),
+        () => reply({ status: "unavailable" }));
+      return true;
+    }
     if (sender.id !== extensionId || typeof sender.url !== "string" || !sender.url.startsWith(extensionOrigin)) return false;
     if (message && typeof message === "object" && (message as { kind?: unknown }).kind === "still:settings-record") {
       if (!replace || JSON.stringify(message).length > 131_072 || Object.keys(message).length !== 2) return false;

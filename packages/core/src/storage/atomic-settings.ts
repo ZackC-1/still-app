@@ -35,7 +35,7 @@ export interface CanonicalSettingsEnvelope extends Omit<SyncedSettingsEnvelope, 
   readonly receipt: UntrustedSettingsReceipt;
 }
 export class SettingsStorageRecovery extends Error {
-  constructor(readonly reason: string) { super(`Settings storage requires recovery: ${reason}`); }
+  constructor(readonly reason: string, readonly retained: StoredSettingsRecord | null = null) { super(`Settings storage requires recovery: ${reason}`); }
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const shape = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
@@ -141,15 +141,15 @@ export class AtomicSettingsWriter {
         delete held[intent.path];
         const writeId = this.uuid();
         if (state.pending.some(p => p.writeId === writeId)) throw new SettingsStorageRecovery("write-id-conflict");
-        atomic = { ...state, sequence: state.sequence + 1, held, pending: [...state.pending, {
+        atomic = { ...state, sequence: state.sequence + 1, held, paused: state.paused === "ownership-hold" && Object.keys(held).length === 0 ? null : state.paused, pending: [...state.pending, {
           writeId, scope: state.scope, receipt: state.anchor,
           operations: [{ path: intent.path, value: intent.value, baseRevision: edit.field.stamp.baseRevision, localStep: edit.field.stamp.localStep }],
         }] };
       } else if (edit.status === "unchanged") {
         const held = { ...state.held }; delete held[intent.path];
-        atomic = { ...state, sequence: state.sequence + 1, held, paused: Object.keys(held).length === 0 && state.pending.length < 64 ? null : state.paused };
+        atomic = { ...state, sequence: state.sequence + 1, held, paused: state.paused !== "ownership-unconfirmed" && Object.keys(held).length === 0 && state.pending.length < 64 ? null : state.paused };
       } else {
-        atomic = { ...state, sequence: state.sequence + 1, held: { ...state.held, [intent.path]: intent.value }, paused: state.pending.length >= 64 ? "pending-limit" : state.scope.accountId !== null && state.anchor === null ? "awaiting-anchor" : "ordering-hold" };
+        atomic = { ...state, sequence: state.sequence + 1, held: { ...state.held, [intent.path]: intent.value }, paused: state.paused === "ownership-unconfirmed" ? state.paused : state.pending.length >= 64 ? "pending-limit" : state.scope.accountId !== null && state.anchor === null ? "awaiting-anchor" : "ordering-hold" };
       }
       const next = { ...current, settings: projection(settings), atomic };
       await this.adapter.set(structuredClone(next));
@@ -168,7 +168,7 @@ export class AtomicSettingsWriter {
         // Prior operations remain durable provenance but cannot upload into a replacement scope.
         pending: state.ownership === "never-linked" && state.scope.accountId === null && accountId !== null
           ? state.pending.map(p => ({ ...p, originScope: p.scope, scope: { accountId, generation: state.scope.generation + 1 } }))
-          : state.pending, paused: null,
+          : state.pending, paused: accountId !== null && state.ownership !== "never-linked" && state.scope.accountId !== accountId ? "ownership-unconfirmed" : state.paused,
       } };
       await this.adapter.set(structuredClone(next));
       return next;
@@ -209,9 +209,21 @@ export class AtomicSettingsWriter {
       }));
       const bound = pending.map(p => p.scope.accountId === captured.accountId && p.receipt === null && p.originScope?.accountId === null
         ? { ...p, receipt } : p);
+      const held = { ...state.held };
+      let paused = state.paused;
+      if (paused === "ownership-unconfirmed") {
+        // Empty-account defaults are account authority, not permission to discard unowned local
+        // choices or rebase their immutable operations into this account.
+        if (envelope.empty) for (const path of SETTINGS_FIELDS) {
+          const local = held[path] ?? settingsFieldValue(original, path);
+          if (local !== settingsFieldValue(settings, path)) held[path] = local;
+          else delete held[path];
+        }
+        paused = Object.keys(held).length > 0 ? "ownership-hold" : null;
+      }
       const next: StoredSettingsRecord = { ...current, settings: projection(settings), syncMetadata: envelope.serverUpdatedAt === null ? null : {
         version: envelope.version, serverUpdatedAt: envelope.serverUpdatedAt, lastWriteId: envelope.lastWriteId,
-      }, atomic: { ...state, sequence: state.sequence + 1, anchor: receipt, pending: bound } };
+      }, atomic: { ...state, sequence: state.sequence + 1, anchor: receipt, pending: bound, held, paused } };
       await this.adapter.set(structuredClone(next));
       return next;
     });

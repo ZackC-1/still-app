@@ -42,6 +42,7 @@ export function createAppGroupReconciler(deps: AppGroupReconcilerDeps): AppGroup
   let lastAppliedKey: string | null = null;
 
   const unsubscribe = deps.local.subscribe((record) => {
+    if (record.atomic) return; // modern browser records are auxiliary native projections, never writers
     if (recordKey(record) === lastAppliedKey) return; // echo of an app-originated apply → skip
     void deps.pushToApp(record);
   });
@@ -52,7 +53,7 @@ export function createAppGroupReconciler(deps: AppGroupReconcilerDeps): AppGroup
     if (app && shouldAppWin(app, local)) {
       lastAppliedKey = recordKey(app); // mark BEFORE set so the resulting onChanged echo is suppressed
       await deps.local.set(app); // app edited more recently → the content script must see it
-    } else if (local && shouldAppWin(local, app)) {
+    } else if (local && !local.atomic && shouldAppWin(local, app)) {
       await deps.pushToApp(local); // extension edited more recently → the app must see it
     }
   }

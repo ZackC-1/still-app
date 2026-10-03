@@ -35,7 +35,7 @@ function parseNativeSettings(reply: unknown): StoredSettingsRecord | null {
 export default defineBackground(() => {
   const adapter = new ChromeStorageAdapter({ authority: true, nativeMirror: true });
   browser.runtime.onMessage.addListener(createSettingsIntentRouter(
-    intent => adapter.commitIntent(intent), browser.runtime.id, browser.runtime.getURL(""), record => adapter.set(record),
+    intent => adapter.commitIntent(intent), browser.runtime.id, browser.runtime.getURL(""), record => adapter.set(record), () => adapter.readNativeAuthority(),
   ));
 
   // Product analytics (lib/analytics.ts): under the app's install, following the app's switch.

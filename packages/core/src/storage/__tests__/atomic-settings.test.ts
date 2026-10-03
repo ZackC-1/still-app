@@ -11,6 +11,9 @@ import { InMemoryStorageAdapter, type StoredSettingsRecord } from "../adapter.js
 import { SettingsCache } from "../cache.js";
 import { WKWebViewStorageAdapter } from "../wkwebview-adapter.js";
 import { parseStoredSettingsRecord } from "../settings-validation.js";
+import { ChromeStorageAdapter } from "../chrome-adapter.js";
+import { createExtensionContentEntry } from "../../content/extension-entry.js";
+import type { ContentScriptHandle } from "../../content/index.js";
 import { createSettingsIntentRouter } from "../settings-messages.js";
 
 const A = "11111111-1111-1111-1111-111111111111";
@@ -131,6 +134,38 @@ describe("existing cache and serialized complete-record authority", () => {
       if (requests[0]) expect(requests[0].operations).toEqual([{ path: "globalOn", value: false, baseRevision: 0, localStep: 1 }]);
     }
   });
+  it("Safari content read timeout keeps local Off choices and fences a late broker reply", async () => {
+    const h = authority(); await h.writer.initialize("unknown");
+    const saved = await h.writer.commit({ path: "globalOn", value: false, updatedAt: 10 });
+    let release!: (reply: unknown) => void;
+    const pending = new Promise<unknown>(resolveReply => { release = resolveReply; });
+    vi.stubGlobal("location", { protocol: "https:" });
+    vi.stubGlobal("chrome", { runtime: { getURL: () => "safari-web-extension://still/", sendMessage: () => pending },
+      storage: { local: { get: async () => ({ "still:settings": saved }) } } });
+    vi.useFakeTimers();
+    try {
+      const cache = new SettingsCache(new ChromeStorageAdapter()); const hydration = cache.hydrate();
+      await vi.advanceTimersByTimeAsync(8_000); await hydration;
+      expect(cache.current().globalOn).toBe(false);
+      expect(cache.currentRecord().atomic!.paused).toBe("native-authority-unavailable");
+      await expect(cache.whenHydrated()).rejects.toThrow("native-authority-unavailable");
+      release({ status: "ready", record: { ...saved, settings: { ...saved.settings, globalOn: true } } });
+      await Promise.resolve(); await Promise.resolve();
+      expect(cache.current().globalOn).toBe(false);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); vi.unstubAllGlobals(); }
+  });
+  it("a local action during empty-account adoption keeps earlier unknown-owner choices held", async () => {
+    const h = authority(); await h.writer.initialize("unknown");
+    const cache = new SettingsCache(h.port, { now: () => 10 }); await cache.hydrate();
+    await cache.setGlobalOn(false); const pending = (await h.storage.get())!.atomic!.pending;
+    const scope = await cache.enterAtomicScope(A); await cache.setService("youtube", false);
+    const clean = authority(); const defaults = await clean.writer.initialize("unknown");
+    await cache.acknowledgeAtomic({ ...canonical(defaults, 0), empty: true }, scope);
+    expect(cache.current()).toMatchObject({ globalOn: false, services: { youtube: false } });
+    expect((await h.storage.get())!.atomic).toMatchObject({ pending, paused: "ownership-hold",
+      held: { globalOn: false, "services.youtube": false } });
+  });
   it("writer rejects reused operation identity before mutation", async () => {
     const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 1 });
     const writer = new AtomicSettingsWriter(storage, () => A);
@@ -184,6 +219,153 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
       expect(saved.atomic!.pending).toHaveLength(3);
       expect(new Set(saved.atomic!.pending.map(p => p.writeId)).size).toBe(3);
     } finally { await Promise.all([first.close(), peer.close()]); }
+  });
+  it("Safari popup/content startup rereads native authority after reversed direct replies", async () => {
+    const { createAppGroupReconciler } = await import(resolve(import.meta.dirname, "../../../../ext-safari/lib/app-group-reconcile.ts")) as {
+      createAppGroupReconciler(deps: {
+        local: ChromeStorageAdapter; pullFromApp(): Promise<StoredSettingsRecord | null>; pushToApp(record: StoredSettingsRecord): Promise<void>;
+      }): { reconcile(): Promise<void>; stop(): void };
+    };
+    const native = host(join(temporary, "safari-projection"));
+    const listeners = new Set<(changes: Record<string, chrome.storage.StorageChange>, area: string) => void>();
+    let saved: StoredSettingsRecord;
+    let release!: () => void; let began!: () => void;
+    const started = new Promise<void>(r => { began = r; });
+    const delayed = new Promise<void>(r => { release = r; });
+    let delayFirst = true; let unavailable = false;
+    let delayRead = false; let readStarted = () => {}; let readGate = Promise.resolve();
+    let releaseRead = () => {};
+    const sendNative = vi.fn(async (_app: string, message: unknown) => {
+      if (unavailable) throw new Error("native unavailable");
+      const settings = await native.post(message);
+      if ((message as { kind: string }).kind === "get" && delayRead) {
+        delayRead = false; readStarted(); await readGate;
+      }
+      if ((message as { kind: string }).kind === "settingsIntent" && delayFirst) {
+        delayFirst = false; began(); await delayed;
+      }
+      return { settings };
+    });
+    const origin = "safari-web-extension://synthetic/";
+    const local = {
+      async get(key: string) { return { [key]: saved }; },
+      async set(values: Record<string, StoredSettingsRecord>) {
+        const next = values["still:settings"]!; const old = saved; saved = structuredClone(next);
+        for (const listener of listeners) listener({ "still:settings": { oldValue: old, newValue: next } }, "local");
+      },
+    };
+    vi.stubGlobal("chrome", { storage: { local, onChanged: {
+      addListener: (listener: typeof listeners extends Set<infer T> ? T : never) => listeners.add(listener),
+      removeListener: (listener: typeof listeners extends Set<infer T> ? T : never) => listeners.delete(listener),
+    } }, runtime: { getURL: () => origin, sendNativeMessage: sendNative,
+      sendMessage: vi.fn(),
+    } });
+    vi.stubGlobal("location", { protocol: "safari-web-extension:" });
+    let reconciler: ReturnType<typeof createAppGroupReconciler> | undefined;
+    let stopContent: (() => void) | undefined;
+    let contentScript: ContentScriptHandle | undefined;
+    try {
+      await native.post("seed"); saved = (await native.adapter.get())!;
+      const background = new ChromeStorageAdapter({ authority: true, nativeMirror: true });
+      const route = createSettingsIntentRouter(background.commitIntent.bind(background), "still", origin,
+        background.set.bind(background), async () => {
+          const reply = await sendNative("com.chartash.still", { kind: "get" });
+          const record = parseStoredSettingsRecord(reply.settings); if (!record) throw new Error("unavailable"); return record;
+        });
+      // Runtime closure resolves this binding only after setup.
+      Object.assign(chrome.runtime, { sendMessage: (message: unknown) => new Promise(resolveReply => route(message,
+        { id: "still", url: "https://www.youtube.com/" }, resolveReply)) });
+      reconciler = createAppGroupReconciler({ local: background,
+        pullFromApp: () => native.adapter.get(), pushToApp: record => native.adapter.set(record) });
+      const popup = new SettingsCache(new ChromeStorageAdapter(), { now: () => 10 }); await popup.hydrate();
+      const first = popup.setGlobalOn(false); await started;
+      const peer = new SettingsCache(native.adapter, { now: () => 11 }); await peer.hydrate(); await peer.setService("youtube", false);
+      await reconciler.reconcile(); const latest = (await native.adapter.get())!;
+      release(); await first;
+      const canonicalBefore = await native.adapter.get();
+      // A reboot ignores the auxiliary browser projection even if the obsolete direct reply wrote it.
+      const reopened = new SettingsCache(new ChromeStorageAdapter()); await reopened.hydrate();
+      expect(reopened.currentRecord().atomic!.sequence).toBe(latest.atomic!.sequence);
+      expect(reopened.current().services.youtube).toBe(false);
+      vi.stubGlobal("location", { protocol: "https:" });
+      const content = new SettingsCache(new ChromeStorageAdapter()); await content.hydrate(); stopContent = content.watch();
+      expect(content.currentRecord().atomic!.sequence).toBe(latest.atomic!.sequence);
+      expect(content.current().services.youtube).toBe(false);
+      const obsoleteReadStarted = new Promise<void>(r => { readStarted = r; });
+      readGate = new Promise<void>(r => { releaseRead = r; }); delayRead = true;
+      await local.set({ "still:settings": latest }); await obsoleteReadStarted;
+      await native.adapter.enterScope(B); const current = (await native.adapter.get())!;
+      await local.set({ "still:settings": current });
+      await vi.waitFor(() => expect(content.currentRecord().atomic!.scope).toEqual(current.atomic!.scope));
+      releaseRead();
+      await local.set({ "still:settings": latest }); // stale account-generation projection is only a nudge
+      await new Promise(r => setTimeout(r, 0));
+      expect(content.currentRecord().atomic!.scope).toEqual(current.atomic!.scope);
+      expect(await native.adapter.get()).toEqual(current);
+      expect(canonicalBefore).toEqual(latest);
+      // Use the actual shared constructor called by Safari's content/index entrypoint.
+      const hydrate = SettingsCache.prototype.hydrate;
+      const observeHydrate = vi.spyOn(SettingsCache.prototype, "hydrate").mockImplementation(function (this: SettingsCache) {
+        return hydrate.call(this);
+      });
+      const entryCache = () => observeHydrate.mock.contexts.at(-1) as SettingsCache | undefined;
+      const entry = createExtensionContentEntry({ storage: { get: async () => ({}) }, prod: false, earlyRedirect: false,
+        win: { location: { href: "https://www.youtube.com/", replace: vi.fn() }, history: { pushState() {}, replaceState() {} },
+          addEventListener() {}, removeEventListener() {}, MutationObserver: window.MutationObserver,
+          requestAnimationFrame: window.requestAnimationFrame.bind(window) } as never,
+        doc: document, onScriptCreated: script => { contentScript = script; } });
+      await entry(); await vi.waitFor(() => expect(entryCache()?.currentRecord().atomic?.scope).toEqual(current.atomic!.scope));
+      expect(entryCache()!.current().services.youtube).toBe(false);
+      contentScript!.stop(); contentScript = undefined;
+      unavailable = true;
+      await entry(); await vi.waitFor(() => expect(entryCache()?.currentRecord().atomic?.paused).toBe("native-authority-unavailable"));
+      expect(entryCache()!.current().globalOn).toBe(false);
+      expect(document.documentElement.classList.contains("still-active")).toBe(false);
+      contentScript!.stop(); contentScript = undefined;
+      const heldStartup = new SettingsCache(new ChromeStorageAdapter());
+      await heldStartup.hydrate();
+      await expect(heldStartup.whenHydrated()).rejects.toThrow("native-authority-unavailable");
+      expect(heldStartup.currentRecord().atomic!.paused).toBe("native-authority-unavailable");
+      observeHydrate.mockRestore();
+      expect(heldStartup.current().services.youtube).toBe(false); // retained local choice, not defaults
+      await local.set({ "still:settings": latest }); await new Promise(r => setTimeout(r, 0));
+      expect(content.currentRecord().atomic!.scope).toEqual(current.atomic!.scope);
+    } finally {
+      release(); releaseRead(); contentScript?.stop(); stopContent?.(); reconciler?.stop(); vi.restoreAllMocks(); vi.unstubAllGlobals(); await native.close();
+    }
+    expect(listeners.size).toBe(0);
+  });
+  it("compiled native unknown/previous ownership preserves all-Off holds on empty account", async () => {
+    for (const owner of ["unknown", "previous-account", "never-linked"] as const) {
+      const native = host(join(temporary, `native-adoption-${owner}`));
+      try {
+        await native.post(`seed:${owner}`);
+        const cache = new SettingsCache(native.adapter, { now: () => 10 }); await cache.hydrate();
+        await cache.setGlobalOn(false);
+        for (const id of ["youtube", "instagram", "facebook", "tiktok"] as const) await cache.setService(id, false);
+        const before = (await native.adapter.get())!;
+        const scope = await cache.enterAtomicScope(A);
+        // A new local choice while first account read is outstanding cannot erase the hold provenance.
+        if (owner !== "never-linked") await cache.setGlobalOn(true);
+        const defaults = authority(); const baseline = await defaults.writer.initialize("unknown");
+        await cache.acknowledgeAtomic({ ...canonical(baseline, 0), empty: true }, scope);
+        expect(cache.current().globalOn).toBe(owner !== "never-linked");
+        expect(Object.values(cache.current().services).every(on => !on)).toBe(true);
+        const saved = (await native.adapter.get())!;
+        if (owner !== "never-linked") {
+          expect(saved.atomic).toMatchObject({ paused: "ownership-hold", held: { "services.youtube": false } });
+          expect(saved.atomic!.held.globalOn).toBeUndefined();
+          expect(saved.settings.globalOn).toBe(true);
+          expect(saved.atomic!.pending).toEqual(before.atomic!.pending);
+          expect(saved.atomic!.pending.map(p => pendingSettingsRequest(p, saved.atomic!)).filter(Boolean)).toEqual([]);
+        } else {
+          expect(saved.atomic!.held).toEqual({});
+          expect(saved.atomic!.pending.map(p => pendingSettingsRequest(p, saved.atomic!)).filter(Boolean)).toHaveLength(5);
+        }
+        const reopened = new SettingsCache(native.adapter); await reopened.hydrate();
+        expect(reopened.current().globalOn).toBe(owner !== "never-linked");
+      } finally { await native.close(); }
+    }
   });
   it("actual native scope/anchor transaction keeps newer intent behind an older acknowledgement", async () => {
     const native = host(join(temporary, "native-ack"));
