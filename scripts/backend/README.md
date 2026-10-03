@@ -46,6 +46,12 @@ install it after the above evidence, then configure only the dedicated audit log
 restricted send-only email credential in its main-only audit environment. Do not reuse the database
 owner, service role, entitlement writer or provider admin token. Scheduling alone proves no access
 boundary; a successful real audit and delivered test alert remain owner/provider gates.
+The workflow runs only when the GitHub Actions configuration variable
+`STILL_SECURITY_AUDIT_ENABLED` matches `true` (case-insensitive). Review every configuration scope
+visible to the `vars` context before activation. Enable it only under the exact approved audit
+operation after installation, environment protection and credential-scope review. Missing/disabled
+activation is an unavailable operational gate, never a successful audit. Do not configure the
+variable as part of source implementation.
 The audit verifies the database certificate and hostname even if its URL requests weaker TLS.
 Use the system trust store by default; when the reviewed endpoint needs a dedicated CA, configure
 its public PEM certificate in `STILL_SECURITY_AUDIT_CA_PEM`. Never disable verification to fix a

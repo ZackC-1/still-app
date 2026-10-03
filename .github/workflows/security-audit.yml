@@ -14,7 +14,8 @@ concurrency:
 
 jobs:
   audit:
-    if: github.ref == 'refs/heads/main'
+    # Opt-in is a configuration variable, enabled only after exact owner-approved setup.
+    if: github.ref == 'refs/heads/main' && vars.STILL_SECURITY_AUDIT_ENABLED == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     # Owner must configure main-only branches and ONLY audit/send-only secrets here.
