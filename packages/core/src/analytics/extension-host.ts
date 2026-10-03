@@ -65,6 +65,9 @@ export interface ExtensionAnalyticsHostDeps {
   /** Ask for a flush at a random later time (an alarm), for events recorded quietly at a
    * background start. Without it they wait for the next popup or settings open. */
   readonly requestQuietFlush?: () => void;
+  /** When this install was counted, where another host counted it (the Apple app, for Safari).
+   * Quiet activity on that day is stamped no earlier, so its setup never precedes the install. */
+  readonly installedAt?: () => Promise<number | null>;
   readonly fetch?: typeof fetch;
   readonly now?: () => number;
   readonly uuid?: () => string;
@@ -318,12 +321,13 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
     onActivity() {
       void (async () => {
         await startResult;
+        const quiet: TrackOptions = { ...QUIET, notBefore: (await deps.installedAt?.().catch(() => null)) ?? undefined };
         // A running Safari extension is the only proof on iPhone that it was switched on.
         if (isSafari) {
-          await client.trackOnce("extension_enabled", "setup_step", { step: "extension_enabled" }, QUIET);
-          await client.trackOnce("setup_completed", "setup_completed", {}, QUIET);
+          await client.trackOnce("extension_enabled", "setup_step", { step: "extension_enabled" }, quiet);
+          await client.trackOnce("setup_completed", "setup_completed", {}, quiet);
         }
-        await client.trackDaily("active", "active", {}, QUIET);
+        await client.trackDaily("active", "active", {}, quiet);
         await requestFlushIfNeeded();
       })().catch(() => {});
     },

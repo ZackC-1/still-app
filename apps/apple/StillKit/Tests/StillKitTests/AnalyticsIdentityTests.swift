@@ -81,6 +81,27 @@ final class AnalyticsIdentityTests: XCTestCase {
     XCTAssertEqual(analytics?["device"] as? String, "phone")
   }
 
+  func testAnInstallRecordsItsMomentOnceAndTheExtensionReadsIt() {
+    let group = MemoryKeyValue()
+    var clock = Date(timeIntervalSince1970: 1_790_000_000)
+    let store = AnalyticsIdentityStore(group: group, newId: ids(), now: { clock })
+    let first = store.appContext(appVersion: "2.1.0", ubiquitous: MemoryKeyValue(), earlierInstallVersion: nil)
+    XCTAssertEqual(first.installedAt, 1_790_000_000_000)
+    clock = clock.addingTimeInterval(3_600)
+    let again = store.appContext(appVersion: "2.1.0", ubiquitous: MemoryKeyValue(), earlierInstallVersion: nil)
+    XCTAssertEqual(again.installedAt, 1_790_000_000_000)
+    let reply = store.extensionReply(rawBody: ["kind": "analyticsContext"], platform: "ios", device: "phone")
+    XCTAssertEqual((reply?["analytics"] as? [String: Any])?["installedAt"] as? Double, 1_790_000_000_000)
+  }
+
+  func testAnUpdateRecordsNoInstallMoment() {
+    let group = MemoryKeyValue()
+    let store = AnalyticsIdentityStore(group: group, newId: ids())
+    XCTAssertNil(store.appContext(appVersion: "2.1.0", ubiquitous: MemoryKeyValue(), earlierInstallVersion: "2.0.0").installedAt)
+    let reply = store.extensionReply(rawBody: ["kind": "analyticsContext"], platform: "ios", device: "phone")
+    XCTAssertNil((reply?["analytics"] as? [String: Any])?["installedAt"])
+  }
+
   func testEarlierInstallEvidence() {
     let suite = "analytics-evidence-\(UUID().uuidString)"
     let defaults = UserDefaults(suiteName: suite)!

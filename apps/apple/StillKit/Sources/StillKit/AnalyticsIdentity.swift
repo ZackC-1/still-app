@@ -32,6 +32,9 @@ public struct AnalyticsAppContext: Equatable, Sendable {
   public let previousVersion: String?
   public let consent: Bool
   public let noticeSeen: Bool
+  /// When the app counted this device's install, in milliseconds since 1970; nil for an update or
+  /// a record from an earlier build.
+  public let installedAt: Double?
 }
 
 /// A minimal key-value slot so tests need neither an App Group nor iCloud.
@@ -56,6 +59,8 @@ public final class AnalyticsIdentityStore {
   /// first (it runs on page loads); the app's first read still has to report the install or update
   /// and share the anchor through iCloud.
   static let appSeenKey = "still.analytics.app-seen"
+  /// See `AnalyticsAppContext.installedAt`; the Safari extension floors its day-only events to it.
+  static let installedAtKey = "still.analytics.installed-at"
   /// Used as `previousVersion` when an earlier install is certain but its version is not.
   public static let unknownEarlierVersion = "0"
 
@@ -73,10 +78,16 @@ public final class AnalyticsIdentityStore {
 
   private let group: AnalyticsKeyValue
   private let newId: () -> String
+  private let now: () -> Date
 
-  public init(group: AnalyticsKeyValue, newId: @escaping () -> String = { UUID().uuidString.lowercased() }) {
+  public init(
+    group: AnalyticsKeyValue,
+    newId: @escaping () -> String = { UUID().uuidString.lowercased() },
+    now: @escaping () -> Date = Date.init
+  ) {
     self.group = group
     self.newId = newId
+    self.now = now
   }
 
   public static func appGroup(_ identifier: String = StillAppGroup.identifier) -> AnalyticsIdentityStore {
@@ -150,6 +161,9 @@ public final class AnalyticsIdentityStore {
       previousVersion = earlier
     }
     group.set(appVersion, forKey: Self.lastVersionKey)
+    if created, previousVersion == nil {
+      group.set((now().timeIntervalSince1970 * 1000).rounded(), forKey: Self.installedAtKey)
+    }
 
     return AnalyticsAppContext(
       install: install,
@@ -157,7 +171,8 @@ public final class AnalyticsIdentityStore {
       returning: returning && previousVersion == nil,
       previousVersion: previousVersion,
       consent: consent,
-      noticeSeen: group.object(forKey: Self.noticeKey) as? Bool ?? false
+      noticeSeen: group.object(forKey: Self.noticeKey) as? Bool ?? false,
+      installedAt: installedAt
     )
   }
 
@@ -168,6 +183,10 @@ public final class AnalyticsIdentityStore {
     let install = AnalyticsInstall(installId: newId(), anchorId: newId())
     save(install)
     return install
+  }
+
+  public var installedAt: Double? {
+    group.object(forKey: Self.installedAtKey) as? Double
   }
 
   // MARK: Consent (the app's "Share usage data" switch; the extension follows it)
@@ -188,20 +207,23 @@ public final class AnalyticsIdentityStore {
   // MARK: Native message lanes
 
   /// The Safari extension's read-only lane: `{kind:"analyticsContext"}` →
-  /// `{analytics:{installId, anchorId, consent, platform, device}}`. Unknown kinds return nil.
+  /// `{analytics:{installId, anchorId, consent, platform, device, installedAt?}}`. Unknown kinds
+  /// return nil.
   /// `platform` ("ios"/"macos") and `device` ("phone"/"tablet"/"desktop") come from the native
   /// handler, which knows them for certain; the browser's own platform report can mistake an iPad.
   public func extensionReply(rawBody: Any, platform: String, device: String) -> [String: Any]? {
     guard let body = rawBody as? [String: Any], body["kind"] as? String == "analyticsContext"
     else { return nil }
     let install = extensionInstall()
-    return ["analytics": [
+    var analytics: [String: Any] = [
       "installId": install.installId,
       "anchorId": install.anchorId,
       "consent": consent,
       "platform": platform,
       "device": device,
-    ]]
+    ]
+    if let moment = installedAt { analytics["installedAt"] = moment }
+    return ["analytics": analytics]
   }
 
   /// This device's class for analytics, from compile-time platform and the interface idiom.

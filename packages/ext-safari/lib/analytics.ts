@@ -5,6 +5,7 @@ import {
   createPageAnalytics as createSharedPageAnalytics,
   isAnalyticsId,
   isDeviceClass,
+  isInstallMoment,
   type AnalyticsDevice,
   type AnalyticsConfig,
   type AnalyticsIdentity,
@@ -30,12 +31,14 @@ interface NativeAnalytics {
   /** Compiled into the native handler, so it cannot confuse an iPad for a Mac. */
   readonly platform: "ios" | "macos" | null;
   readonly device: AnalyticsDevice | null;
+  /** When the app counted this install; null for an update or an app from before it was recorded. */
+  readonly installedAt: number | null;
 }
 
 export function parseNativeAnalytics(reply: unknown): NativeAnalytics | null {
   const analytics = (reply as { analytics?: unknown } | null)?.analytics;
   if (typeof analytics !== "object" || analytics === null) return null;
-  const { installId, anchorId, consent, platform, device } = analytics as Record<string, unknown>;
+  const { installId, anchorId, consent, platform, device, installedAt } = analytics as Record<string, unknown>;
   if (!isAnalyticsId(installId) || !isAnalyticsId(anchorId)) return null;
   return {
     installId,
@@ -43,6 +46,7 @@ export function parseNativeAnalytics(reply: unknown): NativeAnalytics | null {
     consent: consent === true, // fails closed if the field is ever missing
     platform: platform === "ios" || platform === "macos" ? platform : null,
     device: isDeviceClass(device) ? device : null,
+    installedAt: isInstallMoment(installedAt) ? installedAt : null,
   };
 }
 
@@ -84,9 +88,14 @@ export function createSafariBackgroundAnalytics(deps: SafariAnalyticsDeps): Safa
     if (!first) return null; // no app container: nothing to report under
     // The app can replace the provisional anchor after this background started; follow it.
     let current: AnalyticsIdentity = { installId: first.installId, anchorId: first.anchorId, created: false, returning: false };
+    // Written once by the app, so the reads made for the ids keep it current without a native call.
+    let installedAt = first.installedAt;
     const identity = async (): Promise<AnalyticsIdentity> => {
       const latest = await nativeContext();
-      if (latest) current = { installId: latest.installId, anchorId: latest.anchorId, created: false, returning: false };
+      if (latest) {
+        current = { installId: latest.installId, anchorId: latest.anchorId, created: false, returning: false };
+        installedAt = latest.installedAt;
+      }
       return current;
     };
     // The native handler's own platform wins; the browser's answer is only a fallback.
@@ -103,6 +112,7 @@ export function createSafariBackgroundAnalytics(deps: SafariAnalyticsDeps): Safa
       noticeApplies: false,
       isTrustedPage: deps.isTrustedPage,
       requestQuietFlush: deps.requestQuietFlush,
+      installedAt: async () => installedAt,
       fetch: deps.fetch,
       now: deps.now,
       uuid: deps.uuid,
