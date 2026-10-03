@@ -122,9 +122,9 @@ export class ChromeStorageAdapter implements StorageAdapter {
     if (!this.writer) return Promise.reject(new SettingsStorageRecovery("authority-unavailable"));
     return this.writer.initialize(ownership);
   }
-  enterScope(accountId: string | null): Promise<StoredSettingsRecord> {
+  enterScope(accountId: string | null, sessionId?: string): Promise<StoredSettingsRecord> {
     if (!this.writer) return Promise.reject(new SettingsStorageRecovery("authority-unavailable"));
-    return this.writer.enterScope(accountId);
+    return this.writer.enterScope(accountId, sessionId);
   }
   acknowledgeAtomic(envelope: CanonicalSettingsEnvelope, scope: SettingsScope): Promise<StoredSettingsRecord> {
     if (!this.writer) return Promise.reject(new SettingsStorageRecovery("authority-unavailable"));
@@ -149,7 +149,7 @@ export class ChromeStorageAdapter implements StorageAdapter {
       try { this.options.onProjectionFailure?.(); } catch { /* diagnostics cannot hide a native commit */ }
       if (!this.isSafari()) return;
       // One bounded authority reread/retry, never replay the already accepted intent.
-      this.projectionRetry ??= this.get().then(async latest => { if (latest) await this.mirrorNative(latest); })
+      this.projectionRetry ??= this.bounded(this.readNativeAuthority()).then(async latest => { if (latest) await this.mirrorNative(latest); })
         .catch(() => undefined).finally(() => { this.projectionRetry = null; });
     }
   }

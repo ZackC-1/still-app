@@ -39,6 +39,7 @@ export class SettingsCache {
   private intentsInFlight = 0;
   private unwatch: (() => void) | null = null;
   private hydration: Promise<StillSettings> | null = null;
+  private authorityTicket = 0;
   private hydrationRecovery: SettingsStorageRecovery | null = null;
 
   constructor(
@@ -84,17 +85,19 @@ export class SettingsCache {
   whenHydrated(): Promise<unknown> {
     return this.hydration === null ? Promise.resolve() : this.hydration.then(() => {
       if (this.hydrationRecovery) throw this.hydrationRecovery;
-    }, error => { if (error instanceof SettingsStorageRecovery) throw error; });
+    }, () => { if (this.hydrationRecovery) throw this.hydrationRecovery; });
   }
 
   private async load(): Promise<StillSettings> {
+    const authorityTicket = this.authorityTicket;
     try {
       const stored = this.atomicOwnership !== undefined && this.adapter.initializeAtomic
         ? await this.adapter.initializeAtomic(this.atomicOwnership) : await this.adapter.get();
       if (stored) void this.applyStoredRecord(stored, "external");
       return this.snapshot;
     } catch (error) {
-      if (error instanceof SettingsStorageRecovery && error.retained) {
+      if (error instanceof SettingsStorageRecovery && authorityTicket === this.authorityTicket) {
+        if (!error.retained) { this.hydrationRecovery = error; throw error; }
         // Last-known local choices keep free blocking useful during unavailable native reads.
         // Sync hydration remains a recovery gate, never a fresh canonical receipt.
         this.acceptCommitted(error.retained, "external");
@@ -110,7 +113,10 @@ export class SettingsCache {
   watch(): () => void {
     this.unwatch ??= this.adapter.subscribe((record) => {
       // Safari subscriptions supply a successful authority reread, never the auxiliary signal.
-      this.hydrationRecovery = null;
+      if (!record.atomic && !this.atomic && (record.syncEpoch ?? this.syncEpoch) >= this.syncEpoch) {
+        this.authorityTicket += 1;
+        this.hydrationRecovery = null;
+      }
       this.applyStoredRecord(record, "external");
     });
     return () => {
@@ -199,9 +205,9 @@ export class SettingsCache {
     return this.commitIntent(`sites.${id}`, on);
   }
 
-  async enterAtomicScope(accountId: string | null): Promise<SettingsScope> {
+  async enterAtomicScope(accountId: string | null, sessionId?: string): Promise<SettingsScope> {
     if (!this.adapter.enterScope) throw new Error("Atomic settings authority unavailable");
-    const record = await this.adapter.enterScope(accountId);
+    const record = await this.adapter.enterScope(accountId, sessionId);
     this.acceptCommitted(record, "synced");
     return record.atomic!.scope;
   }
@@ -213,16 +219,16 @@ export class SettingsCache {
 
   private async commitIntent(path: import("@still/shared-types").SettingsField, value: boolean): Promise<StillSettings> {
     const previous = this.snapshot;
+    const authorityTicket = this.authorityTicket;
     this.intentsInFlight += 1;
     let committed = false;
     try {
       const record = await this.adapter.commitIntent!({ path, value, updatedAt: this.now() });
-      this.hydrationRecovery = null;
       this.acceptCommitted(record, "external");
       committed = record.intentCommitted === true;
       return this.snapshot;
     } catch (error) {
-      if (error instanceof SettingsStorageRecovery) {
+      if (error instanceof SettingsStorageRecovery && authorityTicket === this.authorityTicket) {
         this.hydrationRecovery = error;
         if (this.atomic) this.atomic = { ...this.atomic, paused: error.reason };
       }
@@ -241,6 +247,9 @@ export class SettingsCache {
       if (record.atomic.scope.generation === this.atomic.scope.generation &&
         (record.atomic.scope.accountId !== this.atomic.scope.accountId || record.atomic.sequence < this.atomic.sequence)) return false;
     }
+    // Any accepted authority result supersedes failures of requests started before it.
+    this.authorityTicket += 1;
+    this.hydrationRecovery = null;
     this.snapshot = record.settings;
     this.syncMetadata = record.syncMetadata;
     this.syncEpoch = record.syncEpoch ?? this.syncEpoch;

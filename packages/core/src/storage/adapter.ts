@@ -47,7 +47,7 @@ export interface StorageAdapter {
   /** Host-authoritative bounded action; allocation occurs after reading the durable record. */
   commitIntent?(intent: SettingsIntent): Promise<StoredSettingsRecord>;
   initializeAtomic?(ownership: AtomicSettingsState["ownership"]): Promise<StoredSettingsRecord>;
-  enterScope?(accountId: string | null): Promise<StoredSettingsRecord>;
+  enterScope?(accountId: string | null, sessionId?: string): Promise<StoredSettingsRecord>;
   acknowledgeAtomic?(envelope: CanonicalSettingsEnvelope, scope: SettingsScope): Promise<StoredSettingsRecord>;
   /** Read the persisted settings record, or null if nothing has been written yet. */
   get(): Promise<StoredSettingsRecord | null>;

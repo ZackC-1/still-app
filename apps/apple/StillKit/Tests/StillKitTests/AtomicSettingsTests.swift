@@ -22,6 +22,44 @@ final class AtomicSettingsTests: XCTestCase {
         "serverUpdatedAt": NSNull(), "lastWriteId": NSNull(), "lineage": lineage,
         "receipt": ["version": 1, "lineage": lineage, "revision": 0, "mac": String(repeating: "A", count: 43)]]])
   }
+  func testSameAccountResumeKeepsCompleteRecordAndExplicitSignoutFencesIt() throws {
+    let dir = try directory(); let store = SharedSettingsStore(backing: AtomicSettingsBacking(directory: dir)); try seed(store)
+    let account = "11111111-1111-1111-1111-111111111111"
+    let session = "cccccccc-cccc-cccc-cccc-cccccccccccc"
+    let initial = try root(XCTUnwrap(store.encodedRecord()))
+    func scope(_ id: Any) throws {
+      var command: [String: Any] = ["action": "scope", "accountId": id]
+      if id is String { command["sessionId"] = session }
+      _ = try store.atomicCommand(JSONSerialization.data(withJSONObject: command))
+    }
+    try scope(account)
+    let linked = try root(XCTUnwrap(store.encodedRecord())); let state = try XCTUnwrap(linked["atomic"] as? [String: Any])
+    _ = try store.atomicCommand(acknowledgement(XCTUnwrap(initial["settings"]), scope: XCTUnwrap(state["scope"])))
+    for i in 0..<65 { _ = try store.commitIntent(path: "globalOn", value: i % 2 != 0, updatedAt: i + 10) }
+    let before = try XCTUnwrap(store.encodedRecord()); let beforeRoot = try root(before)
+    let beforeState = try XCTUnwrap(beforeRoot["atomic"] as? [String: Any])
+    XCTAssertEqual((beforeState["pending"] as? [Any])?.count, 64)
+    XCTAssertEqual((beforeState["held"] as? [String: Bool])?["globalOn"], false)
+    let peer = SharedSettingsStore(backing: AtomicSettingsBacking(directory: dir))
+    _ = try peer.atomicCommand(JSONSerialization.data(withJSONObject: ["action": "scope", "accountId": account, "sessionId": session]))
+    XCTAssertEqual(peer.encodedRecord(), before)
+    try scope(NSNull()); let signedOut = try root(XCTUnwrap(store.encodedRecord()))
+    XCTAssertEqual((signedOut["atomic"] as? [String: Any])?["pending"] as? [String], [])
+    XCTAssertEqual((signedOut["atomic"] as? [String: Any])?["held"] as? [String: Bool], ["globalOn": false])
+    try scope(account)
+    let replacement = try root(XCTUnwrap(store.encodedRecord())); let replacementState = try XCTUnwrap(replacement["atomic"] as? [String: Any])
+    let oldScope = try XCTUnwrap(beforeState["scope"] as? [String: Any]); let nextScope = try XCTUnwrap(replacementState["scope"] as? [String: Any])
+    XCTAssertGreaterThan(try XCTUnwrap(nextScope["generation"] as? Int), try XCTUnwrap(oldScope["generation"] as? Int))
+    _ = try store.atomicCommand(acknowledgement(XCTUnwrap(initial["settings"]), scope: nextScope))
+    _ = try store.commitIntent(path: "services.youtube", value: false, updatedAt: 100)
+    let current = try root(XCTUnwrap(store.encodedRecord())); let currentState = try XCTUnwrap(current["atomic"] as? [String: Any])
+    let pending = try XCTUnwrap(currentState["pending"] as? [[String: Any]])
+    XCTAssertEqual(pending.count, 1); XCTAssertEqual(currentState["ownership"] as? String, "previous-account")
+    XCTAssertEqual(pending[0]["scope"] as? NSDictionary, nextScope as NSDictionary)
+    let stable = store.encodedRecord()
+    _ = try store.atomicCommand(acknowledgement(XCTUnwrap(initial["settings"]), scope: oldScope))
+    XCTAssertEqual(store.encodedRecord(), stable)
+  }
   func testFutureLocalAcknowledgementRetainsBytesAndDoesNotNotify() throws {
     try assertRejectedLocalAcknowledgement { $0["schemaVersion"] = 99 }
   }

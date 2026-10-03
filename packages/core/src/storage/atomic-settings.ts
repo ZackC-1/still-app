@@ -8,7 +8,12 @@ import { migrateSettingsV2 } from "./settings-v2.js";
 import { allocateSettingsFieldEdit, mergeSettingsField, pendingSettingsFieldAfterAck } from "../sync/field-order.js";
 
 export interface SettingsIntent { readonly path: SettingsField; readonly value: boolean; readonly updatedAt: number }
-export interface SettingsScope { readonly accountId: string | null; readonly generation: number }
+export interface SettingsScope {
+  readonly accountId: string | null;
+  readonly generation: number;
+  /** Verified auth session provenance. Absent older records cannot prove process continuity. */
+  readonly sessionId?: string;
+}
 export interface PendingSettingsIntent {
   readonly writeId: string;
   readonly scope: SettingsScope;
@@ -41,10 +46,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const shape = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
 const integer = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v >= 0;
 export function sameSettingsScope(a: SettingsScope, b: SettingsScope): boolean {
-  return a.accountId === b.accountId && a.generation === b.generation;
+  return a.accountId === b.accountId && a.generation === b.generation && a.sessionId === b.sessionId;
 }
 function scope(v: unknown): v is SettingsScope {
-  return shape(v) && (v.accountId === null || typeof v.accountId === "string" && UUID.test(v.accountId)) && integer(v.generation);
+  return shape(v) && (v.accountId === null || typeof v.accountId === "string" && UUID.test(v.accountId)) && integer(v.generation) &&
+    (v.sessionId === undefined || v.accountId !== null && typeof v.sessionId === "string" && v.sessionId.length === 36 && UUID.test(v.sessionId));
 }
 export function readSettingsReceipt(v: unknown): UntrustedSettingsReceipt | null {
   if (!shape(v)) return null;
@@ -93,6 +99,15 @@ function resolvedPause(state: AtomicSettingsState, held: AtomicSettingsState["he
     ["awaiting-anchor", "ownership-hold", "pending-limit", "ordering-hold"].includes(state.paused ?? "")) return null;
   return state.paused;
 }
+// Legacy projections and snapshot imports use the same existing account-epoch/row ordering.
+// Device timestamps decide only when both records have the same epoch and metadata version.
+function canReplaceLegacyRecord(current: StoredSettingsRecord, incoming: StoredSettingsRecord): boolean {
+  if ((incoming.syncEpoch ?? 0) !== (current.syncEpoch ?? 0)) return (incoming.syncEpoch ?? 0) > (current.syncEpoch ?? 0);
+  if (current.syncMetadata && !incoming.syncMetadata) return false;
+  if ((incoming.syncMetadata?.version ?? 0) !== (current.syncMetadata?.version ?? 0))
+    return (incoming.syncMetadata?.version ?? 0) > (current.syncMetadata?.version ?? 0);
+  return incoming.settings.updatedAt >= current.settings.updatedAt;
+}
 
 /** One serialized writer around the EXISTING storage value. Hosts never allocate from a cache. */
 export class AtomicSettingsWriter {
@@ -132,7 +147,7 @@ export class AtomicSettingsWriter {
         await this.adapter.set(structuredClone(next));
         return { ...next, intentCommitted: true };
       }
-      const state = current.atomic;
+      const state = { ...current.atomic, pending: current.atomic.pending.filter(p => sameSettingsScope(p.scope, current.atomic!.scope)) };
       if (state.sequence === Number.MAX_SAFE_INTEGER) throw new SettingsStorageRecovery("sequence-saturated");
       let settings = requireModernSettings(current);
       const priorValue = settingsFieldValue(settings, intent.path);
@@ -166,19 +181,27 @@ export class AtomicSettingsWriter {
       return { ...next, intentCommitted: true };
     });
   }
-  enterScope(accountId: string | null): Promise<StoredSettingsRecord> {
+  enterScope(accountId: string | null, sessionId?: string): Promise<StoredSettingsRecord> {
     return this.transaction(async () => {
       const current = await this.adapter.get();
       if (!current?.atomic || !(accountId === null || UUID.test(accountId))) throw new SettingsStorageRecovery("missing-provenance");
+      if (sessionId !== undefined && (accountId === null || typeof sessionId !== "string" || sessionId.length !== 36 || !UUID.test(sessionId))) throw new SettingsStorageRecovery("session-unconfirmed");
       const state = current.atomic;
+      if (accountId !== null && accountId === state.scope.accountId) {
+        // UUID alone cannot prove continuity after a failed explicit retirement and process death.
+        // Keep uncertain records intact; only verified same-session wakes may resume immutable work.
+        if (sessionId === undefined || state.scope.sessionId === undefined) throw new SettingsStorageRecovery("session-unconfirmed", current);
+        if (sessionId === state.scope.sessionId) return current;
+      }
       if (state.scope.generation === Number.MAX_SAFE_INTEGER || state.sequence === Number.MAX_SAFE_INTEGER || current.syncEpoch === Number.MAX_SAFE_INTEGER) throw new SettingsStorageRecovery("epoch-saturated");
       const next = { ...current, syncEpoch: (current.syncEpoch ?? 0) + 1, atomic: { ...state, sequence: state.sequence + 1,
         ownership: state.scope.accountId !== null || accountId !== null ? "previous-account" as const : state.ownership,
-        scope: { accountId, generation: state.scope.generation + 1 }, anchor: null,
-        // Prior operations remain durable provenance but cannot upload into a replacement scope.
+        scope: { accountId, generation: state.scope.generation + 1, ...(sessionId ? { sessionId } : {}) }, anchor: null,
+        // Retire ineligible operations at this complete-record boundary. Settings/held choices
+        // and the previous-account marker survive; only proven pristine first-link transfers intent.
         pending: state.ownership === "never-linked" && state.scope.accountId === null && accountId !== null
-          ? state.pending.map(p => ({ ...p, originScope: p.scope, scope: { accountId, generation: state.scope.generation + 1 } }))
-          : state.pending, paused: accountId !== null && state.ownership !== "never-linked" ? "ownership-unconfirmed" : state.paused,
+          ? state.pending.map(p => ({ ...p, originScope: p.scope, scope: { accountId, generation: state.scope.generation + 1, ...(sessionId ? { sessionId } : {}) } }))
+          : [], paused: accountId !== null && state.ownership !== "never-linked" ? "ownership-unconfirmed" : state.paused,
       } };
       await this.adapter.set(structuredClone(next));
       return next;
@@ -214,7 +237,7 @@ export class AtomicSettingsWriter {
         }
       }
       settings = { ...settings, clocks };
-      const pending = state.pending.filter((p) => !sameSettingsScope(p.scope, captured) || p.operations.some((op) => {
+      const pending = state.pending.filter((p) => sameSettingsScope(p.scope, captured) && p.operations.some((op) => {
         const remote = { value: settingsFieldValue(canonical, op.path), stamp: canonical.clocks[op.path] };
         const local = { value: op.value, stamp: { baseRevision: op.baseRevision, localStep: op.localStep } };
         return pendingSettingsFieldAfterAck(local, remote) !== null;
@@ -233,7 +256,7 @@ export class AtomicSettingsWriter {
         }
         else for (const path of SETTINGS_FIELDS) delete held[path];
         paused = Object.keys(held).length > 0 ? "ownership-hold" : null;
-      } else if (["awaiting-anchor", "pending-limit", "ownership-hold"].includes(paused ?? "")) {
+      } else if (["awaiting-anchor", "pending-limit", "ownership-hold", "ordering-hold"].includes(paused ?? "")) {
         for (const path of SETTINGS_FIELDS) if (held[path] === settingsFieldValue(settings, path)) delete held[path];
         paused = resolvedPause({ ...state, anchor: receipt }, held);
       }
@@ -250,7 +273,7 @@ export class AtomicSettingsWriter {
       if (current?.atomic) {
         if (!record.atomic || record.atomic.scope.generation < current.atomic.scope.generation ||
           record.atomic.scope.generation === current.atomic.scope.generation && record.atomic.sequence < current.atomic.sequence) return current;
-      }
+      } else if (current && !record.atomic && !canReplaceLegacyRecord(current, record)) return current;
       await this.adapter.set(structuredClone(record));
       return record;
     });
@@ -259,12 +282,7 @@ export class AtomicSettingsWriter {
     return this.transaction(async () => {
       const current = await this.adapter.get();
       if (current?.atomic || current && "schemaVersion" in current.settings && current.settings.schemaVersion !== 1) return current; // full snapshots never stamp or drop modern intent
-      if (current && (record.syncEpoch ?? 0) < (current.syncEpoch ?? 0)) return current;
-      if (current && (record.syncEpoch ?? 0) === (current.syncEpoch ?? 0)) {
-        if (current.syncMetadata && !record.syncMetadata) return current;
-        if (current.syncMetadata && record.syncMetadata && record.syncMetadata.version < current.syncMetadata.version) return current;
-        if ((record.syncMetadata?.version ?? 0) === (current.syncMetadata?.version ?? 0) && record.settings.updatedAt < current.settings.updatedAt) return current;
-      }
+      if (current && !canReplaceLegacyRecord(current, record)) return current;
       const next = { ...current, ...record, settings: { ...current?.settings, ...record.settings, services: { ...current?.settings.services, ...record.settings.services } } };
       await this.adapter.set(structuredClone(next));
       return next;

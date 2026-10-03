@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from "vitest";
 import type { StillSettings } from "@still/shared-types";
 import { DEFAULT_SETTINGS } from "@still/shared-types";
 import { SettingsCache } from "../cache.js";
+import { AtomicSettingsWriter, SettingsStorageRecovery } from "../atomic-settings.js";
 import { InMemoryStorageAdapter } from "../adapter.js";
 
 /** A cache backed by an in-memory adapter with a deterministic monotonic clock. */
@@ -236,5 +237,42 @@ describe("SettingsCache", () => {
       lastWriteId: null,
     });
     expect(cache.current().globalOn).toBe(false);
+  });
+});
+
+
+describe("cache authority recovery supersession", () => {
+  it.each([false, true])("late failed hydration cannot poison a later successful authority commit (retained=%s)", async retained => {
+    const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 1 });
+    const writer = new AtomicSettingsWriter(storage); const prior = await writer.initialize("unknown");
+    let reject!: (error: Error) => void;
+    const cache = new SettingsCache({ get: () => new Promise((_r, r) => { reject = r; }), set: storage.set.bind(storage),
+      subscribe: storage.subscribe.bind(storage), commitIntent: writer.commit.bind(writer) }, { now: () => 10 });
+    const hydration = cache.hydrate(); const rejected = expect(hydration).rejects.toThrow("native-authority-unavailable");
+    await cache.setGlobalOn(false); const healthy = cache.currentRecord();
+    reject(new SettingsStorageRecovery("native-authority-unavailable", retained ? prior : null)); await rejected;
+    expect(cache.currentRecord()).toEqual(healthy); expect(cache.current().globalOn).toBe(false);
+    await expect(cache.whenHydrated()).resolves.toBeUndefined();
+  });
+  it("legacy native authority notification still clears recovery without a settings change", async () => {
+    const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 1 });
+    const durable = (await storage.get())!;
+    const cache = new SettingsCache({ get: storage.get.bind(storage), set: storage.set.bind(storage), subscribe: storage.subscribe.bind(storage),
+      commitIntent: async () => { throw new SettingsStorageRecovery("native-authority-unavailable"); } });
+    await cache.hydrate(); const stop = cache.watch();
+    await expect(cache.setGlobalOn(false)).rejects.toThrow("native-authority-unavailable");
+    await expect(cache.whenHydrated()).rejects.toThrow("native-authority-unavailable");
+    await storage.set(durable); await expect(cache.whenHydrated()).resolves.toBeUndefined(); stop();
+  });
+  it("an accepted same-sequence authority notification clears a current volatile recovery hold", async () => {
+    const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 1 });
+    const writer = new AtomicSettingsWriter(storage); const durable = await writer.initialize("unknown");
+    const cache = new SettingsCache({ get: storage.get.bind(storage), set: storage.set.bind(storage), subscribe: storage.subscribe.bind(storage),
+      commitIntent: async () => { throw new SettingsStorageRecovery("native-authority-unavailable"); } });
+    await cache.hydrate(); const stop = cache.watch();
+    await expect(cache.setGlobalOn(false)).rejects.toThrow("native-authority-unavailable");
+    await expect(cache.whenHydrated()).rejects.toThrow("native-authority-unavailable");
+    await storage.set(durable);
+    expect(cache.currentRecord().atomic).toEqual(durable.atomic); await expect(cache.whenHydrated()).resolves.toBeUndefined(); stop();
   });
 });
