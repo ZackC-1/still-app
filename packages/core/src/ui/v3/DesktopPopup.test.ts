@@ -19,6 +19,7 @@ import {
   ACCESS_BENEFITS,
   initialAccessSnapshot,
   isBenefitEffective,
+  packagedAccessContext,
 } from "../../entitlement/access-policy.js";
 import DesktopPopup from "./DesktopPopup.svelte";
 import type { DesktopPopupProps } from "./presentation.js";
@@ -70,6 +71,112 @@ function bindWriter(cache: SettingsCache, props: DesktopPopupProps) {
 }
 
 describe("controlled D01 presentation", () => {
+  it("presents packaged unsupported choices honestly while free controls commit through the writer", async () => {
+    const { storage, cache, props } = await fixture();
+    await cache.setFeature("youtube.comments", true);
+    props.settings = requireModernSettings(cache.currentRecord());
+    const context = packagedAccessContext();
+    const access = initialAccessSnapshot();
+    expect(access).toEqual(initialAccessSnapshot(context));
+    for (const row of FEATURE_REGISTRY) {
+      expect(context.supported.has(row.id)).toBe(row.tier === "free");
+      expect(access.states[row.id]).toBe(
+        row.tier === "free" ? "free" : "unsupported",
+      );
+    }
+    expect(context.supported.has("tiktok.all")).toBe(true);
+    expect(access.states["tiktok.all"]).toBe("free");
+    props.access = access;
+    props.onPurchase = vi.fn();
+    const settled = bindWriter(cache, props);
+    const saved = await storage.get();
+    const view = render(DesktopPopup, { props });
+
+    for (const service of ["youtube", "instagram", "facebook"] as const) {
+      const title = {
+        youtube: "YouTube Blocker",
+        instagram: "Instagram Blocker",
+        facebook: "Facebook Blocker",
+      }[service];
+      await fireEvent.click(screen.getByRole("button", { name: title }));
+      const panel = screen.getByRole("group", { name: title });
+      for (const feature of FEATURE_REGISTRY.filter(
+        (row) => row.service === service,
+      )) {
+        const label =
+          feature.tier === "free"
+            ? service === "youtube"
+              ? "Shorts"
+              : "Reels"
+            : feature.name;
+        const row = within(panel)
+          .getByText(label)
+          .closest(".option-row") as HTMLElement;
+        if (feature.tier === "pro") {
+          expect(within(row).queryByRole("switch")).toBeNull();
+          expect(within(row).queryByRole("button")).toBeNull();
+          expect(
+            within(row).getByText(
+              "Not available in this browser. Your choice is saved.",
+            ),
+          ).toBeTruthy();
+        } else {
+          const control = within(row).getByRole("switch", { name: label });
+          expect(control).not.toHaveAttribute("aria-disabled", "true");
+          expect(control).toHaveAttribute("aria-checked", "true");
+        }
+      }
+      expect(
+        screen.queryByRole("button", { name: "Purchase Still Pro" }),
+      ).toBeNull();
+    }
+    expect(await storage.get()).toEqual(saved);
+    expect(props.onFeatureChange).not.toHaveBeenCalled();
+    expect(props.onPurchase).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "TikTok Blocker" })).toBeNull();
+    const tiktok = screen.getByRole("switch", { name: "TikTok website" });
+    expect(tiktok).not.toHaveAttribute("aria-disabled", "true");
+    await fireEvent.click(tiktok);
+    expect(tiktok).toHaveAttribute("aria-checked", "true");
+    await settled();
+    expect(requireModernSettings((await storage.get())!).services.tiktok).toBe(
+      false,
+    );
+    props.settings = requireModernSettings(cache.currentRecord());
+    await view.rerender(props);
+    expect(tiktok).toHaveAttribute("aria-checked", "false");
+
+    await fireEvent.click(
+      screen.getByRole("button", { name: "YouTube Blocker" }),
+    );
+    const shorts = screen.getByRole("switch", { name: "Shorts" });
+    await fireEvent.click(shorts);
+    expect(shorts).toHaveAttribute("aria-checked", "true");
+    await settled();
+    const committed = await storage.get();
+    expect(committed!.atomic!.sequence).toBe(saved!.atomic!.sequence + 2);
+    expect(requireModernSettings(committed!).sites["youtube.shorts"]).toBe(
+      false,
+    );
+    expect(requireModernSettings(committed!).sites["youtube.comments"]).toBe(
+      true,
+    );
+    expect(props.onFeatureChange).toHaveBeenCalledExactlyOnceWith(
+      "youtube.shorts",
+      false,
+    );
+    expect(props.onServiceChange).toHaveBeenCalledExactlyOnceWith(
+      "tiktok",
+      false,
+    );
+    expect(props.onGlobalChange).not.toHaveBeenCalled();
+    expect(props.onPurchase).not.toHaveBeenCalled();
+    props.settings = requireModernSettings(cache.currentRecord());
+    await view.rerender(props);
+    expect(shorts).toHaveAttribute("aria-checked", "false");
+    view.unmount();
+  });
+
   it("preserves a saved choice across mounted access transitions without issuing settings intents", async () => {
     const { storage, cache, props } = await fixture("purchased");
     await cache.setFeature("youtube.comments", true);
