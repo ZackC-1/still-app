@@ -14,6 +14,7 @@ import { SettingsCache, ChromeStorageAdapter } from "../storage/index.js";
 import {
   createContentScript,
   earlyShortsRedirect,
+  type ContentScriptDeps,
   type ContentScriptHandle,
   type RedirectDedupe,
   type StillWindow,
@@ -35,6 +36,8 @@ export interface ExtensionContentNudge {
 export interface ExtensionContentEntryDeps {
   /** Internal packaged opt-in only; production entrypoints keep the existing bundled seed. */
   readonly bundledRuleSetV2?: SignedRuleSetV2;
+  /** Optional trusted host adapter; omitted by current production entrypoints. */
+  readonly handleBlockedNavigation?: ContentScriptDeps["handleBlockedNavigation"];
   /** The target extension's local storage namespace (Safari `browser`, Chromium `chrome`). */
   readonly storage: ReadableArea;
   readonly prod: boolean;
@@ -109,6 +112,7 @@ export function createExtensionContentEntry(
       doc,
       ruleSet: legacy?.ruleSet ?? (seed as unknown as SignedRuleSet),
       ruleSetV2: modern?.ruleSet,
+      handleBlockedNavigation: deps.handleBlockedNavigation,
       cache,
       entitlement,
       redirectDedupe,
@@ -126,7 +130,10 @@ export function createExtensionContentEntry(
     deps.onScriptCreated?.(script);
     const nudge = deps.nudge?.attach(script, context);
     deps.onStart?.();
-    void script.start().then(() => nudge?.request()).catch(() => script.stop());
+    void script
+      .start()
+      .then(() => nudge?.request())
+      .catch(() => script.stop());
     deps.requestReconcile?.();
   };
 }
