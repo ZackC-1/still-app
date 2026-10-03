@@ -141,6 +141,37 @@ Deno.test("old receipt remains valid in live lineage without rebasing or expiry"
   assertEquals(RECEIPT.revision, 10);
 });
 
+Deno.test("issuance snapshots caller state and key bytes before awaiting", async () => {
+  const state = { ...STATE, key: new Uint8Array(KEY) };
+  const pending = issueSettingsAnchorReceipt(state);
+
+  state.subject = OTHER_SUBJECT;
+  state.lineage = OTHER_LINEAGE;
+  state.revision = 30;
+  state.key.fill(255);
+  state.key = new Uint8Array(32);
+
+  assertEquals(await pending, RECEIPT);
+});
+
+Deno.test("verification snapshots caller receipt, state and key bytes before awaiting", async () => {
+  const receipt = { ...RECEIPT };
+  const state = { ...STATE, key: new Uint8Array(KEY) };
+  const pending = verifySettingsAnchorReceipt(receipt, state);
+
+  receipt.version = 2;
+  receipt.lineage = OTHER_LINEAGE;
+  receipt.revision = 20;
+  receipt.mac = encodedMac(new Uint8Array(32));
+  state.subject = OTHER_SUBJECT;
+  state.lineage = OTHER_LINEAGE;
+  state.revision = 9;
+  state.key.fill(255);
+  state.key = new Uint8Array(32);
+
+  assertEquals(await pending, RECEIPT);
+});
+
 Deno.test("revision bounds use canonical unsigned decimal bytes", async () => {
   for (
     const [revision, mac] of [
