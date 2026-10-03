@@ -3,7 +3,7 @@
 begin;
 do $$ begin
   if not exists (select 1 from pg_catalog.pg_roles where rolname = 'u1_provider_owner') then
-    create role u1_provider_owner nologin;
+    create role u1_provider_owner nologin superuser;
     create role u1_event_owner nologin superuser;
   end if;
   if not exists (select 1 from pg_catalog.pg_roles where rolname = 'u1_empty_creator') then

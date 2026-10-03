@@ -109,6 +109,15 @@ Deno.test({
       await sql.unsafe(await source("catalog-reconciliation"));
       await fixture.unsafe(await source("synthetic-catalog-fixture"));
       assertEquals(
+        (await fixture`select rolname, rolsuper from pg_catalog.pg_roles where rolname in ('u1_provider_owner','u1_event_owner') order by rolname`)
+          .map(({ rolname, rolsuper }) => ({ rolname, rolsuper })),
+        [
+          { rolname: "u1_event_owner", rolsuper: true },
+          { rolname: "u1_provider_owner", rolsuper: true },
+        ],
+        "cloud event-trigger and function owners have matching superuser status",
+      );
+      assertEquals(
         (await fixture`select rolsuper from pg_catalog.pg_roles where rolname=current_user`)[
           0
         ].rolsuper,
