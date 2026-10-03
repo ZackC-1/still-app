@@ -18,3 +18,6 @@ export {
   parseSyncedSettingsEnvelope,
   safeParse,
 } from "./settings-validation.js";
+
+// Pure packaged definitions only; public schema2 persistence is integrated under U3.
+export * from "./settings-v2.js";

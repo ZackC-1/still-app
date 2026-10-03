@@ -1,0 +1,116 @@
+{
+  "features": [
+    {
+      "id": "youtube.shorts",
+      "service": "youtube",
+      "name": "YouTube Shorts",
+      "tier": "free",
+      "freshDefault": true
+    },
+    {
+      "id": "youtube.related",
+      "service": "youtube",
+      "name": "Related videos",
+      "tier": "pro",
+      "freshDefault": false
+    },
+    {
+      "id": "youtube.endscreen",
+      "service": "youtube",
+      "name": "End-of-video suggestions",
+      "tier": "pro",
+      "freshDefault": false
+    },
+    {
+      "id": "youtube.autoplay",
+      "service": "youtube",
+      "name": "Autoplay prevention",
+      "tier": "pro",
+      "freshDefault": false
+    },
+    {
+      "id": "youtube.comments",
+      "service": "youtube",
+      "name": "Comments",
+      "tier": "pro",
+      "freshDefault": false
+    },
+    {
+      "id": "youtube.livechat",
+      "service": "youtube",
+      "name": "Live chat",
+      "tier": "pro",
+      "freshDefault": false
+    },
+    {
+      "id": "instagram.reels",
+      "service": "instagram",
+      "name": "Instagram Reels",
+      "tier": "free",
+      "freshDefault": true
+    },
+    {
+      "id": "instagram.explore",
+      "service": "instagram",
+      "name": "Explore recommendations",
+      "tier": "pro",
+      "freshDefault": false
+    },
+    {
+      "id": "instagram.stories",
+      "service": "instagram",
+      "name": "Stories and Highlights",
+      "tier": "pro",
+      "freshDefault": false
+    },
+    {
+      "id": "instagram.suggested",
+      "service": "instagram",
+      "name": "Suggested accounts",
+      "tier": "pro",
+      "freshDefault": false
+    },
+    {
+      "id": "instagram.threads",
+      "service": "instagram",
+      "name": "Threads links",
+      "tier": "pro",
+      "freshDefault": false
+    },
+    {
+      "id": "facebook.reels",
+      "service": "facebook",
+      "name": "Facebook Reels",
+      "tier": "free",
+      "freshDefault": true
+    },
+    {
+      "id": "facebook.stories",
+      "service": "facebook",
+      "name": "Facebook Stories",
+      "tier": "pro",
+      "freshDefault": false
+    },
+    {
+      "id": "facebook.videos",
+      "service": "facebook",
+      "name": "Videos and Watch",
+      "tier": "pro",
+      "freshDefault": false
+    },
+    {
+      "id": "facebook.sponsored",
+      "service": "facebook",
+      "name": "Desktop sidebar ads",
+      "tier": "pro",
+      "freshDefault": false
+    }
+  ],
+  "tiktokAlias": {
+    "id": "tiktok.all",
+    "service": "tiktok",
+    "field": "services.tiktok",
+    "tier": "free",
+    "freshDefault": true
+  }
+}
