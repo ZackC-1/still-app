@@ -126,7 +126,7 @@ export function createExtensionContentEntry(
     deps.onScriptCreated?.(script);
     const nudge = deps.nudge?.attach(script, context);
     deps.onStart?.();
-    void script.start().then(() => nudge?.request());
+    void script.start().then(() => nudge?.request()).catch(() => script.stop());
     deps.requestReconcile?.();
   };
 }

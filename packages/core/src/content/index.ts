@@ -273,11 +273,12 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
         ? deps.entitlement.subscribeAccess(() => reapply())
         : deps.entitlement.subscribe(() => reapply()));
 
-      // The one and only async step: hydrate the snapshot, then apply with real settings and keep
-      // reacting to external (cross-context / cloud) writes.
+      // Modern snapshots retain atomic ordering across hydration and external writes.
+      // Listen first so a newer committed Off cannot be lost during a held older read.
+      if (modern) teardowns.push(cache.watch());
       await Promise.all([cache.hydrate(), modern ? undefined : deps.entitlement?.hydrate()]);
       if (stopped) return;
-      teardowns.push(cache.watch());
+      if (!modern) teardowns.push(cache.watch());
       if (deps.entitlement) teardowns.push(deps.entitlement.watch());
       hydrated = true;
       reapply();
