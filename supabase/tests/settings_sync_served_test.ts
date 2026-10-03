@@ -6,6 +6,71 @@ import {
   token,
   write,
 } from "./synthetic_settings_helpers.ts";
+// Readiness evidence is a closed schema: never echo response bodies, instance
+// identifiers, exception messages, tokens, or driver/CLI text.
+function readinessObservation(
+  status: number,
+  actualInstance: string | null,
+  expectedInstance: string,
+  data: unknown,
+) {
+  const record =
+    data !== null && typeof data === "object" && !Array.isArray(data)
+      ? data as Record<string, unknown>
+      : {};
+  return {
+    httpStatus: Number.isInteger(status) && status >= 100 && status <= 599
+      ? status
+      : null,
+    instance: actualInstance === null
+      ? "missing"
+      : actualInstance === expectedInstance
+      ? "exact"
+      : "mismatch",
+    protocolStatus:
+      ["ready", "hold", "rejected"].includes(record.status as string)
+        ? record.status
+        : "other",
+    errorCode:
+      ["unauthorized", "internal", "settings-unavailable", "request-shape"]
+          .includes(record.error as string)
+        ? record.error
+        : "other",
+  };
+}
+Deno.test("readiness diagnostics redact arbitrary bodies and instance markers", () => {
+  const sentinel = "private-credential-payload-sentinel";
+  assertEquals(
+    readinessObservation(401, "expected", "expected", {
+      error: "unauthorized",
+      secret: sentinel,
+    }),
+    {
+      httpStatus: 401,
+      instance: "exact",
+      protocolStatus: "other",
+      errorCode: "unauthorized",
+    },
+  );
+  const redacted = readinessObservation(999, sentinel, "expected", {
+    error: sentinel,
+    status: sentinel,
+    body: sentinel,
+  });
+  assertEquals(redacted, {
+    httpStatus: null,
+    instance: "mismatch",
+    protocolStatus: "other",
+    errorCode: "other",
+  });
+  assert(!JSON.stringify(redacted).includes(sentinel));
+  assertEquals(readinessObservation(200, null, "expected", null), {
+    httpStatus: 200,
+    instance: "missing",
+    protocolStatus: "other",
+    errorCode: "other",
+  });
+});
 const cloud = Deno.env.get("GITHUB_ACTIONS") === "true" &&
   Deno.env.get("RUNNER_ENVIRONMENT") === "github-hosted";
 const url = Deno.env.get("STILL_SETTINGS_TEST_DATABASE_URL");
@@ -23,6 +88,9 @@ Deno.test({
       responseBytes: number;
       elapsedMs: number;
     }[] = [];
+    const instance = Deno.env.get("STILL_SETTINGS_REHEARSAL_INSTANCE")!;
+    assert(instance);
+    let lastReadiness: unknown = { outcome: "not-attempted" };
     const bearer = await token(A, secret, "http://kong:8000/auth/v1");
     async function send(body: unknown, auth = bearer, signal?: AbortSignal) {
       const requestBody = JSON.stringify(body);
@@ -48,19 +116,44 @@ Deno.test({
           responseBytes: new TextEncoder().encode(text).length,
           elapsedMs: performance.now() - start,
         });
+        lastReadiness = {
+          ...readinessObservation(
+            response.status,
+            response.headers.get("x-still-settings-rehearsal"),
+            instance,
+            null,
+          ),
+          outcome: "invalid-json",
+        };
         const data = JSON.parse(text);
+        lastReadiness = {
+          ...readinessObservation(
+            response.status,
+            response.headers.get("x-still-settings-rehearsal"),
+            instance,
+            data,
+          ),
+          outcome: "response",
+        };
         return {
           status: response.status,
           data,
           instance: response.headers.get("x-still-settings-rehearsal"),
         };
+      } catch (error) {
+        if (!(error instanceof SyntaxError)) {
+          lastReadiness = {
+            outcome: deadline.signal.aborted || signal?.aborted
+              ? "aborted"
+              : "transport-error",
+          };
+        }
+        throw error;
       } finally {
         clearTimeout(timer);
         deadline.abort();
       }
     }
-    const instance = Deno.env.get("STILL_SETTINGS_REHEARSAL_INSTANCE");
-    assert(instance);
     let ready = false;
     for (let attempt = 0; attempt < 60; attempt++) {
       try {
@@ -74,6 +167,9 @@ Deno.test({
         }
       } catch { /* bounded startup poll */ }
       await new Promise((r) => setTimeout(r, 500));
+    }
+    if (!ready) {
+      console.log(JSON.stringify({ settingsReadinessFailure: lastReadiness }));
     }
     assert(ready, "authenticated exact served instance did not become ready");
     const gateway = await send({ protocol: 2, action: "read" }, "invalid");

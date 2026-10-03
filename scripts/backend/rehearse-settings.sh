@@ -49,8 +49,38 @@ serve_pid=$!
 export STILL_SETTINGS_SERVED_URL='http://127.0.0.1:54321/functions/v1/sync-settings'
 # The test polls an authenticated canonical read carrying the exact process marker;
 # an old gateway/runtime's arbitrary HTTP response cannot satisfy readiness.
-kill -0 "$serve_pid"
-deno test --frozen --config supabase/functions/deno.json --allow-env --allow-net=127.0.0.1:54321,127.0.0.1:54322 --filter 'U3 actual Supabase CLI' supabase/tests/settings_sync_served_test.ts
+if ! kill -0 "$serve_pid" 2>/dev/null || ! deno test --frozen --config supabase/functions/deno.json --allow-env --allow-net=127.0.0.1:54321,127.0.0.1:54322 --filter 'U3 actual Supabase CLI' supabase/tests/settings_sync_served_test.ts; then
+  cli_running=false
+  if kill -0 "$serve_pid" 2>/dev/null; then cli_running=true; fi
+  # Never print raw CLI output: startup failures can contain credentials, headers,
+  # source paths or payloads. Read at most the final 64 KiB and emit fixed enums.
+  node --input-type=module - "$RUNNER_TEMP/u3-serve.log" "$cli_running" <<'SETTINGS_CLI_DIAGNOSTICS'
+import { closeSync, fstatSync, openSync, readSync } from "node:fs";
+const result = { running: process.argv[3] === "true", log: "unavailable", truncated: false, categories: [] };
+let fd;
+try {
+  fd = openSync(process.argv[2], "r");
+  const size = fstatSync(fd).size;
+  const bytes = Buffer.alloc(Math.min(size, 65536));
+  const count = readSync(fd, bytes, 0, bytes.length, Math.max(0, size - bytes.length));
+  const text = bytes.subarray(0, count).toString("utf8");
+  result.log = "read";
+  result.truncated = size > 65536;
+  for (const [category, pattern] of [
+    ["import-resolution", /module not found|failed to read file|failed to resolve|cannot resolve|import map/i],
+    ["worker-boot", /worker boot error|failed to create worker|boot failed/i],
+    ["reserved-env", /env name cannot start with supabase_/i],
+    ["connection", /connection refused|could not connect|network unreachable/i],
+    ["jwt-verification", /invalid jwt|jwt verification failed/i],
+  ]) {
+    if (pattern.test(text)) result.categories.push(category);
+  }
+} catch { /* Missing/unreadable log is also a fixed enum. */ }
+finally { if (fd !== undefined) { try { closeSync(fd); } catch { /* No raw close error. */ } } }
+console.log(JSON.stringify({ settingsCliFailure: result }));
+SETTINGS_CLI_DIAGNOSTICS
+  exit 1
+fi
 # Read back the actual pinned CLI's read-only function mount after authenticated
 # readiness. The runtime must receive the same nearest config and frozen graph
 # whose cold resolution passed before the source plan was sealed.
