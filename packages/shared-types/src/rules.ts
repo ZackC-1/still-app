@@ -5,6 +5,8 @@
 // selectors, and action enum values already implemented locally. No JavaScript, expression
 // strings, or anything that changes control flow beyond the packaged enum semantics.
 
+import type { TIKTOK_ALIAS } from "./feature-registry.js";
+
 /** The finite, packaged set of action semantics. Remote sets may only reference these. */
 export const RULE_ACTIONS = ["hide", "remove", "redirect", "placeholder", "blockSite"] as const;
 export type RuleAction = (typeof RULE_ACTIONS)[number];
@@ -86,5 +88,37 @@ export interface RuleSetSignature {
 
 /** A published rule set: payload + signature. */
 export interface SignedRuleSet extends RuleSetPayload {
+  readonly signature: RuleSetSignature;
+}
+
+/** Opt-in data contract only. The format-1 loader and engine do not consume this format. */
+export type SurfaceV2 =
+  | {
+      readonly id: string;
+      readonly feature: import("./feature-registry.js").FeatureId;
+      readonly action: "hide";
+      readonly selectors: readonly string[];
+    }
+  | {
+      readonly id: string;
+      /** Alias of services.tiktok; never an independent setting or access grant. */
+      readonly feature: typeof TIKTOK_ALIAS.id;
+      readonly action: "blockSite";
+    };
+
+export interface ServiceRulesV2 {
+  /** Whole-host patterns limited to this service's existing domain. */
+  readonly matches: readonly string[];
+  readonly surfaces: readonly SurfaceV2[];
+}
+
+/** Prices, tiers, defaults, rights and handler implementations remain packaged authorities. */
+export interface RuleSetPayloadV2 {
+  readonly format: 2;
+  readonly version: string;
+  readonly services: Readonly<Partial<Record<ServiceId, ServiceRulesV2>>>;
+}
+
+export interface SignedRuleSetV2 extends RuleSetPayloadV2 {
   readonly signature: RuleSetSignature;
 }
