@@ -43,10 +43,10 @@ supabase db reset --local --no-seed >/dev/null
 bootstrap_fixture
 psql "$STILL_SECURITY_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --file=scripts/backend/sql/catalog-reconciliation.sql
 # Match the Deno path: only the declared synthetic administrator applies hardening.
-docker exec -i supabase_db_still-app psql -U u1_catalog_fixture -d postgres -X --set=ON_ERROR_STOP=1 < scripts/backend/sql/synthetic-catalog-fixture.sql
+PGPASSWORD='u1-synthetic-fixture-only' psql -h 127.0.0.1 -p 54322 -U u1_catalog_fixture -d postgres -X --set=ON_ERROR_STOP=1 --file=scripts/backend/sql/synthetic-catalog-fixture.sql
 psql "$STILL_SECURITY_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --file=scripts/backend/sql/security-audit-candidate.sql
 cat scripts/backend/sql/hardening-candidate.sql scripts/backend/sql/assert-security.sql | \
-  docker exec -i supabase_db_still-app psql -U u1_catalog_fixture -d postgres -X --set=ON_ERROR_STOP=1 --single-transaction --file=-
+  PGPASSWORD='u1-synthetic-fixture-only' psql -h 127.0.0.1 -p 54322 -U u1_catalog_fixture -d postgres -X --set=ON_ERROR_STOP=1 --single-transaction --file=-
 psql "$STILL_SECURITY_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --single-transaction \
   --file=scripts/backend/sql/prepare-hardened-rls.sql \
   --file=scripts/backend/sql/assert-security.sql
