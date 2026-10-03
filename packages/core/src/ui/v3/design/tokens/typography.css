@@ -1,0 +1,26 @@
+:root {
+  --font-ui: "InterVariable", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --type-hero-title: 700 25px/1.4 var(--font-ui);
+  --type-sheet-title: 700 22px/1.4 var(--font-ui);
+  --type-row-name: 600 17px/1.4 var(--font-ui);
+  --type-body: 400 16px/1.4 var(--font-ui);
+  --type-button: 600 16px/1.4 var(--font-ui);
+  --type-card-title: 600 15px/1.4 var(--font-ui);
+  --type-hero-body: 400 14.5px/1.35 var(--font-ui);
+  --type-status: 400 14px/1.4 var(--font-ui);
+  --type-row-sub: 400 13px/1.4 var(--font-ui);
+  --type-section-label: 600 13px/1.4 var(--font-ui);
+  --type-caption: 400 12px/1.4 var(--font-ui);
+}
+/* Type styles */
+.hero-title { font-family: var(--font-ui); font-size: calc(25px * var(--text-scale, 1)); line-height: 1.4; font-weight: 700; letter-spacing: -0.02em; }
+.sheet-title { font-family: var(--font-ui); font-size: calc(22px * var(--text-scale, 1)); line-height: 1.4; font-weight: 700; letter-spacing: -0.02em; }
+.row-name { font-family: var(--font-ui); font-size: calc(17px * var(--text-scale, 1)); line-height: 1.4; font-weight: 600; letter-spacing: -0.01em; }
+.body { font-family: var(--font-ui); font-size: calc(16px * var(--text-scale, 1)); line-height: 1.4; font-weight: 400; }
+.button { font-family: var(--font-ui); font-size: calc(16px * var(--text-scale, 1)); line-height: 1.4; font-weight: 600; }
+.card-title { font-family: var(--font-ui); font-size: calc(15px * var(--text-scale, 1)); line-height: 1.4; font-weight: 600; }
+.hero-body { font-family: var(--font-ui); font-size: calc(14.5px * var(--text-scale, 1)); line-height: 1.35; font-weight: 400; }
+.status { font-family: var(--font-ui); font-size: calc(14px * var(--text-scale, 1)); line-height: 1.4; font-weight: 400; }
+.row-sub { font-family: var(--font-ui); font-size: calc(13px * var(--text-scale, 1)); line-height: 1.4; font-weight: 400; }
+.section-label { font-family: var(--font-ui); font-size: calc(13px * var(--text-scale, 1)); line-height: 1.4; font-weight: 600; letter-spacing: 0.01em; }
+.caption { font-family: var(--font-ui); font-size: calc(12px * var(--text-scale, 1)); line-height: 1.4; font-weight: 400; }
