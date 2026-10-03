@@ -59,6 +59,13 @@ export type SettingsSyncResult =
     reason: "receipt" | "operation-base" | "write-id-conflict";
   };
 
+/** Only postclaim holds use this signal so the transaction rolls back the identity. */
+export class SettingsWriteHold extends Error {
+  constructor(readonly reason: string) {
+    super("Settings write held");
+  }
+}
+
 function value(settings: SettingsV2, field: SettingsField): boolean {
   if (field === "globalOn") return settings.globalOn;
   const [group, ...rest] = field.split(".");
@@ -83,7 +90,7 @@ export function syncSettings(
   subject: string,
   request: UntrustedSettingsOperationRequest | null,
 ): Promise<SettingsSyncResult> {
-  return store.locked(subject, async (row) => {
+  return store.locked<SettingsSyncResult>(subject, async (row) => {
     const revision = row.anchor.revision;
     if (
       !Number.isSafeInteger(revision) || revision < 0 ||
@@ -122,19 +129,22 @@ export function syncSettings(
       }
       if (
         request.operations.some((op) =>
-          op.baseRevision !== request.receipt.revision && op.baseRevision !== 0
+          op.baseRevision !== request.receipt.revision &&
+          op.baseRevision !== 0
         )
       ) {
         return { status: "rejected", reason: "operation-base" };
       }
-      const claimed = await row.claim(request.writeId, JSON.stringify(request));
+      const claimed = await row.claim(
+        request.writeId,
+        JSON.stringify(request),
+      );
       if (claimed === "conflict") {
         return { status: "rejected", reason: "write-id-conflict" };
       }
       if (claimed === "new") {
-        const candidate = JSON.parse(
-          serializeSettingsV2(settings),
-        ) as SettingsV2;
+        const baseline = serializeSettingsV2(settings);
+        const candidate = JSON.parse(baseline) as SettingsV2;
         for (const op of request.operations) {
           const merged = mergeSettingsField({
             value: value(candidate, op.path),
@@ -150,9 +160,9 @@ export function syncSettings(
           assign(candidate, op.path, merged.value);
           (candidate.clocks as Record<string, unknown>)[op.path] = merged.stamp;
         }
-        if (serializeSettingsV2(candidate) !== serializeSettingsV2(settings)) {
+        if (serializeSettingsV2(candidate) !== baseline) {
           if (revision === MAX_SETTINGS_REVISION) {
-            return { status: "hold", reason: "revision-saturated" };
+            throw new SettingsWriteHold("revision-saturated");
           }
           (candidate as Record<string, unknown>).updatedAt = row.now;
           // Bound the complete merged JSON again; retained future data can approach the parser limit.
@@ -160,7 +170,7 @@ export function syncSettings(
             kind: "readable-local",
           });
           if (checked.status !== "ready") {
-            return { status: "hold", reason: checked.reason };
+            throw new SettingsWriteHold(checked.reason);
           }
           await row.commit(
             checked.settings,
@@ -190,5 +200,10 @@ export function syncSettings(
         revision: finalRevision,
       }),
     };
+  }).catch((error: unknown): SettingsSyncResult => {
+    if (error instanceof SettingsWriteHold) {
+      return { status: "hold", reason: error.reason };
+    }
+    throw error;
   });
 }

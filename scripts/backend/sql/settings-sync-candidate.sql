@@ -68,7 +68,7 @@ end $$;
 
 create function private.commit_settings(p_subject uuid,p_lineage uuid,p_revision bigint,p_raw jsonb,p_next jsonb,p_id uuid,p_receipt_revision bigint,p_operations jsonb)
 returns void language plpgsql security definer set search_path = '' as $$
-declare a private.settings_anchors%rowtype; p public.profiles%rowtype; revision bigint; stamp jsonb; op jsonb; t timestamptz;
+declare a private.settings_anchors%rowtype; p public.profiles%rowtype; revision bigint; op jsonb; t timestamptz;
 begin
   if p_subject::text is distinct from pg_catalog.current_setting('request.jwt.claim.sub',true) then
     raise exception 'subject mismatch' using errcode='28000';
@@ -166,7 +166,7 @@ begin
   if p.settings->'schemaVersion'='2'::jsonb then
     supplied := array['globalOn','services.youtube','services.instagram','services.facebook','services.tiktok'];
     for entry in select unnest(supplied) as field loop
-      next_settings := pg_catalog.jsonb_set(next_settings,array['clocks',entry.field],pg_catalog.jsonb_build_object('baseRevision',case when p.settings->'schemaVersion'='2'::jsonb then p.settings_version else greatest(1,p.settings_version) end+1,'localStep',0));
+      next_settings := pg_catalog.jsonb_set(next_settings,array['clocks',entry.field],coalesce(p.settings->'clocks'->entry.field,'{}'::jsonb) || pg_catalog.jsonb_build_object('baseRevision',p.settings_version+1,'localStep',0));
     end loop;
   end if;
   insert into public.profiles(id,settings,updated_at,settings_version,settings_server_updated_at,settings_last_write_id)

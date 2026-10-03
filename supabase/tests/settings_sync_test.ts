@@ -18,6 +18,7 @@ import {
   write,
 } from "./synthetic_settings_helpers.ts";
 import { readSettingsOperationRequest } from "../../packages/shared-types/src/settings-operation.ts";
+import { migrateSettingsV2 } from "../../packages/core/src/storage/settings-v2.ts";
 const cloud = Deno.env.get("GITHUB_ACTIONS") === "true" &&
   Deno.env.get("RUNNER_ENVIRONMENT") === "github-hosted";
 const url = Deno.env.get("STILL_SETTINGS_TEST_DATABASE_URL");
@@ -232,8 +233,48 @@ Deno.test({
             existing.settings.clocks["sites.youtube.related"].baseRevision,
             0,
           );
-          await fixture`update public.profiles set settings=settings || '{"future":{"keep":true}}'::jsonb where id=${B}`;
+          const supplied = [
+            "globalOn",
+            "services.youtube",
+            "services.instagram",
+            "services.facebook",
+            "services.tiktok",
+          ];
+          const expanded = JSON.parse(JSON.stringify(existing.settings));
+          expanded.future = { keep: true };
+          for (const field of [...supplied, "sites.youtube.related"]) {
+            expanded.clocks[field].futureStamp = { keep: true, label: "é/é" };
+          }
+          await fixture`update public.profiles set settings=${
+            JSON.stringify(expanded)
+          }::jsonb,settings_server_updated_at=pg_catalog.clock_timestamp()-interval '1 second' where id=${B}`;
+          const beforeLegacy = await read(B);
+          const serverNow =
+            (await fixture`select pg_catalog.floor(extract(epoch from pg_catalog.clock_timestamp())*1000)::bigint as ms`)[
+              0
+            ].ms;
+          await legacyWrite(B, {
+            ...legacy,
+            globalOn: true,
+            updatedAt: Number(serverNow),
+          });
           const preserved = await read(B);
+          assertEquals(
+            preserved.settingsVersion,
+            beforeLegacy.settingsVersion + 1,
+          );
+          for (const field of supplied) {
+            assertEquals(preserved.settings.clocks[field], {
+              ...expanded.clocks[field],
+              baseRevision: preserved.settingsVersion,
+              localStep: 0,
+            });
+          }
+          assertEquals(
+            preserved.settings.clocks["sites.youtube.related"],
+            expanded.clocks["sites.youtube.related"],
+          );
+          assertEquals(preserved.settings.future, { keep: true });
           await syncSettings(
             store,
             B,
@@ -279,16 +320,22 @@ Deno.test({
             "rejected",
           );
           const maximum = await read();
-          assertEquals(
-            (await syncSettings(
-              store,
-              A,
-              parsed(
-                write(maximum, [["globalOn", true]], maximum.settingsVersion),
-              ),
-            )).status,
-            "hold",
+          const saturated = parsed(
+            write(maximum, [["globalOn", true]], maximum.settingsVersion),
           );
+          for (let attempt = 0; attempt < 2; attempt++) {
+            assertEquals(await syncSettings(store, A, saturated), {
+              status: "hold",
+              reason: "revision-saturated",
+            });
+            assertEquals(
+              (await fixture`select count(*)::int as n from private.settings_writes where user_id=${A} and write_id=${saturated.writeId}::uuid`)[
+                0
+              ].n,
+              0,
+            );
+            assertEquals(await read(), maximum);
+          }
           await fixture`update public.profiles set settings_version=${original.settingsVersion} where id=${A}`;
           let entered!: () => void;
           const began = new Promise<void>((r) => entered = r);
@@ -352,6 +399,53 @@ Deno.test({
             ].n,
             0,
           );
+        },
+      );
+      await t.step(
+        "merged size hold rolls back claimed identity and preserves complete canonical row",
+        async () => {
+          const fresh = migrateSettingsV2(null, { kind: "proven-fresh" });
+          if (fresh.status !== "ready") throw new Error("fresh settings");
+          const padding: string[] = [];
+          const raw = {
+            ...fresh.settings,
+            updatedAt: 1,
+            futurePadding: padding,
+          };
+          while (JSON.stringify(raw).length < 65530) {
+            padding.push("");
+            padding[padding.length - 1] = "x".repeat(
+              Math.min(8192, 65530 - JSON.stringify(raw).length),
+            );
+          }
+          assertEquals(
+            migrateSettingsV2(raw, { kind: "readable-local" }).status,
+            "ready",
+          );
+          await fixture`update public.profiles set settings=${
+            JSON.stringify(raw)
+          }::jsonb,settings_version=0 where id=${C}`;
+          const before = await read(C);
+          const snapshot =
+            await fixture`select * from public.profiles where id=${C}`;
+          const request = parsed(write(before, [["globalOn", false]], 0));
+          for (let attempt = 0; attempt < 2; attempt++) {
+            assertEquals(await syncSettings(store, C, request), {
+              status: "hold",
+              reason: "bounds",
+            });
+            assertEquals(
+              (await fixture`select count(*)::int as n from private.settings_writes where user_id=${C} and write_id=${request.writeId}::uuid`)[
+                0
+              ].n,
+              0,
+            );
+            assertEquals(
+              await fixture`select * from public.profiles where id=${C}`,
+              snapshot,
+            );
+            assertEquals(await read(C), before);
+          }
         },
       );
     } finally {
