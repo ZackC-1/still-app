@@ -133,6 +133,7 @@ export class SyncService {
     if (this.recovering !== null) return this.recovering;
     if (this.catchingUp !== null) return this.catchingUp.then(() => undefined);
     if (this.writeCompletion !== null) return this.writeCompletion;
+    if (this.cache.currentRecord().atomic) this.realtimeStale = false;
     const recovery = this.refreshAfterRealtimeReconnect();
     this.recovering = recovery;
     void recovery.then(() => {

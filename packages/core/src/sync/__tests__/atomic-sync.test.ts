@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS, SETTINGS_FIELDS, readSettingsOperationRequest, type SettingsField, type SettingsV2 } from "@still/shared-types";
 import { AtomicSettingsWriter } from "../../storage/atomic-settings.js";
-import { InMemoryStorageAdapter } from "../../storage/adapter.js";
+import { InMemoryStorageAdapter, type SyncedSettingsEnvelope } from "../../storage/adapter.js";
 import { SettingsCache } from "../../storage/cache.js";
 import { migrateSettingsV2 } from "../../storage/settings-v2.js";
 import { allocateSettingsFieldEdit, mergeSettingsField } from "../field-order.js";
@@ -35,12 +35,24 @@ function harness(owner: "unknown" | "never-linked" | "previous-account" = "unkno
   let settings = seed.settings;
   const requests: unknown[] = [], claims = new Map<string, string>();
   let release: (() => void) | null = null, started: (() => void) | null = null;
+  let readRelease: (() => void) | null = null, readStarted: (() => void) | null = null;
+  let profileListener: ((envelope: SyncedSettingsEnvelope) => void) | null = null;
+  let reads = 0;
   const response = () => ({ status: "ready", protocol: 2, empty: empty && revision === 0, settings: structuredClone(settings), settingsVersion: revision,
     settingsServerUpdatedAt: "2026-10-02T00:00:00Z", writeId: lastWriteId, lineage: LINEAGE,
     receipt: { version: 1, lineage: LINEAGE, revision, mac: "A".repeat(43) } });
   const invoke = vi.fn(async (_name: string, options: { body: unknown }) => {
     const body = options.body as { action?: string };
-    if (body.action === "read") return { data: response(), error: null };
+    if (body.action === "read") {
+      reads += 1;
+      const data = response();
+      if (readRelease) {
+        const wait = new Promise<void>(r => { readRelease = r; });
+        readStarted?.();
+        await wait;
+      }
+      return { data, error: null };
+    }
     const parsed = readSettingsOperationRequest(body);
     if (parsed.status !== "parsed") return { data: null, error: new Error("request-shape") };
     const request = parsed.request;
@@ -67,10 +79,18 @@ function harness(owner: "unknown" | "never-linked" | "previous-account" = "unkno
   const backend: BackendPort = { modernSettingsEnabled: true, readCanonicalSettings: () => port.readCanonicalSettings(),
     writeSettingsOperation: request => port.writeSettingsOperation(request), reconcileEntitlement: async () => {}, readEntitlement: async () => "not-entitled",
     readProfile: async () => { throw new Error("coarse read forbidden"); }, writeProfile: async () => { throw new Error("coarse write forbidden"); },
-    subscribeToProfile: () => () => {}, deleteAccount: async () => {} };
+    subscribeToProfile: (_subject, listener) => { profileListener = listener; return () => { profileListener = null; }; }, deleteAccount: async () => {} };
   const auth = { currentUserId: async () => account, signOut: async () => {}, signInWithMagicLink: async () => ({}) };
   const service = new SyncService(cache, auth, backend);
   return { cache, writer, storage, service, requests, invoke, port,
+    reads: () => reads,
+    nudge() { profileListener?.({ settings: { ...settings, pauses: [] }, version: revision,
+      serverUpdatedAt: "2026-10-02T00:00:00Z", lastWriteId }); },
+    holdRead() {
+      const when = new Promise<void>(r => { readStarted = r; });
+      readRelease = () => {};
+      return { started: when, release() { const go = readRelease; readRelease = null; go?.(); } };
+    },
     switchAccount(id: string) { account = id; },
     hold() { let began!: () => void; const when = new Promise<void>(r => { began = r; }); started = began; release = () => {};
       return { started: when, release() { const go = release; release = null; go?.(); } }; },
@@ -84,6 +104,29 @@ function harness(owner: "unknown" | "never-linked" | "previous-account" = "unkno
 const drain = async () => { for (let i = 0; i < 20; i++) await new Promise(r => setTimeout(r, 0)); };
 
 describe("existing SyncService and exact Supabase modern port", () => {
+  it("one idle realtime nudge performs one authenticated read and one durable acknowledgement", async () => {
+    const h = harness(); await h.cache.hydrate(); await h.service.onSignedIn(A);
+    const reads = h.reads(), sequence = h.cache.currentRecord().atomic!.sequence;
+    h.peer("services.youtube", false); h.nudge(); await drain();
+    expect(h.cache.current().services.youtube).toBe(false);
+    expect(h.reads() - reads).toBe(1);
+    expect(h.cache.currentRecord().atomic!.sequence - sequence).toBe(1);
+    expect(h.requests).toEqual([]);
+    await h.service.signOut(); h.cache.watch()();
+  });
+  it("a nudge during an active read retains one follow-up to obtain newer canonical state", async () => {
+    const h = harness(); await h.cache.hydrate(); await h.service.onSignedIn(A);
+    const reads = h.reads(), sequence = h.cache.currentRecord().atomic!.sequence;
+    const held = h.holdRead();
+    h.nudge(); await held.started;
+    h.peer("services.youtube", false); h.nudge(); h.nudge();
+    held.release(); await drain();
+    expect(h.cache.current().services.youtube).toBe(false);
+    expect(h.reads() - reads).toBe(2);
+    expect(h.cache.currentRecord().atomic!.sequence - sequence).toBe(2);
+    expect(h.requests).toEqual([]);
+    await h.service.signOut(); h.cache.watch()();
+  });
   it("empty account defaults keep unknown/previous-owner all-Off local choices held without upload", async () => {
     for (const owner of ["unknown", "previous-account"] as const) {
       const h = harness(owner, true); await h.cache.hydrate();

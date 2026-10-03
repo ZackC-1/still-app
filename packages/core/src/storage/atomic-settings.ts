@@ -5,7 +5,7 @@ import {
 } from "@still/shared-types";
 import type { StorageAdapter, StoredSettingsRecord, SyncedSettingsEnvelope } from "./adapter.js";
 import { migrateSettingsV2 } from "./settings-v2.js";
-import { allocateSettingsFieldEdit, mergeSettingsField } from "../sync/field-order.js";
+import { allocateSettingsFieldEdit, mergeSettingsField, pendingSettingsFieldAfterAck } from "../sync/field-order.js";
 
 export interface SettingsIntent { readonly path: SettingsField; readonly value: boolean; readonly updatedAt: number }
 export interface SettingsScope { readonly accountId: string | null; readonly generation: number }
@@ -149,7 +149,12 @@ export class AtomicSettingsWriter {
         const held = { ...state.held }; delete held[intent.path];
         atomic = { ...state, sequence: state.sequence + 1, held, paused: state.paused !== "ownership-unconfirmed" && Object.keys(held).length === 0 && state.pending.length < 64 ? null : state.paused };
       } else {
-        atomic = { ...state, sequence: state.sequence + 1, held: { ...state.held, [intent.path]: intent.value }, paused: state.paused === "ownership-unconfirmed" ? state.paused : state.pending.length >= 64 ? "pending-limit" : state.scope.accountId !== null && state.anchor === null ? "awaiting-anchor" : "ordering-hold" };
+        let paused: string;
+        if (state.paused === "ownership-unconfirmed") paused = state.paused;
+        else if (state.pending.length >= 64) paused = "pending-limit";
+        else if (state.scope.accountId !== null && state.anchor === null) paused = "awaiting-anchor";
+        else paused = "ordering-hold";
+        atomic = { ...state, sequence: state.sequence + 1, held: { ...state.held, [intent.path]: intent.value }, paused };
       }
       const next = { ...current, settings: projection(settings), atomic };
       await this.adapter.set(structuredClone(next));
@@ -204,8 +209,7 @@ export class AtomicSettingsWriter {
       const pending = state.pending.filter((p) => p.scope.accountId !== captured.accountId || p.operations.some((op) => {
         const remote = { value: settingsFieldValue(canonical, op.path), stamp: canonical.clocks[op.path] };
         const local = { value: op.value, stamp: { baseRevision: op.baseRevision, localStep: op.localStep } };
-        const winner = mergeSettingsField(local, remote);
-        return winner === local && !(local.value === remote.value && local.stamp.baseRevision === remote.stamp.baseRevision && local.stamp.localStep === remote.stamp.localStep);
+        return pendingSettingsFieldAfterAck(local, remote) !== null;
       }));
       const bound = pending.map(p => p.scope.accountId === captured.accountId && p.receipt === null && p.originScope?.accountId === null
         ? { ...p, receipt } : p);
