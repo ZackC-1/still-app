@@ -75,8 +75,9 @@ Deno.test({
           await fixture`select public.set_entitlement(${B}::uuid,true,'webhook',null)`;
         },
       );
-      historicalRights =
-        await fixture`select pg_catalog.row_to_json(e)::text as raw from public.entitlements e where user_id=${B}`;
+      historicalRights = [
+        ...await fixture`select pg_catalog.row_to_json(e)::text as raw from public.entitlements e where user_id=${B}`,
+      ];
       const store = new PgSettingsStore(writer);
       const read = async (subject = A) => {
         const result = await syncSettings(store, subject, null);
@@ -316,10 +317,15 @@ Deno.test({
         });
       };
       const snapshot = async (subject: string) => ({
-        row:
-          await fixture`select pg_catalog.row_to_json(p)::text as raw from public.profiles p where id=${subject}`,
-        identities:
-          await fixture`select write_id,body::text,created_at from private.settings_writes where user_id=${subject} order by write_id`,
+        // Result.state is connection metadata, not persisted settings. Compare every returned
+        // row as plain arrays so a released/replaced pool connection cannot masquerade as a
+        // transactional change. Retain raw profile JSON, identity bodies and timestamps.
+        row: [
+          ...await fixture`select pg_catalog.row_to_json(p)::text as raw from public.profiles p where id=${subject}`,
+        ],
+        identities: [
+          ...await fixture`select write_id,body::text,created_at from private.settings_writes where user_id=${subject} order by write_id`,
+        ],
       });
       const databaseTime = async () =>
         Number(
@@ -912,8 +918,9 @@ Deno.test({
             JSON.stringify(raw)
           }::text::jsonb,settings_version=0 where id=${C}`;
           const before = await read(C);
-          const snapshot =
-            await fixture`select * from public.profiles where id=${C}`;
+          const snapshot = [
+            ...await fixture`select * from public.profiles where id=${C}`,
+          ];
           const request = parsed(write(before, [["globalOn", false]], 0));
           for (let attempt = 0; attempt < 2; attempt++) {
             assertEquals(await syncSettings(store, C, request), {
@@ -927,7 +934,7 @@ Deno.test({
               0,
             );
             assertEquals(
-              await fixture`select * from public.profiles where id=${C}`,
+              [...await fixture`select * from public.profiles where id=${C}`],
               snapshot,
             );
             assertEquals(await read(C), before);
@@ -938,7 +945,7 @@ Deno.test({
       try {
         if (historicalRights !== undefined) {
           assertEquals(
-            await fixture`select pg_catalog.row_to_json(e)::text as raw from public.entitlements e where user_id=${B}`,
+            [...await fixture`select pg_catalog.row_to_json(e)::text as raw from public.entitlements e where user_id=${B}`],
             historicalRights,
           );
         }

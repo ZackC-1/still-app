@@ -48,10 +48,13 @@ export async function verifySettingsTwentyFieldWrite(
     return (settings[group!] as Record<string, unknown>)[parts.join(".")];
   };
   const snapshot = async () => ({
-    profile:
-      await fixture`select pg_catalog.row_to_json(p)::text as raw from public.profiles p where id=${subject}`,
-    identities:
-      await fixture`select write_id::text,body::text,created_at::text from private.settings_writes where user_id=${subject} order by write_id`,
+    // Compare returned rows, not the driver's hidden connection metadata.
+    profile: [
+      ...await fixture`select pg_catalog.row_to_json(p)::text as raw from public.profiles p where id=${subject}`,
+    ],
+    identities: [
+      ...await fixture`select write_id::text,body::text,created_at::text from private.settings_writes where user_id=${subject} order by write_id`,
+    ],
   });
   let accepted: Awaited<ReturnType<typeof syncSettings>> | undefined;
   await measure("twenty-field-write", async () => {
@@ -136,12 +139,15 @@ export async function verifySettingsRawOverlayBounds(
     );
     await fixture`update public.profiles set settings=${raw()}::text::jsonb where id=${BOUNDS_ACCOUNT}`;
     const snapshot = async () => ({
-      profile:
-        await fixture`select pg_catalog.row_to_json(p)::text as raw from public.profiles p where id=${BOUNDS_ACCOUNT}`,
-      identities:
-        await fixture`select write_id::text,body::text,created_at::text from private.settings_writes where user_id=${BOUNDS_ACCOUNT} order by write_id`,
-      anchor:
-        await fixture`select lineage::text,modern_used from private.settings_anchors where user_id=${BOUNDS_ACCOUNT}`,
+      profile: [
+        ...await fixture`select pg_catalog.row_to_json(p)::text as raw from public.profiles p where id=${BOUNDS_ACCOUNT}`,
+      ],
+      identities: [
+        ...await fixture`select write_id::text,body::text,created_at::text from private.settings_writes where user_id=${BOUNDS_ACCOUNT} order by write_id`,
+      ],
+      anchor: [
+        ...await fixture`select lineage::text,modern_used from private.settings_anchors where user_id=${BOUNDS_ACCOUNT}`,
+      ],
     });
     const initial = await syncSettings(store, BOUNDS_ACCOUNT, null);
     assertEquals(initial.status, "ready");
@@ -286,13 +292,14 @@ export async function verifySettingsLimiterBuckets(
     );
     assert(waits.some((wait) => wait > 0));
   }
-  const before =
-    await fixture`select pg_catalog.row_to_json(c)::text as raw from public.rate_limit_counters c order by bucket_key,window_start`;
+  const before = [
+    ...await fixture`select pg_catalog.row_to_json(c)::text as raw from public.rate_limit_counters c order by bucket_key,window_start`,
+  ];
   await assertRejects(() =>
     limiter.consume("settings-sync-unknown:ip:198.51.100.44", 2, 600)
   );
   assertEquals(
-    await fixture`select pg_catalog.row_to_json(c)::text as raw from public.rate_limit_counters c order by bucket_key,window_start`,
+    [...await fixture`select pg_catalog.row_to_json(c)::text as raw from public.rate_limit_counters c order by bucket_key,window_start`],
     before,
   );
   for (const role of ["anon", "authenticated", "service_role"]) {
@@ -309,8 +316,9 @@ export async function verifySettingsLegacyOwnerGrants(
   fixture: Database,
   candidate: string,
 ) {
-  const owner =
-    await fixture`select r.rolname,r.rolsuper from pg_catalog.pg_proc p join pg_catalog.pg_roles r on r.oid=p.proowner where p.oid='public.write_profile_settings(jsonb,uuid)'::regprocedure`;
+  const owner = [
+    ...await fixture`select r.rolname,r.rolsuper from pg_catalog.pg_proc p join pg_catalog.pg_roles r on r.oid=p.proowner where p.oid='public.write_profile_settings(jsonb,uuid)'::regprocedure`,
+  ];
   assertEquals(owner.map((row) => [row.rolname, row.rolsuper]), [[
     "postgres",
     false,
@@ -371,11 +379,12 @@ export async function verifySettingsLegacyOwnerGrants(
     "legacy settings owner precondition",
   );
   assertEquals(
-    await fixture`select r.rolname,r.rolsuper from pg_catalog.pg_proc p join pg_catalog.pg_roles r on r.oid=p.proowner where p.oid='public.write_profile_settings(jsonb,uuid)'::regprocedure`,
+    [...await fixture`select r.rolname,r.rolsuper from pg_catalog.pg_proc p join pg_catalog.pg_roles r on r.oid=p.proowner where p.oid='public.write_profile_settings(jsonb,uuid)'::regprocedure`],
     owner,
   );
-  const creator =
-    await fixture`select proowner,proacl from pg_catalog.pg_proc where oid='private.settings_json_bounded(jsonb)'::regprocedure`;
+  const creator = [
+    ...await fixture`select proowner,proacl from pg_catalog.pg_proc where oid='private.settings_json_bounded(jsonb)'::regprocedure`,
+  ];
   const grantStart = candidate.lastIndexOf("do $$ declare helper text;");
   assert(grantStart >= 0);
   const creatorFailure = await assertRejects(() =>
@@ -390,7 +399,7 @@ export async function verifySettingsLegacyOwnerGrants(
     "settings helper creator precondition",
   );
   assertEquals(
-    await fixture`select proowner,proacl from pg_catalog.pg_proc where oid='private.settings_json_bounded(jsonb)'::regprocedure`,
+    [...await fixture`select proowner,proacl from pg_catalog.pg_proc where oid='private.settings_json_bounded(jsonb)'::regprocedure`],
     creator,
   );
 }
