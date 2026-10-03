@@ -1,0 +1,470 @@
+{
+  "merges": [
+    {
+      "name": "off exact tie",
+      "left": {
+        "value": true,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 2
+        }
+      },
+      "right": {
+        "value": false,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 2
+        }
+      },
+      "expected": {
+        "value": false,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 2
+        }
+      }
+    },
+    {
+      "name": "base wins before step",
+      "left": {
+        "value": false,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 1048575
+        }
+      },
+      "right": {
+        "value": true,
+        "stamp": {
+          "baseRevision": 5,
+          "localStep": 0
+        }
+      },
+      "expected": {
+        "value": true,
+        "stamp": {
+          "baseRevision": 5,
+          "localStep": 0
+        }
+      }
+    },
+    {
+      "name": "step wins disconnected same base",
+      "left": {
+        "value": true,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 1
+        }
+      },
+      "right": {
+        "value": false,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 2
+        }
+      },
+      "expected": {
+        "value": false,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 2
+        }
+      }
+    },
+    {
+      "name": "explicit pristine edit",
+      "left": {
+        "value": true,
+        "stamp": {
+          "baseRevision": 0,
+          "localStep": 0
+        }
+      },
+      "right": {
+        "value": false,
+        "stamp": {
+          "baseRevision": 0,
+          "localStep": 1
+        }
+      },
+      "expected": {
+        "value": false,
+        "stamp": {
+          "baseRevision": 0,
+          "localStep": 1
+        }
+      }
+    },
+    {
+      "name": "max boundary",
+      "left": {
+        "value": false,
+        "stamp": {
+          "baseRevision": 9007199254740990,
+          "localStep": 1048575
+        }
+      },
+      "right": {
+        "value": true,
+        "stamp": {
+          "baseRevision": 9007199254740991,
+          "localStep": 1
+        }
+      },
+      "expected": {
+        "value": true,
+        "stamp": {
+          "baseRevision": 9007199254740991,
+          "localStep": 1
+        }
+      }
+    }
+  ],
+  "edits": [
+    {
+      "name": "actual step",
+      "prior": {
+        "value": true,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 2
+        }
+      },
+      "revision": 4,
+      "requested": false,
+      "status": "edited",
+      "expected": {
+        "value": false,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 3
+        }
+      }
+    },
+    {
+      "name": "new acknowledged base",
+      "prior": {
+        "value": true,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 2
+        }
+      },
+      "revision": 5,
+      "requested": false,
+      "status": "edited",
+      "expected": {
+        "value": false,
+        "stamp": {
+          "baseRevision": 5,
+          "localStep": 1
+        }
+      }
+    },
+    {
+      "name": "noop keeps stamp",
+      "prior": {
+        "value": true,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 2
+        }
+      },
+      "revision": 5,
+      "requested": true,
+      "status": "unchanged",
+      "expected": {
+        "value": true,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 2
+        }
+      }
+    },
+    {
+      "name": "saturation retains choice",
+      "prior": {
+        "value": true,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 1048575
+        }
+      },
+      "revision": 4,
+      "requested": false,
+      "status": "hold",
+      "expected": {
+        "value": true,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 1048575
+        }
+      }
+    },
+    {
+      "name": "trusted recovery of held choice",
+      "prior": {
+        "value": true,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 1048575
+        }
+      },
+      "revision": 5,
+      "requested": false,
+      "status": "edited",
+      "expected": {
+        "value": false,
+        "stamp": {
+          "baseRevision": 5,
+          "localStep": 1
+        }
+      }
+    },
+    {
+      "name": "stale anchor cannot create intent",
+      "prior": {
+        "value": true,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 2
+        }
+      },
+      "revision": 3,
+      "requested": false,
+      "status": "recovery",
+      "expected": {
+        "value": true,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 2
+        }
+      }
+    },
+    {
+      "name": "baseline step zero is first deliberate edit",
+      "prior": {
+        "value": false,
+        "stamp": {
+          "baseRevision": 0,
+          "localStep": 0
+        }
+      },
+      "revision": 0,
+      "requested": true,
+      "status": "edited",
+      "expected": {
+        "value": true,
+        "stamp": {
+          "baseRevision": 0,
+          "localStep": 1
+        }
+      }
+    },
+    {
+      "name": "maximum revision saturation keeps Off request",
+      "prior": {
+        "value": true,
+        "stamp": {
+          "baseRevision": 9007199254740991,
+          "localStep": 1048575
+        }
+      },
+      "revision": 9007199254740991,
+      "requested": false,
+      "status": "hold",
+      "expected": {
+        "value": true,
+        "stamp": {
+          "baseRevision": 9007199254740991,
+          "localStep": 1048575
+        }
+      }
+    }
+  ],
+  "pending": [
+    {
+      "name": "old echo retains later edit",
+      "pending": {
+        "value": false,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 2
+        }
+      },
+      "canonical": {
+        "value": true,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 1
+        }
+      },
+      "expected": {
+        "value": false,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 2
+        }
+      }
+    },
+    {
+      "name": "new peer wins",
+      "pending": {
+        "value": false,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 2
+        }
+      },
+      "canonical": {
+        "value": true,
+        "stamp": {
+          "baseRevision": 5,
+          "localStep": 1
+        }
+      },
+      "expected": null
+    },
+    {
+      "name": "exact acknowledgement clears",
+      "pending": {
+        "value": false,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 2
+        }
+      },
+      "canonical": {
+        "value": false,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 2
+        }
+      },
+      "expected": null
+    },
+    {
+      "name": "tied Off pending wins",
+      "pending": {
+        "value": false,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 2
+        }
+      },
+      "canonical": {
+        "value": true,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 2
+        }
+      },
+      "expected": {
+        "value": false,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 2
+        }
+      }
+    },
+    {
+      "name": "tied Off canonical wins",
+      "pending": {
+        "value": true,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 2
+        }
+      },
+      "canonical": {
+        "value": false,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 2
+        }
+      },
+      "expected": null
+    },
+    {
+      "name": "no pending",
+      "pending": null,
+      "canonical": {
+        "value": false,
+        "stamp": {
+          "baseRevision": 4,
+          "localStep": 2
+        }
+      },
+      "expected": null
+    }
+  ],
+  "invalid": [
+    null,
+    true,
+    {},
+    {
+      "value": "on",
+      "stamp": {
+        "baseRevision": 1,
+        "localStep": 1
+      }
+    },
+    {
+      "value": true,
+      "stamp": {
+        "baseRevision": true,
+        "localStep": 1
+      }
+    },
+    {
+      "value": true,
+      "stamp": {
+        "baseRevision": -1,
+        "localStep": 1
+      }
+    },
+    {
+      "value": true,
+      "stamp": {
+        "baseRevision": 1.5,
+        "localStep": 1
+      }
+    },
+    {
+      "value": true,
+      "stamp": {
+        "baseRevision": 9007199254740992,
+        "localStep": 1
+      }
+    },
+    {
+      "value": true,
+      "stamp": {
+        "baseRevision": 1,
+        "localStep": false
+      }
+    },
+    {
+      "value": true,
+      "stamp": {
+        "baseRevision": 1,
+        "localStep": -1
+      }
+    },
+    {
+      "value": true,
+      "stamp": {
+        "baseRevision": 1,
+        "localStep": 1.5
+      }
+    },
+    {
+      "value": true,
+      "stamp": {
+        "baseRevision": 1,
+        "localStep": 1048576
+      }
+    }
+  ]
+}

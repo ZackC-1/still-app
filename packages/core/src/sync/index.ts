@@ -46,3 +46,14 @@ export {
 } from "./extension-session.js";
 
 export { parseAccountSyncStatus, type AccountSyncStatus } from "./account-status.js";
+
+export {
+  allocateSettingsFieldEdit,
+  mergeSettingsField,
+  mergeSettingsFields,
+  pendingSettingsFieldAfterAck,
+  readSettingsOrderedField,
+  type SettingsFieldEditResult,
+  type SettingsOrderedField,
+  type SettingsOrderedFields,
+} from "./field-order.js";
