@@ -288,7 +288,7 @@ Deno.test({
                   restricted.unsafe("select public.u1_provider_guard()")
                 ),
               Error,
-              "event trigger functions can only be called as event triggers",
+              "trigger functions can only be called as triggers",
             );
           });
           const mutations = [
