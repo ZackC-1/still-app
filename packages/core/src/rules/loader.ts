@@ -5,6 +5,7 @@ import type {
   FetchConfig,
   ResolvedRuleSet,
   RuleFormat,
+  RuleFormatSelection,
   RuleSetFor,
   RuleSetEndpoint,
 } from "./fetch.js";
@@ -46,11 +47,12 @@ export function ruleSetTrustedKeys(prod: boolean): readonly TrustedKey[] {
 
 /** Build the fetch config, or null when fetching should be skipped: no endpoint configured (CI/dev
  * with no .env), or no trusted keys for this build (the production-key fail-safe). */
-export function ruleSetFetchConfig<F extends RuleFormat = 1>(input: {
-  prod: boolean;
-  endpoint: RuleSetEndpoint | null;
-  format?: F;
-}): FetchConfig<F> | null {
+export function ruleSetFetchConfig<F extends RuleFormat = 1>(
+  input: RuleFormatSelection<F> & {
+    prod: boolean;
+    endpoint: RuleSetEndpoint | null;
+  },
+): FetchConfig<F> | null {
   if (!input.endpoint) return null;
   const allowedKeys = ruleSetTrustedKeys(input.prod);
   if (allowedKeys.length === 0) return null;
@@ -59,7 +61,7 @@ export function ruleSetFetchConfig<F extends RuleFormat = 1>(input: {
     allowedKeys,
     minVersion: RULE_SET_MIN_VERSION,
     ...(input.format ? { format: input.format } : {}),
-  };
+  } as FetchConfig<F>;
 }
 
 // Minimal storage-area shapes so these are testable with a fake (no webextension polyfill needed).
@@ -73,23 +75,23 @@ export interface WritableArea {
 /** Build the one reusable background refresh closure from plain build-time values. Keeping the env
  * read in each entrypoint leaves core platform-neutral while ensuring cold-start and reconcile
  * nudges share precisely the same fail-closed fetch configuration. */
-export function createRuleSetRefresher<F extends RuleFormat = 1>(input: {
-  readonly prod: boolean;
-  readonly url: string | undefined;
-  readonly anonKey: string | undefined;
-  readonly area: ReadableArea & WritableArea;
-  /** Test seam; production uses the platform fetch implementation. */
-  readonly fetchImpl?: typeof fetch;
-  readonly format?: F;
-}): () => Promise<RuleSetFor<F> | null> {
+export function createRuleSetRefresher<F extends RuleFormat = 1>(
+  input: RuleFormatSelection<F> & {
+    readonly prod: boolean;
+    readonly url: string | undefined;
+    readonly anonKey: string | undefined;
+    readonly area: ReadableArea & WritableArea;
+    /** Test seam; production uses the platform fetch implementation. */
+    readonly fetchImpl?: typeof fetch;
+  },
+): () => Promise<RuleSetFor<F> | null> {
   const endpoint =
     input.url && input.anonKey
       ? { url: input.url, anonKey: input.anonKey }
       : null;
-  const baseCfg = ruleSetFetchConfig({
-    prod: input.prod,
+  const baseCfg = ruleSetFetchConfig<F>({
+    ...input,
     endpoint,
-    format: input.format,
   });
   const cfg =
     baseCfg &&
@@ -99,20 +101,20 @@ export function createRuleSetRefresher<F extends RuleFormat = 1>(input: {
 
 /** The trust anchor a cached rule set must satisfy before it may beat the bundled seed — the same
  * shape signature verification takes (alias, not a parallel type, so the two can't drift). */
-export type RuleSetTrust<F extends RuleFormat = 1> = VerifyOptions & {
-  readonly format?: F;
-};
+export type RuleSetTrust<F extends RuleFormat = 1> = VerifyOptions &
+  RuleFormatSelection<F>;
 
 /** This build's trust anchor: prod keys in prod, the dev key in dev (mirrors ruleSetTrustedKeys). */
 export function ruleSetTrust<F extends RuleFormat = 1>(
   prod: boolean,
-  format?: F,
+  ...selection: [format?: F] & (F extends 2 ? [format: F] : unknown)
 ): RuleSetTrust<F> {
+  const [format] = selection;
   return {
     allowedKeys: ruleSetTrustedKeys(prod),
     minVersion: RULE_SET_MIN_VERSION,
     ...(format ? { format } : {}),
-  };
+  } as RuleSetTrust<F>;
 }
 
 /**

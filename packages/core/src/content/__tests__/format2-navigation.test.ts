@@ -53,17 +53,32 @@ async function host(
   await writer.initialize("never-linked");
   const cache = new SettingsCache(storage);
   let current = href;
+  const entries = [href];
+  let cursor = 0;
   const replace = vi.fn((url: string) => {
     current = url;
+    entries[cursor] = url;
+  });
+  const assign = vi.fn((url: string) => {
+    current = url;
+    entries.splice(++cursor);
+    entries.push(url);
   });
   const push = vi.fn(
     (_data: unknown, _unused: string, url?: string | URL | null) => {
-      if (url != null) current = new URL(url, current).href;
+      if (url != null) {
+        current = new URL(url, current).href;
+        entries.splice(++cursor);
+        entries.push(current);
+      }
     },
   );
   const replaceState = vi.fn(
     (_data: unknown, _unused: string, url?: string | URL | null) => {
-      if (url != null) current = new URL(url, current).href;
+      if (url != null) {
+        current = new URL(url, current).href;
+        entries[cursor] = current;
+      }
     },
   );
   const listeners = new Map<string, () => void>();
@@ -72,6 +87,7 @@ async function host(
         destination?: { url: string };
         cancelable?: boolean;
         isTrusted?: boolean;
+        navigationType?: "push" | "replace" | "reload" | "traverse";
         preventDefault?: () => void;
       }) => void)
     | undefined;
@@ -82,6 +98,7 @@ async function host(
         return current;
       },
       replace,
+      assign,
     },
     history: { pushState: push, replaceState },
     addEventListener: (name: string, cb: () => void) => {
@@ -120,6 +137,13 @@ async function host(
     win,
     writer,
     replace,
+    assign,
+    entries,
+    back: () => {
+      current = entries[--cursor]!;
+      listeners.get("popstate")?.();
+      return current;
+    },
     push,
     replaceState,
     cache,
@@ -130,6 +154,7 @@ async function host(
         destination: { url: target },
         cancelable: true,
         isTrusted: true,
+        navigationType: "push",
         preventDefault,
         ...options,
       });
@@ -224,7 +249,7 @@ describe("actual modern content navigation consumer", () => {
     const h = await host();
     h.win.history.pushState({}, "", "/shorts/abc?list=chosen");
     expect(h.push).not.toHaveBeenCalled();
-    expect(h.replace).toHaveBeenLastCalledWith(
+    expect(h.assign).toHaveBeenLastCalledWith(
       "https://www.youtube.com/watch?list=chosen&v=abc",
     );
     h.win.history.replaceState({}, "", "/shorts/next");
@@ -235,7 +260,8 @@ describe("actual modern content navigation consumer", () => {
     h.win.history.pushState({}, "", "/watch?v=normal");
     expect(h.push).toHaveBeenCalledTimes(1);
     h.win.history.pushState({}, "", "/shorts/abc?list=chosen");
-    expect(h.replace).toHaveBeenCalledTimes(3);
+    expect(h.assign).toHaveBeenCalledTimes(2);
+    expect(h.replace).toHaveBeenCalledTimes(1);
     await h.writer.commit({
       path: "sites.youtube.shorts",
       value: false,
@@ -249,10 +275,47 @@ describe("actual modern content navigation consumer", () => {
     expect(
       h.navigate("https://www.youtube.com/shorts/abc"),
     ).toHaveBeenCalledOnce();
-    expect(h.replace).toHaveBeenCalledOnce();
+    expect(h.assign).toHaveBeenCalledOnce();
     h.navigate("https://www.youtube.com/shorts/next", { cancelable: false });
     h.navigate("https://www.youtube.com/shorts/next", { isTrusted: false });
-    expect(h.replace).toHaveBeenCalledOnce();
+    expect(h.assign).toHaveBeenCalledOnce();
+  });
+  it.each(["youtube", "facebook"])(
+    "consumed %s pushes preserve the origin history entry and Back destination",
+    async (service) => {
+      const origin =
+        service === "youtube"
+          ? "https://www.youtube.com/results?search_query=chosen"
+          : "https://www.facebook.com/profile.php?id=chosen";
+      const target = service === "youtube" ? "/shorts/chosen" : "/reels/";
+      const expected =
+        service === "youtube"
+          ? "https://www.youtube.com/watch?v=chosen"
+          : "https://www.facebook.com/";
+      const h = await host(origin);
+      h.win.history.pushState({ keep: true }, "", target);
+      expect(h.entries).toEqual([origin, expected]);
+      expect(h.push).not.toHaveBeenCalled();
+      expect(h.replace).not.toHaveBeenCalled();
+      expect(h.back()).toBe(origin);
+    },
+  );
+  it("Navigation API replacement intent replaces only the current entry", async () => {
+    const h = await host("https://www.youtube.com/results?search_query=chosen");
+    h.win.history.pushState({ state: "ordinary" }, "", "/watch?v=ordinary");
+    expect(
+      h.navigate("https://www.youtube.com/shorts/next", {
+        navigationType: "replace",
+      }),
+    ).toHaveBeenCalledOnce();
+    expect(h.entries).toEqual([
+      "https://www.youtube.com/results?search_query=chosen",
+      "https://www.youtube.com/watch?v=next",
+    ]);
+    expect(h.assign).not.toHaveBeenCalled();
+    expect(h.back()).toBe(
+      "https://www.youtube.com/results?search_query=chosen",
+    );
   });
   it("does not reapply a stale blocked URL while its normal replacement navigation is still precommit", async () => {
     const h = await host();
