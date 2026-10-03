@@ -101,6 +101,46 @@ Deno.test("auth rejects before touching storage", async () => {
   );
   assertEquals(fx.calls(), 0);
 });
+
+Deno.test("aborted stalled authenticated body cancels and releases reader without storage", async () => {
+  const fx = fixture();
+  const abort = new AbortController();
+  let cancelled = false;
+  let producer!: ReadableStreamDefaultController<Uint8Array>;
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      producer = controller;
+    },
+    cancel() {
+      cancelled = true;
+    },
+  });
+  const req = new Request("https://example.test", {
+    method: "POST",
+    body: stream,
+    signal: abort.signal,
+    headers: { authorization: `Bearer ${await signHs256({ sub: A }, SECRET)}` },
+  });
+  const pending = handleSyncSettings(req, fx.deps);
+  const timer = setTimeout(() => abort.abort(), 20);
+  let timeout!: ReturnType<typeof setTimeout>;
+  try {
+    const response = await Promise.race([
+      pending,
+      new Promise<null>((r) => timeout = setTimeout(() => r(null), 300)),
+    ]);
+    assert(response, "abort must settle a stalled body");
+    assertEquals(response.status, 400);
+    assert(cancelled);
+    assertEquals(stream.locked, false);
+    assertEquals(fx.calls(), 0);
+  } finally {
+    clearTimeout(timer);
+    clearTimeout(timeout);
+    if (!cancelled) producer.close();
+    await pending;
+  }
+});
 Deno.test("closed body rejection and bounded streaming bytes never reach storage", async () => {
   const fx = fixture();
   for (
@@ -235,12 +275,15 @@ function transactionalFixture(
   raw: unknown,
   revision: number,
   failCommit = false,
+  rawText = JSON.stringify(raw),
+  numericSupported = true,
 ) {
   const fx = fixture(raw, revision);
   let writes = new Map<string, string>();
   let canonical = raw;
   let commits = 0;
   let rollbacks = 0;
+  let committedRaw: unknown;
   const sql = {
     async begin<T>(work: (tx: unknown) => Promise<T>) {
       const pending = new Map(writes);
@@ -258,6 +301,8 @@ function transactionalFixture(
               ).join(""),
               revision,
               settings: canonical,
+              settings_text: rawText,
+              numeric_supported: numericSupported,
               empty: false,
               updated_at: null,
               write_id: null,
@@ -278,6 +323,7 @@ function transactionalFixture(
           return Promise.resolve([{ status: "new" }]);
         }
         if (query.includes("commit_settings")) {
+          committedRaw = args[3];
           if (failCommit) {
             throw Object.assign(new Error("private key SQL parameters"), {
               reason: "bounds",
@@ -311,8 +357,142 @@ function transactionalFixture(
     canonical: () => canonical,
     commits: () => commits,
     rollbacks: () => rollbacks,
+    committedRaw: () => committedRaw,
   };
 }
+
+Deno.test("actual adapter binds original raw numeric JSON to canonical CAS", async () => {
+  const rawText = JSON.stringify({ ...validSettings(), future: 0.1 }).replace(
+    '"future":0.1',
+    '"future":0.100000000000000000000000000001',
+  );
+  const fx = transactionalFixture(JSON.parse(rawText), 0, false, rawText);
+  assertEquals((await send(await operation(fx.row), fx.deps)).status, 200);
+  assertEquals(fx.committedRaw(), rawText);
+});
+
+Deno.test("database out-of-domain numeric signal remains a typed preserving hold", async () => {
+  const rawText = JSON.stringify({ ...validSettings(), future: 0.1 }).replace(
+    '"future":0.1',
+    '"future":9007199254740991.00000000000000000000001',
+  );
+  const raw = JSON.parse(rawText);
+  const fx = transactionalFixture(raw, 0, false, rawText, false);
+  const response = await send({ protocol: 2, action: "read" }, fx.deps);
+  assertEquals(response.status, 409);
+  assertEquals(await response.json(), { status: "hold", reason: "bounds" });
+  assertEquals(fx.canonical(), raw);
+  assertEquals(fx.writes(), 0);
+  assertEquals(fx.commits(), 0);
+});
+
+Deno.test("actual adapter cancels pending query and completes rollback on request abort", async () => {
+  const abort = new AbortController();
+  let entered!: () => void;
+  const began = new Promise<void>((r) => entered = r);
+  let rejectQuery!: (error: Error) => void;
+  let cancelled = false;
+  let rolledBack = false;
+  const sql = {
+    async begin<T>(work: (tx: unknown) => Promise<T>) {
+      const tx = (parts: TemplateStringsArray) => {
+        if (parts.join("").includes("set_config")) return Promise.resolve([]);
+        const pending = new Promise<unknown[]>((_, reject) =>
+          rejectQuery = reject
+        );
+        Object.assign(pending, {
+          cancel() {
+            cancelled = true;
+            rejectQuery(new Error("private SQL parameters"));
+          },
+        });
+        entered();
+        return pending;
+      };
+      try {
+        return await work(tx);
+      } catch (error) {
+        rolledBack = true;
+        throw error;
+      }
+    },
+  };
+  const store = new PgSettingsStore(
+    sql as unknown as ReturnType<typeof postgres>,
+  );
+  const pending = store.locked(A, () => Promise.resolve(true), abort.signal);
+  await began;
+  abort.abort();
+  let timer!: ReturnType<typeof setTimeout>;
+  try {
+    const response = await Promise.race([
+      pending.catch((e) => e),
+      new Promise<null>((r) => timer = setTimeout(() => r(null), 300)),
+    ]);
+    assert(response instanceof Error, "cancellation must settle the adapter");
+    assertEquals(response.message, "Settings storage unavailable");
+    assert(cancelled);
+    assert(rolledBack);
+  } finally {
+    clearTimeout(timer);
+    if (!cancelled) rejectQuery(new Error("test cleanup"));
+    await pending.catch(() => {});
+  }
+});
+
+Deno.test("body deadline rejects a stalled producer and releases even a never-settled cancel", async () => {
+  const fx = fixture();
+  let cancelled = false;
+  const stream = new ReadableStream<Uint8Array>({
+    cancel() {
+      cancelled = true;
+      return new Promise<void>(() => {});
+    },
+  });
+  const req = new Request("https://example.test", {
+    method: "POST",
+    body: stream,
+    headers: { authorization: `Bearer ${await signHs256({ sub: A }, SECRET)}` },
+  });
+  assertEquals((await handleSyncSettings(req, fx.deps)).status, 400);
+  assert(cancelled);
+  assertEquals(stream.locked, false);
+  assertEquals(fx.calls(), 0);
+});
+
+Deno.test("split chunks enforce bytes and release after producer read/cancel failures", async () => {
+  const fx = fixture();
+  for (const failRead of [false, true]) {
+    let cancelled = false;
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        if (failRead) c.error(new Error("private producer error"));
+        else {
+          c.enqueue(new Uint8Array(8192));
+          c.enqueue(new Uint8Array(8193));
+        }
+      },
+      cancel() {
+        cancelled = true;
+        throw new Error("private cancel error");
+      },
+    });
+    const response = await handleSyncSettings(
+      new Request("https://example.test", {
+        method: "POST",
+        body: stream,
+        headers: {
+          authorization: `Bearer ${await signHs256({ sub: A }, SECRET)}`,
+        },
+      }),
+      fx.deps,
+    );
+    assertEquals(response.status, 400);
+    assertEquals(stream.locked, false);
+    assertEquals(fx.calls(), 0);
+    if (!failRead) assert(cancelled);
+  }
+});
 
 function validSettings() {
   const fresh = migrateSettingsV2(null, { kind: "proven-fresh" });

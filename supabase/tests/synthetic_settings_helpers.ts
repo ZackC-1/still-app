@@ -4,7 +4,12 @@ export const A = "11111111-1111-4111-8111-111111111111";
 export const B = "22222222-2222-4222-8222-222222222222";
 export const C = "33333333-3333-4333-8333-333333333333";
 export const SYNTHETIC_PASSWORD = "u3-synthetic-settings-only";
-export function connection(url: string, user?: string, password?: string) {
+export function connection(
+  url: string,
+  user?: string,
+  password?: string,
+  onQuery?: () => void,
+) {
   const parsed = new URL(url);
   if (
     parsed.hostname !== "127.0.0.1" || parsed.port !== "54322" ||
@@ -12,7 +17,12 @@ export function connection(url: string, user?: string, password?: string) {
   ) throw new Error("Disposable runner TCP target required");
   if (user) parsed.username = user;
   if (password) parsed.password = password;
-  return postgres(parsed.href, { prepare: false, max: 4, onnotice: () => {} });
+  return postgres(parsed.href, {
+    prepare: false,
+    max: 4,
+    onnotice: () => {},
+    debug: onQuery ? () => onQuery() : undefined,
+  });
 }
 export async function source(name: string) {
   return await Deno.readTextFile(

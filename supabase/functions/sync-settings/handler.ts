@@ -9,22 +9,39 @@ export interface SyncSettingsDeps extends AuthDeps {
   readonly limiter: RateLimiter;
 }
 const MAX_BODY = 16384;
+export const BODY_READ_TIMEOUT_MS = 5000;
 async function boundedJson(req: Request): Promise<unknown> {
   const reader = req.body?.getReader();
   if (!reader) throw new Error("request-shape");
   const chunks: Uint8Array[] = [];
   let length = 0;
+  let rejectRead!: (reason: Error) => void;
+  const interrupted = new Promise<never>((_, reject) => rejectRead = reject);
+  const abort = () => rejectRead(new Error("request-aborted"));
+  req.signal.addEventListener("abort", abort, { once: true });
+  const timer = setTimeout(
+    () => rejectRead(new Error("request-timeout")),
+    BODY_READ_TIMEOUT_MS,
+  );
   try {
+    if (req.signal.aborted) throw new Error("request-aborted");
     while (true) {
-      const { value, done } = await reader.read();
+      const { value, done } = await Promise.race([reader.read(), interrupted]);
       if (done) break;
       length += value.byteLength;
       if (length > MAX_BODY) throw new Error("request-size");
       chunks.push(value);
     }
   } finally {
-    await reader.cancel();
-    reader.releaseLock();
+    clearTimeout(timer);
+    req.signal.removeEventListener("abort", abort);
+    // A producer's cancel promise can itself stall; cancellation starts immediately,
+    // while release must happen even if that producer rejects or never acknowledges.
+    try {
+      void reader.cancel().catch(() => {});
+    } finally {
+      reader.releaseLock();
+    }
   }
   const bytes = new Uint8Array(length);
   let offset = 0;
@@ -66,6 +83,7 @@ export function handleSyncSettings(
         deps.store,
         subject,
         parsed?.status === "parsed" ? parsed.request : null,
+        req.signal,
       );
       return jsonResponse(result.status === "ready" ? 200 : 409, result);
     } catch {

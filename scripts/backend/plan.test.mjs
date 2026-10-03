@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile, readFile, cp } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, relative } from "node:path";
 import { test } from "node:test";
 import {
   createOperationPlan,
@@ -9,7 +11,127 @@ import {
   settingsRuntimeSources,
   verifyOperationPlan,
   verifyPlan,
+  assertSettingsRuntimeClosure,
 } from "./plan.mjs";
+
+test("actual Deno closure binds every dependency and pinned CLI raw resolution", async (t) => {
+  const root = fileURLToPath(new URL("../../", import.meta.url));
+  const mapPath = join(root, "supabase/functions/sync-settings/deno.json");
+  const imports = JSON.parse(await readFile(mapPath, "utf8")).imports;
+  const graph = JSON.parse(
+    execFileSync(
+      "deno",
+      [
+        "info",
+        "--json",
+        "--config",
+        mapPath,
+        join(root, "supabase/functions/sync-settings/index.ts"),
+      ],
+      { encoding: "utf8" },
+    ),
+  );
+  assert.deepEqual(
+    assertSettingsRuntimeClosure(graph, root, imports, mapPath),
+    [...settingsRuntimeSources].sort(),
+  );
+  assert.throws(
+    () =>
+      assertSettingsRuntimeClosure(
+        graph,
+        root,
+        imports,
+        mapPath,
+        settingsRuntimeSources.slice(1),
+      ),
+    /manifest/,
+  );
+  const missingAlias = { ...imports };
+  delete missingAlias["./settings-v2.js"];
+  assert.throws(
+    () => assertSettingsRuntimeClosure(graph, root, missingAlias, mapPath),
+    /CLI raw import/,
+  );
+  const scratch = await mkdtemp(join(tmpdir(), "still-settings-graph-"));
+  t.after(() => rm(scratch, { recursive: true, force: true }));
+  const graphSources = graph.modules.filter(m=>m.local && m.specifier.startsWith("file:")).map(m=>relative(root,m.local));
+  for (const path of [...graphSources,"supabase/functions/sync-settings/deno.json"]) {
+    assert(!path.startsWith(".."));
+    await mkdir(join(scratch, path, ".."), { recursive: true });
+    await cp(join(root, path), join(scratch, path));
+  }
+  const extra = join(scratch, "packages/shared-types/src/extra-runtime.ts");
+  await writeFile(extra, "export const extra = 1;\n");
+  const entry = join(scratch, "supabase/functions/sync-settings/index.ts");
+  await writeFile(
+    entry,
+    (await readFile(entry, "utf8")) +
+      '\nimport "../../../packages/shared-types/src/extra-runtime.ts";\n',
+  );
+  const extraMap = join(scratch, "supabase/functions/sync-settings/deno.json");
+  const addedGraph = JSON.parse(
+    execFileSync("deno", ["info", "--json", "--config", extraMap, entry], {
+      encoding: "utf8",
+    }),
+  );
+  assert.throws(
+    () => assertSettingsRuntimeClosure(addedGraph, scratch, imports, extraMap),
+    /manifest/,
+  );
+});
+
+test("candidate SQL structural constants and fields equal the maintained grammar", async () => {
+  const root = fileURLToPath(new URL("../../", import.meta.url));
+  const sql = await readFile(
+    join(root, "scripts/backend/sql/settings-sync-candidate.sql"),
+    "utf8",
+  );
+  const source = await readFile(
+    join(root, "packages/core/src/storage/settings-v2.ts"),
+    "utf8",
+  );
+  const values = Object.fromEntries(
+    [
+      ...source.matchAll(
+        /const (MAX_BYTES|MAX_NODES|MAX_DEPTH|MAX_MEMBERS|MAX_STRING) = ([\d_]+);/g,
+      ),
+    ].map((m) => [m[1], Number(m[2].replaceAll("_", ""))]),
+  );
+  const checks = {
+    MAX_BYTES: /select bytes from sizes\)<=(\d+)/,
+    MAX_NODES: /count\(\*\)<=(\d+) and coalesce\(bool_and/,
+    MAX_DEPTH: /bool_and\(depth<=(\d+)/,
+    MAX_MEMBERS: /jsonb_array_length\(value\)<=(\d+)/,
+    MAX_STRING: /octet_length\(value#>>'\{\}'\)<=(\d+)/,
+  };
+  assert.equal(Object.keys(values).length, 5);
+  for (const [key, pattern] of Object.entries(checks))
+    assert.equal(Number(pattern.exec(sql)?.[1]), values[key], key);
+  assert.match(
+    sql,
+    /count\(\*\)<=128 and coalesce\(bool_and\(pg_catalog.octet_length\(k\)<=128 and k not in \('__proto__','prototype','constructor'\)\)/,
+  );
+  const maintained = JSON.parse(
+    execFileSync(
+      "deno",
+      [
+        "eval",
+        "--config",
+        join(root, "supabase/functions/deno.json"),
+        'import {SETTINGS_FIELDS,FEATURE_REGISTRY} from "@still/shared-types"; console.log(JSON.stringify({fields:SETTINGS_FIELDS,coreSites:FEATURE_REGISTRY.filter(f=>f.tier==="free").map(f=>f.id),servicePrefixes:FEATURE_REGISTRY.every(f=>f.id.split(".")[0]===f.service)}));',
+      ],
+      { encoding: "utf8" },
+    ),
+  );
+  const actual =
+    /create function private.settings_fields\(\)[\s\S]*?select array\[([^\]]+)\]/
+      .exec(sql)[1]
+      .split(",")
+      .map((s) => s.trim().slice(1, -1));
+  assert.deepEqual(actual, maintained.fields);
+  assert.equal(maintained.servicePrefixes, true);
+  assert.deepEqual(/core_sites constant text\[\] := array\[([^\]]+)\]/.exec(sql)[1].split(",").map(s=>s.trim().slice(1,-1)), maintained.coreSites);
+});
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "still-backend-plan-"));

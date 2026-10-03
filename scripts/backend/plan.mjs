@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { lstat, readdir, readFile, writeFile } from "node:fs/promises";
-import { join, relative } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 export const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
@@ -33,6 +33,38 @@ export const settingsRuntimeSources = Object.freeze([
   "packages/core/src/sync/field-order.ts",
   "packages/core/src/rules/canonical.ts",
 ]);
+
+// Use Deno's actual graph, including transitive imports, rather than fixtures
+// created from this manifest. The CLI's pinned static walker matches raw keys.
+export function assertSettingsRuntimeClosure(
+  graph,
+  root,
+  imports,
+  mapPath,
+  sources = settingsRuntimeSources,
+) {
+  const actual = graph.modules
+    .filter((m) => m.local && relative(root, m.local).startsWith("packages/"))
+    .map((m) => relative(root, m.local))
+    .sort();
+  if (canonical(actual) !== canonical([...sources].sort()))
+    throw new Error("Settings runtime manifest differs from resolved graph");
+  for (const module of graph.modules) {
+    if (!module.local) continue;
+    for (const dep of module.dependencies ?? []) {
+      const resolved = dep.code?.specifier ?? dep.type?.specifier;
+      if (!resolved?.startsWith("file:")) continue;
+      const target = new URL(resolved).pathname;
+      const mapped = imports[dep.specifier];
+      const cliTarget = mapped
+        ? resolve(dirname(mapPath), mapped)
+        : resolve(dirname(module.local), dep.specifier);
+      if (cliTarget !== target)
+        throw new Error(`CLI raw import does not resolve: ${dep.specifier}`);
+    }
+  }
+  return actual;
+}
 
 export const syntheticOperationIds = Object.freeze([
   "retain-security-boundary",

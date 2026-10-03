@@ -12,7 +12,14 @@
     "../../../packages/shared-types/src/entitlement.js": "../../../packages/shared-types/src/entitlement.ts",
     "../../../packages/shared-types/src/feature-registry.js": "../../../packages/shared-types/src/feature-registry.ts",
     "../../../packages/shared-types/src/settings-v2.js": "../../../packages/shared-types/src/settings-v2.ts",
-    "../../../packages/shared-types/src/settings-operation.js": "../../../packages/shared-types/src/settings-operation.ts"
+    "../../../packages/shared-types/src/settings-operation.js": "../../../packages/shared-types/src/settings-operation.ts",
+    "./rules.js": "../../../packages/shared-types/src/rules.ts",
+    "./settings.js": "../../../packages/shared-types/src/settings.ts",
+    "./entitlement.js": "../../../packages/shared-types/src/entitlement.ts",
+    "./feature-registry.js": "../../../packages/shared-types/src/feature-registry.ts",
+    "./settings-v2.js": "../../../packages/shared-types/src/settings-v2.ts",
+    "./settings-operation.js": "../../../packages/shared-types/src/settings-operation.ts",
+    "../rules/canonical.js": "../../../packages/core/src/rules/canonical.ts"
   },
   "lock": false,
   "nodeModulesDir": "auto"

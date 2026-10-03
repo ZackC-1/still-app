@@ -13,16 +13,41 @@ export class PgSettingsStore implements SettingsStore {
   async locked<T>(
     subject: string,
     work: (row: LockedSettingsRow) => Promise<T>,
+    signal?: AbortSignal,
   ): Promise<T> {
     try {
+      signal?.throwIfAborted();
       return await this.sql.begin(async (tx) => {
-        await tx`select pg_catalog.set_config('request.jwt.claim.sub', ${subject}, true)`;
+        signal?.throwIfAborted();
+        async function run<R>(
+          query: PromiseLike<R> & { cancel?: () => void },
+        ): Promise<R> {
+          signal?.throwIfAborted();
+          const cancel = () => {
+            query.cancel?.();
+          };
+          signal?.addEventListener("abort", cancel, { once: true });
+          try {
+            const result = await query;
+            signal?.throwIfAborted();
+            return result;
+          } finally {
+            signal?.removeEventListener("abort", cancel);
+          }
+        }
+        await run(
+          tx`select pg_catalog.set_config('request.jwt.claim.sub', ${subject}, true), pg_catalog.set_config('lock_timeout', '1s', true), pg_catalog.set_config('statement_timeout', '2s', true), pg_catalog.set_config('idle_in_transaction_session_timeout', '5s', true)`,
+        );
         const identity = createSettingsAnchorIdentity();
         const key = bytesToHex(identity.key);
-        const rows =
-          await tx`select private.lock_settings(${subject}::uuid, ${identity.lineage}::uuid, ${key}) as state`;
+        const rows = await run(
+          tx`select private.lock_settings(${subject}::uuid, ${identity.lineage}::uuid, ${key}) as state`,
+        );
         const state = rows[0]?.state;
         if (!state) throw new Error("Missing locked settings state");
+        if (state.numeric_supported === false) {
+          throw new SettingsWriteHold("bounds");
+        }
         const anchor = {
           subject,
           lineage: state.lineage as string,
@@ -39,19 +64,23 @@ export class PgSettingsStore implements SettingsStore {
           writeId: state.write_id,
           now: Number(state.now),
           claim: async (writeId, body) => {
-            const result =
-              await tx`select private.claim_settings_write(${subject}::uuid, ${writeId}::uuid, ${body}::jsonb) as status`;
+            const result = await run(
+              tx`select private.claim_settings_write(${subject}::uuid, ${writeId}::uuid, ${body}::jsonb) as status`,
+            );
             return result[0]!.status;
           },
           commit: async (settings, writeId, receiptRevision, operations) => {
-            await tx`select private.commit_settings(${subject}::uuid, ${anchor.lineage}::uuid, ${anchor.revision}::bigint, ${
-              JSON.stringify(state.settings)
-            }::jsonb, ${
-              JSON.stringify(settings)
-            }::jsonb, ${writeId}::uuid, ${receiptRevision}::bigint, ${
-              JSON.stringify(operations)
-            }::jsonb)`;
+            await run(
+              tx`select private.commit_settings(${subject}::uuid, ${anchor.lineage}::uuid, ${anchor.revision}::bigint, ${state.settings_text}::jsonb, ${
+                JSON.stringify(settings)
+              }::jsonb, ${writeId}::uuid, ${receiptRevision}::bigint, ${
+                JSON.stringify(operations)
+              }::jsonb)`,
+            );
           },
+        }).then((result) => {
+          signal?.throwIfAborted();
+          return result;
         });
       }) as T;
     } catch (error) {

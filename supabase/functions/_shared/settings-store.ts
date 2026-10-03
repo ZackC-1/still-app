@@ -39,6 +39,7 @@ export interface SettingsStore {
   locked<T>(
     subject: string,
     work: (row: LockedSettingsRow) => Promise<T>,
+    signal?: AbortSignal,
   ): Promise<T>;
 }
 export type SettingsSyncResult =
@@ -89,8 +90,10 @@ export function syncSettings(
   store: SettingsStore,
   subject: string,
   request: UntrustedSettingsOperationRequest | null,
+  signal?: AbortSignal,
 ): Promise<SettingsSyncResult> {
   return store.locked<SettingsSyncResult>(subject, async (row) => {
+    signal?.throwIfAborted();
     const revision = row.anchor.revision;
     if (
       !Number.isSafeInteger(revision) || revision < 0 ||
@@ -139,6 +142,7 @@ export function syncSettings(
         request.writeId,
         JSON.stringify(request),
       );
+      signal?.throwIfAborted();
       if (claimed === "conflict") {
         return { status: "rejected", reason: "write-id-conflict" };
       }
@@ -178,6 +182,7 @@ export function syncSettings(
             request.receipt.revision,
             request.operations,
           );
+          signal?.throwIfAborted();
           settings = checked.settings;
           finalRevision++;
           writeId = request.writeId;
@@ -186,6 +191,7 @@ export function syncSettings(
         }
       }
     }
+    signal?.throwIfAborted();
     return {
       status: "ready",
       protocol: 2,
@@ -200,7 +206,7 @@ export function syncSettings(
         revision: finalRevision,
       }),
     };
-  }).catch((error: unknown): SettingsSyncResult => {
+  }, signal).catch((error: unknown): SettingsSyncResult => {
     if (error instanceof SettingsWriteHold) {
       return { status: "hold", reason: error.reason };
     }

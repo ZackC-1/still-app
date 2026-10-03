@@ -3,6 +3,7 @@
   "specifiers": {
     "jsr:@std/assert@1": "1.0.19",
     "jsr:@std/internal@^1.0.12": "1.0.14",
+    "npm:@noble/hashes@2.4.0": "2.4.0",
     "npm:@supabase/supabase-js@2": "2.108.2",
     "npm:linkedom@0.18": "0.18.12",
     "npm:postgres@3": "3.4.9"
@@ -19,6 +20,9 @@
     }
   },
   "npm": {
+    "@noble/hashes@2.4.0": {
+      "integrity": "sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA=="
+    },
     "@supabase/auth-js@2.108.2": {
       "integrity": "sha512-tNaQmBgodDZwgB40mRwVbxFy8IDYwjdpcZ0BYrWiwlULCSQoJj4QoG4zgJT7QRPXcqipefNOzvO/qAu4dF98ag==",
       "dependencies": [
@@ -158,6 +162,7 @@
   "workspace": {
     "dependencies": [
       "jsr:@std/assert@1",
+      "npm:@noble/hashes@2.4.0",
       "npm:@supabase/supabase-js@2",
       "npm:linkedom@0.18",
       "npm:postgres@3"
