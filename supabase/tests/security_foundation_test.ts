@@ -2,6 +2,11 @@
 // Missing cloud runtime is an explicit skipped/unverified gate, never local evidence of SQL safety.
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import postgres from "postgres";
+import { verifyCreatorCatalog } from "./catalog_creator_probes.ts";
+import {
+  inspectCatalogPreconditions,
+  verifySyntheticHardeningAuthority,
+} from "./catalog_preconditions.ts";
 import {
   PgEntitlementStore,
   PgRateLimiter,
@@ -57,6 +62,15 @@ Deno.test({
       max: 1,
       onnotice: () => {},
     });
+    // This login exists only in the disposable CI container, never a provider endpoint.
+    const fixtureTarget = new URL(databaseUrl!);
+    fixtureTarget.username = "u1_catalog_fixture";
+    fixtureTarget.password = "u1-synthetic-fixture-only";
+    const fixture = postgres(fixtureTarget.href, {
+      prepare: false,
+      max: 1,
+      onnotice: () => {},
+    });
     const writerTarget = new URL(databaseUrl!);
     writerTarget.username = "still_entitlement_writer";
     writerTarget.password = "u1-synthetic-only";
@@ -96,22 +110,108 @@ Deno.test({
         ["S", "r", "r"],
         "audit catalog includes actual tables and a sequence",
       );
+      await sql.unsafe(await source("catalog-reconciliation"));
+      await fixture.unsafe(await source("synthetic-catalog-fixture"));
+      assertEquals(
+        (await fixture`select rolname, rolsuper from pg_catalog.pg_roles where rolname in ('u1_provider_owner','u1_event_owner') order by rolname`)
+          .map(({ rolname, rolsuper }) => ({ rolname, rolsuper })),
+        [
+          { rolname: "u1_event_owner", rolsuper: true },
+          { rolname: "u1_provider_owner", rolsuper: true },
+        ],
+        "declared generic DDL roles have matching superuser status",
+      );
+      assertEquals(
+        (await fixture`select rolsuper from pg_catalog.pg_roles where rolname=current_user`)[
+          0
+        ].rolsuper,
+        true,
+        "fixture bootstrap uses the disposable CI superuser only",
+      );
+      const unrelatedDefaultsBefore =
+        await sql`select d.defaclobjtype, d.defaclacl::text as acl from pg_catalog.pg_default_acl d join pg_catalog.pg_namespace n on n.oid=d.defaclnamespace where n.nspname='u1_provider_schema' order by d.defaclobjtype`;
+      const providerBefore =
+        await sql`select still_security.provider_descriptor('public.u1_provider_guard()'::regprocedure) as descriptor`;
+      assertEquals(
+        (await sql`select count(*)::int as n from pg_catalog.pg_class where relowner in ('u1_empty_creator'::regrole, 'u1_default_creator'::regrole, 'u1_discovered_creator'::regrole)`)[
+          0
+        ].n,
+        0,
+        "creator fixtures have no owned relations",
+      );
+      assertEquals(
+        (await sql`select count(*)::int as n from pg_catalog.pg_proc where proowner in ('u1_empty_creator'::regrole, 'u1_default_creator'::regrole, 'u1_discovered_creator'::regrole)`)[
+          0
+        ].n,
+        0,
+        "creator fixtures have no owned routines",
+      );
       await sql.unsafe(await source("security-audit-candidate"));
-      await t.step(
+      const {
+        admin: adminRole,
+        provider: providerDiagnostic,
+        creators: creatorAuthority,
+      } = await inspectCatalogPreconditions(sql);
+      console.error(
+        "U1 disposable catalog preconditions",
+        JSON.stringify({
+          admin: adminRole,
+          provider: providerDiagnostic,
+          creators: creatorAuthority,
+        }),
+      );
+      assertEquals(adminRole.role, "postgres");
+      assertEquals(
+        adminRole.rolsuper,
+        false,
+        "normal admin remains non-superuser",
+      );
+      const baselinePassed = await t.step(
         "characterize unsafe baseline before changing grants",
         async () => {
           const issues = await sql`select issue from still_security.audit()`;
           assert(issues.some((r) => r.issue === "unpinned_definer"));
+          assert(issues.some((r) => r.issue === "global_default_execute"));
+          assert(
+            issues.some((r) => r.issue === "schema_default_client_privilege"),
+          );
+          assertEquals(
+            providerDiagnostic.generic_matches,
+            true,
+            "explicit generic descriptor matches its literal reviewed approval",
+          );
+          assertEquals(
+            issues.some((r) => r.issue === "provider_routine_drift"),
+            false,
+            "no unapproved or drifted provider routines before hardening",
+          );
           await assertRejects(
             async () => await sql.unsafe(await source("assert-security")),
             Error,
           );
         },
       );
-      await sql.begin(async (tx) => {
+      // A failed Deno step returns false. Preserve that failure and do not attempt hardening.
+      if (!baselinePassed) return;
+      const authorityPassed = await t.step(
+        "non-superuser creator denial rolls back before synthetic administrator apply",
+        () => verifySyntheticHardeningAuthority(sql, fixture, source),
+      );
+      if (!authorityPassed) return;
+      await fixture.begin(async (tx) => {
         await tx.unsafe(await source("hardening-candidate"));
         await tx.unsafe(await source("assert-security"));
       });
+      assertEquals(
+        await sql`select still_security.provider_descriptor('public.u1_provider_guard()'::regprocedure) as descriptor`,
+        providerBefore,
+        "hardening preserves the entire reconciled provider descriptor",
+      );
+      assertEquals(
+        await sql`select d.defaclobjtype, d.defaclacl::text as acl from pg_catalog.pg_default_acl d join pg_catalog.pg_namespace n on n.oid=d.defaclnamespace where n.nspname='u1_provider_schema' order by d.defaclobjtype`,
+        unrelatedDefaultsBefore,
+        "public creator reconciliation leaves unrelated schema ACLs unchanged",
+      );
       await sql.unsafe(
         "alter role still_entitlement_writer login password 'u1-synthetic-only'",
       );
@@ -140,11 +240,22 @@ Deno.test({
         }
       };
 
+      const assertSecurityRejected = async (
+        mutant: postgres.TransactionSql,
+      ) => {
+        await assertRejects(
+          () => mutant.savepoint((validation) => validation.unsafe(assertion)),
+          Error,
+          "Still security assertions failed",
+        );
+      };
+
       const probeMutation = async (
         mutation: string,
         verify: (mutant: postgres.TransactionSql) => Promise<void>,
+        connection = sql,
       ) => {
-        await sql.begin(async (tx) => {
+        await connection.begin(async (tx) => {
           const rollback = new Error("rollback successful mutation probe");
           try {
             await tx.savepoint(async (mutant) => {
@@ -159,6 +270,94 @@ Deno.test({
           await tx.unsafe(assertion);
         });
       };
+      await t.step(
+        "exact provider preservation rejects body, owner, configuration and binding drift",
+        async () => {
+          await sql.begin(async (tx) => {
+            await tx.unsafe("set local role authenticated");
+            assertEquals(
+              (await tx`select has_function_privilege(current_user,'public.u1_provider_guard()','EXECUTE') as allowed`)[
+                0
+              ].allowed,
+              true,
+              "event-trigger ACL metadata alone is not client exploitability",
+            );
+            await assertRejects(
+              () =>
+                tx.savepoint((restricted) =>
+                  restricted.unsafe("select public.u1_provider_guard()")
+                ),
+              Error,
+              "trigger functions can only be called as triggers",
+            );
+          });
+          const mutations = [
+            "alter function public.u1_provider_guard() set search_path = public",
+            "alter function public.u1_provider_guard() set statement_timeout = '1s'",
+            "create or replace function public.u1_provider_guard() returns event_trigger language plpgsql security definer set search_path = pg_catalog as 'BEGIN PERFORM 1; RETURN; END;'",
+            "alter function public.u1_provider_guard() owner to u1_catalog_fixture",
+            "alter function public.u1_provider_guard() security invoker",
+            "alter event trigger u1_provider_binding owner to u1_catalog_fixture",
+            "alter event trigger u1_provider_binding disable",
+            "alter event trigger u1_provider_binding enable always",
+            "alter event trigger u1_provider_binding rename to u1_changed_binding",
+            "drop event trigger u1_provider_binding",
+            "drop function public.u1_provider_guard() cascade",
+            "drop event trigger u1_provider_binding; create event trigger u1_provider_binding on ddl_command_end when tag in ('CREATE TABLE') execute function public.u1_provider_guard()",
+            "drop event trigger u1_provider_binding; create event trigger u1_provider_binding on ddl_command_start when tag in ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO') execute function public.u1_provider_guard()",
+            "create event trigger u1_extra_binding on ddl_command_end execute function public.u1_provider_guard()",
+            "delete from still_security.approved_provider_routines",
+            "update still_security.approved_provider_routines set descriptor = jsonb_build_object('routine', 'u1_provider_guard()')",
+          ];
+          for (const mutation of mutations) {
+            await probeMutation(mutation, async (mutant) => {
+              if (
+                mutation === "drop function public.u1_provider_guard() cascade"
+              ) {
+                assertEquals(
+                  (await mutant`select count(*)::int as n from still_security.approved_provider_routines`)[
+                    0
+                  ].n,
+                  1,
+                  "missing approved code retains its reconciliation record",
+                );
+              }
+              assert(
+                (await mutant`select issue from still_security.audit()`)
+                  .some((row) => row.issue === "provider_routine_drift"),
+                mutation,
+              );
+              await assertSecurityRejected(mutant);
+            }, fixture);
+            assertEquals(
+              await sql`select still_security.provider_descriptor('public.u1_provider_guard()'::regprocedure) as descriptor`,
+              providerBefore,
+              "rollback restores exact provider state",
+            );
+          }
+          for (
+            const mutation of [
+              "create function public.u1_unknown_guard() returns event_trigger language plpgsql security definer set search_path = '' as 'BEGIN RETURN; END;'; revoke all on function public.u1_unknown_guard() from public",
+              "create function public.u1_provider_guard(integer) returns boolean language sql security definer set search_path = '' as 'select true'; grant execute on function public.u1_provider_guard(integer) to authenticated",
+            ]
+          ) {
+            await probeMutation(mutation, async (mutant) => {
+              await assertSecurityRejected(mutant);
+            }, fixture);
+          }
+        },
+      );
+      await t.step(
+        "creator defaults are hardened without owned objects and drift fails closed",
+        async () => {
+          await verifyCreatorCatalog(
+            sql,
+            probeMutation,
+            assertSecurityRejected,
+            await source("hardening-candidate"),
+          );
+        },
+      );
       await t.step(
         "mixed table/sequence audit rejects each auditor sequence grant and restores clean state",
         async () => {
@@ -192,14 +391,7 @@ Deno.test({
                     .map((r) => r.issue),
                   ["audit_role_not_narrow"],
                 );
-                await assertRejects(
-                  () =>
-                    mutant.savepoint((validation) =>
-                      validation.unsafe(assertion)
-                    ),
-                  Error,
-                  "Still security assertions failed",
-                );
+                await assertSecurityRejected(mutant);
               },
             );
             assertEquals(
@@ -275,6 +467,7 @@ Deno.test({
             await probeMutation(
               `alter policy "${policy}" on public.${table} using (true)`,
               async (mutant) => {
+                await assertSecurityRejected(mutant);
                 await assertRejects(
                   () => mutant.savepoint(accountIsolation),
                   Error,
@@ -284,6 +477,80 @@ Deno.test({
             );
           }
           await sql.begin(accountIsolation);
+        },
+      );
+      await t.step(
+        "exact policy catalog rejects definition, role, permissive, missing and extra policy drift",
+        async () => {
+          for (
+            const mutation of [
+              'alter policy "rule_sets: deny direct read" on public.rule_sets using (true)',
+              'alter policy "revenuecat_events: deny all" on public.revenuecat_events with check (true)',
+              'alter policy "profiles: read own" on public.profiles to anon, authenticated',
+              'drop policy "profiles: read own" on public.profiles',
+              'drop policy "entitlements: read own" on public.entitlements; create policy "entitlements: read own" on public.entitlements as restrictive for select to authenticated using ((select auth.uid()) = user_id)',
+              "create policy u1_unreviewed on public.rate_limit_window_keys for select to authenticated using (true)",
+              "alter table public.canary_state disable row level security",
+            ]
+          ) {
+            await probeMutation(mutation, async (mutant) => {
+              await assertSecurityRejected(mutant);
+            });
+          }
+          assertEquals(
+            (await writer`select public.consume_rate_limit(${`reconcile:user:${A}`},10,60) as retry`)[
+              0
+            ].retry,
+            0,
+            "legitimate writer creates a real protected rate-limit window",
+          );
+          assert(
+            (await sql`select count(*)::int as n from public.rate_limit_window_keys`)[
+              0
+            ].n > 0,
+            "deny-default probe has actual rows to preserve",
+          );
+          await probeMutation(
+            "grant select on public.rate_limit_window_keys to authenticated",
+            async (mutant) => {
+              await mutant.savepoint(async (restricted) => {
+                await restricted.unsafe("set local role authenticated");
+                await restricted`select set_config('request.jwt.claims',${
+                  JSON.stringify({ sub: A })
+                },true)`;
+                assertEquals(
+                  (await restricted`select count(*)::int as n from public.rate_limit_window_keys`)[
+                    0
+                  ].n,
+                  0,
+                  "absence of a window-key policy denies rows even with a temporary valid SELECT grant",
+                );
+              });
+            },
+          );
+          await sql.begin(async (tx) => {
+            await tx.unsafe("set local role authenticated");
+            await tx`select set_config('request.jwt.claims',${
+              JSON.stringify({ sub: A })
+            },true)`;
+            for (
+              const table of [
+                "rate_limit_counters",
+                "rate_limit_window_keys",
+                "canary_state",
+              ]
+            ) {
+              const denied = await assertRejects(
+                () =>
+                  tx.savepoint((restricted) =>
+                    restricted.unsafe(`select * from public.${table}`)
+                  ),
+                Error,
+                "permission denied",
+              );
+              assertEquals((denied as Error & { code?: string }).code, "42501");
+            }
+          });
         },
       );
       await t.step(
@@ -541,6 +808,10 @@ Deno.test({
             "alter function public.set_entitlement(uuid,boolean,text,text) set search_path = public",
             "alter table public.entitlements disable row level security",
             "grant select on public.entitlements to still_security_auditor",
+            "grant select on still_security.approved_provider_routines to still_security_auditor",
+            "grant select(descriptor) on still_security.approved_provider_routines to authenticated",
+            "grant execute on function still_security.provider_descriptor(oid) to still_security_auditor",
+            "grant execute on function still_security.provider_descriptor(oid) to authenticated",
             "grant usage on schema auth to still_security_auditor; grant select on auth.users to still_security_auditor",
             "grant usage on schema auth to still_security_auditor; grant select(id) on auth.users to still_security_auditor",
             "grant select on public.u1_customer_probe to still_security_auditor",
@@ -551,14 +822,7 @@ Deno.test({
           for (const mutation of mutants) {
             await probeMutation(mutation, async (mutant) => {
               // No repair here: the final validator alone must reject installed unsafe state.
-              await assertRejects(
-                () =>
-                  mutant.savepoint((validation) =>
-                    validation.unsafe(assertion)
-                  ),
-                Error,
-                "Still security assertions failed",
-              );
+              await assertSecurityRejected(mutant);
             });
           }
         },
@@ -622,6 +886,9 @@ Deno.test({
                 for (
                   const statement of [
                     "select id from auth.users",
+                    "select descriptor from still_security.approved_provider_routines",
+                    "select role_name from still_security.reconciled_creators",
+                    "select still_security.provider_descriptor('public.u1_provider_guard()'::regprocedure)",
                     "select id from public.profiles",
                     "select user_id from public.entitlements",
                     "select payload from public.u1_customer_probe",
@@ -669,7 +936,7 @@ Deno.test({
           assertEquals(before, true);
           const failure = await assertRejects(
             () =>
-              sql.begin(async (tx) => {
+              fixture.begin(async (tx) => {
                 await tx.unsafe(await source("hardening-candidate"));
                 // Observable safe sentinel: remove free sync EXECUTE, then force rollback.
                 await tx.unsafe(
@@ -719,6 +986,7 @@ Deno.test({
         },
       );
     } finally {
+      await fixture.end();
       await writer.end();
       await sql.end();
     }
