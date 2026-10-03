@@ -1,4 +1,5 @@
-import { TEST_PRIVACY } from "./privacy-fixture.js";
+import { TEST_PERMISSION, TEST_PRIVACY } from "./privacy-fixture.js";
+import type { AnalyticsPermission } from "../consent.js";
 import { describe, it, expect, vi } from "vitest";
 import {
   AnalyticsClient,
@@ -75,9 +76,15 @@ function harness(over: Partial<AnalyticsClientDeps> = {}) {
 
 describe("analyticsConfigured", () => {
   it("needs a key and an https host", () => {
-    expect(analyticsConfigured({ key: "phc_x", host: "https://us.i.posthog.com" })).toBe(true);
-    expect(analyticsConfigured({ key: "", host: "https://us.i.posthog.com" })).toBe(false);
-    expect(analyticsConfigured({ key: "phc_x", host: "http://us.i.posthog.com" })).toBe(false);
+    expect(
+      analyticsConfigured({ key: "phc_x", host: "https://us.i.posthog.com" }),
+    ).toBe(true);
+    expect(
+      analyticsConfigured({ key: "", host: "https://us.i.posthog.com" }),
+    ).toBe(false);
+    expect(
+      analyticsConfigured({ key: "phc_x", host: "http://us.i.posthog.com" }),
+    ).toBe(false);
     expect(analyticsConfigured({ key: "phc_x" })).toBe(false);
   });
 });
@@ -191,7 +198,11 @@ describe("AnalyticsClient", () => {
     expect(h.queue().map((e) => e.event)).toEqual(["active", "opened"]);
     h.advanceDays(1);
     await h.client.trackDaily("active", "active", {});
-    expect(h.queue().map((e) => e.event)).toEqual(["active", "opened", "active"]);
+    expect(h.queue().map((e) => e.event)).toEqual([
+      "active",
+      "opened",
+      "active",
+    ]);
   });
 
   it("identify keeps earlier anonymous history separate and attributes only future events", async () => {
@@ -209,7 +220,9 @@ describe("AnalyticsClient", () => {
     });
     expect(JSON.stringify(events)).not.toContain("$anon_distinct_id");
     await h.client.flush();
-    expect(h.bodies.flatMap((b) => b.batch).map((e) => e.event)).toEqual(["signed_in"]);
+    expect(h.bodies.flatMap((b) => b.batch).map((e) => e.event)).toEqual([
+      "signed_in",
+    ]);
   });
 
   it("an account check while sharing is held does not create an alias event", async () => {
@@ -394,7 +407,11 @@ describe("AnalyticsClient privacy failure modes", () => {
         properties: Record<string, unknown>;
       }[]) ?? [];
     expect(JSON.stringify(events)).not.toContain(U1);
-    expect(events.some((e) => (e as unknown as { event: string }).event === "account_deleted")).toBe(false);
+    expect(
+      events.some(
+        (e) => (e as unknown as { event: string }).event === "account_deleted",
+      ),
+    ).toBe(false);
   });
 
   it("only real ids and versions reach the payload", async () => {
@@ -417,15 +434,28 @@ describe("AnalyticsClient privacy failure modes", () => {
     const h = harness();
     await h.client.identify(U1);
     await h.client.track("active", {});
-    expect(h.queue().every((e) => e.properties.$geoip_disable === true)).toBe(true);
+    expect(h.queue().every((e) => e.properties.$geoip_disable === true)).toBe(
+      true,
+    );
   });
 
   it("old On cannot revive a stopped permission origin or its anonymous history", async () => {
-    const h = harness();
+    let permission: AnalyticsPermission = TEST_PERMISSION;
+    const h = harness({ permission: async () => permission });
     await h.client.identify(U1);
+    await h.client.track("opened", { where: "popup" }, { quiet: true });
+    expect(h.queue()).toHaveLength(1);
+    permission = {
+      ...permission,
+      state: "stopped",
+      generation: permission.generation + 1,
+    };
     h.setConsent(false);
-    await h.client.flush(); // discards the queued $identify
+    await h.client.flush();
+    expect(h.queue()).toEqual([]);
     h.setConsent(true);
+    // Even a stale grant reply cannot undo the positively observed stopped-origin authority.
+    permission = TEST_PERMISSION;
     await h.client.track("active", {});
     expect(h.queue().map((e) => e.event)).toEqual([]);
   });

@@ -1,4 +1,5 @@
 import { TEST_PRIVACY } from "./privacy-fixture.js";
+import { createStoredConsent } from "../consent.js";
 import { describe, it, expect, vi } from "vitest";
 import { createAppAnalytics, type AppAnalyticsBridge } from "../apple-app.js";
 import { QUEUE_KEY, STATE_KEY } from "../client.js";
@@ -79,7 +80,12 @@ describe("Apple app analytics", () => {
   it("a new Mac install reports installed, the app opening and one active day", async () => {
     const { app, events } = setup();
     await app.start();
-    expect(events().map((e) => [e.event, e.properties.step ?? e.properties.where ?? e.properties.returning])).toEqual([
+    expect(
+      events().map((e) => [
+        e.event,
+        e.properties.step ?? e.properties.where ?? e.properties.returning,
+      ]),
+    ).toEqual([
       ["installed", false],
       ["setup_step", "app_opened"],
       ["opened", "app"],
@@ -108,7 +114,9 @@ describe("Apple app analytics", () => {
     setContext({ extensionEnabled: true });
     await app.recheckSetup();
     await app.recheckSetup();
-    expect(events().filter((e) => e.event === "extension_enabled")).toHaveLength(1);
+    expect(
+      events().filter((e) => e.event === "extension_enabled"),
+    ).toHaveLength(1);
   });
 
   it("follows the app's switch and turning it off drops the queue", async () => {
@@ -154,7 +162,9 @@ describe("Apple app analytics", () => {
     expect(events()).toEqual([]);
     app.ui.track("signed_in", {});
     await new Promise((r) => setTimeout(r, 0));
-    expect(events().find((e) => e.event === "signed_in")?.properties.distinct_id).toBe(U1);
+    expect(
+      events().find((e) => e.event === "signed_in")?.properties.distinct_id,
+    ).toBe(U1);
     expect(JSON.stringify(events())).not.toContain("$anon_distinct_id");
   });
 });
@@ -232,12 +242,22 @@ describe("Apple app sends wait for the launch's account check", () => {
         set: async (k: string, v: unknown) => void (data[k] = structuredClone(v)),
       };
     })();
+    const authority = memory();
+    const permission = createStoredConsent(authority, false);
     const make = (ctx: Partial<AnalyticsContextReply>) => {
       const current = { ...CONTEXT, ...ctx };
       const a = createAppAnalytics({
         ...TEST_PRIVACY,
+        permission: () => permission.read(),
+        commitPermission: async (enabled) =>
+          enabled
+            ? permission.grant(TEST_PRIVACY.privacyPolicy.permissionVersion)
+            : permission.set(false),
         bridge: {
-          analyticsContext: async () => current,
+          analyticsContext: async () => ({
+            ...current,
+            consent: await permission.get(),
+          }),
           setAnalyticsConsent: async (e) => e,
           acknowledgeAnalyticsNotice: async () => {},
         },
@@ -263,16 +283,22 @@ describe("Apple app sends wait for the launch's account check", () => {
     }).start();
     const third = make({ consent: false, created: false, appVersion: "2.1.1" });
     await third.start();
-    await third.ui.setSharing!(true);
-    const events = ((store.data[QUEUE_KEY] as { event: string }[]) ?? []).map((e) => e.event);
+    expect(await third.ui.setSharing!(true)).toBe(true);
+    const events = ((store.data[QUEUE_KEY] as { event: string }[]) ?? []).map(
+      (e) => e.event,
+    );
     expect(events).not.toContain("installed");
     expect(events).not.toContain("updated");
+    expect(events).toContain("analytics_choice_made");
   });
 });
 
 describe("Apple launch attribution comes first", () => {
   it("a launch that finds the earlier account gone keeps this launch's update", async () => {
-    const { app, events, store } = setup({ previousVersion: "2.0.0", created: false }, { holdAccount: true });
+    const { app, events, store } = setup(
+      { previousVersion: "2.0.0", created: false },
+      { holdAccount: true },
+    );
     store.data[STATE_KEY] = {
       userId: U1,
       identifiedAs: U1,

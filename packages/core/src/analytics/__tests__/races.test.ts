@@ -1,6 +1,11 @@
 import { TEST_PRIVACY } from "./privacy-fixture.js";
 import { describe, it, expect, vi } from "vitest";
-import { AnalyticsClient, QUEUE_KEY, STATE_KEY, type AnalyticsClientDeps } from "../client.js";
+import {
+  AnalyticsClient,
+  QUEUE_KEY,
+  STATE_KEY,
+  type AnalyticsClientDeps,
+} from "../client.js";
 import {
   ANALYTICS_MESSAGE_KIND,
   PENDING_INSTALL_KEY,
@@ -11,7 +16,10 @@ import {
   createExtensionAnalyticsHost,
 } from "../extension-host.js";
 import type { AnalyticsKeyValue } from "../identity.js";
-import { codeAuth, makeController } from "../../ui/__tests__/support/controller-fixtures.js";
+import {
+  codeAuth,
+  makeController,
+} from "../../ui/__tests__/support/controller-fixtures.js";
 
 // Race reproductions. Each pauses the code at the exact boundary where the race happens (a storage
 // read, a network request) with a gate the test releases, rather than relying on elapsed time, and
@@ -225,7 +233,11 @@ describe("server email attach", () => {
     await client.identify(U1); // confirms
     const g = gate();
     setHang(g.opened);
-    const all = Promise.all([accounts.attach(), accounts.attach(), accounts.attach()]);
+    const all = Promise.all([
+      accounts.attach(),
+      accounts.attach(),
+      accounts.attach(),
+    ]);
     await new Promise((r) => setTimeout(r, 0));
     g.open();
     await all;
@@ -292,7 +304,15 @@ describe("unconfirmed accounts", () => {
 
   it("an unconfirmed restart holds events attributed in an earlier process", async () => {
     const store = pausable();
-    await makeClient({ store }).client.identify(U1); // the earlier process attributed its $identify
+    const earlier = makeClient({ store }).client;
+    await earlier.identify(U1);
+    await earlier.track("opened", { where: "popup" }, { quiet: true });
+    expect(store.data[QUEUE_KEY]).toEqual([
+      expect.objectContaining({
+        event: "opened",
+        properties: expect.objectContaining({ distinct_id: U1 }),
+      }),
+    ]);
     const rec = recordingFetch();
     const { client } = makeClient({
       store,
@@ -439,7 +459,9 @@ describe("the attribution rules (client.ts rules 1-4)", () => {
         event: string;
         properties: Record<string, unknown>;
       }[]) ?? [];
-    expect(queued().find((e) => e.event === "opened")!.properties.distinct_id).toBe(U1);
+    expect(
+      queued().find((e) => e.event === "opened")!.properties.distinct_id,
+    ).toBe(U1);
     await client.confirm(null, { forget: true }); // U1 deleted
     expect(JSON.stringify(queued())).not.toContain(U1);
     await client.confirm(U2); // someone else signs in
@@ -469,7 +491,9 @@ describe("the attribution rules (client.ts rules 1-4)", () => {
     await flushing;
     await client.flush();
     expect(JSON.stringify(rec.events())).not.toContain(OLD);
-    expect(rec.events().find((e) => e.event === "opened")!.properties.distinct_id).toBe(U1);
+    expect(
+      rec.events().find((e) => e.event === "opened")!.properties.distinct_id,
+    ).toBe(U1);
   });
 
   it("a late confirmation resumes delivery of what was waiting", async () => {
@@ -656,7 +680,10 @@ describe("forgetting an account (it was deleted)", () => {
       await restarted.track("opened", { where: "popup" });
       await restarted.flush();
       expect(JSON.stringify(rec.events())).not.toContain(U1);
-      if (next) expect(rec.events().some((e) => e.properties.distinct_id === U2)).toBe(true); // theirs go
+      if (next)
+        expect(rec.events().some((e) => e.properties.distinct_id === U2)).toBe(
+          true,
+        ); // theirs go
     }
   });
 
@@ -685,11 +712,15 @@ describe("forgetting an account (it was deleted)", () => {
     await client.reset({ forgetAccount: true }); // the drop "succeeds", and changes nothing
     await client.flush();
     expect(rec.events()).toEqual([]);
-    expect((store.data[STATE_KEY] as { forgotten: string[] }).forgotten).toEqual([U1]); // still owed
+    expect(
+      (store.data[STATE_KEY] as { forgotten: string[] }).forgotten,
+    ).toEqual([U1]); // still owed
     refuse("none");
     await client.flush();
     expect(JSON.stringify(rec.events())).not.toContain(U1);
-    expect((store.data[STATE_KEY] as { forgotten: string[] }).forgotten).toEqual([]);
+    expect(
+      (store.data[STATE_KEY] as { forgotten: string[] }).forgotten,
+    ).toEqual([]);
   });
 
   it("a state store that cannot be read is never taken as empty, and never overwritten", async () => {
@@ -721,13 +752,17 @@ describe("forgetting an account (it was deleted)", () => {
         }
       ).forgotten,
     ).toEqual([U1]);
-    expect((backing.data[STATE_KEY] as { userId: string | null }).userId).toBeNull();
+    expect(
+      (backing.data[STATE_KEY] as { userId: string | null }).userId,
+    ).toBeNull();
     state.refuse("none");
     await client.confirm(U2); // readable again: the drop is done, then U2's own events go
     await client.track("opened", { where: "popup" });
     await client.flush();
     expect(JSON.stringify(rec.events())).not.toContain(U1);
-    expect(rec.events().some((e) => e.properties.distinct_id === U2)).toBe(true);
+    expect(rec.events().some((e) => e.properties.distinct_id === U2)).toBe(
+      true,
+    );
   });
 
   it("a forget that cannot be recorded sends nothing, and is completed before the next send", async () => {
@@ -745,7 +780,9 @@ describe("forgetting an account (it was deleted)", () => {
     state.refuse("none");
     await client.flush(); // completed here: U1 recorded as forgotten, its events dropped
     expect(rec.events()).toEqual([]);
-    expect((backing.data[STATE_KEY] as { userId: string | null }).userId).toBeNull();
+    expect(
+      (backing.data[STATE_KEY] as { userId: string | null }).userId,
+    ).toBeNull();
     expect(JSON.stringify(backing.data[QUEUE_KEY] ?? [])).not.toContain(U1);
     await client.track("opened", { where: "popup" }); // anonymous from here on
     await client.flush();
@@ -874,7 +911,9 @@ describe("recovering from a storage failure", () => {
     expect((store.data[QUEUE_KEY] as unknown[] | undefined) ?? []).toEqual([]);
     await client.trackOnce("installed", "installed", { returning: false }); // the host tries again
     expect(await client.hasTrackedOnce("installed")).toBe(true);
-    expect((store.data[QUEUE_KEY] as { event: string }[]).map((e) => e.event)).toEqual(["installed"]);
+    expect(
+      (store.data[QUEUE_KEY] as { event: string }[]).map((e) => e.event),
+    ).toEqual(["installed"]);
   });
 
   it("an old pending install remains ineligible after a toggle and a later start", async () => {
@@ -899,7 +938,11 @@ describe("recovering from a storage failure", () => {
     };
     const old = structuredClone(local.data[PENDING_INSTALL_KEY]);
     const answer = await new Promise((r) =>
-      host.listener({ kind: ANALYTICS_MESSAGE_KIND, action: "setSharing", enabled: true }, PAGE, r),
+      host.listener(
+        { kind: ANALYTICS_MESSAGE_KIND, action: "setSharing", enabled: true },
+        PAGE,
+        r,
+      ),
     );
     expect(answer).toBe(false);
     host.onStart(null);
@@ -915,11 +958,19 @@ describe("recovering from a storage failure", () => {
     const { client } = makeClient({ store: backing, queueStore: queue.store });
     queue.refuse("writes");
     await client.identify(U1); // the $identify could not be queued
-    expect((backing.data[STATE_KEY] as { identifiedAs: string | null }).identifiedAs).toBeNull();
+    expect(
+      (backing.data[STATE_KEY] as { identifiedAs: string | null }).identifiedAs,
+    ).toBeNull();
     queue.refuse("none");
     await client.track("opened", { where: "popup" }); // the next event queues it first
-    expect((backing.data[STATE_KEY] as { identifiedAs: string | null }).identifiedAs).toBeNull();
-    expect(((await queue.store.get(QUEUE_KEY)) as { event: string }[]).map((e) => e.event)).toEqual(["opened"]);
+    expect(
+      (backing.data[STATE_KEY] as { identifiedAs: string | null }).identifiedAs,
+    ).toBeNull();
+    expect(
+      ((await queue.store.get(QUEUE_KEY)) as { event: string }[]).map(
+        (e) => e.event,
+      ),
+    ).toEqual(["opened"]);
   });
 
   it("a marker whose final read fails is left open rather than written over an unread state", async () => {
@@ -979,7 +1030,9 @@ describe("completing recovery before reporting", () => {
     await Promise.all([forgetting, identifying]);
     await client.track("opened", { where: "popup" });
     await client.flush();
-    expect(rec.events().some((e) => e.properties.distinct_id === U1)).toBe(false);
+    expect(rec.events().some((e) => e.properties.distinct_id === U1)).toBe(
+      false,
+    );
     expect(
       rec
         .events()
@@ -1007,39 +1060,44 @@ describe("completing recovery before reporting", () => {
     release();
     await Promise.all([reading, flushing, forgetting, identifying]);
     await client.flush();
-    expect(rec.events().some((e) => e.properties.distinct_id === U1)).toBe(false);
+    expect(rec.events().some((e) => e.properties.distinct_id === U1)).toBe(
+      false,
+    );
     expect(await client.signedInAs()).toBe(U2);
   });
 
-  it.each([false, true])("failed attribution stays retryable (retrying confirmation: %s)", async (retrying) => {
-    const rec = recordingFetch();
-    const { client, store } = makeClient({
-      fetch: rec.fetch,
-      startsUnconfirmed: true,
-    });
-    if (retrying) {
-      store.failNextRead(STATE_KEY);
-      await client.confirm(U2);
-    }
-    await client.trackOnce("installed", "installed", { returning: false });
-    const reached = store.pauseNextRead(QUEUE_KEY); // attribution reads the waiting queue
-    const confirming = retrying ? client.flush() : client.confirm(U2);
-    const release = await reached;
-    store.failNextRead(STATE_KEY); // the account read inside attribution
-    release();
-    await confirming;
-    expect(client.accountConfirmed).toBe(false);
-    expect(rec.events()).toEqual([]);
-    await client.flush();
-    expect(client.accountConfirmed).toBe(true);
-    expect(
-      rec
-        .events()
-        .filter((e) => e.event === "installed")
-        .map((e) => e.properties.distinct_id),
-    ).toEqual([U2]);
-    expect(store.data[QUEUE_KEY]).toEqual([]);
-  });
+  it.each([false, true])(
+    "failed attribution stays retryable (retrying confirmation: %s)",
+    async (retrying) => {
+      const rec = recordingFetch();
+      const { client, store } = makeClient({
+        fetch: rec.fetch,
+        startsUnconfirmed: true,
+      });
+      if (retrying) {
+        store.failNextRead(STATE_KEY);
+        await client.confirm(U2);
+      }
+      await client.trackOnce("installed", "installed", { returning: false });
+      const reached = store.pauseNextRead(QUEUE_KEY); // attribution reads the waiting queue
+      const confirming = retrying ? client.flush() : client.confirm(U2);
+      const release = await reached;
+      store.failNextRead(STATE_KEY); // the account read inside attribution
+      release();
+      await confirming;
+      expect(client.accountConfirmed).toBe(false);
+      expect(rec.events()).toEqual([]);
+      await client.flush();
+      expect(client.accountConfirmed).toBe(true);
+      expect(
+        rec
+          .events()
+          .filter((e) => e.event === "installed")
+          .map((e) => e.properties.distinct_id),
+      ).toEqual([U2]);
+      expect(store.data[QUEUE_KEY]).toEqual([]);
+    },
+  );
 
   it("an attribution write acknowledged without being kept does not complete confirmation", async () => {
     const rec = recordingFetch();
@@ -1065,7 +1123,9 @@ describe("completing recovery before reporting", () => {
     await client.trackOnce("installed", "installed", { returning: false });
     store.failNextRead(QUEUE_KEY);
     await client.track("opened", { where: "popup" });
-    expect((store.data[QUEUE_KEY] as { event: string }[]).map((e) => e.event)).toEqual(["installed"]);
+    expect(
+      (store.data[QUEUE_KEY] as { event: string }[]).map((e) => e.event),
+    ).toEqual(["installed"]);
     expect(await client.hasTrackedOnce("installed")).toBe(true);
   });
 
@@ -1078,7 +1138,9 @@ describe("completing recovery before reporting", () => {
     const release = await reached;
     release();
     await tracking;
-    expect((store.data[QUEUE_KEY] as { event: string }[]).map((e) => e.event)).toEqual(["active"]);
+    expect(
+      (store.data[QUEUE_KEY] as { event: string }[]).map((e) => e.event),
+    ).toEqual(["active"]);
   });
 
   it.each(["consent", "request"] as const)(
@@ -1154,7 +1216,9 @@ describe("completing recovery before reporting", () => {
       await restarted.flushWhenReady();
       expect(rec.events()).toEqual([]);
       expect(await restarted.client.hasTrackedOnce("installed")).toBe(false);
-      expect(await restarted.client.hasTrackedOnce("setup_completed")).toBe(false);
+      expect(await restarted.client.hasTrackedOnce("setup_completed")).toBe(
+        false,
+      );
       expect(local.data[PENDING_INSTALL_KEY]).toEqual(old);
     },
   );

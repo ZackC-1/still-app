@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { AnalyticsClient, QUEUE_KEY, STATE_KEY, type AnalyticsClientDeps } from "../client.js";
+import {
+  AnalyticsClient,
+  QUEUE_KEY,
+  STATE_KEY,
+  type AnalyticsClientDeps,
+} from "../client.js";
 import {
   CONSENT_KEY,
   createStoredConsent,
@@ -7,9 +12,21 @@ import {
   readAnalyticsPermission,
   type AnalyticsPermission,
 } from "../consent.js";
-import { canonicalEvent, EVENT_SCHEMA, isAppClientEvent, validateEvent } from "../events.js";
-import { createExtensionAnalyticsHost, ANALYTICS_MESSAGE_KIND } from "../extension-host.js";
-import { TEST_PERMISSION, TEST_PRIVACY, TEST_PRIVACY_POLICY } from "./privacy-fixture.js";
+import {
+  canonicalEvent,
+  EVENT_SCHEMA,
+  isAppClientEvent,
+  validateEvent,
+} from "../events.js";
+import {
+  createExtensionAnalyticsHost,
+  ANALYTICS_MESSAGE_KIND,
+} from "../extension-host.js";
+import {
+  TEST_PERMISSION,
+  TEST_PRIVACY,
+  TEST_PRIVACY_POLICY,
+} from "./privacy-fixture.js";
 
 const ID = {
   installId: "11111111-1111-4111-8111-111111111111",
@@ -19,6 +36,20 @@ const ID = {
 };
 const A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const B = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+function gate() {
+  let open!: () => void;
+  let entered!: () => void;
+  const reached = new Promise<void>((r) => (entered = r));
+  const waiting = new Promise<void>((r) => (open = r));
+  return {
+    reached,
+    open,
+    wait: async () => {
+      entered();
+      await waiting;
+    },
+  };
+}
 function memory() {
   const data: Record<string, unknown> = {};
   return {
@@ -63,6 +94,478 @@ function harness(over: Partial<AnalyticsClientDeps> = {}) {
   };
 }
 
+describe("reviewed recovery", () => {
+  it("cancels the primary and derived host actions under the original account", async () => {
+    const paused = gate();
+    let hold = false;
+    const h = harness({
+      identity: async () => {
+        if (hold) {
+          hold = false;
+          await paused.wait();
+        }
+        return ID;
+      },
+    });
+    const attach = vi.fn(async () => {});
+    const host = createExtensionAnalyticsHost({
+      ...h.deps,
+      permission: async () =>
+        readAnalyticsPermission(await h.deps.permission?.()),
+      local: h.store,
+      noticeApplies: false,
+      isTrustedPage: () => true,
+      identifyOnServer: attach,
+    });
+    host.onStart(A);
+    await host.flushWhenReady();
+    hold = true;
+    const response = new Promise((resolve) =>
+      host.listener(
+        {
+          kind: ANALYTICS_MESSAGE_KIND,
+          action: "track",
+          name: "opened",
+          props: { where: "popup" },
+        },
+        {},
+        resolve,
+      ),
+    );
+    await paused.reached;
+    const changing = host.identify(B, { quiet: true });
+    paused.open();
+    await changing;
+    await response;
+    await host.flushWhenReady();
+    expect(h.bodies.flatMap((b) => b.batch)).toEqual([]);
+    expect(attach).not.toHaveBeenCalled();
+    host.stop();
+  });
+  it("captures ordinary install permission before a same-turn grant", async () => {
+    let permission: AnalyticsPermission | null = null;
+    const h = harness({ permission: async () => permission });
+    const host = createExtensionAnalyticsHost({
+      ...h.deps,
+      permission: async () =>
+        readAnalyticsPermission(await h.deps.permission?.()),
+      local: h.store,
+      noticeApplies: false,
+      isTrustedPage: () => true,
+    });
+    host.onInstalled({ reason: "install" });
+    permission = TEST_PERMISSION;
+    await new Promise((r) => setTimeout(r, 0));
+    expect(await host.client.queuedCount()).toBe(0);
+    expect(h.identity).not.toHaveBeenCalled();
+    host.stop();
+  });
+  it.each(["activity", "install"] as const)(
+    "cancels every derived %s milestone under the original account",
+    async (action) => {
+      const paused = gate();
+      let calls = 0;
+      let holdAt = 0;
+      const h = harness({
+        surface: action === "activity" ? "safari-ios" : "chrome",
+        identity: async () => {
+          calls += 1;
+          if (calls === holdAt) await paused.wait();
+          return ID;
+        },
+      });
+      const host = createExtensionAnalyticsHost({
+        ...h.deps,
+        permission: async () =>
+          readAnalyticsPermission(await h.deps.permission?.()),
+        local: h.store,
+        noticeApplies: false,
+        isTrustedPage: () => true,
+      });
+      host.onStart(A);
+      await host.flushWhenReady();
+      holdAt = calls + (action === "install" ? 2 : 1);
+      if (action === "install") host.onInstalled({ reason: "install" });
+      else host.onActivity();
+      await paused.reached;
+      const changed = host.identify(B, { quiet: true });
+      paused.open();
+      await changed;
+      await new Promise((r) => setTimeout(r, 0));
+      await host.flushWhenReady();
+      expect(h.bodies.flatMap((b) => b.batch)).toEqual([]);
+      expect(await host.client.queuedCount()).toBe(0);
+      expect(await host.client.hasTrackedOnce("setup_completed")).toBe(false);
+      host.stop();
+    },
+  );
+  it.each(["track", "start"] as const)(
+    "keeps the Apple %s chain under its original account",
+    async (action) => {
+      const { createAppAnalytics } = await import("../apple-app.js");
+      const paused = gate();
+      const store = memory();
+      let hold = false;
+      const attach = vi.fn(async () => {});
+      const app = createAppAnalytics({
+        ...TEST_PRIVACY,
+        config: { key: "test", host: "https://us.i.posthog.com" },
+        store: {
+          set: store.set,
+          get: async (k) => {
+            if (hold && k === STATE_KEY) {
+              hold = false;
+              await paused.wait();
+            }
+            return store.get(k);
+          },
+        },
+        fetch: (async () => {
+          throw Error("offline");
+        }) as typeof fetch,
+        identifyOnServer: attach,
+        bridge: {
+          analyticsContext: async () => ({
+            ...ID,
+            platform: "macos",
+            device: "desktop",
+            appVersion: "3.0.0",
+            previousVersion: null,
+            consent: true,
+            noticeSeen: true,
+            extensionEnabled: true,
+          }),
+          setAnalyticsConsent: async () => false,
+          acknowledgeAnalyticsNotice: async () => {},
+        },
+      });
+      await app.identifyAccount(A);
+      // Settle the initial attach, then clear its positive-control call.
+      await new Promise((r) => setTimeout(r, 0));
+      expect(attach).toHaveBeenCalledTimes(1);
+      attach.mockClear();
+      hold = true;
+      const started =
+        action === "start"
+          ? app.start()
+          : (app.ui.track("opened", { where: "app" }), Promise.resolve());
+      await paused.reached;
+      const changed = app.identifyAccount(B);
+      // The real host's ready() continuation asks the client to cancel before releasing storage.
+      await new Promise((r) => setTimeout(r, 0));
+      paused.open();
+      await changed;
+      await started;
+      await new Promise((r) => setTimeout(r, 0));
+      const events = (store.data[QUEUE_KEY] ?? []) as { event: string }[];
+      expect(events).toEqual([]);
+      // B's actual account confirmation may attach once; the superseded action cannot add work.
+      expect(attach).toHaveBeenCalledTimes(1);
+    },
+  );
+  it("repeated Apple Share retains the actual granted origin", async () => {
+    const { createAppAnalytics } = await import("../apple-app.js");
+    const authority = memory();
+    const consent = createStoredConsent(authority, false);
+    await consent.grant(TEST_PERMISSION.version);
+    const original = await consent.read();
+    const store = memory();
+    const app = createAppAnalytics({
+      ...TEST_PRIVACY,
+      config: { key: "test", host: "https://us.i.posthog.com" },
+      store,
+      permission: () => consent.read(),
+      commitPermission: async (enabled) =>
+        enabled ? consent.grant(TEST_PERMISSION.version) : consent.set(false),
+      fetch: (async () => {
+        throw Error("offline");
+      }) as typeof fetch,
+      bridge: {
+        analyticsContext: async () => ({
+          ...ID,
+          platform: "macos",
+          device: "desktop",
+          appVersion: "3.0.0",
+          previousVersion: null,
+          consent: await consent.get(),
+          noticeSeen: true,
+          extensionEnabled: true,
+        }),
+        setAnalyticsConsent: async () => false,
+        acknowledgeAnalyticsNotice: async () => {},
+      },
+    });
+    await app.identifyAccount(A);
+    expect((await app.ui.sharing!())?.enabled).toBe(true);
+    expect(await app.ui.setSharing!(true)).toBe(true);
+    expect(await app.ui.setSharing!(true)).toBe(true);
+    expect(await consent.read()).toEqual(original);
+    app.ui.track("opened", { where: "app" });
+    await new Promise((r) => setTimeout(r, 0));
+    const queued = store.data[QUEUE_KEY] as {
+      event: string;
+      attributeLater?: boolean;
+      properties: Record<string, unknown>;
+    }[];
+    expect(queued.find((e) => e.event === "opened")).toMatchObject({
+      properties: { distinct_id: A },
+    });
+    expect(queued.some((e) => e.attributeLater)).toBe(false);
+  });
+  it("a failed Apple Off preserves durable stopped-origin authority across reopening", async () => {
+    const { createAppAnalytics } = await import("../apple-app.js");
+    const store = memory();
+    const deps = {
+      ...TEST_PRIVACY,
+      config: { key: "test", host: "https://us.i.posthog.com" },
+      store,
+      commitPermission: async () => {
+        throw Error("permission store unavailable");
+      },
+      fetch: (async () => {
+        throw Error("offline");
+      }) as typeof fetch,
+      bridge: {
+        analyticsContext: async () => ({
+          ...ID,
+          platform: "macos" as const,
+          device: "desktop" as const,
+          appVersion: "3.0.0",
+          previousVersion: null,
+          consent: true,
+          noticeSeen: true,
+          extensionEnabled: true,
+        }),
+        setAnalyticsConsent: async () => false,
+        acknowledgeAnalyticsNotice: async () => {},
+      },
+    };
+    const first = createAppAnalytics(deps);
+    await first.identifyAccount(A);
+    first.ui.track("opened", { where: "app" });
+    await new Promise((r) => setTimeout(r, 0));
+    expect((store.data[QUEUE_KEY] as unknown[]).length).toBeGreaterThan(0);
+    expect(await first.ui.setSharing!(false)).toBe(false);
+    expect(store.data[QUEUE_KEY]).toEqual([]);
+    const reopened = createAppAnalytics(deps);
+    expect((await reopened.ui.sharing!())?.enabled).toBe(false);
+  });
+  it.each([false, true])(
+    "raw malformed forgotten events retain debt if purge is lost: %s",
+    async (refuse) => {
+      const queue = memory();
+      let lose = false;
+      const h = harness({
+        queueStore: {
+          get: queue.get,
+          set: async (k, v) => {
+            if (!lose) await queue.set(k, v);
+          },
+        },
+      });
+      await h.client.identify(A);
+      await h.client.track("active", {});
+      const valid = (queue.data[QUEUE_KEY] as Record<string, unknown>[])[0]!;
+      queue.data[QUEUE_KEY] = [
+        { ...valid, event: null },
+        { unclassifiable: true },
+      ];
+      lose = refuse;
+      await h.client.confirm(null, { forget: true, quiet: true });
+      if (refuse) {
+        expect(h.store.data[STATE_KEY]).toMatchObject({ forgotten: [A] });
+        expect(queue.data[QUEUE_KEY]).toHaveLength(2);
+        lose = false;
+        await h.client.flush();
+      }
+      expect(queue.data[QUEUE_KEY]).toEqual([]);
+      expect(h.store.data[STATE_KEY]).toMatchObject({ forgotten: [] });
+      expect(h.sink).not.toHaveBeenCalled();
+    },
+  );
+  it("recovers the real still-granted origin after an unavailable read and restart", async () => {
+    const authority = memory();
+    const consent = createStoredConsent(authority, false);
+    await consent.grant(TEST_PERMISSION.version);
+    const permission = await consent.read();
+    let unavailable = false;
+    const h = harness({
+      permission: async () => (unavailable ? null : consent.read()),
+      consent: () => consent.get(),
+    });
+    await h.client.track("opened", { where: "popup" });
+    expect(await h.client.queuedCount()).toBe(1);
+    unavailable = true;
+    expect(await h.client.canReport()).toBe(false);
+    expect(await h.client.queuedCount()).toBe(0);
+    unavailable = false;
+    const reopened = new AnalyticsClient(h.deps);
+    expect(await reopened.canReport()).toBe(true);
+    await reopened.track("active", {});
+    await reopened.flush();
+    expect(h.bodies.flatMap((b) => b.batch).map((e) => e.event)).toEqual([
+      "active",
+    ]);
+    expect(await consent.read()).toEqual(permission);
+  });
+  it("raw account erasure retains records positively owned by another account", async () => {
+    const h = harness();
+    await h.client.identify(A);
+    await h.client.track("active", {}, { quiet: true });
+    const source = (h.store.data[QUEUE_KEY] as { properties: Record<string, unknown> }[])[0]!;
+    const other = { ...source, event: null, properties: { ...source.properties, distinct_id: B } };
+    h.store.data[QUEUE_KEY] = [{ ...source, event: null }, other, { unclassifiable: true }];
+    await h.client.confirm(null, { forget: true, quiet: true });
+    expect(h.store.data[QUEUE_KEY]).toEqual([other]);
+    expect(h.store.data[STATE_KEY]).toMatchObject({ forgotten: [] });
+    expect(h.sink).not.toHaveBeenCalled();
+  });
+  it("normal host stop does not revoke an installed granted origin", async () => {
+    const h = harness();
+    const deps = {
+      ...h.deps,
+      permission: async () =>
+        readAnalyticsPermission(await h.deps.permission?.()),
+      local: h.store,
+      noticeApplies: false,
+      isTrustedPage: () => true,
+    };
+    const first = createExtensionAnalyticsHost(deps);
+    first.onStart(null);
+    await first.flushWhenReady();
+    expect(await first.client.canReport()).toBe(true);
+    first.stop();
+    await first.client.queuedCount();
+    const next = createExtensionAnalyticsHost(deps);
+    next.onStart(null);
+    await next.flushWhenReady();
+    expect(await next.client.canReport()).toBe(true);
+    next.stop();
+  });
+  it.each(["consent", "capability", "read"] as const)(
+    "temporary %s absence keeps durable purge debt and the live authority",
+    async (absence) => {
+      const authority = memory();
+      const consent = createStoredConsent(authority, false);
+      await consent.grant(TEST_PERMISSION.version);
+      const permission = await consent.read();
+      const queue = memory();
+      let unavailable = false;
+      let refuse = false;
+      const capabilities = { ...TEST_PRIVACY_POLICY.capabilities };
+      const h = harness({
+        privacyPolicy: { ...TEST_PRIVACY_POLICY, capabilities },
+        permission: async () => {
+          if (unavailable && absence === "read") throw Error("temporary");
+          return consent.read();
+        },
+        consent: async () =>
+          unavailable && absence === "consent" ? false : consent.get(),
+        queueStore: {
+          get: queue.get,
+          set: async (k, v) => {
+            if (!refuse) await queue.set(k, v);
+          },
+        },
+      });
+      await h.client.track("opened", { where: "popup" });
+      expect(queue.data[QUEUE_KEY]).toHaveLength(1);
+      unavailable = true;
+      refuse = true;
+      if (absence === "capability") delete capabilities.device_slice_erasure;
+      expect(await h.client.canReport()).toBe(false);
+      expect(h.store.data[STATE_KEY]).toMatchObject({
+        permission,
+        stopPending: true,
+        stoppedOrigin: null,
+      });
+      unavailable = false;
+      capabilities.device_slice_erasure =
+        TEST_PRIVACY_POLICY.capabilities.device_slice_erasure;
+      const reopened = new AnalyticsClient(h.deps);
+      expect(await reopened.canReport()).toBe(false);
+      expect(h.sink).not.toHaveBeenCalled();
+      refuse = false;
+      expect(await reopened.canReport()).toBe(true);
+      expect(queue.data[QUEUE_KEY]).toEqual([]);
+      await reopened.track("active", {});
+      await reopened.flush();
+      expect(h.bodies.flatMap((b) => b.batch).map((e) => e.event)).toEqual([
+        "active",
+      ]);
+      expect(await consent.read()).toEqual(permission);
+    },
+  );
+  it("repeated Share preserves real combined consent and can report a new choice", async () => {
+    const authority = memory();
+    const consent = createStoredConsent(authority, false);
+    await consent.grant(TEST_PERMISSION.version);
+    const original = await consent.read();
+    const h = harness({
+      permission: () => consent.read(),
+      consent: () => consent.get(),
+    });
+    const host = createExtensionAnalyticsHost({
+      ...h.deps,
+      permission: async () =>
+        readAnalyticsPermission(await h.deps.permission?.()),
+      local: h.store,
+      noticeApplies: false,
+      isTrustedPage: () => true,
+      commitPermission: async (enabled) =>
+        enabled ? consent.grant(TEST_PERMISSION.version) : consent.set(false),
+    });
+    host.onStart(null);
+    await host.flushWhenReady();
+    for (let i = 0; i < 2; i++) {
+      const response = new Promise((resolve) =>
+        host.listener(
+          { kind: ANALYTICS_MESSAGE_KIND, action: "setSharing", enabled: true },
+          {},
+          resolve,
+        ),
+      );
+      expect(await response).toBe(true);
+      expect(await consent.read()).toEqual(original);
+    }
+    expect(await host.client.canReport()).toBe(true);
+    host.stop();
+  });
+  it.each([false, true])(
+    "retires attributed obsolete account generations without sending them: %s",
+    async (refuse) => {
+      const queue = memory();
+      let lose = false;
+      const h = harness({
+        queueStore: {
+          get: queue.get,
+          set: async (k, v) => {
+            if (!lose) await queue.set(k, v);
+          },
+        },
+      });
+      await h.client.identify(A);
+      await h.client.track("opened", { where: "popup" });
+      expect(await h.client.queuedCount()).toBe(1);
+      await h.client.identify(B);
+      lose = refuse;
+      await h.client.flush();
+      expect(h.sink).not.toHaveBeenCalled();
+      if (refuse) {
+        expect(queue.data[QUEUE_KEY]).toHaveLength(1);
+        lose = false;
+        await h.client.flush();
+      }
+      expect(await h.client.queuedCount()).toBe(0);
+      await h.client.track("signed_in", {});
+      await h.client.flush();
+      expect(h.bodies.flatMap((b) => b.batch).map((e) => e.event)).toEqual([
+        "signed_in",
+      ]);
+    },
+  );
+});
+
 describe("fresh combined permission", () => {
   it.each([
     undefined,
@@ -72,35 +575,44 @@ describe("fresh combined permission", () => {
     { ...TEST_PERMISSION, purposes: { usage: true, email: false, ai: true } },
     { ...TEST_PERMISSION, version: "b".repeat(64) },
     { ...TEST_PERMISSION, state: "stopped" },
-  ])("holds %j without optional identity, backlog or network", async (permission) => {
-    const h = harness({ permission: async () => permission });
-    await h.client.track("active", {});
-    await h.client.identify(A);
-    await h.client.flush();
-    expect(h.identity).not.toHaveBeenCalled();
-    expect(h.sink).not.toHaveBeenCalled();
-    expect(h.store.data).toEqual({});
-  });
-  it.each(PRIVACY_CAPABILITIES)("holds a missing %s capability", async (name) => {
-    const capabilities = { ...TEST_PRIVACY_POLICY.capabilities };
-    delete capabilities[name];
-    const h = harness({
-      privacyPolicy: { ...TEST_PRIVACY_POLICY, capabilities },
-    });
-    await h.client.track("active", {});
-    await h.client.flush();
-    expect(h.identity).not.toHaveBeenCalled();
-    expect(h.sink).not.toHaveBeenCalled();
-    expect(h.store.data).toEqual({});
-  });
-  it.each(["private", "unknown"] as const)("holds %s contexts", async (context) => {
-    const h = harness({ privacyPolicy: { ...TEST_PRIVACY_POLICY, context } });
-    await h.client.track("active", {});
-    await h.client.flush();
-    expect(h.identity).not.toHaveBeenCalled();
-    expect(h.store.data).toEqual({});
-    expect(h.sink).not.toHaveBeenCalled();
-  });
+  ])(
+    "holds %j without optional identity, backlog or network",
+    async (permission) => {
+      const h = harness({ permission: async () => permission });
+      await h.client.track("active", {});
+      await h.client.identify(A);
+      await h.client.flush();
+      expect(h.identity).not.toHaveBeenCalled();
+      expect(h.sink).not.toHaveBeenCalled();
+      expect(h.store.data).toEqual({});
+    },
+  );
+  it.each(PRIVACY_CAPABILITIES)(
+    "holds a missing %s capability",
+    async (name) => {
+      const capabilities = { ...TEST_PRIVACY_POLICY.capabilities };
+      delete capabilities[name];
+      const h = harness({
+        privacyPolicy: { ...TEST_PRIVACY_POLICY, capabilities },
+      });
+      await h.client.track("active", {});
+      await h.client.flush();
+      expect(h.identity).not.toHaveBeenCalled();
+      expect(h.sink).not.toHaveBeenCalled();
+      expect(h.store.data).toEqual({});
+    },
+  );
+  it.each(["private", "unknown"] as const)(
+    "holds %s contexts",
+    async (context) => {
+      const h = harness({ privacyPolicy: { ...TEST_PRIVACY_POLICY, context } });
+      await h.client.track("active", {});
+      await h.client.flush();
+      expect(h.identity).not.toHaveBeenCalled();
+      expect(h.store.data).toEqual({});
+      expect(h.sink).not.toHaveBeenCalled();
+    },
+  );
   it("uses one authority, rejects old On, records a fresh origin and keeps the stop tombstone", async () => {
     const store = memory();
     store.data[CONSENT_KEY] = true;
@@ -126,7 +638,9 @@ describe("fresh combined permission", () => {
       origin: permission!.origin,
       generation: permission!.generation + 1,
     });
-    await expect(consent.grant(TEST_PERMISSION.version)).rejects.toThrow("cleanup is pending");
+    await expect(consent.grant(TEST_PERMISSION.version)).rejects.toThrow(
+      "cleanup is pending",
+    );
     expect(store.data[CONSENT_KEY]).toEqual(tombstone);
   });
   it("a failed stop persists a local hold and never revives consent", async () => {
@@ -156,7 +670,9 @@ describe("observation and transport authority", () => {
     expect(h.identity).not.toHaveBeenCalled();
     await h.client.track("active", {});
     await h.client.flush();
-    expect(h.bodies.flatMap((b) => b.batch).map((e) => e.event)).toEqual(["active"]);
+    expect(h.bodies.flatMap((b) => b.batch).map((e) => e.event)).toEqual([
+      "active",
+    ]);
   });
   it("stops before a delayed identity completion can append", async () => {
     let release!: () => void;
@@ -236,7 +752,9 @@ describe("observation and transport authority", () => {
     await h.client.identify(A);
     await h.client.track("signed_in", {});
     await h.client.flush();
-    expect(h.bodies.flatMap((b) => b.batch).map((e) => e.event)).toEqual(["signed_in"]);
+    expect(h.bodies.flatMap((b) => b.batch).map((e) => e.event)).toEqual([
+      "signed_in",
+    ]);
   });
   it("revalidates queued data and never emits person updates or private permission metadata", async () => {
     const h = harness();
@@ -310,22 +828,26 @@ describe("closed V3 catalogue", () => {
       },
     });
   });
-  it.each(Object.entries(EVENT_SCHEMA))("validates %s and rejects undeclared free text", (name, schema) => {
-    const props = Object.fromEntries(
-      Object.entries(schema).map(([key, spec]) => [
-        key,
-        spec === "boolean" ? true : spec === "version" ? "3.0.0" : spec[0],
-      ]),
-    );
-    if (name === "paywall_viewed" || name === "paywall_dismissed") props.trigger = "upgrade_button";
-    expect(validateEvent(name, props)).toEqual(props);
-    expect(
-      validateEvent(name, {
-        ...props,
-        url: "https://youtube.com/shorts/private",
-      }),
-    ).toBeNull();
-  });
+  it.each(Object.entries(EVENT_SCHEMA))(
+    "validates %s and rejects undeclared free text",
+    (name, schema) => {
+      const props = Object.fromEntries(
+        Object.entries(schema).map(([key, spec]) => [
+          key,
+          spec === "boolean" ? true : spec === "version" ? "3.0.0" : spec[0],
+        ]),
+      );
+      if (name === "paywall_viewed" || name === "paywall_dismissed")
+        props.trigger = "upgrade_button";
+      expect(validateEvent(name, props)).toEqual(props);
+      expect(
+        validateEvent(name, {
+          ...props,
+          url: "https://youtube.com/shorts/private",
+        }),
+      ).toBeNull();
+    },
+  );
   it("requires the locked switch to belong to its declared site", () => {
     const valid = {
       trigger: "locked_switch",
@@ -340,8 +862,12 @@ describe("closed V3 catalogue", () => {
         where: "options",
       }),
     ).toBeNull();
-    expect(validateEvent("paywall_viewed", { ...valid, trigger: "upgrade_button" })).toBeNull();
-    expect(validateEvent("paywall_viewed", { ...valid, site: "instagram" })).toBeNull();
+    expect(
+      validateEvent("paywall_viewed", { ...valid, trigger: "upgrade_button" }),
+    ).toBeNull();
+    expect(
+      validateEvent("paywall_viewed", { ...valid, site: "instagram" }),
+    ).toBeNull();
     expect(isAppClientEvent("purchase_recorded")).toBe(false);
     expect(isAppClientEvent("purchase_refunded")).toBe(false);
     expect(isAppClientEvent("account_created")).toBe(false);
@@ -401,7 +927,9 @@ describe("actual hosts and permission-origin lifetime", () => {
       first.provider.anonymousId,
       first.provider.anonymousId,
     ]);
-    expect(initial.every((e) => e.properties.$device_id === first.provider.deviceId)).toBe(true);
+    expect(
+      initial.every((e) => e.properties.$device_id === first.provider.deviceId),
+    ).toBe(true);
     expect(JSON.stringify(initial)).not.toContain(ID.installId);
     await consent.set(false);
     await restart.clearQueue();
@@ -452,7 +980,10 @@ describe("actual hosts and permission-origin lifetime", () => {
     const restart = new AnalyticsClient(h.deps);
     await restart.flush();
     expect(h.sink).not.toHaveBeenCalled();
-    expect(queue.data[QUEUE_KEY]).toEqual([null, { secret: "private invalid record" }]);
+    expect(queue.data[QUEUE_KEY]).toEqual([
+      null,
+      { secret: "private invalid record" },
+    ]);
   });
   it("account replacement aborts optional email attachment and cannot mark a late completion", async () => {
     const { createAccountIdentifier, SERVER_IDENTIFIED_KEY } = await import("../extension-host.js");
@@ -636,7 +1167,12 @@ describe("declared host producers", () => {
     ).toBe(false);
     expect(
       host.listener(
-        { kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "purchase_recorded", props: {} },
+        {
+          kind: ANALYTICS_MESSAGE_KIND,
+          action: "track",
+          name: "purchase_recorded",
+          props: {},
+        },
         {},
         () => {},
       ),
@@ -675,7 +1211,9 @@ describe("acknowledged storage failures", () => {
     refuse = false;
     await h.client.trackOnce("eligible", "active", {});
     await h.client.flush();
-    expect(h.bodies.flatMap((b) => b.batch).map((e) => e.event)).toEqual(["active"]);
+    expect(h.bodies.flatMap((b) => b.batch).map((e) => e.event)).toEqual([
+      "active",
+    ]);
   });
   it("a silently lost account replacement remains unconfirmed and cannot attach the wrong account", async () => {
     const backing = memory();

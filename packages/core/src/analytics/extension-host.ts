@@ -141,7 +141,9 @@ export interface AccountIdentifier {
    * the request, and concurrent calls share one attempt. A quiet identify (a background start)
    * never runs it: its arrival time would mark a site visit.
    */
-  attach(): Promise<void>;
+  attach(
+    observation?: Awaited<ReturnType<AnalyticsClient["captureObservation"]>>,
+  ): Promise<void>;
 }
 
 /** Shared by the extension host and the Apple app. */
@@ -156,16 +158,20 @@ export function createAccountIdentifier(deps: {
   // One attempt at a time per account: a request still running for account A never stands in for
   // account B, and a hung request is abandoned after SERVER_ATTACH_LIMIT_MS so retries continue.
   const inflight = new Map<string, Promise<void>>();
-  const attach = async (): Promise<void> => {
+  const attach = async (
+    original?: Awaited<ReturnType<AnalyticsClient["captureObservation"]>>,
+  ): Promise<void> => {
     if (!deps.identifyOnServer || !client.enabled || !client.accountConfirmed)
       return;
+    const observation =
+      original === undefined ? await client.captureObservation() : original;
+    if (!observation || !(await client.observationCurrent(observation))) return;
     const userId = await client.signedInAs();
     if (!userId) return;
     const existing = inflight.get(userId);
     if (existing) return existing;
     const attempt = (async () => {
-      const stamp = client.stamp();
-      const observation = await client.captureObservation();
+      const stamp = observation.stamp;
       if (!observation) return;
       if (!(await consented()) || !(await client.canReport())) return;
       const marker = await deps.local
@@ -346,12 +352,19 @@ export function createExtensionAnalyticsHost(
         if (!captured) return false;
         await waitForStart();
         if (!(await client.observationCurrent(captured))) return false;
-        await client.trackUnchecked(request.name, request.props);
+        await client.trackUnchecked(request.name, request.props, {
+          observation: captured,
+        });
         // Any use counts toward the day, not only a background start (a worker can live overnight).
-        await client.trackDaily("active", "active", {});
+        await client.trackDaily(
+          "active",
+          "active",
+          {},
+          { observation: captured },
+        );
         // A Still screen is an ordinary moment: finish a server email attach that a background
         // start deferred, or that failed earlier. It never changes the account (see attach).
-        await accounts.attach();
+        await accounts.attach(captured);
         return true;
       }
       case "identify":
@@ -368,7 +381,7 @@ export function createExtensionAnalyticsHost(
         if (request.enabled && !deps.commitPermission) return false;
         if (deps.commitPermission) await deps.commitPermission(request.enabled);
         else await deps.storeConsent?.(false);
-        await client.clearQueue();
+        if (!request.enabled) await client.clearQueue();
         if (request.enabled && (await client.canReport())) {
           await client.track("analytics_choice_made", { choice: "share" });
           return true;
@@ -387,21 +400,29 @@ export function createExtensionAnalyticsHost(
     onInstalled(details, observation) {
       if (stopped) return;
       if (details.reason === "install") {
+        const capturedAtInstall = observation ?? client.captureObservation();
         const asked = client.stamp();
         void (async () => {
-          if (observation) {
-            const captured = await observation;
-            if (!captured || !(await client.observationCurrent(captured)))
-              return;
-          }
+          const captured = await capturedAtInstall;
+          if (!captured || !(await client.observationCurrent(captured))) return;
           if (!(await client.canReport()) || !client.isCurrent(asked)) return;
           const id = await deps.identity();
           if (!(await client.canReport()) || !client.isCurrent(asked)) return;
-          await client.trackOnce("installed", "installed", {
-            returning: id.returning,
-          });
+          await client.trackOnce(
+            "installed",
+            "installed",
+            {
+              returning: id.returning,
+            },
+            { observation: captured },
+          );
           if (blocksAtInstall)
-            await client.trackOnce("setup_completed", "setup_completed", {});
+            await client.trackOnce(
+              "setup_completed",
+              "setup_completed",
+              {},
+              { observation: captured },
+            );
         })().catch(() => {});
       } else if (
         details.reason === "update" &&
@@ -423,10 +444,14 @@ export function createExtensionAnalyticsHost(
               !(await client.observationCurrent(captured))
             )
               return;
-            await client.trackUnchecked("updated", {
-              from: details.previousVersion,
-              to: deps.appVersion,
-            });
+            await client.trackUnchecked(
+              "updated",
+              {
+                from: details.previousVersion,
+                to: deps.appVersion,
+              },
+              { observation: captured },
+            );
           })
           .catch(() => {});
       }
@@ -460,16 +485,21 @@ export function createExtensionAnalyticsHost(
             "extension_enabled",
             "setup_step",
             { step: "extension_enabled" },
-            QUIET,
+            { ...QUIET, observation: captured },
           );
           await client.trackOnce(
             "setup_completed",
             "setup_completed",
             {},
-            QUIET,
+            { ...QUIET, observation: captured },
           );
         }
-        await client.trackDaily("active", "active", {}, QUIET);
+        await client.trackDaily(
+          "active",
+          "active",
+          {},
+          { ...QUIET, observation: captured },
+        );
         await requestFlushIfNeeded();
       })().catch(() => {});
     },
@@ -485,7 +515,7 @@ export function createExtensionAnalyticsHost(
       startSettled();
       for (const timer of timers) clearTimeout(timer);
       timers.clear();
-      void client.clearQueue().catch(() => {});
+      void client.clearQueue(false).catch(() => {});
     },
     listener(message, sender, sendResponse, observation) {
       if (stopped) return false;

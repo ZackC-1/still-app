@@ -14,7 +14,11 @@ import {
   type AnalyticsDevice,
   type AnalyticsSurface,
 } from "./events.js";
-import { isAnalyticsId, type AnalyticsIdentity, type AnalyticsKeyValue } from "./identity.js";
+import {
+  isAnalyticsId,
+  type AnalyticsIdentity,
+  type AnalyticsKeyValue,
+} from "./identity.js";
 import {
   privacyPolicyReady,
   readAnalyticsPermission,
@@ -226,6 +230,13 @@ function localDay(ms: number): string {
 export interface TrackOptions {
   readonly quiet?: boolean;
   readonly at?: number;
+  /** Derived work retains the permission and account that observed the originating action. */
+  readonly observation?: AnalyticsObservation;
+}
+
+export interface AnalyticsObservation {
+  readonly stamp: { readonly generation: number; readonly epoch: number };
+  readonly permission: AnalyticsPermission;
 }
 
 /** Local midnight of the day containing `ms`, as an ISO timestamp. */
@@ -308,9 +319,15 @@ export class AnalyticsClient {
   }
 
   /** `track` for input that arrived untyped (a runtime message); validated the same way. */
-  trackUnchecked(name: unknown, props: unknown, options: TrackOptions = {}): Promise<void> {
-    const requested = this.stamp();
-    const admission = this.readPermission();
+  trackUnchecked(
+    name: unknown,
+    props: unknown,
+    options: TrackOptions = {},
+  ): Promise<void> {
+    const requested = options.observation?.stamp ?? this.stamp();
+    const admission = options.observation
+      ? Promise.resolve(options.observation.permission)
+      : this.readPermission();
     const event = canonicalEvent(name, props);
     return this.run(async () => {
       const permission = await admission;
@@ -322,7 +339,13 @@ export class AnalyticsClient {
         !(await this.allowed(permission))
       )
         return;
-      await this.enqueue(event.name, event.props, options, requested, permission);
+      await this.enqueue(
+        event.name,
+        event.props,
+        options,
+        requested,
+        permission,
+      );
     });
   }
 
@@ -333,7 +356,13 @@ export class AnalyticsClient {
     props: AnalyticsEventProps<E>,
     options: TrackOptions = {},
   ): Promise<void> {
-    return this.trackMarked(marker, localDay(this.deps.now()), name, props, options);
+    return this.trackMarked(
+      marker,
+      localDay(this.deps.now()),
+      name,
+      props,
+      options,
+    );
   }
 
   /** Queue an event once in the life of this install for `marker` (setup milestones). */
@@ -349,7 +378,9 @@ export class AnalyticsClient {
   /** Whether a once-marker has already fired (a host deciding whether to keep a pending record).
    * Unreadable state answers no, so the host keeps its record and asks again later. */
   hasTrackedOnce(marker: string): Promise<boolean> {
-    return this.run(async () => (await this.read())?.daily[`once:${marker}`] !== undefined);
+    return this.run(
+      async () => (await this.read())?.daily[`once:${marker}`] !== undefined,
+    );
   }
 
   /** How many events are waiting (a host deciding whether a later flush is needed). */
@@ -371,8 +402,12 @@ export class AnalyticsClient {
    * nothing under the account can leave from here on, even if the host stops waiting for this
    * (account deletion waits a bounded time) and the server deletes the person meanwhile.
    */
-  confirm(account: ConfirmedAccount, options: ConfirmOptions = {}): Promise<void> {
-    if (!this.configured || (account !== null && !isAnalyticsId(account))) return Promise.resolve();
+  confirm(
+    account: ConfirmedAccount,
+    options: ConfirmOptions = {},
+  ): Promise<void> {
+    if (!this.configured || (account !== null && !isAnalyticsId(account)))
+      return Promise.resolve();
     if (options.forget) this.cancel();
     if (account !== this.lastAsked) {
       this.cancel();
@@ -430,7 +465,10 @@ export class AnalyticsClient {
   }
 
   /** Whether nothing about the account or sharing has changed since `stamp`. */
-  isCurrent(stamp: { readonly generation: number; readonly epoch: number }): boolean {
+  isCurrent(stamp: {
+    readonly generation: number;
+    readonly epoch: number;
+  }): boolean {
     return stamp.generation === this.generation && stamp.epoch === this.epoch;
   }
 
@@ -450,7 +488,9 @@ export class AnalyticsClient {
     const permission = await this.readPermission();
     return permission && this.isCurrent(stamp) ? { stamp, permission } : null;
   }
-  async observationCurrent(observation: Awaited<ReturnType<AnalyticsClient["captureObservation"]>>): Promise<boolean> {
+  async observationCurrent(
+    observation: Awaited<ReturnType<AnalyticsClient["captureObservation"]>>,
+  ): Promise<boolean> {
     return (
       !!observation &&
       this.isCurrent(observation.stamp) &&
@@ -461,22 +501,28 @@ export class AnalyticsClient {
 
   /** Send what is queued, once the account is confirmed. Keeps events on a network or server
    * failure so the next flush retries them, with the person they were given. */
-  flush(): Promise<void> {
+  flush(observation?: AnalyticsObservation): Promise<void> {
     // The epoch this flush was asked under. A cancellation between now and its turn (an account
     // forgotten, sharing switched off) means it must send nothing when it runs (rule 1).
-    const epoch = this.epoch;
+    const epoch = observation?.stamp.epoch ?? this.epoch;
     return this.run(async () => {
-      if (epoch !== this.epoch) return; // cancelled work must not change attribution either
+      if (
+        epoch !== this.epoch ||
+        (observation && !this.isCurrent(observation.stamp))
+      )
+        return; // cancelled work must not change attribution either
       // A confirmation that failed on storage is tried again here, so reporting resumes on its own
       // once the store recovers, without waiting for the host to confirm again (rule 3).
       if (!this.confirmed) await this.establish(true);
       if (!this.confirmed || epoch !== this.epoch) return; // rule 4; rule 1
       if (!(await this.dropForgotten())) return; // rule 2: a forgotten account's events never leave
       for (;;) {
-        if (!(await this.allowed())) return;
+        if (!(await this.allowed(observation?.permission))) return;
         const state = await this.read();
         if (!state) return;
-        const batch = (await this.readQueue())
+        const queue = await this.retireObsolete(state.accountGeneration);
+        if (!queue || epoch !== this.epoch) return;
+        const batch = queue
           .filter(
             (e) =>
               !e.attributeLater &&
@@ -499,9 +545,9 @@ export class AnalyticsClient {
   }
 
   /** Drop everything waiting to be sent: the person turned analytics off. */
-  clearQueue(): Promise<void> {
+  clearQueue(retireOrigin = true): Promise<void> {
     this.cancel();
-    return this.run(() => this.discardQueue());
+    return this.run(() => this.discardQueue(retireOrigin));
   }
 
   /** A choice/context change fences already waiting work synchronously, before persistence. */
@@ -545,8 +591,10 @@ export class AnalyticsClient {
     props: AnalyticsEventProps<E>,
     options: TrackOptions,
   ): Promise<void> {
-    const requested = this.stamp();
-    const admission = this.readPermission();
+    const requested = options.observation?.stamp ?? this.stamp();
+    const admission = options.observation
+      ? Promise.resolve(options.observation.permission)
+      : this.readPermission();
     const event = canonicalEvent(name, props);
     return this.run(async () => {
       const permission = await admission;
@@ -562,7 +610,16 @@ export class AnalyticsClient {
       if (!state || state.daily[marker] === value) return;
       // The event first, the marker only once it is safely queued: a marker must never stand for
       // an event that was lost, and a host clears its own record (a pending install) on the marker.
-      if (!(await this.enqueue(event.name, event.props, options, requested, permission))) return;
+      if (
+        !(await this.enqueue(
+          event.name,
+          event.props,
+          options,
+          requested,
+          permission,
+        ))
+      )
+        return;
       // Re-read rather than overwrite newer lifecycle or erasure state with the marker snapshot.
       const latest = await this.read();
       if (latest && this.isCurrent(requested) && (await this.allowed(permission)))
@@ -576,7 +633,10 @@ export class AnalyticsClient {
   /** Install the account named by a confirmation. False when the change could not be saved. A
    * forgotten account is recorded as such here, durably, before its events are dropped
    * (`dropForgotten`), so the drop is owed even if this process ends first. */
-  private async installAccount(account: ConfirmedAccount, options: ConfirmOptions): Promise<boolean> {
+  private async installAccount(
+    account: ConfirmedAccount,
+    options: ConfirmOptions,
+  ): Promise<boolean> {
     const state = await this.read();
     // Who is signed in cannot be known: nothing changes, the confirmation stands withdrawn, and the
     // ask (a forget included: its sends are already fenced) is tried again before the next send.
@@ -649,13 +709,45 @@ export class AnalyticsClient {
   /** Drop every queued event attributed to one of `gone`, and verify it. False when the queue store
    * refuses to give up the events or to be read (a refused read must not count as "nothing left"). */
   private async dropEventsOf(gone: ReadonlySet<string>): Promise<boolean> {
-    const owned = (e: QueuedEvent) =>
-      typeof e.properties.distinct_id === "string" && gone.has(e.properties.distinct_id);
-    const queue = await this.loadQueue();
+    const keep = (value: unknown): boolean => {
+      if (!value || typeof value !== "object" || Array.isArray(value))
+        return false;
+      const e = value as Record<string, unknown>;
+      if (
+        !e.properties ||
+        typeof e.properties !== "object" ||
+        Array.isArray(e.properties)
+      )
+        return false;
+      const id = (e.properties as Record<string, unknown>).distinct_id;
+      if (isAnalyticsId(id)) return !gone.has(id);
+      // Keep classifiable unconfirmed work; malformed ownership is never proof of erasure.
+      return e.attributeLater === true && parseQueue([value]).length === 1;
+    };
+    const queue = await this.loadRawQueue();
     if (queue === null) return false;
-    if (queue.some(owned) && !(await this.writeQueue(queue.filter((e) => !owned(e))))) return false;
+    if (
+      queue.some((e) => !keep(e)) &&
+      !(await this.writeQueue(queue.filter(keep)))
+    )
+      return false;
+    const remaining = await this.loadRawQueue();
+    return remaining !== null && remaining.every(keep);
+  }
+
+  /** Already-attributed events cannot acquire a later account; verify their durable retirement. */
+  private async retireObsolete(
+    generation: number,
+  ): Promise<QueuedEvent[] | null> {
+    const queue = await this.loadQueue();
+    if (!queue) return null;
+    const obsolete = (e: QueuedEvent) =>
+      !e.attributeLater && e.accountGeneration !== generation;
+    if (!queue.some(obsolete)) return queue;
+    if (!(await this.writeQueue(queue.filter((e) => !obsolete(e)))))
+      return null;
     const remaining = await this.loadQueue();
-    return remaining !== null && !remaining.some(owned);
+    return remaining && !remaining.some(obsolete) ? remaining : null;
   }
 
   /** Give every waiting unattributed event the person now installed, in storage (rule 2). */
@@ -705,29 +797,44 @@ export class AnalyticsClient {
    * be withdrawn outside Still: Firefox's add-on manager, the Apple app's switch) anything still
    * waiting is discarded. */
   private async readPermission(): Promise<AnalyticsPermission | null> {
-    if (!privacyPolicyReady(this.deps.privacyPolicy) || !this.deps.permission) return null;
+    return (await this.readAuthority()).granted;
+  }
+
+  private async readAuthority(): Promise<{
+    raw: AnalyticsPermission | null;
+    granted: AnalyticsPermission | null;
+  }> {
     try {
-      const [value, enabled] = await Promise.all([this.deps.permission(), this.deps.consent()]);
+      const [value, enabled] = await Promise.all([
+        this.deps.permission?.(),
+        this.deps.consent().catch(() => false),
+      ]);
       const permission = readAnalyticsPermission(value);
-      return enabled === true &&
-        permission?.state === "granted" &&
-        permission.version === this.deps.privacyPolicy!.permissionVersion
-        ? permission
-        : null;
+      return {
+        raw: permission,
+        granted:
+          privacyPolicyReady(this.deps.privacyPolicy) &&
+          enabled === true &&
+          permission?.state === "granted" &&
+          permission.version === this.deps.privacyPolicy?.permissionVersion
+            ? permission
+            : null,
+      };
     } catch {
-      return null;
+      return { raw: null, granted: null };
     }
   }
 
   private async allowed(expected?: AnalyticsPermission): Promise<boolean> {
     if (!this.configured || this.blocked) return false;
     const stamp = this.stamp();
-    const permission = await this.readPermission();
+    const authority = await this.readAuthority();
+    const permission = authority.granted;
     if (!this.isCurrent(stamp)) return false;
     if (!permission) {
       this.cancel();
       this.permission = null;
-      await this.discardQueue();
+      await this.discardQueue(authority.raw ?? false);
       return false;
     }
     if (expected && !samePermission(expected, permission)) return false;
@@ -764,9 +871,22 @@ export class AnalyticsClient {
   }
 
   /** Verify raw queue removal and retain minimal stopped-origin authority. */
-  private async discardQueue(): Promise<void> {
+  private async discardQueue(
+    retire: boolean | AnalyticsPermission = true,
+  ): Promise<void> {
     const state = await this.read();
-    const waiting = await this.loadQueue();
+    const waiting = await this.loadRawQueue();
+    const endedOrigin =
+      retire === true
+        ? state?.permission?.origin
+        : typeof retire === "object"
+          ? retire.state === "stopped"
+            ? retire.origin
+            : state?.permission && !samePermission(retire, state.permission)
+              ? state.permission.origin
+              : null
+          : null;
+    const stoppedOrigin = endedOrigin ?? state?.stoppedOrigin;
     // Undecided installs do not allocate optional state, identity or an empty backlog.
     if (
       state &&
@@ -784,7 +904,7 @@ export class AnalyticsClient {
         ...state,
         stopPending: true,
         identifiedAs: null,
-        stoppedOrigin: state.permission?.origin ?? state.stoppedOrigin,
+        stoppedOrigin: stoppedOrigin ?? null,
       }))
     ) {
       this.blocked = true;
@@ -793,10 +913,10 @@ export class AnalyticsClient {
     if (!(await this.writeQueue([])) || !(await this.queueCleared())) return;
     await this.write({
       ...state,
-      permission: null,
+      permission: endedOrigin ? null : state.permission,
       stopPending: false,
       identifiedAs: null,
-      stoppedOrigin: state.permission?.origin ?? state.stoppedOrigin,
+      stoppedOrigin: stoppedOrigin ?? null,
     });
   }
 
@@ -859,7 +979,7 @@ export class AnalyticsClient {
   }
 
   /** False when the queue store refused the write. */
-  private async writeQueue(queue: readonly QueuedEvent[]): Promise<boolean> {
+  private async writeQueue(queue: readonly unknown[]): Promise<boolean> {
     try {
       await this.queueStore.set(QUEUE_KEY, queue.slice(-MAX_QUEUE));
       return true;
@@ -868,8 +988,21 @@ export class AnalyticsClient {
     }
   }
 
+  /** Deletion verification inspects all raw records, including malformed or oversized history. */
+  private async loadRawQueue(): Promise<unknown[] | null> {
+    try {
+      const value = await this.queueStore.get(QUEUE_KEY);
+      return value === undefined ? [] : Array.isArray(value) ? value : [value];
+    } catch {
+      return null;
+    }
+  }
+
   /** Queue one event. False when the queue store refused it. */
-  private async push(event: QueuedEvent, options: TrackOptions = {}): Promise<boolean> {
+  private async push(
+    event: QueuedEvent,
+    options: TrackOptions = {},
+  ): Promise<boolean> {
     const stamp = this.stamp();
     const permission = this.permission;
     if (!permission) return false;
@@ -880,7 +1013,10 @@ export class AnalyticsClient {
       queue === null ||
       !this.isCurrent(stamp) ||
       !(await this.allowed(permission)) ||
-      !(await this.writeQueue([...queue, { ...event, permission, accountGeneration: state.accountGeneration }]))
+      !(await this.writeQueue([
+        ...queue,
+        { ...event, permission, accountGeneration: state.accountGeneration },
+      ]))
     )
       return false;
     if (
@@ -905,7 +1041,10 @@ export class AnalyticsClient {
   }
 
   /** The properties every product event carries. */
-  private envelope(state: ClientState, identity: AnalyticsIdentity): Record<string, unknown> {
+  private envelope(
+    state: ClientState,
+    identity: AnalyticsIdentity,
+  ): Record<string, unknown> {
     const { surface, appVersion } = this.deps;
     return {
       distinct_id: state.userId ?? this.anonymousId(state, identity),
@@ -940,8 +1079,16 @@ export class AnalyticsClient {
     const identity = await this.identity();
     if (!identity || !this.isCurrent(requested) || !(await this.allowed(permission))) return false;
     const state = await this.read();
-    if (!state || !this.isCurrent(requested) || !(await this.allowed(permission))) return false;
-    const { distinct_id: distinctId, ...common } = this.envelope(state, identity);
+    if (
+      !state ||
+      !this.isCurrent(requested) ||
+      !(await this.allowed(permission))
+    )
+      return false;
+    const { distinct_id: distinctId, ...common } = this.envelope(
+      state,
+      identity,
+    );
     if (!this.confirmed) {
       // No person yet: the confirmation gives it one, in storage, before it can be sent (rule 2).
       return this.push(
@@ -984,7 +1131,10 @@ export class AnalyticsClient {
   /** One request, for a caller that was asked under `epoch`. Refused, synchronously and before
    * anything else, when a cancellation has overtaken that caller since: this is the last check
    * before the network, after every awaited read a caller does (rule 1). */
-  private async post(batch: readonly QueuedEvent[], epoch: number): Promise<"done" | "retry"> {
+  private async post(
+    batch: readonly QueuedEvent[],
+    epoch: number,
+  ): Promise<"done" | "retry"> {
     const permission = this.permission;
     if (epoch !== this.epoch || !permission || !(await this.allowed(permission)) || epoch !== this.epoch)
       return "retry";
@@ -1008,11 +1158,15 @@ export class AnalyticsClient {
         "rule_version",
         "plan",
       ];
-      const specific = Object.fromEntries(Object.entries(props).filter(([key]) => !envelopeKeys.includes(key)));
+      const specific = Object.fromEntries(
+        Object.entries(props).filter(([key]) => !envelopeKeys.includes(key)),
+      );
       if (
         !validateEvent(event.event, specific) ||
         !isAnalyticsId(event.uuid) ||
-        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(event.timestamp) ||
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(
+          event.timestamp,
+        ) ||
         !Number.isFinite(Date.parse(event.timestamp)) ||
         !isAnalyticsId(props.distinct_id) ||
         !isAnalyticsId(props.$device_id) ||
@@ -1028,7 +1182,9 @@ export class AnalyticsClient {
         (props.signed_in !== undefined && typeof props.signed_in !== "boolean") ||
         (props.os !== undefined && !(ANALYTICS_OS as readonly unknown[]).includes(props.os)) ||
         (props.build_channel !== undefined &&
-          !(ANALYTICS_BUILD_CHANNELS as readonly unknown[]).includes(props.build_channel)) ||
+          !(ANALYTICS_BUILD_CHANNELS as readonly unknown[]).includes(
+            props.build_channel,
+          )) ||
         (props.rule_version !== undefined && !isVersion(props.rule_version)) ||
         (props.plan !== undefined && !(ANALYTICS_PLANS as readonly unknown[]).includes(props.plan))
       )
@@ -1052,7 +1208,11 @@ export class AnalyticsClient {
     this.inflight = controller;
     const timer = setTimeout(() => controller?.abort(), REQUEST_TIMEOUT_MS);
     const aborted = new Promise<never>((_, reject) =>
-      controller?.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }),
+      controller?.signal.addEventListener(
+        "abort",
+        () => reject(new Error("aborted")),
+        { once: true },
+      ),
     );
     try {
       const response = await Promise.race([

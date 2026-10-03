@@ -1,4 +1,9 @@
-import { AnalyticsClient, type AnalyticsConfig, type AnalyticsClientDeps } from "./client.js";
+import {
+  AnalyticsClient,
+  type AnalyticsConfig,
+  type AnalyticsClientDeps,
+  type AnalyticsObservation,
+} from "./client.js";
 import {
   privacyPolicyReady,
   readAnalyticsPermission,
@@ -58,7 +63,11 @@ interface Ready {
   readonly context: AnalyticsContextReply;
   /** Confirm and identify the account (fast, local), then run the server attach on its own. */
   readonly identify: (userId: string) => Promise<void>;
-  readonly attach: () => Promise<void>;
+  readonly attach: (observation?: AnalyticsObservation) => Promise<void>;
+}
+
+interface Observed extends Ready {
+  readonly observation: AnalyticsObservation;
 }
 
 export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
@@ -71,7 +80,9 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
   const ready = (): Promise<Ready | null> =>
     (readyPromise ??= (async () => {
       const asked = epoch;
-      const permission = readAnalyticsPermission(await deps.permission?.().catch(() => null));
+      const permission = readAnalyticsPermission(
+        await deps.permission?.().catch(() => null),
+      );
       if (
         !privacyPolicyReady(deps.privacyPolicy) ||
         permission?.state !== "granted" ||
@@ -82,7 +93,10 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       if (
         !context ||
         asked !== epoch ||
-        !samePermission(permission, readAnalyticsPermission(await deps.permission?.().catch(() => null)))
+        !samePermission(
+          permission,
+          readAnalyticsPermission(await deps.permission?.().catch(() => null)),
+        )
       )
         return null;
       consent = context.consent;
@@ -121,7 +135,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         client,
         context,
         identify: (userId: string) => client.identify(userId), // confirms the account (client.ts rule 3)
-        attach: () => accounts.attach(),
+        attach: (observation) => accounts.attach(observation),
       };
       return currentReady;
     })().then((r) => {
@@ -130,29 +144,41 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
     }));
 
   // Eligibility belongs to the observed action, before native/startup promises settle.
-  const observed = async (): Promise<Ready | null> => {
+  const observed = async (): Promise<Observed | null> => {
     const asked = epoch;
     const stamp = currentReady?.client.stamp();
-    const permission = readAnalyticsPermission(await deps.permission?.().catch(() => null));
+    const permission = readAnalyticsPermission(
+      await deps.permission?.().catch(() => null),
+    );
     if (permission?.state !== "granted") return null;
     const r = await ready();
     if (
       !r ||
       asked !== epoch ||
       (stamp && !r.client.isCurrent(stamp)) ||
-      !samePermission(permission, readAnalyticsPermission(await deps.permission?.().catch(() => null)))
+      !samePermission(
+        permission,
+        readAnalyticsPermission(await deps.permission?.().catch(() => null)),
+      ) ||
+      (stamp && !r.client.isCurrent(stamp))
     )
       return null;
-    return r;
+    return {
+      ...r,
+      observation: { stamp: stamp ?? r.client.stamp(), permission },
+    };
   };
-  const withReady = (run: (r: Ready) => Promise<unknown> | void): void => {
+  const withReady = (run: (r: Observed) => Promise<unknown> | void): void => {
     void observed()
       .then((r) => (r ? run(r) : undefined))
       .catch(() => {});
   };
 
   let extensionBaseline: boolean | null = null;
-  const reportExtensionEnabled = async (r: Ready, enabled: boolean | null): Promise<void> => {
+  const reportExtensionEnabled = async (
+    r: Observed,
+    enabled: boolean | null,
+  ): Promise<void> => {
     if (r.context.platform !== "macos") return;
     const previous = extensionBaseline;
     extensionBaseline = enabled;
@@ -160,16 +186,21 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
     await r.client.track(
       enabled ? "extension_enabled" : "extension_disabled",
       { detected_by: "app_check" },
-      { quiet: true },
+      { quiet: true, observation: r.observation },
     );
   };
 
   const ui: UiAnalytics = {
     track: (name, props) =>
       withReady(async (r) => {
-        await r.client.track(name, props);
-        await r.client.trackDaily("active", "active", {}); // any use counts toward the day
-        void r.attach(); // a failed launch attach is retried by ordinary app use
+        await r.client.track(name, props, { observation: r.observation });
+        await r.client.trackDaily(
+          "active",
+          "active",
+          {},
+          { observation: r.observation },
+        ); // any use counts toward the day
+        void r.attach(r.observation); // a failed launch attach is retried by ordinary app use
       }),
     identify: (userId) =>
       withReady(async (r) => {
@@ -187,17 +218,40 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
     },
     async setSharing(enabled) {
       epoch += 1;
+      const asked = epoch;
+      const previous = currentReady;
       currentReady?.client.permissionChanged();
       consent = false;
+      const stopping = !enabled ? previous?.client.clearQueue() : undefined;
       if (enabled && !deps.commitPermission) return false;
+      const previousPermission =
+        enabled && previous
+          ? readAnalyticsPermission(await deps.permission?.().catch(() => null))
+          : null;
       try {
         if (deps.commitPermission) await deps.commitPermission(enabled);
         else await deps.bridge.setAnalyticsConsent(false);
       } catch {
+        await stopping;
         return false;
       }
-      await currentReady?.client.clearQueue();
+      await stopping;
       if (!enabled) return false;
+      if (asked !== epoch) return false;
+      const permission = readAnalyticsPermission(
+        await deps.permission?.().catch(() => null),
+      );
+      if (previous && samePermission(previousPermission, permission)) {
+        const context = await deps.bridge.analyticsContext().catch(() => null);
+        if (asked !== epoch || !context) return false;
+        consent = context.consent;
+        const allowed = await previous.client.canReport();
+        if (!allowed || asked !== epoch) return false;
+        await previous.client.track("analytics_choice_made", {
+          choice: "share",
+        });
+        return true;
+      }
       readyPromise = null;
       currentReady = null;
       const r = await ready();
@@ -217,34 +271,49 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       const r = await observed();
       if (!r) return;
       const { client, context } = r;
+      const options = { observation: r.observation };
       // Only launches observed under fresh permission are eligible; never replay stored history.
       if (context.previousVersion)
-        await client.track("updated", {
-          from: context.previousVersion,
-          to: context.appVersion,
-        });
+        await client.track(
+          "updated",
+          {
+            from: context.previousVersion,
+            to: context.appVersion,
+          },
+          options,
+        );
       else if (context.created)
-        await client.trackOnce("installed", "installed", {
-          returning: context.returning,
-        });
-      await client.trackOnce("app_opened", "setup_step", {
-        step: "app_opened",
-      });
+        await client.trackOnce(
+          "installed",
+          "installed",
+          {
+            returning: context.returning,
+          },
+          options,
+        );
+      await client.trackOnce(
+        "app_opened",
+        "setup_step",
+        {
+          step: "app_opened",
+        },
+        options,
+      );
       await reportExtensionEnabled(r, context.extensionEnabled);
-      await client.track("opened", { where: "app" });
-      await client.trackDaily("active", "active", {});
-      await client.flush();
-      void r.attach(); // the flush may have recovered the launch's account confirmation
+      await client.track("opened", { where: "app" }, options);
+      await client.trackDaily("active", "active", {}, options);
+      await client.flush(r.observation);
+      void r.attach(r.observation); // the flush may have recovered the launch's account confirmation
     },
     async recheckSetup() {
       const r = await observed();
       if (!r) return;
-      const observation = await r.client.captureObservation();
+      const observation = r.observation;
       const fresh = await deps.bridge.analyticsContext().catch(() => null);
       if (!(await r.client.observationCurrent(observation))) return;
       await reportExtensionEnabled(r, fresh?.extensionEnabled ?? null);
-      await r.client.trackDaily("active", "active", {});
-      void r.attach();
+      await r.client.trackDaily("active", "active", {}, { observation });
+      void r.attach(observation);
     },
     async identifyAccount(userId) {
       const r = await ready();
