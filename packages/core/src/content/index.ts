@@ -41,7 +41,7 @@ export interface ContentScriptDeps {
   readonly handleBlockedNavigation?: (target: URL) => boolean;
   readonly cache: SettingsCache;
   readonly entitlement?: EntitlementCache;
-  /** Override the redirect mechanism (tests inject a spy; default is location.replace). */
+  /** Override destination navigation; default preserves native push/replacement history intent. */
   readonly redirectPort?: RedirectPort;
   /** Canonical placeholder copy from U9 strings; falls back to the engine default. */
   readonly placeholderLine?: string;
@@ -172,21 +172,26 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     },
   }) : null;
   if (mediaQuieting) teardowns.push(() => mediaQuieting.stop());
-  const consumeModernNavigation = (target: URL): boolean => {
+  const consumeModernNavigation = (
+    target: URL,
+    mode: "push" | "replace" = "replace",
+  ): boolean => {
     // Synchronous committed state only. A pre-hydration or stopped host never guesses On.
     if (!modern || stopped || !hydrated) return false;
-    const decision = pageSession.evaluate(
-      cache.current(),
-      target,
-      modernOptions(),
-    );
+    const settings = cache.current();
+    const options = modernOptions();
+    const decision = pageSession.evaluate(settings, target, options);
+    // Destination classification must not replace the plan backing the current DOM/media.
+    // A consumed, canceled or failed navigation may never commit its prospective URL.
+    pageSession.evaluate(settings, currentUrl(), options);
     if (decision.kind === "redirect" && decision.url !== target.href) {
       if (
         decision.url !== win.location.href &&
         dedupe.lastRedirect !== decision.url
       ) {
         dedupe.lastRedirect = decision.url;
-        redirectPort.replace(decision.url);
+        if (mode === "push") redirectPort.replace(decision.url, "push");
+        else redirectPort.replace(decision.url);
       }
       return true;
     }

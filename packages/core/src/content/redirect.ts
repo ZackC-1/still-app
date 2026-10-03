@@ -25,6 +25,7 @@ export interface NavigationEventLike {
   readonly cancelable?: boolean;
   readonly defaultPrevented?: boolean;
   readonly isTrusted?: boolean;
+  readonly navigationType?: "push" | "replace" | "reload" | "traverse";
   preventDefault?(): void;
 }
 
@@ -34,7 +35,11 @@ export interface NavigationEventLike {
  * `MutationObserver` constructor is part of the contract (the lib `Window` omits it).
  */
 export interface StillWindow {
-  readonly location: { readonly href: string; replace(url: string): void };
+  readonly location: {
+    readonly href: string;
+    replace(url: string): void;
+    assign?(url: string): void;
+  };
   readonly history: HistoryLike;
   addEventListener(type: string, listener: () => void): void;
   removeEventListener(type: string, listener: () => void): void;
@@ -45,11 +50,20 @@ export interface StillWindow {
 
 /** Where a redirect is performed. Injectable so the engine stays side-effect-free and testable. */
 export interface RedirectPort {
-  replace(url: string): void;
+  /** Omitted mode retains legacy replacement; consumed pushes preserve the origin entry. */
+  replace(url: string, mode?: "push"): void;
 }
 
 export function locationRedirectPort(win: StillWindow): RedirectPort {
-  return { replace: (url) => win.location.replace(url) };
+  return {
+    replace: (url, mode) => {
+      if (mode === "push") {
+        if (!win.location.assign)
+          throw new TypeError("Push navigation requires location.assign");
+        win.location.assign(url);
+      } else win.location.replace(url);
+    },
+  };
 }
 
 /**
@@ -60,7 +74,7 @@ export function locationRedirectPort(win: StillWindow): RedirectPort {
 export function installNavigationHooks(
   win: StillWindow,
   onNavigate: () => void,
-  beforeNavigate?: (target: URL) => boolean,
+  beforeNavigate?: (target: URL, mode: "push" | "replace") => boolean,
   doc?: Document,
 ): () => void {
   const history = win.history;
@@ -82,23 +96,26 @@ export function installNavigationHooks(
       return null;
     }
   };
-  const historyConsumed = (value: string | URL | null | undefined): boolean => {
+  const historyConsumed = (
+    value: string | URL | null | undefined,
+    mode: "push" | "replace",
+  ): boolean => {
     const url = targetUrl(value);
     // Preserve native cross-origin history rejection instead of upgrading it to a redirect.
     return (
       !!url &&
       url.origin === new URL(win.location.href).origin &&
-      beforeNavigate?.(url) === true
+      beforeNavigate?.(url, mode) === true
     );
   };
 
   const wrappedPush: HistoryLike["pushState"] = (data, unused, url) => {
-    if (beforeNavigate && historyConsumed(url)) return;
+    if (beforeNavigate && historyConsumed(url, "push")) return;
     origPush(data, unused, url);
     onNavigate();
   };
   const wrappedReplace: HistoryLike["replaceState"] = (data, unused, url) => {
-    if (beforeNavigate && historyConsumed(url)) return;
+    if (beforeNavigate && historyConsumed(url, "replace")) return;
     origReplace(data, unused, url);
     onNavigate();
   };
@@ -117,7 +134,12 @@ export function installNavigationHooks(
       !event?.defaultPrevented &&
       event?.cancelable === true &&
       event.preventDefault &&
-      beforeNavigate?.(url)
+      beforeNavigate?.(
+        url,
+        !event.navigationType || event.navigationType === "push"
+          ? "push"
+          : "replace",
+      )
     ) {
       event.preventDefault();
       return;
@@ -159,7 +181,7 @@ export function installNavigationHooks(
     )
       return;
     const url = targetUrl(anchor.href);
-    if (url && beforeNavigate(url)) {
+    if (url && beforeNavigate(url, "push")) {
       event.preventDefault();
       event.stopImmediatePropagation();
     }

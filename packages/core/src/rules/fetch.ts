@@ -26,16 +26,19 @@ export type RuleSetFor<F extends RuleFormat> = F extends 2
   : SignedRuleSet;
 export type AnySignedRuleSet = SignedRuleSet | SignedRuleSetV2;
 
-export interface FetchConfig<F extends RuleFormat = 1> {
-  /** Internal packaged lane. Omitted preserves the existing format1 channel. */
+/** Only the legacy channel permits omission; a format2 result requires explicit admission. */
+export type RuleFormatSelection<F extends RuleFormat> = {
   readonly format?: F;
+} & (F extends 2 ? { readonly format: 2 } : unknown);
+
+export type FetchConfig<F extends RuleFormat = 1> = RuleFormatSelection<F> & {
   readonly endpoint: RuleSetEndpoint;
   readonly allowedKeys: readonly TrustedKey[];
   readonly minVersion: string;
   readonly fetchImpl?: typeof fetch;
   readonly timeoutMs?: number;
   readonly maxBytes?: number;
-}
+};
 
 const DEFAULT_TIMEOUT_MS = 4000;
 const DEFAULT_MAX_BYTES = 256 * 1024;

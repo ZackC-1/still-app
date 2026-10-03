@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_SETTINGS, type SignedRuleSet } from "@still/shared-types";
+import {
+  DEFAULT_SETTINGS,
+  type SignedRuleSet,
+  type SignedRuleSetV2,
+} from "@still/shared-types";
+import type { NavigationEventLike } from "../redirect.js";
 import { createContentScript, type ContentScriptHandle } from "../index.js";
 import { AtomicSettingsWriter } from "../../storage/atomic-settings.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
@@ -38,7 +43,7 @@ function player(id: string) {
   });
   return { el, pause, play };
 }
-async function host() {
+async function host(href = url.href, bundle: SignedRuleSetV2 = ruleSet) {
   const store = new InMemoryStorageAdapter({
     ...DEFAULT_SETTINGS,
     updatedAt: 1,
@@ -46,24 +51,105 @@ async function host() {
   const writer = new AtomicSettingsWriter(store);
   await writer.initialize("never-linked");
   const cache = new SettingsCache(store);
+  let navigate: ((event?: NavigationEventLike) => void) | undefined;
   const script = createContentScript({
     win: {
-      location: { href: url.href, replace: vi.fn() },
+      location: { href, replace: vi.fn() },
       history: { pushState: vi.fn(), replaceState: vi.fn() },
       addEventListener: vi.fn(),
       removeEventListener: vi.fn(),
       MutationObserver: window.MutationObserver,
+      navigation: {
+        addEventListener: (name, handler) => {
+          if (name === "navigate") navigate = handler;
+        },
+        removeEventListener: (name) => {
+          if (name === "navigate") navigate = undefined;
+        },
+      },
     },
     doc: document,
     ruleSet: seed as unknown as SignedRuleSet,
-    ruleSetV2: ruleSet,
+    ruleSetV2: bundle,
     cache,
   });
   scripts.push(script);
   await script.start();
-  return { script, writer };
+  return {
+    script,
+    writer,
+    navigate: (target: string) => {
+      const preventDefault = vi.fn();
+      navigate?.({
+        destination: { url: target },
+        isTrusted: true,
+        cancelable: true,
+        preventDefault,
+      });
+      return preventDefault;
+    },
+  };
 }
 describe("owned modern hidden media", () => {
+  it.each([
+    "https://unrelated.example/ordinary",
+    "https://www.youtube.com/watch?v=ordinary",
+  ])(
+    "an uncommitted allowed navigation to %s preserves the current hidden player's quieting",
+    async (target) => {
+      vi.useFakeTimers();
+      document.body.innerHTML =
+        '<div class="shorts"><video id="hidden"></video></div>';
+      const hidden = player("hidden");
+      const h = await host();
+      expect(hidden.pause).toHaveBeenCalledOnce();
+      expect(h.navigate(target)).not.toHaveBeenCalled();
+      await hidden.play();
+      hidden.el.dispatchEvent(new Event("timeupdate"));
+      await vi.advanceTimersByTimeAsync(75);
+      expect(hidden.pause).toHaveBeenCalledTimes(2);
+      expect(hidden.el.paused).toBe(true);
+      await h.writer.commit({ path: "globalOn", value: false, updatedAt: 2 });
+      await hidden.play();
+      expect(hidden.el.paused).toBe(false);
+      expect(hidden.pause).toHaveBeenCalledTimes(2);
+      h.script.stop();
+      await vi.advanceTimersByTimeAsync(75);
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+  it("a consumed same-home Reels navigation keeps current media quiet without a URL transition", async () => {
+    document.body.innerHTML =
+      '<div class="shorts"><video id="hidden"></video></div>';
+    const hidden = player("hidden");
+    const bundle: SignedRuleSetV2 = {
+      ...ruleSet,
+      services: {
+        facebook: {
+          matches: ["*://*.facebook.com/*"],
+          surfaces: [
+            {
+              id: "fixture-reels",
+              feature: "facebook.reels",
+              action: "hide",
+              selectors: [".shorts"],
+            },
+          ],
+        },
+      },
+    };
+    const h = await host("https://www.facebook.com/", bundle);
+    expect(hidden.pause).toHaveBeenCalledOnce();
+    expect(
+      h.navigate("https://www.facebook.com/reels/"),
+    ).toHaveBeenCalledOnce();
+    await hidden.play();
+    expect(hidden.pause).toHaveBeenCalledTimes(2);
+    h.script.stop();
+    await hidden.play();
+    expect(hidden.el.paused).toBe(false);
+    expect(hidden.pause).toHaveBeenCalledTimes(2);
+  });
   it("construction and Off own no media listeners; activation and stop attach and release exactly once", () => {
     const add = vi.spyOn(document, "addEventListener"),
       remove = vi.spyOn(document, "removeEventListener");
@@ -190,8 +276,11 @@ describe("owned modern hidden media", () => {
     expect(s.ownsHiddenMedia?.(media)).toBe(false);
     s.applyDom(on, url, document, { access, capabilities });
     expect(s.ownsHiddenMedia?.(media)).toBe(true);
-    const sheet = document.querySelector('style')!.sheet!;
-    sheet.disabled = true; expect(s.ownsHiddenMedia?.(media)).toBe(false); expect(s.activeMediaKey?.()).toBe(''); sheet.disabled = false;
+    const sheet = document.querySelector("style")!.sheet!;
+    sheet.disabled = true;
+    expect(s.ownsHiddenMedia?.(media)).toBe(false);
+    expect(s.activeMediaKey?.()).toBe("");
+    sheet.disabled = false;
     document.querySelector("style")!.remove();
     expect(s.ownsHiddenMedia?.(media)).toBe(false);
     s.stop?.();
