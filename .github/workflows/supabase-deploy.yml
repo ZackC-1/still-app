@@ -1,0 +1,124 @@
+name: Supabase exact operation foundation
+
+on:
+  pull_request:
+    paths:
+      - "scripts/backend/**"
+      - "supabase/**"
+      - ".github/workflows/supabase-deploy.yml"
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: "Synthetic verification only; real production authority is unavailable"
+        required: true
+        default: synthetic
+        type: choice
+        options:
+          - synthetic
+          - production-unavailable
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-exact-operation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  preview:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      production-ready: ${{ steps.authority.outputs.production-ready }}
+    # Public source tests and previews have no environment or provider/write credentials.
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6.1.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.8.3"
+      - name: Install existing workflow parser dependency
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter .
+      - name: Verify exact-operation negative controls
+        run: node --test scripts/backend/plan.test.mjs scripts/backend/approved-operation.test.mjs scripts/backend/entrypoints.test.mjs
+      - name: Fail closed before scheduling any production environment
+        id: authority
+        env:
+          REQUESTED_OPERATION: ${{ inputs.operation }}
+        run: |
+          echo 'production-ready=false' >> "$GITHUB_OUTPUT"
+          echo 'Production unavailable: no actual protected environment, reconciled content baseline, exact tested production operation or owner approval is supplied.' >> "$GITHUB_STEP_SUMMARY"
+          if [ "$REQUESTED_OPERATION" = production-unavailable ]; then
+            node scripts/backend/approved-operation.mjs production-unavailable
+          fi
+
+  synthetic:
+    needs: preview
+    if: github.event_name == 'pull_request' || inputs.operation == 'synthetic'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    # No production environment, credentials or customer data; fresh cloud runner only.
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: "2.8.3"
+      - uses: supabase/setup-cli@v1
+        with:
+          version: "2.119.0"
+      - name: Verify pinned tools
+        run: |
+          test "$(supabase --version)" = '2.119.0'
+          deno --version
+          sha256sum "$(command -v supabase)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Preview immutable real-source synthetic rehearsal
+        id: plan
+        run: |
+          revision=$(git rev-parse HEAD)
+          digest=$(node scripts/backend/plan.mjs create "$revision" synthetic-github-runner "$RUNNER_TEMP/u1-plan.json")
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "Synthetic rehearsal: source $revision; artifact $digest" >> "$GITHUB_STEP_SUMMARY"
+      - name: Reuse actual isolated migration and handler rehearsal
+        env:
+          REVISION: ${{ steps.plan.outputs.revision }}
+          PLAN_DIGEST: ${{ steps.plan.outputs.digest }}
+        run: bash scripts/backend/rehearse.sh "$REVISION" "$PLAN_DIGEST"
+      - name: Exercise exact CAS, readback, partial failure and newly bound forward repair
+        run: node scripts/backend/approved-operation.mjs cloud-synthetic >> "$GITHUB_STEP_SUMMARY"
+      - name: Failure and cancellation cleanup
+        if: always()
+        run: |
+          supabase stop --project-id still-app --no-backup
+          test -z "$(docker ps -a --filter 'name=^/supabase_db_still-app$' --format '{{.ID}}')"
+          test -z "$(docker volume ls --filter 'name=^supabase_db_still-app$' --format '{{.Name}}')"
+
+  protected-apply:
+    needs: preview
+    # Sealed unavailable. Naming an environment can auto-create it: never schedule until an
+    # integrated authority proves its actual existence/protection BEFORE reaching this job.
+    # This source slice cannot emit true and references no production secret at any scope.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && needs.preview.outputs.production-ready == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: supabase-production
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Refuse missing exact production adapter and authority
+        run: node scripts/backend/approved-operation.mjs production-unavailable

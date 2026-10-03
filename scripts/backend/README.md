@@ -50,7 +50,7 @@ This is administrator synthetic evidence only. This login never appears in produ
 configuration. Local driver/check success and ignored SQL tests do not establish a cloud SQL
 pass or production execution-role readiness.
 
-Before a production candidate can be assigned or a protected apply job built:
+Before a production candidate can be assigned or protected production apply enabled:
 
 1. Run [inventory.sql](sql/inventory.sql) in the actual hosted SQL editor as a read-only owner action. It is a single SELECT returning bounded JSON for the SQL editor,
    supports older membership catalogs, and reports possibly truncated sections.
@@ -111,3 +111,104 @@ Deno is pinned to [2.8.3](https://github.com/denoland/deno/releases/tag/v2.8.3);
 [setup-deno](https://github.com/denoland/setup-deno) accepts exact version inputs.
 The [GitHub-hosted runner reference](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
 lists Ubuntu 24.04. The rehearsal records the actual CLI binary SHA-256 before execution.
+
+## Exact-operation source foundation
+
+`supabase-deploy.yml` adds a credential-free preview and cloud synthetic lifecycle alongside a
+sealed `protected-apply` source job. Its readiness output is always `false`, its production command
+always refuses, and it references no production secret. The environment name in the skipped job is
+a source placeholder, not evidence an environment exists. Never enable it just by changing that
+output: the actual target, protection, historical-content baseline, tested operation and authority
+integration below are still missing. A skipped protected job is unavailable, not successful approval.
+
+The existing rehearsal remains unchanged. The new workflow first runs its real migrations,
+SQL assertions, pgTAP and handler controls against synthetic data in a disposable cloud runtime.
+Then `approved-operation.mjs cloud-synthetic` creates a second disposable runtime, applies the real
+migrations, and exercises a dedicated `cp033_fixture` SQL row. This fixture is not the production
+security catalogue or deployment ledger. Its two fixed operations retain the denied-role boundary
+and record verification; callers cannot supply SQL, commands, function names or database URLs.
+
+Before any synthetic write, the preview binds the immutable revision, all rehearsal source bytes
+(including the new workflow), manifest artifact digest, exact fixed operation subset, observed SQL
+baseline and GitHub run/attempt. The apply path rehashes source, compares intervening state, locks
+the SQL row and compares the complete baseline within the write transaction. After each step it
+reads the row and verifies actual denied schema/table privileges. Exit status alone is insufficient.
+Changes invalidate the operation digest. The generic in-memory adapters in unit tests are only
+test doubles; the callable cloud adapter uses actual PostgreSQL transactions and readbacks.
+
+The cloud negative control commits the first step, deliberately fails the second transaction,
+confirms the retained state, and stops the old operation. A new synthetic preview binds that actual
+partial state for the remaining forward step. This is a simulated review, never owner approval.
+It also injects an independent SQL write between read and locked apply, requiring the database CAS
+to reject that operation before confirming any step.
+Cleanup runs in the helper's `finally` and the workflow's `always()` step; both assert removal of
+the database container and data volume. Cloud execution still requires actual hosted CI evidence.
+Local Node tests do not pass these SQL or cleanup gates.
+
+Run the meaningful local contract controls with:
+
+```bash
+node --test scripts/backend/plan.test.mjs scripts/backend/approved-operation.test.mjs scripts/backend/entrypoints.test.mjs
+```
+
+The helper refuses `cloud-synthetic` on the owner Mac before invoking Docker or Supabase. Real
+production execution is unavailable on every host. The source has no production adapter or
+credential acquisition callback; neither plan nor public PR jobs can request writer credentials.
+
+## Production integration and exact remaining evidence
+
+Complete these gates within the existing protected authority before proposing a real apply:
+
+1. **Actual GitHub protection:** Reverify the real environment identity and sole owner required
+   reviewer, trusted `main` branch policy, environment-only credential scope and actual bypass
+   settings. Do not auto-create an environment from a YAML reference. The read-only
+   `readGitHubProtection` collector checks the documented environment, branch-policy, workflow-run
+   and review-history endpoints; missing permissions/fields, extra allowed reviewers or branches,
+   wrong source or a non-exact approval fail. It makes only unauthenticated public GET requests.
+   It cannot certify disabled administrator bypass: the official environment response schema does
+   not include that field. Obtain direct current GitHub configuration attestation; never invent a
+   REST property or interpret absence as disabled. Collector success still returns
+   `productionReady: false`, and cannot unlock the production refusal.
+2. **Exact real target and audited baseline:** Supply the privately reconciled target identity,
+   actual migration/function inventory, legitimate creator/role/provider paths and trustworthy
+   applied-content provenance. Historical migration names/list/dry-run and current routine hashes
+   alone do not prove originally applied bytes. Keep raw descriptors, private hashes and customer
+   records outside public plans/logs/artifacts. No baseline is synthesized from missing history.
+3. **Concrete tested operation:** Assign the unique next migration only after that inventory, define
+   the exact migration/function artifacts and tool versions, rehearse compatibility and intended
+   authorized/denied behavior, then bind approved expected state and post-change readbacks. Runtime
+   secrets remain owner-manual; unchanged function redeployment still needs its own approval.
+4. **Actual owner approval and credentials boundary:** Display the exact tested plan privately and
+   obtain the owner review of that run/operation. The collector's bounded exact review comment is
+   `CP033 <operation-digest>`, tied to the environment ID, owner ID, run ID, revision and repository.
+   An approval-looking caller JSON, synthetic receipt or merge is never authority. Only after
+   actual required-reviewer protection and trusted target/ref/state checks may an integrated
+   protected job receive environment-only least-privilege production credentials. Public jobs must
+   retain no production/write secret references. Recheck the actual protections and baseline before
+   writing; drift requires a new preview and approval.
+
+GitHub documents that environment secrets remain unavailable until a required reviewer approves
+the environment job in its [environment reference](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments).
+The readback fields and endpoints are documented in the official
+[environment API](https://docs.github.com/en/rest/deployments/environments),
+[branch-policy API](https://docs.github.com/en/rest/deployments/branch-policies),
+[workflow-run/review-history API](https://docs.github.com/en/rest/actions/workflow-runs), and
+[public OpenAPI schema](https://github.com/github/rest-api-description/blob/main/descriptions/api.github.com/api.github.com.json).
+No custom approval service or plan upgrade is needed. GitHub's supported `prevent_self_review`
+field is reported as an observation; enabling it is not required by this contract.
+
+## Partial failure and forward repair
+
+Stop at the first failed apply, source/state mismatch or missing readback. Record only the reviewed
+operation ID, exact attempted/confirmed subset, verification outcomes and known/unknown state;
+retain raw operational evidence privately. A failed command can have committed changes, so never
+infer rollback from failure. The helper records a state digest only after an actual read and reports
+security as observed only after actual verification. Missing readback remains unknown.
+
+Keep payment activation disabled and preserve the tightened privilege boundary, valid rights and
+settings data. Do not restore old grants or delete entitlement/settings rows. Inspect actual
+migration/function state, prepare a forward repair bound to that observed state, rerun relevant
+positive/negative rehearsal and compatibility tests, then obtain a new exact owner approval.
+Resume only the reviewed remaining steps and verify final authorized/denied behavior. If the
+state or safe repair cannot be proven, leave apply unavailable and recover through the reviewed
+incident process. This contract makes no universally lossless rollback promise.
