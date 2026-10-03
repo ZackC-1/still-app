@@ -113,7 +113,7 @@ with recursive clients as (
       and p.oid not in (select oid from approved_providers))
     or exists (select 1 from still_security.approved_provider_routines a where not exists (
       select 1 from approved_providers p
-      where a.descriptor = p.descriptor)))
+      where a.descriptor = p.descriptor))
   union all select 'unresolved_creator' where exists (
     select 1 from still_security.reconciled_creators c left join pg_catalog.pg_roles r on r.rolname = c.role_name
     where r.oid is null)
