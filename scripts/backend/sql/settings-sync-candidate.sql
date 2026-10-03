@@ -250,6 +250,12 @@ begin
       pg_catalog.jsonb_build_object('baseRevision',p_next->'clocks'->field->'baseRevision','localStep',p_next->'clocks'->field->'localStep'));
   end loop;
   p_next := pg_catalog.jsonb_set(raw_next - 'pauses','{clocks}',stamps);
+  -- Raw opaque numerics can be longer than the driver's rounded view. Validate
+  -- the final preserving document before any profile write; caller rolls back
+  -- the identity claim and exposes only the trusted typed bounds signal.
+  if not private.settings_canonical_valid(p_next,p_revision+1) then
+    raise exception 'settings write bounds' using errcode='PST01';
+  end if;
   t := pg_catalog.to_timestamp((p_next->>'updatedAt')::double precision/1000);
   insert into public.profiles(id,settings,updated_at,settings_version,settings_server_updated_at,settings_last_write_id)
     values(p_subject,p_next,t,p_revision+1,t,p_id)

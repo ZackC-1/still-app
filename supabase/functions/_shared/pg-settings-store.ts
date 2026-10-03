@@ -1,4 +1,4 @@
-import type postgres from "postgres";
+import postgres from "postgres";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { createSettingsAnchorIdentity } from "./settings-anchor.ts";
 import {
@@ -88,6 +88,11 @@ export class PgSettingsStore implements SettingsStore {
     } catch (error) {
       // begin has rolled back before this trusted, parameter-free signal escapes.
       if (error instanceof SettingsWriteHold) throw error;
+      // The private commit helper raises only this parameter-free code for a final
+      // raw canonical hold. begin has already rolled back the claimed identity.
+      if (error instanceof postgres.PostgresError && error.code === "PST01") {
+        throw new SettingsWriteHold("bounds");
+      }
       // postgres errors may contain SQL parameters and the private key. Never send/log them.
       throw new Error("Settings storage unavailable");
     }

@@ -50,7 +50,7 @@ export STILL_SETTINGS_SERVED_URL='http://127.0.0.1:54321/functions/v1/sync-setti
 # The test polls an authenticated canonical read carrying the exact process marker;
 # an old gateway/runtime's arbitrary HTTP response cannot satisfy readiness.
 kill -0 "$serve_pid"
-deno test --frozen --config supabase/functions/deno.json --allow-env --allow-net=127.0.0.1:54321,127.0.0.1:54322 --filter 'U3 actual Supabase CLI' supabase/tests/settings_sync_test.ts
+deno test --frozen --config supabase/functions/deno.json --allow-env --allow-net=127.0.0.1:54321,127.0.0.1:54322 --filter 'U3 actual Supabase CLI' supabase/tests/settings_sync_served_test.ts
 node scripts/backend/plan.mjs verify "$1" synthetic-github-runner "$RUNNER_TEMP/u3-plan.json" "$2"
 if [[ ${STILL_SETTINGS_REHEARSAL_WAIT_FOR_CANCEL:-} == true ]]; then
   # The separate hosted cancellation probe waits until this exact CLI process has

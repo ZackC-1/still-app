@@ -241,6 +241,9 @@ guard this compatibility boundary. Modern SQL applies known values/stamp coordin
 original database JSON; opaque numeric and stamp members are not rewritten through JavaScript's
 rounded representation. The CAS baseline uses original database JSON text. Numbers outside the
 shared numeric domain return a typed hold.
+The final PostgreSQL overlay is validated again against the complete canonical grammar
+before the profile write. A bounds hold rolls back the claimed identity as well as the
+profile mutation, so an unchanged request can retry when independently retained data fits.
 
 Authenticated bodies are limited to 16 KiB and five seconds; abort starts reader cancellation
 and always releases its lock. Settings transactions use one-second lock, two-second statement
@@ -257,7 +260,12 @@ Supabase CLI function serve with function-specific import aliases. Runtime sourc
 `supabase/functions` is included in the immutable plan digest and checked against Deno's actual
 resolved graph, including dropped/added dependency controls and the pinned CLI's raw-specifier
 aliases. Authenticated readiness must carry the exact env-file process marker; invalid JWT
-requests must be rejected before that marked function process. EXIT and final workflow cleanup
+requests must be rejected before that marked function process. The function-specific external
+imports pin the reviewed versions in the shared Deno lock, and the actual resolved dependency
+graph is checked against that lock. SQL lifecycle and served CLI assertions live in separate
+`settings_sync_test.ts` and `settings_sync_served_test.ts` files. The measured twenty-field write
+asserts every value and stamp, exactly one revision increment, durable readback, and unchanged
+retained identity/profile state throughout the measured exact retries. EXIT and final workflow cleanup
 read back the targeted container/volume labels; passing normal cleanup does not prove the
 cancellation path unless cancellation was actually exercised. A separate hosted TERM probe
 waits for the authenticated CLI contract, then checks process and targeted runtime removal.

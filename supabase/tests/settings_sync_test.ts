@@ -24,6 +24,8 @@ import {
   verifySettingsDriverJSON,
   verifySettingsLegacyOwnerGrants,
   verifySettingsLimiterBuckets,
+  verifySettingsRawOverlayBounds,
+  verifySettingsTwentyFieldWrite,
 } from "./settings_sync_sql_cases.ts";
 const cloud = Deno.env.get("GITHUB_ACTIONS") === "true" &&
   Deno.env.get("RUNNER_ENVIRONMENT") === "github-hosted";
@@ -579,6 +581,10 @@ Deno.test({
         },
       );
       await t.step(
+        "final preserving raw overlay holds atomically at the byte boundary",
+        () => verifySettingsRawOverlayBounds(fixture, writer),
+      );
+      await t.step(
         "actual raw numeric JSON survives modern CAS and winning stamp overlay",
         async () => {
           const exact = "0.100000000000000000000000000001";
@@ -637,23 +643,7 @@ Deno.test({
             assert(resources[0].connections <= 4);
           }
           await measure("read", () => read(B), 20);
-          const initial = await read(B);
-          const request = parsed(
-            write(
-              initial,
-              SETTINGS_FIELDS.map((path) => [path, false]),
-              initial.settingsVersion,
-            ),
-          );
-          await measure(
-            "twenty-field-write",
-            () => syncSettings(store, B, request),
-          );
-          await measure(
-            "exact-retry",
-            () => syncSettings(store, B, request),
-            10,
-          );
+          await verifySettingsTwentyFieldWrite(store, fixture, B, measure);
           const payload = JSON.parse(JSON.stringify((await read(B)).settings));
           payload.futurePadding = [];
           while (
@@ -966,204 +956,5 @@ Deno.test({
         }
       }
     }
-  },
-});
-Deno.test({
-  name:
-    "U3 actual Supabase CLI packaged function authenticates narrow own-row read/write",
-  ignore: !cloud || !Deno.env.get("STILL_SETTINGS_SERVED_URL"),
-  async fn() {
-    const endpoint = Deno.env.get("STILL_SETTINGS_SERVED_URL")!;
-    assertEquals(endpoint, "http://127.0.0.1:54321/functions/v1/sync-settings");
-    const secret = Deno.env.get("STILL_SETTINGS_CLI_JWT_SECRET")!;
-    const metrics: {
-      status: number;
-      requestBytes: number;
-      responseBytes: number;
-      elapsedMs: number;
-    }[] = [];
-    const bearer = await token(A, secret, "http://kong:8000/auth/v1");
-    async function send(body: unknown, auth = bearer, signal?: AbortSignal) {
-      const requestBody = JSON.stringify(body);
-      const start = performance.now();
-      const deadline = new AbortController();
-      const timer = setTimeout(() => deadline.abort(), 2000);
-      try {
-        const response = await fetch(endpoint, {
-          method: "POST",
-          headers: {
-            authorization: `Bearer ${auth}`,
-            "content-type": "application/json",
-          },
-          body: requestBody,
-          signal: signal
-            ? AbortSignal.any([signal, deadline.signal])
-            : deadline.signal,
-        });
-        const text = await response.text();
-        metrics.push({
-          status: response.status,
-          requestBytes: new TextEncoder().encode(requestBody).length,
-          responseBytes: new TextEncoder().encode(text).length,
-          elapsedMs: performance.now() - start,
-        });
-        const data = JSON.parse(text);
-        return {
-          status: response.status,
-          data,
-          instance: response.headers.get("x-still-settings-rehearsal"),
-        };
-      } finally {
-        clearTimeout(timer);
-        deadline.abort();
-      }
-    }
-    const instance = Deno.env.get("STILL_SETTINGS_REHEARSAL_INSTANCE");
-    assert(instance);
-    let ready = false;
-    for (let attempt = 0; attempt < 60; attempt++) {
-      try {
-        const probe = await send({ protocol: 2, action: "read" });
-        if (
-          probe.status === 200 && probe.instance === instance &&
-          probe.data.status === "ready"
-        ) {
-          ready = true;
-          break;
-        }
-      } catch { /* bounded startup poll */ }
-      await new Promise((r) => setTimeout(r, 500));
-    }
-    assert(ready, "authenticated exact served instance did not become ready");
-    const gateway = await send({ protocol: 2, action: "read" }, "invalid");
-    assertEquals(gateway.status, 401);
-    assertEquals(
-      gateway.instance,
-      null,
-      "gateway must reject before function process",
-    );
-    assert(
-      gateway.data.error !== "unauthorized",
-      "function-layer 401 cannot prove gateway verification",
-    );
-    const read = await send({ protocol: 2, action: "read" });
-    assertEquals(read.status, 200);
-    assertEquals(read.data.status, "ready");
-    const request = write(
-      read.data,
-      [["globalOn", false]],
-      read.data.settingsVersion,
-    );
-    const accepted = await send(request);
-    assertEquals(accepted.status, 200);
-    assertEquals(accepted.data.settings.globalOn, false);
-    assertEquals((await send(request)).data, accepted.data);
-    const other = await token(B, secret, "http://kong:8000/auth/v1");
-    assertEquals((await send(request, other)).status, 409);
-    for (let i = 0; i < 10; i++) {
-      const maximum = await send({ protocol: 2, action: "read" }, other);
-      assertEquals(maximum.status, 200);
-      assert(maximum.data.settings.futurePadding.length >= 7);
-    }
-    const fixture = connection(
-      url!,
-      "u1_catalog_fixture",
-      "u1-synthetic-fixture-only",
-    );
-    let cancelledMetric: unknown;
-    try {
-      const baseline = Number(
-        (await fixture`select count(*)::int as n from pg_catalog.pg_stat_activity where usename='still_settings_writer'`)[
-          0
-        ].n,
-      );
-      let entered!: () => void;
-      let release!: () => void;
-      const began = new Promise<void>((r) => entered = r);
-      const resume = new Promise<void>((r) => release = r);
-      const blocker = fixture.begin(async (tx) => {
-        await tx`select id from auth.users where id=${B} for update`;
-        entered();
-        await resume;
-      });
-      await began;
-      const abort = new AbortController();
-      const pending = send(
-        { protocol: 2, action: "read" },
-        other,
-        abort.signal,
-      );
-      void pending.catch(() => {});
-      try {
-        let waiting = false;
-        for (let i = 0; i < 50; i++) {
-          if (
-            (await fixture`select count(*)::int as n from pg_catalog.pg_stat_activity where usename='still_settings_writer' and wait_event_type='Lock'`)[
-              0
-            ].n > 0
-          ) {
-            waiting = true;
-            break;
-          }
-          await new Promise((r) => setTimeout(r, 10));
-        }
-        assert(
-          waiting,
-          "served request must reach an observed database lock wait",
-        );
-        const start = performance.now();
-        abort.abort();
-        await assertRejects(() => pending);
-        let released = false;
-        for (let i = 0; i < 100; i++) {
-          if (
-            (await fixture`select count(*)::int as n from pg_catalog.pg_stat_activity where usename='still_settings_writer' and state in ('active','idle in transaction')`)[
-              0
-            ].n === 0
-          ) {
-            released = true;
-            break;
-          }
-          await new Promise((r) => setTimeout(r, 20));
-        }
-        assert(
-          released,
-          "aborted served request must release within configured database deadlines",
-        );
-        assert(
-          Number(
-            (await fixture`select count(*)::int as n from pg_catalog.pg_stat_activity where usename='still_settings_writer'`)[
-              0
-            ].n,
-          ) <= baseline,
-        );
-        cancelledMetric = {
-          elapsedMs: performance.now() - start,
-          fetchAborted: true,
-          transactionsReleased: true,
-          releaseCause:
-            "request abort or configured lock deadline; not distinguished",
-        };
-      } finally {
-        abort.abort();
-        release();
-        await blocker;
-        await pending.catch(() => {});
-      }
-      assertEquals(
-        (await send({ protocol: 2, action: "read" }, other)).status,
-        200,
-      );
-    } finally {
-      await fixture.end();
-    }
-    console.log(
-      JSON.stringify({
-        syntheticServedSettingsMetrics: metrics,
-        cancelledMetric,
-        units: "milliseconds",
-        latencyThresholds: false,
-      }),
-    );
   },
 });

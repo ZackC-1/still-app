@@ -31,6 +31,20 @@ test("actual Deno closure binds every dependency and pinned CLI raw resolution",
       { encoding: "utf8" },
     ),
   );
+  // CLI serve selects this nearest function config, independently of the frozen
+  // root check. Every external alias must pin the root lock's reviewed version.
+  const lock = JSON.parse(await readFile(join(root, "supabase/functions/deno.lock"), "utf8"));
+  const rootImports = JSON.parse(await readFile(join(root, "supabase/functions/deno.json"), "utf8")).imports;
+  for (const [alias, specifier] of Object.entries(rootImports)) {
+    if (!specifier.startsWith("npm:") && !specifier.startsWith("jsr:")) continue;
+    const match = /^(npm:|jsr:)(@?[^@]+)@([^/]+)(.*)$/.exec(specifier);
+    assert(match, alias);
+    const [, protocol, name, range, suffix] = match;
+    const version = lock.specifiers[`${protocol}${name}@${range}`];
+    assert(version, `Missing reviewed lock version: ${alias}`);
+    assert.equal(imports[alias], `${protocol}${name}@${version}${suffix}`, alias);
+  }
+  assert.deepEqual(Object.keys(graph.npmPackages).sort(), Object.keys(lock.npm).sort());
   assert.deepEqual(
     assertSettingsRuntimeClosure(graph, root, imports, mapPath),
     [...settingsRuntimeSources].sort(),
