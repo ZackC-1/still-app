@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createTiktokTabAuthority } from "../tiktok-tab-authority.js";
+import { createTiktokTabAuthority, type TiktokTabAuthorityDeps } from "../tiktok-tab-authority.js";
 import {
   ruleSet,
   on,
@@ -16,6 +16,7 @@ afterEach(async () => {
 
 function host() {
   const records = new Map<number, unknown>();
+  const pending = new Map<number, unknown>();
   const living = new Set([7, 8]);
   let settings = on;
   const confirm = vi.fn(async () => true);
@@ -27,8 +28,11 @@ function host() {
     remove: vi.fn(async (id: number) => {
       records.delete(id);
     }),
+    getPending: vi.fn(async (id: number) => pending.get(id)),
+    setPending: vi.fn(async (id: number) => { pending.set(id, true); }),
+    removePending: vi.fn(async (id: number) => { pending.delete(id); }),
   };
-  const readCommitted = vi.fn(async () => ({
+  const readCommitted = vi.fn<TiktokTabAuthorityDeps["readCommitted"]>(async () => ({
     settings,
     options: { access, capabilities },
   }));
@@ -45,11 +49,14 @@ function host() {
   }
   return {
     records,
+    pending,
     living,
     store,
     confirm,
     create,
     readCommitted,
+    resume: () => { settings = on; },
+    masterOff: () => { settings = { ...on, globalOn: false }; },
     off: () => {
       settings = { ...on, services: { ...on.services, tiktok: false } };
     },
@@ -206,5 +213,113 @@ describe("one living top-level TikTok tab authority", () => {
     expect(await owner.isAllowed(context)).toBe(false);
     h.records.clear(); // browser-session loss/restart, not a saved-choice mutation.
     expect(await h.create(false).isAllowed(context)).toBe(false);
+  });
+  it("failed readback and rollback cannot reuse an unfinished grant in this or a reopened owner", async () => {
+    const h = host(), owner = h.create();
+    h.store.get.mockImplementationOnce(async () => undefined).mockRejectedValueOnce(new Error("readback lost"));
+    h.store.remove.mockRejectedValueOnce(new Error("rollback unavailable"));
+    expect(await owner.allow(context)).toBe(false);
+    expect(h.records.get(7)).toBe(true);
+    expect(await owner.isAllowed(context)).toBe(false);
+    await owner.stop();
+    expect(await h.create(false).isAllowed(context)).toBe(false);
+  });
+  it("stop during a held write retains an unfinished fence after failed rollback and reopen", async () => {
+    const h = host(), owner = h.create();
+    let release!: () => void, writing!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const entered = new Promise<void>(resolve => { writing = resolve; });
+    h.store.set.mockImplementationOnce(async (id, value) => { writing(); await held; h.records.set(id, value); });
+    h.store.remove.mockRejectedValueOnce(new Error("rollback unavailable"));
+    const pending = owner.allow(context); await entered;
+    const stopped = owner.stop(); release();
+    expect(await pending).toBe(false); await stopped;
+    expect(h.records.get(7)).toBe(true);
+    expect(await h.create(false).isAllowed(context)).toBe(false);
+  });
+  it.each(["service Off", "master Off", "null", "rejected"])("completed grants require current committed settings: %s", async mode => {
+    const h = host(), owner = h.create(); expect(await owner.allow(context)).toBe(true);
+    if (mode === "service Off") h.off();
+    if (mode === "master Off") h.masterOff();
+    if (mode === "null") h.readCommitted.mockResolvedValueOnce(null);
+    if (mode === "rejected") h.readCommitted.mockRejectedValueOnce(new Error("unavailable"));
+    expect(await owner.isAllowed(context)).toBe(false);
+    expect(h.records.get(7)).toBe(true); expect(h.pending.size).toBe(0);
+    h.resume(); expect(await owner.isAllowed(context)).toBe(true);
+  });
+  it("an Off committed during a held completed-grant read denies while retaining that grant", async () => {
+    const h = host(), owner = h.create(); expect(await owner.allow(context)).toBe(true);
+    let release!: () => void, reading!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const entered = new Promise<void>(resolve => { reading = resolve; });
+    h.store.get.mockImplementationOnce(async id => { reading(); await held; return h.records.get(id); });
+    const pending = owner.isAllowed(context); await entered; h.off(); release();
+    expect(await pending).toBe(false); expect(h.records.get(7)).toBe(true);
+    h.resume(); expect(await owner.isAllowed(context)).toBe(true);
+  });
+  it("same-tab queued confirmation cannot enter while the first confirmation is actually held", async () => {
+    const h = host(), owner = h.create();
+    let release!: (value: boolean) => void, confirming!: () => void;
+    const held = new Promise<boolean>(resolve => { release = resolve; });
+    const entered = new Promise<void>(resolve => { confirming = resolve; });
+    h.confirm.mockImplementationOnce(async () => { confirming(); return held; });
+    const first = owner.allow(context); await entered;
+    const second = owner.allow(context); await Promise.resolve(); await Promise.resolve();
+    expect(h.confirm).toHaveBeenCalledTimes(1); expect(h.store.set).not.toHaveBeenCalled();
+    release(false); expect(await first).toBe(false); expect(await second).toBe(true);
+    expect(h.confirm).toHaveBeenCalledTimes(2); expect(h.store.set).toHaveBeenCalledTimes(1);
+  });
+  it("an acknowledged-but-lost provisional write keeps its unfinished fence when cleanup fails", async () => {
+    const h = host(), owner = h.create();
+    h.store.set.mockImplementationOnce(async (id,value) => { h.records.set(id,value); throw new Error("write acknowledgment lost"); });
+    h.store.remove.mockRejectedValueOnce(new Error("cleanup unavailable"));
+    expect(await owner.allow(context)).toBe(false);
+    expect(h.records.get(7)).toBe(true); expect(h.pending.get(7)).toBe(true);
+    await owner.stop(); expect(await h.create(false).isAllowed(context)).toBe(false);
+  });
+  it("lost finalization acknowledgment restores intent and cleans the grant before returning denial", async () => {
+    const h = host(), owner = h.create();
+    h.store.removePending.mockImplementationOnce(async id => { h.pending.delete(id); throw new Error("finalization acknowledgment lost"); });
+    expect(await owner.allow(context)).toBe(false);
+    expect(h.records.size).toBe(0); expect(h.pending.size).toBe(0);
+    await owner.stop(); expect(await h.create(false).isAllowed(context)).toBe(false);
+  });
+  it("stop during held finalization reinstates intent and removes the provisional grant", async () => {
+    const h = host(), owner = h.create();
+    let release!: () => void, finalizing!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const entered = new Promise<void>(resolve => { finalizing = resolve; });
+    h.store.removePending.mockImplementationOnce(async id => { finalizing(); await held; h.pending.delete(id); });
+    const pending = owner.allow(context); await entered;
+    expect(h.records.get(7)).toBe(true); expect(h.pending.get(7)).toBe(true);
+    const stopped = owner.stop(); release(); expect(await pending).toBe(false); await stopped;
+    expect(h.records.size).toBe(0); expect(h.pending.size).toBe(0);
+    expect(await h.create(false).isAllowed(context)).toBe(false);
+  });
+  it.each(["intent restoration", "grant removal"])("lost finalization acknowledgment keeps denial when %s cleanup fails", async failed => {
+    const h = host(), owner = h.create();
+    h.store.removePending.mockImplementationOnce(async id => {
+      h.pending.delete(id);
+      if (failed === "intent restoration") h.store.setPending.mockRejectedValueOnce(new Error("intent unavailable"));
+      else h.store.remove.mockRejectedValueOnce(new Error("grant cleanup unavailable"));
+      throw new Error("finalization acknowledgment lost");
+    });
+    expect(await owner.allow(context)).toBe(false); expect(await owner.isAllowed(context)).toBe(false);
+    if (failed === "grant removal") expect(h.pending.get(7)).toBe(true);
+    else expect(h.records.size).toBe(0);
+    await owner.stop(); expect(await h.create(false).isAllowed(context)).toBe(false);
+  });
+  it("failed completion readback after actual finalization restores an unfinished fence when grant removal fails", async () => {
+    const h = host(), owner = h.create();
+    const read = h.store.getPending.getMockImplementation()!;
+    let failed = false;
+    h.store.getPending.mockImplementation(async id => {
+      if (!failed && h.records.has(id) && !h.pending.has(id)) { failed = true; throw new Error("completion readback unavailable"); }
+      return read(id);
+    });
+    h.store.remove.mockRejectedValueOnce(new Error("grant cleanup unavailable"));
+    expect(await owner.allow(context)).toBe(false);
+    expect(h.pending.get(7)).toBe(true); expect(h.records.get(7)).toBe(true);
+    await owner.stop(); expect(await h.create(false).isAllowed(context)).toBe(false);
   });
 });

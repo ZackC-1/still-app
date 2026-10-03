@@ -19,6 +19,10 @@ export interface TiktokTabSessionStore {
   get(tabId: number): Promise<unknown>;
   set(tabId: number, value: true): Promise<void>;
   remove(tabId: number): Promise<void>;
+  /** Session-only unfinished intent; unknown values hold, absence means completed/empty. */
+  getPending(tabId: number): Promise<unknown>;
+  setPending(tabId: number): Promise<void>;
+  removePending(tabId: number): Promise<void>;
 }
 
 export interface TiktokTabAuthorityDeps {
@@ -43,6 +47,7 @@ export function createTiktokTabAuthority(deps: TiktokTabAuthorityDeps) {
   const engine = createEnginePageSession(deps.ruleSet);
   const flights = new Map<number, Promise<boolean>>();
   const closed = new Set<number>();
+  const unfinished = new Set<number>();
   let stopped = false;
 
   const live = (context: TiktokTabContext) =>
@@ -106,20 +111,51 @@ export function createTiktokTabAuthority(deps: TiktokTabAuthorityDeps) {
       target: context.target,
     });
 
+  async function completed(tabId: number): Promise<boolean> {
+    return !unfinished.has(tabId) && (await deps.store.getPending(tabId)) === undefined &&
+      (await deps.store.get(tabId)) === true && (await deps.store.getPending(tabId)) === undefined;
+  }
+
+  async function cleanup(tabId: number, finalizing = false): Promise<boolean> {
+    unfinished.add(tabId);
+    if (finalizing) {
+      // Each cleanup action remains independent: failed intent restoration must not skip
+      // removal of the grant. If both fail after actual finalization, reopen is uncertain.
+      try { await deps.store.setPending(tabId); } catch { /* Still attempt grant removal. */ }
+    }
+    try {
+      await deps.store.remove(tabId);
+      if ((await deps.store.get(tabId)) !== undefined) return false;
+      // Never clear the unfinished fence while a provisional grant might remain.
+      await deps.store.removePending(tabId);
+      if ((await deps.store.getPending(tabId)) !== undefined) return false;
+      unfinished.delete(tabId);
+      return true;
+    } catch { return false; }
+  }
+
   return {
     async allow(
       input: TiktokTabContext,
       confirm = deps.confirm,
+      /** Per-operation trusted host proof, transient and never a request body or stored ID. */
+      verify: () => Promise<boolean> = async () => true,
     ): Promise<boolean> {
       const context = snapshot(input);
       if (!live(context)) return false;
       return serial(context.tabId, async () => {
         let wrote = false;
+        let finalizing = false;
         try {
           if (!(await eligible(context))) return false;
           // A prior genuinely confirmed grant is already valid, including after worker reopen.
-          if ((await deps.store.get(context.tabId)) === true)
-            return await eligible(context);
+          const pending = await deps.store.getPending(context.tabId);
+          if (unfinished.has(context.tabId) || pending !== undefined) {
+            if (pending === true || unfinished.has(context.tabId)) await cleanup(context.tabId);
+            return false;
+          }
+          if (await completed(context.tabId))
+            return (await eligible(context)) && (await verify()) && live(context);
           if (
             !confirm ||
             (await confirm(context)) !== true ||
@@ -127,16 +163,27 @@ export function createTiktokTabAuthority(deps: TiktokTabAuthorityDeps) {
           )
             return false;
           wrote = true;
+          unfinished.add(context.tabId);
+          await deps.store.setPending(context.tabId);
+          if ((await deps.store.getPending(context.tabId)) !== true || !live(context)) throw new Error("Unverified tab intent");
           await deps.store.set(context.tabId, true);
           if (
             (await deps.store.get(context.tabId)) === true &&
-            (await eligible(context))
-          )
+            (await eligible(context)) && (await verify()) && live(context)
+          ) {
+            // Finalization is the session commit boundary, not atomic browser/document CAS.
+            finalizing = true;
+            await deps.store.removePending(context.tabId);
+            if ((await deps.store.getPending(context.tabId)) !== undefined ||
+                (await deps.store.get(context.tabId)) !== true || !(await eligible(context)) ||
+                !(await verify()) || !live(context)) throw new Error("Unverified tab completion");
+            unfinished.delete(context.tabId);
             return true;
+          }
         } catch {
           // Failed reads, confirmation and persistence never publish an optimistic grant.
         }
-        if (wrote) await deps.store.remove(context.tabId).catch(() => {});
+        if (wrote) await cleanup(context.tabId, finalizing);
         return false;
       });
     },
@@ -146,7 +193,7 @@ export function createTiktokTabAuthority(deps: TiktokTabAuthorityDeps) {
       return serial(context.tabId, async () => {
         if (!(await eligible(context))) return false;
         return (
-          (await deps.store.get(context.tabId)) === true &&
+          (await completed(context.tabId)) &&
           (await eligible(context))
         );
       });
@@ -155,8 +202,7 @@ export function createTiktokTabAuthority(deps: TiktokTabAuthorityDeps) {
       // Fence synchronously, before any delayed write/read/confirmation can settle.
       closed.add(tabId);
       return serial(tabId, async () => {
-        await deps.store.remove(tabId);
-        return true;
+        return cleanup(tabId, true);
       });
     },
     async stop(): Promise<void> {

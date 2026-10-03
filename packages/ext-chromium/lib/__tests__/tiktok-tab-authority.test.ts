@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   createChromeTiktokTabAuthority,
   type TiktokTabBrowser,
+  type ChromeTiktokTabAuthorityDeps,
 } from "../tiktok-tab-authority.js";
 import {
   ruleSet,
@@ -22,7 +23,7 @@ const sender = {
 
 function host() {
   const session = new Map<string, unknown>();
-  const tabs = new Map<number, { id: number; url: string }>([
+  const tabs = new Map<number, { id: number; url: string; pendingUrl?: string }>([
     [7, { id: 7, url: screen }],
   ]);
   const removed = new Set<(id: number) => void>();
@@ -78,6 +79,8 @@ function host() {
   };
   const checkedBrowser: TiktokTabBrowser = browser;
   const confirmation = vi.fn(async () => true);
+  const resolveTarget = vi.fn(async () => target);
+  const readCommitted = vi.fn<ChromeTiktokTabAuthorityDeps["readCommitted"]>(async () => ({ settings: on, options: { access, capabilities } }));
   function create(
     verified = true,
     actualBrowser: TiktokTabBrowser = checkedBrowser,
@@ -85,12 +88,9 @@ function host() {
     return createChromeTiktokTabAuthority({
       browser: actualBrowser,
       ruleSet,
-      readCommitted: async () => ({
-        settings: on,
-        options: { access, capabilities },
-      }),
+      readCommitted,
       blockedPagePath: verified ? "synthetic-blocked.html" : undefined,
-      resolveOriginalTarget: verified ? async () => target : undefined,
+      resolveOriginalTarget: verified ? resolveTarget : undefined,
       confirm: verified ? confirmation : undefined,
     });
   }
@@ -109,6 +109,8 @@ function host() {
     browser,
     contexts,
     confirmation,
+    resolveTarget,
+    readCommitted,
     create,
     page,
   };
@@ -357,5 +359,80 @@ describe("dormant Chromium browser-session TikTok adapter", () => {
     expect(await owner.allow(sender)).toBe(false);
     expect(h.session.size).toBe(0);
     await owner.stop();
+  });
+  it("held final target resolution cannot approve a replaced native document at the same URL", async () => {
+    const h = host(), owner = h.create();
+    let release!: () => void, resolving!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const entered = new Promise<void>(resolve => { resolving = resolve; });
+    h.resolveTarget.mockResolvedValueOnce(target).mockResolvedValueOnce(target).mockImplementationOnce(async () => { resolving(); await held; return target; });
+    const pending = owner.allow(sender); await entered;
+    h.contexts.mockResolvedValue([{ contextType: "TAB", documentId: "replacement", tabId: 7, frameId: 0, documentUrl: screen }]);
+    release(); expect(await pending).toBe(false);
+    expect(h.session.size).toBe(0); await owner.stop();
+  });
+  it("document replacement during held session persistence cannot publish a grant", async () => {
+    const h = host(), owner = h.create();
+    let release!: () => void, writing!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const entered = new Promise<void>(resolve => { writing = resolve; });
+    const set = h.sessionArea.set.getMockImplementation()!;
+    h.sessionArea.set.mockImplementation(async items => {
+      if (items["still:tiktok-tab:7"] === true) { writing(); await held; }
+      return set(items);
+    });
+    const pending = owner.allow(sender); await entered;
+    h.contexts.mockResolvedValue([{ contextType: "TAB", documentId: "replacement", tabId: 7, frameId: 0, documentUrl: screen }]);
+    release(); expect(await pending).toBe(false);
+    expect(h.session.size).toBe(0); await owner.stop();
+  });
+  it("pre-confirm target lookup revalidates native document before invoking confirmation", async () => {
+    const h = host(), owner = h.create();
+    let release!: () => void, resolving!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const entered = new Promise<void>(resolve => { resolving = resolve; });
+    h.resolveTarget.mockResolvedValueOnce(target).mockImplementationOnce(async () => { resolving(); await held; return target; });
+    const pending = owner.allow(sender); await entered;
+    h.contexts.mockResolvedValue([{ contextType: "TAB", documentId: "replacement", tabId: 7, frameId: 0, documentUrl: screen }]);
+    release(); expect(await pending).toBe(false);
+    expect(h.confirmation).not.toHaveBeenCalled(); expect(h.session.size).toBe(0); await owner.stop();
+  });
+  it("enabled trusted route ignores contradictory body fields and genuine cancellation defeats forged true", async () => {
+    const h = host(), owner = h.create();
+    const body = { ...sender, tabId: 99, target: "https://example.com/forged", confirmed: false, isTrusted: false };
+    expect(await owner.allow(body)).toBe(true);
+    expect(h.confirmation).toHaveBeenCalledWith({ tabId: 7, frameId: 0, target });
+    expect([...h.session]).toEqual([["still:tiktok-tab:7", true]]); await owner.stop();
+    const cancelled = host(), other = cancelled.create(); cancelled.confirmation.mockResolvedValueOnce(false);
+    const forged = { ...sender, confirmed: true };
+    expect(await other.allow(forged)).toBe(false);
+    expect(cancelled.session.size).toBe(0); await other.stop();
+  });
+  it.each(["readback", "settings", "finalization"])("document replacement during held %s denies and cleans unfinished permission", async phase => {
+    const h = host(), owner = h.create();
+    let release!: () => void, entering!: () => void, heldOnce = false;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const entered = new Promise<void>(resolve => { entering = resolve; });
+    const hold = async () => { if (!heldOnce && h.session.has("still:tiktok-tab:7")) { heldOnce = true; entering(); await held; } };
+    if (phase === "readback") { const get = h.sessionArea.get.getMockImplementation()!; h.sessionArea.get.mockImplementation(async key => { if (key === "still:tiktok-tab:7") await hold(); return get(key); }); }
+    if (phase === "settings") { const read = h.readCommitted.getMockImplementation()!; h.readCommitted.mockImplementation(async () => { await hold(); return read(); }); }
+    if (phase === "finalization") { const remove = h.sessionArea.remove.getMockImplementation()!; h.sessionArea.remove.mockImplementation(async key => { if (key === "still:tiktok-tab-pending:7") await hold(); return remove(key); }); }
+    const pending = owner.allow(sender); await entered;
+    h.contexts.mockResolvedValue([{ contextType: "TAB", documentId: "replacement", tabId: 7, frameId: 0, documentUrl: screen }]);
+    release(); expect(await pending).toBe(false); expect(h.session.size).toBe(0);
+    await owner.stop(); h.tabs.set(7,{ id: 7, url: target }); const reopened = h.create(false);
+    expect(await reopened.isAllowed(h.page())).toBe(false); await reopened.stop();
+  });
+  it.each([false,true])("pending navigation during an actual held grant write denies; unchanged control=%s", async unchanged => {
+    const h = host(), owner = h.create();
+    let release!: () => void, entering!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const entered = new Promise<void>(resolve => { entering = resolve; });
+    const set = h.sessionArea.set.getMockImplementation()!;
+    h.sessionArea.set.mockImplementation(async items => { if (items["still:tiktok-tab:7"] === true) { entering(); await held; } return set(items); });
+    const pending = owner.allow(sender); await entered;
+    if (!unchanged) h.tabs.set(7,{ id: 7, url: screen, pendingUrl: target });
+    release(); expect(await pending).toBe(unchanged);
+    expect([...h.session]).toEqual(unchanged ? [["still:tiktok-tab:7",true]] : []); await owner.stop();
   });
 });

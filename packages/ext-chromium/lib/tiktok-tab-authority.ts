@@ -102,6 +102,7 @@ export function createChromeTiktokTabAuthority(
     ? browser.runtime.getURL(deps.blockedPagePath)
     : null;
   const key = (id: number) => `still:tiktok-tab:${id}`;
+  const pendingKey = (id: number) => `still:tiktok-tab-pending:${id}`;
   const requireSession = () => {
     if (!supported || !area)
       throw new Error("Browser session authority unavailable");
@@ -118,6 +119,9 @@ export function createChromeTiktokTabAuthority(
       remove: async (id) => {
         await requireSession().remove(key(id));
       },
+      getPending: async (id) => (await requireSession().get(pendingKey(id)))[pendingKey(id)],
+      setPending: async (id) => { await requireSession().set({ [pendingKey(id)]: true }); },
+      removePending: async (id) => { await requireSession().remove(pendingKey(id)); },
     },
     isLivingTab: async (id) => supported && (await tabs!.get(id)).id === id,
   });
@@ -221,18 +225,15 @@ export function createChromeTiktokTabAuthority(
           frameId: 0,
           target,
         };
+        const verify = async () => {
+          const original = await deps.resolveOriginalTarget!(sender);
+          // This native proof follows the resolver await, including the publication hook.
+          return original === context.target && (await currentPage(sender, true));
+        };
         return await authority.allow(context, async (captured) => {
-          if (
-            !(await currentPage(sender, true)) ||
-            (await deps.resolveOriginalTarget!(sender)) !== captured.target
-          )
-            return false;
-          return (
-            (await deps.confirm!(captured)) === true &&
-            (await currentPage(sender, true)) &&
-            (await deps.resolveOriginalTarget!(sender)) === captured.target
-          );
-        });
+          if (!(await verify())) return false;
+          return (await deps.confirm!(captured)) === true && (await verify());
+        }, verify);
       } catch {
         return false;
       }
