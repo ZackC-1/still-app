@@ -26,7 +26,7 @@ describe.skipIf(process.platform !== "darwin")(
         join(temporary, "main.swift"),
       );
       await promisify(execFile)("swiftc", [
-        ...["StillSettings", "SharedSettingsStore", "SettingsBridge"].map(
+        ...["StillSettings", "SharedSettingsStore", "SettingsBridge", "SettingsV2", "SettingsFieldOrder", "PackagedFeatureRegistry", "AtomicSettingsBacking", "AtomicSettingsRecord"].map(
           (name) =>
             join(root, "apps/apple/StillKit/Sources/StillKit", `${name}.swift`),
         ),

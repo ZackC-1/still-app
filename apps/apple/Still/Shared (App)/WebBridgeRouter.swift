@@ -108,7 +108,7 @@ final class WebBridgeRouter {
     }
 
     switch kind {
-    case "get", "set":
+    case "get", "set", "settingsIntent", "settingsAtomic":
       // U17 settings bridge — synchronous; reply is the resolved settings JSON string (or "").
       if let json = settings.handle(rawBody: body) {
         reply(json, nil)

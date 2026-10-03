@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS, type StillSettings } from "@still/shared-types";
 import {
   ChromeStorageAdapter,
+  createSettingsIntentRouter,
   SettingsCache,
   type StoredSettingsRecord,
 } from "@still/core/storage";
@@ -59,7 +60,13 @@ function installChromeStorage(initial: Record<string, unknown> = {}) {
       },
     },
   };
+  const origin = "chrome-extension://synthetic/";
+  Object.assign(chromeMock, { runtime: { id: "synthetic", getURL: () => origin,
+    sendMessage: (message: unknown) => new Promise(resolve => router(message, { id: "synthetic", url: origin + "popup.html" }, resolve)),
+  } });
   globalThis.chrome = chromeMock as unknown as typeof chrome;
+  const authority = new ChromeStorageAdapter({ authority: true });
+  const router = createSettingsIntentRouter(intent => authority.commitIntent(intent), "synthetic", origin, r => authority.set(r));
   return { store };
 }
 

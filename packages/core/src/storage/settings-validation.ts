@@ -1,3 +1,5 @@
+import { migrateSettingsV2 } from "./settings-v2.js";
+import { readAtomicSettingsState } from "./atomic-settings.js";
 import { SERVICE_IDS, type ServiceId, type StillSettings } from "@still/shared-types";
 import type {
   SettingsSyncMetadata,
@@ -18,6 +20,11 @@ export function parseSettings(value: unknown): StillSettings | null {
   if (value == null || value === "") return null;
   const obj: unknown = typeof value === "string" ? safeParse(value) : value;
   if (!obj || typeof obj !== "object") return null;
+  const modern = obj as { schemaVersion?: unknown };
+  if (modern.schemaVersion !== undefined && modern.schemaVersion !== 1) {
+    const result = migrateSettingsV2(obj, { kind: "readable-local", provenInitialization: (obj as { updatedAt?: unknown }).updatedAt === 0 });
+    return result.status === "ready" ? { ...result.settings, pauses: [] } : null;
+  }
   const s = obj as Partial<StillSettings>;
   if (typeof s.globalOn !== "boolean" || typeof s.updatedAt !== "number" || !Number.isFinite(s.updatedAt)) {
     return null;
@@ -113,7 +120,12 @@ export function parseStoredSettingsRecord(value: unknown): StoredSettingsRecord 
   const syncEpoch = typeof rawEpoch === "number" && Number.isSafeInteger(rawEpoch) && rawEpoch >= 0
     ? rawEpoch
     : undefined;
-  return syncEpoch === undefined ? { settings, syncMetadata } : { settings, syncMetadata, syncEpoch };
+  const atomicRaw = (decoded as { atomic?: unknown }).atomic;
+  const atomic = atomicRaw === undefined ? undefined : readAtomicSettingsState(atomicRaw);
+  if (atomicRaw !== undefined && !atomic) return null;
+  if (atomic && !(settings as unknown as { schemaVersion?: number }).schemaVersion) return null;
+  return { ...(atomic ? decoded : {}), settings, syncMetadata,
+    ...(syncEpoch === undefined ? {} : { syncEpoch }), ...(atomic ? { atomic } : {}) };
 }
 
 /** JSON.parse that returns null instead of throwing on malformed input. */
@@ -143,4 +155,12 @@ function parseServices(value: unknown): Readonly<Record<ServiceId, boolean>> | n
     }
   }
   return services;
+}
+
+/** New bounded action replies carry application status outside the authoritative record. */
+export function parseSettingsIntentReply(value: unknown): StoredSettingsRecord | null {
+  const body = typeof value === "string" ? safeParse(value) : value;
+  if (!body || typeof body !== "object" || typeof (body as { changed?: unknown }).changed !== "boolean") return null;
+  const record = parseStoredSettingsRecord((body as { record?: unknown }).record);
+  return record ? { ...record, intentCommitted: (body as { status?: unknown }).status !== "paused" && (body as { changed: boolean }).changed } : null;
 }
