@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { ChromeStorageAdapter, createSettingsIntentRouter } from "../../storage/index.js";
 import { createExtensionUiController, type ExtensionPurchaseDeps } from "../extension-setup.js";
 import {
   extensionSupabaseConfig,
@@ -45,7 +46,16 @@ function installChrome(initial: Record<string, unknown> = {}): { store: Record<s
       },
     },
   };
+  const origin = "chrome-extension://synthetic/";
+  Object.assign(chromeMock, { runtime: {
+    id: "synthetic", getURL: () => origin,
+    sendMessage: (message: unknown) => new Promise(resolve => {
+      router(message, { id: "synthetic", url: origin + "popup.html" }, resolve);
+    }),
+  } });
   vi.stubGlobal("chrome", chromeMock);
+  const authority = new ChromeStorageAdapter({ authority: true });
+  const router = createSettingsIntentRouter(intent => authority.commitIntent(intent), "synthetic", origin);
   return { store };
 }
 

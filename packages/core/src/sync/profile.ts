@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { FunctionsHttpError } from "@supabase/supabase-js";
-import type { StillSettings } from "@still/shared-types";
+import { readSettingsOperationRequest, SETTINGS_FIELDS, type StillSettings, type UntrustedSettingsOperationRequest } from "@still/shared-types";
+import { readSettingsReceipt, SettingsStorageRecovery, type CanonicalSettingsEnvelope } from "../storage/atomic-settings.js";
+import { migrateSettingsV2 } from "../storage/settings-v2.js";
 import type { SyncedSettingsEnvelope } from "../storage/adapter.js";
 import { parseSyncedSettingsEnvelope } from "../storage/settings-validation.js";
 import type {
@@ -24,7 +26,29 @@ import type {
 const EDGE_FN_TIMEOUT_MS = 8_000;
 
 export class SupabaseBackendPort implements BackendPort, WebCheckoutPort, CheckedReconcilePort {
-  constructor(private readonly client: SupabaseClient) {}
+  readonly modernSettingsEnabled: boolean;
+  constructor(private readonly client: SupabaseClient, options: { readonly modernSettings?: boolean } = {}) {
+    this.modernSettingsEnabled = options.modernSettings === true;
+  }
+
+  readCanonicalSettings(): Promise<CanonicalSettingsEnvelope> {
+    return this.invokeSettings({ protocol: 2, action: "read" });
+  }
+  writeSettingsOperation(request: UntrustedSettingsOperationRequest): Promise<CanonicalSettingsEnvelope> {
+    const parsed = readSettingsOperationRequest(request);
+    if (parsed.status !== "parsed") return Promise.reject(new SettingsStorageRecovery("request-shape"));
+    return this.invokeSettings(parsed.request);
+  }
+  private async invokeSettings(body: UntrustedSettingsOperationRequest | { protocol: 2; action: "read" }): Promise<CanonicalSettingsEnvelope> {
+    if (!this.modernSettingsEnabled) throw new SettingsStorageRecovery("rollout-held");
+    const { data, error } = await this.client.functions.invoke("sync-settings", {
+      body, signal: AbortSignal.timeout(EDGE_FN_TIMEOUT_MS),
+    });
+    if (error) throw error;
+    const envelope = parseCanonicalSettingsEnvelope(data);
+    if (!envelope) throw new SettingsStorageRecovery("invalid-canonical-settings");
+    return envelope;
+  }
 
   async reconcileEntitlement(): Promise<void> {
     // The session JWT is attached automatically; the function derives the subject from it (KTD5).
@@ -176,4 +200,21 @@ function isHttpsUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+/** Exact fbc62b2 server contract: a public row SELECT never supplies an authenticated anchor. */
+export function parseCanonicalSettingsEnvelope(value: unknown): CanonicalSettingsEnvelope | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as Record<string, unknown>;
+  const receipt = readSettingsReceipt(row.receipt);
+  if (row.status !== "ready" || row.protocol !== 2 || typeof row.empty !== "boolean" ||
+    !receipt || row.lineage !== receipt.lineage || row.settingsVersion !== receipt.revision ||
+    !(row.settingsServerUpdatedAt === null || typeof row.settingsServerUpdatedAt === "string" && !Number.isNaN(Date.parse(row.settingsServerUpdatedAt))) ||
+    !(row.writeId === null || typeof row.writeId === "string")) return null;
+  const settings = migrateSettingsV2(row.settings, { kind: "acknowledged-account", revision: receipt.revision,
+    provenInitialization: row.empty });
+  if (settings.status !== "ready" || settings.migrated || SETTINGS_FIELDS.some(path => settings.settings.clocks[path].baseRevision > receipt.revision)) return null;
+  return { protocol: 2, empty: row.empty, settings: { ...settings.settings, pauses: [] },
+    version: receipt.revision, serverUpdatedAt: row.settingsServerUpdatedAt as string | null,
+    lastWriteId: row.writeId as string | null, lineage: receipt.lineage, receipt };
 }

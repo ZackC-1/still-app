@@ -42,6 +42,7 @@ export function createAppGroupReconciler(deps: AppGroupReconcilerDeps): AppGroup
   let lastAppliedKey: string | null = null;
 
   const unsubscribe = deps.local.subscribe((record) => {
+    if (record.atomic) return; // modern browser records are auxiliary native projections, never writers
     if (recordKey(record) === lastAppliedKey) return; // echo of an app-originated apply → skip
     void deps.pushToApp(record);
   });
@@ -52,7 +53,7 @@ export function createAppGroupReconciler(deps: AppGroupReconcilerDeps): AppGroup
     if (app && shouldAppWin(app, local)) {
       lastAppliedKey = recordKey(app); // mark BEFORE set so the resulting onChanged echo is suppressed
       await deps.local.set(app); // app edited more recently → the content script must see it
-    } else if (local && shouldAppWin(local, app)) {
+    } else if (local && !local.atomic && shouldAppWin(local, app)) {
       await deps.pushToApp(local); // extension edited more recently → the app must see it
     }
   }
@@ -80,6 +81,12 @@ function shouldAppWin(candidate: StoredSettingsRecord, current: StoredSettingsRe
   // is what keeps a record left behind by a build that predates the counter from winning here.
   // Same order, same reasoning, as the Swift App Group store. The shared SettingsCache is
   // deliberately softer with an absent counter, for the reason recorded there.
+  if (candidate.atomic || current.atomic) {
+    if (!candidate.atomic) return false;
+    if (!current.atomic) return true;
+    const generation = candidate.atomic.scope.generation - current.atomic.scope.generation;
+    return generation !== 0 ? generation > 0 : candidate.atomic.sequence > current.atomic.sequence;
+  }
   const repointOrder = repointCount(candidate) - repointCount(current);
   if (repointOrder !== 0) return repointOrder > 0;
   const candidateMeta = candidate.syncMetadata;
@@ -105,6 +112,7 @@ function compareMetadata(a: SettingsSyncMetadata, b: SettingsSyncMetadata): numb
 }
 
 function recordKey(record: StoredSettingsRecord): string {
+  if (record.atomic) return `native:${record.atomic.scope.generation}:${record.atomic.sequence}`;
   const meta = record.syncMetadata;
   return meta ? `${meta.version}:${meta.serverUpdatedAt}:${meta.lastWriteId ?? ""}` : `local:${record.settings.updatedAt}`;
 }

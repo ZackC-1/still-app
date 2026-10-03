@@ -161,10 +161,7 @@ describe("preservation migration (not connected to public writers)", () => {
     expect(s.updatedAt).toBe(50);
     expect(s).not.toHaveProperty("pauses");
     expect(migrated(s)).toEqual(s);
-    expect(parseSettings(serializeSettingsV2(s))).toEqual({
-      ...legacy,
-      pauses: [],
-    });
+    expect(parseSettings(serializeSettingsV2(s))).toEqual({ ...s, pauses: [] });
   });
 
   it("keeps all-Off valid and missing legacy services safe", () => {

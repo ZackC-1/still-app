@@ -7,17 +7,20 @@ import Foundation
 //   • the app's WKWebView host (WKScriptMessageHandlerWithReply), and
 //   • the Safari extension's SafariWebExtensionHandler (App-Group reconcile).
 //
-// Keeping the protocol here makes the conflict logic (last-write-wins, stale acknowledgments)
+// Keeping the protocol here makes legacy arbitration and modern committed-action handling
 // unit-testable from the terminal with `swift test`, with no WebKit, signing, or device.
 //
 // Wire shape (must match WKWebViewStorageAdapter exactly):
-//   web → native:  { "kind": "get" }  |  { "kind": "set", "settings": "<StillSettings JSON>" }
-//   native → web:  a StillSettings JSON string, or "" when `get` finds nothing stored.
+// Legacy get/set return the complete preserved record. settingsIntent returns that committed
+// record plus changed/status; settingsAtomic is the explicit internal modern rollout adapter.
 
 /// A decoded bridge request. Settings travel as JSON strings, decoded into the shared Codable model.
 public enum BridgeRequest: Equatable, Sendable {
   case get
   case set(StoredSettingsRecord)
+  case setPreserved(Data)
+  case atomic(Data)
+  case intent(path: String, value: Bool, updatedAt: Int)
 
   /// Parse a raw message body (WKScriptMessage.body or SFExtensionMessageKey userInfo) into a
   /// request. Returns nil for an unknown shape, a missing `settings` string, or undecodable JSON —
@@ -31,7 +34,21 @@ public enum BridgeRequest: Equatable, Sendable {
       guard let json = dict["settings"] as? String,
             let record = try? JSONDecoder().decode(StoredSettingsRecord.self, from: Data(json.utf8))
       else { return nil }
-      return .set(record)
+      _ = record
+      return .setPreserved(Data(json.utf8))
+    case "settingsAtomic":
+      guard Set(dict.keys) == Set(["kind", "command"]), let json = dict["command"] as? String,
+        json.utf8.count <= 131_072 else { return nil }
+      return .atomic(Data(json.utf8))
+    case "settingsIntent":
+      guard Set(dict.keys) == Set(["kind", "path", "value", "updatedAt"]),
+        let path = dict["path"] as? String,
+        let number = dict["value"] as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID(),
+        let time = dict["updatedAt"] as? NSNumber, CFGetTypeID(time) != CFBooleanGetTypeID(),
+        time.doubleValue.isFinite, time.doubleValue > 0, time.doubleValue <= SettingsV2Migration.maxRevision,
+        time.doubleValue.rounded(.towardZero) == time.doubleValue,
+        PackagedFeatureRegistry.settingsFields.contains(path) else { return nil }
+      return .intent(path: path, value: number.boolValue, updatedAt: time.intValue)
     default:
       return nil
     }
@@ -51,25 +68,39 @@ public struct SettingsBridge {
     self.notifyChanged = notifyChanged
   }
 
-  /// Handle a request, mutating the store on `set` by last-write-wins, and return the JSON string the
-  /// web side receives: the resolved current settings, or "" for `get` against an empty store. On
-  /// `set`, the reply is always the *resolved* value — so a stale incoming write (a lower `updatedAt`)
-  /// is ignored and the web cache learns the newer value the App Group already held (KTD4).
+  /// Return bytes captured in the same transaction as the mutation, before notifying peers.
+  /// Coarse legacy sets cannot replace modern authority. A genuine empty read is distinct from
+  /// unavailable coordination; modern actions allocate only through the shared store's lock.
   public func handle(_ request: BridgeRequest) -> String {
     switch request {
     case .get:
-      guard let stored = store.peekRecord() else { return "" }
-      return Self.encodeRecord(stored)
+      do {
+        guard let stored = try store.readCommittedRecord() else { return "" }
+        return String(data: stored, encoding: .utf8) ?? "{\"status\":\"unavailable\"}"
+      } catch { return "{\"status\":\"unavailable\"}" }
     case .set(let incoming):
-      // Broadcast the change (Darwin — see StillSettingsChangedNotification) only when the write
-      // actually changed the store: both native hosts route their settings writes through this one
-      // `set`, and gating on the applied result means a stale/echoed write can't ping-pong
-      // notifications between the app and the extension.
-      if store.applyRecord(incoming) {
-        notifyChanged()
-      }
-      return Self.encodeRecord(store.currentRecord())
+      guard let data = try? JSONEncoder().encode(incoming) else { return "" }
+      return apply(data)
+    case .setPreserved(let incoming):
+      return apply(incoming)
+    case .atomic(let command):
+      guard let committed = try? store.atomicCommand(command) else { return "{\"status\":\"unavailable\"}" }
+      if committed.changed { notifyChanged() }
+      return String(data: committed.data, encoding: .utf8) ?? ""
+    case .intent(let path, let value, let updatedAt):
+      guard let committed = try? store.commitIntent(path: path, value: value, updatedAt: updatedAt) else { return "" }
+      if committed.changed && store.coordinationAvailable { notifyChanged() }
+      guard let object = try? JSONSerialization.jsonObject(with: committed.data),
+        let reply = try? JSONSerialization.data(withJSONObject: ["record": object, "changed": committed.changed, "status": store.coordinationAvailable ? "committed" : "paused"]) else { return "" }
+      return String(data: reply, encoding: .utf8) ?? ""
+
     }
+  }
+
+  private func apply(_ data: Data) -> String {
+    guard let committed = try? store.applyEncodedRecord(data) else { return "" }
+    if committed.changed { notifyChanged() }
+    return committed.data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
   }
 
   /// Convenience for hosts that receive a raw message body: parse + handle in one call. Returns nil

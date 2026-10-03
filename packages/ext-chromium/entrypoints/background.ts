@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { browser } from "wxt/browser";
-import { SettingsCache, ChromeStorageAdapter } from "@still/core/storage";
+import { SettingsCache, ChromeStorageAdapter, createSettingsIntentRouter } from "@still/core/storage";
 import { ChromeEntitlementAdapter } from "@still/core/entitlement";
 import {
   isServiceEnabledGlobally,
@@ -70,7 +70,11 @@ export default defineBackground(() => {
   });
 
   // ── Auth/purchase session spine (plan U6/R2) ───────────────────────────────────────────────────
-  const cache = new SettingsCache(new ChromeStorageAdapter());
+  const settingsAuthority = new ChromeStorageAdapter({ authority: true });
+  chrome.runtime.onMessage.addListener(createSettingsIntentRouter(
+    intent => settingsAuthority.commitIntent(intent), chrome.runtime.id, chrome.runtime.getURL(""), record => settingsAuthority.set(record),
+  ));
+  const cache = new SettingsCache(settingsAuthority);
   cache.watch();
   const hydrated = cache.hydrate();
   const spine = createSessionSpine(cache);

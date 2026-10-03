@@ -9,14 +9,27 @@ import Foundation
 public protocol SettingsBacking {
   func read() -> Data?
   func write(_ data: Data)
+  func transaction<T>(_ body: (inout Data?) throws -> T) throws -> T
+}
+
+extension SettingsBacking {
+  public func transaction<T>(_ body: (inout Data?) throws -> T) throws -> T {
+    var data = read()
+    let original = data
+    let result = try body(&data)
+    if data != original, let data { write(data) }
+    return result
+  }
 }
 
 public final class SharedSettingsStore {
   private let backing: SettingsBacking
+  public let coordinationAvailable: Bool
   private let encoder = JSONEncoder()
   private let decoder = JSONDecoder()
 
-  public init(backing: SettingsBacking) {
+  public init(backing: SettingsBacking, coordinationAvailable: Bool = true) {
+    self.coordinationAvailable = coordinationAvailable
     self.backing = backing
   }
 
@@ -38,10 +51,25 @@ public final class SharedSettingsStore {
   }
 
   public func peekRecord() -> StoredSettingsRecord? {
-    guard let data = backing.read(), let record = try? decoder.decode(StoredSettingsRecord.self, from: data) else {
+    guard let data = backing.read(), (try? AtomicSettingsRecord.validateRecord(data)) != nil, let record = try? decoder.decode(StoredSettingsRecord.self, from: data) else {
       return nil
     }
-    return record
+    var projected = record
+    if let raw = try? JSONDecoder().decode([String: SettingsJSONValue].self, from: data),
+      let held = raw["atomic"]?.object?["held"]?.object {
+      for (path, value) in held {
+        guard case .bool(let on) = value else { continue }
+        switch path {
+        case "globalOn": projected.settings.globalOn = on
+        case "services.youtube": projected.settings.services.youtube = on
+        case "services.instagram": projected.settings.services.instagram = on
+        case "services.tiktok": projected.settings.services.tiktok = on
+        case "services.facebook": projected.settings.services.facebook = on
+        default: break
+        }
+      }
+    }
+    return projected
   }
 
   /// Persist settings as JSON the web UI can also read. Both stamps already in the store ride
@@ -49,34 +77,129 @@ public final class SharedSettingsStore {
   /// device has been repointed at a different account, and dropping `syncEpoch` here would reset
   /// the store to "never repointed" and let the previous account's record win again.
   public func save(_ settings: StillSettings) {
-    let stored = currentRecord()
-    saveRecord(
-      StoredSettingsRecord(
-        settings: settings, syncMetadata: stored.syncMetadata, syncEpoch: stored.syncEpoch))
+    _ = try? backing.transaction { data in
+      let stored = data.flatMap { try? decoder.decode(StoredSettingsRecord.self, from: $0) }
+        ?? StoredSettingsRecord(settings: .default, syncMetadata: nil)
+      let record = StoredSettingsRecord(settings: settings, syncMetadata: stored.syncMetadata, syncEpoch: stored.syncEpoch)
+      data = try preserving(record, over: data)
+    }
   }
 
   public func saveRecord(_ record: StoredSettingsRecord) {
-    guard let data = try? encoder.encode(record) else { return }
-    backing.write(data)
+    _ = try? backing.transaction { data in data = try preserving(record, over: data) }
   }
 
-  /// Apply an incoming settings set via last-write-wins. Returns true if the store changed.
   @discardableResult
   public func applyRemote(_ incoming: StillSettings) -> Bool {
-    let stored = currentRecord()
-    guard stored.syncMetadata == nil, incoming.updatedAt > current().updatedAt else { return false }
-    // Same reason as `save`: settings arriving without sync metadata say nothing about which
-    // account this device is pointed at, so the repoint counter is carried rather than reset.
-    saveRecord(StoredSettingsRecord(settings: incoming, syncMetadata: nil, syncEpoch: stored.syncEpoch))
-    return true
+    (try? backing.transaction { data in
+      let stored = data.flatMap { try? decoder.decode(StoredSettingsRecord.self, from: $0) }
+        ?? StoredSettingsRecord(settings: .default, syncMetadata: nil)
+      if let data, AtomicSettingsRecord.isModern(data) { return false }
+      guard stored.syncMetadata == nil, incoming.updatedAt > stored.settings.updatedAt else { return false }
+      data = try preserving(StoredSettingsRecord(settings: incoming, syncMetadata: nil, syncEpoch: stored.syncEpoch), over: data)
+      return true
+    }) ?? false
   }
 
   @discardableResult
   public func applyRecord(_ incoming: StoredSettingsRecord) -> Bool {
-    guard shouldApply(incoming, over: currentRecord()) else { return false }
-    saveRecord(incoming)
-    return true
+    (try? applyEncodedRecord(encoder.encode(incoming)).changed) ?? false
   }
+
+  /// The returned bytes are captured under the same lock as the write, before notifying peers.
+  public func applyEncodedRecord(_ incoming: Data) throws -> (data: Data?, changed: Bool) {
+    try backing.transaction { data in
+      try AtomicSettingsRecord.validateRecord(incoming)
+      if let data { try AtomicSettingsRecord.validateRecord(data) }
+      let record = try decoder.decode(StoredSettingsRecord.self, from: incoming)
+      if let data, (try? decoder.decode(StoredSettingsRecord.self, from: data)) == nil {
+        throw AtomicSettingsRecord.Failure.unreadable
+      }
+      let stored = data.flatMap { try? decoder.decode(StoredSettingsRecord.self, from: $0) }
+        ?? StoredSettingsRecord(settings: .default, syncMetadata: nil)
+      // A coarse snapshot cannot replace an installation's modern field authority.
+      if let data, AtomicSettingsRecord.isModern(data) { return (data, false) }
+      guard shouldApply(record, over: stored) else { return (data, false) }
+      let resolved = try preserving(record, over: data, incoming: incoming)
+      let changed = resolved != data
+      data = resolved
+      return (data, changed)
+    }
+  }
+
+  public func encodedRecord() -> Data? { backing.read() }
+  public func readCommittedRecord() throws -> Data? { try backing.transaction { $0 } }
+
+  public func atomicCommand(_ command: Data) throws -> (data: Data, changed: Bool) {
+    guard coordinationAvailable else { throw AtomicSettingsRecord.Failure.unavailable }
+    return try backing.transaction { data in
+      let resolved = try AtomicSettingsRecord.command(data, command: command)
+      let changed = resolved != data
+      data = resolved
+      return (resolved, changed)
+    }
+  }
+
+  /// Actual committed action, never a snapshot diff. No account or entitlement required.
+  public func commitIntent(path: String, value: Bool, updatedAt: Int) throws -> (data: Data, changed: Bool) {
+    return try backing.transaction { data in
+      if !coordinationAvailable, let raw = data, AtomicSettingsRecord.isModern(raw) {
+        let result = try AtomicSettingsRecord.hold(raw, path: path, value: value)
+        data = result.data
+        return result
+      }
+      let result = try AtomicSettingsRecord.commit(data, path: path, value: value, updatedAt: updatedAt)
+      data = result.data
+      return result
+    }
+  }
+
+  /// Bounded source-only migration entry point. Missing marker is unknown, never pristine.
+  public func initializeAtomic(ownership: String) throws -> Data {
+    guard coordinationAvailable else { throw AtomicSettingsRecord.Failure.unavailable }
+    return try backing.transaction { data in
+      let result = try AtomicSettingsRecord.initialize(data, ownership: ownership)
+      data = result
+      return result
+    }
+  }
+
+  private func preserving(_ record: StoredSettingsRecord, over old: Data?, incoming: Data? = nil) throws -> Data {
+    if let old, AtomicSettingsRecord.isModern(old) { return old }
+    if let old, (try? decoder.decode(StoredSettingsRecord.self, from: old)) == nil { throw AtomicSettingsRecord.Failure.unreadable }
+    var root = old.flatMap { try? JSONDecoder().decode([String: SettingsJSONValue].self, from: $0) } ?? [:]
+    var settings = root["settings"]?.object ?? (root["globalOn"] != nil ? root : [:])
+    let incomingRoot = incoming.flatMap { try? JSONDecoder().decode([String: SettingsJSONValue].self, from: $0) }
+    if let incomingRoot {
+      let incomingSettings = incomingRoot["settings"]?.object ?? (incomingRoot["globalOn"] != nil ? incomingRoot : [:])
+      settings = preservingMembers(settings, incomingSettings)
+      root.merge(incomingRoot) { _, new in new }
+    }
+    let typed = try JSONDecoder().decode([String: SettingsJSONValue].self, from: encoder.encode(record.settings))
+    var services = settings["services"]?.object ?? [:]
+    services.merge(typed["services"]!.object!) { _, new in new }
+    settings.merge(typed) { _, new in new }
+    services.removeValue(forKey: "entitlement")
+    settings.removeValue(forKey: "entitlement")
+    root.removeValue(forKey: "entitlement")
+    settings["services"] = .object(services)
+    if root["globalOn"] != nil { root = [:] }
+    root["settings"] = .object(settings)
+    root["syncMetadata"] = record.syncMetadata.map { try? JSONDecoder().decode(SettingsJSONValue.self, from: encoder.encode($0)) } ?? .null
+    if let epoch = record.syncEpoch { root["syncEpoch"] = .number(Double(epoch)) }
+    return try encoder.encode(root)
+  }
+
+  /// Older full-record writers do not know every member already saved by another host.
+  private func preservingMembers(_ old: [String: SettingsJSONValue], _ incoming: [String: SettingsJSONValue]) -> [String: SettingsJSONValue] {
+    old.merging(incoming) { previous, next in
+      if let previous = previous.object, let next = next.object {
+        return .object(preservingMembers(previous, next))
+      }
+      return next
+    }
+  }
+
 }
 
 private func shouldApply(_ incoming: StoredSettingsRecord, over current: StoredSettingsRecord) -> Bool {
@@ -152,7 +275,11 @@ extension SharedSettingsStore {
   /// backing if the App Group is unavailable (e.g. the entitlement isn't provisioned on this build)
   /// so the WKWebView UI still launches and renders — it just won't persist across processes.
   public static func appGroup(_ identifier: String = StillAppGroup.identifier) -> SharedSettingsStore {
-    SharedSettingsStore(backing: AppGroupBacking(appGroupId: identifier) ?? InMemoryBacking())
+    guard let directory = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier) else {
+      return SharedSettingsStore(backing: InMemoryBacking(AppGroupBacking(appGroupId: identifier)?.read()), coordinationAvailable: false)
+    }
+    let legacy = AppGroupBacking(appGroupId: identifier)
+    return SharedSettingsStore(backing: AtomicSettingsBacking(directory: directory, legacyRead: { legacy?.read() }))
   }
 }
 
@@ -175,7 +302,15 @@ public struct AppGroupBacking: SettingsBacking {
 /// In-memory backing for unit tests.
 public final class InMemoryBacking: SettingsBacking {
   private var data: Data?
+  private let lock = NSRecursiveLock()
   public init(_ initial: Data? = nil) { self.data = initial }
-  public func read() -> Data? { data }
-  public func write(_ data: Data) { self.data = data }
+  public func read() -> Data? { lock.lock(); defer { lock.unlock() }; return data }
+  public func write(_ data: Data) { lock.lock(); defer { lock.unlock() }; self.data = data }
+  public func transaction<T>(_ body: (inout Data?) throws -> T) throws -> T {
+    lock.lock(); defer { lock.unlock() }
+    var next = data
+    let result = try body(&next)
+    data = next
+    return result
+  }
 }

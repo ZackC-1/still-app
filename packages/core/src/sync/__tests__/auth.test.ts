@@ -38,6 +38,36 @@ describe("SupabaseAuthPort.signOut (F1 — offline-proof local removal)", () => 
   });
 });
 
+describe("SupabaseAuthPort verified atomic settings session provenance", () => {
+  const subject = "11111111-1111-1111-1111-111111111111";
+  const session = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+  const withClaims = (getClaims: ReturnType<typeof vi.fn>) => new SupabaseAuthPort({ auth: { getClaims } } as unknown as SupabaseClient);
+  it("uses SDK-verified claims and preserves the stable session identity across refresh", async () => {
+    const getClaims = vi.fn()
+      .mockResolvedValueOnce({ data: { claims: { sub: subject, session_id: session, iat: 10 } }, error: null })
+      .mockResolvedValueOnce({ data: { claims: { sub: subject, session_id: session, iat: 20 } }, error: null });
+    const auth = withClaims(getClaims);
+    expect(await auth.currentSettingsSession()).toEqual({ userId: subject, sessionId: session });
+    expect(await auth.currentSettingsSession()).toEqual({ userId: subject, sessionId: session });
+    expect(getClaims).toHaveBeenCalledTimes(2); expect(getClaims).toHaveBeenCalledWith();
+  });
+  it.each([undefined, null, 1, "", "x".repeat(1000), "CCCCCCCC-CCCC-CCCC-CCCC-CCCCCCCCCCCC", session + "\n"])("rejects malformed session provenance %s", async sessionId => {
+    expect(await withClaims(vi.fn(async () => ({ data: { claims: { sub: subject, session_id: sessionId } }, error: null })))
+      .currentSettingsSession()).toBeNull();
+  });
+  it.each([subject + "\n", "other", null])("rejects malformed verified subject %s", async sub => {
+    expect(await withClaims(vi.fn(async () => ({ data: { claims: { sub, session_id: session } }, error: null })))
+      .currentSettingsSession()).toBeNull();
+  });
+  it("never accepts claims accompanied by verification failure or absent session", async () => {
+    const getClaims = vi.fn()
+      .mockResolvedValueOnce({ data: { claims: { sub: subject, session_id: session } }, error: new Error("invalid signature") })
+      .mockResolvedValueOnce({ data: null, error: null });
+    const auth = withClaims(getClaims);
+    expect(await auth.currentSettingsSession()).toBeNull(); expect(await auth.currentSettingsSession()).toBeNull();
+  });
+});
+
 // The R1/R5/R7 classification matrix. GoTrue reports wrong AND expired tokens as one 403
 // `otp_expired` (anti-enumeration), rate limits as 429s with distinct codes, and everything else
 // must land on the calm non-attempt kinds — a non-OTP 403 (`otp_disabled`) or a code-absent

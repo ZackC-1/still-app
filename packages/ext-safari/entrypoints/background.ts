@@ -1,4 +1,4 @@
-import { ChromeStorageAdapter, parseStoredSettingsRecord, type StoredSettingsRecord } from "@still/core/storage";
+import { ChromeStorageAdapter, createSettingsIntentRouter, parseStoredSettingsRecord, type StoredSettingsRecord } from "@still/core/storage";
 import { ChromeEntitlementAdapter } from "@still/core/entitlement";
 import { createRuleSetRefresher } from "@still/core/rules";
 import { createAppGroupReconciler } from "../lib/app-group-reconcile.js";
@@ -33,7 +33,10 @@ function parseNativeSettings(reply: unknown): StoredSettingsRecord | null {
 }
 
 export default defineBackground(() => {
-  const adapter = new ChromeStorageAdapter();
+  const adapter = new ChromeStorageAdapter({ authority: true, nativeMirror: true });
+  browser.runtime.onMessage.addListener(createSettingsIntentRouter(
+    intent => adapter.commitIntent(intent), browser.runtime.id, browser.runtime.getURL(""), record => adapter.set(record), () => adapter.readNativeAuthority(),
+  ));
 
   // Product analytics (lib/analytics.ts): under the app's install, following the app's switch.
   // Registered in this first synchronous pass so onInstalled is not missed.

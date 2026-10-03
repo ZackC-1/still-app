@@ -24,7 +24,8 @@ final class BridgeTests: XCTestCase {
   func testParseSetDecodesSettings() throws {
     let json = SettingsBridge.encode(settings(globalOn: false, updatedAt: 42))
     let request = BridgeRequest.parse(["kind": "set", "settings": json])
-    guard case let .set(decoded) = request else { return XCTFail("expected .set") }
+    guard case let .setPreserved(data) = request else { return XCTFail("expected preserved set") }
+    let decoded = try JSONDecoder().decode(StoredSettingsRecord.self, from: data)
     XCTAssertFalse(decoded.settings.globalOn)
     XCTAssertEqual(decoded.settings.updatedAt, 42)
     XCTAssertNil(decoded.syncMetadata)

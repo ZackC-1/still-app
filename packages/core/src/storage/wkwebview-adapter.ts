@@ -1,6 +1,8 @@
+import type { AtomicSettingsState, CanonicalSettingsEnvelope, SettingsIntent, SettingsScope } from "./atomic-settings.js";
+import { SettingsStorageRecovery } from "./atomic-settings.js";
 import type { StillSettings } from "@still/shared-types";
 import type { StorageAdapter, StoredSettingsRecord } from "./adapter.js";
-import { parseSettings, parseStoredSettingsRecord } from "./settings-validation.js";
+import { parseSettings, parseSettingsIntentReply, parseStoredSettingsRecord } from "./settings-validation.js";
 
 // WKWebView ↔ native bridge (KTD4). The Apple app hosts the one shared Svelte UI in a WKWebView;
 // this is the third StorageAdapter implementation, alongside chrome.storage (the extension) and the
@@ -30,6 +32,8 @@ export interface StillBridgeWindow {
 
 /** The message envelope sent web → native. Settings travel as a JSON string (see file header). */
 export type BridgeMessage =
+  | { readonly kind: "settingsAtomic"; readonly command: string }
+  | ({ readonly kind: "settingsIntent" } & SettingsIntent)
   | { readonly kind: "get" }
   | { readonly kind: "set"; readonly settings: string };
 
@@ -45,7 +49,31 @@ export class WKWebViewStorageAdapter implements StorageAdapter {
   }
 
   async get(): Promise<StoredSettingsRecord | null> {
-    return parseStoredSettingsRecord(await this.post({ kind: "get" }));
+    const reply = await this.post({ kind: "get" });
+    const record = parseStoredSettingsRecord(reply);
+    if (reply !== null && reply !== undefined && reply !== "" && !record) throw new SettingsStorageRecovery("native-unreadable");
+    return record;
+  }
+
+  initializeAtomic(ownership: AtomicSettingsState["ownership"]): Promise<StoredSettingsRecord> {
+    return this.atomicCommand({ action: "initialize", ownership });
+  }
+  enterScope(accountId: string | null, sessionId?: string): Promise<StoredSettingsRecord> {
+    return this.atomicCommand({ action: "scope", accountId, ...(sessionId ? { sessionId } : {}) });
+  }
+  acknowledgeAtomic(envelope: CanonicalSettingsEnvelope, scope: SettingsScope): Promise<StoredSettingsRecord> {
+    return this.atomicCommand({ action: "acknowledge", envelope, scope });
+  }
+  private async atomicCommand(command: object): Promise<StoredSettingsRecord> {
+    const record = parseStoredSettingsRecord(await this.post({ kind: "settingsAtomic", command: JSON.stringify(command) }));
+    if (!record?.atomic) throw new SettingsStorageRecovery("native-atomic-unavailable");
+    return record;
+  }
+
+  async commitIntent(intent: SettingsIntent): Promise<StoredSettingsRecord> {
+    const record = parseSettingsIntentReply(await this.post({ kind: "settingsIntent", ...intent }));
+    if (!record) throw new SettingsStorageRecovery("native-authority-unavailable");
+    return record;
   }
 
   async set(record: StoredSettingsRecord): Promise<void> {
