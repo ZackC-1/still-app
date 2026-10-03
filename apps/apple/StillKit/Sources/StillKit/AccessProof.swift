@@ -205,7 +205,7 @@ public struct AccessCacheRecord: Codable, Equatable {
   public func encode(to encoder: Encoder) throws {
     var c = encoder.container(keyedBy: CodingKeys.self)
     try c.encode(schema, forKey: .schema); try c.encode(accountId, forKey: .accountId)
-    try c.encode(generation, forKey: .generation); try c.encodeIfPresent(sessionId, forKey: .sessionId)
+    try c.encode(generation, forKey: .generation); try c.encode(sessionId, forKey: .sessionId)
     try c.encode(rights, forKey: .rights)
     try c.encode(revocations, forKey: .revocations)
     try c.encodeIfPresent(localProtection, forKey: .localProtection)

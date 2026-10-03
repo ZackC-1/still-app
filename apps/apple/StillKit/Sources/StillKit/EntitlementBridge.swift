@@ -101,8 +101,17 @@ public final class SharedEntitlementStore {
     }
   }
 
+  private func preservingObject(_ data: Data?) throws -> [String: Any] {
+    guard let data else { return [:] }
+    let raw = try JSONSerialization.jsonObject(with: data)
+    // Inspect Foundation before Swift String equality can collapse opaque encoded names.
+    // Reuse only the raw check, not settings schema, depth or byte limits.
+    guard !AtomicSettingsRecord.keyCollision(raw), let object = raw as? [String: Any] else { throw AccessProofFailure.invalid }
+    return object
+  }
+
   private func preserving(_ record: EntitlementRecord, over data: Data?) throws -> Data {
-    var object = try data.map { try JSONSerialization.jsonObject(with: $0) as? [String: Any] ?? { throw AccessProofFailure.invalid }() } ?? [:]
+    var object = try preservingObject(data)
     if let access = object["access"] { _ = try decodeAccess(access) }
     object["entitled"] = record.entitled; object["updatedAt"] = record.updatedAt; object["source"] = record.source.rawValue
     return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
@@ -123,7 +132,7 @@ public final class SharedEntitlementStore {
     guard coordinationAvailable else { throw AccessProofFailure.verificationRequired }
     return try backing.transaction { data in
       guard data.map({ $0.count <= 131_072 }) ?? true else { throw AccessProofFailure.verificationRequired }
-      var object = try data.map { try JSONSerialization.jsonObject(with: $0) as? [String: Any] ?? { throw AccessProofFailure.invalid }() } ?? [:]
+      var object = try preservingObject(data)
       var record = try object["access"].map(decodeAccess) ?? AccessCacheRecord()
       let result = try body(&record)
       let encoded = try JSONSerialization.jsonObject(with: encoder.encode(record)) as? [String: Any] ?? [:]

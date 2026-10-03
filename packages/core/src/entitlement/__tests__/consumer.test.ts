@@ -223,4 +223,95 @@ describe("committed per-benefit consumer", () => {
     expect(Object.isFrozen(seen[0])).toBe(true); expect(Object.isFrozen(seen[0]!.states)).toBe(true);
   });
 
+  it("a second consumer receives only the original signed deadline's remaining interval", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(1000);
+    const h = harness(); await h.authority.observeBenefits(); const scope = await h.authority.observeAccess();
+    await h.authority.mutateAccess({ kind: "install", proof: await proof(), generation: scope.generation,
+      issuerNow: vectors.expiresAt - 30, wall: 1000, localRights: new Set() });
+    const original = await h.authority.observeBenefits(); expect(original.refreshAfterMs).toBe(30);
+    h.setWall(1029); vi.setSystemTime(1029);
+    const cache = new EntitlementCache(h.authority, { access: { paidMode: true, supported: benefits } });
+    await cache.refreshAccess(); expect(cache.currentAccess("youtube.comments")).toBe("purchased");
+    expect(cache.currentAccessSnapshot().refreshAfterMs).toBe(1);
+    expect(original.refreshAfterMs).toBe(30); expect(Object.isFrozen(cache.currentAccessSnapshot())).toBe(true);
+    h.setWall(1030); vi.setSystemTime(1030);
+    expect(cache.currentAccess("youtube.comments")).toBe("verification_required");
+    expect((await h.authority.observeBenefits()).states["youtube.comments"]).toBe("verification_required");
+    expect((await h.authority.observeAccess()).rights[0]!.clock?.expired).toBe(true);
+  });
+
+  it("does not renew signed freshness during an actual delayed authority commit", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(1000);
+    const h = harness(); await h.authority.observeBenefits(); const scope = await h.authority.observeAccess();
+    await h.authority.mutateAccess({ kind: "install", proof: await proof(), generation: scope.generation,
+      issuerNow: vectors.expiresAt - 30, wall: 1000, localRights: new Set() });
+    const set = h.local.set.getMockImplementation()!;
+    h.local.set.mockImplementationOnce(async items => { h.setWall(1029); vi.setSystemTime(1029); await set(items); });
+    const snapshot = await h.authority.observeBenefits(); expect(snapshot.refreshAfterMs).toBe(1);
+    h.setWall(1030); vi.setSystemTime(1030);
+    expect((await h.authority.observeBenefits()).states["youtube.comments"]).toBe("verification_required");
+  });
+
+  it("binds broker freshness to request start, including actual transport delay", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(1000);
+    const h = harness(); await h.authority.observeBenefits(); const scope = await h.authority.observeAccess();
+    await h.authority.mutateAccess({ kind: "install", proof: await proof(), generation: scope.generation,
+      issuerNow: vectors.expiresAt - 30, wall: 1000, localRights: new Set() });
+    const send = h.runtime.sendMessage.getMockImplementation()!;
+    h.runtime.sendMessage.mockImplementationOnce(async message => { const reply = await send(message); h.setWall(1029); vi.setSystemTime(1029); return reply; });
+    const broker = new ChromeEntitlementAdapter(() => Date.now());
+    const cache = new EntitlementCache(broker, { access: { paidMode: true, supported: benefits } });
+    await cache.refreshAccess(); expect(cache.currentAccess("youtube.comments")).toBe("purchased");
+    vi.setSystemTime(1030); expect(cache.currentAccess("youtube.comments")).toBe("verification_required");
+  });
+
+  it("holds a reply whose durable commit completes after its freshness deadline", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(1000);
+    const h = harness(); await h.authority.observeBenefits(); const scope = await h.authority.observeAccess();
+    await h.authority.mutateAccess({ kind: "install", proof: await proof(), generation: scope.generation,
+      issuerNow: vectors.expiresAt - 30, wall: 1000, localRights: new Set() });
+    const set = h.local.set.getMockImplementation()!;
+    h.local.set.mockImplementationOnce(async items => { h.setWall(1031); vi.setSystemTime(1031); await set(items); });
+    const cache = new EntitlementCache(h.authority, { access: { paidMode: true, supported: benefits } });
+    const grants = vi.fn(); cache.subscribeAccess(grants);
+    await cache.refreshAccess(); expect(cache.currentAccess("youtube.comments")).toBe("verification_required");
+    expect(grants.mock.calls.some(([snapshot]) => snapshot.states["youtube.comments"] === "purchased")).toBe(false);
+    await cache.refreshAccess(); expect(cache.currentAccess("youtube.comments")).toBe("verification_required");
+    expect((await h.authority.observeAccess()).rights[0]!.clock?.expired).toBe(true);
+  });
+
+  it("bounds near-expiry failure retries, preserves independent protection, recovers and stops", async () => {
+    vi.useFakeTimers(); vi.setSystemTime(1000);
+    const h = harness(); h.context.localRights.add(vectors.localRight);
+    await h.authority.observeBenefits(); const scope = await h.authority.observeAccess();
+    await h.authority.mutateAccess({ kind: "install", proof: await proof("protected-local"), generation: scope.generation, issuerNow: vectors.verifiedAt, wall: 1000, localRights: h.context.localRights });
+    await h.authority.mutateAccess({ kind: "install", proof: await proof(), generation: scope.generation, issuerNow: vectors.expiresAt - 1, wall: 1000, localRights: new Set() });
+    const cache = new EntitlementCache(h.authority, { access: { paidMode: true, supported: benefits } });
+    const stop = cache.watch(); await cache.refreshAccess(); expect(cache.currentAccessSnapshot().refreshAfterMs).toBe(1);
+    const observe = h.authority.observeBenefits.bind(h.authority);
+    const reads = vi.spyOn(h.authority, "observeBenefits").mockRejectedValue(new Error("authority down"));
+    await vi.advanceTimersByTimeAsync(11);
+    expect(reads).toHaveBeenCalledTimes(1);
+    expect(cache.currentAccess("youtube.comments")).toBe("protected");
+    expect(cache.currentAccess("youtube.related")).toBe("verification_required");
+    reads.mockResolvedValueOnce({ malformed: true } as never);
+    await vi.advanceTimersByTimeAsync(59_990); expect(reads).toHaveBeenCalledTimes(2);
+    expect(cache.currentAccess("youtube.related")).toBe("verification_required");
+    // Install a real fresh signed proof; its material change triggers recovery immediately.
+    const fresh = await proof("paid-new-validation"); h.setWall(Date.now());
+    reads.mockImplementationOnce(observe);
+    await h.authority.mutateAccess({ kind: "install", proof: fresh, generation: scope.generation,
+      issuerNow: fresh.claims.expires_at! - 1, wall: Date.now(), localRights: new Set() });
+    await vi.advanceTimersByTimeAsync(0); await cache.refreshAccess(); expect(cache.currentAccess("youtube.comments")).toBe("purchased");
+    expect(cache.currentAccessSnapshot().refreshAfterMs).toBe(1);
+    await vi.advanceTimersByTimeAsync(1); expect(reads).toHaveBeenCalledTimes(4);
+    // A real material revocation bypasses the failure recovery interval and fences protection now.
+    await h.authority.mutateAccess({ kind: "revoke", right: (await proof("protected-local")).claims.right, revision: 1, generation: scope.generation });
+    expect(cache.currentAccess("youtube.comments")).toBe("verification_required");
+    await vi.advanceTimersByTimeAsync(0); expect(reads).toHaveBeenCalledTimes(5);
+    stop(); const count = reads.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(120_000); expect(reads).toHaveBeenCalledTimes(count);
+    expect(h.changed.size).toBe(0); expect(vi.getTimerCount()).toBe(0); reads.mockRestore();
+  });
+
 });

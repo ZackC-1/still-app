@@ -165,19 +165,31 @@ export class ChromeEntitlementAdapter implements EntitlementAdapter, Entitlement
     if (this.benefitFlight) return this.benefitFlight;
     if (this.options.authority && this.benefitSnapshot && this.benefitContextEpoch === this.contextEpoch &&
         this.benefitRevision === (writerRevisions.get(chrome.storage.local) ?? 0) && this.now() >= this.benefitObservedWall && this.now() < this.benefitDeadline) {
-      return Promise.resolve(this.benefitSnapshot);
+      return Promise.resolve(parseBenefitAccessSnapshot({ ...this.benefitSnapshot,
+        refreshAfterMs: this.benefitSnapshot.refreshAfterMs === null ? null : this.benefitDeadline - this.now(),
+      }));
     }
     const epoch = this.contextEpoch;
+    // Bind freshness before context, queue, native and durable commit delays can consume it.
+    const startedWall = this.now();
     const operation = boundedAccessRead(() => this.options.authority ? this.observeOwnedBenefits() : this.observeBrokerBenefits(), signal);
     const flight = operation.then(snapshot => {
+      // The consuming cache binds broker transport freshness to its own request start.
+      if (!this.options.authority) return snapshot;
+      const deadline = startedWall + (snapshot.refreshAfterMs ?? 60_000);
+      const completedWall = this.now();
+      if (completedWall < startedWall || completedWall >= deadline) throw new Error("Access observation expired");
+      const remaining = parseBenefitAccessSnapshot({ ...snapshot,
+        refreshAfterMs: snapshot.refreshAfterMs === null ? null : deadline - completedWall,
+      });
       if (this.options.authority && epoch === this.contextEpoch) {
         this.benefitSnapshot = snapshot; this.benefitContextEpoch = epoch;
         this.benefitRevision = writerRevisions.get(chrome.storage.local) ?? 0;
-        this.benefitObservedWall = this.now();
-        this.benefitDeadline = this.benefitObservedWall + (snapshot.refreshAfterMs ?? 60_000);
+        this.benefitObservedWall = startedWall;
+        this.benefitDeadline = deadline;
       }
-      return snapshot;
-    }, error => {
+      return remaining;
+    }).catch(error => {
       if (epoch === this.contextEpoch) this.invalidateAccessContext();
       throw error;
     }).finally(() => { if (this.benefitFlight === flight) this.benefitFlight = null; });

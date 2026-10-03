@@ -15,7 +15,7 @@ type Listener = (
   area: string,
 ) => void;
 
-function installChrome(): void {
+function installChrome(): Set<Listener> {
   const listeners = new Set<Listener>();
   vi.stubGlobal("chrome", {
     storage: {
@@ -29,6 +29,7 @@ function installChrome(): void {
       },
     },
   });
+  return listeners;
 }
 
 const ruleSetStorage: ReadableArea & WritableArea = {
@@ -204,7 +205,7 @@ describe("createExtensionContentEntry", () => {
     expect(win.location.replace).toHaveBeenCalledTimes(1);
   });
   it("wires a real synchronous free access cache without any account/native/runtime wait and tears it down", async () => {
-    installChrome();
+    const listeners = installChrome();
     const captured: EntitlementCache[] = [];
     const original = EntitlementCache.prototype.refreshAccess;
     const refreshing = vi.spyOn(EntitlementCache.prototype, "refreshAccess").mockImplementation(function (this: EntitlementCache) {
@@ -220,7 +221,17 @@ describe("createExtensionContentEntry", () => {
     expect(captured[0]?.currentAccess("tiktok.all")).toBe("free");
     expect(captured[0]?.currentAccess("youtube.comments")).toBe("unsupported");
     expect(Object.keys(captured[0]!.currentAccessSnapshot().states)).toHaveLength(16);
+    expect(listeners.size).toBeGreaterThanOrEqual(3);
+    // Exercise the registered access observer while the real script is alive.
+    for (const listener of listeners) listener({ "still:entitlement": { newValue: {} } }, "local");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(refreshing.mock.calls.length).toBeGreaterThan(1);
     for (const script of startedScripts) script.stop();
+    expect(listeners.size).toBe(0);
+    const readsAfterStop = refreshing.mock.calls.length;
+    for (const listener of listeners) listener({ "still:entitlement": { newValue: {} } }, "local");
+    await new Promise(resolve => setTimeout(resolve, 0));
+    expect(refreshing).toHaveBeenCalledTimes(readsAfterStop);
     refreshing.mockRestore();
   });
 
