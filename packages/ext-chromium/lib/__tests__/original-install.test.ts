@@ -106,3 +106,12 @@ describe("the browser install record", () => {
     ).resolves.toBeNull();
   });
 });
+
+it("preserves nonempty corrupt retained original data instead of manufacturing a current cohort", async () => {
+  for (const raw of [{firstRecordedAt: "lost", firstRecordedAppVersion: "2.0.0", opaque: [1,2]}, "unreadable", {}, []]) {
+    const s = store(raw), before = JSON.stringify(raw);
+    expect(await ensureOriginalInstall({store: s.slot, now: () => 1_700_000_000_000, appVersion: "3.0.0"})).toBeNull();
+    expect(s.writes).toHaveLength(0);
+    expect(JSON.stringify(s.read())).toBe(before);
+  }
+});

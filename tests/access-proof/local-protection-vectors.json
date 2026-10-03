@@ -1,0 +1,190 @@
+{
+  "synthetic": true,
+  "cutoff": {
+    "product": "fixture-released-free-v1",
+    "benefits": [
+      "youtube.comments",
+      "youtube.shorts"
+    ],
+    "activatedAt": 1700000000000
+  },
+  "originals": [
+    {
+      "name": "absent",
+      "browser": null,
+      "native": null,
+      "assessment": "absent",
+      "granted": false
+    },
+    {
+      "name": "sparse-before",
+      "browser": {
+        "firstRecordedAt": 1699999999000,
+        "firstRecordedAppVersion": "1.0.4"
+      },
+      "native": {
+        "firstRecordedAt": 721692799.0,
+        "firstRecordedAppVersion": "1.0.4"
+      },
+      "assessment": "legacy",
+      "granted": true
+    },
+    {
+      "name": "schema1-before",
+      "browser": {
+        "schemaVersion": 1,
+        "firstRecordedAt": 1699999999999,
+        "firstRecordedAppVersion": "2.0.0",
+        "future": {
+          "safe": true
+        }
+      },
+      "native": {
+        "schemaVersion": 1,
+        "firstRecordedAt": 721692799.9990001,
+        "firstRecordedAppVersion": "2.0.0",
+        "future": {
+          "safe": true
+        }
+      },
+      "assessment": "legacy",
+      "granted": true
+    },
+    {
+      "name": "exact-cutoff",
+      "browser": {
+        "schemaVersion": 1,
+        "firstRecordedAt": 1700000000000,
+        "firstRecordedAppVersion": "2.0.0"
+      },
+      "native": {
+        "schemaVersion": 1,
+        "firstRecordedAt": 721692800.0,
+        "firstRecordedAppVersion": "2.0.0"
+      },
+      "assessment": "legacy",
+      "granted": false
+    },
+    {
+      "name": "after-cutoff-old-version",
+      "browser": {
+        "schemaVersion": 1,
+        "firstRecordedAt": 1700000000001,
+        "firstRecordedAppVersion": "1.0.4"
+      },
+      "native": {
+        "schemaVersion": 1,
+        "firstRecordedAt": 721692800.0009999,
+        "firstRecordedAppVersion": "1.0.4"
+      },
+      "assessment": "legacy",
+      "granted": false
+    },
+    {
+      "name": "future-schema",
+      "browser": {
+        "schemaVersion": 7,
+        "firstRecordedAt": 1699999999000,
+        "firstRecordedAppVersion": "9.9.9"
+      },
+      "native": {
+        "schemaVersion": 7,
+        "firstRecordedAt": 721692799.0,
+        "firstRecordedAppVersion": "9.9.9"
+      },
+      "assessment": "unsupported",
+      "granted": false
+    },
+    {
+      "name": "null-schema",
+      "browser": {
+        "schemaVersion": null,
+        "firstRecordedAt": 1699999999000,
+        "firstRecordedAppVersion": "2.0.0"
+      },
+      "native": {
+        "schemaVersion": null,
+        "firstRecordedAt": 721692799.0,
+        "firstRecordedAppVersion": "2.0.0"
+      },
+      "assessment": "unreadable",
+      "granted": false
+    },
+    {
+      "name": "bool-schema",
+      "browser": {
+        "schemaVersion": true,
+        "firstRecordedAt": 1699999999000,
+        "firstRecordedAppVersion": "2.0.0"
+      },
+      "native": {
+        "schemaVersion": true,
+        "firstRecordedAt": 721692799.0,
+        "firstRecordedAppVersion": "2.0.0"
+      },
+      "assessment": "unreadable",
+      "granted": false
+    },
+    {
+      "name": "fractional-schema",
+      "browser": {
+        "schemaVersion": 1.5,
+        "firstRecordedAt": 1699999999000,
+        "firstRecordedAppVersion": "2.0.0"
+      },
+      "native": {
+        "schemaVersion": 1.5,
+        "firstRecordedAt": 721692799.0,
+        "firstRecordedAppVersion": "2.0.0"
+      },
+      "assessment": "unreadable",
+      "granted": false
+    },
+    {
+      "name": "missing-local-date",
+      "browser": {
+        "firstRecordedAppVersion": "2.0.0",
+        "originalPurchaseDate": 1
+      },
+      "native": {
+        "firstRecordedAppVersion": "2.0.0",
+        "originalPurchaseDate": 1
+      },
+      "assessment": "unreadable",
+      "granted": false
+    },
+    {
+      "name": "zero-date",
+      "browser": {
+        "firstRecordedAt": 0,
+        "firstRecordedAppVersion": "2.0.0"
+      },
+      "native": {
+        "firstRecordedAt": -978307200.0,
+        "firstRecordedAppVersion": "2.0.0"
+      },
+      "assessment": "unreadable",
+      "granted": false
+    },
+    {
+      "name": "bad-version",
+      "browser": {
+        "firstRecordedAt": 1699999999000,
+        "firstRecordedAppVersion": "unknown"
+      },
+      "native": {
+        "firstRecordedAt": 721692799.0,
+        "firstRecordedAppVersion": "unknown"
+      },
+      "assessment": "unreadable",
+      "granted": false
+    },
+    {
+      "name": "wrong-record",
+      "browser": [],
+      "native": [],
+      "assessment": "unreadable",
+      "granted": false
+    }
+  ]
+}

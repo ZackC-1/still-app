@@ -205,4 +205,62 @@ final class EntitlementBridgeTests: XCTestCase {
     XCTAssertEqual(bridge.applyReceipt(.verifiedNotEntitled), stored)
     XCTAssertEqual(store.peek(), stored)
   }
+  @available(macOS 10.15, *)
+  func testRawCanonicalKeyCollisionsRejectModernAndLegacyWritesWithoutChangingBytes() throws {
+    // Construct literal JSON: a Swift dictionary would collapse these names before the test.
+    let collisions = #""é":1,"e\u0301":2"#
+    let access = #""access":{"schema":1,"accountId":null,"generation":0,"sessionId":null,"rights":[],"revocations":[]}"#
+    let fixtures = [
+      "{\(access),\(collisions)}",
+      #"{"access":{"schema":1,"accountId":null,"generation":0,"sessionId":null,"rights":[{"envelope":"unreadable","clock":null,"accountGeneration":null,"future":{\#(collisions)}}],"revocations":[]}}"#,
+      "{\(access),\"future\":[{\(collisions)}]}"
+    ]
+    for raw in fixtures {
+      let original = Data(raw.utf8)
+      XCTAssertNoThrow(try JSONSerialization.jsonObject(with: original), raw)
+      let backing = InMemoryBacking(); backing.write(original)
+      let store = SharedEntitlementStore(backing: backing)
+      XCTAssertThrowsError(try store.observeAccess(wall: 1000), raw)
+      XCTAssertEqual(backing.read(), original)
+      backing.write(original)
+      XCTAssertThrowsError(try store.observeBenefits(wall: 1000, context: NativeAccessContext(paidMode: true)), raw)
+      XCTAssertEqual(backing.read(), original)
+      backing.write(original)
+      store.save(EntitlementRecord(entitled: true, updatedAt: 1000))
+      XCTAssertEqual(backing.read(), original)
+      let bridge = EntitlementBridge(store: store, now: { 1001 })
+      backing.write(original)
+      _ = bridge.handle(.set(entitled: true))
+      XCTAssertEqual(backing.read(), original)
+      backing.write(original)
+      _ = bridge.applyReceipt(.entitled)
+      XCTAssertEqual(backing.read(), original)
+    }
+  }
+
+  @available(macOS 10.15, *)
+  func testRawEntitlementGuardRetainsItsOwnByteAndOpaqueDepthContract() throws {
+    let nested = String(repeating: "[", count: 16) + "true" + String(repeating: "]", count: 16)
+    let prefix = #"{"access":{"schema":1,"accountId":null,"generation":0,"sessionId":null,"rights":[],"revocations":[]},"future":\#(nested),"padding":""#
+    let suffix = #""}"#
+    let original = Data((prefix + String(repeating: "x", count: 131_072 - prefix.utf8.count - suffix.utf8.count) + suffix).utf8)
+    XCTAssertEqual(original.count, 131_072)
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let backing = AtomicSettingsBacking(directory: directory, name: "entitlement")
+    backing.write(original)
+    let store = SharedEntitlementStore(backing: backing)
+    XCTAssertNoThrow(try store.observeAccess(wall: 1000))
+    let stored = try XCTUnwrap(backing.read())
+    XCTAssertEqual(stored.count, 131_072)
+    let object = try XCTUnwrap(JSONSerialization.jsonObject(with: stored) as? [String: Any])
+    XCTAssertEqual((object["padding"] as? String)?.utf8.count, 131_072 - prefix.utf8.count - suffix.utf8.count)
+    XCTAssertEqual(try JSONSerialization.data(withJSONObject: object["future"]!), Data(nested.utf8))
+    // The maintained entitlement cap still rejects oversize input and retains recovery bytes.
+    let oversized = Data((prefix + String(repeating: "x", count: 131_073 - prefix.utf8.count - suffix.utf8.count) + suffix).utf8)
+    let memory = InMemoryBacking(); memory.write(oversized)
+    XCTAssertThrowsError(try SharedEntitlementStore(backing: memory).observeAccess(wall: 1000))
+    XCTAssertEqual(memory.read(), oversized)
+  }
+
 }

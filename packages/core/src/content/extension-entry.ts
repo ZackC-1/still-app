@@ -87,6 +87,12 @@ export function createExtensionContentEntry(deps: ExtensionContentEntryDeps): (
       redirectDedupe,
       manifestCssOwnsHides: source === "bundled",
     });
+    // The maintained cache now also owns the committed per-benefit read/subscription seam.
+    // U7 consumes that seam in its separate engine change; legacy blocking remains intact.
+    const stopAccess = entitlement.watch();
+    const stop = script.stop.bind(script);
+    script.stop = () => { stopAccess(); stop(); };
+    void entitlement.refreshAccess(); // current free mode resolves synchronously, no account wait
     deps.onScriptCreated?.(script);
     const nudge = deps.nudge?.attach(script, context);
     deps.onStart?.();

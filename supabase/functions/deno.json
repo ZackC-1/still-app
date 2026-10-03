@@ -12,7 +12,8 @@
     "../../packages/shared-types/src/entitlement.js": "../../packages/shared-types/src/entitlement.ts",
     "../../packages/shared-types/src/feature-registry.js": "../../packages/shared-types/src/feature-registry.ts",
     "../../packages/shared-types/src/settings-v2.js": "../../packages/shared-types/src/settings-v2.ts",
-    "../../packages/shared-types/src/settings-operation.js": "../../packages/shared-types/src/settings-operation.ts"
+    "../../packages/shared-types/src/settings-operation.js": "../../packages/shared-types/src/settings-operation.ts",
+    "../../packages/shared-types/src/access.js": "../../packages/shared-types/src/access.ts"
   },
   "nodeModulesDir": "auto"
 }

@@ -6,6 +6,7 @@ problem_type: logic_error
 module: packages/core/src/storage
 applies_when: Migrating settings between TypeScript and Swift while retaining unknown JSON fields
 date: 2026-10-02
+last_updated: 2026-10-02
 status: active
 tags:
   - settings
@@ -62,3 +63,26 @@ Implementation and regression tests:
 - [Swift migration](../../../apps/apple/StillKit/Sources/StillKit/SettingsV2.swift) and
   [raw-input tests](../../../apps/apple/StillKit/Tests/StillKitTests/SettingsV2Tests.swift).
 - [Shared vectors](../../../packages/shared-types/fixtures/settings-v2.json).
+
+## Retained installation provenance
+
+The same absence rule applies to the `still:originalInstall` slot. A failed decoder previously
+allowed the next launch to replace retained installation history with today's date. Both
+`ensureOriginalInstall` and `OriginalInstall.ensure` now create a record only when the actual
+slot is absent. Unreadable nonempty values remain untouched and return an unavailable result.
+Assess supported local fields separately from richer optional store metadata; a local date is
+not proof of a purchase.
+
+Keep the original representation when comparing eligibility. Browser records store UTC
+milliseconds; Foundation's default Codable `Date` stores seconds from January 1, 2001.
+Normalize only the assessment projection. Never rewrite the retained date or replace a missing
+date with the current time. Missing schemas retain their established version-one meaning;
+unsupported schemas and malformed required fields cannot establish eligibility.
+
+The [shared original-record vectors](../../../tests/access-proof/local-protection-vectors.json)
+cover sparse records, unsupported and malformed schemas, and timestamps before, exactly at,
+and after a synthetic cutoff. [Browser tests](../../../packages/ext-chromium/lib/__tests__/original-install.test.ts)
+and [native raw-data tests](../../../apps/apple/StillKit/Tests/StillKitTests/LocalProtectionTests.swift)
+verify retained values remain unchanged. Removing either host's nonempty-value guard makes
+these tests fail by manufacturing new history. This verifies local preservation and assessment;
+it does not establish independently verified store or account history.
