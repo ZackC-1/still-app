@@ -119,12 +119,15 @@ test("actual Deno closure binds every dependency and pinned CLI raw resolution",
       ),
     /manifest/,
   );
-  const missingAlias = { ...imports };
-  delete missingAlias["./settings-v2.js"];
-  assert.throws(
-    () => assertSettingsRuntimeClosure(graph, root, missingAlias, mapPath),
-    /CLI raw import/,
-  );
+  for (const alias of ["./settings-v2.js", "./access.js"]) {
+    const missingAlias = { ...imports };
+    delete missingAlias[alias];
+    assert.throws(
+      () => assertSettingsRuntimeClosure(graph, root, missingAlias, mapPath),
+      /CLI raw import/,
+      alias,
+    );
+  }
   const scratch = await mkdtemp(join(tmpdir(), "still-settings-graph-"));
   t.after(() => rm(scratch, { recursive: true, force: true }));
   const graphSources = graph.modules.filter((m) =>

@@ -1,8 +1,11 @@
+import type { BenefitAccessSnapshot } from "@still/shared-types";
+import { boundedAccessRead, parseBenefitAccessSnapshot } from "../entitlement/access-policy.js";
 import type { AccountSyncStatus } from "../sync/account-status.js";
 import type { StillBridgeWindow, StillMessagePort } from "../storage/wkwebview-adapter.js";
 import { safeParse } from "../storage/settings-validation.js";
 import { isDeviceClass, isVersion, type AnalyticsDevice } from "../analytics/events.js";
 import { isAnalyticsId } from "../analytics/identity.js";
+import { parseAccessCacheRecord, type AccessCacheRecord } from "../entitlement/access-record.js";
 
 // The native action client (U19): the web→native calls beyond settings get/set, posted through the
 // same `window.webkit.messageHandlers.still` port the storage adapter uses (WebBridgeRouter.swift
@@ -53,6 +56,8 @@ export type NativeMessage =
   | { readonly kind: "setAccountSyncStatus"; readonly status: AccountSyncStatus | null }
   | { readonly kind: "signOut" }
   | { readonly kind: "setEntitlement"; readonly entitled: boolean }
+  | { readonly kind: "getAccess" }
+  | { readonly kind: "getBenefitAccess" }
   | { readonly kind: "analyticsContext" }
   | { readonly kind: "setAnalyticsConsent"; readonly enabled: boolean }
   | { readonly kind: "acknowledgeAnalyticsNotice" };
@@ -163,7 +168,8 @@ export class NativeBridge {
    * After this, purchase/restore/status reject until a new session reconfigures (KTD5). No-op on a
    * host with no native port. */
   async signOut(): Promise<void> {
-    await this.post({ kind: "signOut" });
+    const reply = asObject(await this.post({ kind: "signOut" }));
+    if (reply?.access === "verification_required") throw new Error("Account access requires verification");
   }
 
   /** Propose the server-reconciled entitlement into the App Group (a SERVER-LANE proposal — the
@@ -172,6 +178,22 @@ export class NativeBridge {
    * only with server-confirmed values (a cached offline value must not refresh the TTL stamp). */
   async setEntitlement(entitled: boolean): Promise<void> {
     await this.post({ kind: "setEntitlement", entitled });
+  }
+
+  /** Modern scoped cache observation. Native commits time/latches under its actual shared lock.
+   * A missing/failed host is recovery, never a conclusive never-owned result. No proof is installed
+   * or signed by this read, and caller timestamps/flags are not sent. */
+  async observeAccess(): Promise<AccessCacheRecord> {
+    const reply = asObject(await this.post({ kind: "getAccess" }));
+    if (reply?.ok !== true) throw new Error("Native access requires verification");
+    return parseAccessCacheRecord(reply.record);
+  }
+
+  /** Resolved native projection only. The native host owns account/mapping/trust/time context. */
+  async observeBenefits(): Promise<BenefitAccessSnapshot> {
+    const reply = asObject(await boundedAccessRead(() => this.post({ kind: "getBenefitAccess" })));
+    if (reply?.ok !== true) throw new Error("Native benefit access requires verification");
+    return parseBenefitAccessSnapshot(reply.snapshot);
   }
 
   async setAccountSyncStatus(status: AccountSyncStatus | null): Promise<void> {

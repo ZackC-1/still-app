@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import type { StillBridgeWindow } from "../../storage/wkwebview-adapter.js";
+import { ACCESS_OBSERVATION_DEADLINE_MS, initialAccessSnapshot } from "../../entitlement/access-policy.js";
 import { NativeBridge } from "../bridge.js";
 
 /** A fake native host: a postMessage port (WKScriptMessageHandlerWithReply) returning canned JSON
@@ -124,4 +125,27 @@ describe("NativeBridge", () => {
     expect(await new NativeBridge(makeHost({ price: {} }).win).price()).toBeNull();
     expect(await new NativeBridge(makeHost({ price: { price: "" } }).win).price()).toBeNull();
   });
+  it("reads the closed native benefit projection without sending trust/context/clock input", async () => {
+    const snapshot = initialAccessSnapshot();
+    const host = makeHost({ getBenefitAccess: JSON.stringify({ ok: true, snapshot }) });
+    expect(await new NativeBridge(host.win).observeBenefits()).toEqual(snapshot);
+    expect(host.posted).toEqual([{ kind: "getBenefitAccess" }]);
+    await expect(new NativeBridge(makeHost({ getBenefitAccess: { ok: true, record: {} } }).win).observeBenefits()).rejects.toThrow();
+    await expect(new NativeBridge({}).observeBenefits()).rejects.toThrow();
+  });
+
+  it("bounds a hung native projection read and permits retry after the host recovers", async () => {
+    vi.useFakeTimers();
+    try {
+      const host = makeHost({ getBenefitAccess: { ok: true, snapshot: initialAccessSnapshot() } });
+      host.port.postMessage.mockImplementationOnce(() => new Promise(() => undefined));
+      const bridge = new NativeBridge(host.win);
+      const pending = bridge.observeBenefits(); const rejected = expect(pending).rejects.toThrow("timed out");
+      await vi.advanceTimersByTimeAsync(ACCESS_OBSERVATION_DEADLINE_MS); await rejected;
+      expect(vi.getTimerCount()).toBe(0);
+      expect(await bridge.observeBenefits()).toEqual(initialAccessSnapshot());
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+
 });

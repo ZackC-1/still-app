@@ -1,5 +1,10 @@
+import type { BenefitAccessSnapshot, BenefitId, AccessState } from "@still/shared-types";
+import { initialAccessSnapshot, parseBenefitAccessSnapshot, type TrustedAccessContext } from "./access-policy.js";
+
 export interface EntitlementAdapter {
   get(): Promise<boolean | null>;
+  observeBenefits?(signal?: AbortSignal): Promise<BenefitAccessSnapshot>;
+  subscribeAccess?(listener: () => void): () => void;
   /** Persist the entitlement. `updatedAt` (ms epoch) defaults to now; the Safari App-Group pull
    * passes the app's last server-confirmed stamp so the TTL measures from real server contact. */
   set(entitled: boolean, updatedAt?: number): Promise<void>;
@@ -40,11 +45,25 @@ export function recordMatchesSession(record: EntitlementRecord, sessionUserId?: 
 
 export interface EntitlementCacheOptions {
   readonly initial?: boolean;
+  readonly access?: Pick<TrustedAccessContext, "paidMode" | "supported">;
 }
 
 export class EntitlementCache {
   private snapshot: boolean;
   private readonly listeners = new Set<(entitled: boolean) => void>();
+  private readonly modernPaidMode: boolean;
+  private accessSnapshot: BenefitAccessSnapshot;
+  private readonly accessListeners = new Set<(snapshot: BenefitAccessSnapshot) => void>();
+  private accessUnwatch: (() => void) | null = null;
+  private accessFlight: Promise<BenefitAccessSnapshot> | null = null;
+  private accessEpoch = 0;
+  private accessAbort: AbortController | null = null;
+  private accessRefreshDeadline = Infinity;
+  private accessObservedWall = 0;
+  private accessTimer: ReturnType<typeof setTimeout> | null = null;
+  private accessWatching = false;
+  private accessScheduled = false;
+  private accessRetryDelay: number | null = null;
   private unwatch: (() => void) | null = null;
 
   constructor(
@@ -52,6 +71,8 @@ export class EntitlementCache {
     opts: EntitlementCacheOptions = {},
   ) {
     this.snapshot = opts.initial ?? false;
+    this.accessSnapshot = initialAccessSnapshot(opts.access);
+    this.modernPaidMode = this.accessSnapshot.refreshAfterMs !== null;
   }
 
   current(): boolean {
@@ -65,8 +86,17 @@ export class EntitlementCache {
   }
 
   watch(): () => void {
+    this.accessWatching = true;
+    this.accessUnwatch ??= this.adapter.subscribeAccess?.(() => this.invalidateAccess()) ?? null;
     this.unwatch ??= this.adapter.subscribe((entitled) => this.apply(entitled));
     return () => {
+      this.accessWatching = false;
+      this.accessEpoch++;
+      this.accessAbort?.abort(); this.accessAbort = null;
+      this.accessUnwatch?.(); this.accessUnwatch = null;
+      if (this.accessTimer !== null) clearTimeout(this.accessTimer);
+      this.accessTimer = null;
+      this.accessRetryDelay = null;
       this.unwatch?.();
       this.unwatch = null;
     };
@@ -78,8 +108,101 @@ export class EntitlementCache {
   }
 
   async setEntitled(entitled: boolean): Promise<void> {
-    this.apply(entitled);
     await this.adapter.set(entitled);
+    this.apply(entitled);
+  }
+
+  currentAccess(benefit: BenefitId): AccessState { return this.currentAccessSnapshot().states[benefit]; }
+  currentAccessSnapshot(): BenefitAccessSnapshot {
+    // A suspended page cannot return a paid grant merely because its refresh timer has not run.
+    // This is cache freshness only; the authoritative persisted paid clock stays in its writer.
+    if (Date.now() >= this.accessRefreshDeadline || Date.now() < this.accessObservedWall) {
+      this.accessRefreshDeadline = Infinity;
+      this.holdAccess();
+      if (this.accessRetryDelay === null) this.scheduleAccess();
+    }
+    return this.accessSnapshot;
+  }
+
+  subscribeAccess(listener: (snapshot: BenefitAccessSnapshot) => void): () => void {
+    this.accessListeners.add(listener);
+    return () => this.accessListeners.delete(listener);
+  }
+
+  refreshAccess(): Promise<BenefitAccessSnapshot> {
+    if (this.accessFlight) return this.accessFlight;
+    if (!this.modernPaidMode || !this.adapter.observeBenefits) return Promise.resolve(this.accessSnapshot);
+    const epoch = this.accessEpoch;
+    // A relative freshness interval cannot start over after transport has consumed it.
+    const startedWall = Date.now();
+    const controller = new AbortController(); this.accessAbort = controller;
+    const operation = this.adapter.observeBenefits(controller.signal).then(parseBenefitAccessSnapshot).then(value => {
+      if (epoch === this.accessEpoch) {
+        const deadline = value.refreshAfterMs === null ? Infinity : startedWall + value.refreshAfterMs;
+        if (Date.now() < startedWall || Date.now() >= deadline) throw new Error("Access observation expired");
+        this.accessObservedWall = startedWall;
+        this.accessRefreshDeadline = deadline;
+        this.accessRetryDelay = null;
+        this.applyAccess(value);
+      }
+      return this.accessSnapshot;
+    }).catch(() => {
+      if (epoch === this.accessEpoch) {
+        // Recovery cadence is independent of a successful near-expiry snapshot's 1 ms TTL.
+        this.accessRetryDelay = 60_000;
+        this.accessRefreshDeadline = Infinity;
+        this.holdAccess();
+      }
+      return this.accessSnapshot;
+    });
+    const flight = operation.finally(() => {
+      if (this.accessFlight === flight) this.accessFlight = null;
+      if (this.accessAbort === controller) this.accessAbort = null;
+      if (!this.accessWatching) return;
+      if (epoch !== this.accessEpoch) this.scheduleAccess();
+      else this.armAccessTimer();
+    });
+    this.accessFlight = flight;
+    return flight;
+  }
+
+  private invalidateAccess(): void {
+    this.accessEpoch++;
+    this.accessRetryDelay = null;
+    if (this.accessTimer !== null) clearTimeout(this.accessTimer);
+    this.accessTimer = null;
+    this.accessRefreshDeadline = Infinity;
+    this.holdAccess(false);
+    this.scheduleAccess();
+  }
+  private scheduleAccess(): void {
+    if (!this.accessWatching || this.accessScheduled) return;
+    this.accessScheduled = true;
+    queueMicrotask(() => {
+      this.accessScheduled = false;
+      if (this.accessWatching) void this.refreshAccess();
+    });
+  }
+  private armAccessTimer(): void {
+    if (this.accessTimer !== null) clearTimeout(this.accessTimer);
+    this.accessTimer = null;
+    const delay = this.accessRetryDelay ?? (this.accessSnapshot.refreshAfterMs === null ? null :
+      Math.max(0, this.accessRefreshDeadline - Date.now()));
+    if (delay === null) return;
+    this.accessTimer = setTimeout(() => { this.accessTimer = null; void this.refreshAccess(); }, delay);
+  }
+  private holdAccess(preserveIndependent = true): void {
+    const states = Object.fromEntries(Object.entries(this.accessSnapshot.states).map(([key, value]) => [key,
+      value === "free" || value === "unsupported" ? value : preserveIndependent && this.accessSnapshot.independentProtection.includes(key as BenefitId) ? "protected" : "verification_required",
+    ])) as BenefitAccessSnapshot["states"];
+    this.applyAccess({ ...this.accessSnapshot, states,
+      independentProtection: preserveIndependent ? this.accessSnapshot.independentProtection : [],
+    });
+  }
+  private applyAccess(snapshot: BenefitAccessSnapshot): void {
+    if (JSON.stringify(snapshot) === JSON.stringify(this.accessSnapshot)) return;
+    this.accessSnapshot = parseBenefitAccessSnapshot(snapshot);
+    for (const listener of [...this.accessListeners]) listener(this.accessSnapshot);
   }
 
   private apply(entitled: boolean): void {
@@ -88,4 +211,3 @@ export class EntitlementCache {
     for (const listener of [...this.listeners]) listener(entitled);
   }
 }
-

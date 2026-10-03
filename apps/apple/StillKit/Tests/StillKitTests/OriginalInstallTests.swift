@@ -20,8 +20,8 @@ final class OriginalInstallTests: XCTestCase {
       appVersion: "2.0.0",
       defaults: defaults
     )
-    XCTAssertEqual(first.firstRecordedAt, firstLaunch)
-    XCTAssertEqual(first.firstRecordedAppVersion, "2.0.0")
+    XCTAssertEqual(first?.firstRecordedAt, firstLaunch)
+    XCTAssertEqual(first?.firstRecordedAppVersion, "2.0.0")
 
     // A later launch, and a later app version: the cohort must not move.
     let second = OriginalInstall.ensure(
