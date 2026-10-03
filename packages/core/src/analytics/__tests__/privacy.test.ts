@@ -50,11 +50,12 @@ function gate() {
     },
   };
 }
-function memory() {
+function memory(missing: null | undefined = undefined) {
   const data: Record<string, unknown> = {};
   return {
     data,
-    get: async (k: string) => structuredClone(data[k]),
+    get: async (k: string) =>
+      structuredClone(data[k] === undefined ? missing : data[k]),
     set: async (k: string, v: unknown) => {
       data[k] = structuredClone(v);
     },
@@ -567,6 +568,22 @@ describe("reviewed recovery", () => {
 });
 
 describe("fresh combined permission", () => {
+  it.each([undefined, null])(
+    "an undecided install allocates nothing with a missing-key value of %s",
+    async (missing) => {
+      const store = memory(missing);
+      const writes = vi.spyOn(store, "set");
+      const h = harness({ store, permission: undefined });
+      expect(await h.client.canReport()).toBe(false);
+      await h.client.identify(A);
+      await h.client.track("active", {});
+      await h.client.flush();
+      expect(writes).not.toHaveBeenCalled();
+      expect(store.data).toEqual({});
+      expect(h.identity).not.toHaveBeenCalled();
+      expect(h.sink).not.toHaveBeenCalled();
+    },
+  );
   it.each([
     undefined,
     true,
@@ -741,6 +758,99 @@ describe("observation and transport authority", () => {
     expect(h.sink).not.toHaveBeenCalled();
     refuse = false;
     await restart.flush();
+    expect(queue.data[QUEUE_KEY]).toEqual([]);
+    expect(h.sink).not.toHaveBeenCalled();
+  });
+  it.each(["null", "unreadable"] as const)(
+    "%s after an acknowledged purge keeps debt until an explicit empty queue is read",
+    async (missing) => {
+      const queue = memory(null);
+      let lose = false;
+      const h = harness({
+        queueStore: {
+          get: async (key) => {
+            if (lose && key === QUEUE_KEY) {
+              if (missing === "unreadable") throw Error("unavailable");
+              return null;
+            }
+            return queue.get(key);
+          },
+          set: async (key, value) => {
+            if (!lose) await queue.set(key, value);
+          },
+        },
+      });
+      await h.client.track("active", {});
+      const original = structuredClone(queue.data[QUEUE_KEY]);
+      expect(original).toHaveLength(1);
+      lose = true;
+      await h.client.clearQueue(false);
+      expect(h.store.data[STATE_KEY]).toMatchObject({ stopPending: true });
+      const restart = new AnalyticsClient(h.deps);
+      expect(await restart.canReport()).toBe(false);
+      await restart.track("opened", { where: "popup" });
+      await restart.flush();
+      expect(h.store.data[STATE_KEY]).toMatchObject({ stopPending: true });
+      expect(queue.data[QUEUE_KEY]).toEqual(original);
+      expect(h.sink).not.toHaveBeenCalled();
+      lose = false;
+      expect(await restart.canReport()).toBe(true);
+      expect(queue.data[QUEUE_KEY]).toEqual([]);
+      expect(h.store.data[STATE_KEY]).toMatchObject({ stopPending: false });
+      await restart.confirm(null, { quiet: true });
+      await restart.track("opened", { where: "popup" });
+      await restart.flush();
+      expect(
+        h.bodies.flatMap((body) => body.batch).map((event) => event.event),
+      ).toEqual(["opened"]);
+    },
+  );
+  it("a stale account observation cannot flush a current account's queued event", async () => {
+    const h = harness();
+    await h.client.identify(A);
+    const stale = await h.client.captureObservation();
+    expect(stale).not.toBeNull();
+    await h.client.identify(B);
+    await h.client.track("opened", { where: "popup" });
+    const waiting = structuredClone(h.store.data[QUEUE_KEY]);
+    expect(waiting).toHaveLength(1);
+    await h.client.flush(stale!);
+    expect(h.sink).not.toHaveBeenCalled();
+    expect(h.store.data[QUEUE_KEY]).toEqual(waiting);
+    const current = await h.client.captureObservation();
+    expect(current).not.toBeNull();
+    await h.client.flush(current!);
+    expect(h.bodies.flatMap((body) => body.batch)).toMatchObject([
+      { event: "opened", properties: { distinct_id: B } },
+    ]);
+    expect(h.store.data[QUEUE_KEY]).toEqual([]);
+  });
+  it("a null queue read cannot discharge a forgotten account's erasure debt", async () => {
+    const queue = memory();
+    let lose = false;
+    const h = harness({
+      queueStore: {
+        get: async (key) => (lose ? null : queue.get(key)),
+        set: async (key, value) => {
+          if (!lose) await queue.set(key, value);
+        },
+      },
+    });
+    await h.client.identify(A);
+    await h.client.track("active", {});
+    const original = structuredClone(queue.data[QUEUE_KEY]);
+    expect(original).toHaveLength(1);
+    lose = true;
+    await h.client.confirm(null, { forget: true, quiet: true });
+    expect(h.store.data[STATE_KEY]).toMatchObject({ forgotten: [A] });
+    const restart = new AnalyticsClient(h.deps);
+    await restart.flush();
+    expect(h.store.data[STATE_KEY]).toMatchObject({ forgotten: [A] });
+    expect(queue.data[QUEUE_KEY]).toEqual(original);
+    expect(h.sink).not.toHaveBeenCalled();
+    lose = false;
+    await restart.flush();
+    expect(h.store.data[STATE_KEY]).toMatchObject({ forgotten: [] });
     expect(queue.data[QUEUE_KEY]).toEqual([]);
     expect(h.sink).not.toHaveBeenCalled();
   });

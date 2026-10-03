@@ -875,7 +875,7 @@ export class AnalyticsClient {
     retire: boolean | AnalyticsPermission = true,
   ): Promise<void> {
     const state = await this.read();
-    const waiting = await this.loadRawQueue();
+    const waiting = await this.loadRawQueue(true);
     const endedOrigin =
       retire === true
         ? state?.permission?.origin
@@ -988,11 +988,16 @@ export class AnalyticsClient {
     }
   }
 
-  /** Deletion verification inspects all raw records, including malformed or oversized history. */
-  private async loadRawQueue(): Promise<unknown[] | null> {
+  /** Inspect all raw records. Only allocation preflight accepts missing-key null as empty;
+   * erasure verification must not take it as proof that a purge was persisted. */
+  private async loadRawQueue(allocationPreflight = false): Promise<unknown[] | null> {
     try {
       const value = await this.queueStore.get(QUEUE_KEY);
-      return value === undefined ? [] : Array.isArray(value) ? value : [value];
+      return value === undefined || (allocationPreflight && value === null)
+        ? []
+        : Array.isArray(value)
+          ? value
+          : [value];
     } catch {
       return null;
     }
