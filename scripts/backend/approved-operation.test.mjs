@@ -4,7 +4,8 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createOperationPlan } from "./plan.mjs";
+import { parsers } from "prettier/plugins/yaml";
+import { canonical, createOperationPlan, hash } from "./plan.mjs";
 import {
   executeSyntheticOperation,
   readGitHubProtection,
@@ -208,7 +209,37 @@ test("apply success cannot substitute for authoritative state and security readb
     assert.equal(receipt.status, "stopped", mode);
     assert.equal(receipt.requiresReviewedForwardRepair, true);
     if (mode === "no-write") assert.deepEqual(receipt.completed, []);
+    if (mode === "read-failure") {
+      assert.equal(receipt.stateKnown, false);
+      assert.equal(receipt.observedStateDigest, null);
+      assert.equal(receipt.securityBoundaryObserved, false);
+      assert.deepEqual(receipt.completed, []);
+      assert.equal(receipt.attempted, "retain-security-boundary");
+    }
   }
+});
+
+test("recovery security verification failure retains known actual state without claiming a safe boundary", async (t) => {
+  const f = await fixture(t);
+  let verifications = 0;
+  f.adapter.verify = async () => {
+    if (++verifications > 1) throw new Error("security read unavailable");
+    return true;
+  };
+  const receipt = await executeSyntheticOperation(
+    f.root,
+    f.plan,
+    f.context,
+    f.adapter,
+  );
+  assert.equal(receipt.status, "stopped");
+  assert.equal(receipt.stateKnown, true);
+  assert.equal(receipt.observedStateDigest, hash(canonical(f.read())));
+  assert.equal(receipt.securityBoundaryObserved, false);
+  assert.deepEqual(receipt.completed, []);
+  assert.equal(receipt.attempted, "retain-security-boundary");
+  assert.equal(f.read().generation, 1);
+  assert.equal(receipt.requiresReviewedForwardRepair, true);
 });
 
 test("intervening source change and security drift stop before the next operation", async (t) => {
@@ -254,6 +285,8 @@ test("a failed adapter can have committed state; readback never invents rollback
   assert.equal(receipt.attempted, "retain-security-boundary");
   assert.equal(f.read().generation, 1);
   assert.equal(receipt.stateKnown, true);
+  assert.equal(receipt.observedStateDigest, hash(canonical(f.read())));
+  assert.equal(receipt.securityBoundaryObserved, true);
   assert.equal(receipt.requiresReviewedForwardRepair, true);
 });
 
@@ -293,11 +326,31 @@ function githubFixture() {
       comment: `CP033 ${"c".repeat(64)}`,
     },
   ];
-  const responses = [environment, branches, run, approvals];
+  const base = "https://api.github.com/repos/owner/repo";
+  const responses = new Map(
+    [
+      [`${base}/environments/supabase-production`, environment],
+      [
+        `${base}/environments/supabase-production/deployment-branch-policies?per_page=100`,
+        branches,
+      ],
+      [`${base}/actions/runs/123`, run],
+      [`${base}/actions/runs/123/approvals`, approvals],
+    ].map(([url, body]) => [url, { ok: true, json: async () => body }]),
+  );
   const requests = [];
   const fetch = async (url, options) => {
     requests.push([url, options]);
-    return { ok: true, json: async () => responses.shift() };
+    assert.ok(responses.has(url), `Unknown GitHub resource: ${url}`);
+    assert.equal(options.method, "GET");
+    assert.equal(options.redirect, "error");
+    assert.equal(options.credentials, undefined);
+    assert.equal(options.body, undefined);
+    assert.deepEqual(options.headers, {
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2026-03-10",
+    });
+    return responses.get(url);
   };
   const request = {
     repository: "owner/repo",
@@ -326,15 +379,10 @@ test("read-only GitHub proof checks actual reviewer, main branch and exact run a
   assert.equal(proof.exactRunApprovalObserved, true);
   assert.equal(proof.productionReady, false);
   assert.equal(proof.adminBypassVerified, false);
-  assert.equal(f.requests.length, 4);
-  assert.ok(
-    f.requests.every(
-      ([url, options]) =>
-        url.startsWith("https://api.github.com/repos/owner/repo/") &&
-        options.method === "GET",
-    ),
+  assert.deepEqual(
+    f.requests.map(([url]) => url),
+    [...f.responses.keys()],
   );
-  assert.ok(f.requests[3][0].endsWith("/actions/runs/123/approvals"));
   assert.throws(() => requireProductionAuthority(proof), /unavailable/);
 });
 
@@ -403,10 +451,6 @@ test("missing environment/protection, branch widening and approval tampering fai
     mutate(f);
     await assert.rejects(readGitHubProtection(f.request, f.fetch));
   }
-  const f = githubFixture();
-  await assert.rejects(
-    readGitHubProtection(f.request, async () => ({ ok: false, status: 404 })),
-  );
   assert.throws(
     () =>
       requireProductionAuthority({
@@ -417,27 +461,190 @@ test("missing environment/protection, branch widening and approval tampering fai
   );
 });
 
-test("public workflow cannot schedule production or request any production credential", async () => {
-  const workflow = await readFile(
+test("each GitHub resource must return a successful well-formed response", async (t) => {
+  for (const url of githubFixture().responses.keys()) {
+    for (const failure of ["non-OK", "malformed JSON", "wrong shape"]) {
+      await t.test(`${url}: ${failure}`, async () => {
+        const f = githubFixture();
+        const healthy = f.responses.get(url);
+        let bodyRead = false;
+        f.responses.set(url, {
+          ok: failure !== "non-OK",
+          status: 404,
+          json: async () => {
+            bodyRead = true;
+            if (failure === "non-OK") return healthy.json();
+            if (failure === "malformed JSON")
+              throw new SyntaxError("Invalid JSON");
+            return {};
+          },
+        });
+        await assert.rejects(readGitHubProtection(f.request, f.fetch));
+        assert.ok(f.requests.some(([requested]) => requested === url));
+        if (failure === "non-OK") assert.equal(bodyRead, false);
+      });
+    }
+  }
+});
+
+// Reuse the installed Prettier YAML parser, retaining scalar strings (including Actions
+// expressions and shell blocks). Unsupported aliases/tags fail instead of hiding scope.
+function workflowValue(node) {
+  assert.equal(node.anchor ?? null, null);
+  assert.equal(node.tag ?? null, null);
+  if (node.type === "mapping")
+    return Object.fromEntries(
+      node.children.map(({ children: [key, value] }) => [
+        workflowValue(key),
+        workflowValue(value),
+      ]),
+    );
+  if (node.type === "sequence") return node.children.map(workflowValue);
+  if (
+    ["plain", "quoteDouble", "quoteSingle", "blockLiteral"].includes(node.type)
+  )
+    return node.value;
+  if (
+    ["mappingKey", "mappingValue", "sequenceItem", "documentBody"].includes(
+      node.type,
+    )
+  ) {
+    assert.ok(node.children.length <= 1);
+    return node.children.length ? workflowValue(node.children[0]) : null;
+  }
+  assert.fail(`Unsupported workflow node: ${node.type}`);
+}
+
+// Evaluate the actual sealed condition's equality conjunction, with no arbitrary eval.
+// A changed condition grammar requires an explicit test update instead of being ignored.
+function protectedJobSchedules(condition, values) {
+  return condition
+    .split(/\s+&&\s+/)
+    .map((clause) => {
+      const match = /^([\w.-]+) == '([^']*)'$/.exec(clause);
+      assert.ok(match, `Unsupported protected condition: ${clause}`);
+      assert.ok(
+        Object.hasOwn(values, match[1]),
+        `Unknown condition context: ${match[1]}`,
+      );
+      return values[match[1]] === match[2];
+    })
+    .every(Boolean);
+}
+
+test("preview installs pinned Deno and existing parser before running Node tests", async () => {
+  const text = await readFile(
     new URL("../../.github/workflows/supabase-deploy.yml", import.meta.url),
     "utf8",
   );
-  assert.match(
-    workflow,
-    /echo ['"]production-ready=false['"] >> "\$GITHUB_OUTPUT"/,
+  const ast = await parsers.yaml.parse(text);
+  const workflow = workflowValue(ast.children[0].children[1]);
+  const steps = workflow.jobs.preview.steps;
+  const deno = steps.findIndex(
+    (step) => step.uses === "denoland/setup-deno@v2",
   );
-  assert.match(workflow, /needs\.preview\.outputs\.production-ready == 'true'/);
-  assert.match(
-    workflow,
-    /github\.event_name == 'workflow_dispatch' && github\.ref == 'refs\/heads\/main'/,
+  const tests = steps.findIndex((step) =>
+    step.run?.includes("entrypoints.test.mjs"),
   );
+  assert.ok(deno >= 0 && tests > deno);
+  assert.equal(steps[deno].with["deno-version"], "2.8.3");
+  const pnpm = steps.findIndex(
+    (step) => step.uses === "pnpm/action-setup@v6.1.0",
+  );
+  const dependencies = steps.findIndex(
+    (step) =>
+      step.run === "pnpm install --frozen-lockfile --ignore-scripts --filter .",
+  );
+  assert.ok(pnpm >= 0 && dependencies > pnpm && dependencies < tests);
+});
+
+test("public workflow effective authority output cannot schedule production or request any production credential", async (t) => {
+  const text = await readFile(
+    new URL("../../.github/workflows/supabase-deploy.yml", import.meta.url),
+    "utf8",
+  );
+  const ast = await parsers.yaml.parse(text);
+  const workflow = workflowValue(ast.children[0].children[1]);
+  const preview = workflow.jobs.preview;
+  const protectedApply = workflow.jobs["protected-apply"];
+  const authorities = preview.steps.filter((step) => step.id === "authority");
+  assert.equal(authorities.length, 1);
+  const authority = authorities[0];
+  assert.equal(
+    preview.outputs["production-ready"],
+    "${{ steps.authority.outputs.production-ready }}",
+  );
+  assert.deepEqual(authority.env, {
+    REQUESTED_OPERATION: "${{ inputs.operation }}",
+  });
+  assert.equal(protectedApply.needs, "preview");
+  assert.equal(protectedApply.environment, "supabase-production");
+  assert.deepEqual(workflow.permissions, { contents: "read" });
+  for (const [name, job] of Object.entries(workflow.jobs)) {
+    if (name !== "protected-apply") assert.equal(job.environment, undefined);
+    for (const scope of [job, ...job.steps]) {
+      assert.doesNotMatch(JSON.stringify(scope), /\bsecrets\s*[.[]/);
+      for (const level of Object.values(scope.permissions ?? {}))
+        assert.notEqual(level, "write");
+    }
+  }
+  const root = await mkdtemp(join(tmpdir(), "cp033-authority-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  for (const [event, operation, status] of [
+    ["pull_request", "", 0],
+    ["workflow_dispatch", "synthetic", 0],
+    ["workflow_dispatch", "production-unavailable", 1],
+  ]) {
+    const output = join(root, `${event}-${operation}.output`);
+    const summary = join(root, `${event}-${operation}.summary`);
+    const result = spawnSync(
+      "/bin/bash",
+      ["--noprofile", "--norc", "-eo", "pipefail", "-c", authority.run],
+      {
+        cwd: new URL("../../", import.meta.url),
+        env: {
+          PATH: `${process.execPath.slice(0, process.execPath.lastIndexOf("/"))}:/usr/bin:/bin`,
+          REQUESTED_OPERATION: operation,
+          GITHUB_EVENT_NAME: event,
+          GITHUB_OUTPUT: output,
+          GITHUB_STEP_SUMMARY: summary,
+        },
+        encoding: "utf8",
+      },
+    );
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, status, result.stderr);
+    // The last assignment is the effective Actions output, including a later override.
+    const outputs = Object.fromEntries(
+      (await readFile(output, "utf8"))
+        .trim()
+        .split("\n")
+        .map((line) => {
+          const separator = line.indexOf("=");
+          assert.ok(separator > 0, `Invalid output assignment: ${line}`);
+          return [line.slice(0, separator), line.slice(separator + 1)];
+        }),
+    );
+    assert.equal(outputs["production-ready"], "false");
+    assert.equal(
+      protectedJobSchedules(protectedApply.if, {
+        "github.event_name": event,
+        "github.ref": "refs/heads/main",
+        "needs.preview.outputs.production-ready": outputs["production-ready"],
+      }),
+      false,
+    );
+  }
   assert.doesNotMatch(
-    workflow,
+    text,
     /\bsecrets\s*[.[]|id-token:\s*write|contents:\s*write|pull_request_target|workflow_run:/,
   );
-  assert.match(workflow, /if: always\(\)/);
-  assert.match(workflow, /supabase stop --project-id still-app --no-backup/);
-  assert.match(workflow, /docker volume ls/);
+  const cleanup = workflow.jobs.synthetic.steps.find(
+    (step) => step.if === "always()",
+  );
+  assert.ok(cleanup);
+  assert.match(cleanup.run, /supabase stop --project-id still-app --no-backup/);
+  assert.match(cleanup.run, /docker volume ls/);
 });
 
 test("CLI production, arbitrary operation and non-cloud execution refuse before tool acquisition", async (t) => {
