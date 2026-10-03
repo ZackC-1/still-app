@@ -51,7 +51,7 @@ jobs:
           node --test scripts/backend/plan.test.mjs scripts/backend/entrypoints.test.mjs
           cd supabase/functions
           deno check --frozen */index.ts
-          deno test --frozen
+          deno test --frozen --allow-read=../migrations/0013_counter_retention.sql,../../scripts/backend/sql/settings-sync-candidate.sql
           git diff --exit-code -- deno.lock
       - name: Bind exact credential-free synthetic source
         id: plan

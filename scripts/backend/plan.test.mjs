@@ -1,23 +1,70 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, rm, symlink, writeFile, readFile, cp } from "node:fs/promises";
+import {
+  cp,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { test } from "node:test";
 import {
+  assertSettingsRuntimeClosure,
   createOperationPlan,
   createPlan,
   settingsRuntimeSources,
   verifyOperationPlan,
   verifyPlan,
-  assertSettingsRuntimeClosure,
 } from "./plan.mjs";
 
 test("actual Deno closure binds every dependency and pinned CLI raw resolution", async (t) => {
-  const root = fileURLToPath(new URL("../../", import.meta.url));
+  const checkout = fileURLToPath(new URL("../../", import.meta.url));
+  const root = await mkdtemp(join(tmpdir(), "still-settings-cold-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  // Neither the global Deno cache nor a checkout's node_modules may satisfy
+  // this resolution: exercise the real function config in a fresh source tree.
+  await cp(
+    join(checkout, "supabase/functions/_shared"),
+    join(root, "supabase/functions/_shared"),
+    {
+      recursive: true,
+      filter: (path) => path.endsWith("_shared") || path.endsWith(".ts"),
+    },
+  );
+  for (
+    const path of [
+      ...settingsRuntimeSources,
+      "supabase/functions/deno.json",
+      "supabase/functions/deno.lock",
+      "supabase/functions/sync-settings/index.ts",
+      "supabase/functions/sync-settings/deno.json",
+      "supabase/functions/sync-settings/deno.lock",
+    ]
+  ) {
+    await mkdir(join(root, path, ".."), { recursive: true });
+    await cp(join(checkout, path), join(root, path));
+  }
   const mapPath = join(root, "supabase/functions/sync-settings/deno.json");
-  const imports = JSON.parse(await readFile(mapPath, "utf8")).imports;
+  const config = JSON.parse(await readFile(mapPath, "utf8"));
+  const { imports } = config;
+  assert.deepEqual(config.lock, { path: "./deno.lock", frozen: true });
+  const functionLockPath = join(
+    root,
+    "supabase/functions/sync-settings/deno.lock",
+  );
+  const functionLockBytes = await readFile(functionLockPath, "utf8");
+  const rootLockPath = join(root, "supabase/functions/deno.lock");
+  const rootLockBytes = await readFile(rootLockPath, "utf8");
+  const functionLock = JSON.parse(functionLockBytes);
+  const lock = JSON.parse(rootLockBytes);
+  assert.deepEqual(functionLock.npm, lock.npm);
+  assert.deepEqual(functionLock.jsr, lock.jsr);
+  const denoEnv = { ...process.env, DENO_DIR: join(root, "empty-deno-cache") };
   const graph = JSON.parse(
     execFileSync(
       "deno",
@@ -28,23 +75,35 @@ test("actual Deno closure binds every dependency and pinned CLI raw resolution",
         mapPath,
         join(root, "supabase/functions/sync-settings/index.ts"),
       ],
-      { encoding: "utf8" },
+      { encoding: "utf8", env: denoEnv },
     ),
   );
-  // CLI serve selects this nearest function config, independently of the frozen
-  // root check. Every external alias must pin the root lock's reviewed version.
-  const lock = JSON.parse(await readFile(join(root, "supabase/functions/deno.lock"), "utf8"));
-  const rootImports = JSON.parse(await readFile(join(root, "supabase/functions/deno.json"), "utf8")).imports;
+  // CLI serve selects this nearest function config. Its scoped frozen lock
+  // preserves the entire reviewed graph, including transitive dependencies.
+  const rootImports = JSON.parse(
+    await readFile(join(root, "supabase/functions/deno.json"), "utf8"),
+  ).imports;
   for (const [alias, specifier] of Object.entries(rootImports)) {
-    if (!specifier.startsWith("npm:") && !specifier.startsWith("jsr:")) continue;
+    if (!specifier.startsWith("npm:") && !specifier.startsWith("jsr:")) {
+      continue;
+    }
     const match = /^(npm:|jsr:)(@?[^@]+)@([^/]+)(.*)$/.exec(specifier);
     assert(match, alias);
     const [, protocol, name, range, suffix] = match;
     const version = lock.specifiers[`${protocol}${name}@${range}`];
     assert(version, `Missing reviewed lock version: ${alias}`);
-    assert.equal(imports[alias], `${protocol}${name}@${version}${suffix}`, alias);
+    assert.equal(
+      imports[alias],
+      `${protocol}${name}@${version}${suffix}`,
+      alias,
+    );
   }
-  assert.deepEqual(Object.keys(graph.npmPackages).sort(), Object.keys(lock.npm).sort());
+  assert.deepEqual(
+    Object.keys(graph.npmPackages).sort(),
+    Object.keys(lock.npm).sort(),
+  );
+  assert.equal(await readFile(functionLockPath, "utf8"), functionLockBytes);
+  assert.equal(await readFile(rootLockPath, "utf8"), rootLockBytes);
   assert.deepEqual(
     assertSettingsRuntimeClosure(graph, root, imports, mapPath),
     [...settingsRuntimeSources].sort(),
@@ -68,8 +127,16 @@ test("actual Deno closure binds every dependency and pinned CLI raw resolution",
   );
   const scratch = await mkdtemp(join(tmpdir(), "still-settings-graph-"));
   t.after(() => rm(scratch, { recursive: true, force: true }));
-  const graphSources = graph.modules.filter(m=>m.local && m.specifier.startsWith("file:")).map(m=>relative(root,m.local));
-  for (const path of [...graphSources,"supabase/functions/sync-settings/deno.json"]) {
+  const graphSources = graph.modules.filter((m) =>
+    m.local && m.specifier.startsWith("file:")
+  ).map((m) => relative(root, m.local));
+  for (
+    const path of [
+      ...graphSources,
+      "supabase/functions/sync-settings/deno.json",
+      "supabase/functions/sync-settings/deno.lock",
+    ]
+  ) {
     assert(!path.startsWith(".."));
     await mkdir(join(scratch, path, ".."), { recursive: true });
     await cp(join(root, path), join(scratch, path));
@@ -86,12 +153,72 @@ test("actual Deno closure binds every dependency and pinned CLI raw resolution",
   const addedGraph = JSON.parse(
     execFileSync("deno", ["info", "--json", "--config", extraMap, entry], {
       encoding: "utf8",
+      env: denoEnv,
     }),
   );
   assert.throws(
     () => assertSettingsRuntimeClosure(addedGraph, scratch, imports, extraMap),
     /manifest/,
   );
+  // Frozen resolution must reject a missing exact alias instead of updating
+  // the served artifact, even once the dependency cache has been populated.
+  const incompleteLock = structuredClone(functionLock);
+  delete incompleteLock.specifiers["npm:postgres@3.4.9"];
+  await writeFile(functionLockPath, JSON.stringify(incompleteLock));
+  assert.throws(
+    () =>
+      execFileSync("deno", [
+        "info",
+        "--json",
+        "--config",
+        mapPath,
+        join(root, "supabase/functions/sync-settings/index.ts"),
+      ], {
+        encoding: "utf8",
+        env: denoEnv,
+        stdio: "pipe",
+      }),
+    /lockfile is out of date/,
+  );
+  assert.equal(
+    await readFile(functionLockPath, "utf8"),
+    JSON.stringify(incompleteLock),
+  );
+});
+
+test("handler workflows run the retained limiter assertion with exact source-read permissions", async () => {
+  const root = fileURLToPath(new URL("../../", import.meta.url));
+  for (const workflow of ["ci.yml", "supabase-settings-rehearsal.yml"]) {
+    const source = await readFile(
+      join(root, ".github/workflows", workflow),
+      "utf8",
+    );
+    const command = source.match(/^\s*(?:run: )?(deno test[^\n]*)$/m)?.[1];
+    assert(command, `Missing root handler test invocation: ${workflow}`);
+    const args = command.split(/\s+/).slice(1);
+    const permission = args.find((arg) => arg.startsWith("--allow-read="));
+    assert.equal(
+      permission,
+      "--allow-read=../migrations/0013_counter_retention.sql,../../scripts/backend/sql/settings-sync-candidate.sql",
+    );
+    const options = {
+      cwd: join(root, "supabase/functions"),
+      encoding: "utf8",
+      stdio: "pipe",
+    };
+    const entrypoint = "_shared/settings-store.test.ts";
+    execFileSync("deno", [...args, "--no-prompt", entrypoint], options);
+    assert.throws(
+      () =>
+        execFileSync("deno", [
+          ...args.filter((arg) => arg !== permission),
+          "--no-prompt",
+          entrypoint,
+        ], options),
+      (error) =>
+        error.status === 1 && /Requires read access/.test(error.stdout),
+    );
+  }
 });
 
 test("candidate SQL structural constants and fields equal the maintained grammar", async () => {
@@ -119,8 +246,9 @@ test("candidate SQL structural constants and fields equal the maintained grammar
     MAX_STRING: /octet_length\(value#>>'\{\}'\)<=(\d+)/,
   };
   assert.equal(Object.keys(values).length, 5);
-  for (const [key, pattern] of Object.entries(checks))
+  for (const [key, pattern] of Object.entries(checks)) {
     assert.equal(Number(pattern.exec(sql)?.[1]), values[key], key);
+  }
   assert.match(
     sql,
     /count\(\*\)<=128 and coalesce\(bool_and\(pg_catalog.octet_length\(k\)<=128 and k not in \('__proto__','prototype','constructor'\)\)/,
@@ -144,7 +272,11 @@ test("candidate SQL structural constants and fields equal the maintained grammar
       .map((s) => s.trim().slice(1, -1));
   assert.deepEqual(actual, maintained.fields);
   assert.equal(maintained.servicePrefixes, true);
-  assert.deepEqual(/core_sites constant text\[\] := array\[([^\]]+)\]/.exec(sql)[1].split(",").map(s=>s.trim().slice(1,-1)), maintained.coreSites);
+  assert.deepEqual(
+    /core_sites constant text\[\] := array\[([^\]]+)\]/.exec(sql)[1].split(",")
+      .map((s) => s.trim().slice(1, -1)),
+    maintained.coreSites,
+  );
 });
 
 async function fixture(t) {
@@ -362,6 +494,33 @@ test("new deployment workflow bytes participate in the rehearsal and operation d
       digest: operation.digest,
     }),
   );
+});
+
+test("function lock bytes participate in the rehearsal and exact operation digest", async (t) => {
+  const root = await fixture(t);
+  const path = join(root, "supabase/functions/demo/deno.lock");
+  await writeFile(path, '{"version":"5","specifiers":{}}\n');
+  const plan = await createPlan(root, { revision, target });
+  const operation = await createOperationPlan(root, {
+    revision,
+    target,
+    baseline,
+  });
+  assert(
+    plan.files.some((file) =>
+      file.path === "supabase/functions/demo/deno.lock"
+    ),
+  );
+  await writeFile(path, '{"version":"5","specifiers":{"changed":"1"}}\n');
+  await assert.rejects(
+    verifyPlan(root, plan, { revision, target, digest: plan.digest }),
+  );
+  await assert.rejects(verifyOperationPlan(root, operation, {
+    revision,
+    target,
+    baseline,
+    digest: operation.digest,
+  }));
 });
 
 test("settings endpoint binds every shared runtime source and rejects source drift", async (t) => {

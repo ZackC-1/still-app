@@ -21,6 +21,9 @@
     "./settings-operation.js": "../../../packages/shared-types/src/settings-operation.ts",
     "../rules/canonical.js": "../../../packages/core/src/rules/canonical.ts"
   },
-  "lock": false,
+  "lock": {
+    "path": "./deno.lock",
+    "frozen": true
+  },
   "nodeModulesDir": "auto"
 }

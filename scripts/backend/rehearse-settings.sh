@@ -51,6 +51,14 @@ export STILL_SETTINGS_SERVED_URL='http://127.0.0.1:54321/functions/v1/sync-setti
 # an old gateway/runtime's arbitrary HTTP response cannot satisfy readiness.
 kill -0 "$serve_pid"
 deno test --frozen --config supabase/functions/deno.json --allow-env --allow-net=127.0.0.1:54321,127.0.0.1:54322 --filter 'U3 actual Supabase CLI' supabase/tests/settings_sync_served_test.ts
+# Read back the actual pinned CLI's read-only function mount after authenticated
+# readiness. The runtime must receive the same nearest config and frozen graph
+# whose cold resolution passed before the source plan was sealed.
+mounted_functions=$(docker inspect supabase_edge_runtime_still-app | jq -er --arg source "$(pwd)/supabase/functions" '.[0].Mounts | map(select(.Source == $source and .RW == false)) | if length == 1 then .[0].Destination else error("Expected one read-only function source mount") end')
+for artifact in deno.json deno.lock; do
+  docker exec supabase_edge_runtime_still-app cat "$mounted_functions/sync-settings/$artifact" > "$RUNNER_TEMP/u3-mounted-$artifact"
+  cmp "supabase/functions/sync-settings/$artifact" "$RUNNER_TEMP/u3-mounted-$artifact"
+done
 node scripts/backend/plan.mjs verify "$1" synthetic-github-runner "$RUNNER_TEMP/u3-plan.json" "$2"
 if [[ ${STILL_SETTINGS_REHEARSAL_WAIT_FOR_CANCEL:-} == true ]]; then
   # The separate hosted cancellation probe waits until this exact CLI process has
