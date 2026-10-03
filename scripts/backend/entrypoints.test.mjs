@@ -146,3 +146,16 @@ test("settings readiness diagnostics reject arbitrary response payloads", () => 
   assert.match(result.stdout, /1 passed \| 0 failed/);
   assert(!result.stdout.includes("private-credential-payload-sentinel"));
 });
+
+test("settings Auth fixture verifies actual token signing context and redacts failures", () => {
+  const result = spawnSync("deno", [
+    "test", "--frozen", "--config", "supabase/functions/deno.json", "--no-prompt",
+    "--allow-env", "--filter", "Auth session fixture", "supabase/tests/settings_sync_served_test.ts",
+  ], {
+    encoding: "utf8", timeout: 20_000,
+    env: { PATH: process.env.PATH, HOME: process.env.HOME, TMPDIR: "/tmp" },
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /1 passed \| 0 failed/);
+  assert(!result.stdout.includes("private-auth-response-sentinel"));
+});

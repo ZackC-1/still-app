@@ -22,6 +22,10 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT TERM
 # Real managed Supabase on the hosted runner only. Auth/gateway/runtime remain present for CLI serve.
+# Align this disposable Auth issuer with CLI serve's internal SUPABASE_URL.
+# This supported CLI config override is scoped to this runner process; it is
+# never injected into the function env file and does not change checked-in config.
+export SUPABASE_AUTH_JWT_ISSUER='http://kong:8000/auth/v1'
 supabase start --exclude studio,imgproxy,mailpit,logflare,vector >/dev/null
 supabase db reset --local --no-seed >/dev/null
 docker exec -i supabase_db_still-app psql -U supabase_admin -d postgres -X --set=ON_ERROR_STOP=1 <<'SQL'
@@ -43,6 +47,8 @@ STILL_SETTINGS_REHEARSAL_INSTANCE=$(node -e 'console.log(require("node:crypto").
 printf '%s\n' 'SETTINGS_WRITER_DB_URL=postgresql://still_settings_writer:u3-synthetic-settings-only@supabase_db_still-app:5432/postgres' "SETTINGS_REHEARSAL_INSTANCE=$STILL_SETTINGS_REHEARSAL_INSTANCE" > "$RUNNER_TEMP/u3-function.env"
 export STILL_SETTINGS_CLI_JWT_SECRET
 STILL_SETTINGS_CLI_JWT_SECRET=$(supabase status -o json | jq -er '.JWT_SECRET')
+export STILL_SETTINGS_CLI_ANON_KEY
+STILL_SETTINGS_CLI_ANON_KEY=$(supabase status -o json | jq -er '.ANON_KEY')
 # Use actual CLI package/serve, including function-specific imports; gateway verification stays enabled.
 supabase functions serve sync-settings --env-file "$RUNNER_TEMP/u3-function.env" --import-map supabase/functions/sync-settings/deno.json > "$RUNNER_TEMP/u3-serve.log" 2>&1 &
 serve_pid=$!
