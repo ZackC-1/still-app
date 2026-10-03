@@ -707,3 +707,143 @@ describe("acknowledged storage failures", () => {
     expect(h.sink).not.toHaveBeenCalled();
   });
 });
+
+describe("shared host original observation ports", () => {
+  it("holds an earlier null observation on page/activity/update despite a later valid permission", async () => {
+    const h = harness();
+    const host = createExtensionAnalyticsHost({
+      ...h.deps,
+      ...TEST_PRIVACY,
+      local: h.store,
+      noticeApplies: false,
+      isTrustedPage: () => true,
+    });
+    host.onStart(null);
+    await host.flushWhenReady();
+    const observed = Promise.resolve(null);
+    const response = new Promise((resolve) =>
+      host.listener(
+        {
+          kind: ANALYTICS_MESSAGE_KIND,
+          action: "track",
+          name: "opened",
+          props: { where: "popup" },
+        },
+        {},
+        resolve,
+        observed,
+      ),
+    );
+    expect(await response).toBe(false);
+    host.onActivity(observed);
+    host.onInstalled({ reason: "update", previousVersion: "2.0.0" }, observed);
+    await host.flushWhenReady();
+    expect(h.store.data[QUEUE_KEY] ?? []).toEqual([]);
+    expect(h.sink).not.toHaveBeenCalled();
+    host.stop();
+  });
+  it("revalidates the original generation after a native/startup wait and admits a new same-origin observation", async () => {
+    const h = harness();
+    const host = createExtensionAnalyticsHost({
+      ...h.deps,
+      ...TEST_PRIVACY,
+      local: h.store,
+      noticeApplies: false,
+      isTrustedPage: () => true,
+    });
+    host.onStart(null);
+    await host.flushWhenReady();
+    const captured = host.client.captureObservation();
+    await captured;
+    host.client.permissionChanged();
+    const old = new Promise((resolve) =>
+      host.listener(
+        {
+          kind: ANALYTICS_MESSAGE_KIND,
+          action: "track",
+          name: "opened",
+          props: { where: "options" },
+        },
+        {},
+        resolve,
+        captured,
+      ),
+    );
+    expect(await old).toBe(false);
+    const fresh = new Promise((resolve) =>
+      host.listener(
+        {
+          kind: ANALYTICS_MESSAGE_KIND,
+          action: "track",
+          name: "opened",
+          props: { where: "popup" },
+        },
+        {},
+        resolve,
+        host.client.captureObservation(),
+      ),
+    );
+    expect(await fresh).toBe(true);
+    await host.flushWhenReady();
+    expect(
+      h.bodies
+        .flatMap((body) => body.batch)
+        .find((event) => event.properties.where === "options"),
+    ).toBeUndefined();
+    expect(
+      h.bodies
+        .flatMap((body) => body.batch)
+        .find((event) => event.properties.where === "popup"),
+    ).toBeDefined();
+    host.stop();
+  });
+  it("terminal stop releases startup and send timers and rejects late observations", async () => {
+    vi.useFakeTimers();
+    try {
+      const h = harness();
+      const host = createExtensionAnalyticsHost({
+        ...h.deps,
+      ...TEST_PRIVACY,
+        local: h.store,
+        noticeApplies: false,
+        isTrustedPage: () => true,
+      });
+      const response = new Promise((resolve) =>
+        host.listener(
+          {
+            kind: ANALYTICS_MESSAGE_KIND,
+            action: "track",
+            name: "opened",
+            props: { where: "popup" },
+          },
+          {},
+          resolve,
+        ),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+      host.stop();
+      expect(await response).toBe(false);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(vi.getTimerCount()).toBe(0);
+      expect(
+        host.listener(
+          {
+            kind: ANALYTICS_MESSAGE_KIND,
+            action: "track",
+            name: "opened",
+            props: { where: "popup" },
+          },
+          {},
+          () => {},
+        ),
+      ).toBe(false);
+      host.onActivity();
+      host.onInstalled({ reason: "update", previousVersion: "2.0.0" });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(h.sink).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

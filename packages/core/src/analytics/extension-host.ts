@@ -1,8 +1,21 @@
 import type { AnalyticsPermission, AnalyticsPrivacyPolicy } from "./consent.js";
-import { AnalyticsClient, type AnalyticsConfig, type AnalyticsClientDeps, type TrackOptions } from "./client.js";
-import { canonicalEvent, isAppClientEvent, type AnalyticsDevice, type AnalyticsSurface } from "./events.js";
+import {
+  AnalyticsClient,
+  type AnalyticsConfig,
+  type AnalyticsClientDeps,
+  type TrackOptions,
+} from "./client.js";
+import {
+  canonicalEvent,
+  isAppClientEvent,
+  type AnalyticsDevice,
+  type AnalyticsSurface,
+} from "./events.js";
 import type { AnalyticsIdentity, AnalyticsKeyValue } from "./identity.js";
-import type { UiAnalytics, UsageSharingState } from "../ui/controller.svelte.js";
+import type {
+  UiAnalytics,
+  UsageSharingState,
+} from "../ui/controller.svelte.js";
 
 // The analytics host every browser extension build shares (Chrome, Firefox, Safari). The
 // extension's background owns the one client, so a popup that closes mid-send loses nothing and
@@ -31,6 +44,7 @@ export const SERVER_IDENTIFIED_KEY = "still:analytics:server-identified";
 export const PENDING_INSTALL_KEY = "still:analytics:pending-install";
 
 const QUIET: TrackOptions = { quiet: true };
+type Observation = ReturnType<AnalyticsClient["captureObservation"]>;
 /** Longest a send waits for the background start's account check. */
 export const START_HOLD_LIMIT_MS = 10_000;
 /** Longest one server email attach may take before a later screen may try again. */
@@ -79,7 +93,10 @@ export interface ExtensionAnalyticsHostDeps {
 export interface ExtensionAnalyticsHost {
   readonly client: AnalyticsClient;
   /** runtime.onInstalled: `installed` for a new install, `updated` for an update. */
-  onInstalled(details: { reason: string; previousVersion?: string }): void;
+  onInstalled(
+    details: { reason: string; previousVersion?: string },
+    observation?: Observation,
+  ): void;
   /** Background start: one quiet `active` a day, setup complete on Safari (the extension is
    * running), a pending install if sharing is now on, and the current account. `null` means known to
    * be signed out (an earlier account is let go, whether it signed out here, elsewhere or was
@@ -87,12 +104,19 @@ export interface ExtensionAnalyticsHost {
   onStart(userId: string | null | undefined): void;
   /** The content script's visit nudge: real use. One quiet `active` for the day, and on Safari the
    * setup milestones (the extension demonstrably runs). */
-  onActivity(): void;
+  onActivity(observation?: Observation): void;
+  /** Terminal host teardown, including owned startup/send timers and pending authority. */
+  stop(): void;
   /** Flush after the start's account check has settled (the alarm handler). */
   flushWhenReady(): Promise<void>;
   /** Identify the install, and once per account have the server attach the email. */
   identify(userId: string, options?: TrackOptions): Promise<void>;
-  readonly listener: (message: unknown, sender: MessageSender, sendResponse: (response?: unknown) => void) => boolean;
+  readonly listener: (
+    message: unknown,
+    sender: MessageSender,
+    sendResponse: (response?: unknown) => void,
+    observation?: Observation,
+  ) => boolean;
 }
 
 type PageRequest =
@@ -133,7 +157,8 @@ export function createAccountIdentifier(deps: {
   // account B, and a hung request is abandoned after SERVER_ATTACH_LIMIT_MS so retries continue.
   const inflight = new Map<string, Promise<void>>();
   const attach = async (): Promise<void> => {
-    if (!deps.identifyOnServer || !client.enabled || !client.accountConfirmed) return;
+    if (!deps.identifyOnServer || !client.enabled || !client.accountConfirmed)
+      return;
     const userId = await client.signedInAs();
     if (!userId) return;
     const existing = inflight.get(userId);
@@ -143,7 +168,9 @@ export function createAccountIdentifier(deps: {
       const observation = await client.captureObservation();
       if (!observation) return;
       if (!(await consented()) || !(await client.canReport())) return;
-      const marker = await deps.local.get(SERVER_IDENTIFIED_KEY).catch(() => null);
+      const marker = await deps.local
+        .get(SERVER_IDENTIFIED_KEY)
+        .catch(() => null);
       const authority = {
         userId,
         origin: observation.permission.origin,
@@ -153,11 +180,14 @@ export function createAccountIdentifier(deps: {
       if (
         marker &&
         typeof marker === "object" &&
-        Object.entries(authority).every(([key, value]) => (marker as Record<string, unknown>)[key] === value)
+        Object.entries(authority).every(
+          ([key, value]) => (marker as Record<string, unknown>)[key] === value,
+        )
       )
         return;
       // Immediately before the request: same confirmed account, sharing still on, nothing reset.
-      if ((await client.signedInAs()) !== userId || !(await consented())) return;
+      if ((await client.signedInAs()) !== userId || !(await consented()))
+        return;
       if (
         !client.accountConfirmed ||
         !(await client.canReport()) ||
@@ -218,24 +248,42 @@ export function createAccountIdentifier(deps: {
   };
 }
 
-export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): ExtensionAnalyticsHost {
+export function createExtensionAnalyticsHost(
+  deps: ExtensionAnalyticsHostDeps,
+): ExtensionAnalyticsHost {
+  let stopped = false;
+  const timers = new Set<ReturnType<typeof setTimeout>>();
   const uuid = deps.uuid ?? (() => crypto.randomUUID());
   const now = deps.now ?? Date.now;
   const client = new AnalyticsClient({
     config: deps.config,
-    surface: deps.surface,
-    device: deps.device,
+    get surface() {
+      return deps.surface;
+    },
+    get device() {
+      return deps.device;
+    },
     appVersion: deps.appVersion,
     store: deps.local,
     queueStore: deps.queueStore,
     identity: deps.identity,
-    consent: deps.consent,
-    permission: deps.permission,
+    consent: () => (stopped ? Promise.resolve(false) : deps.consent()),
+    permission: deps.permission
+      ? () => (stopped ? Promise.resolve(null) : deps.permission!())
+      : undefined,
     privacyPolicy: deps.privacyPolicy,
     envelope: deps.envelope,
     fetch: deps.fetch ?? ((...args) => fetch(...args)),
     now,
     uuid,
+    schedule(run, ms) {
+      if (stopped) return;
+      const timer = setTimeout(() => {
+        timers.delete(timer);
+        if (!stopped) run();
+      }, ms);
+      timers.add(timer);
+    },
     // Nobody is attributed until onStart (or a page) confirms the account.
     startsUnconfirmed: true,
   });
@@ -245,9 +293,12 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
     consent: deps.consent,
     identifyOnServer: deps.identifyOnServer,
   });
-  const identify = (userId: string, options?: TrackOptions) => accounts.identify(userId, options);
-  const blocksAtInstall = deps.surface === "chrome" || deps.surface === "firefox";
-  const isSafari = deps.surface === "safari-ios" || deps.surface === "safari-macos";
+  const identify = (userId: string, options?: TrackOptions) =>
+    accounts.identify(userId, options);
+  const blocksAtInstall =
+    deps.surface === "chrome" || deps.surface === "firefox";
+  const isSafari =
+    deps.surface === "safari-ios" || deps.surface === "safari-macos";
   // One bounded startup result that activity waits on. Only a start that actually established the
   // account confirms it (client.confirm); a start that never reports, or reports "unknown", leaves
   // the account unconfirmed, so nothing is sent and new events wait unattributed. Elapsed time is
@@ -256,11 +307,17 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
   const started = new Promise<void>((resolve) => (startSettled = resolve));
   let startResult: Promise<void> | null = null;
   const waitForStart = (): Promise<void> => {
+    if (stopped) return Promise.resolve();
     if (client.accountConfirmed) return Promise.resolve();
     return (startResult ??= new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, START_HOLD_LIMIT_MS);
+      const timer = setTimeout(() => {
+        timers.delete(timer);
+        resolve();
+      }, START_HOLD_LIMIT_MS);
+      timers.add(timer);
       void started.then(() => {
         clearTimeout(timer);
+        timers.delete(timer);
         resolve();
       });
     }));
@@ -272,7 +329,9 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
   const sharing = async (): Promise<UsageSharingState | null> => {
     if (!client.enabled) return null;
     const enabled = await client.canReport();
-    const noticeNeeded = deps.noticeApplies && (await deps.local.get(NOTICE_KEY).catch(() => true)) !== true;
+    const noticeNeeded =
+      deps.noticeApplies &&
+      (await deps.local.get(NOTICE_KEY).catch(() => true)) !== true;
     return { enabled, noticeNeeded };
   };
 
@@ -280,6 +339,7 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
     request: PageRequest,
     observation: ReturnType<AnalyticsClient["captureObservation"]>,
   ): Promise<unknown> => {
+    if (stopped) return false;
     switch (request.action) {
       case "track": {
         const captured = await observation;
@@ -324,26 +384,55 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
   return {
     client,
     identify,
-    onInstalled(details) {
+    onInstalled(details, observation) {
+      if (stopped) return;
       if (details.reason === "install") {
         const asked = client.stamp();
         void (async () => {
+          if (observation) {
+            const captured = await observation;
+            if (!captured || !(await client.observationCurrent(captured)))
+              return;
+          }
           if (!(await client.canReport()) || !client.isCurrent(asked)) return;
           const id = await deps.identity();
           if (!(await client.canReport()) || !client.isCurrent(asked)) return;
           await client.trackOnce("installed", "installed", {
             returning: id.returning,
           });
-          if (blocksAtInstall) await client.trackOnce("setup_completed", "setup_completed", {});
+          if (blocksAtInstall)
+            await client.trackOnce("setup_completed", "setup_completed", {});
         })().catch(() => {});
-      } else if (details.reason === "update" && details.previousVersion !== deps.appVersion) {
-        void client.trackUnchecked("updated", {
-          from: details.previousVersion,
-          to: deps.appVersion,
-        });
+      } else if (
+        details.reason === "update" &&
+        details.previousVersion !== deps.appVersion
+      ) {
+        if (!observation) {
+          // Preserve the existing synchronous queue admission/order for ordinary callers.
+          void client.trackUnchecked("updated", {
+            from: details.previousVersion,
+            to: deps.appVersion,
+          });
+          return;
+        }
+        void observation
+          .then(async (captured) => {
+            if (
+              !captured ||
+              stopped ||
+              !(await client.observationCurrent(captured))
+            )
+              return;
+            await client.trackUnchecked("updated", {
+              from: details.previousVersion,
+              to: deps.appVersion,
+            });
+          })
+          .catch(() => {});
       }
     },
     onStart(userId) {
+      if (stopped) return;
       void (async () => {
         if (userId) {
           await identify(userId, QUIET);
@@ -358,8 +447,8 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
         .catch(() => {})
         .finally(() => startSettled());
     },
-    onActivity() {
-      const observation = client.captureObservation();
+    onActivity(observation = client.captureObservation()) {
+      if (stopped) return;
       void (async () => {
         const captured = await observation;
         if (!captured) return;
@@ -367,24 +456,48 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
         if (!(await client.observationCurrent(captured))) return;
         // A running Safari extension is the only proof on iPhone that it was switched on.
         if (isSafari) {
-          await client.trackOnce("extension_enabled", "setup_step", { step: "extension_enabled" }, QUIET);
-          await client.trackOnce("setup_completed", "setup_completed", {}, QUIET);
+          await client.trackOnce(
+            "extension_enabled",
+            "setup_step",
+            { step: "extension_enabled" },
+            QUIET,
+          );
+          await client.trackOnce(
+            "setup_completed",
+            "setup_completed",
+            {},
+            QUIET,
+          );
         }
         await client.trackDaily("active", "active", {}, QUIET);
         await requestFlushIfNeeded();
       })().catch(() => {});
     },
     async flushWhenReady() {
+      if (stopped) return;
       await waitForStart();
       await client.flush();
     },
-    listener(message, sender, sendResponse) {
+    stop() {
+      if (stopped) return;
+      stopped = true;
+      client.permissionChanged();
+      startSettled();
+      for (const timer of timers) clearTimeout(timer);
+      timers.clear();
+      void client.clearQueue().catch(() => {});
+    },
+    listener(message, sender, sendResponse, observation) {
+      if (stopped) return false;
       if (typeof message !== "object" || message === null) return false;
       const m = message as Record<string, unknown>;
-      if (m.kind !== ANALYTICS_MESSAGE_KIND || !deps.isTrustedPage(sender)) return false;
+      if (m.kind !== ANALYTICS_MESSAGE_KIND || !deps.isTrustedPage(sender))
+        return false;
       if (
         sender.incognito === true ||
-        (sender.tab && typeof sender.tab === "object" && (sender.tab as { incognito?: unknown }).incognito === true)
+        (sender.tab &&
+          typeof sender.tab === "object" &&
+          (sender.tab as { incognito?: unknown }).incognito === true)
       )
         return false;
       const request = parsePageRequest(m);
@@ -393,7 +506,7 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
         client.permissionChanged();
         void client.clearQueue();
       }
-      void handle(request, client.captureObservation())
+      void handle(request, observation ?? client.captureObservation())
         .then(sendResponse, () => sendResponse(null))
         .catch(() => {});
       return true;
@@ -405,12 +518,18 @@ function parsePageRequest(m: Record<string, unknown>): PageRequest | null {
   switch (m.action) {
     case "track": {
       const event = canonicalEvent(m.name, m.props);
-      return event && isAppClientEvent(event.name) ? { action: "track", name: event.name, props: event.props } : null;
+      return event && isAppClientEvent(event.name)
+        ? { action: "track", name: event.name, props: event.props }
+        : null;
     }
     case "identify":
-      return typeof m.userId === "string" ? { action: "identify", userId: m.userId } : null;
+      return typeof m.userId === "string"
+        ? { action: "identify", userId: m.userId }
+        : null;
     case "setSharing":
-      return typeof m.enabled === "boolean" ? { action: "setSharing", enabled: m.enabled } : null;
+      return typeof m.enabled === "boolean"
+        ? { action: "setSharing", enabled: m.enabled }
+        : null;
     case "reset":
       return { action: "reset", forgetAccount: m.forgetAccount === true };
     case "sharing":
@@ -423,7 +542,9 @@ function parsePageRequest(m: Record<string, unknown>): PageRequest | null {
 
 // ── Popup / options pages ─────────────────────────────────────────────────────────────────────
 
-export type AnalyticsSend = (message: Record<string, unknown>) => Promise<unknown>;
+export type AnalyticsSend = (
+  message: Record<string, unknown>,
+) => Promise<unknown>;
 
 export interface PageAnalyticsOptions {
   /** Transport to the background (runtime.sendMessage with ANALYTICS_MESSAGE_KIND added). */
@@ -436,7 +557,9 @@ export interface PageAnalyticsOptions {
 }
 
 /** The page side of UiAnalytics: every call is a message to the background's client. */
-export function createPageAnalytics(options: PageAnalyticsOptions): UiAnalytics {
+export function createPageAnalytics(
+  options: PageAnalyticsOptions,
+): UiAnalytics {
   const { send } = options;
   const fire = (message: Record<string, unknown>): void => {
     void send(message).catch(() => {});
@@ -462,13 +585,19 @@ export function createPageAnalytics(options: PageAnalyticsOptions): UiAnalytics 
       const state = await send({ action: "sharing" }).catch(() => null);
       if (typeof state !== "object" || state === null) return null;
       const { enabled, noticeNeeded } = state as Record<string, unknown>;
-      return typeof enabled === "boolean" ? { enabled, noticeNeeded: noticeNeeded === true } : null;
+      return typeof enabled === "boolean"
+        ? { enabled, noticeNeeded: noticeNeeded === true }
+        : null;
     },
     setSharing(enabled) {
       // Called synchronously from the tap: a permission prompt here still has the user gesture.
-      const change = options.changeConsent ? options.changeConsent(enabled).catch(() => undefined) : Promise.resolve();
+      const change = options.changeConsent
+        ? options.changeConsent(enabled).catch(() => undefined)
+        : Promise.resolve();
       return change.then(async () => {
-        const result = await send({ action: "setSharing", enabled }).catch(() => null);
+        const result = await send({ action: "setSharing", enabled }).catch(
+          () => null,
+        );
         return typeof result === "boolean" ? result : !enabled;
       });
     },
