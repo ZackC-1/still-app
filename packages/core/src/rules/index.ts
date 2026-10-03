@@ -1,11 +1,13 @@
 // @still/core/rules — rule-set validation, signing, and (U6) the engine.
 
-export { canonicalize, ruleSetSigningBytes } from "./canonical.js";
+export { canonicalize, ruleSetSigningBytes, ruleSetSigningBytesV2 } from "./canonical.js";
 export { compareVersions, VERSION_RE } from "./version.js";
-export { validateRuleSet, isSafeSelector, type ValidationResult } from "./schema.js";
+export { validateRuleSet, validateRuleSetV2, isSafeSelector, type ValidationResult, type ValidationResultV2 } from "./schema.js";
 export {
   signRuleSet,
   verifyRuleSet,
+  signRuleSetV2,
+  verifyRuleSetV2,
   publicKeyHexFor,
   type TrustedKey,
   type VerifyOptions,

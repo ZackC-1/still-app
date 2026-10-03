@@ -6,6 +6,10 @@ import {
   SURFACE_CAPABILITIES,
   type SurfaceCapability,
   type SurfaceTier,
+  FEATURE_REGISTRY,
+  SERVICE_IDS,
+  TIKTOK_ALIAS,
+  type SignedRuleSetV2,
 } from "@still/shared-types";
 import { VERSION_RE } from "./version.js";
 
@@ -84,6 +88,98 @@ export function isSafeSelector(selector: string): boolean {
     if (!ALLOWED_PSEUDOS.has(match[1]!.toLowerCase())) return false;
   }
   return SELECTOR_CHAR_RE.test(s);
+}
+
+export type ValidationResultV2 =
+  | { readonly ok: true; readonly value: SignedRuleSetV2 }
+  | { readonly ok: false; readonly errors: readonly string[] };
+
+const TOP_KEYS_V2 = new Set(["format", "version", "services", "signature"]);
+const HIDE_KEYS_V2 = new Set(["id", "feature", "action", "selectors"]);
+const BLOCK_KEYS_V2 = new Set(["id", "feature", "action"]);
+
+/** Bound numeric components so the existing component-wise comparator stays exact. */
+export function isRuleVersionV2(value: unknown): value is string {
+  return typeof value === "string" && value.length <= 64 && VERSION_RE.test(value)
+    && value.split(".").every((part) => Number.isSafeInteger(Number(part)));
+}
+
+/** JSON data only, bounded before serialization; no getters, prototypes or executable hooks. */
+function isBoundedRuleData(value: unknown, depth = 0, budget = { remaining: 8192 }): boolean {
+  if (--budget.remaining < 0 || depth > 8) return false;
+  if (value === null || typeof value === "boolean") return true;
+  if (typeof value === "string") return value.length <= 512;
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value !== "object") return false;
+  const proto = Object.getPrototypeOf(value);
+  if (Array.isArray(value) ? proto !== Array.prototype : proto !== Object.prototype && proto !== null) return false;
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  if (Reflect.ownKeys(value).length !== Object.keys(descriptors).length) return false;
+  if (Array.isArray(value)) {
+    const keys = Object.keys(value);
+    if (value.length > 8192 || keys.length !== value.length
+      || !keys.every((key, index) => key === String(index))) return false;
+  }
+  return Object.entries(descriptors).every(([key, property]) => {
+    if (Array.isArray(value) && key === "length") return true;
+    return property.enumerable && "value" in property && isBoundedRuleData(property.value, depth + 1, budget);
+  });
+}
+
+function isServiceMatchV2(value: unknown, service: string): boolean {
+  if (typeof value !== "string" || value.length > MAX_PATTERN_LEN) return false;
+  // No downloaded path/regex/capture contract yet. Existing host permissions remain the limit.
+  const match = /^(?:\*|https?):\/\/(\*\.)?([a-z0-9.-]+)\/\*$/.exec(value);
+  if (!match) return false;
+  const host = match[2]!;
+  const domain = `${service}.com`;
+  return /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/.test(host)
+    && (host === domain || (!match[1] && host.endsWith(`.${domain}`)));
+}
+
+/** Opt-in format-2 admission. Format-1 consumers deliberately continue using validateRuleSet. */
+export function validateRuleSetV2(input: unknown): ValidationResultV2 {
+  const fail = (message: string): ValidationResultV2 => ({ ok: false, errors: [message] });
+  if (!isBoundedRuleData(input)) return fail("format 2 requires bounded plain JSON data");
+  if (!isObject(input) || !hasOnlyKeys(input, TOP_KEYS_V2) || input.format !== 2) return fail("unsupported rule format or keys");
+  if (!isRuleVersionV2(input.version)) return fail("invalid format 2 version");
+  const sig = input.signature;
+  if (!isObject(sig) || !hasOnlyKeys(sig, SIGNATURE_KEYS)
+    || typeof sig.kid !== "string" || sig.kid.length === 0 || sig.kid.length > 64
+    || sig.alg !== "ed25519" || typeof sig.value !== "string" || !/^[0-9a-f]{128}$/.test(sig.value)) {
+    return fail("invalid format 2 signature envelope");
+  }
+  if (!isObject(input.services) || Object.keys(input.services).length === 0) return fail("services must be non-empty");
+  const ids = new Set<string>();
+  for (const [serviceId, service] of Object.entries(input.services)) {
+    if (!SERVICE_IDS.includes(serviceId as (typeof SERVICE_IDS)[number]) || !isObject(service)
+      || !hasOnlyKeys(service, SERVICE_KEYS)) return fail("unknown or malformed service");
+    if (!Array.isArray(service.matches) || service.matches.length === 0 || service.matches.length > 16
+      || !service.matches.every((match) => isServiceMatchV2(match, serviceId))) return fail("invalid service host patterns");
+    if (!Array.isArray(service.surfaces) || service.surfaces.length === 0 || service.surfaces.length > 64) return fail("invalid surfaces bound");
+    for (const surface of service.surfaces) {
+      if (!isObject(surface) || typeof surface.id !== "string" || !/^[a-zA-Z0-9._-]{1,128}$/.test(surface.id)
+        || ids.has(surface.id)) return fail("invalid or duplicate surface id");
+      ids.add(surface.id);
+      if (serviceId === TIKTOK_ALIAS.service) {
+        if (!hasOnlyKeys(surface, BLOCK_KEYS_V2) || surface.feature !== TIKTOK_ALIAS.id
+          || surface.action !== "blockSite") return fail("TikTok requires its packaged service alias and blockSite");
+      } else {
+        if (!hasOnlyKeys(surface, HIDE_KEYS_V2) || surface.action !== "hide"
+          || !FEATURE_REGISTRY.some((feature) => feature.id === surface.feature && feature.service === serviceId)) {
+          return fail("unknown action or feature/service ownership");
+        }
+        if (!Array.isArray(surface.selectors) || surface.selectors.length === 0 || surface.selectors.length > 32
+          || !surface.selectors.every((selector) => typeof selector === "string" && isSafeSelector(selector))) {
+          return fail("invalid or unsafe selectors");
+        }
+      }
+    }
+  }
+  const serialized = JSON.stringify(input);
+  if (new TextEncoder().encode(serialized).length > 256 * 1024) return fail("format 2 payload exceeds byte bound");
+  // Snapshot admission so signing's async operation cannot return later-mutated unsigned data.
+  return { ok: true, value: JSON.parse(serialized) as SignedRuleSetV2 };
 }
 
 function isSafePattern(pattern: unknown): pattern is string {

@@ -1,4 +1,4 @@
-import type { RuleSetPayload } from "@still/shared-types";
+import type { RuleSetPayload, RuleSetPayloadV2 } from "@still/shared-types";
 import { utf8ToBytes } from "@noble/hashes/utils.js";
 
 /**
@@ -26,4 +26,9 @@ function sortDeep(value: unknown): unknown {
 /** The exact bytes signed/verified: canonical JSON of `{ version, services }` (no signature field). */
 export function ruleSetSigningBytes(payload: RuleSetPayload): Uint8Array {
   return utf8ToBytes(canonicalize({ version: payload.version, services: payload.services }));
+}
+
+/** Exact format-2 signing payload; the discriminator separates it from legacy signatures. */
+export function ruleSetSigningBytesV2(payload: RuleSetPayloadV2): Uint8Array {
+  return utf8ToBytes(canonicalize({ format: payload.format, version: payload.version, services: payload.services }));
 }
