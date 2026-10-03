@@ -1,29 +1,193 @@
-import type { AnalyticsKeyValue } from "./identity.js";
+import { isAnalyticsId, type AnalyticsKeyValue } from "./identity.js";
 
-// The "Share usage data" switch, per device and never synced: someone who turns it off on one
-// computer has made that choice for that computer. Each host decides the default. Chrome and the
-// Apple apps start on, with the setup notice and this switch as the off path; Firefox never reads
-// this default, because its data-collection permission is the switch there (see the extension).
+// One device-local permission authority. Old On and native/store permission never imply that
+// the approved current usage/email/AI purposes and recipients have been accepted.
 
 export const CONSENT_KEY = "still:analytics:enabled";
+export const PRIVACY_CAPABILITIES = [
+  "device_slice_erasure",
+  "account_scope_erasure",
+  "identifiable_retention",
+  "derived_output_erasure",
+  "late_ingestion_fence",
+  "test_exclusion",
+] as const;
+export interface AnalyticsPermission {
+  readonly schemaVersion: 1;
+  readonly state: "granted" | "stopped";
+  /** Digest of the actual approved purpose/recipient disclosure; no fabricated release default. */
+  readonly version: string;
+  readonly origin: string;
+  readonly generation: number;
+  /** Optional provider identities belong only to this consent origin, never the functional install. */
+  readonly provider: {
+    readonly anonymousId: string;
+    readonly deviceId: string;
+  };
+  readonly purposes: {
+    readonly usage: true;
+    readonly email: true;
+    readonly ai: true;
+  };
+}
+export interface AnalyticsPrivacyPolicy {
+  readonly permissionVersion: string;
+  readonly context: "ordinary" | "private" | "unknown";
+  readonly capabilities: Partial<
+    Record<
+      (typeof PRIVACY_CAPABILITIES)[number],
+      { readonly status: "verified"; readonly evidenceRevision: string } | { readonly status: "unavailable" }
+    >
+  >;
+}
+const REVISION = /^[a-f0-9]{64}$/;
+export function readAnalyticsPermission(value: unknown): AnalyticsPermission | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  if (
+    Object.keys(v).length !== 7 ||
+    v.schemaVersion !== 1 ||
+    (v.state !== "granted" && v.state !== "stopped") ||
+    typeof v.version !== "string" ||
+    !REVISION.test(v.version) ||
+    !isAnalyticsId(v.origin) ||
+    !Number.isSafeInteger(v.generation) ||
+    (v.generation as number) < 1
+  )
+    return null;
+  const provider = v.provider as Record<string, unknown> | undefined;
+  if (
+    !provider ||
+    typeof provider !== "object" ||
+    Array.isArray(provider) ||
+    Object.keys(provider).length !== 2 ||
+    !isAnalyticsId(provider.anonymousId) ||
+    !isAnalyticsId(provider.deviceId) ||
+    provider.anonymousId === provider.deviceId
+  )
+    return null;
+  const p = v.purposes;
+  if (!p || typeof p !== "object" || Array.isArray(p) || Object.keys(p).length !== 3) return null;
+  const purposes = p as Record<string, unknown>;
+  if (purposes.usage !== true || purposes.email !== true || purposes.ai !== true) return null;
+  return {
+    schemaVersion: 1,
+    state: v.state,
+    version: v.version,
+    origin: v.origin as string,
+    generation: v.generation as number,
+    provider: {
+      anonymousId: provider.anonymousId,
+      deviceId: provider.deviceId,
+    },
+    purposes: { usage: true, email: true, ai: true },
+  };
+}
+/** Trusted host evidence, never an event/page boolean. Unknown capabilities hold collection. */
+export function privacyPolicyReady(policy: AnalyticsPrivacyPolicy | undefined): boolean {
+  return (
+    policy?.context === "ordinary" &&
+    typeof policy.permissionVersion === "string" &&
+    REVISION.test(policy.permissionVersion) &&
+    PRIVACY_CAPABILITIES.every((name) => {
+      const capability = policy.capabilities?.[name];
+      return (
+        capability?.status === "verified" &&
+        typeof capability.evidenceRevision === "string" &&
+        REVISION.test(capability.evidenceRevision)
+      );
+    })
+  );
+}
+export function samePermission(a: AnalyticsPermission | null, b: AnalyticsPermission | null): boolean {
+  return (
+    !!a &&
+    !!b &&
+    a.state === "granted" &&
+    b.state === "granted" &&
+    a.origin === b.origin &&
+    a.generation === b.generation &&
+    a.version === b.version &&
+    a.provider.anonymousId === b.provider.anonymousId &&
+    a.provider.deviceId === b.provider.deviceId
+  );
+}
 
 export interface AnalyticsConsent {
   get(): Promise<boolean>;
+  read(): Promise<AnalyticsPermission | null>;
   set(enabled: boolean): Promise<void>;
+  /** Called only after the actual approved combined-consent choice. */
+  grant(permissionVersion: string): Promise<void>;
 }
 
-export function createStoredConsent(store: AnalyticsKeyValue, defaultOn: boolean): AnalyticsConsent {
+export function createStoredConsent(store: AnalyticsKeyValue, _legacyDefaultOn: boolean): AnalyticsConsent {
+  let stopped = false;
+  let revision = 0;
+  let chain: Promise<unknown> = Promise.resolve();
+  const run = (op: () => Promise<void>) => {
+    const next = chain.then(op, op);
+    chain = next.catch(() => undefined);
+    return next;
+  };
+  const read = async () => {
+    if (stopped) return null;
+    try {
+      return readAnalyticsPermission(await store.get(CONSENT_KEY));
+    } catch {
+      return null;
+    }
+  };
   return {
+    read,
     async get() {
-      try {
-        const value = await store.get(CONSENT_KEY);
-        return typeof value === "boolean" ? value : defaultOn;
-      } catch {
-        return false; // unreadable: fail closed rather than assume the default
-      }
+      return (await read())?.state === "granted";
     },
-    async set(enabled) {
-      await store.set(CONSENT_KEY, enabled);
+    set(enabled) {
+      if (enabled) return Promise.reject(new Error("Fresh combined permission is required"));
+      stopped = true;
+      revision += 1;
+      return run(async () => {
+        const old = readAnalyticsPermission(await store.get(CONSENT_KEY));
+        // Keep minimal stopped-origin authority; provider deletion completion is a later gate.
+        await store.set(
+          CONSENT_KEY,
+          old
+            ? {
+                ...old,
+                state: "stopped",
+                generation: Math.min(Number.MAX_SAFE_INTEGER, old.generation + 1),
+              }
+            : false,
+        );
+      });
+    },
+    grant(version) {
+      if (!REVISION.test(version)) return Promise.reject(new Error("Approved permission revision is required"));
+      const asked = ++revision;
+      return run(async () => {
+        const old = readAnalyticsPermission(await store.get(CONSENT_KEY));
+        if (asked !== revision) return;
+        // Provider acceptance is not completed scoped erasure. The existing deletion service
+        // must retire this tombstone only after its confirmed cleanup; no identity revival here.
+        if (old?.state === "stopped") throw new Error("Previous permission cleanup is pending");
+        if (old?.state === "granted" && old.version === version) return;
+        const generation = (old?.generation ?? 0) + 1;
+        if (!Number.isSafeInteger(generation)) throw new Error("Permission generation exhausted");
+        await store.set(CONSENT_KEY, {
+          schemaVersion: 1,
+          state: "granted",
+          version,
+          origin: crypto.randomUUID(),
+          generation,
+          provider: {
+            anonymousId: crypto.randomUUID(),
+            deviceId: crypto.randomUUID(),
+          },
+          purposes: { usage: true, email: true, ai: true },
+        });
+        if (asked === revision) stopped = false;
+      });
     },
   };
 }

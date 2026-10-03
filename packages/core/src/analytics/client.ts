@@ -3,12 +3,29 @@ import {
   isVersion,
   storeForSurface,
   validateEvent,
+  canonicalEvent,
+  isAppClientEvent,
+  ANALYTICS_SURFACES,
+  ANALYTICS_OS,
+  ANALYTICS_BUILD_CHANNELS,
+  ANALYTICS_PLANS,
   type AnalyticsEventName,
   type AnalyticsEventProps,
   type AnalyticsDevice,
   type AnalyticsSurface,
 } from "./events.js";
-import { isAnalyticsId, type AnalyticsIdentity, type AnalyticsKeyValue } from "./identity.js";
+import {
+  isAnalyticsId,
+  type AnalyticsIdentity,
+  type AnalyticsKeyValue,
+} from "./identity.js";
+import {
+  privacyPolicyReady,
+  readAnalyticsPermission,
+  samePermission,
+  type AnalyticsPermission,
+  type AnalyticsPrivacyPolicy,
+} from "./consent.js";
 
 // Still's own PostHog client. It exists instead of posthog-js for three reasons:
 //
@@ -24,44 +41,16 @@ import { isAnalyticsId, type AnalyticsIdentity, type AnalyticsKeyValue } from ".
 // `/batch/` endpoint. Nothing is queued or sent while the person has analytics turned off, and an
 // unconfigured build (no key) sends nothing at all.
 //
-// Four rules make it safe to use from several contexts at once. Every change here must keep them.
+// One operation chain owns queue/account writes. Request-time stamps and abort signals fence
+// asynchronous work immediately when permission or the confirmed account changes. A failed
+// cross-store purge remains durable debt until the raw queue is verifiably empty, including after
+// restart. No request leaves before the host confirms the account; timeouts are never confirmation.
 //
-//   1. One operation at a time. Everything that reads or writes the account, the markers or the
-//      queue runs inside `run()`, including a flush's network request and the opt-out attempt, so
-//      no operation ever observes another half done. The only work outside it is synchronous and
-//      happens the moment the caller asks, before anything is queued: a confirmation of a
-//      different account invalidates the generation used by external server-attach work (the same
-//      account asked again leaves a completed attach standing); forgetting an account, turning
-//      sharing off and the opt-out bump the cancellation epoch and abort the request in flight. A
-//      flush or opt-out remembers the epoch it was asked under, and no request starts under a
-//      stale one: `post` refuses at its entry, synchronously, after every awaited read is done.
-//      So one asked before that moment sends nothing when its turn comes, however long it waited.
-//   2. An event's person is decided once and saved. When the account is confirmed, an event is
-//      attributed as it is queued; before that it is queued with no person (`attributeLater`) and
-//      attributed, in storage, by the confirmation itself. Nothing is ever attributed at send time,
-//      so a retry always carries the person it was first given, and forgetting an account (it was
-//      deleted) drops every event attributed to it. That drop is owed durably: the account is
-//      recorded as forgotten before its events are dropped, the drop is verified, and until it is
-//      verified `flush` sends nothing, so a queue store that refuses the write only delays the drop
-//      to the next confirmation or flush, in this process or the next. A state store that cannot
-//      be read is never taken as empty: every reader fails closed (nothing sent, nothing written),
-//      so the record of what is owed can neither be overlooked nor overwritten.
-//      A once-a-day or once-ever marker is written only after its event is safely queued, and the
-//      `$identify` marker only after the `$identify` is, so a marker never stands for an event
-//      that was lost (a lost install could never be counted again).
-//   3. Confirmation is one operation. `confirm()` installs the account (or lets it go), tries any
-//      owed drop, attributes the waiting events, and only then marks the account confirmed, so
-//      nothing can see "confirmed" together with a different account. Pending work changes only
-//      inside that operation chain. An unfinished forget survives a newer account answer and
-//      reaches the durable drop record before that account is installed. Until installation and
-//      attribution both succeed, confirmation stays withdrawn: events wait unattributed and
-//      nothing is sent. The ask is kept and tried again before
-//      the next send, so a transient storage failure delays reporting rather than ending it.
-//   4. Nothing leaves before the account is confirmed. Hosts that start without knowing who is
-//      signed in (`startsUnconfirmed`) send nothing until they confirm, and a timeout never counts
-//      as confirmation.
-//
-// The install and person ids themselves (identity.ts) never change once created.
+// Fresh combined permission and all required capability evidence gate observation, identity,
+// admission, optional email attach and transport. Each permission origin owns independent provider
+// IDs; functional installation/shared-anchor IDs are never merged into provider history. Earlier
+// account generations stay ineligible even if the same account returns. Pre-consent history,
+// arbitrary person updates, aliases and farewell events are never emitted.
 
 export const STATE_KEY = "still:analytics:state";
 export const QUEUE_KEY = "still:analytics:queue";
@@ -98,6 +87,17 @@ export interface AnalyticsClientDeps {
   readonly identity: () => Promise<AnalyticsIdentity>;
   /** Whether this person currently allows analytics. Checked on every track and flush. */
   readonly consent: () => Promise<boolean>;
+  /** Fresh combined permission from the same per-device authority. Legacy boolean On is insufficient. */
+  readonly permission?: () => Promise<unknown>;
+  /** Actual approved disclosure/capability evidence. Missing evidence holds optional collection. */
+  readonly privacyPolicy?: AnalyticsPrivacyPolicy;
+  /** Packaged/proven context only. No user-agent, geometry or provider-boolean inference. */
+  readonly envelope?: {
+    readonly os?: (typeof ANALYTICS_OS)[number];
+    readonly build_channel?: (typeof ANALYTICS_BUILD_CHANNELS)[number];
+    readonly rule_version?: string;
+    readonly plan?: (typeof ANALYTICS_PLANS)[number];
+  };
   readonly fetch: typeof fetch;
   readonly now: () => number;
   readonly uuid: () => string;
@@ -120,12 +120,15 @@ interface QueuedEvent {
    * one, in storage, before it can ever be sent (rule 2). Never sent while set.
    */
   readonly attributeLater?: boolean;
+  /** Private admission authority; never included in the provider envelope. */
+  readonly permission?: AnalyticsPermission;
+  readonly accountGeneration?: number;
 }
 
 interface ClientState {
   /** The signed-in account this install currently reports as, or null. */
   readonly userId: string | null;
-  /** The account a `$identify` has already been queued for, so it is sent once per sign-in. */
+  /** Legacy alias marker, cleared during migration and never emitted. */
   readonly identifiedAs: string | null;
   /** Marker → local calendar day it last fired, for once-a-day events; `once:` markers → "done". */
   readonly daily: Readonly<Record<string, string>>;
@@ -138,9 +141,23 @@ interface ClientState {
    * store (IndexedDB in the extensions) that can refuse a write on its own; nothing is sent while
    * this is non-empty (rule 2). */
   readonly forgotten: readonly string[];
+  readonly permission: AnalyticsPermission | null;
+  readonly stopPending: boolean;
+  readonly accountGeneration: number;
+  readonly stoppedOrigin: string | null;
 }
 
-const EMPTY_STATE: ClientState = { userId: null, identifiedAs: null, daily: {}, anonId: null, forgotten: [] };
+const EMPTY_STATE: ClientState = {
+  userId: null,
+  identifiedAs: null,
+  daily: {},
+  anonId: null,
+  forgotten: [],
+  permission: null,
+  stopPending: false,
+  accountGeneration: 0,
+  stoppedOrigin: null,
+};
 
 function parseState(value: unknown): ClientState {
   if (typeof value !== "object" || value === null) return EMPTY_STATE;
@@ -148,15 +165,36 @@ function parseState(value: unknown): ClientState {
   return {
     userId: typeof v.userId === "string" ? v.userId : null,
     identifiedAs: typeof v.identifiedAs === "string" ? v.identifiedAs : null,
-    daily:
-      typeof v.daily === "object" && v.daily !== null ? (v.daily as Record<string, string>) : {},
+    daily: typeof v.daily === "object" && v.daily !== null ? (v.daily as Record<string, string>) : {},
     anonId: typeof v.anonId === "string" ? v.anonId : null,
     forgotten: Array.isArray(v.forgotten) ? v.forgotten.filter((id): id is string => typeof id === "string") : [],
+    permission: readAnalyticsPermission(v.permission),
+    stopPending: v.stopPending === true,
+    stoppedOrigin: isAnalyticsId(v.stoppedOrigin) ? v.stoppedOrigin : null,
+    accountGeneration:
+      Number.isSafeInteger(v.accountGeneration) && (v.accountGeneration as number) >= 0
+        ? (v.accountGeneration as number)
+        : 0,
   };
 }
 
 function parseQueue(value: unknown): QueuedEvent[] {
-  return Array.isArray(value) ? (value as QueuedEvent[]).slice(-MAX_QUEUE) : [];
+  return Array.isArray(value)
+    ? value
+        .slice(-MAX_QUEUE)
+        .filter(
+          (v): v is QueuedEvent =>
+            v !== null &&
+            typeof v === "object" &&
+            !Array.isArray(v) &&
+            typeof v.event === "string" &&
+            typeof v.uuid === "string" &&
+            typeof v.timestamp === "string" &&
+            v.properties !== null &&
+            typeof v.properties === "object" &&
+            !Array.isArray(v.properties),
+        )
+    : [];
 }
 
 /** True when a build carries a usable PostHog configuration. */
@@ -187,11 +225,18 @@ function localDay(ms: number): string {
  * (midnight), and it does not trigger a send: it waits for the next ordinary send (the person opening
  * Still) or the host's randomly timed flush.
  *
- * `at` records an event with an earlier time: an install that happened while sharing was off.
+ * Legacy `at` input is ignored: an earlier pre-consent action cannot be reconstructed.
  */
 export interface TrackOptions {
   readonly quiet?: boolean;
   readonly at?: number;
+  /** Derived work retains the permission and account that observed the originating action. */
+  readonly observation?: AnalyticsObservation;
+}
+
+export interface AnalyticsObservation {
+  readonly stamp: { readonly generation: number; readonly epoch: number };
+  readonly permission: AnalyticsPermission;
 }
 
 /** Local midnight of the day containing `ms`, as an ISO timestamp. */
@@ -241,11 +286,16 @@ export class AnalyticsClient {
   /** Set when an account change could not be saved: reporting stops for the life of this client
    * rather than risk sending under an account that should have been let go. */
   private blocked = false;
+  private permission: AnalyticsPermission | null = null;
+  private scopeAbort = new AbortController();
 
   constructor(private readonly deps: AnalyticsClientDeps) {
     // A malformed version (for example from a bad native reply) would ride along on every event;
     // refuse to run rather than send it.
-    this.configured = analyticsConfigured(deps.config) && isVersion(deps.appVersion);
+    this.configured =
+      analyticsConfigured(deps.config) &&
+      isVersion(deps.appVersion) &&
+      (ANALYTICS_SURFACES as readonly string[]).includes(deps.surface);
     this.confirmed = !deps.startsUnconfirmed;
   }
 
@@ -269,12 +319,33 @@ export class AnalyticsClient {
   }
 
   /** `track` for input that arrived untyped (a runtime message); validated the same way. */
-  trackUnchecked(name: unknown, props: unknown, options: TrackOptions = {}): Promise<void> {
+  trackUnchecked(
+    name: unknown,
+    props: unknown,
+    options: TrackOptions = {},
+  ): Promise<void> {
+    const requested = options.observation?.stamp ?? this.stamp();
+    const admission = options.observation
+      ? Promise.resolve(options.observation.permission)
+      : this.readPermission();
+    const event = canonicalEvent(name, props);
     return this.run(async () => {
-      if (!(await this.allowed())) return;
-      const valid = validateEvent(name, props);
-      if (!valid) return;
-      await this.enqueue(name as string, valid, options);
+      const permission = await admission;
+      if (
+        !event ||
+        !isAppClientEvent(event.name) ||
+        !permission ||
+        !this.isCurrent(requested) ||
+        !(await this.allowed(permission))
+      )
+        return;
+      await this.enqueue(
+        event.name,
+        event.props,
+        options,
+        requested,
+        permission,
+      );
     });
   }
 
@@ -285,7 +356,13 @@ export class AnalyticsClient {
     props: AnalyticsEventProps<E>,
     options: TrackOptions = {},
   ): Promise<void> {
-    return this.trackMarked(marker, localDay(this.deps.now()), name, props, options);
+    return this.trackMarked(
+      marker,
+      localDay(this.deps.now()),
+      name,
+      props,
+      options,
+    );
   }
 
   /** Queue an event once in the life of this install for `marker` (setup milestones). */
@@ -301,7 +378,9 @@ export class AnalyticsClient {
   /** Whether a once-marker has already fired (a host deciding whether to keep a pending record).
    * Unreadable state answers no, so the host keeps its record and asks again later. */
   hasTrackedOnce(marker: string): Promise<boolean> {
-    return this.run(async () => (await this.read())?.daily[`once:${marker}`] !== undefined);
+    return this.run(
+      async () => (await this.read())?.daily[`once:${marker}`] !== undefined,
+    );
   }
 
   /** How many events are waiting (a host deciding whether a later flush is needed). */
@@ -323,13 +402,19 @@ export class AnalyticsClient {
    * nothing under the account can leave from here on, even if the host stops waiting for this
    * (account deletion waits a bounded time) and the server deletes the person meanwhile.
    */
-  confirm(account: ConfirmedAccount, options: ConfirmOptions = {}): Promise<void> {
-    if (!this.configured || (account !== null && !isAnalyticsId(account))) return Promise.resolve();
+  confirm(
+    account: ConfirmedAccount,
+    options: ConfirmOptions = {},
+  ): Promise<void> {
+    if (!this.configured || (account !== null && !isAnalyticsId(account)))
+      return Promise.resolve();
     if (options.forget) this.cancel();
     if (account !== this.lastAsked) {
+      this.cancel();
       this.generation += 1;
       this.lastAsked = account;
     }
+    this.confirmed = false;
     return this.run(async () => {
       this.confirmed = false;
       this.pending = { account, options };
@@ -342,6 +427,7 @@ export class AnalyticsClient {
   private async establish(retrying = false): Promise<void> {
     if (!this.pending) return;
     const { account, options } = this.pending;
+    if (!options.forget && !(await this.allowed())) return;
     if (this.forgetPending) {
       // Persist the old account's drop before installing any newer account. Once recorded, the
       // existing durable `forgotten` list owns recovery, including after a restart.
@@ -350,13 +436,10 @@ export class AnalyticsClient {
     }
     if (!(await this.installAccount(account, options))) return;
     await this.dropForgotten(); // tried here; `flush` is the gate that refuses to send until it is done
+    if (!(await this.allowed())) return;
     if (!(await this.attributeWaiting())) return;
     this.pending = null;
     this.confirmed = true;
-    if (account !== null && (await this.allowed())) {
-      const identity = await this.identity();
-      if (identity) await this.ensureIdentified(identity, options);
-    }
     if (!retrying && !options.quiet && (await this.readQueue()).length > 0) this.scheduleFlush();
   }
 
@@ -382,27 +465,71 @@ export class AnalyticsClient {
   }
 
   /** Whether nothing about the account or sharing has changed since `stamp`. */
-  isCurrent(stamp: { readonly generation: number; readonly epoch: number }): boolean {
+  isCurrent(stamp: {
+    readonly generation: number;
+    readonly epoch: number;
+  }): boolean {
     return stamp.generation === this.generation && stamp.epoch === this.epoch;
+  }
+
+  /** Optional server work shares the same synchronous revocation/account fence as batching. */
+  cancellationSignal(): AbortSignal {
+    return this.scopeAbort.signal;
   }
 
   // ── Sending ──────────────────────────────────────────────────────────────────────────────────
 
+  /** Capture eligibility at observation time, before any native/startup wait. */
+  async captureObservation(): Promise<{
+    readonly stamp: ReturnType<AnalyticsClient["stamp"]>;
+    readonly permission: AnalyticsPermission;
+  } | null> {
+    const stamp = this.stamp();
+    const permission = await this.readPermission();
+    return permission && this.isCurrent(stamp) ? { stamp, permission } : null;
+  }
+  async observationCurrent(
+    observation: Awaited<ReturnType<AnalyticsClient["captureObservation"]>>,
+  ): Promise<boolean> {
+    return (
+      !!observation &&
+      this.isCurrent(observation.stamp) &&
+      samePermission(observation.permission, await this.readPermission()) &&
+      this.isCurrent(observation.stamp)
+    );
+  }
+
   /** Send what is queued, once the account is confirmed. Keeps events on a network or server
    * failure so the next flush retries them, with the person they were given. */
-  flush(): Promise<void> {
+  flush(observation?: AnalyticsObservation): Promise<void> {
     // The epoch this flush was asked under. A cancellation between now and its turn (an account
     // forgotten, sharing switched off) means it must send nothing when it runs (rule 1).
-    const epoch = this.epoch;
+    const epoch = observation?.stamp.epoch ?? this.epoch;
     return this.run(async () => {
-      if (epoch !== this.epoch) return; // cancelled work must not change attribution either
+      if (
+        epoch !== this.epoch ||
+        (observation && !this.isCurrent(observation.stamp))
+      )
+        return; // cancelled work must not change attribution either
       // A confirmation that failed on storage is tried again here, so reporting resumes on its own
       // once the store recovers, without waiting for the host to confirm again (rule 3).
       if (!this.confirmed) await this.establish(true);
       if (!this.confirmed || epoch !== this.epoch) return; // rule 4; rule 1
       if (!(await this.dropForgotten())) return; // rule 2: a forgotten account's events never leave
       for (;;) {
-        const batch = (await this.readQueue()).filter((e) => !e.attributeLater).slice(0, BATCH_SIZE);
+        if (!(await this.allowed(observation?.permission))) return;
+        const state = await this.read();
+        if (!state) return;
+        const queue = await this.retireObsolete(state.accountGeneration);
+        if (!queue || epoch !== this.epoch) return;
+        const batch = queue
+          .filter(
+            (e) =>
+              !e.attributeLater &&
+              e.accountGeneration === state.accountGeneration &&
+              samePermission(e.permission ?? null, this.permission),
+          )
+          .slice(0, BATCH_SIZE);
         if (batch.length === 0) return;
         // Sharing is re-read immediately before every request; `post` re-checks cancellation.
         if (!(await this.allowed())) return;
@@ -418,45 +545,26 @@ export class AnalyticsClient {
   }
 
   /** Drop everything waiting to be sent: the person turned analytics off. */
-  clearQueue(): Promise<void> {
+  clearQueue(retireOrigin = true): Promise<void> {
     this.cancel();
-    return this.run(() => this.discardQueue());
+    return this.run(() => this.discardQueue(retireOrigin));
   }
 
-  /**
-   * The person turned sharing off with Still's own switch (on to off). Stop at once: nothing
-   * waiting is sent. Then, in the same operation, one short standalone attempt records only the
-   * opt-out itself, under the confirmed account of that moment. Skipped if the account is not
-   * confirmed.
-   */
-  sendOptOut(timeoutMs = 3_000): Promise<void> {
+  /** A choice/context change fences already waiting work synchronously, before persistence. */
+  permissionChanged(): void {
     this.cancel();
-    const epoch = this.epoch; // an account forgotten before the request: nothing to record it under
-    return this.run(async () => {
-      await this.discardQueue();
-      if (!this.configured || this.blocked || !this.confirmed) return;
-      const identity = await this.identity();
-      if (!identity) return;
-      const state = await this.read();
-      if (!state) return;
-      const event: QueuedEvent = {
-        event: "sharing_turned_off",
-        uuid: this.deps.uuid(),
-        timestamp: this.timestamp({}),
-        properties: {
-          ...this.envelope(state, identity),
-          signed_in: state.userId !== null,
-        },
-      };
-      const abort = typeof AbortController === "function" ? new AbortController() : null;
-      const timer = setTimeout(() => abort?.abort(), timeoutMs);
-      try {
-        // The reads above took time; an account forgotten meanwhile must not be named (`post` checks).
-        await this.post([event], epoch, abort?.signal);
-      } finally {
-        clearTimeout(timer);
-      }
-    });
+    this.permission = null;
+  }
+
+  /** Existing trusted server-attach seam uses the same permission/capability boundary. */
+  canReport(): Promise<boolean> {
+    return this.run(() => this.allowed());
+  }
+
+  /** Compatibility with older hosts: withdrawal only stops and clears, with no farewell. */
+  sendOptOut(_timeoutMs = 3_000): Promise<void> {
+    // Compatibility with old hosts: stop and clear only; withdrawal never authorizes a farewell.
+    return this.clearQueue();
   }
 
   // ── internals ────────────────────────────────────────────────────────────────────────────────
@@ -472,6 +580,8 @@ export class AnalyticsClient {
   private cancel(): void {
     this.epoch += 1;
     this.inflight?.abort();
+    this.scopeAbort.abort();
+    this.scopeAbort = new AbortController();
   }
 
   private trackMarked<E extends AnalyticsEventName>(
@@ -481,40 +591,82 @@ export class AnalyticsClient {
     props: AnalyticsEventProps<E>,
     options: TrackOptions,
   ): Promise<void> {
+    const requested = options.observation?.stamp ?? this.stamp();
+    const admission = options.observation
+      ? Promise.resolve(options.observation.permission)
+      : this.readPermission();
+    const event = canonicalEvent(name, props);
     return this.run(async () => {
-      if (!(await this.allowed())) return;
-      const valid = validateEvent(name, props);
-      if (!valid) return;
+      const permission = await admission;
+      if (
+        !event ||
+        !isAppClientEvent(event.name) ||
+        !permission ||
+        !this.isCurrent(requested) ||
+        !(await this.allowed(permission))
+      )
+        return;
       const state = await this.read();
       if (!state || state.daily[marker] === value) return;
       // The event first, the marker only once it is safely queued: a marker must never stand for
       // an event that was lost, and a host clears its own record (a pending install) on the marker.
-      if (!(await this.enqueue(name, valid, options))) return;
-      // Re-read: queueing may have marked the `$identify`, which this write must not undo.
+      if (
+        !(await this.enqueue(
+          event.name,
+          event.props,
+          options,
+          requested,
+          permission,
+        ))
+      )
+        return;
+      // Re-read rather than overwrite newer lifecycle or erasure state with the marker snapshot.
       const latest = await this.read();
-      if (latest) await this.write({ ...latest, daily: { ...latest.daily, [marker]: value } });
+      if (latest && this.isCurrent(requested) && (await this.allowed(permission)))
+        await this.write({
+          ...latest,
+          daily: { ...latest.daily, [marker]: value },
+        });
     });
   }
 
   /** Install the account named by a confirmation. False when the change could not be saved. A
    * forgotten account is recorded as such here, durably, before its events are dropped
    * (`dropForgotten`), so the drop is owed even if this process ends first. */
-  private async installAccount(account: ConfirmedAccount, options: ConfirmOptions): Promise<boolean> {
+  private async installAccount(
+    account: ConfirmedAccount,
+    options: ConfirmOptions,
+  ): Promise<boolean> {
     const state = await this.read();
     // Who is signed in cannot be known: nothing changes, the confirmation stands withdrawn, and the
     // ask (a forget included: its sends are already fenced) is tried again before the next send.
     if (!state) return false;
+    if (state.userId !== account && state.accountGeneration === Number.MAX_SAFE_INTEGER) {
+      this.blocked = true;
+      return false;
+    }
     if (account !== null) {
       if (state.userId === account) return true;
-      const saved = await this.write({ ...state, userId: account, identifiedAs: null });
+      const saved = await this.saveAccount({
+        ...state,
+        userId: account,
+        identifiedAs: null,
+        accountGeneration: state.accountGeneration + 1,
+      });
       if (!saved) this.blocked = true;
       return saved;
     }
     if (state.userId === null) return true; // nobody, as before: keep the same anonymous id
-    const forgotten = options.forget && !state.forgotten.includes(state.userId)
-      ? [...state.forgotten, state.userId]
-      : state.forgotten;
-    const saved = await this.write({ ...state, userId: null, identifiedAs: null, anonId: this.deps.uuid(), forgotten });
+    const forgotten =
+      options.forget && !state.forgotten.includes(state.userId) ? [...state.forgotten, state.userId] : state.forgotten;
+    const saved = await this.saveAccount({
+      ...state,
+      userId: null,
+      identifiedAs: null,
+      anonId: this.deps.uuid(),
+      forgotten,
+      accountGeneration: state.accountGeneration + 1,
+    });
     if (!saved) {
       this.blocked = true;
       // The forget could not be recorded, so drop what can be dropped now: this process sends
@@ -540,65 +692,232 @@ export class AnalyticsClient {
     return true;
   }
 
+  /** An acknowledged write is insufficient when storage silently fails to retain it. */
+  private async saveAccount(next: ClientState): Promise<boolean> {
+    if (!(await this.write(next))) return false;
+    const stored = await this.read();
+    return (
+      !!stored &&
+      stored.userId === next.userId &&
+      stored.accountGeneration === next.accountGeneration &&
+      stored.anonId === next.anonId &&
+      stored.stoppedOrigin === next.stoppedOrigin &&
+      JSON.stringify(stored.forgotten) === JSON.stringify(next.forgotten)
+    );
+  }
+
   /** Drop every queued event attributed to one of `gone`, and verify it. False when the queue store
    * refuses to give up the events or to be read (a refused read must not count as "nothing left"). */
   private async dropEventsOf(gone: ReadonlySet<string>): Promise<boolean> {
-    const owned = (e: QueuedEvent) => typeof e.properties.distinct_id === "string" && gone.has(e.properties.distinct_id);
-    const queue = await this.loadQueue();
+    const keep = (value: unknown): boolean => {
+      if (!value || typeof value !== "object" || Array.isArray(value))
+        return false;
+      const e = value as Record<string, unknown>;
+      if (
+        !e.properties ||
+        typeof e.properties !== "object" ||
+        Array.isArray(e.properties)
+      )
+        return false;
+      const id = (e.properties as Record<string, unknown>).distinct_id;
+      if (isAnalyticsId(id)) return !gone.has(id);
+      // Keep classifiable unconfirmed work; malformed ownership is never proof of erasure.
+      return e.attributeLater === true && parseQueue([value]).length === 1;
+    };
+    const queue = await this.loadRawQueue();
     if (queue === null) return false;
-    if (queue.some(owned) && !(await this.writeQueue(queue.filter((e) => !owned(e))))) return false;
+    if (
+      queue.some((e) => !keep(e)) &&
+      !(await this.writeQueue(queue.filter(keep)))
+    )
+      return false;
+    const remaining = await this.loadRawQueue();
+    return remaining !== null && remaining.every(keep);
+  }
+
+  /** Already-attributed events cannot acquire a later account; verify their durable retirement. */
+  private async retireObsolete(
+    generation: number,
+  ): Promise<QueuedEvent[] | null> {
+    const queue = await this.loadQueue();
+    if (!queue) return null;
+    const obsolete = (e: QueuedEvent) =>
+      !e.attributeLater && e.accountGeneration !== generation;
+    if (!queue.some(obsolete)) return queue;
+    if (!(await this.writeQueue(queue.filter((e) => !obsolete(e)))))
+      return null;
     const remaining = await this.loadQueue();
-    return remaining !== null && !remaining.some(owned);
+    return remaining && !remaining.some(obsolete) ? remaining : null;
   }
 
   /** Give every waiting unattributed event the person now installed, in storage (rule 2). */
   private async attributeWaiting(): Promise<boolean> {
+    const stamp = this.stamp();
+    const permission = this.permission;
+    if (!permission || !(await this.allowed(permission))) return false;
     const queue = await this.loadQueue();
     if (queue === null) return false;
     if (!queue.some((e) => e.attributeLater)) return true;
     const identity = await this.identity();
     if (!identity) return false;
     const state = await this.read();
-    if (!state) return false;
+    if (!state || !this.isCurrent(stamp) || !(await this.allowed(permission))) return false;
     const signedIn = state.userId !== null;
     const distinctId = state.userId ?? this.anonymousId(state, identity);
-    if (!(await this.writeQueue(
-      queue.map((e) => {
-        if (!e.attributeLater) return e;
-        const $set = { ...(e.properties.$set as Record<string, unknown> | undefined) };
-        if (e.event === "signed_out") $set.signed_in = false;
-        return {
-          event: e.event,
-          uuid: e.uuid,
-          timestamp: e.timestamp,
-          properties: { ...e.properties, distinct_id: distinctId, signed_in: signedIn, $set },
-        };
-      }),
-    ))) return false;
+    if (
+      !(await this.writeQueue(
+        queue.map((e) => {
+          if (!e.attributeLater) return e;
+          return {
+            event: e.event,
+            uuid: e.uuid,
+            timestamp: e.timestamp,
+            permission: e.permission,
+            accountGeneration: state.accountGeneration,
+            properties: {
+              ...e.properties,
+              distinct_id: distinctId,
+              signed_in: signedIn,
+            },
+          };
+        }),
+      ))
+    )
+      return false;
     const remaining = await this.loadQueue();
-    return remaining !== null && !remaining.some((e) => e.attributeLater);
+    return (
+      remaining !== null &&
+      !remaining.some((e) => e.attributeLater) &&
+      this.isCurrent(stamp) &&
+      (await this.allowed(permission))
+    );
   }
 
   /** Whether reporting may happen now. Fails closed, and when sharing turns out to be off (it can
    * be withdrawn outside Still: Firefox's add-on manager, the Apple app's switch) anything still
    * waiting is discarded. */
-  private async allowed(): Promise<boolean> {
-    if (!this.configured || this.blocked) return false;
-    let consent: boolean;
-    try {
-      consent = await this.deps.consent();
-    } catch {
-      consent = false;
-    }
-    if (!consent) await this.discardQueue();
-    return consent;
+  private async readPermission(): Promise<AnalyticsPermission | null> {
+    return (await this.readAuthority()).granted;
   }
 
-  /** Empty the queue. A discarded `$identify` must be queued again later, so its marker goes too. */
-  private async discardQueue(): Promise<void> {
-    if ((await this.readQueue()).length > 0) await this.writeQueue([]);
+  private async readAuthority(): Promise<{
+    raw: AnalyticsPermission | null;
+    granted: AnalyticsPermission | null;
+  }> {
+    try {
+      const [value, enabled] = await Promise.all([
+        this.deps.permission?.(),
+        this.deps.consent().catch(() => false),
+      ]);
+      const permission = readAnalyticsPermission(value);
+      return {
+        raw: permission,
+        granted:
+          privacyPolicyReady(this.deps.privacyPolicy) &&
+          enabled === true &&
+          permission?.state === "granted" &&
+          permission.version === this.deps.privacyPolicy?.permissionVersion
+            ? permission
+            : null,
+      };
+    } catch {
+      return { raw: null, granted: null };
+    }
+  }
+
+  private async allowed(expected?: AnalyticsPermission): Promise<boolean> {
+    if (!this.configured || this.blocked) return false;
+    const stamp = this.stamp();
+    const authority = await this.readAuthority();
+    const permission = authority.granted;
+    if (!this.isCurrent(stamp)) return false;
+    if (!permission) {
+      this.cancel();
+      this.permission = null;
+      await this.discardQueue(authority.raw ?? false);
+      return false;
+    }
+    if (expected && !samePermission(expected, permission)) return false;
     const state = await this.read();
-    if (state && state.identifiedAs !== null) await this.write({ ...state, identifiedAs: null });
+    if (!state || !this.isCurrent(stamp)) return false;
+    if (state.stoppedOrigin === permission.origin) {
+      await this.discardQueue();
+      return false;
+    }
+    if (state.stopPending || !samePermission(state.permission, permission)) {
+      // Retire legacy/previous-permission waiting data before installing a fresh lifecycle.
+      if (!(await this.write({ ...state, stopPending: true }))) {
+        this.blocked = true;
+        return false;
+      }
+      if (!(await this.writeQueue([])) || !(await this.queueCleared())) return false;
+      if (!this.isCurrent(stamp) || !samePermission(permission, await this.readPermission())) return false;
+      if (
+        !(await this.write({
+          ...state,
+          permission,
+          stopPending: false,
+          identifiedAs: null,
+          daily: {},
+          anonId: permission.provider.anonymousId,
+        }))
+      )
+        return false;
+      const installed = await this.read();
+      if (!installed || installed.stopPending || !samePermission(installed.permission, permission)) return false;
+    }
+    this.permission = permission;
+    return this.isCurrent(stamp);
+  }
+
+  /** Verify raw queue removal and retain minimal stopped-origin authority. */
+  private async discardQueue(
+    retire: boolean | AnalyticsPermission = true,
+  ): Promise<void> {
+    const state = await this.read();
+    const waiting = await this.loadRawQueue(true);
+    const endedOrigin =
+      retire === true
+        ? state?.permission?.origin
+        : typeof retire === "object"
+          ? retire.state === "stopped"
+            ? retire.origin
+            : state?.permission && !samePermission(retire, state.permission)
+              ? state.permission.origin
+              : null
+          : null;
+    const stoppedOrigin = endedOrigin ?? state?.stoppedOrigin;
+    // Undecided installs do not allocate optional state, identity or an empty backlog.
+    if (
+      state &&
+      !state.permission &&
+      !state.stopPending &&
+      state.userId === null &&
+      state.identifiedAs === null &&
+      state.forgotten.length === 0 &&
+      waiting?.length === 0
+    )
+      return;
+    if (
+      !state ||
+      !(await this.write({
+        ...state,
+        stopPending: true,
+        identifiedAs: null,
+        stoppedOrigin: stoppedOrigin ?? null,
+      }))
+    ) {
+      this.blocked = true;
+      return;
+    }
+    if (!(await this.writeQueue([])) || !(await this.queueCleared())) return;
+    await this.write({
+      ...state,
+      permission: endedOrigin ? null : state.permission,
+      stopPending: false,
+      identifiedAs: null,
+      stoppedOrigin: stoppedOrigin ?? null,
+    });
   }
 
   /** This install's ids, refusing anything that is not a Still id. */
@@ -649,8 +968,18 @@ export class AnalyticsClient {
     return (await this.loadQueue()) ?? [];
   }
 
+  /** Erasure verification examines the raw store; malformed entries must not look deleted. */
+  private async queueCleared(): Promise<boolean> {
+    try {
+      const value = await this.queueStore.get(QUEUE_KEY);
+      return Array.isArray(value) && value.length === 0;
+    } catch {
+      return false;
+    }
+  }
+
   /** False when the queue store refused the write. */
-  private async writeQueue(queue: readonly QueuedEvent[]): Promise<boolean> {
+  private async writeQueue(queue: readonly unknown[]): Promise<boolean> {
     try {
       await this.queueStore.set(QUEUE_KEY, queue.slice(-MAX_QUEUE));
       return true;
@@ -659,16 +988,55 @@ export class AnalyticsClient {
     }
   }
 
+  /** Inspect all raw records. Only allocation preflight accepts missing-key null as empty;
+   * erasure verification must not take it as proof that a purge was persisted. */
+  private async loadRawQueue(allocationPreflight = false): Promise<unknown[] | null> {
+    try {
+      const value = await this.queueStore.get(QUEUE_KEY);
+      return value === undefined || (allocationPreflight && value === null)
+        ? []
+        : Array.isArray(value)
+          ? value
+          : [value];
+    } catch {
+      return null;
+    }
+  }
+
   /** Queue one event. False when the queue store refused it. */
-  private async push(event: QueuedEvent, options: TrackOptions = {}): Promise<boolean> {
+  private async push(
+    event: QueuedEvent,
+    options: TrackOptions = {},
+  ): Promise<boolean> {
+    const stamp = this.stamp();
+    const permission = this.permission;
+    if (!permission) return false;
+    const state = await this.read();
+    if (!state) return false;
     const queue = await this.loadQueue();
-    if (queue === null || !(await this.writeQueue([...queue, event]))) return false;
+    if (
+      queue === null ||
+      !this.isCurrent(stamp) ||
+      !(await this.allowed(permission)) ||
+      !(await this.writeQueue([
+        ...queue,
+        { ...event, permission, accountGeneration: state.accountGeneration },
+      ]))
+    )
+      return false;
+    if (
+      !(await this.loadQueue())?.some(
+        (stored) => stored.uuid === event.uuid && samePermission(stored.permission ?? null, permission),
+      )
+    )
+      return false;
     if (!options.quiet) this.scheduleFlush();
     return true;
   }
 
   private timestamp(options: TrackOptions): string {
-    const at = options.at ?? this.deps.now();
+    // Earlier install/setup evidence is not an eligible post-consent action.
+    const at = this.deps.now();
     return options.quiet ? localMidnightIso(at) : new Date(at).toISOString();
   }
 
@@ -678,11 +1046,14 @@ export class AnalyticsClient {
   }
 
   /** The properties every product event carries. */
-  private envelope(state: ClientState, identity: AnalyticsIdentity): Record<string, unknown> {
+  private envelope(
+    state: ClientState,
+    identity: AnalyticsIdentity,
+  ): Record<string, unknown> {
     const { surface, appVersion } = this.deps;
     return {
       distinct_id: state.userId ?? this.anonymousId(state, identity),
-      $device_id: identity.installId,
+      $device_id: this.permission!.provider.deviceId,
       $lib: "still",
       // Location is never derived from the connection (the privacy label declares none).
       $geoip_disable: true,
@@ -690,53 +1061,15 @@ export class AnalyticsClient {
       store: storeForSurface(surface),
       ...(isDeviceClass(this.deps.device) ? { device: this.deps.device } : {}),
       app_version: appVersion,
+      ...(this.deps.envelope?.os && ANALYTICS_OS.includes(this.deps.envelope.os) ? { os: this.deps.envelope.os } : {}),
+      ...(this.deps.envelope?.build_channel && ANALYTICS_BUILD_CHANNELS.includes(this.deps.envelope.build_channel)
+        ? { build_channel: this.deps.envelope.build_channel }
+        : {}),
+      ...(isVersion(this.deps.envelope?.rule_version) ? { rule_version: this.deps.envelope!.rule_version } : {}),
+      ...(this.deps.envelope?.plan && ANALYTICS_PLANS.includes(this.deps.envelope.plan)
+        ? { plan: this.deps.envelope.plan }
+        : {}),
     };
-  }
-
-  /** Person properties refreshed by every event, so each profile shows every store a person
-   * uses and the version they last ran there. */
-  private personProperties(options: TrackOptions = {}): { $set: Record<string, unknown>; $set_once: Record<string, unknown> } {
-    const { surface, appVersion } = this.deps;
-    const store = storeForSurface(surface);
-    return {
-      $set: {
-        [`uses_${surface.replace("-", "_")}`]: true,
-        [`uses_store_${store}`]: true,
-        [`last_version_${surface.replace("-", "_")}`]: appVersion,
-        last_surface: surface,
-        ...(isDeviceClass(this.deps.device) ? { last_device: this.deps.device } : {}),
-      },
-      $set_once: {
-        first_surface: surface,
-        first_store: store,
-        // Same precision as the event itself: a quiet event's day, never its moment.
-        first_seen: this.timestamp(options),
-      },
-    };
-  }
-
-  /** Queue the `$identify` that merges this install's anonymous id into the confirmed account. */
-  private async ensureIdentified(identity: AnalyticsIdentity, options: TrackOptions = {}): Promise<void> {
-    if (!this.confirmed) return;
-    const state = await this.read();
-    if (!state?.userId || state.identifiedAs === state.userId) return;
-    const person = this.personProperties(options);
-    const queued = await this.push({
-      event: "$identify",
-      uuid: this.deps.uuid(),
-      timestamp: this.timestamp({ quiet: options.quiet }),
-      properties: {
-        distinct_id: state.userId,
-        $anon_distinct_id: this.anonymousId(state, identity),
-        $device_id: identity.installId,
-        $lib: "still",
-        $geoip_disable: true,
-        $set: { ...person.$set, signed_in: true },
-        $set_once: person.$set_once,
-      },
-    }, options);
-    // Marked only once queued: an install that never merges into its account is a person lost.
-    if (queued) await this.write({ ...state, identifiedAs: state.userId });
   }
 
   /** Queue one product event. False when it could not be queued (nothing was recorded). */
@@ -744,37 +1077,50 @@ export class AnalyticsClient {
     name: string,
     props: Record<string, boolean | string>,
     options: TrackOptions = {},
+    requested = this.stamp(),
+    permission = this.permission,
   ): Promise<boolean> {
+    if (!permission || !this.isCurrent(requested) || !(await this.allowed(permission))) return false;
     const identity = await this.identity();
-    if (!identity) return false;
-    await this.ensureIdentified(identity, options);
+    if (!identity || !this.isCurrent(requested) || !(await this.allowed(permission))) return false;
     const state = await this.read();
-    if (!state) return false; // an event costs less than one recorded under the wrong person
-    const person = this.personProperties(options);
-    const { distinct_id: distinctId, ...common } = this.envelope(state, identity);
+    if (
+      !state ||
+      !this.isCurrent(requested) ||
+      !(await this.allowed(permission))
+    )
+      return false;
+    const { distinct_id: distinctId, ...common } = this.envelope(
+      state,
+      identity,
+    );
     if (!this.confirmed) {
       // No person yet: the confirmation gives it one, in storage, before it can be sent (rule 2).
-      return this.push({
+      return this.push(
+        {
+          event: name,
+          uuid: this.deps.uuid(),
+          timestamp: this.timestamp(options),
+          attributeLater: true,
+          properties: { ...props, ...common },
+        },
+        options,
+      );
+    }
+    return this.push(
+      {
         event: name,
         uuid: this.deps.uuid(),
         timestamp: this.timestamp(options),
-        attributeLater: true,
-        properties: { ...props, ...common, $set: person.$set, $set_once: person.$set_once },
-      }, options);
-    }
-    return this.push({
-      event: name,
-      uuid: this.deps.uuid(),
-      timestamp: this.timestamp(options),
-      properties: {
-        ...props,
-        distinct_id: distinctId,
-        ...common,
-        signed_in: state.userId !== null,
-        $set: name === "signed_out" ? { ...person.$set, signed_in: false } : person.$set,
-        $set_once: person.$set_once,
+        properties: {
+          ...props,
+          distinct_id: distinctId,
+          ...common,
+          signed_in: state.userId !== null,
+        },
       },
-    }, options);
+      options,
+    );
   }
 
   private scheduleFlush(): void {
@@ -790,24 +1136,98 @@ export class AnalyticsClient {
   /** One request, for a caller that was asked under `epoch`. Refused, synchronously and before
    * anything else, when a cancellation has overtaken that caller since: this is the last check
    * before the network, after every awaited read a caller does (rule 1). */
-  private async post(batch: readonly QueuedEvent[], epoch: number, signal?: AbortSignal): Promise<"done" | "retry"> {
-    if (epoch !== this.epoch) return "retry";
+  private async post(
+    batch: readonly QueuedEvent[],
+    epoch: number,
+  ): Promise<"done" | "retry"> {
+    const permission = this.permission;
+    if (epoch !== this.epoch || !permission || !(await this.allowed(permission)) || epoch !== this.epoch)
+      return "retry";
+    const state = await this.read();
+    if (!state || epoch !== this.epoch) return "retry";
+    const outbound = batch.flatMap((event) => {
+      if (!samePermission(event.permission ?? null, permission) || !isAppClientEvent(event.event)) return [];
+      const props = event.properties;
+      const envelopeKeys = [
+        "distinct_id",
+        "$device_id",
+        "$lib",
+        "$geoip_disable",
+        "surface",
+        "store",
+        "device",
+        "app_version",
+        "signed_in",
+        "os",
+        "build_channel",
+        "rule_version",
+        "plan",
+      ];
+      const specific = Object.fromEntries(
+        Object.entries(props).filter(([key]) => !envelopeKeys.includes(key)),
+      );
+      if (
+        !validateEvent(event.event, specific) ||
+        !isAnalyticsId(event.uuid) ||
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(
+          event.timestamp,
+        ) ||
+        !Number.isFinite(Date.parse(event.timestamp)) ||
+        !isAnalyticsId(props.distinct_id) ||
+        !isAnalyticsId(props.$device_id) ||
+        props.$device_id !== permission.provider.deviceId ||
+        props.distinct_id !== (state.userId ?? state.anonId ?? permission.provider.anonymousId) ||
+        props.signed_in !== (state.userId !== null) ||
+        props.$lib !== "still" ||
+        props.$geoip_disable !== true ||
+        props.surface !== this.deps.surface ||
+        props.store !== storeForSurface(this.deps.surface) ||
+        !isVersion(props.app_version) ||
+        (props.device !== undefined && !isDeviceClass(props.device)) ||
+        (props.signed_in !== undefined && typeof props.signed_in !== "boolean") ||
+        (props.os !== undefined && !(ANALYTICS_OS as readonly unknown[]).includes(props.os)) ||
+        (props.build_channel !== undefined &&
+          !(ANALYTICS_BUILD_CHANNELS as readonly unknown[]).includes(
+            props.build_channel,
+          )) ||
+        (props.rule_version !== undefined && !isVersion(props.rule_version)) ||
+        (props.plan !== undefined && !(ANALYTICS_PLANS as readonly unknown[]).includes(props.plan))
+      )
+        return [];
+      // Strip all private permission/origin data; validate persisted records again at actual send.
+      return [
+        {
+          event: event.event,
+          uuid: event.uuid,
+          timestamp: event.timestamp,
+          properties: props,
+        },
+      ];
+    });
+    if (outbound.length === 0) return "done";
+    if (!samePermission(permission, await this.readPermission()) || epoch !== this.epoch) return "retry";
     const host = this.deps.config.host!.trim().replace(/\/+$/, "");
     // Every request is bounded, and abandonable: switching sharing off aborts it (cancel), so a
     // stuck network can never hold the queue, the switch, or anything behind them.
     const controller = typeof AbortController === "function" ? new AbortController() : null;
-    if (signal) signal.addEventListener("abort", () => controller?.abort(), { once: true });
     this.inflight = controller;
     const timer = setTimeout(() => controller?.abort(), REQUEST_TIMEOUT_MS);
     const aborted = new Promise<never>((_, reject) =>
-      controller?.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }),
+      controller?.signal.addEventListener(
+        "abort",
+        () => reject(new Error("aborted")),
+        { once: true },
+      ),
     );
     try {
       const response = await Promise.race([
         this.deps.fetch(`${host}/batch/`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ api_key: this.deps.config.key!.trim(), batch }),
+          body: JSON.stringify({
+            api_key: this.deps.config.key!.trim(),
+            batch: outbound,
+          }),
           signal: controller?.signal,
         }),
         aborted,
