@@ -20,6 +20,16 @@ const request = () => ({
   receipt: { version: 1, lineage, revision: 7, mac: "A".repeat(43) },
   operations: [operation()],
 });
+const requestPart = (
+  raw: ReturnType<typeof request>,
+  level: "request" | "receipt" | "operation" | "array",
+) =>
+  ({
+    request: raw,
+    receipt: raw.receipt,
+    operation: raw.operations[0]!,
+    array: raw.operations,
+  })[level];
 const reject = (input: unknown) =>
   expect(readSettingsOperationRequest(input)).toEqual({
     status: "invalid",
@@ -111,31 +121,16 @@ describe("closed untrusted settings operation request", () => {
   it("requires all keys at each level and rejects every unknown own key atomically", () => {
     for (const level of ["request", "receipt", "operation"] as const) {
       const raw = request();
-      const target =
-        level === "request"
-          ? raw
-          : level === "receipt"
-            ? raw.receipt
-            : raw.operations[0]!;
+      const target = requestPart(raw, level);
       for (const key of Object.keys(target)) {
         const malformed = structuredClone(raw);
-        const part =
-          level === "request"
-            ? malformed
-            : level === "receipt"
-              ? malformed.receipt
-              : malformed.operations[0]!;
+        const part = requestPart(malformed, level);
         Reflect.deleteProperty(part, key);
         reject(malformed);
       }
       for (const key of ["extra", "__proto__", Symbol("extra")]) {
         const malformed = structuredClone(raw);
-        const part =
-          level === "request"
-            ? malformed
-            : level === "receipt"
-              ? malformed.receipt
-              : malformed.operations[0]!;
+        const part = requestPart(malformed, level);
         Object.defineProperty(part, key, { value: false });
         reject(malformed);
       }
@@ -170,6 +165,52 @@ describe("closed untrusted settings operation request", () => {
     const raw = request();
     delete raw.operations[0];
     raw.operations.push(operation());
+    reject(raw);
+  });
+
+  it("rejects oversized arrays after inspecting only the length descriptor", () => {
+    const inspected: PropertyKey[] = [];
+    const oversized = new Proxy(Array(100_000).fill(operation()), {
+      getOwnPropertyDescriptor(target, key) {
+        inspected.push(key);
+        return Reflect.getOwnPropertyDescriptor(target, key);
+      },
+    });
+    reject({ ...request(), operations: oversized });
+    expect(inspected).toHaveLength(1);
+    expect(inspected[0]).toBe("length");
+  });
+
+  it("rejects oversized records before inspecting their descriptors", () => {
+    for (const level of ["request", "receipt", "operation"] as const) {
+      const raw = request();
+      const inspected: PropertyKey[] = [];
+      const target = requestPart(raw, level);
+      for (let i = 0; i < 100; i++)
+        Object.defineProperty(target, `extra${i}`, { value: false });
+      const oversized = new Proxy(target, {
+        getOwnPropertyDescriptor(value, key) {
+          inspected.push(key);
+          return Reflect.getOwnPropertyDescriptor(value, key);
+        },
+      });
+      if (level === "request") reject(oversized);
+      else if (level === "receipt") reject({ ...raw, receipt: oversized });
+      else reject({ ...raw, operations: [oversized] });
+      expect(inspected).toHaveLength(0);
+    }
+  });
+
+  it("rejects array length changes between the bound check and descriptor snapshot", () => {
+    const raw = request();
+    let lengthReads = 0;
+    raw.operations = new Proxy(raw.operations, {
+      getOwnPropertyDescriptor(target, key) {
+        if (key === "length" && ++lengthReads === 2)
+          target.push(operation("services.youtube"));
+        return Reflect.getOwnPropertyDescriptor(target, key);
+      },
+    });
     reject(raw);
   });
 
@@ -321,14 +362,7 @@ describe("closed untrusted settings operation request", () => {
   it("rejects inherited/custom prototypes at every level and accepts own null-prototype records", () => {
     for (const level of ["request", "receipt", "operation", "array"] as const) {
       const raw = request();
-      const part =
-        level === "request"
-          ? raw
-          : level === "receipt"
-            ? raw.receipt
-            : level === "array"
-              ? raw.operations
-              : raw.operations[0]!;
+      const part = requestPart(raw, level);
       Object.setPrototypeOf(part, { inherited: true });
       reject(raw);
     }
@@ -346,24 +380,10 @@ describe("closed untrusted settings operation request", () => {
     let accesses = 0;
     for (const level of ["request", "receipt", "operation", "array"] as const) {
       const base = request();
-      const keys =
-        level === "request"
-          ? Object.keys(base)
-          : level === "receipt"
-            ? Object.keys(base.receipt)
-            : level === "operation"
-              ? Object.keys(base.operations[0]!)
-              : ["0"];
+      const keys = Object.keys(requestPart(base, level));
       for (const key of [...keys, "extra"]) {
         const raw = request();
-        const part =
-          level === "request"
-            ? raw
-            : level === "receipt"
-              ? raw.receipt
-              : level === "array"
-                ? raw.operations
-                : raw.operations[0]!;
+        const part = requestPart(raw, level);
         Object.defineProperty(part, key, {
           get() {
             accesses++;

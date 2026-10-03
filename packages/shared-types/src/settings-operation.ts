@@ -62,13 +62,16 @@ function record(
     return null;
   const prototype = Object.getPrototypeOf(input);
   if (prototype !== Object.prototype && prototype !== null) return null;
-  const descriptors = Object.getOwnPropertyDescriptors(input);
-  const actualKeys = Reflect.ownKeys(descriptors);
+  const actualKeys = Reflect.ownKeys(input);
   if (
     actualKeys.length !== keys.length ||
     actualKeys.some((key) => typeof key !== "string" || !keys.includes(key))
   )
     return null;
+  const descriptors: Record<string, PropertyDescriptor | undefined> =
+    Object.create(null);
+  for (const key of keys)
+    descriptors[key] = Object.getOwnPropertyDescriptor(input, key);
   const snapshot: Record<string, unknown> = Object.create(null);
   for (const key of keys) {
     const descriptor = descriptors[key];
@@ -83,14 +86,30 @@ function operations(
 ): readonly UntrustedSettingsFieldOperation[] | null {
   if (!Array.isArray(input) || Object.getPrototypeOf(input) !== Array.prototype)
     return null;
-  const descriptors = Object.getOwnPropertyDescriptors(input as object);
-  const count: unknown = descriptors.length?.value;
+  const length = Object.getOwnPropertyDescriptor(input, "length");
+  const count: unknown = length?.value;
   if (
+    !length ||
+    !Object.hasOwn(length, "value") ||
     !integer(count, SETTINGS_FIELDS.length) ||
-    count < 1 ||
-    Reflect.ownKeys(descriptors).length !== count + 1
+    count < 1
   )
     return null;
+  const keys = [
+    "length",
+    ...Array.from({ length: count }, (_, i) => String(i)),
+  ];
+  const actualKeys = Reflect.ownKeys(input);
+  if (
+    actualKeys.length !== keys.length ||
+    actualKeys.some((key) => typeof key !== "string" || !keys.includes(key))
+  )
+    return null;
+  const descriptors: Record<string, PropertyDescriptor | undefined> =
+    Object.create(null);
+  for (const key of keys)
+    descriptors[key] = Object.getOwnPropertyDescriptor(input, key);
+  if (descriptors.length?.value !== count) return null;
   const result: UntrustedSettingsFieldOperation[] = [];
   const seen = new Set<SettingsField>();
   for (let i = 0; i < count; i++) {
