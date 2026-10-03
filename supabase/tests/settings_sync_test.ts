@@ -258,7 +258,26 @@ Deno.test({
           await fixture`insert into public.profiles(id,settings,settings_version) values(${C},'{"schemaVersion":3}'::jsonb,1)`;
           assertEquals((await syncSettings(store, C, null)).status, "hold");
           const original = await read();
+          const forged = {
+            ...write(
+              original,
+              [["globalOn", true]],
+              original.settingsVersion + 1,
+            ),
+            receipt: {
+              ...original.receipt,
+              revision: original.settingsVersion + 1,
+            },
+          };
+          assertEquals(
+            (await syncSettings(store, A, parsed(forged))).status,
+            "rejected",
+          );
           await fixture`update public.profiles set settings_version=9007199254740991 where id=${A}`;
+          assertEquals(
+            (await syncSettings(store, A, parsed(forged))).status,
+            "rejected",
+          );
           const maximum = await read();
           assertEquals(
             (await syncSettings(
