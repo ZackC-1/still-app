@@ -28,6 +28,7 @@ export const settingsRuntimeSources = Object.freeze([
     "feature-registry",
     "settings-v2",
     "settings-operation",
+    "access",
   ].map((name) => `packages/shared-types/src/${name}.ts`),
   "packages/core/src/storage/settings-v2.ts",
   "packages/core/src/sync/field-order.ts",
@@ -47,8 +48,9 @@ export function assertSettingsRuntimeClosure(
     .filter((m) => m.local && relative(root, m.local).startsWith("packages/"))
     .map((m) => relative(root, m.local))
     .sort();
-  if (canonical(actual) !== canonical([...sources].sort()))
+  if (canonical(actual) !== canonical([...sources].sort())) {
     throw new Error("Settings runtime manifest differs from resolved graph");
+  }
   for (const module of graph.modules) {
     if (!module.local) continue;
     for (const dep of module.dependencies ?? []) {
@@ -59,8 +61,9 @@ export function assertSettingsRuntimeClosure(
       const cliTarget = mapped
         ? resolve(dirname(mapPath), mapped)
         : resolve(dirname(module.local), dep.specifier);
-      if (cliTarget !== target)
+      if (cliTarget !== target) {
         throw new Error(`CLI raw import does not resolve: ${dep.specifier}`);
+      }
     }
   }
   return actual;
