@@ -162,11 +162,14 @@ export class ChromeEntitlementAdapter implements EntitlementAdapter, Entitlement
 
   /** One resolved projection per background observation, shared across page consumers. */
   observeBenefits(signal?: AbortSignal): Promise<BenefitAccessSnapshot> {
-    if (this.benefitFlight) return this.benefitFlight;
+    // Broker consumers have separate request starts and cancellation ownership. Only the
+    // background authority may share proof/storage work between those timed requests.
+    if (this.options.authority && this.benefitFlight) return this.benefitFlight;
+    const observedWall = this.now();
     if (this.options.authority && this.benefitSnapshot && this.benefitContextEpoch === this.contextEpoch &&
-        this.benefitRevision === (writerRevisions.get(chrome.storage.local) ?? 0) && this.now() >= this.benefitObservedWall && this.now() < this.benefitDeadline) {
+        this.benefitRevision === (writerRevisions.get(chrome.storage.local) ?? 0) && observedWall >= this.benefitObservedWall && observedWall < this.benefitDeadline) {
       return Promise.resolve(parseBenefitAccessSnapshot({ ...this.benefitSnapshot,
-        refreshAfterMs: this.benefitSnapshot.refreshAfterMs === null ? null : this.benefitDeadline - this.now(),
+        refreshAfterMs: this.benefitSnapshot.refreshAfterMs === null ? null : this.benefitDeadline - observedWall,
       }));
     }
     const epoch = this.contextEpoch;
@@ -193,7 +196,7 @@ export class ChromeEntitlementAdapter implements EntitlementAdapter, Entitlement
       if (epoch === this.contextEpoch) this.invalidateAccessContext();
       throw error;
     }).finally(() => { if (this.benefitFlight === flight) this.benefitFlight = null; });
-    this.benefitFlight = flight;
+    if (this.options.authority) this.benefitFlight = flight;
     return flight;
   }
 
