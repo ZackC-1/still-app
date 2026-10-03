@@ -119,6 +119,7 @@ describe("owned modern hidden media", () => {
     },
   );
   it("a consumed same-home Reels navigation keeps current media quiet without a URL transition", async () => {
+    vi.useFakeTimers();
     document.body.innerHTML =
       '<div class="shorts"><video id="hidden"></video></div>';
     const hidden = player("hidden");
@@ -174,6 +175,7 @@ describe("owned modern hidden media", () => {
     expect(remove).toHaveBeenCalledTimes(6);
   });
   it("quiets already-playing owned hidden media, preserves allowed player and never restarts on Off", async () => {
+    vi.useFakeTimers();
     document.body.innerHTML =
       '<div class="shorts"><video id="hidden"></video></div><div class="shorts"><div class="preserve"><video id="preserved"></video></div></div><video id="ordinary"></video>';
     const hidden = player("hidden"),
@@ -234,6 +236,7 @@ describe("owned modern hidden media", () => {
     session.stop?.();
   });
   it("site-only hidden media and player preferences are preserved, and a native retry is promptly quieted", async () => {
+    vi.useFakeTimers();
     document.body.innerHTML =
       '<div style="display:none"><video id="site"></video></div><div class="shorts"><video id="owned" controls muted></video></div>';
     const site = player("site"),
