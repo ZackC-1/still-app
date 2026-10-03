@@ -65,17 +65,19 @@ export class PgSettingsStore implements SettingsStore {
           now: Number(state.now),
           claim: async (writeId, body) => {
             const result = await run(
-              tx`select private.claim_settings_write(${subject}::uuid, ${writeId}::uuid, ${body}::jsonb) as status`,
+              // postgres infers JSONB OIDs and serializes values again. These are already
+              // serialized JSON bytes; bind as text before the server parses JSONB once.
+              tx`select private.claim_settings_write(${subject}::uuid, ${writeId}::uuid, ${body}::text::jsonb) as status`,
             );
             return result[0]!.status;
           },
           commit: async (settings, writeId, receiptRevision, operations) => {
             await run(
-              tx`select private.commit_settings(${subject}::uuid, ${anchor.lineage}::uuid, ${anchor.revision}::bigint, ${state.settings_text}::jsonb, ${
+              tx`select private.commit_settings(${subject}::uuid, ${anchor.lineage}::uuid, ${anchor.revision}::bigint, ${state.settings_text}::text::jsonb, ${
                 JSON.stringify(settings)
-              }::jsonb, ${writeId}::uuid, ${receiptRevision}::bigint, ${
+              }::text::jsonb, ${writeId}::uuid, ${receiptRevision}::bigint, ${
                 JSON.stringify(operations)
-              }::jsonb)`,
+              }::text::jsonb)`,
             );
           },
         }).then((result) => {

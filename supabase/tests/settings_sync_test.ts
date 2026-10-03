@@ -20,6 +20,11 @@ import {
 import { readSettingsOperationRequest } from "../../packages/shared-types/src/settings-operation.ts";
 import { migrateSettingsV2 } from "../../packages/core/src/storage/settings-v2.ts";
 import { SETTINGS_FIELDS } from "@still/shared-types";
+import {
+  verifySettingsDriverJSON,
+  verifySettingsLegacyOwnerGrants,
+  verifySettingsLimiterBuckets,
+} from "./settings_sync_sql_cases.ts";
 const cloud = Deno.env.get("GITHUB_ACTIONS") === "true" &&
   Deno.env.get("RUNNER_ENVIRONMENT") === "github-hosted";
 const url = Deno.env.get("STILL_SETTINGS_TEST_DATABASE_URL");
@@ -172,6 +177,21 @@ Deno.test({
         },
       );
       await t.step(
+        "legacy trusted owner helper grants reject client access and owner drift",
+        () =>
+          source("settings-sync-candidate").then((candidate) =>
+            verifySettingsLegacyOwnerGrants(fixture, candidate)
+          ),
+      );
+      await t.step(
+        "retained limiter accepts settings-sync user/IP bounds and rejects unrelated surfaces",
+        () => verifySettingsLimiterBuckets(fixture, writer),
+      );
+      await t.step(
+        "actual driver preserves JSON null/object/arrays and raw decimal CAS bytes",
+        () => verifySettingsDriverJSON(fixture, writer),
+      );
+      await t.step(
         "concurrent first reads converge immutable key/lineage; account receipt isolation",
         async () => {
           const [left, right] = await Promise.all([read(), read()]);
@@ -290,7 +310,7 @@ Deno.test({
           await tx`select pg_catalog.set_config('request.jwt.claim.sub',${subject},true)`;
           return await tx`select * from public.write_profile_settings(${
             JSON.stringify(body)
-          }::jsonb,${id}::uuid)`;
+          }::text::jsonb,${id}::uuid)`;
         });
       };
       const snapshot = async (subject: string) => ({
@@ -346,7 +366,7 @@ Deno.test({
           }
           await fixture`update public.profiles set settings=${
             JSON.stringify(expanded)
-          }::jsonb,settings_server_updated_at=pg_catalog.clock_timestamp()-interval '1 second' where id=${B}`;
+          }::text::jsonb,settings_server_updated_at=pg_catalog.clock_timestamp()-interval '1 second' where id=${B}`;
           const beforeLegacy = await read(B);
           const serverNow =
             (await fixture`select pg_catalog.floor(extract(epoch from pg_catalog.clock_timestamp())*1000)::bigint as ms`)[
@@ -414,7 +434,7 @@ Deno.test({
               const rows =
                 await tx`select * from public.write_profile_settings(${
                   JSON.stringify({ ...legacy, updatedAt: admissibleTime })
-                }::jsonb,${crypto.randomUUID()}::uuid)`;
+                }::text::jsonb,${crypto.randomUUID()}::uuid)`;
               assertEquals(rows.length, 1);
               assertEquals(rows[0].settings.globalOn, false);
               mutantAccepted = true;
@@ -492,7 +512,7 @@ Deno.test({
           ) {
             await fixture`insert into public.profiles(id,settings,settings_version,settings_server_updated_at) values(${C},${
               JSON.stringify(raw)
-            }::jsonb,${revision},'1970-01-01T00:00:00Z') on conflict(id) do update set settings=excluded.settings,settings_version=excluded.settings_version,settings_server_updated_at=excluded.settings_server_updated_at`;
+            }::text::jsonb,${revision},'1970-01-01T00:00:00Z') on conflict(id) do update set settings=excluded.settings,settings_version=excluded.settings_version,settings_server_updated_at=excluded.settings_server_updated_at`;
             await rejectedLegacy(
               C,
               { ...legacy, updatedAt: await databaseTime() },
@@ -546,7 +566,7 @@ Deno.test({
             }
             await fixture`insert into public.profiles(id,settings,settings_version,settings_server_updated_at) values(${C},${
               JSON.stringify(nearLimit)
-            }::jsonb,1,'1970-01-01T00:00:00Z') on conflict(id) do update set settings=excluded.settings,settings_version=excluded.settings_version,settings_server_updated_at=excluded.settings_server_updated_at`;
+            }::text::jsonb,1,'1970-01-01T00:00:00Z') on conflict(id) do update set settings=excluded.settings,settings_version=excluded.settings_version,settings_server_updated_at=excluded.settings_server_updated_at`;
             await rejectedLegacy(
               C,
               { ...legacy, updatedAt: await databaseTime() },
@@ -562,7 +582,7 @@ Deno.test({
         "actual raw numeric JSON survives modern CAS and winning stamp overlay",
         async () => {
           const exact = "0.100000000000000000000000000001";
-          await fixture`update public.profiles set settings=pg_catalog.jsonb_set(pg_catalog.jsonb_set(settings,'{futureNumeric}',${exact}::jsonb),'{clocks,globalOn,opaqueNumber}',${exact}::jsonb) where id=${B}`;
+          await fixture`update public.profiles set settings=pg_catalog.jsonb_set(pg_catalog.jsonb_set(settings,'{futureNumeric}',${exact}::text::jsonb),'{clocks,globalOn,opaqueNumber}',${exact}::text::jsonb) where id=${B}`;
           const before = await read(B);
           const result = await syncSettings(
             store,
@@ -573,7 +593,7 @@ Deno.test({
           );
           assertEquals(result.status, "ready");
           assertEquals(
-            (await fixture`select settings->'futureNumeric'=${exact}::jsonb and settings->'clocks'->'globalOn'->'opaqueNumber'=${exact}::jsonb as preserved from public.profiles where id=${B}`)[
+            (await fixture`select settings->'futureNumeric'=${exact}::text::jsonb and settings->'clocks'->'globalOn'->'opaqueNumber'=${exact}::text::jsonb as preserved from public.profiles where id=${B}`)[
               0
             ].preserved,
             true,
@@ -587,7 +607,7 @@ Deno.test({
             reason: "bounds",
           });
           assertEquals(await snapshot(B), heldBefore);
-          await fixture`update public.profiles set settings=pg_catalog.jsonb_set(settings,'{futureNumeric}',${exact}::jsonb) where id=${B}`;
+          await fixture`update public.profiles set settings=pg_catalog.jsonb_set(settings,'{futureNumeric}',${exact}::text::jsonb) where id=${B}`;
         },
       );
       await t.step(
@@ -655,7 +675,7 @@ Deno.test({
           );
           await fixture`update public.profiles set settings=pg_catalog.jsonb_set(settings,'{futurePadding}',${
             JSON.stringify(payload.futurePadding)
-          }::jsonb) where id=${B}`;
+          }::text::jsonb) where id=${B}`;
           await measure("maximum-canonical-read", () => read(B), 10);
           await fixture`update public.profiles set settings=settings-'futurePadding' where id=${B}`;
           await fixture`insert into public.profiles(id,settings,settings_version) values(${C},'{"schemaVersion":3}'::jsonb,1)`;
@@ -709,7 +729,7 @@ Deno.test({
           // Retain the maximum fixture for the separately served HTTP probe.
           await fixture`update public.profiles set settings=pg_catalog.jsonb_set(settings,'{futurePadding}',${
             JSON.stringify(payload.futurePadding)
-          }::jsonb) where id=${B}`;
+          }::text::jsonb) where id=${B}`;
           console.log(
             JSON.stringify({
               syntheticSettingsMetrics: metrics,
@@ -900,7 +920,7 @@ Deno.test({
           );
           await fixture`update public.profiles set settings=${
             JSON.stringify(raw)
-          }::jsonb,settings_version=0 where id=${C}`;
+          }::text::jsonb,settings_version=0 where id=${C}`;
           const before = await read(C);
           const snapshot =
             await fixture`select * from public.profiles where id=${C}`;

@@ -1,5 +1,14 @@
 -- Unnumbered candidate. Deploy only with separately reviewed target/authority approval.
--- Private helpers trust ONLY the authenticated edge adapter, on the dedicated role.
+-- Private helper grants distinguish the dedicated edge adapter from the retained trusted RPC.
+-- The retained legacy RPC has a separately trusted managed owner. Refuse owner drift;
+-- granting private helper execution must not bless whichever role a target happens to expose.
+do $$ declare legacy pg_catalog.pg_proc%rowtype; begin
+  select * into legacy from pg_catalog.pg_proc
+    where oid='public.write_profile_settings(jsonb,uuid)'::regprocedure;
+  if not found or not legacy.prosecdef or legacy.proowner is distinct from (
+    select oid from pg_catalog.pg_roles where rolname='postgres' and not rolsuper
+  ) then raise exception 'legacy settings owner precondition' using errcode='42501'; end if;
+end $$;
 do $$ begin
   if not exists (select 1 from pg_catalog.pg_roles where rolname = 'still_settings_writer') then
     create role still_settings_writer nologin noinherit nosuperuser nocreatedb nocreaterole nobypassrls;
@@ -251,6 +260,65 @@ begin
 end $$;
 revoke all on function private.lock_settings(uuid,uuid,text), private.claim_settings_write(uuid,uuid,jsonb), private.commit_settings(uuid,uuid,bigint,jsonb,jsonb,uuid,bigint,jsonb) from public, anon, authenticated, service_role;
 grant execute on function private.lock_settings(uuid,uuid,text), private.claim_settings_write(uuid,uuid,jsonb), private.commit_settings(uuid,uuid,bigint,jsonb,jsonb,uuid,bigint,jsonb) to still_settings_writer;
+-- Extend the retained single limiter surface allowlist only. Keep its counter, expiry,
+-- account/IP partitioning, privacy retention, owner and existing callers unchanged.
+create or replace function public.consume_rate_limit(
+  p_bucket_key text, p_max_requests integer, p_window_seconds integer
+) returns integer
+language plpgsql security definer set search_path = ''
+as $$
+declare
+  moment timestamptz;
+  w_start timestamptz;
+  w_end timestamptz;
+  parts text[];
+  derived_key text;
+  window_secret bytea;
+  owner_id uuid;
+  new_count integer;
+begin
+  if p_window_seconds is null or p_window_seconds not in (60, 600)
+    or p_max_requests is null or p_max_requests < 1 or p_max_requests > 10000
+    or p_bucket_key is null or length(p_bucket_key) > 1024 then
+    raise exception 'Invalid rate limit policy';
+  end if;
+  parts := regexp_match(p_bucket_key, '^(.+):(user|ip):(.+)$');
+  if parts is null or parts[1] not in ('checkout', 'reconcile', 'review-signin:request', 'review-signin:verify', 'settings-sync') then
+    raise exception 'Invalid rate limit bucket';
+  end if;
+  perform public.cleanup_rate_limit_counters();
+
+  if parts[2] = 'user' then
+    if parts[1] in ('review-signin:request', 'review-signin:verify') then
+      perform pg_advisory_xact_lock(hashtextextended(lower(parts[3]), 152));
+      select id into owner_id from auth.users where lower(email) = lower(parts[3]) for key share;
+    else
+      select id into owner_id from auth.users where id = parts[3]::uuid for key share;
+      if owner_id is null then raise exception 'Rate limit account unavailable'; end if;
+    end if;
+  end if;
+
+  -- Resolve time after waiting on account locks so delayed traffic uses the current window.
+  moment := clock_timestamp();
+  w_start := to_timestamp(floor(extract(epoch from moment) / p_window_seconds) * p_window_seconds);
+  w_end := w_start + p_window_seconds * interval '1 second';
+  insert into public.rate_limit_window_keys(window_start, window_seconds, secret, expires_at)
+    values (w_start, p_window_seconds, extensions.gen_random_bytes(32), w_end)
+    on conflict do nothing;
+  select secret into strict window_secret from public.rate_limit_window_keys
+    where window_start = w_start and window_seconds = p_window_seconds for key share;
+  derived_key := parts[1] || ':' || parts[2] || ':' ||
+    encode(extensions.hmac(p_bucket_key::bytea, window_secret, 'sha256'), 'hex');
+  insert into public.rate_limit_counters(bucket_key, window_start, window_seconds, expires_at, account_id, count)
+    values (derived_key, w_start, p_window_seconds, w_end, owner_id, 1)
+    on conflict (bucket_key, window_start) do update
+      set count = least(public.rate_limit_counters.count + 1, p_max_requests + 1),
+          account_id = coalesce(public.rate_limit_counters.account_id, excluded.account_id)
+    returning count into new_count;
+  if new_count <= p_max_requests then return 0; end if;
+  return greatest(1, ceil(extract(epoch from w_end - moment))::integer);
+end;
+$$;
 grant execute on function public.consume_rate_limit(text,integer,integer) to still_settings_writer;
 
 -- Retain legacy return columns and free authenticated access. Recognized coarse data only.
@@ -322,3 +390,20 @@ begin
 end $$;
 revoke execute on function public.write_profile_settings(jsonb,uuid) from public, anon, service_role;
 grant execute on function public.write_profile_settings(jsonb,uuid) to authenticated;
+
+-- CREATE OR REPLACE preserves the retained RPC's postgres owner. Helpers created by the
+-- candidate execution role need explicit owner execution across that boundary. No table/key,
+-- cleanup, role membership, or client grants are added here.
+do $$ declare helper text; begin
+  foreach helper in array array[
+    'private.settings_json_bounded(jsonb)', 'private.settings_fields()',
+    'private.settings_canonical_valid(jsonb,bigint)', 'private.claim_settings_write(uuid,uuid,jsonb)'
+  ] loop
+    if (select proowner from pg_catalog.pg_proc where oid=helper::regprocedure) is distinct from (
+      select oid from pg_catalog.pg_roles where rolname=current_user
+    ) then raise exception 'settings helper creator precondition' using errcode='42501'; end if;
+  end loop;
+  grant usage on schema private to postgres;
+  grant execute on function private.settings_json_bounded(jsonb), private.settings_fields(),
+    private.settings_canonical_valid(jsonb,bigint), private.claim_settings_write(uuid,uuid,jsonb) to postgres;
+end $$;
