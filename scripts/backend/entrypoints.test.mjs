@@ -201,3 +201,20 @@ test("settings Auth fixture verifies actual token signing context and redacts fa
   assert.match(result.stdout, /1 passed \| 0 failed/);
   assert(!result.stdout.includes("private-auth-response-sentinel"));
 });
+
+// These are source contract guards. Actual served SQL/CLI behavior is still
+// required from the disposable runtime; these checks cannot establish it.
+test("settings served store probe blocks only a profile and observes private.lock_settings", () => {
+  const source = readFileSync("supabase/tests/settings_sync_served_test.ts", "utf8");
+  assert.match(source, /await tx`select id from public\.profiles where id=\$\{second\.subject\} for update`/);
+  assert.doesNotMatch(source, /await tx`select id from auth\.users[^`]*for update`/);
+  assert.match(source, /wait_event_type='Lock' and query like '%private\.lock_settings\(%'/);
+});
+
+test("settings served Auth rows bind both exact verified session and subject", () => {
+  const source = readFileSync("supabase/tests/settings_sync_served_test.ts", "utf8");
+  for (const account of ["first", "second"]) {
+    assert(source.includes(`from auth.sessions where id=\${${account}.sessionId}::uuid and user_id=\${${account}.subject}::uuid`));
+  }
+  assert.doesNotMatch(source, /from auth\.sessions where user_id=/);
+});

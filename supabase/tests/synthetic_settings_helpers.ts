@@ -146,5 +146,9 @@ export async function createSyntheticSettingsAuthSession(apiKey: string) {
     typeof claims.exp !== "number" || !Number.isFinite(claims.exp) ||
     claims.exp * 1000 <= Date.now()
   ) throw new Error("synthetic-auth-jwks-or-claims-rejected");
-  return { subject: claims.sub, bearer };
+  return {
+    subject: claims.sub,
+    sessionId: claims.session_id as string,
+    bearer,
+  };
 }

@@ -1,5 +1,6 @@
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import { signEs256, verifyJwt } from "../functions/_shared/jwt.ts";
+import { migrateSettingsV2 } from "../../packages/core/src/storage/settings-v2.ts";
 import {
   A,
   B,
@@ -90,6 +91,8 @@ Deno.test("Auth session fixture verifies signing context and rejects unsafe resp
         "wrong-role",
         "wrong-subject",
         "missing-session",
+        "malformed-session",
+        "numeric-session",
         "expired",
         "identity-mismatch",
         "http-failure",
@@ -119,6 +122,8 @@ Deno.test("Auth session fixture verifies signing context and rejects unsafe resp
       if (mode === "wrong-role") claims.role = "service_role";
       if (mode === "wrong-subject") claims.sub = B;
       if (mode === "missing-session") delete claims.session_id;
+      if (mode === "malformed-session") claims.session_id = "invalid-session";
+      if (mode === "numeric-session") claims.session_id = 1;
       if (mode === "expired") claims.exp = 1;
       const signer = mode === "wrong-key"
         ? (await crypto.subtle.generateKey(
@@ -200,6 +205,7 @@ Deno.test("Auth session fixture verifies signing context and rejects unsafe resp
           "synthetic-api-key",
         );
         assert(session.subject === A && session.bearer === issued);
+        assertEquals(session.sessionId, claims.session_id);
         assertEquals(paths, [
           "/auth/v1/signup",
           "/auth/v1/token?grant_type=password",
@@ -419,16 +425,16 @@ Deno.test({
     try {
       assert(
         Number(
-              (await fixture`select count(*)::int as n from auth.sessions where user_id=${first.subject}`)[
+              (await fixture`select count(*)::int as n from auth.sessions where id=${first.sessionId}::uuid and user_id=${first.subject}::uuid`)[
                 0
               ].n,
-            ) > 0 &&
+            ) === 1 &&
           Number(
-              (await fixture`select count(*)::int as n from auth.sessions where user_id=${second.subject}`)[
+              (await fixture`select count(*)::int as n from auth.sessions where id=${second.sessionId}::uuid and user_id=${second.subject}::uuid`)[
                 0
               ].n,
-            ) > 0,
-        "both served identities must own maintained Auth sessions",
+            ) === 1,
+        "both served identities must own their exact verified Auth sessions",
       );
       assert(
         (await fixture`select settings->'globalOn' = 'false'::jsonb as own_write from public.profiles where id=${first.subject}`)[
@@ -444,6 +450,105 @@ Deno.test({
         ) === 0,
         "other verified Auth account must not acquire the first account write",
       );
+      // Repeat the actual SQL raw-overlay boundary shape through HTTP. Exact
+      // decimals shrink when decoded into JS, but the SQL overlay preserves them.
+      const seeded = await send(write(
+        accepted.data,
+        [["globalOn", true]],
+        accepted.data.settingsVersion,
+      ));
+      assertEquals(seeded.status, 200);
+      assertEquals(seeded.data.settings.globalOn, true);
+      const exact = "0." + "1".repeat(1000);
+      const marker = "synthetic-exact-decimal";
+      const payload = JSON.parse(JSON.stringify(seeded.data.settings));
+      payload.futureNumeric = marker;
+      payload.clocks.globalOn.opaqueNumber = marker;
+      payload.futurePadding = [];
+      function raw() {
+        return JSON.stringify(payload).replaceAll(
+          JSON.stringify(marker),
+          exact,
+        );
+      }
+      while (raw().length < 65536) {
+        const overhead = payload.futurePadding.length ? 3 : 2;
+        const remaining = 65536 - raw().length;
+        assert(remaining >= overhead);
+        payload.futurePadding.push(
+          "x".repeat(Math.min(8192, remaining - overhead)),
+        );
+      }
+      assertEquals(raw().length, 65536);
+      assertEquals(
+        migrateSettingsV2(JSON.parse(raw()), { kind: "readable-local" }).status,
+        "ready",
+      );
+      await fixture`update public.profiles set settings=${raw()}::text::jsonb where id=${first.subject}`;
+      const snapshot = async () => ({
+        profile: [
+          ...await fixture`select pg_catalog.row_to_json(p)::text as raw from public.profiles p where id=${first.subject}`,
+        ],
+        identities: [
+          ...await fixture`select write_id::text,body::text,created_at::text from private.settings_writes where user_id=${first.subject} order by write_id`,
+        ],
+        anchor: [
+          ...await fixture`select lineage::text,modern_used from private.settings_anchors where user_id=${first.subject}`,
+        ],
+      });
+      const boundary = await send({ protocol: 2, action: "read" });
+      assertEquals(boundary.status, 200);
+      assertEquals(boundary.data.status, "ready");
+      const boundedRequest = write(
+        boundary.data,
+        [["globalOn", false]],
+        boundary.data.settingsVersion,
+      );
+      const before = await snapshot();
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const held = await send(boundedRequest);
+        assertEquals(held.status, 409);
+        assertEquals(held.instance, instance);
+        assertEquals(held.data, { status: "hold", reason: "bounds" });
+        assertEquals(await snapshot(), before);
+        assertEquals(
+          (await fixture`select count(*)::int as n from private.settings_writes where user_id=${first.subject} and write_id=${boundedRequest.writeId}::uuid`)[
+            0
+          ].n,
+          0,
+        );
+      }
+      // Independent canonical shrink; retain the SAME immutable request/receipt.
+      const last = payload.futurePadding.length - 1;
+      payload.futurePadding[last] = payload.futurePadding[last].slice(0, -1);
+      assertEquals(raw().length, 65535);
+      await fixture`update public.profiles set settings=${raw()}::text::jsonb where id=${first.subject}`;
+      const recovered = await send(boundedRequest);
+      assertEquals(recovered.status, 200);
+      assertEquals(recovered.data.status, "ready");
+      assertEquals(recovered.data.writeId, boundedRequest.writeId);
+      assertEquals(recovered.data.settings.globalOn, false);
+      assertEquals(
+        recovered.data.settingsVersion,
+        boundary.data.settingsVersion + 1,
+      );
+      assertEquals(
+        (await fixture`select private.settings_json_bounded(settings) as bounded,settings->'futureNumeric'=${exact}::text::jsonb and settings->'clocks'->'globalOn'->'opaqueNumber'=${exact}::text::jsonb as preserved from public.profiles where id=${first.subject}`)[
+          0
+        ],
+        { bounded: true, preserved: true },
+      );
+      const bodies =
+        await fixture`select body from private.settings_writes where user_id=${first.subject} and write_id=${boundedRequest.writeId}::uuid`;
+      assertEquals(bodies.length, 1);
+      assertEquals(bodies[0].body, boundedRequest);
+      const durable = await snapshot();
+      assertEquals((await send(boundedRequest)).data, recovered.data);
+      assertEquals(await snapshot(), durable);
+      assertEquals(
+        (await send({ protocol: 2, action: "read" })).data,
+        recovered.data,
+      );
       const baseline = Number(
         (await fixture`select count(*)::int as n from pg_catalog.pg_stat_activity where usename='still_settings_writer'`)[
           0
@@ -454,7 +559,9 @@ Deno.test({
       const began = new Promise<void>((r) => entered = r);
       const resume = new Promise<void>((r) => release = r);
       const blocker = fixture.begin(async (tx) => {
-        await tx`select id from auth.users where id=${second.subject} for update`;
+        // The limiter locks auth.users first. Only the settings store touches
+        // this profile, so this blocker cannot be satisfied by a limiter wait.
+        await tx`select id from public.profiles where id=${second.subject} for update`;
         entered();
         await resume;
       });
@@ -470,7 +577,7 @@ Deno.test({
         let waiting = false;
         for (let i = 0; i < 50; i++) {
           if (
-            (await fixture`select count(*)::int as n from pg_catalog.pg_stat_activity where usename='still_settings_writer' and wait_event_type='Lock'`)[
+            (await fixture`select count(*)::int as n from pg_catalog.pg_stat_activity where usename='still_settings_writer' and wait_event_type='Lock' and query like '%private.lock_settings(%'`)[
               0
             ].n > 0
           ) {
@@ -481,7 +588,7 @@ Deno.test({
         }
         assert(
           waiting,
-          "served request must reach an observed database lock wait",
+          "served request must reach an observed private.lock_settings wait",
         );
         const start = performance.now();
         abort.abort();
@@ -513,6 +620,7 @@ Deno.test({
           elapsedMs: performance.now() - start,
           fetchAborted: true,
           transactionsReleased: true,
+          settingsStoreWaitObserved: true,
           releaseCause:
             "request abort or configured lock deadline; not distinguished",
         };
