@@ -1,8 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
-import type { StillSettings } from "@still/shared-types";
+import type { SettingsField, StillSettings } from "@still/shared-types";
 import { DEFAULT_SETTINGS } from "@still/shared-types";
 import { SettingsCache } from "../cache.js";
-import { AtomicSettingsWriter, SettingsStorageRecovery } from "../atomic-settings.js";
+import { AtomicSettingsWriter, SettingsStorageRecovery, requireModernSettings } from "../atomic-settings.js";
 import { InMemoryStorageAdapter } from "../adapter.js";
 
 /** A cache backed by an in-memory adapter with a deterministic monotonic clock. */
@@ -274,5 +274,122 @@ describe("cache authority recovery supersession", () => {
     await expect(cache.whenHydrated()).rejects.toThrow("native-authority-unavailable");
     await storage.set(durable);
     expect(cache.currentRecord().atomic).toEqual(durable.atomic); await expect(cache.whenHydrated()).resolves.toBeUndefined(); stop();
+  });
+});
+
+describe("explicit atomic command receipts", () => {
+  async function atomicCache() {
+    const storage = new InMemoryStorageAdapter(DEFAULT_SETTINGS);
+    let id = 0;
+    const writer = new AtomicSettingsWriter(storage, () => `00000000-0000-4000-8000-${String(++id).padStart(12, "0")}`);
+    await writer.initialize("never-linked");
+    const cache = new SettingsCache({
+      get: storage.get.bind(storage), set: storage.set.bind(storage),
+      subscribe: storage.subscribe.bind(storage), commitIntent: writer.commit.bind(writer),
+    }, { now: () => 100 });
+    await cache.hydrate();
+    return { storage, writer, cache };
+  }
+
+  it("refuses an atomic-looking record without invoking legacy persistence", async () => {
+    const { storage } = await atomicCache();
+    const set = vi.fn(storage.set.bind(storage));
+    const cache = new SettingsCache({ get: storage.get.bind(storage), set, subscribe: storage.subscribe.bind(storage) });
+    await cache.hydrate();
+    const before = cache.currentRecord();
+    expect(cache.supportsAtomicIntents()).toBe(false);
+    await expect(cache.commitAtomicIntent("globalOn", false)).rejects.toThrow("atomic-command-unavailable");
+    expect(set).not.toHaveBeenCalled();
+    expect(cache.currentRecord()).toEqual(before);
+  });
+
+  it("requires accepted modern authority before even calling an available writer", async () => {
+    const commitIntent = vi.fn();
+    const storage = new InMemoryStorageAdapter(DEFAULT_SETTINGS);
+    const cache = new SettingsCache({ get: storage.get.bind(storage), set: storage.set.bind(storage), subscribe: storage.subscribe.bind(storage), commitIntent });
+    await cache.hydrate();
+    expect(cache.supportsAtomicIntents()).toBe(true);
+    await expect(cache.commitAtomicIntent("globalOn", false)).rejects.toThrow("atomic-command-unavailable");
+    expect(commitIntent).not.toHaveBeenCalled();
+    expect(await storage.get()).toEqual({ settings: DEFAULT_SETTINGS, syncMetadata: null });
+  });
+
+  it.each(["paused", "unknown", "legacy", "future"] as const)("denies %s authority without changing accepted choices", async kind => {
+    const { storage } = await atomicCache();
+    const record = (await storage.get())!;
+    const settings = kind === "legacy" ? DEFAULT_SETTINGS : kind === "future" ? { ...record.settings, schemaVersion: 3 } : record.settings;
+    await storage.set({ ...record, settings, atomic: { ...record.atomic!, paused: kind === "paused" ? "ownership-hold" : null, ownership: kind === "unknown" ? "unknown" : "never-linked" } });
+    const commitIntent = vi.fn();
+    const cache = new SettingsCache({ get: storage.get.bind(storage), set: storage.set.bind(storage), subscribe: storage.subscribe.bind(storage), commitIntent });
+    await cache.hydrate();
+    const before = cache.currentRecord();
+    await expect(cache.commitAtomicIntent("globalOn", false)).rejects.toThrow("atomic-command-unavailable");
+    expect(commitIntent).not.toHaveBeenCalled();
+    expect(cache.currentRecord()).toEqual(before);
+  });
+
+  it.each([["sites.not-real", true], ["globalOn", "false"]] as const)("rejects invalid input %s/%s before the authority", async (path, value) => {
+    const { storage } = await atomicCache();
+    const commitIntent = vi.fn();
+    const cache = new SettingsCache({ get: storage.get.bind(storage), set: storage.set.bind(storage), subscribe: storage.subscribe.bind(storage), commitIntent });
+    await cache.hydrate();
+    await expect(cache.commitAtomicIntent(path as SettingsField, value as boolean)).rejects.toThrow("Invalid settings intent");
+    expect(commitIntent).not.toHaveBeenCalled();
+  });
+
+  it("returns real committed and no-op receipts and retains legacy setter return types", async () => {
+    const { cache, storage } = await atomicCache();
+    expect(cache.supportsAtomicIntents()).toBe(true);
+    const first = await cache.commitAtomicIntent("sites.youtube.shorts", false);
+    expect(first.intentCommitted).toBe(true);
+    expect(requireModernSettings(cache.currentRecord()).sites["youtube.shorts"]).toBe(false);
+    const record = await storage.get();
+    const second = await cache.commitAtomicIntent("sites.youtube.shorts", false);
+    expect(second.intentCommitted).toBe(false);
+    expect(await storage.get()).toEqual(record);
+    const legacyResult = await cache.setGlobalOn(false);
+    expect(legacyResult.globalOn).toBe(false);
+    expect("intentCommitted" in legacyResult).toBe(false);
+  });
+
+  it("retains a false per-request receipt when a held request observes an external matching write", async () => {
+    const { storage, writer } = await atomicCache();
+    let release!: () => void;
+    let started!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const reached = new Promise<void>(resolve => { started = resolve; });
+    const cache = new SettingsCache({ get: storage.get.bind(storage), set: storage.set.bind(storage), subscribe: storage.subscribe.bind(storage),
+      commitIntent: async () => { started(); await gate; return { ...(await storage.get())!, intentCommitted: false }; },
+    });
+    await cache.hydrate();
+    const stop = cache.watch();
+    const pending = cache.commitAtomicIntent("globalOn", false);
+    await reached;
+    await writer.commit({ path: "globalOn", value: false, updatedAt: 100 });
+    expect(cache.current().globalOn).toBe(false);
+    release();
+    const result = await pending;
+    expect(result.intentCommitted).toBe(false);
+    expect(result.settings.globalOn).toBe(false);
+    stop();
+  });
+
+  it("returns true request receipt alongside a newer accepted external state", async () => {
+    const { storage, writer } = await atomicCache();
+    const cache = new SettingsCache({ get: storage.get.bind(storage), set: storage.set.bind(storage), subscribe: storage.subscribe.bind(storage),
+      commitIntent: async intent => {
+        const receipt = await writer.commit(intent);
+        await writer.commit({ path: "globalOn", value: true, updatedAt: 101 });
+        return receipt;
+      },
+    }, { now: () => 100 });
+    await cache.hydrate();
+    const stop = cache.watch();
+    const result = await cache.commitAtomicIntent("globalOn", false);
+    expect(result.intentCommitted).toBe(true);
+    expect(result.settings.globalOn).toBe(true);
+    expect(cache.current().globalOn).toBe(true);
+    expect(cache.currentRecord().atomic!.sequence).toBe(2);
+    stop();
   });
 });

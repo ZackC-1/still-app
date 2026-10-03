@@ -1,6 +1,7 @@
-import type { FeatureId, ServiceId, StillSettings } from "@still/shared-types";
+import type { FeatureId, ServiceId, SettingsField, StillSettings } from "@still/shared-types";
 import { SettingsStorageRecovery, type AtomicSettingsState, type CanonicalSettingsEnvelope, type SettingsScope } from "./atomic-settings.js";
-import { DEFAULT_SETTINGS } from "@still/shared-types";
+import { DEFAULT_SETTINGS, SETTINGS_FIELDS } from "@still/shared-types";
+import { requireModernSettings } from "./atomic-settings.js";
 import type {
   SettingsSyncMetadata,
   StorageAdapter,
@@ -24,6 +25,13 @@ export interface SettingsCacheOptions {
 
 export type SettingsChangeSource = "local" | "external" | "synced";
 export type SettingsListener = (settings: StillSettings, source: SettingsChangeSource) => void;
+
+export interface AtomicSettingsIntentOutcome {
+  /** Request-specific authority receipt; false does not distinguish refusal from a no-op. */
+  readonly intentCommitted: boolean;
+  /** Current accepted projection, which may already supersede this request's receipt. */
+  readonly settings: StillSettings;
+}
 
 export class SettingsCache {
   private snapshot: StillSettings;
@@ -190,6 +198,23 @@ export class SettingsCache {
     return () => this.listeners.delete(listener);
   }
 
+  /** Capability only; never initializes storage or proves current ownership/access. */
+  supportsAtomicIntents(): boolean {
+    return typeof this.adapter.commitIntent === "function";
+  }
+
+  /** Explicit V3 command entry: no legacy optimistic persistence fallback. */
+  commitAtomicIntent(path: SettingsField, value: boolean): Promise<AtomicSettingsIntentOutcome> {
+    if (!SETTINGS_FIELDS.includes(path) || typeof value !== "boolean")
+      return Promise.reject(new TypeError("Invalid settings intent"));
+    if (!this.supportsAtomicIntents() || !this.atomic || this.atomic.paused !== null ||
+      this.atomic.ownership === "unknown" || !("schemaVersion" in this.snapshot) || this.snapshot.schemaVersion !== 2)
+      return Promise.reject(new SettingsStorageRecovery("atomic-command-unavailable"));
+    try { requireModernSettings(this.currentRecord()); }
+    catch { return Promise.reject(new SettingsStorageRecovery("atomic-command-unavailable")); }
+    return this.executeIntent(path, value);
+  }
+
   setGlobalOn(on: boolean): Promise<StillSettings> {
     if (this.adapter.commitIntent) return this.commitIntent("globalOn", on);
     return this.commit({ ...this.snapshot, globalOn: on });
@@ -217,7 +242,11 @@ export class SettingsCache {
     this.acceptCommitted(await this.adapter.acknowledgeAtomic(envelope, scope), "synced");
   }
 
-  private async commitIntent(path: import("@still/shared-types").SettingsField, value: boolean): Promise<StillSettings> {
+  private async commitIntent(path: SettingsField, value: boolean): Promise<StillSettings> {
+    return (await this.executeIntent(path, value)).settings;
+  }
+
+  private async executeIntent(path: SettingsField, value: boolean): Promise<AtomicSettingsIntentOutcome> {
     const previous = this.snapshot;
     const authorityTicket = this.authorityTicket;
     this.intentsInFlight += 1;
@@ -226,7 +255,7 @@ export class SettingsCache {
       const record = await this.adapter.commitIntent!({ path, value, updatedAt: this.now() });
       this.acceptCommitted(record, "external");
       committed = record.intentCommitted === true;
-      return this.snapshot;
+      return { settings: this.snapshot, intentCommitted: committed };
     } catch (error) {
       if (error instanceof SettingsStorageRecovery && authorityTicket === this.authorityTicket) {
         this.hydrationRecovery = error;
