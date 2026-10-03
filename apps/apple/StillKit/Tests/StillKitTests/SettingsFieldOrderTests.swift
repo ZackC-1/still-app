@@ -62,6 +62,23 @@ final class SettingsFieldOrderTests: XCTestCase {
     XCTAssertEqual(b["services.youtube"]?.value, true)
     XCTAssertEqual(b["services.tiktok"]?.value, false)
     XCTAssertEqual(try SettingsFieldOrder.mergeFields(baseline, baseline), baseline)
+    let global = SettingsOrderedField(value: true, stamp: ["baseRevision": .number(3), "localStep": .number(1), "future": .object(["retained": .bool(true)])])!
+    let youtube = field(4, 2, false)
+    let cases: [(left: [String: SettingsOrderedField], right: [String: SettingsOrderedField], expected: [String: SettingsOrderedField])] = [
+      ([:], [:], [:]),
+      ([:], ["globalOn": global], ["globalOn": global]),
+      (["globalOn": global], [:], ["globalOn": global]),
+      (["globalOn": global], ["services.youtube": youtube], ["globalOn": global, "services.youtube": youtube]),
+    ]
+    for test in cases {
+      let leftCopy = test.left
+      let rightCopy = test.right
+      let merged = try SettingsFieldOrder.mergeFields(test.left, test.right)
+      XCTAssertEqual(merged, test.expected)
+      XCTAssertEqual(merged.keys.sorted(), test.expected.keys.sorted())
+      XCTAssertEqual(test.left, leftCopy)
+      XCTAssertEqual(test.right, rightCopy)
+    }
     XCTAssertThrowsError(try SettingsFieldOrder.mergeFields(baseline, ["sites.tiktok.all": field(2, 1, true)]))
   }
 

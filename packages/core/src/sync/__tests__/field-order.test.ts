@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { SETTINGS_FIELDS, MAX_SETTINGS_LOCAL_STEP } from "@still/shared-types";
+import {
+  SETTINGS_FIELDS,
+  MAX_SETTINGS_LOCAL_STEP,
+  MAX_SETTINGS_REVISION,
+} from "@still/shared-types";
 import {
   allocateSettingsFieldEdit,
   mergeSettingsField,
@@ -68,13 +72,26 @@ describe("pure settings field order", () => {
   it.each(vectors.invalid)("rejects malformed pair: %j", (input) => {
     expect(readSettingsOrderedField(input)).toBeNull();
   });
-  it("rejects nonfinite values and arrays without coercion", () => {
-    for (const n of [NaN, Infinity, -Infinity]) {
+  it("rejects invalid numeric values and arrays without coercion", () => {
+    const prior = field(1, 1, true);
+    const copy = structuredClone(prior);
+    for (const n of [
+      NaN,
+      Infinity,
+      -Infinity,
+      -1,
+      1.5,
+      MAX_SETTINGS_REVISION + 1,
+    ]) {
       expect(readSettingsOrderedField(field(n, 1, true))).toBeNull();
       expect(readSettingsOrderedField(field(1, n, true))).toBeNull();
-      expect(
-        allocateSettingsFieldEdit(field(1, 1, true), n, false).status,
-      ).toBe("recovery");
+      expect(allocateSettingsFieldEdit(prior, n, false)).toEqual({
+        status: "recovery",
+        reason: "invalid-acknowledgement",
+        field: prior,
+        requestedValue: false,
+      });
+      expect(prior).toEqual(copy);
     }
     expect(readSettingsOrderedField([])).toBeNull();
     expect(readSettingsOrderedField({ value: true, stamp: [] })).toBeNull();
@@ -124,6 +141,31 @@ describe("pure settings field order", () => {
     expect(b["services.tiktok"]?.value).toBe(false);
     expect(mergeSettingsFields(baseline, baseline)).toEqual(copy);
     expect(baseline).toEqual(copy);
+    const global = {
+      value: true,
+      stamp: { baseRevision: 3, localStep: 1, future: { retained: true } },
+    };
+    const youtube = field(4, 2, false);
+    type Fields = Parameters<typeof mergeSettingsFields>[0];
+    const cases: [Fields, Fields, Fields][] = [
+      [{}, {}, {}],
+      [{}, { globalOn: global }, { globalOn: global }],
+      [{ globalOn: global }, {}, { globalOn: global }],
+      [
+        { globalOn: global },
+        { "services.youtube": youtube },
+        { globalOn: global, "services.youtube": youtube },
+      ],
+    ];
+    for (const [left, right, expected] of cases) {
+      const leftCopy = structuredClone(left);
+      const rightCopy = structuredClone(right);
+      const merged = mergeSettingsFields(left, right);
+      expect(merged).toEqual(expected);
+      expect(Object.keys(merged).sort()).toEqual(Object.keys(expected).sort());
+      expect(left).toEqual(leftCopy);
+      expect(right).toEqual(rightCopy);
+    }
     expect(() =>
       mergeSettingsFields(baseline, {
         "sites.tiktok.all": field(2, 1, true),
