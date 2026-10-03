@@ -1,3 +1,4 @@
+import type { AtomicSettingsState, CanonicalSettingsEnvelope, SettingsIntent, SettingsScope } from "./atomic-settings.js";
 import type { StillSettings } from "@still/shared-types";
 
 // The storage-adapter interface (KTD4): one shared UI/engine persists through an injected adapter,
@@ -16,6 +17,9 @@ export interface SyncedSettingsEnvelope extends SettingsSyncMetadata {
 }
 
 export interface StoredSettingsRecord {
+  /** Transient committed-action response; never persisted by an authority. */
+  readonly intentCommitted?: boolean;
+  readonly atomic?: AtomicSettingsState;
   readonly settings: StillSettings;
   readonly syncMetadata: SettingsSyncMetadata | null;
   /**
@@ -40,6 +44,11 @@ export interface StoredSettingsRecord {
 }
 
 export interface StorageAdapter {
+  /** Host-authoritative bounded action; allocation occurs after reading the durable record. */
+  commitIntent?(intent: SettingsIntent): Promise<StoredSettingsRecord>;
+  initializeAtomic?(ownership: AtomicSettingsState["ownership"]): Promise<StoredSettingsRecord>;
+  enterScope?(accountId: string | null, sessionId?: string): Promise<StoredSettingsRecord>;
+  acknowledgeAtomic?(envelope: CanonicalSettingsEnvelope, scope: SettingsScope): Promise<StoredSettingsRecord>;
   /** Read the persisted settings record, or null if nothing has been written yet. */
   get(): Promise<StoredSettingsRecord | null>;
   /** Persist settings and any cloud metadata together. */

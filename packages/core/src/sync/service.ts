@@ -1,5 +1,6 @@
 import type { StillSettings } from "@still/shared-types";
 import { DEFAULT_SETTINGS, PAID_TIER_ENABLED } from "@still/shared-types";
+import { pendingSettingsRequest, sameSettingsScope, SettingsStorageRecovery, type SettingsScope } from "../storage/atomic-settings.js";
 import type { SettingsCache, SettingsChangeSource } from "../storage/cache.js";
 import type { SettingsSyncMetadata, SyncedSettingsEnvelope } from "../storage/adapter.js";
 import type { AuthPort, BackendPort, EntitlementRead } from "./ports.js";
@@ -108,6 +109,10 @@ export class SyncService {
   private latestWriteId: string | null = null;
   // A UUID is not enough: signing out and back into the same account starts a new lifecycle.
   private lifecycle = 0;
+  // Auth teardown remains available when settings storage fails. Until retirement commits, this
+  // instance cannot resume even the same auth session; durable session provenance covers restart.
+  private atomicRetirementPending = false;
+  private atomicScope: SettingsScope | null = null;
 
   constructor(
     private readonly cache: SettingsCache,
@@ -131,6 +136,7 @@ export class SyncService {
     if (this.recovering !== null) return this.recovering;
     if (this.catchingUp !== null) return this.catchingUp.then(() => undefined);
     if (this.writeCompletion !== null) return this.writeCompletion;
+    if (this.cache.currentRecord().atomic) this.realtimeStale = false;
     const recovery = this.refreshAfterRealtimeReconnect();
     this.recovering = recovery;
     void recovery.then(() => {
@@ -325,7 +331,8 @@ export class SyncService {
       if (outcome === "abandoned") {
         this.recordFailure();
       } else {
-        const pending = outcome === "device" && this.heldWrite !== null &&
+        const modern = this.cache.currentRecord().atomic;
+        const pending = modern ? modern.paused !== null || Object.keys(modern.held).length > 0 || modern.pending.some(p => pendingSettingsRequest(p, modern) !== null) : outcome === "device" && this.heldWrite !== null &&
           (this.lastWrittenSettings === null || !sameSettings(this.heldWrite, this.lastWrittenSettings));
         this.recordExchange(pending);
       }
@@ -373,6 +380,11 @@ export class SyncService {
     // as brand new and could publish defaults over settings someone has been using.
     await this.cache.whenHydrated();
     if (lifecycle !== this.lifecycle) return "abandoned";
+    if (this.cache.currentRecord().atomic) {
+      if (!this.backend.modernSettingsEnabled || !this.backend.readCanonicalSettings || !this.backend.writeSettingsOperation)
+        throw new Error("Modern settings rollout held");
+      return this.reconcileAtomic(userId, lifecycle);
+    }
     // What this device was anchored to before the read, so the branch below can tell whether
     // anything reached the cache while the read was in flight. Outgoing writes are held for the
     // duration, so in practice that means the account's own live stream arriving with a later write.
@@ -615,6 +627,14 @@ export class SyncService {
     this.stopWriteThrough();
     this.stopRealtime();
     const lifecycle = this.lifecycle;
+    if (this.cache.currentRecord().atomic) {
+      this.atomicRetirementPending = true;
+      try {
+        await this.cache.enterAtomicScope(null);
+        if (lifecycle === this.lifecycle) this.atomicRetirementPending = false;
+      } catch { /* retry before any later atomic sync */ }
+      if (lifecycle !== this.lifecycle) return;
+    }
     await this.auth.signOut();
     if (lifecycle !== this.lifecycle) return;
     this.setState(SIGNED_OUT);
@@ -636,6 +656,14 @@ export class SyncService {
     this.stopWriteThrough();
     this.stopRealtime();
     const signedOutLifecycle = this.lifecycle;
+    if (this.cache.currentRecord().atomic) {
+      this.atomicRetirementPending = true;
+      try {
+        await this.cache.enterAtomicScope(null);
+        if (signedOutLifecycle === this.lifecycle) this.atomicRetirementPending = false;
+      } catch { /* account is deleted; keep local choices */ }
+      if (signedOutLifecycle !== this.lifecycle) return;
+    }
     try {
       await this.auth.signOut();
     } catch {
@@ -710,6 +738,7 @@ export class SyncService {
 
   private stopWriteThrough(): void {
     this.lifecycle += 1;
+    this.atomicScope = null;
     this.clearRetry();
     this.recovering = null;
     this.writeCompletion = null;
@@ -792,6 +821,17 @@ export class SyncService {
   }
 
   private applyRemoteEnvelope(envelope: SyncedSettingsEnvelope): void {
+    if (this.cache.currentRecord().atomic) {
+      // A realtime public row is a nudge, never receipt authority. Authenticate an own-row read.
+      this.realtimeStale = true;
+      void this.retryNow().then(() => {
+        if (this.realtimeStale && this.atomicScope !== null) {
+          this.realtimeStale = false;
+          void this.retryNow();
+        }
+      });
+      return;
+    }
     // Realtime may acknowledge our write before its RPC response. Anchor the newest local edit
     // on that acknowledgement now: the later RPC has the same version and cannot restore it.
     // Only this request's write id proves an own echo; another device's row keeps normal ordering.
@@ -806,6 +846,10 @@ export class SyncService {
   }
 
   private async writeAndApply(settings: StillSettings): Promise<void> {
+    if (this.cache.currentRecord().atomic) {
+      await this.flushAtomic(this.lifecycle);
+      return;
+    }
     const lifecycle = this.lifecycle;
     const writeId = randomWriteId();
     this.latestWriteId = writeId;
@@ -822,6 +866,86 @@ export class SyncService {
     const pending = this.pendingWrite !== null ||
       (this.heldWrite !== null && !sameSettings(this.heldWrite, settings));
     this.recordExchange(pending);
+  }
+
+  private async reconcileAtomic(userId: string, lifecycle: number): Promise<ReconcileOutcome> {
+    if (this.atomicScope === null) {
+      const [subject, authenticated] = await Promise.all([
+        this.auth.currentUserId().catch(() => null),
+        this.auth.currentSettingsSession?.().catch(() => null),
+      ]);
+      if (lifecycle !== this.lifecycle || this.state.userId !== userId) return "abandoned";
+      // Unknown authentication cannot retire saved intent, including a failed sign-out boundary.
+      if (subject !== userId || !authenticated || authenticated.userId !== userId)
+        throw new SettingsStorageRecovery("session-unconfirmed");
+      if (this.atomicRetirementPending) {
+        await this.cache.enterAtomicScope(null);
+        if (lifecycle !== this.lifecycle || this.state.userId !== userId) return "abandoned";
+        this.atomicRetirementPending = false;
+      }
+      const scope = await this.cache.enterAtomicScope(userId, authenticated.sessionId);
+      if (lifecycle !== this.lifecycle || this.state.userId !== userId) return "abandoned";
+      this.atomicScope = scope;
+    }
+    const captured = this.atomicScope;
+    if (!await this.ownsAtomicSession(captured, lifecycle)) return "abandoned";
+    const cloud = await this.backend.readCanonicalSettings!();
+    if (!await this.ownsAtomicSession(captured, lifecycle)) return "abandoned";
+    if (lifecycle !== this.lifecycle || this.state.userId !== userId) return "abandoned";
+    await this.cache.acknowledgeAtomic(cloud, captured);
+    if (lifecycle !== this.lifecycle) return "abandoned";
+    // The complete atomic scope/previous-account marker is already durable before network writes.
+    await this.identity?.set(userId);
+    if (lifecycle !== this.lifecycle) return "abandoned";
+    await this.flushAtomic(lifecycle);
+    return lifecycle === this.lifecycle ? "device" : "abandoned";
+  }
+
+  private async flushAtomic(lifecycle: number): Promise<void> {
+    if (!this.backend.modernSettingsEnabled || !this.backend.writeSettingsOperation || !this.atomicScope)
+      throw new Error("Modern settings rollout held");
+    const captured = this.atomicScope;
+    // Bounded pending queue. A retry uses the stored request including its original receipt/rank.
+    for (let count = 0; count < 64; count++) {
+      if (lifecycle !== this.lifecycle) return;
+      const state = this.cache.currentRecord().atomic;
+      if (!state || !sameSettingsScope(state.scope, captured)) return;
+      if (state.paused && state.paused !== "pending-limit") { this.recordExchange(true); return; }
+      const request = state.pending.map(p => pendingSettingsRequest(p, state)).find(p => p !== null);
+      if (!request) { this.recordExchange(Object.keys(state.held).length > 0); return; }
+      this.latestWriteId = request.writeId;
+      if (!await this.ownsAtomicSession(captured, lifecycle)) return;
+      const envelope = await this.backend.writeSettingsOperation(request);
+      if (!await this.ownsAtomicSession(captured, lifecycle)) return;
+      if (lifecycle !== this.lifecycle) return;
+      await this.cache.acknowledgeAtomic(envelope, captured);
+      if (lifecycle !== this.lifecycle) return;
+      const next = this.cache.currentRecord().atomic;
+      // An accepted no-change row can leave older local intent unacknowledged. Avoid a hot loop.
+      if (next?.pending.some(p => p.writeId === request.writeId)) {
+        this.recordExchange(true);
+        return;
+      }
+    }
+    this.recordExchange(true);
+  }
+
+  private async ownsAtomicSession(captured: SettingsScope, lifecycle: number): Promise<boolean> {
+    if (lifecycle !== this.lifecycle || this.state.userId !== captured.accountId) return false;
+    // Retain the existing authenticated getUser check as well as stable verified session claims.
+    const [authenticated, current] = await Promise.all([
+      this.auth.currentUserId().catch(() => null),
+      this.auth.currentSettingsSession?.().catch(() => null),
+    ]);
+    // Late proof failures belong to their original owner, never a replacement lifecycle.
+    if (lifecycle !== this.lifecycle || this.state.userId !== captured.accountId) return false;
+    if (authenticated !== null && authenticated !== captured.accountId) return false;
+    if (current && (current.userId !== captured.accountId ||
+      (captured.sessionId !== undefined && current.sessionId !== captured.sessionId))) return false;
+    // Missing SDK proof holds the immutable request and uses the existing bounded retry path.
+    if (authenticated === null || !current || captured.sessionId === undefined)
+      throw new SettingsStorageRecovery("session-unconfirmed");
+    return true;
   }
 
   private recordFailure(): void {

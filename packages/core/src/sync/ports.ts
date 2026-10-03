@@ -1,3 +1,5 @@
+import type { CanonicalSettingsEnvelope } from "../storage/atomic-settings.js";
+import type { UntrustedSettingsOperationRequest } from "@still/shared-types";
 import type { StillSettings } from "@still/shared-types";
 import type { SyncedSettingsEnvelope } from "../storage/adapter.js";
 
@@ -13,6 +15,8 @@ export interface AuthPort {
   signOut(): Promise<void>;
   /** The current session's user UUID, or null if signed out. */
   currentUserId(): Promise<string | null>;
+  /** Verified auth-session identity, stable across token refresh; required only for atomic sync. */
+  currentSettingsSession?(): Promise<{ userId: string; sessionId: string } | null>;
 }
 
 /** Display-only identity from the authenticated session; never an authorization decision. */
@@ -102,6 +106,10 @@ export interface CheckedReconcilePort {
 export type EntitlementRead = "entitled" | "not-entitled" | "unknown";
 
 export interface BackendPort {
+  /** Explicit internal rollout capability; false/absent keeps existing V2 transport. */
+  readonly modernSettingsEnabled?: boolean;
+  readCanonicalSettings?(): Promise<CanonicalSettingsEnvelope>;
+  writeSettingsOperation?(request: UntrustedSettingsOperationRequest): Promise<CanonicalSettingsEnvelope>;
   /** Invoke the reconcile-entitlement Edge Function for the signed-in user (self-heals webhooks). */
   reconcileEntitlement(): Promise<void>;
   /** Read the signed-in user's Still Pro entitlement (DB column `still_sync`). Offline/error

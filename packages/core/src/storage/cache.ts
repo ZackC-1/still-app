@@ -1,4 +1,5 @@
-import type { ServiceId, StillSettings } from "@still/shared-types";
+import type { FeatureId, ServiceId, StillSettings } from "@still/shared-types";
+import { SettingsStorageRecovery, type AtomicSettingsState, type CanonicalSettingsEnvelope, type SettingsScope } from "./atomic-settings.js";
 import { DEFAULT_SETTINGS } from "@still/shared-types";
 import type {
   SettingsSyncMetadata,
@@ -17,6 +18,8 @@ export interface SettingsCacheOptions {
   readonly now?: () => number;
   /** Seed snapshot before hydration (defaults to the bundled DEFAULT_SETTINGS). */
   readonly initial?: StillSettings;
+  /** Explicit internal rollout option; callers must provide durable ownership evidence. */
+  readonly atomicOwnership?: AtomicSettingsState["ownership"];
 }
 
 export type SettingsChangeSource = "local" | "external" | "synced";
@@ -24,6 +27,8 @@ export type SettingsListener = (settings: StillSettings, source: SettingsChangeS
 
 export class SettingsCache {
   private snapshot: StillSettings;
+  private atomic: AtomicSettingsState | undefined;
+  private readonly atomicOwnership: AtomicSettingsState["ownership"] | undefined;
   private syncMetadata: SettingsSyncMetadata | null = null;
   // Which account this browser profile is pointed at, counted rather than named. See
   // StoredSettingsRecord.syncEpoch: it is what lets every context in the browser accept a reconcile
@@ -31,13 +36,17 @@ export class SettingsCache {
   private syncEpoch = 0;
   private readonly now: () => number;
   private readonly listeners = new Set<SettingsListener>();
+  private intentsInFlight = 0;
   private unwatch: (() => void) | null = null;
   private hydration: Promise<StillSettings> | null = null;
+  private authorityTicket = 0;
+  private hydrationRecovery: SettingsStorageRecovery | null = null;
 
   constructor(
     private readonly adapter: StorageAdapter,
     opts: SettingsCacheOptions = {},
   ) {
+    this.atomicOwnership = opts.atomicOwnership;
     this.snapshot = opts.initial ?? DEFAULT_SETTINGS;
     this.now = opts.now ?? Date.now;
   }
@@ -54,14 +63,13 @@ export class SettingsCache {
   currentRecord(): StoredSettingsRecord {
     // Always stamped, even at zero, because that is what lets another context tell a peer that has
     // not seen the reconcile yet from a store that does not speak epochs at all.
-    return { settings: this.snapshot, syncMetadata: this.syncMetadata, syncEpoch: this.syncEpoch };
+    return { settings: this.snapshot, syncMetadata: this.syncMetadata, syncEpoch: this.syncEpoch, ...(this.atomic ? { atomic: this.atomic } : {}) };
   }
 
   /** Load persisted settings once at startup. LWW so a newer in-memory edit isn't clobbered. */
   hydrate(): Promise<StillSettings> {
-    const run = this.load();
-    this.hydration ??= run;
-    return run;
+    this.hydration ??= this.load();
+    return this.hydration;
   }
 
   /**
@@ -75,18 +83,42 @@ export class SettingsCache {
    * job is to wait for the answer, not to inherit the storage error.
    */
   whenHydrated(): Promise<unknown> {
-    return this.hydration === null ? Promise.resolve() : this.hydration.catch(() => undefined);
+    return this.hydration === null ? Promise.resolve() : this.hydration.then(() => {
+      if (this.hydrationRecovery) throw this.hydrationRecovery;
+    }, () => { if (this.hydrationRecovery) throw this.hydrationRecovery; });
   }
 
   private async load(): Promise<StillSettings> {
-    const stored = await this.adapter.get();
-    if (stored) void this.applyStoredRecord(stored, "external");
-    return this.snapshot;
+    const authorityTicket = this.authorityTicket;
+    try {
+      const stored = this.atomicOwnership !== undefined && this.adapter.initializeAtomic
+        ? await this.adapter.initializeAtomic(this.atomicOwnership) : await this.adapter.get();
+      if (stored) void this.applyStoredRecord(stored, "external");
+      return this.snapshot;
+    } catch (error) {
+      if (error instanceof SettingsStorageRecovery && authorityTicket === this.authorityTicket) {
+        if (!error.retained) { this.hydrationRecovery = error; throw error; }
+        // Last-known local choices keep free blocking useful during unavailable native reads.
+        // Sync hydration remains a recovery gate, never a fresh canonical receipt.
+        this.acceptCommitted(error.retained, "external");
+        if (this.atomic) this.atomic = { ...this.atomic, paused: "native-authority-unavailable" };
+        this.hydrationRecovery = error;
+        return this.snapshot;
+      }
+      throw error;
+    }
   }
 
   /** Start reacting to external writes (other contexts / cloud mirror). Returns an unsubscribe. */
   watch(): () => void {
-    this.unwatch ??= this.adapter.subscribe((record) => this.applyStoredRecord(record, "external"));
+    this.unwatch ??= this.adapter.subscribe((record) => {
+      // Safari subscriptions supply a successful authority reread, never the auxiliary signal.
+      if (!record.atomic && !this.atomic && (record.syncEpoch ?? this.syncEpoch) >= this.syncEpoch) {
+        this.authorityTicket += 1;
+        this.hydrationRecovery = null;
+      }
+      this.applyStoredRecord(record, "external");
+    });
     return () => {
       this.unwatch?.();
       this.unwatch = null;
@@ -159,11 +191,82 @@ export class SettingsCache {
   }
 
   setGlobalOn(on: boolean): Promise<StillSettings> {
+    if (this.adapter.commitIntent) return this.commitIntent("globalOn", on);
     return this.commit({ ...this.snapshot, globalOn: on });
   }
 
   setService(id: ServiceId, on: boolean): Promise<StillSettings> {
+    if (this.adapter.commitIntent) return this.commitIntent(`services.${id}`, on);
     return this.commit({ ...this.snapshot, services: { ...this.snapshot.services, [id]: on } });
+  }
+
+  setFeature(id: FeatureId, on: boolean): Promise<StillSettings> {
+    if (!this.adapter.commitIntent) return Promise.reject(new Error("Atomic settings authority unavailable"));
+    return this.commitIntent(`sites.${id}`, on);
+  }
+
+  async enterAtomicScope(accountId: string | null, sessionId?: string): Promise<SettingsScope> {
+    if (!this.adapter.enterScope) throw new Error("Atomic settings authority unavailable");
+    const record = await this.adapter.enterScope(accountId, sessionId);
+    this.acceptCommitted(record, "synced");
+    return record.atomic!.scope;
+  }
+
+  async acknowledgeAtomic(envelope: CanonicalSettingsEnvelope, scope: SettingsScope): Promise<void> {
+    if (!this.adapter.acknowledgeAtomic) throw new Error("Atomic settings authority unavailable");
+    this.acceptCommitted(await this.adapter.acknowledgeAtomic(envelope, scope), "synced");
+  }
+
+  private async commitIntent(path: import("@still/shared-types").SettingsField, value: boolean): Promise<StillSettings> {
+    const previous = this.snapshot;
+    const authorityTicket = this.authorityTicket;
+    this.intentsInFlight += 1;
+    let committed = false;
+    try {
+      const record = await this.adapter.commitIntent!({ path, value, updatedAt: this.now() });
+      this.acceptCommitted(record, "external");
+      committed = record.intentCommitted === true;
+      return this.snapshot;
+    } catch (error) {
+      if (error instanceof SettingsStorageRecovery && authorityTicket === this.authorityTicket) {
+        this.hydrationRecovery = error;
+        if (this.atomic) this.atomic = { ...this.atomic, paused: error.reason };
+      }
+      throw error;
+    } finally {
+      this.intentsInFlight -= 1;
+      if (committed) this.notify("local");
+      else if (this.intentsInFlight === 0 && !sameSettings(previous, this.snapshot)) this.notify("external");
+    }
+  }
+
+  private acceptCommitted(record: StoredSettingsRecord, source: SettingsChangeSource): boolean {
+    const previous = this.snapshot;
+    if (record.atomic && this.atomic) {
+      if (record.atomic.scope.generation < this.atomic.scope.generation) return false;
+      if (record.atomic.scope.generation === this.atomic.scope.generation &&
+        (record.atomic.scope.accountId !== this.atomic.scope.accountId || record.atomic.sequence < this.atomic.sequence)) return false;
+    }
+    // Any accepted authority result supersedes failures of requests started before it.
+    this.authorityTicket += 1;
+    this.hydrationRecovery = null;
+    this.snapshot = record.settings;
+    this.syncMetadata = record.syncMetadata;
+    this.syncEpoch = record.syncEpoch ?? this.syncEpoch;
+    this.atomic = record.atomic;
+    if (record.atomic) {
+      for (const [path, value] of Object.entries(record.atomic.held)) {
+        if (path === "globalOn") this.snapshot = { ...this.snapshot, globalOn: value! };
+        else if (path.startsWith("services.")) this.snapshot = { ...this.snapshot, services: { ...this.snapshot.services, [path.slice(9)]: value } };
+        else if (path.startsWith("sites.") && "sites" in this.snapshot) {
+          const sites = (this.snapshot as unknown as import("@still/shared-types").SettingsV2).sites;
+          this.snapshot = { ...this.snapshot, ...{ sites: { ...sites, [path.slice(6)]: value } } };
+        }
+      }
+    }
+    const changed = !sameSettings(previous, this.snapshot);
+    if (changed) this.notify(source);
+    return changed;
   }
 
   // No pause mutators: they were removed with the pause-on-this-site UI (R1) — any write here would
@@ -197,6 +300,11 @@ export class SettingsCache {
    * coming back across the Apple bridge for the sake of a counter their writer could not stamp.
    */
   private applyStoredRecord(record: StoredSettingsRecord, source: SettingsChangeSource): boolean {
+    if (record.atomic) {
+      if (this.atomic && record.atomic.scope.generation < this.atomic.scope.generation) return false;
+      return this.acceptCommitted(record, source);
+    }
+    if (this.atomic) return false;
     const incomingEpoch = record.syncEpoch;
     if (incomingEpoch !== undefined && incomingEpoch !== this.syncEpoch) {
       // A peer that has not seen the reconcile yet. Refusing it in memory is what matters, because
@@ -247,6 +355,7 @@ export class SettingsCache {
   }
 
   private notify(source: SettingsChangeSource): void {
+    if (source === "external" && this.intentsInFlight > 0) return;
     for (const l of [...this.listeners]) l(this.snapshot, source);
   }
 }

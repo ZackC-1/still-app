@@ -51,7 +51,7 @@ import StillKit
 
 @MainActor
 final class WebBridgeRouter {
-  private let settings: SettingsBridge
+  private let settings: SettingsExecutor
   private let entitlement: EntitlementBridge
   private let accountSyncStatus: AccountSyncStatusStore
   private let analytics = AnalyticsIdentityStore.appGroup()
@@ -76,7 +76,7 @@ final class WebBridgeRouter {
   private var hasAskedAppleForPurchaseHistoryThisLaunch = false
 
   init(
-    settings: SettingsBridge,
+    settings: SettingsExecutor,
     entitlement: EntitlementBridge = EntitlementBridge(
       store: .appGroup(), receiptStatus: { stillReceiptStatusCache.current }),
     accountSyncStatus: AccountSyncStatusStore = .appGroup()
@@ -108,13 +108,13 @@ final class WebBridgeRouter {
     }
 
     switch kind {
-    case "get", "set":
-      // U17 settings bridge — synchronous; reply is the resolved settings JSON string (or "").
-      if let json = settings.handle(rawBody: body) {
-        reply(json, nil)
-      } else {
+    case "get", "set", "settingsIntent", "settingsAtomic":
+      // Parse on MainActor; queue the decoded request before yielding so arrival order survives.
+      guard let request = BridgeRequest.parse(body) else {
         reply(nil, "still: unrecognized settings message")
+        return
       }
+      settings.submit(request) { json in reply(json, nil) }
 
     case "signInWithApple":
       Task { await self.handleSignIn(reply: reply) }
