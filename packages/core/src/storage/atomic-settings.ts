@@ -132,7 +132,7 @@ export class AtomicSettingsWriter {
         await this.adapter.set(structuredClone(next));
         return { ...next, intentCommitted: true };
       }
-      const state = current.atomic;
+      const state = { ...current.atomic, pending: current.atomic.pending.filter(p => sameSettingsScope(p.scope, current.atomic!.scope)) };
       if (state.sequence === Number.MAX_SAFE_INTEGER) throw new SettingsStorageRecovery("sequence-saturated");
       let settings = requireModernSettings(current);
       const priorValue = settingsFieldValue(settings, intent.path);
@@ -171,14 +171,18 @@ export class AtomicSettingsWriter {
       const current = await this.adapter.get();
       if (!current?.atomic || !(accountId === null || UUID.test(accountId))) throw new SettingsStorageRecovery("missing-provenance");
       const state = current.atomic;
+      // A process restart keeps the durable account lifetime, anchor and immutable retry bodies.
+      // Actual sign-out enters null first, so returning to the same UUID still gets a new generation.
+      if (accountId !== null && accountId === state.scope.accountId) return current;
       if (state.scope.generation === Number.MAX_SAFE_INTEGER || state.sequence === Number.MAX_SAFE_INTEGER || current.syncEpoch === Number.MAX_SAFE_INTEGER) throw new SettingsStorageRecovery("epoch-saturated");
       const next = { ...current, syncEpoch: (current.syncEpoch ?? 0) + 1, atomic: { ...state, sequence: state.sequence + 1,
         ownership: state.scope.accountId !== null || accountId !== null ? "previous-account" as const : state.ownership,
         scope: { accountId, generation: state.scope.generation + 1 }, anchor: null,
-        // Prior operations remain durable provenance but cannot upload into a replacement scope.
+        // Retire ineligible operations at this complete-record boundary. Settings/held choices
+        // and the previous-account marker survive; only proven pristine first-link transfers intent.
         pending: state.ownership === "never-linked" && state.scope.accountId === null && accountId !== null
           ? state.pending.map(p => ({ ...p, originScope: p.scope, scope: { accountId, generation: state.scope.generation + 1 } }))
-          : state.pending, paused: accountId !== null && state.ownership !== "never-linked" ? "ownership-unconfirmed" : state.paused,
+          : [], paused: accountId !== null && state.ownership !== "never-linked" ? "ownership-unconfirmed" : state.paused,
       } };
       await this.adapter.set(structuredClone(next));
       return next;
@@ -214,7 +218,7 @@ export class AtomicSettingsWriter {
         }
       }
       settings = { ...settings, clocks };
-      const pending = state.pending.filter((p) => !sameSettingsScope(p.scope, captured) || p.operations.some((op) => {
+      const pending = state.pending.filter((p) => sameSettingsScope(p.scope, captured) && p.operations.some((op) => {
         const remote = { value: settingsFieldValue(canonical, op.path), stamp: canonical.clocks[op.path] };
         const local = { value: op.value, stamp: { baseRevision: op.baseRevision, localStep: op.localStep } };
         return pendingSettingsFieldAfterAck(local, remote) !== null;
@@ -233,7 +237,7 @@ export class AtomicSettingsWriter {
         }
         else for (const path of SETTINGS_FIELDS) delete held[path];
         paused = Object.keys(held).length > 0 ? "ownership-hold" : null;
-      } else if (["awaiting-anchor", "pending-limit", "ownership-hold"].includes(paused ?? "")) {
+      } else if (["awaiting-anchor", "pending-limit", "ownership-hold", "ordering-hold"].includes(paused ?? "")) {
         for (const path of SETTINGS_FIELDS) if (held[path] === settingsFieldValue(settings, path)) delete held[path];
         paused = resolvedPause({ ...state, anchor: receipt }, held);
       }

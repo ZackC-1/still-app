@@ -154,6 +154,8 @@ public enum AtomicSettingsRecord {
       guard Set(action.keys) == Set(["action", "accountId"]),
         action["accountId"] == .null || canonicalUUID(action["accountId"]),
         case .number(let generation) = priorScope["generation"], generation < SettingsV2Migration.maxRevision else { throw Failure.invalidIntent }
+      // Resume a durable account lifetime; explicit sign-out enters null and still fences re-entry.
+      if action["accountId"] != .null, action["accountId"] == priorScope["accountId"] { return raw }
       let nextScope: [String: SettingsJSONValue] = ["accountId": action["accountId"]!, "generation": .number(generation + 1)]
       if state["ownership"] == .string("never-linked"), priorScope["accountId"] == .null, action["accountId"] != .null {
         pending = pending.map { value in
@@ -162,7 +164,7 @@ public enum AtomicSettingsRecord {
           entry["scope"] = .object(nextScope)
           return .object(entry)
         }
-      }
+      } else { pending.removeAll() } // Retire obsolete provenance without changing useful local choices.
       state["scope"] = .object(nextScope)
       state["anchor"] = .null
       if action["accountId"] != .null, state["ownership"] != .string("never-linked") {
@@ -207,7 +209,7 @@ public enum AtomicSettingsRecord {
       for entry in pending {
         guard var operation = entry.object, let scope = operation["scope"]?.object,
           case .array(let ops) = operation["operations"] else { throw Failure.unreadable }
-        if scope != captured { retained.append(entry); continue }
+        if scope != captured { continue }
         var remains = false
         for value in ops {
           guard let op = value.object, case .string(let path) = op["path"],
@@ -238,7 +240,7 @@ public enum AtomicSettingsRecord {
         } else { held.removeAll() }
         state["held"] = .object(held)
         state["paused"] = held.isEmpty ? .null : .string("ownership-hold")
-      } else if case .string(let pause) = state["paused"], ["awaiting-anchor", "pending-limit", "ownership-hold"].contains(pause) {
+      } else if case .string(let pause) = state["paused"], ["awaiting-anchor", "pending-limit", "ownership-hold", "ordering-hold"].contains(pause) {
         var held = state["held"]!.object!
         for path in PackagedFeatureRegistry.settingsFields {
           if let value = field(settings, path), held[path] == .bool(value) { held.removeValue(forKey: path) }
@@ -295,6 +297,7 @@ public enum AtomicSettingsRecord {
       else { throw Failure.unreadable }
       let effective = held[path] ?? .bool(priorValue)
       if effective == .bool(value) { return (try raw ?? encoder.encode(root), false) }
+      pending = pending.filter { $0.object?["scope"]?.object == scope }
       let anchor = atomic["anchor"]?.object
       let revision: Double
       if case .number(let n) = anchor?["revision"] { revision = n }

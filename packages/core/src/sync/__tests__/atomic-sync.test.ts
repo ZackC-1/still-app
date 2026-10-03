@@ -25,9 +25,10 @@ function assign(settings: SettingsV2, path: SettingsField, on: boolean): Setting
 function harness(owner: "unknown" | "never-linked" | "previous-account" = "unknown", empty = false) {
   const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 1 });
   const writer = new AtomicSettingsWriter(storage);
-  const cache = new SettingsCache({ get: () => storage.get(), set: r => writer.replace(r).then(() => undefined),
+  const makeCache = () => new SettingsCache({ get: () => storage.get(), set: r => writer.replace(r).then(() => undefined),
     subscribe: storage.subscribe.bind(storage), commitIntent: writer.commit.bind(writer), initializeAtomic: writer.initialize.bind(writer),
     enterScope: writer.enterScope.bind(writer), acknowledgeAtomic: writer.acknowledge.bind(writer) }, { atomicOwnership: owner, now: () => 100 });
+  const cache = makeCache();
   cache.watch();
   let account = A, revision = empty ? 0 : 1, lastWriteId: string | null = null;
   const seed = empty ? migrateSettingsV2(null, { kind: "proven-fresh" }) : migrateSettingsV2({ ...DEFAULT_SETTINGS, updatedAt: 1 }, { kind: "acknowledged-account", revision });
@@ -87,6 +88,7 @@ function harness(owner: "unknown" | "never-linked" | "previous-account" = "unkno
   const auth = { currentUserId: async () => account, signOut: async () => {}, signInWithMagicLink: async () => ({}) };
   const service = new SyncService(cache, auth, backend);
   return { cache, writer, storage, service, requests, invoke, port,
+    newLifetime() { const nextCache = makeCache(); nextCache.watch(); return { cache: nextCache, service: new SyncService(nextCache, auth, backend) }; },
     canonicalResponse: response,
     failNext(mode: "before" | "after" = "before") { failures.push(mode); },
     subscriptions: () => profileListener === null ? 0 : 1,
@@ -108,11 +110,88 @@ function harness(owner: "unknown" | "never-linked" | "previous-account" = "unkno
       settings = assign(settings, path, on); settings = { ...settings, clocks: { ...settings.clocks, [path]: next.field.stamp }, updatedAt: 100 + ++revision };
     }, settings: () => settings };
 }
+// Process termination cancels volatile work/subscriptions without calling the durable sign-out action.
+function endLifetime(service: SyncService, cache: SettingsCache) {
+  const host = service as unknown as { stopWriteThrough(): void; stopRealtime(): void };
+  host.stopWriteThrough(); host.stopRealtime(); cache.watch()();
+}
 const drain = async () => { for (let i = 0; i < 20; i++) await new Promise(r => setTimeout(r, 0)); };
 const settle = async () => { for (let i = 0; i < 150; i++) await Promise.resolve(); };
 afterEach(() => vi.useRealTimers());
 
 describe("existing SyncService and exact Supabase modern port", () => {
+  it("a second SyncService lifetime resumes the same immutable offline operation without a null transition", async () => {
+    const h = harness(); await h.cache.hydrate(); await h.service.onSignedIn(A); vi.useFakeTimers();
+    h.failNext(); await h.cache.setGlobalOn(false); await settle();
+    const durable = (await h.storage.get())!; const original = structuredClone(durable.atomic!.pending[0]!);
+    expect(h.requests).toHaveLength(1); endLifetime(h.service, h.cache); expect(vi.getTimerCount()).toBe(0);
+    const next = h.newLifetime(); await next.cache.hydrate(); const read = h.holdRead();
+    const resumed = next.service.resume(A, false); await read.started;
+    expect(next.cache.currentRecord().atomic!.scope).toEqual(durable.atomic!.scope);
+    expect(next.cache.currentRecord().atomic!.pending).toEqual([original]);
+    read.release(); await resumed; await settle();
+    expect(h.requests).toHaveLength(2); expect(h.requests[1]).toEqual(h.requests[0]);
+    expect(next.cache.current().globalOn).toBe(false); expect(next.cache.currentRecord().atomic!.pending).toEqual([]);
+    expect(next.service.getState().pendingUpload).toBe(false);
+    await next.service.signOut(); next.cache.watch()(); expect(h.subscriptions()).toBe(0); expect(vi.getTimerCount()).toBe(0);
+  });
+  it("a second SyncService lifetime preserves pre-anchor held choice on reconnect to a nonempty row", async () => {
+    const h = harness("never-linked"); await h.cache.hydrate();
+    h.invoke.mockResolvedValueOnce({ data: null as never, error: new Error("offline own-row read") });
+    await h.service.onSignedIn(A); endLifetime(h.service, h.cache);
+    await h.cache.setGlobalOn(false); const durable = (await h.storage.get())!;
+    expect(durable.atomic).toMatchObject({ anchor: null, paused: "awaiting-anchor", held: { globalOn: false } });
+    const next = h.newLifetime(); await next.cache.hydrate(); const read = h.holdRead();
+    const resumed = next.service.resume(A, false); await read.started;
+    expect(next.cache.currentRecord().atomic!.scope).toEqual(durable.atomic!.scope);
+    read.release(); await resumed;
+    expect(next.cache.current().globalOn).toBe(false); expect(h.settings().globalOn).toBe(true);
+    expect(next.cache.currentRecord().atomic).toMatchObject({ anchor: { revision: 1 }, held: { globalOn: false }, pending: [] });
+    expect(h.requests).toEqual([]); expect(next.service.getState().pendingUpload).toBe(true);
+    await next.service.signOut(); next.cache.watch()(); expect(h.subscriptions()).toBe(0);
+  });
+  it("same-account process restart preserves held explicit choices across a delayed nonempty canonical read", async () => {
+    const h = harness(); await h.cache.hydrate(); await h.service.onSignedIn(A); endLifetime(h.service, h.cache);
+    for (let i = 0; i < 65; i++) await h.cache.setGlobalOn(i % 2 !== 0);
+    const durable = (await h.storage.get())!; expect(durable.atomic!.held).toEqual({ globalOn: false });
+    const next = h.newLifetime(); await next.cache.hydrate(); const read = h.holdRead();
+    const resumed = next.service.resume(A, false); await read.started;
+    expect(next.cache.currentRecord().atomic!.scope).toEqual(durable.atomic!.scope);
+    expect(next.cache.currentRecord().atomic!.anchor).toEqual(durable.atomic!.anchor);
+    expect(next.cache.current().globalOn).toBe(false);
+    read.release(); await resumed;
+    expect(h.requests).toHaveLength(64);
+    expect(h.requests.map(r => (r as { writeId: string }).writeId)).toEqual(durable.atomic!.pending.map(p => p.writeId));
+    expect(next.cache.currentRecord().atomic).toMatchObject({ pending: [], held: { globalOn: false } });
+    expect(next.cache.current().globalOn).toBe(false);
+    await next.service.signOut(); next.cache.watch()(); expect(h.subscriptions()).toBe(0);
+  });
+  it.each([A, B])("64 retired operations cannot block a fresh action after actual sign-out and sign-in to %s", async account => {
+    const h = harness(); await h.cache.hydrate(); await h.service.onSignedIn(A); endLifetime(h.service, h.cache);
+    for (let i = 0; i < 64; i++) await h.cache.setGlobalOn(i % 2 !== 0);
+    const old = (await h.storage.get())!.atomic!; expect(old.pending).toHaveLength(64);
+    await h.service.signOut(); h.switchAccount(account); await h.service.onSignedIn(account);
+    expect(h.cache.currentRecord().atomic!.scope.generation).toBeGreaterThan(old.scope.generation);
+    expect(h.cache.currentRecord().atomic).toMatchObject({ pending: [], ownership: "previous-account" });
+    expect(h.requests).toEqual([]);
+    await h.cache.setService("youtube", false); await drain();
+    expect(h.requests).toHaveLength(1); expect(h.requests[0]).toMatchObject({ operations: [{ path: "services.youtube", value: false }] });
+    expect(old.pending.some(p => p.writeId === (h.requests[0] as { writeId: string }).writeId)).toBe(false);
+    expect(h.cache.currentRecord().atomic).toMatchObject({ pending: [], paused: null });
+    await h.service.signOut(); h.cache.watch()(); expect(h.subscriptions()).toBe(0);
+  });
+  it.each([false, true])("actual sign-out returning to A fences a delayed response (viaB=%s)", async viaB => {
+    const h = harness(); await h.cache.hydrate(); await h.service.onSignedIn(A);
+    const held = h.hold(); await h.cache.setGlobalOn(false); await held.started;
+    const old = h.cache.currentRecord().atomic!.scope;
+    await h.service.signOut();
+    if (viaB) { h.switchAccount(B); await h.service.onSignedIn(B); await h.service.signOut(); }
+    h.switchAccount(A); await h.service.onSignedIn(A); const before = await h.storage.get();
+    expect(before!.atomic!.scope.generation).toBeGreaterThan(old.generation);
+    held.release(); await drain(); expect(await h.storage.get()).toEqual(before);
+    expect(h.requests).toHaveLength(1); await h.service.signOut(); h.cache.watch()();
+  });
+
   it.each(["lineage", "revision", "future", "legacy", "field-base", "damaged"])("rejects %s canonical response without changing durable bytes", async variant => {
     const h = harness(); await h.cache.hydrate(); await h.service.onSignedIn(A); vi.useFakeTimers();
     try {
@@ -220,13 +299,12 @@ describe("existing SyncService and exact Supabase modern port", () => {
       const h = harness(owner, true); await h.cache.hydrate();
       await h.cache.setGlobalOn(false);
       for (const id of ["youtube", "instagram", "facebook", "tiktok"] as const) await h.cache.setService(id, false);
-      const prior = structuredClone((await h.storage.get())!.atomic!.pending);
       await h.service.onSignedIn(A);
       expect(h.settings().globalOn).toBe(true);
       expect(h.cache.current().globalOn).toBe(false);
       expect(Object.values(h.cache.current().services).every(on => !on)).toBe(true);
       expect(h.cache.currentRecord().atomic).toMatchObject({ paused: "ownership-hold", held: { globalOn: false, "services.youtube": false } });
-      expect((await h.storage.get())!.atomic!.pending).toEqual(prior);
+      expect((await h.storage.get())!.atomic!.pending).toEqual([]);
       expect((await h.storage.get())!.settings.globalOn).toBe(true);
       expect(h.requests).toEqual([]);
       await h.service.retryNow(); expect(h.requests).toEqual([]);
@@ -236,7 +314,7 @@ describe("existing SyncService and exact Supabase modern port", () => {
       expect(h.cache.currentRecord().atomic!.held).toEqual({});
       expect(h.cache.currentRecord().atomic!.paused).toBeNull();
       expect(h.requests).toEqual([]); // resolving a hold to the canonical value is no new edit
-      expect((await h.storage.get())!.atomic!.pending).toEqual(prior);
+      expect((await h.storage.get())!.atomic!.pending).toEqual([]);
       await h.service.signOut(); h.cache.watch()();
     }
   });

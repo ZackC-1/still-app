@@ -50,12 +50,13 @@ describe("existing cache and serialized complete-record authority", () => {
     const defaults = authority(); const baseline = await defaults.writer.initialize("unknown");
     await cache.acknowledgeAtomic({ ...canonical(baseline, 0), empty: true }, first);
     expect(cache.current().globalOn).toBe(false);
+    await cache.enterAtomicScope(null);
     const replacement = await cache.enterAtomicScope(account);
     await cache.acknowledgeAtomic(canonical(baseline, 1), replacement);
     expect(cache.current().globalOn).toBe(true);
     expect(cache.currentRecord().atomic).toMatchObject({ paused: null, held: {} });
   });
-  it("an undelivered old A generation stays durable and inactive after A-null-B-null-A", async () => {
+  it("an undelivered old A generation retires without replay after A-null-B-null-A", async () => {
     const h = authority(); await h.writer.initialize("unknown");
     const linked = await h.writer.enterScope(A); const row = canonical(linked, 1);
     await h.writer.acknowledge(row, linked.atomic!.scope);
@@ -65,7 +66,7 @@ describe("existing cache and serialized complete-record authority", () => {
     const current = await h.writer.enterScope(A);
     const resolved = await h.writer.acknowledge(row, current.atomic!.scope);
     expect(resolved.settings.globalOn).toBe(true);
-    expect(resolved.atomic!.pending).toEqual(original);
+    expect(resolved.atomic!.pending).toEqual([]);
     expect(pendingSettingsRequest(original[0]!, resolved.atomic!)).toBeNull();
   });
   it("bounded broker denies content hosts and malformed actions before allocation", async () => {
@@ -193,7 +194,7 @@ describe("existing cache and serialized complete-record authority", () => {
   it("a local action during empty-account adoption keeps earlier unknown-owner choices held", async () => {
     const h = authority(); await h.writer.initialize("unknown");
     const cache = new SettingsCache(h.port, { now: () => 10 }); await cache.hydrate();
-    await cache.setGlobalOn(false); const pending = (await h.storage.get())!.atomic!.pending;
+    await cache.setGlobalOn(false); const pending: never[] = [];
     const scope = await cache.enterAtomicScope(A); await cache.setService("youtube", false);
     const clean = authority(); const defaults = await clean.writer.initialize("unknown");
     await cache.acknowledgeAtomic({ ...canonical(defaults, 0), empty: true }, scope);
@@ -239,6 +240,82 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
     return { child, post, adapter: new WKWebViewStorageAdapter({ webkit: { messageHandlers: { still: { postMessage: post } } } }),
       async close() { lines.close(); if (child.exitCode === null && child.signalCode === null) { child.kill("SIGKILL"); await new Promise(r => child.once("exit", r)); } } };
   }
+
+  it.each([A, B])("TS and compiled native resume immutable eligible64, retire obsolete64 and admit current intent (%s)", async account => {
+    const h = authority(); await h.writer.initialize("unknown");
+    const native = host(join(temporary, "retirement-" + account));
+    const peer = host(join(temporary, "retirement-" + account));
+    const exercise = async (adapter: typeof h.port | WKWebViewStorageAdapter) => {
+      const initial = (await adapter.get())!; const linked = await adapter.enterScope(A);
+      await adapter.acknowledgeAtomic(canonical(initial, 1), linked.atomic!.scope);
+      for (let i = 0; i < 65; i++) await adapter.commitIntent({ path: "globalOn", value: i % 2 !== 0, updatedAt: 10 + i });
+      const before = (await adapter.get())!; const pending = structuredClone(before.atomic!.pending);
+      expect(pending).toHaveLength(64); expect(before.atomic!.held).toEqual({ globalOn: false });
+      const resumed = await adapter.enterScope(A);
+      expect(resumed).toEqual(before); // no epoch, anchor, rank, ID or held mutation on process resume
+      const acknowledged = await adapter.acknowledgeAtomic(canonical(initial, 1), resumed.atomic!.scope);
+      expect(acknowledged.atomic!.pending).toEqual(pending); expect(acknowledged.atomic!.held).toEqual({ globalOn: false });
+      expect(pending.map(p => pendingSettingsRequest(p, acknowledged.atomic!)).filter(Boolean)).toHaveLength(64);
+      const signedOut = await adapter.enterScope(null);
+      expect(signedOut.atomic!.pending).toEqual([]); expect(signedOut.atomic!.held).toEqual({ globalOn: false });
+      expect(signedOut.settings.globalOn).toBe(before.settings.globalOn);
+      const next = await adapter.enterScope(account);
+      expect(next.atomic!.scope.generation).toBeGreaterThan(before.atomic!.scope.generation);
+      const adopted = await adapter.acknowledgeAtomic(canonical(initial, 1), next.atomic!.scope);
+      expect(adopted.atomic!.held).toEqual({}); expect(adopted.atomic!.ownership).toBe("previous-account");
+      const fresh = await adapter.commitIntent({ path: "services.youtube", value: false, updatedAt: 100 });
+      expect(fresh.atomic!.pending).toHaveLength(1); expect(fresh.atomic!.paused).toBeNull();
+      const request = pendingSettingsRequest(fresh.atomic!.pending[0]!, fresh.atomic!)!;
+      expect(request.operations).toEqual([{ path: "services.youtube", value: false, baseRevision: 1, localStep: 1 }]);
+      expect(pending.some(p => p.writeId === request.writeId)).toBe(false);
+      expect(pending.map(p => pendingSettingsRequest(p, fresh.atomic!)).filter(Boolean)).toEqual([]);
+      return { scope: fresh.atomic!.scope, operations: request.operations, anchor: fresh.atomic!.anchor, held: fresh.atomic!.held,
+        paused: fresh.atomic!.paused, sequence: fresh.atomic!.sequence, settings: fresh.settings, ownership: fresh.atomic!.ownership };
+    };
+    try {
+      await native.post("seed");
+      const ts = await exercise(h.port); const swift = await exercise(peer.adapter);
+      expect(swift).toEqual(ts); expect((await native.adapter.get())!.atomic!.pending).toHaveLength(1);
+    } finally { await native.close(); await peer.close(); }
+  });
+  it("TS and compiled Swift ordering holds clear only after canonical matching choice and permit a new rank", async () => {
+    const h = authority(); const initial = await h.writer.initialize("unknown");
+    const scoped = await h.writer.enterScope(A); await h.writer.acknowledge(canonical(initial, 1), scoped.atomic!.scope);
+    const saved = (await h.storage.get())!; const settings = saved.settings as unknown as SettingsV2;
+    const saturated = { ...saved, settings: { ...settings, pauses: [], clocks: { ...settings.clocks, globalOn: { baseRevision: 1, localStep: MAX_SETTINGS_LOCAL_STEP } } } };
+    await h.storage.set(saturated); const native = host(join(temporary, "ordering-hold"));
+    try {
+      await native.post("replace:" + JSON.stringify(saturated));
+      for (const adapter of [h.port, native.adapter]) {
+        const held = await adapter.commitIntent({ path: "globalOn", value: false, updatedAt: 10 });
+        expect(held.atomic).toMatchObject({ paused: "ordering-hold", held: { globalOn: false }, pending: [] });
+        const canonicalSettings = { ...settings, globalOn: false, clocks: { ...settings.clocks, globalOn: { baseRevision: 2, localStep: 0 } } };
+        const acknowledged = await adapter.acknowledgeAtomic(canonical({ ...saved, settings: { ...canonicalSettings, pauses: [] } }, 2), scoped.atomic!.scope);
+        expect(acknowledged.atomic).toMatchObject({ paused: null, held: {}, pending: [] });
+        const committed = await adapter.commitIntent({ path: "globalOn", value: true, updatedAt: 11 });
+        expect(committed.atomic!.pending[0]!.operations).toEqual([{ path: "globalOn", value: true, baseRevision: 2, localStep: 1 }]);
+      }
+    } finally { await native.close(); }
+  });
+  it("already persisted obsolete generations retire on the TS and compiled native commit boundary", async () => {
+    const h = authority(); await h.writer.initialize("unknown"); const initial = (await h.storage.get())!;
+    const linked = await h.writer.enterScope(A); await h.writer.acknowledge(canonical(initial, 1), linked.atomic!.scope);
+    for (let i = 0; i < 64; i++) await h.writer.commit({ path: "globalOn", value: i % 2 !== 0, updatedAt: i + 10 });
+    const saved = (await h.storage.get())!;
+    const prior22b = { ...saved, atomic: { ...saved.atomic!, scope: { accountId: A, generation: saved.atomic!.scope.generation + 2 } } };
+    await h.storage.set(prior22b); const native = host(join(temporary, "persisted-retired"));
+    try {
+      await native.post("replace:" + JSON.stringify(prior22b));
+      for (const adapter of [h.port, native.adapter]) {
+        const current = await adapter.commitIntent({ path: "services.youtube", value: false, updatedAt: 100 });
+        expect(current.atomic!.pending).toHaveLength(1); expect(current.atomic!.paused).toBeNull();
+        expect(current.atomic!.pending[0]!.scope).toEqual(prior22b.atomic.scope);
+        expect(pendingSettingsRequest(current.atomic!.pending[0]!, current.atomic!)).not.toBeNull();
+        expect((current.settings as unknown as SettingsV2).clocks.globalOn).toEqual((saved.settings as unknown as SettingsV2).clocks.globalOn);
+        expect(saved.atomic!.pending.map(p => pendingSettingsRequest(p, current.atomic!)).filter(Boolean)).toEqual([]);
+      }
+    } finally { await native.close(); }
+  });
   it("two independent native hosts allocate distinct steps and preserve peer fields immediately", async () => {
     const directory = join(temporary, "parallel"); const first = host(directory), peer = host(directory);
     try {
@@ -331,6 +408,7 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
       await cache.setGlobalOn(false); const first = await cache.enterAtomicScope(A);
       await cache.acknowledgeAtomic({ ...canonical(baseline, 0), empty: true }, first);
       expect(cache.current().globalOn).toBe(false);
+      await cache.enterAtomicScope(null);
       const sameA = await cache.enterAtomicScope(A); await cache.acknowledgeAtomic(canonical(baseline, 1), sameA);
       expect(cache.current().globalOn).toBe(true); expect(cache.currentRecord().atomic!.held).toEqual({});
       await cache.setGlobalOn(false);
@@ -344,7 +422,7 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
       const laterA = await cache.enterAtomicScope(A);
       await cache.acknowledgeAtomic(canonical(baseline, 1), laterA);
       expect(cache.current().globalOn).toBe(true);
-      expect(cache.currentRecord().atomic!.pending).toEqual(original);
+      expect(cache.currentRecord().atomic!.pending).toEqual([]);
       expect(original.map(p => pendingSettingsRequest(p, cache.currentRecord().atomic!)).filter(Boolean)).toEqual([]);
     } finally { await native.close(); }
   });
@@ -471,7 +549,6 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
         const cache = new SettingsCache(native.adapter, { now: () => 10 }); await cache.hydrate();
         await cache.setGlobalOn(false);
         for (const id of ["youtube", "instagram", "facebook", "tiktok"] as const) await cache.setService(id, false);
-        const before = (await native.adapter.get())!;
         const scope = await cache.enterAtomicScope(A);
         // A new local choice while first account read is outstanding cannot erase the hold provenance.
         if (owner !== "never-linked") await cache.setGlobalOn(true);
@@ -484,7 +561,7 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
           expect(saved.atomic).toMatchObject({ paused: "ownership-hold", held: { "services.youtube": false } });
           expect(saved.atomic!.held.globalOn).toBeUndefined();
           expect(saved.settings.globalOn).toBe(true);
-          expect(saved.atomic!.pending).toEqual(before.atomic!.pending);
+          expect(saved.atomic!.pending).toEqual([]);
           expect(saved.atomic!.pending.map(p => pendingSettingsRequest(p, saved.atomic!)).filter(Boolean)).toEqual([]);
         } else {
           expect(saved.atomic!.held).toEqual({});

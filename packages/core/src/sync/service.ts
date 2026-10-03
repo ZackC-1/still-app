@@ -859,6 +859,8 @@ export class SyncService {
 
   private async reconcileAtomic(userId: string, lifecycle: number): Promise<ReconcileOutcome> {
     if (this.atomicScope === null) {
+      // The authority resumes the durable same-account scope after a process restart;
+      // sign-out persists null, so actual re-entry still advances its generation.
       const scope = await this.cache.enterAtomicScope(userId);
       if (lifecycle !== this.lifecycle || this.state.userId !== userId) return "abandoned";
       this.atomicScope = scope;
