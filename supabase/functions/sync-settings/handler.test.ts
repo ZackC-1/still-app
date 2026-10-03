@@ -213,3 +213,17 @@ Deno.test("forged future revision never becomes valid when canonical revision ca
   Object.assign(fx.row.anchor, { revision: 1 });
   assertEquals((await send(forged, fx.deps)).status, 409);
 });
+
+Deno.test("a winning operation preserves opaque supported-schema stamp members", async () => {
+  const initial = fixture();
+  const response = await send({ protocol: 2, action: "read" }, initial.deps);
+  const settings = (await response.json()).settings;
+  settings.updatedAt = 1;
+  settings.clocks.globalOn.futureStamp = { keep: true };
+  const fx = fixture(settings, 0);
+  fx.row.commit = (next) => {
+    assertEquals(next.clocks.globalOn.futureStamp, { keep: true });
+    return Promise.resolve();
+  };
+  assertEquals((await send(await operation(fx.row), fx.deps)).status, 200);
+});

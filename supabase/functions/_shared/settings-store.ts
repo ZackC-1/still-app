@@ -141,7 +141,11 @@ export function syncSettings(
             stamp: candidate.clocks[op.path],
           }, {
             value: op.value,
-            stamp: { baseRevision: op.baseRevision, localStep: op.localStep },
+            stamp: {
+              ...candidate.clocks[op.path],
+              baseRevision: op.baseRevision,
+              localStep: op.localStep,
+            },
           });
           assign(candidate, op.path, merged.value);
           (candidate.clocks as Record<string, unknown>)[op.path] = merged.stamp;
