@@ -8,13 +8,31 @@ export const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
 export function canonical(value) {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (value && typeof value === "object") {
-    return `{${Object.keys(value)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`)
-      .join(",")}}`;
+    return `{${
+      Object.keys(value)
+        .sort()
+        .map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`)
+        .join(",")
+    }}`;
   }
   return JSON.stringify(value);
 }
+
+// Exact shared-runtime closure imported by the settings endpoint and its maintained barrels.
+export const settingsRuntimeSources = Object.freeze([
+  "packages/shared-types/src/index.ts",
+  ...[
+    "rules",
+    "settings",
+    "entitlement",
+    "feature-registry",
+    "settings-v2",
+    "settings-operation",
+  ].map((name) => `packages/shared-types/src/${name}.ts`),
+  "packages/core/src/storage/settings-v2.ts",
+  "packages/core/src/sync/field-order.ts",
+  "packages/core/src/rules/canonical.ts",
+]);
 
 export const syntheticOperationIds = Object.freeze([
   "retain-security-boundary",
@@ -75,15 +93,17 @@ export async function createPlan(root, { revision, target }) {
     );
   }
   const paths = [];
-  for (const path of [
-    "supabase/migrations",
-    "supabase/functions",
-    "supabase/config.toml",
-    "scripts/backend",
-    "supabase/tests",
-    ".github/workflows/supabase-security-rehearsal.yml",
-    ".github/workflows/security-audit.yml",
-  ]) {
+  for (
+    const path of [
+      "supabase/migrations",
+      "supabase/functions",
+      "supabase/config.toml",
+      "scripts/backend",
+      "supabase/tests",
+      ".github/workflows/supabase-security-rehearsal.yml",
+      ".github/workflows/security-audit.yml",
+    ]
+  ) {
     paths.push(...(await filesUnder(root, path)));
   }
   // Older rehearsal callers retain their protocol. Once present, the apply source is bound too.
@@ -92,6 +112,17 @@ export async function createPlan(root, { revision, target }) {
     paths.push(...(await filesUnder(root, deploymentWorkflow)));
   } catch (error) {
     if (error.code !== "ENOENT") throw error;
+  }
+  if (paths.includes("supabase/functions/sync-settings/index.ts")) {
+    for (const path of settingsRuntimeSources) {
+      paths.push(...await filesUnder(root, path));
+    }
+    paths.push(
+      ...await filesUnder(
+        root,
+        ".github/workflows/supabase-settings-rehearsal.yml",
+      ),
+    );
   }
   const files = [];
   for (const path of paths.sort()) {
@@ -148,8 +179,9 @@ export async function createOperationPlan(
 ) {
   const artifact = await createPlan(root, { revision, target });
   validateSyntheticBaseline(baseline);
-  if (baseline.generation === syntheticOperationIds.length)
+  if (baseline.generation === syntheticOperationIds.length) {
     throw new Error("No remaining reviewed operation");
+  }
   const manifest = {
     protocol: 1,
     kind: "synthetic-exact-operation",

@@ -1,0 +1,72 @@
+name: Supabase settings rehearsal
+on:
+  pull_request:
+    paths:
+      - 'supabase/**'
+      - 'scripts/backend/**'
+      - 'packages/shared-types/src/**'
+      - 'packages/core/src/storage/settings-v2.ts'
+      - 'packages/core/src/sync/field-order.ts'
+      - 'packages/core/src/rules/canonical.ts'
+      - '.github/workflows/supabase-settings-rehearsal.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: supabase-settings-rehearsal-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  rehearsal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: '2.8.3'
+      - uses: supabase/setup-cli@v1
+        with:
+          version: '2.119.0'
+      - name: Parse candidate SQL and all PLpgSQL bodies
+        run: |
+          python3 -m venv "$RUNNER_TEMP/u3-parser"
+          "$RUNNER_TEMP/u3-parser/bin/python" -m pip install --disable-pip-version-check pglast==7.20
+          "$RUNNER_TEMP/u3-parser/bin/python" - <<'PY'
+          from pathlib import Path
+          from pglast import parse_sql, parse_plpgsql
+          source = Path('scripts/backend/sql/settings-sync-candidate.sql').read_text()
+          print('statements', len(parse_sql(source)), 'PLpgSQL', len(parse_plpgsql(source)))
+          PY
+      - name: Verify local source boundaries and actual root Deno configuration
+        run: |
+          node --test scripts/backend/plan.test.mjs scripts/backend/entrypoints.test.mjs
+          cd supabase/functions
+          deno check */index.ts
+          deno test
+          git show HEAD:supabase/functions/deno.lock > deno.lock
+      - name: Bind exact credential-free synthetic source
+        id: plan
+        run: |
+          test "$(supabase --version)" = '2.119.0'
+          test "$(deno --version | awk 'NR==1 {print $2}')" = '2.8.3'
+          revision=$(git rev-parse HEAD)
+          digest=$(node scripts/backend/plan.mjs create "$revision" synthetic-github-runner "$RUNNER_TEMP/u3-plan.json")
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "Synthetic settings target; revision $revision; source SHA-256 $digest" >> "$GITHUB_STEP_SUMMARY"
+      - name: Actual narrow SQL transaction and Supabase CLI packaging lifecycle
+        env:
+          REVISION: ${{ steps.plan.outputs.revision }}
+          PLAN_DIGEST: ${{ steps.plan.outputs.digest }}
+        run: bash scripts/backend/rehearse-settings.sh "$REVISION" "$PLAN_DIGEST"
+      - name: Failure and cancellation cleanup with absence readback
+        if: always()
+        run: |
+          supabase stop --project-id still-app --no-backup
+          test -z "$(docker ps -aq --filter label=com.supabase.cli.project=still-app)"
+          test -z "$(docker volume ls -q --filter label=com.supabase.cli.project=still-app)"

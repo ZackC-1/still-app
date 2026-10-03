@@ -212,3 +212,40 @@ positive/negative rehearsal and compatibility tests, then obtain a new exact own
 Resume only the reviewed remaining steps and verify final authorized/denied behavior. If the
 state or safe repair cannot be proven, leave apply unavailable and recover through the reviewed
 incident process. This contract makes no universally lossless rollback promise.
+
+## Settings server candidate
+
+`sql/settings-sync-candidate.sql` is unnumbered source for the authenticated `sync-settings`
+consumer. It keeps canonical profiles and private per-account HMAC identity locked in the same
+PostgreSQL transaction while the maintained WebCrypto verifier and shared preserving migrator
+and field ordering execute. `still_settings_writer` has helper/rate-limit EXECUTE only, no
+settings/entitlement table access or client membership. Production login/password configuration,
+migration numbering and deployment require the protected exact-operation workflow.
+
+The candidate retains the free authenticated legacy RPC return shape. Recognized coarse writes
+require an integer timestamp no later than server UTC and strictly newer than the previous
+projection. After accepted modern field intent, coarse writes require an upgraded client. Exact
+retained retries return current canonical state. Settings write identities retain their original
+JSON for 30 days within the settings domain; expired retries use their original stamps and cannot
+receive a new rank. Account deletion cascades anchors and identities. Unsupported/malformed
+canonical data produces a typed hold and is never treated as empty.
+
+The read-only `supabase-settings-rehearsal.yml` job starts Supabase only on an ephemeral hosted
+runner. It proves actual managed-owner ordinary-role denial and rollback, explicit synthetic
+administrator apply, private/narrow grants, authenticated SQL adapter operations and actual
+Supabase CLI function serve with function-specific import aliases. Runtime source outside
+`supabase/functions` is included in the immutable plan digest. EXIT and final workflow cleanup
+read back the targeted container/volume labels; passing normal cleanup does not prove the
+cancellation path unless cancellation was actually exercised.
+
+Local checks use `deno check --no-lock --config supabase/functions/deno.json
+supabase/functions/sync-settings/index.ts` and `deno test --no-lock --config
+supabase/functions/deno.json supabase/functions/sync-settings/handler.test.ts`. Parse both SQL and
+PL/pgSQL bodies with maintained `pglast` before publishing. Hosted checks use
+`bash scripts/backend/rehearse-settings.sh <exact revision> <source digest>` with a
+`$RUNNER_TEMP/u3-plan.json` created by `plan.mjs`. Never run Docker or a database on the owner's Mac.
+
+This candidate does not complete U2/U3/U4: browser/native atomic writers, session-generation
+fences, pending acknowledgement integration, same-account raw CAS repair, compiled native
+vectors and the effective access/proof resolver remain separate required integrations. Expanded
+client persistence stays unexposed until server compatibility protections and full reviews pass.

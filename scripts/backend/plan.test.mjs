@@ -4,10 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import {
-  createPlan,
-  verifyPlan,
   createOperationPlan,
+  createPlan,
+  settingsRuntimeSources,
   verifyOperationPlan,
+  verifyPlan,
 } from "./plan.mjs";
 
 async function fixture(t) {
@@ -160,11 +161,13 @@ test("exact operation binds artifact, observed baseline, run and recovery scope"
     baseline,
     digest: operation.digest,
   });
-  for (const changed of [
-    { ...baseline, runId: "124:1" },
-    { ...baseline, generation: 1 },
-    { ...baseline, securityBoundary: false },
-  ]) {
+  for (
+    const changed of [
+      { ...baseline, runId: "124:1" },
+      { ...baseline, generation: 1 },
+      { ...baseline, securityBoundary: false },
+    ]
+  ) {
     await assert.rejects(
       verifyOperationPlan(root, operation, {
         revision,
@@ -174,12 +177,14 @@ test("exact operation binds artifact, observed baseline, run and recovery scope"
       }),
     );
   }
-  for (const key of [
-    "artifactDigest",
-    "operations",
-    "expectedBaseline",
-    "sourceRevision",
-  ]) {
+  for (
+    const key of [
+      "artifactDigest",
+      "operations",
+      "expectedBaseline",
+      "sourceRevision",
+    ]
+  ) {
     await assert.rejects(
       verifyOperationPlan(
         root,
@@ -221,4 +226,37 @@ test("new deployment workflow bytes participate in the rehearsal and operation d
       digest: operation.digest,
     }),
   );
+});
+
+test("settings endpoint binds every shared runtime source and rejects source drift", async (t) => {
+  const root = await fixture(t);
+  await mkdir(join(root, "supabase/functions/sync-settings"), {
+    recursive: true,
+  });
+  await writeFile(
+    join(root, "supabase/functions/sync-settings/index.ts"),
+    "// settings entrypoint\n",
+  );
+  await writeFile(
+    join(root, ".github/workflows/supabase-settings-rehearsal.yml"),
+    "// settings workflow\n",
+  );
+  await assert.rejects(createPlan(root, { revision, target }));
+  for (const path of settingsRuntimeSources) {
+    await mkdir(join(root, path, ".."), { recursive: true });
+    await writeFile(join(root, path), "// maintained runtime\n");
+  }
+  const plan = await createPlan(root, { revision, target });
+  assert.deepEqual(
+    plan.files.filter((f) => f.path.startsWith("packages/")).map((f) => f.path)
+      .sort(),
+    [...settingsRuntimeSources].sort(),
+  );
+  for (const path of settingsRuntimeSources) {
+    await writeFile(join(root, path), "// changed runtime\n");
+    await assert.rejects(
+      verifyPlan(root, plan, { revision, target, digest: plan.digest }),
+    );
+    await writeFile(join(root, path), "// maintained runtime\n");
+  }
 });
