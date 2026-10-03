@@ -78,8 +78,8 @@ export class EntitlementCache {
   }
 
   async setEntitled(entitled: boolean): Promise<void> {
-    this.apply(entitled);
     await this.adapter.set(entitled);
+    this.apply(entitled);
   }
 
   private apply(entitled: boolean): void {
@@ -88,4 +88,3 @@ export class EntitlementCache {
     for (const listener of [...this.listeners]) listener(entitled);
   }
 }
-

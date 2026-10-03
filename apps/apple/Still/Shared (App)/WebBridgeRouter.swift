@@ -197,6 +197,9 @@ final class WebBridgeRouter {
       }
 
     case "signOut":
+      // Fence modern account rights before asynchronous identity cleanup. Existing independent
+      // Apple/local protected rights and all saved settings survive this scoped teardown.
+      let accessCleared = (try? { try entitlement.clearAccessAccount(); return true }()) ?? false
       // Clear display identity before yielding; delayed purchase cleanup must not clear a new
       // session's status after it has already signed in and published its record.
       accountSyncStatus.clear()
@@ -205,7 +208,7 @@ final class WebBridgeRouter {
       // Awaited before the ok for the same identity-transition reason as configurePurchases above.
       Task {
         await self.purchases.reset()
-        reply(Self.json(["ok": true]), nil)
+        reply(Self.json(["ok": true, "access": accessCleared ? "cleared" : "verification_required"]), nil)
       }
 
     case "analyticsContext":
@@ -231,7 +234,7 @@ final class WebBridgeRouter {
       }
       reply(Self.json(["ok": true]), nil)
 
-    case "setEntitlement", "getEntitlement":
+    case "setEntitlement", "getEntitlement", "getAccess":
       // Entitlement mirror: the web layer proposes its server-reconciled value (server lane);
       // EntitlementBridge routes it through StampPolicy (R13). Only the bundled web build reaches
       // this handler (the navigation lockdown in ViewController), the same trust boundary as

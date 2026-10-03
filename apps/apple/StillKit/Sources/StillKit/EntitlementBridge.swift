@@ -67,11 +67,16 @@ public struct EntitlementRecord: Codable, Equatable, Sendable {
 /// run in-memory with `swift test`.
 public final class SharedEntitlementStore {
   private let backing: SettingsBacking
+  private let coordinationAvailable: Bool
+  private let trust: AccessTrust
   private let encoder = JSONEncoder()
   private let decoder = JSONDecoder()
 
-  public init(backing: SettingsBacking) {
+  public init(backing: SettingsBacking, coordinationAvailable: Bool = true,
+              trust: AccessTrust = AccessTrust(environment: "production", keys: [])) {
     self.backing = backing
+    self.coordinationAvailable = coordinationAvailable
+    self.trust = trust
   }
 
   public func peek() -> EntitlementRecord? {
@@ -82,15 +87,122 @@ public final class SharedEntitlementStore {
   }
 
   public func save(_ record: EntitlementRecord) {
-    guard let data = try? encoder.encode(record) else { return }
-    backing.write(data)
+    _ = try? backing.transaction { data in data = try preserving(record, over: data) }
+  }
+
+  /// Policy and the record read/write share the actual cross-process lock. A stale host cannot
+  /// overwrite another process's independent rights/time/latches while publishing a legacy stamp.
+  func apply(_ proposed: EntitlementRecord, receipt: ReceiptStatus) {
+    _ = try? backing.transaction { data in
+      let current = data.flatMap { try? decoder.decode(EntitlementRecord.self, from: $0) }
+      if case .write(let record) = StampPolicy.decide(proposed: proposed, receipt: receipt, current: current) {
+        data = try preserving(record, over: data)
+      }
+    }
+  }
+
+  private func preserving(_ record: EntitlementRecord, over data: Data?) throws -> Data {
+    var object = try data.map { try JSONSerialization.jsonObject(with: $0) as? [String: Any] ?? { throw AccessProofFailure.invalid }() } ?? [:]
+    if let access = object["access"] { _ = try decodeAccess(access) }
+    object["entitled"] = record.entitled; object["updatedAt"] = record.updatedAt; object["source"] = record.source.rawValue
+    return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+  }
+
+  private func decodeAccess(_ object: Any) throws -> AccessCacheRecord {
+    let result = try decoder.decode(AccessCacheRecord.self, from: JSONSerialization.data(withJSONObject: object))
+    guard result.schema == 1, accessInteger(result.generation), result.accountId.map(accessUUID) ?? true,
+      result.rights.count <= 32, result.revocations.count <= 64,
+      result.rights.allSatisfy({ $0.envelope.utf8.count <= 6_144 && ($0.accountGeneration.map(accessInteger) ?? true) }),
+      result.revocations.allSatisfy({ accessUUID($0.right) && accessInteger($0.revision) }) else { throw AccessProofFailure.invalid }
+    return result
+  }
+
+  /// A complete scoped entitlement record commits before the caller can publish modern access.
+  /// No separate cache or lock is introduced. Throws preserve the original durable bytes.
+  private func transactionAccess<T>(_ body: (inout AccessCacheRecord) throws -> T) throws -> T {
+    guard coordinationAvailable else { throw AccessProofFailure.verificationRequired }
+    return try backing.transaction { data in
+      var object = try data.map { try JSONSerialization.jsonObject(with: $0) as? [String: Any] ?? { throw AccessProofFailure.invalid }() } ?? [:]
+      var record = try object["access"].map(decodeAccess) ?? AccessCacheRecord()
+      let result = try body(&record)
+      object["access"] = try JSONSerialization.jsonObject(with: encoder.encode(record))
+      data = try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
+      return result
+    }
+  }
+
+  public func changeAccessAccount(_ accountId: String?) throws -> AccessCacheRecord {
+    guard #available(macOS 10.15, *) else { throw AccessProofFailure.verificationRequired }
+    return try transactionAccess { record in
+      guard accountId.map(accessUUID) ?? true, record.generation < 9_007_199_254_740_991 else { throw AccessProofFailure.invalid }
+      record.accountId = accountId; record.generation += 1
+      record.rights = record.rights.filter {
+        guard let proof = try? VerifiedAccessProof.verify($0.envelope, trust: trust) else { return true }
+        return !proof.claims.isAccount
+      }
+      return record
+    }
+  }
+
+  /// Internal authoritative online lane only. This is not reachable from a raw extension request.
+  public func installAccess(_ proof: VerifiedAccessProof, generation: Int, issuerNow: Int, wall: Int,
+                            localRights: Set<String>) throws -> AccessCacheRecord {
+    guard #available(macOS 10.15, *) else { throw AccessProofFailure.verificationRequired }
+    return try transactionAccess { record in
+      let checked = try VerifiedAccessProof.verify(proof.envelope, trust: trust)
+      guard generation == record.generation, checked.matchesHolder(accountId: record.accountId, localRights: localRights),
+        !record.revocations.contains(where: { $0.right == checked.claims.right && $0.revision >= checked.claims.ownership_revision }) else { throw AccessProofFailure.invalid }
+      let existing = record.rights.compactMap { cached -> (CachedAccessRight, VerifiedAccessProof)? in
+        guard let value = try? VerifiedAccessProof.verify(cached.envelope, trust: trust) else { return nil }
+        return (cached, value)
+      }
+      let prior = existing.first { $0.1.claims.right == checked.claims.right }
+      if let prior {
+        guard checked.claims.ownership_revision >= prior.1.claims.ownership_revision, checked.claims.verified_at >= prior.1.claims.verified_at else { throw AccessProofFailure.invalid }
+        if checked.identity == prior.1.identity { return record }
+        guard checked.claims.verified_at > prior.1.claims.verified_at else { throw AccessProofFailure.invalid }
+      }
+      record.rights.removeAll { cached in existing.contains { $0.0 == cached && $0.1.claims.right == checked.claims.right } }
+      guard record.rights.count < 32 else { throw AccessProofFailure.invalid }
+      record.rights.append(CachedAccessRight(envelope: proof.envelope, clock: checked.claims.isPaid ? try PaidAccessClock.install(checked, issuerNow: issuerNow, wall: wall) : nil, accountGeneration: checked.claims.isAccount ? record.generation : nil))
+      return record
+    }
+  }
+
+  public func revokeAccess(right: String, revision: Int, generation: Int) throws -> AccessCacheRecord {
+    try transactionAccess { record in
+      guard accessUUID(right), accessInteger(revision), generation == record.generation else { throw AccessProofFailure.invalid }
+      let old = record.revocations.first { $0.right == right }
+      record.revocations.removeAll { $0.right == right }
+      guard old != nil || record.revocations.count < 64 else { throw AccessProofFailure.invalid }
+      record.revocations.append(AccessRevocation(right: right, revision: max(old?.revision ?? 0, revision)))
+      return record
+    }
+  }
+
+  public func observeAccess(wall: Int, runningEstimate: Int? = nil) throws -> (AccessCacheRecord, [ScopedAccessEvidence]) {
+    guard #available(macOS 10.15, *) else { throw AccessProofFailure.verificationRequired }
+    return try transactionAccess { record in
+      var evidence: [ScopedAccessEvidence] = []
+      for i in record.rights.indices {
+        guard let proof = try? VerifiedAccessProof.verify(record.rights[i].envelope, trust: trust) else { continue }
+        let revoked = (proof.claims.isAccount && record.rights[i].accountGeneration != record.generation) || record.revocations.contains { $0.right == proof.claims.right && $0.revision >= proof.claims.ownership_revision }
+        if revoked { record.rights[i].clock?.revoked = true }
+        let valid = record.rights[i].clock?.observe(proof, wall: wall, runningEstimate: runningEstimate) ?? false
+        evidence.append(ScopedAccessEvidence(proof: proof, validPaid: valid, revoked: revoked))
+      }
+      return (record, evidence)
+    }
   }
 
   /// The production store in the shared App Group container, falling back to in-memory when the
   /// App Group isn't provisioned (same degradation as SharedSettingsStore.appGroup()).
   public static func appGroup(_ identifier: String = StillAppGroup.identifier) -> SharedEntitlementStore {
-    SharedEntitlementStore(
-      backing: AppGroupBacking(appGroupId: identifier, key: "still:entitlement") ?? InMemoryBacking())
+    guard let directory = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier),
+      let legacy = AppGroupBacking(appGroupId: identifier, key: "still:entitlement") else {
+      return SharedEntitlementStore(backing: InMemoryBacking(), coordinationAvailable: false)
+    }
+    return SharedEntitlementStore(backing: AtomicSettingsBacking(directory: directory, name: "still-entitlement", legacyRead: { legacy.read() }))
   }
 }
 
@@ -128,6 +240,7 @@ extension EntitlementReplyEnvelope: Encodable {
 /// A decoded entitlement bridge request.
 public enum EntitlementRequest: Equatable, Sendable {
   case get
+  case getAccess
   case set(entitled: Bool)
 
   /// Parse a raw message body into a request; nil means "not an entitlement message" so hosts can
@@ -135,6 +248,9 @@ public enum EntitlementRequest: Equatable, Sendable {
   public static func parse(_ body: Any) -> EntitlementRequest? {
     guard let dict = body as? [String: Any], let kind = dict["kind"] as? String else { return nil }
     switch kind {
+    case "getAccess":
+      guard dict.count == 1 else { return nil }
+      return .getAccess
     case "getEntitlement":
       return .get
     case "setEntitlement":
@@ -181,6 +297,13 @@ public struct EntitlementBridge {
 
   public func handle(_ request: EntitlementRequest) -> String {
     switch request {
+    case .getAccess:
+      do {
+        let record = try store.observeAccess(wall: now()).0
+        let access = try JSONSerialization.jsonObject(with: JSONEncoder().encode(record))
+        let data = try JSONSerialization.data(withJSONObject: ["ok": true, "record": access], options: [.sortedKeys])
+        return String(data: data, encoding: .utf8) ?? "{\"ok\":false}"
+      } catch { return "{\"ok\":false}" }
     case .get:
       return Self.encode(EntitlementReplyEnvelope(installId: installId(), record: store.peek()))
     case .set(let entitled):
@@ -212,13 +335,15 @@ public struct EntitlementBridge {
     return store.peek()
   }
 
+  /// Actual account teardown calls this before yielding to provider identity cleanup. Local
+  /// protection/Apple rights remain; old account responses cannot reinstall under this generation.
+  public func clearAccessAccount() throws {
+    guard !readOnly else { throw AccessProofFailure.verificationRequired }
+    _ = try store.changeAccessAccount(nil)
+  }
+
   private func apply(proposed: EntitlementRecord) {
-    switch StampPolicy.decide(proposed: proposed, receipt: receiptStatus(), current: store.peek()) {
-    case .write(let record):
-      store.save(record)
-    case .drop:
-      break
-    }
+    store.apply(proposed, receipt: receiptStatus())
   }
 
   /// Parse + handle in one call; nil when the body isn't an entitlement request.

@@ -6,9 +6,12 @@ export type {
 } from "./cache.js";
 export { EntitlementCache } from "./cache.js";
 export { InMemoryEntitlementAdapter } from "./adapter.js";
+export * from "./access-proof.js";
+export * from "./access-policy.js";
+export * from "./access-record.js";
+export { createEntitlementMessageRouter } from "./messages.js";
 export {
   ChromeEntitlementAdapter,
   ENTITLEMENT_CACHE_TTL_MS,
   entitlementStampExpired,
 } from "./chrome-adapter.js";
-

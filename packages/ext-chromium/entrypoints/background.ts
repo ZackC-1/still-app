@@ -1,7 +1,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { browser } from "wxt/browser";
 import { SettingsCache, ChromeStorageAdapter, createSettingsIntentRouter } from "@still/core/storage";
-import { ChromeEntitlementAdapter } from "@still/core/entitlement";
+import { ChromeEntitlementAdapter, createEntitlementMessageRouter } from "@still/core/entitlement";
 import {
   isServiceEnabledGlobally,
   createRuleSetRefresher,
@@ -50,6 +50,8 @@ import { createBackgroundAnalytics, storageKeyValue } from "../lib/analytics.js"
 const RULESET_ID = "youtube-shorts-redirect";
 
 export default defineBackground(() => {
+  const entitlements = new ChromeEntitlementAdapter(Date.now, { authority: true });
+  chrome.runtime.onMessage.addListener(createEntitlementMessageRouter(entitlements, chrome.runtime.id, chrome.runtime.getURL("")));
   const refreshRuleSet = createRuleSetRefresher({
     prod: import.meta.env.PROD,
     url: import.meta.env.VITE_SUPABASE_URL as string | undefined,
@@ -77,7 +79,7 @@ export default defineBackground(() => {
   const cache = new SettingsCache(settingsAuthority);
   cache.watch();
   const hydrated = cache.hydrate();
-  const spine = createSessionSpine(cache);
+  const spine = createSessionSpine(cache, entitlements);
   const session = spine?.session ?? null;
 
   // Registered in the background's first synchronous pass: onInstalled fires once, early, on a
@@ -179,6 +181,7 @@ export default defineBackground(() => {
  */
 function createSessionSpine(
   cache: SettingsCache,
+  entitlements: ChromeEntitlementAdapter,
 ): { session: ExtensionSession; client: SupabaseClient } | null {
   const config = extensionSupabaseConfig(
     import.meta.env.VITE_SUPABASE_URL as string | undefined,
@@ -219,7 +222,7 @@ function createSessionSpine(
   const session = createExtensionSession({
     auth,
     backend,
-    records: new ChromeEntitlementAdapter(),
+    records: entitlements,
     sync: new SyncService(cache, auth, backend, undefined, identity),
     identity,
     stores: createSessionStores(),

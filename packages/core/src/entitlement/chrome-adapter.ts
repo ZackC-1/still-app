@@ -1,7 +1,19 @@
 import type { EntitlementAdapter, EntitlementRecord, EntitlementRecordStore } from "./cache.js";
 import { recordMatchesSession } from "./cache.js";
+import { mutateAccessRecord, parseAccessCacheRecord, type AccessMutation, type AccessCacheRecord } from "./access-record.js";
+import { isAccessUUID, type AccessTrust } from "./access-proof.js";
+import type { ScopedAccessEvidence } from "./access-policy.js";
 
 const STORAGE_KEY = "still:entitlement";
+const NO_ACCESS_TRUST: AccessTrust = { environment: "production", keys: [] };
+// One background writer per storage area. Distinct authority instances in that background share
+// the same queue; popup/content instances must use the runtime broker instead of get/set CAS.
+const queues = new WeakMap<object, Promise<unknown>>();
+
+export interface EntitlementAuthorityOptions {
+  readonly authority?: boolean;
+  readonly trust?: AccessTrust;
+}
 
 /**
  * Offline TTL for a cached entitlement (monetization plan P1). A stored entitled flag is honored for
@@ -38,7 +50,7 @@ interface StoredEntitlement {
 // session); on Chromium the extension session writes it from an authenticated reconcile.
 export class ChromeEntitlementAdapter implements EntitlementAdapter, EntitlementRecordStore {
   /** Clock injection point so tests can exercise TTL expiry deterministically. */
-  constructor(private readonly now: () => number = Date.now) {}
+  constructor(private readonly now: () => number = Date.now, private readonly options: EntitlementAuthorityOptions = {}) {}
 
   async get(): Promise<boolean | null> {
     return (await this.readFresh())?.entitled ?? null;
@@ -59,10 +71,60 @@ export class ChromeEntitlementAdapter implements EntitlementAdapter, Entitlement
    * rewrite from a reconcile still refreshes the TTL (R7), and an explicit `entitled: false`
    * write reaches subscribers via storage-change events (teardown never removes the key). */
   async setRecord(record: EntitlementRecord): Promise<void> {
-    const { entitled, userId, updatedAt } = record;
-    await chrome.storage.local.set({
-      [STORAGE_KEY]: userId === undefined ? { entitled, updatedAt } : { entitled, userId, updatedAt },
+    if (!this.options.authority) {
+      const reply: unknown = await chrome.runtime.sendMessage({ kind: "setEntitlementRecord", record });
+      if (!reply || typeof reply !== "object" || (reply as { ok?: unknown }).ok !== true) throw new Error("Entitlement authority unavailable");
+      return;
+    }
+    await this.serialize(async () => {
+      const value: unknown = (await chrome.storage.local.get(STORAGE_KEY))[STORAGE_KEY];
+      if (value !== undefined && (!value || typeof value !== "object" || Array.isArray(value))) throw new Error("Unreadable entitlement record");
+      const stored = (value ?? {}) as Record<string, unknown>;
+      let access = stored.access;
+      if (access !== undefined) {
+        const current = parseAccessCacheRecord(access); // corrupt stronger state never becomes fresh
+        const accountId = isAccessUUID(record.userId) ? record.userId : null;
+        if ((record.userId !== undefined || !record.entitled) && current.accountId !== accountId) {
+          access = (await mutateAccessRecord(current, { kind: "account", accountId }, this.options.trust ?? NO_ACCESS_TRUST)).record;
+        }
+      }
+      const { entitled, userId, updatedAt } = record;
+      const next: Record<string, unknown> = { ...stored, entitled, updatedAt, ...(access === undefined ? {} : { access }) };
+      if (userId === undefined) delete next.userId;
+      else next.userId = userId;
+      if (new TextEncoder().encode(JSON.stringify(next)).length > 131_072) throw new Error("Access record full");
+      await chrome.storage.local.set({ [STORAGE_KEY]: next });
     });
+  }
+
+  /** The background owns proof installation/association/revocation. No raw runtime message can
+   * supply these commands, a trust bundle, issuer time, or a paid flag. */
+  async mutateAccess(mutation: AccessMutation): Promise<{ readonly record: AccessCacheRecord; readonly evidence: readonly ScopedAccessEvidence[] }> {
+    if (!this.options.authority) throw new Error("Entitlement write requires background authority");
+    return this.serialize(async () => {
+      const value: unknown = (await chrome.storage.local.get(STORAGE_KEY))[STORAGE_KEY];
+      if (value !== undefined && (!value || typeof value !== "object" || Array.isArray(value))) throw new Error("Unreadable entitlement record");
+      const stored = (value ?? {}) as Record<string, unknown>;
+      const current = parseAccessCacheRecord(stored.access);
+      const next = await mutateAccessRecord(current, mutation, this.options.trust ?? NO_ACCESS_TRUST);
+      if (new TextEncoder().encode(JSON.stringify({ ...stored, access: next.record })).length > 131_072) throw new Error("Access record full");
+      await chrome.storage.local.set({ [STORAGE_KEY]: { ...stored, access: next.record } });
+      return next; // publish only after durable commit; storage failure leaves prior state authoritative
+    });
+  }
+
+  async observeAccess(): Promise<AccessCacheRecord> {
+    if (this.options.authority) return (await this.mutateAccess({ kind: "observe", observation: { wall: this.now() } })).record;
+    const reply: unknown = await chrome.runtime.sendMessage({ kind: "observeAccess" });
+    if (!reply || typeof reply !== "object" || (reply as { ok?: unknown }).ok !== true) throw new Error("Entitlement authority unavailable");
+    return parseAccessCacheRecord((reply as { record?: unknown }).record);
+  }
+
+  private serialize<T>(body: () => Promise<T>): Promise<T> {
+    const area = chrome.storage.local;
+    const next = (queues.get(area) ?? Promise.resolve()).then(body);
+    queues.set(area, next.catch(() => undefined));
+    return next;
   }
 
   subscribe(listener: (entitled: boolean) => void): () => void {
