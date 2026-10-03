@@ -52,6 +52,19 @@ describe("existing cache and serialized complete-record authority", () => {
     expect(await writer[operation](replacementAccount)).toEqual(replacementAccount);
     expect((await storage.get()) as typeof current).toHaveProperty("opaque", { preserved: true });
   });
+  it.each(["ordinary", "generation", "sequence", "epoch"] as const)("never-linked null scope preserves the complete Off record at %s bounds", async bound => {
+    const h = authority(); await h.writer.initialize("never-linked");
+    await h.writer.commit({ path: "globalOn", value: false, updatedAt: 10 });
+    const saved = (await h.storage.get())!;
+    const record = { ...saved, futureRoot: { retained: false }, syncEpoch: bound === "epoch" ? Number.MAX_SAFE_INTEGER : saved.syncEpoch,
+      atomic: { ...saved.atomic!, futureState: { retained: true }, sequence: bound === "sequence" ? Number.MAX_SAFE_INTEGER : saved.atomic!.sequence,
+        scope: { ...saved.atomic!.scope, generation: bound === "generation" ? Number.MAX_SAFE_INTEGER : saved.atomic!.scope.generation } } };
+    await h.storage.set(record); const before = JSON.stringify(await h.storage.get());
+    const write = vi.spyOn(h.storage, "set");
+    expect(JSON.stringify(await h.writer.enterScope(null))).toBe(before);
+    expect(JSON.stringify(await h.storage.get())).toBe(before); expect(write).not.toHaveBeenCalled();
+    expect(record.atomic.pending[0]!.operations).toEqual([{ path: "globalOn", value: false, baseRevision: 0, localStep: 1 }]);
+  });
   it("a pre-anchor hold resolves after acknowledgement and a deliberate later edit", async () => {
     const h = authority(); await h.writer.initialize("never-linked");
     const linked = await h.writer.enterScope(A);
@@ -259,6 +272,48 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
     return { child, post, adapter: new WKWebViewStorageAdapter({ webkit: { messageHandlers: { still: { postMessage: post } } } }),
       async close() { lines.close(); if (child.exitCode === null && child.signalCode === null) { child.kill("SIGKILL"); await new Promise(r => child.once("exit", r)); } } };
   }
+
+  it("TS and compiled native preserve never-linked null scope bytes and original Off intent until acknowledgement", async () => {
+    const h = authority(); const baseline = await h.writer.initialize("never-linked");
+    await h.writer.commit({ path: "globalOn", value: false, updatedAt: 10 });
+    const saved = (await h.storage.get())!;
+    const original = structuredClone(saved.atomic!.pending[0]!);
+    const native = host(join(temporary, "never-linked-null"));
+    try {
+      for (const bound of ["ordinary", "generation", "sequence", "epoch"] as const) {
+        const record = { ...saved, futureRoot: { retained: false }, syncEpoch: bound === "epoch" ? Number.MAX_SAFE_INTEGER : saved.syncEpoch,
+          atomic: { ...saved.atomic!, futureState: { retained: true }, sequence: bound === "sequence" ? Number.MAX_SAFE_INTEGER : saved.atomic!.sequence,
+            scope: { ...saved.atomic!.scope, generation: bound === "generation" ? Number.MAX_SAFE_INTEGER : saved.atomic!.scope.generation } } };
+        const bytes = JSON.stringify(record, null, 2); await h.storage.set(record); await native.post("replace:" + JSON.stringify(record));
+        // The host replacement is one line; whitespace is covered independently by StillKit.
+        const nativeBytes = await native.post({ kind: "get" });
+        expect(await h.writer.enterScope(null)).toEqual(record); expect(await native.adapter.enterScope(null)).toEqual(record);
+        expect(await native.post({ kind: "get" })).toBe(nativeBytes);
+        expect(JSON.stringify(await h.storage.get(), null, 2)).toBe(bytes);
+      }
+      for (const ownership of ["unknown", "previous-account"] as const) {
+        const unowned = { ...saved, atomic: { ...saved.atomic!, ownership } };
+        await h.storage.set(unowned); await native.post("replace:" + JSON.stringify(unowned));
+        for (const adapter of [h.port, native.adapter]) {
+          const retired = await adapter.enterScope(null);
+          expect(retired.settings).toEqual(saved.settings); expect(retired.atomic!.pending).toEqual([]);
+          expect(retired.atomic!.scope.generation).toBe(saved.atomic!.scope.generation + 1);
+          expect(pendingSettingsRequest(original, retired.atomic!)).toBeNull();
+        }
+      }
+      await h.storage.set(saved); await native.post("replace:" + JSON.stringify(saved));
+      for (const adapter of [h.port, native.adapter]) {
+        await adapter.enterScope(null); const linked = await adapter.enterScope(A, SESSION);
+        expect(linked.atomic!.pending[0]).toMatchObject({ writeId: original.writeId, operations: original.operations, receipt: original.receipt,
+          originScope: original.scope, scope: linked.atomic!.scope });
+        const waiting = await adapter.acknowledgeAtomic(canonical(baseline, 0), linked.atomic!.scope);
+        expect(waiting.settings.globalOn).toBe(false);
+        expect(waiting.atomic!.pending[0]).toMatchObject({ writeId: original.writeId, operations: original.operations });
+        const accepted = await adapter.acknowledgeAtomic(canonical(waiting, 1), linked.atomic!.scope);
+        expect(accepted.settings.globalOn).toBe(false); expect(accepted.atomic!.pending).toEqual([]);
+      }
+    } finally { await native.close(); }
+  });
 
   it("TS and independent native hosts require session provenance and fence a new login for the same UUID", async () => {
     const h = authority(); const baseline = await h.writer.initialize("unknown");

@@ -22,6 +22,49 @@ final class AtomicSettingsTests: XCTestCase {
         "serverUpdatedAt": NSNull(), "lastWriteId": NSNull(), "lineage": lineage,
         "receipt": ["version": 1, "lineage": lineage, "revision": 0, "mac": String(repeating: "A", count: 43)]]])
   }
+  func testNeverLinkedNullScopeRetainsRawOffRecordAtAllBounds() throws {
+    let initial = try JSONEncoder().encode(StoredSettingsRecord(settings: StillSettings(globalOn: true, services: StillServices(), pauses: [], updatedAt: 1), syncMetadata: nil))
+    let baseline = try AtomicSettingsRecord.initialize(initial, ownership: "never-linked")
+    let saved = try AtomicSettingsRecord.commit(baseline, path: "globalOn", value: false, updatedAt: 10).data
+    let nullScope = Data("{\"action\":\"scope\",\"accountId\":null}".utf8)
+    for bound in ["ordinary", "generation", "sequence", "epoch"] {
+      var record = try root(saved); var state = try XCTUnwrap(record["atomic"] as? [String: Any])
+      var scope = try XCTUnwrap(state["scope"] as? [String: Any])
+      record["futureRoot"] = ["retained": false]; state["futureState"] = ["retained": true]
+      if bound == "generation" { scope["generation"] = 9_007_199_254_740_991 }
+      if bound == "sequence" { state["sequence"] = 9_007_199_254_740_991 }
+      if bound == "epoch" { record["syncEpoch"] = 9_007_199_254_740_991 }
+      state["scope"] = scope; record["atomic"] = state
+      let raw = try JSONSerialization.data(withJSONObject: record, options: [.prettyPrinted, .sortedKeys])
+      let backing = AtomicSettingsBacking(directory: try directory()); try backing.transaction { $0 = raw }
+      let store = SharedSettingsStore(backing: backing)
+      XCTAssertEqual(try AtomicSettingsRecord.command(raw, command: nullScope), raw, bound)
+      _ = try store.atomicCommand(nullScope)
+      XCTAssertEqual(try store.readCommittedRecord(), raw, bound)
+      XCTAssertFalse(store.current().globalOn)
+      let invalid = Data("{\"action\":\"scope\",\"accountId\":null,\"sessionId\":\"cccccccc-cccc-cccc-cccc-cccccccccccc\"}".utf8)
+      XCTAssertThrowsError(try AtomicSettingsRecord.command(raw, command: invalid))
+    }
+    let originalState = try XCTUnwrap(root(saved)["atomic"] as? [String: Any])
+    let original = try XCTUnwrap((originalState["pending"] as? [[String: Any]])?.first)
+    let linked = try AtomicSettingsRecord.command(AtomicSettingsRecord.command(saved, command: nullScope), command: Data("{\"action\":\"scope\",\"accountId\":\"11111111-1111-1111-1111-111111111111\",\"sessionId\":\"cccccccc-cccc-cccc-cccc-cccccccccccc\"}".utf8))
+    let linkedState = try XCTUnwrap(root(linked)["atomic"] as? [String: Any])
+    let captured = try XCTUnwrap(linkedState["scope"])
+    var command = try root(acknowledgement(XCTUnwrap(root(baseline)["settings"]), scope: captured))
+    var envelope = try XCTUnwrap(command["envelope"] as? [String: Any]); envelope["empty"] = false; command["envelope"] = envelope
+    let waiting = try AtomicSettingsRecord.command(linked, command: JSONSerialization.data(withJSONObject: command))
+    let waitingRoot = try root(waiting); let waitingState = try XCTUnwrap(waitingRoot["atomic"] as? [String: Any])
+    let pending = try XCTUnwrap((waitingState["pending"] as? [[String: Any]])?.first)
+    XCTAssertEqual(pending["writeId"] as? String, original["writeId"] as? String)
+    XCTAssertEqual(pending["operations"] as? NSArray, original["operations"] as? NSArray)
+    XCTAssertEqual(pending["originScope"] as? NSDictionary, original["scope"] as? NSDictionary)
+    XCTAssertEqual((waitingRoot["settings"] as? [String: Any])?["globalOn"] as? Bool, false)
+    envelope["settings"] = waitingRoot["settings"]; command["envelope"] = envelope
+    let accepted = try root(AtomicSettingsRecord.command(waiting, command: JSONSerialization.data(withJSONObject: command)))
+    XCTAssertEqual(((accepted["atomic"] as? [String: Any])?["pending"] as? [Any])?.count, 0)
+    XCTAssertEqual((accepted["settings"] as? [String: Any])?["globalOn"] as? Bool, false)
+  }
+
   func testSameAccountResumeKeepsCompleteRecordAndExplicitSignoutFencesIt() throws {
     let dir = try directory(); let store = SharedSettingsStore(backing: AtomicSettingsBacking(directory: dir)); try seed(store)
     let account = "11111111-1111-1111-1111-111111111111"
