@@ -28,7 +28,8 @@ public enum AtomicSettingsRecord {
     }
     return false
   }
-  private static func keyCollision(_ value: Any) -> Bool {
+  // Schema-independent raw Foundation check, also reused before entitlement conversion.
+  static func keyCollision(_ value: Any) -> Bool {
     if let dictionary = value as? NSDictionary {
       var keys = Set<String>()
       for raw in dictionary.allKeys {

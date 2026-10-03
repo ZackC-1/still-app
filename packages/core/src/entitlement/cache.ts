@@ -63,6 +63,7 @@ export class EntitlementCache {
   private accessTimer: ReturnType<typeof setTimeout> | null = null;
   private accessWatching = false;
   private accessScheduled = false;
+  private accessRetryDelay: number | null = null;
   private unwatch: (() => void) | null = null;
 
   constructor(
@@ -95,6 +96,7 @@ export class EntitlementCache {
       this.accessUnwatch?.(); this.accessUnwatch = null;
       if (this.accessTimer !== null) clearTimeout(this.accessTimer);
       this.accessTimer = null;
+      this.accessRetryDelay = null;
       this.unwatch?.();
       this.unwatch = null;
     };
@@ -116,7 +118,8 @@ export class EntitlementCache {
     // This is cache freshness only; the authoritative persisted paid clock stays in its writer.
     if (Date.now() >= this.accessRefreshDeadline || Date.now() < this.accessObservedWall) {
       this.accessRefreshDeadline = Infinity;
-      this.holdAccess(); this.scheduleAccess();
+      this.holdAccess();
+      if (this.accessRetryDelay === null) this.scheduleAccess();
     }
     return this.accessSnapshot;
   }
@@ -130,16 +133,26 @@ export class EntitlementCache {
     if (this.accessFlight) return this.accessFlight;
     if (!this.modernPaidMode || !this.adapter.observeBenefits) return Promise.resolve(this.accessSnapshot);
     const epoch = this.accessEpoch;
+    // A relative freshness interval cannot start over after transport has consumed it.
+    const startedWall = Date.now();
     const controller = new AbortController(); this.accessAbort = controller;
     const operation = this.adapter.observeBenefits(controller.signal).then(parseBenefitAccessSnapshot).then(value => {
       if (epoch === this.accessEpoch) {
-        this.accessObservedWall = Date.now();
-        this.accessRefreshDeadline = value.refreshAfterMs === null ? Infinity : this.accessObservedWall + value.refreshAfterMs;
+        const deadline = value.refreshAfterMs === null ? Infinity : startedWall + value.refreshAfterMs;
+        if (Date.now() < startedWall || Date.now() >= deadline) throw new Error("Access observation expired");
+        this.accessObservedWall = startedWall;
+        this.accessRefreshDeadline = deadline;
+        this.accessRetryDelay = null;
         this.applyAccess(value);
       }
       return this.accessSnapshot;
-    }, () => {
-      if (epoch === this.accessEpoch) this.holdAccess();
+    }).catch(() => {
+      if (epoch === this.accessEpoch) {
+        // Recovery cadence is independent of a successful near-expiry snapshot's 1 ms TTL.
+        this.accessRetryDelay = 60_000;
+        this.accessRefreshDeadline = Infinity;
+        this.holdAccess();
+      }
       return this.accessSnapshot;
     });
     const flight = operation.finally(() => {
@@ -155,6 +168,10 @@ export class EntitlementCache {
 
   private invalidateAccess(): void {
     this.accessEpoch++;
+    this.accessRetryDelay = null;
+    if (this.accessTimer !== null) clearTimeout(this.accessTimer);
+    this.accessTimer = null;
+    this.accessRefreshDeadline = Infinity;
     this.holdAccess(false);
     this.scheduleAccess();
   }
@@ -169,7 +186,8 @@ export class EntitlementCache {
   private armAccessTimer(): void {
     if (this.accessTimer !== null) clearTimeout(this.accessTimer);
     this.accessTimer = null;
-    const delay = this.accessSnapshot.refreshAfterMs;
+    const delay = this.accessRetryDelay ?? (this.accessSnapshot.refreshAfterMs === null ? null :
+      Math.max(0, this.accessRefreshDeadline - Date.now()));
     if (delay === null) return;
     this.accessTimer = setTimeout(() => { this.accessTimer = null; void this.refreshAccess(); }, delay);
   }
