@@ -3,7 +3,12 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { createPlan, verifyPlan } from "./plan.mjs";
+import {
+  createPlan,
+  verifyPlan,
+  createOperationPlan,
+  verifyOperationPlan,
+} from "./plan.mjs";
 
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "still-backend-plan-"));
@@ -48,7 +53,10 @@ test("plan binds actual bytes, target, revision and operation scope", async (t) 
   const plan = await createPlan(root, { revision, target });
   assert.equal(plan.kind, "rehearsal");
   assert.equal(plan.productionApplyAvailable, false);
-  assert.deepEqual(plan.migrations.map((m) => m.id), ["0001"]);
+  assert.deepEqual(
+    plan.migrations.map((m) => m.id),
+    ["0001"],
+  );
   assert.equal(plan.files.length, 7);
   await verifyPlan(root, plan, { revision, target, digest: plan.digest });
   await assert.rejects(
@@ -114,11 +122,103 @@ test("tampered operations or digest never verify, and production target is unava
   const root = await fixture(t);
   const plan = await createPlan(root, { revision, target });
   await assert.rejects(
-    verifyPlan(root, { ...plan, productionApplyAvailable: true }, {
-      revision,
-      target,
-      digest: plan.digest,
-    }),
+    verifyPlan(
+      root,
+      { ...plan, productionApplyAvailable: true },
+      {
+        revision,
+        target,
+        digest: plan.digest,
+      },
+    ),
   );
   await assert.rejects(createPlan(root, { revision, target: "production" }));
+});
+
+const baseline = {
+  kind: "synthetic-sql-fixture",
+  target,
+  runId: "123:1",
+  generation: 0,
+  securityBoundary: true,
+  completed: [],
+};
+
+test("exact operation binds artifact, observed baseline, run and recovery scope", async (t) => {
+  const root = await fixture(t);
+  const operation = await createOperationPlan(root, {
+    revision,
+    target,
+    baseline,
+  });
+  assert.equal(operation.kind, "synthetic-exact-operation");
+  assert.equal(operation.productionApplyAvailable, false);
+  assert.equal(operation.expectedBaseline.generation, 0);
+  await verifyOperationPlan(root, operation, {
+    revision,
+    target,
+    baseline,
+    digest: operation.digest,
+  });
+  for (const changed of [
+    { ...baseline, runId: "124:1" },
+    { ...baseline, generation: 1 },
+    { ...baseline, securityBoundary: false },
+  ]) {
+    await assert.rejects(
+      verifyOperationPlan(root, operation, {
+        revision,
+        target,
+        baseline: changed,
+        digest: operation.digest,
+      }),
+    );
+  }
+  for (const key of [
+    "artifactDigest",
+    "operations",
+    "expectedBaseline",
+    "sourceRevision",
+  ]) {
+    await assert.rejects(
+      verifyOperationPlan(
+        root,
+        { ...operation, [key]: "tampered" },
+        { revision, target, baseline, digest: operation.digest },
+      ),
+    );
+  }
+  await assert.rejects(
+    createOperationPlan(root, { revision, target, baseline: undefined }),
+  );
+  await assert.rejects(
+    createOperationPlan(root, { revision, target: "production", baseline }),
+  );
+  await assert.rejects(
+    createOperationPlan(root, {
+      revision,
+      target,
+      baseline: { ...baseline, completed: ["arbitrary-shell-command"] },
+    }),
+  );
+});
+
+test("new deployment workflow bytes participate in the rehearsal and operation digest", async (t) => {
+  const root = await fixture(t);
+  const path = join(root, ".github/workflows/supabase-deploy.yml");
+  await writeFile(path, "exact-operation-source\n");
+  const operation = await createOperationPlan(root, {
+    revision,
+    target,
+    baseline,
+  });
+  await writeFile(path, "changed-workflow\n");
+  await assert.rejects(
+    verifyOperationPlan(root, operation, {
+      revision,
+      target,
+      baseline,
+      digest: operation.digest,
+    }),
+  );
 });

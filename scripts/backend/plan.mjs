@@ -3,7 +3,49 @@ import { lstat, readdir, readFile, writeFile } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
+export const hash = (bytes) => createHash("sha256").update(bytes).digest("hex");
+
+export function canonical(value) {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+export const syntheticOperationIds = Object.freeze([
+  "retain-security-boundary",
+  "record-verification",
+]);
+
+export function validateSyntheticBaseline(baseline) {
+  if (
+    !baseline ||
+    canonical(Object.keys(baseline).sort()) !==
+      canonical([
+        "completed",
+        "generation",
+        "kind",
+        "runId",
+        "securityBoundary",
+        "target",
+      ]) ||
+    baseline.kind !== "synthetic-sql-fixture" ||
+    baseline.target !== "synthetic-github-runner" ||
+    !/^[1-9][0-9]*:[1-9][0-9]*$/.test(baseline.runId) ||
+    baseline.securityBoundary !== true ||
+    !Number.isInteger(baseline.generation) ||
+    baseline.generation < 0 ||
+    baseline.generation > 2 ||
+    canonical(baseline.completed) !==
+      canonical(syntheticOperationIds.slice(0, baseline.generation))
+  ) {
+    throw new Error("Missing, unverified or inconsistent synthetic baseline");
+  }
+}
 
 async function filesUnder(root, path) {
   const full = join(root, path);
@@ -18,7 +60,7 @@ async function filesUnder(root, path) {
     if (["node_modules", ".temp", ".branches", "__pycache__"].includes(child)) {
       continue;
     }
-    files.push(...await filesUnder(root, join(path, child)));
+    files.push(...(await filesUnder(root, join(path, child))));
   }
   return files;
 }
@@ -33,18 +75,23 @@ export async function createPlan(root, { revision, target }) {
     );
   }
   const paths = [];
-  for (
-    const path of [
-      "supabase/migrations",
-      "supabase/functions",
-      "supabase/config.toml",
-      "scripts/backend",
-      "supabase/tests",
-      ".github/workflows/supabase-security-rehearsal.yml",
-      ".github/workflows/security-audit.yml",
-    ]
-  ) {
-    paths.push(...await filesUnder(root, path));
+  for (const path of [
+    "supabase/migrations",
+    "supabase/functions",
+    "supabase/config.toml",
+    "scripts/backend",
+    "supabase/tests",
+    ".github/workflows/supabase-security-rehearsal.yml",
+    ".github/workflows/security-audit.yml",
+  ]) {
+    paths.push(...(await filesUnder(root, path)));
+  }
+  // Older rehearsal callers retain their protocol. Once present, the apply source is bound too.
+  const deploymentWorkflow = ".github/workflows/supabase-deploy.yml";
+  try {
+    paths.push(...(await filesUnder(root, deploymentWorkflow)));
+  } catch (error) {
+    if (error.code !== "ENOENT") throw error;
   }
   const files = [];
   for (const path of paths.sort()) {
@@ -53,13 +100,13 @@ export async function createPlan(root, { revision, target }) {
       sha256: hash(await readFile(join(root, path))),
     });
   }
-  const migrations = files.filter((f) =>
-    f.path.startsWith("supabase/migrations/")
-  ).map((f) => {
-    const match = /^supabase\/migrations\/([0-9]+)_[^/]+\.sql$/.exec(f.path);
-    if (!match) throw new Error("Unexpected migration input");
-    return { id: match[1], ...f };
-  });
+  const migrations = files
+    .filter((f) => f.path.startsWith("supabase/migrations/"))
+    .map((f) => {
+      const match = /^supabase\/migrations\/([0-9]+)_[^/]+\.sql$/.exec(f.path);
+      if (!match) throw new Error("Unexpected migration input");
+      return { id: match[1], ...f };
+    });
   if (new Set(migrations.map((m) => m.id)).size !== migrations.length) {
     throw new Error("Duplicate migration ID");
   }
@@ -95,8 +142,46 @@ export async function verifyPlan(root, plan, expected) {
   }
 }
 
+export async function createOperationPlan(
+  root,
+  { revision, target, baseline },
+) {
+  const artifact = await createPlan(root, { revision, target });
+  validateSyntheticBaseline(baseline);
+  if (baseline.generation === 2)
+    throw new Error("No remaining reviewed operation");
+  const manifest = {
+    protocol: 1,
+    kind: "synthetic-exact-operation",
+    sourceRevision: revision,
+    target,
+    productionApplyAvailable: false,
+    artifactDigest: artifact.digest,
+    expectedBaseline: structuredClone(baseline),
+    expectedBaselineDigest: hash(canonical(baseline)),
+    operations: syntheticOperationIds
+      .slice(baseline.generation)
+      .map((id) => ({ id })),
+    recovery: "stop-and-review-forward-repair-preserving-security",
+  };
+  return { ...manifest, digest: hash(canonical(manifest)) };
+}
+
+export async function verifyOperationPlan(root, plan, expected) {
+  const actual = await createOperationPlan(root, expected);
+  if (
+    actual.digest !== expected.digest ||
+    canonical(actual) !== canonical(plan)
+  ) {
+    throw new Error(
+      "Operation, artifact, target, revision or baseline changed; new review required",
+    );
+  }
+}
+
 if (
-  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
   const [operation, revision, target, path, digest] = process.argv.slice(2);
   if (operation === "create") {
