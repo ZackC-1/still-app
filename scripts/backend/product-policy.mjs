@@ -1,3 +1,4 @@
+import { types } from "node:util";
 import { canonical, hash } from "./plan.mjs";
 
 // Dormant U6/D317/C4 preview model only. No caller, endpoint, database or publisher registers it.
@@ -19,7 +20,7 @@ function detach(value) {
   function data(value) {
     if (value === null || typeof value === "string" || typeof value === "boolean" ||
         (typeof value === "number" && Number.isFinite(value))) return;
-    if (!value || typeof value !== "object" || ancestors.has(value)) invalid();
+    if (!value || typeof value !== "object" || types.isProxy(value) || ancestors.has(value)) invalid();
     const array = Array.isArray(value);
     const prototype = Object.getPrototypeOf(value);
     if (array ? prototype !== Array.prototype : ![Object.prototype, null].includes(prototype)) invalid();

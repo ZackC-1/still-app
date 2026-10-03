@@ -69,6 +69,41 @@ function accessorBuild(validReads = 3) {
   }) });
   return { builds, reads: () => reads };
 }
+function objectAccessorBuild() {
+  let reads = 0;
+  const value = { surface: "chrome_desktop" };
+  Object.defineProperty(value, "build", { enumerable: true, get: () => {
+    reads += 1;
+    return "synthetic-1";
+  } });
+  return { builds: [value], reads: () => reads };
+}
+function selfRemovingBuildProxy(draft) {
+  const builds = draft.builds;
+  let traps = 0, getters = 0;
+  draft.builds = new Proxy(builds, { getPrototypeOf: () => {
+    traps += 1;
+    draft.builds = builds;
+    Object.defineProperty(draft, "paidTierEnabled", { enumerable: true, configurable: true,
+      get: () => {
+        getters += 1;
+        Object.defineProperty(draft, "paidTierEnabled", {
+          value: true, enumerable: true, configurable: true, writable: true,
+        });
+        return true;
+      } });
+    return Array.prototype;
+  } });
+  return { counts: () => ({ traps, getters }) };
+}
+function countedProxy(value) {
+  let traps = 0;
+  const proxy = new Proxy(value, { getPrototypeOf: () => {
+    traps += 1;
+    return Object.getPrototypeOf(value);
+  } });
+  return { proxy, traps: () => traps };
+}
 
 test("valid synthetic preview binds exact body/source and retains current cutoff without publishing", async () => {
   const f = fixture();
@@ -165,6 +200,107 @@ test("reviewed constructor data rejects build accessors without executing them",
   const getter = accessorBuild(Infinity);
   assert.throws(() => fixture({ reviewedBuilds: getter.builds }), /Invalid policy/);
   assert.equal(getter.reads(), 0);
+});
+
+test("preview rejects a plain-object build getter without executing it", async () => {
+  const f = fixture();
+  const before = JSON.stringify(f.state());
+  const getter = objectAccessorBuild();
+  f.draft.builds = getter.builds;
+  await assert.rejects(f.authority.preview(f.request), /Invalid policy/);
+  assert.equal(getter.reads(), 0);
+  assert.equal(JSON.stringify(f.state()), before);
+});
+
+test("admission rejects a plain-object build getter without executing it", async () => {
+  const f = fixture();
+  const p = await f.authority.preview(f.request);
+  const before = JSON.stringify(f.state());
+  const getter = objectAccessorBuild();
+  f.draft.builds = getter.builds;
+  await assert.rejects(f.authority.admit(p, admission(f, p)), /Invalid policy/);
+  assert.equal(getter.reads(), 0);
+  assert.equal(JSON.stringify(f.state()), before);
+});
+
+test("current-state data rejects a plain-object build getter without executing it", async () => {
+  const f = fixture();
+  const getter = objectAccessorBuild();
+  const state = { revision: 4, policy: { ...f.draft, builds: getter.builds }, cutoff: null };
+  f.setState(state);
+  await assert.rejects(f.authority.preview(f.request), /Invalid policy/);
+  assert.equal(getter.reads(), 0);
+  assert.equal(f.state(), state);
+  assert.equal(state.policy.builds, getter.builds);
+});
+
+test("reviewed constructor data rejects a plain-object build getter without executing it", () => {
+  const getter = objectAccessorBuild();
+  assert.throws(() => fixture({ reviewedBuilds: getter.builds }), /Invalid policy/);
+  assert.equal(getter.reads(), 0);
+});
+
+test("preview rejects a self-removing Proxy before its trap installs a getter", async () => {
+  const f = fixture();
+  const before = structuredClone(f.state());
+  const executable = selfRemovingBuildProxy(f.draft);
+  await assert.rejects(f.authority.preview(f.request), /Invalid policy/);
+  assert.deepEqual(executable.counts(), { traps: 0, getters: 0 });
+  assert.deepEqual(f.state(), before);
+});
+
+test("admission rejects a self-removing Proxy before its trap installs a getter", async () => {
+  const f = fixture();
+  const p = await f.authority.preview(f.request);
+  const before = structuredClone(f.state());
+  const executable = selfRemovingBuildProxy(f.draft);
+  await assert.rejects(f.authority.admit(p, admission(f, p)), /Invalid policy/);
+  assert.deepEqual(executable.counts(), { traps: 0, getters: 0 });
+  assert.deepEqual(f.state(), before);
+});
+
+test("current-state data rejects a Proxy without executing its reflection trap", async () => {
+  const f = fixture();
+  const executable = countedProxy({ ...f.draft });
+  const state = { revision: 4, policy: executable.proxy, cutoff: null };
+  f.setState(state);
+  await assert.rejects(f.authority.preview(f.request), /Invalid policy/);
+  assert.equal(executable.traps(), 0);
+  assert.equal(f.state(), state);
+  assert.equal(state.policy, executable.proxy);
+});
+
+test("reviewed constructor data rejects a Proxy without executing its reflection trap", () => {
+  const executable = countedProxy([{ surface: "chrome_desktop", build: "synthetic-1" }]);
+  assert.throws(() => fixture({ reviewedBuilds: executable.proxy }), /Invalid policy/);
+  assert.equal(executable.traps(), 0);
+});
+
+test("all data ports reject a revoked Proxy without executing its handler", async () => {
+  for (const port of ["preview", "admission", "current", "context"]) {
+    const f = fixture();
+    const p = port === "admission" ? await f.authority.preview(f.request) : null;
+    const before = f.state();
+    const value = port === "context" ? f.draft.builds : port === "current" ? f.draft :
+      port === "admission" ? admission(f, p) : f.request;
+    let traps = 0;
+    const { proxy, revoke } = Proxy.revocable(value, { getPrototypeOf: () => {
+      traps += 1;
+      return Object.getPrototypeOf(value);
+    } });
+    revoke();
+    if (port === "context") assert.throws(() => fixture({ reviewedBuilds: proxy }), /Invalid policy/);
+    else if (port === "current") {
+      const state = { revision: 4, policy: proxy, cutoff: null };
+      f.setState(state);
+      await assert.rejects(f.authority.preview(f.request), /Invalid policy/);
+      assert.equal(f.state(), state);
+      assert.equal(state.policy, proxy);
+    } else if (port === "admission") await assert.rejects(f.authority.admit(p, proxy), /Invalid policy/);
+    else await assert.rejects(f.authority.preview(proxy), /Invalid policy/);
+    assert.equal(traps, 0);
+    if (port !== "current") assert.equal(f.state(), before);
+  }
 });
 
 test("detachment keeps cyclic and nonplain request data invalid", async () => {
