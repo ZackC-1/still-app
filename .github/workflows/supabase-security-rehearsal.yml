@@ -1,0 +1,66 @@
+name: Supabase security rehearsal
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/**'
+      - 'scripts/backend/**'
+      - '.github/workflows/supabase-security-rehearsal.yml'
+      - '.github/workflows/security-audit.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-security-rehearsal-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rehearsal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    # No environments, provider credentials, production secrets or write permissions.
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: '2.8.3'
+      - uses: supabase/setup-cli@v1
+        with:
+          version: '2.119.0'
+      - name: Test immutable plan boundary
+        run: node --test scripts/backend/plan.test.mjs scripts/backend/entrypoints.test.mjs
+      - name: Focused audit and alert boundaries
+        run: |
+          deno test --config supabase/functions/deno.json scripts/backend/audit.test.ts
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts/backend -p 'test_*.py'
+      - name: Verify audit certificate and hostname checks with disposable TLS endpoints
+        run: deno test --config supabase/functions/deno.json --allow-env=PGHOST,PGPORT,PGUSERNAME,PGUSER,PGDATABASE,PGPASSWORD,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME --allow-run=openssl --allow-read=/tmp --allow-write=/tmp '--allow-net=localhost,127.0.0.1,[::1]' scripts/backend/audit-connection.test.ts
+      - name: Verify pinned CLI and runtime
+        run: |
+          test "$(supabase --version)" = '2.119.0'
+          deno --version
+          sha256sum "$(command -v supabase)" >> "$GITHUB_STEP_SUMMARY"
+      - name: Bind the exact synthetic operation
+        id: plan
+        run: |
+          revision=$(git rev-parse HEAD)
+          digest=$(node scripts/backend/plan.mjs create "$revision" synthetic-github-runner "$RUNNER_TEMP/u1-plan.json")
+          echo "revision=$revision" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "Synthetic target; revision $revision; plan SHA-256 $digest" >> "$GITHUB_STEP_SUMMARY"
+          cat "$RUNNER_TEMP/u1-plan.json" >> "$GITHUB_STEP_SUMMARY"
+      - name: Create, migrate, test and destroy isolated synthetic database
+        env:
+          REVISION: ${{ steps.plan.outputs.revision }}
+          PLAN_DIGEST: ${{ steps.plan.outputs.digest }}
+        run: bash scripts/backend/rehearse.sh "$REVISION" "$PLAN_DIGEST"
+      - name: Failure/cancellation cleanup
+        if: always()
+        run: supabase stop --project-id still-app --no-backup

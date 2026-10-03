@@ -1,0 +1,46 @@
+name: Independent security audit
+
+on:
+  schedule:
+    - cron: '17 15 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: still-security-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    # Opt-in is a configuration variable, enabled only after exact owner-approved setup.
+    if: github.ref == 'refs/heads/main' && vars.STILL_SECURITY_AUDIT_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # Owner must configure main-only branches and ONLY audit/send-only secrets here.
+    # This job has no Supabase owner password, service key, admin token or writer credential.
+    environment: supabase-security-audit
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: '2.8.3'
+      - name: Read-only catalog audit through dedicated role
+        env:
+          STILL_SECURITY_AUDIT_DB_URL: ${{ secrets.STILL_SECURITY_AUDIT_DB_URL }}
+          STILL_SECURITY_AUDIT_CA_PEM: ${{ vars.STILL_SECURITY_AUDIT_CA_PEM }}
+        run: deno run --config supabase/functions/deno.json --allow-env=STILL_SECURITY_AUDIT_DB_URL,STILL_SECURITY_AUDIT_CA_PEM,PGHOST,PGPORT,PGUSERNAME,PGUSER,PGDATABASE,PGPASSWORD,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME --allow-net scripts/backend/audit.ts
+      - name: Actionable email on failure
+        if: failure()
+        env:
+          SECURITY_AUDIT_MAIL_FROM: ${{ vars.SECURITY_AUDIT_MAIL_FROM }}
+          SECURITY_AUDIT_MAIL_TO: ${{ vars.SECURITY_AUDIT_MAIL_TO }}
+          SECURITY_AUDIT_SMTP_HOST: ${{ vars.SECURITY_AUDIT_SMTP_HOST }}
+          SECURITY_AUDIT_SMTP_PORT: ${{ vars.SECURITY_AUDIT_SMTP_PORT }}
+          SECURITY_AUDIT_SMTP_USER: ${{ secrets.SECURITY_AUDIT_SMTP_USER }}
+          SECURITY_AUDIT_MAIL_TOKEN: ${{ secrets.SECURITY_AUDIT_MAIL_TOKEN }}
+          SECURITY_AUDIT_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 scripts/backend/send-alert.py
