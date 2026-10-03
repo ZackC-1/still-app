@@ -77,11 +77,7 @@ public enum SettingsFieldOrder {
   public static func mergeFields(_ left: [String: SettingsOrderedField], _ right: [String: SettingsOrderedField]) throws -> [String: SettingsOrderedField] {
     let known = Set(PackagedFeatureRegistry.settingsFields)
     guard left.keys.allSatisfy({ known.contains($0) }), right.keys.allSatisfy({ known.contains($0) }) else { throw FieldError.unknownField }
-    var result = left
-    for (key, field) in right {
-      result[key] = left[key].map { merge($0, field) } ?? field
-    }
-    return result
+    return left.merging(right, uniquingKeysWith: merge)
   }
 
   public static func pendingAfterAck(_ pending: SettingsOrderedField?, canonical: SettingsOrderedField) -> SettingsOrderedField? {
