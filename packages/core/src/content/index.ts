@@ -36,6 +36,8 @@ export interface ContentScriptDeps {
   /** Internal opt-in for an already admitted packaged/signed format2 rule set. */
   readonly ruleSetV2?: SignedRuleSetV2;
   readonly capabilities?: ReadonlySet<BenefitId>;
+  /** Trusted host adapter for the approved TikTok screen; absent means that action stays held. */
+  readonly handleBlockedNavigation?: (target: URL) => boolean;
   readonly cache: SettingsCache;
   readonly entitlement?: EntitlementCache;
   /** Override the redirect mechanism (tests inject a spy; default is location.replace). */
@@ -155,6 +157,37 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     return lastUrl!;
   };
 
+  const modernOptions = () => ({
+    access: deps.entitlement?.currentAccessSnapshot() ?? fallbackAccess,
+    capabilities: deps.capabilities,
+  });
+  const consumeModernNavigation = (target: URL): boolean => {
+    // Synchronous committed state only. A pre-hydration or stopped host never guesses On.
+    if (!modern || stopped || !hydrated) return false;
+    const decision = pageSession.evaluate(
+      cache.current(),
+      target,
+      modernOptions(),
+    );
+    if (decision.kind === "redirect" && decision.url !== target.href) {
+      if (
+        decision.url !== win.location.href &&
+        dedupe.lastRedirect !== decision.url
+      ) {
+        dedupe.lastRedirect = decision.url;
+        redirectPort.replace(decision.url);
+      }
+      return true;
+    }
+    dedupe.lastRedirect = null;
+    // This is an internal decision only, never the old body-replacing placeholder UI.
+    return (
+      decision.kind === "placeholder" &&
+      decision.blocked === true &&
+      deps.handleBlockedNavigation?.(target) === true
+    );
+  };
+
   const reapply = (): void => {
     // Never act on optimistic defaults: until hydration we don't know the user's real toggles, so
     // we add nothing (off/paused users must not see content hidden-then-revealed).
@@ -163,10 +196,8 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     if (modern) {
       // The existing cache is the committed authority. No account/storage read or legacy
       // service-wide CSS grant occurs on this path; CSS handles recycled nodes itself.
-      pageSession.applyDom(cache.current(), url, doc, {
-        access: deps.entitlement?.currentAccessSnapshot() ?? fallbackAccess,
-        capabilities: deps.capabilities,
-      });
+      pageSession.applyDom(cache.current(), url, doc, modernOptions());
+      consumeModernNavigation(url);
       return;
     }
     // The paid tier is dormant behind PAID_TIER_ENABLED, so every surface applies for everyone.
@@ -214,7 +245,9 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       if (stopped || started) return;
       started = true;
       // Install hooks synchronously at document_start; their reapply calls are no-ops until hydrated.
-      teardowns.push(installNavigationHooks(win, reapply));
+      teardowns.push(installNavigationHooks(
+        win, reapply, modern ? consumeModernNavigation : undefined, modern ? doc : undefined,
+      ));
       if (!modern) {
         const observer = createReapplyObserver(win, doc, reapply, deps.schedule);
         observer.start();

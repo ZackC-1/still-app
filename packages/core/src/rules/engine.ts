@@ -1,4 +1,4 @@
-import { PAID_TIER_ENABLED, type ServiceId, type SignedRuleSet, type SignedRuleSetV2, type SettingsV2, type BenefitId, type BenefitAccessSnapshot, type StillSettings } from "@still/shared-types";
+import { FEATURE_REGISTRY, PAID_TIER_ENABLED, type ServiceId, type SignedRuleSet, type SignedRuleSetV2, type SettingsV2, type BenefitId, type BenefitAccessSnapshot, type StillSettings } from "@still/shared-types";
 import { resolveService, etldPlusOne, applyRedirectTemplate, urlMatchesPattern } from "./match.js";
 
 import { validateRuleSetV2 } from "./schema.js";
@@ -518,6 +518,26 @@ function createFormat2PageSession(input: unknown): EnginePageSession {
     effective = [...(plans.get(serviceId)?.keys() ?? [])].filter(benefit =>
       isBenefitEffective(settings as SettingsV2, benefit, access.states[benefit], capabilities.has(benefit)));
     decision = effective.length === 0 ? { kind: "noop" } : effective.includes("tiktok.all") ? { kind: "placeholder", blocked: true } : { kind: "apply" };
+    // Routing semantics are compiled here, never accepted from downloaded selector data.
+    // Use the same committed predicate and registry core ownership as reversible hides.
+    const core = FEATURE_REGISTRY.find(feature => feature.service === serviceId && feature.tier === "free")?.id;
+    if (core && isBenefitEffective(settings as SettingsV2, core, access.states[core], capabilities.has(core))) {
+      let destination: URL | null = null;
+      if (serviceId === "youtube") {
+        const id = /^\/shorts\/([\w-]+)\/?$/.exec(url.pathname)?.[1];
+        if (id) {
+          destination = new URL(url.href);
+          destination.pathname = "/watch";
+          // Preserve deliberate playlist, time and share context; normalize only the video ID.
+          destination.searchParams.set("v", id);
+        }
+      } else if ((serviceId === "instagram" || serviceId === "facebook") && /^\/reels\/?$/.test(url.pathname)) {
+        // Category browsing only. Direct/shared individual /reel/<id>, normal/live videos,
+        // people/groups/profile/search/messages and their query-bearing routes stay usable.
+        destination = new URL("/", url.origin);
+      }
+      if (destination && destination.href !== url.href) decision = { kind: "redirect", url: destination.href };
+    }
   };
   const apply = (settings: StillSettings | SettingsV2, url: URL, doc: Document, opts: EngineOptions): ApplyResult => {
     prepare(settings, url, opts);
