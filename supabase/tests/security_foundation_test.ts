@@ -2,6 +2,7 @@
 // Missing cloud runtime is an explicit skipped/unverified gate, never local evidence of SQL safety.
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import postgres from "postgres";
+import { verifyCreatorCatalog } from "./catalog_creator_probes.ts";
 import {
   PgEntitlementStore,
   PgRateLimiter,
@@ -257,6 +258,7 @@ Deno.test({
             "alter event trigger u1_provider_binding enable always",
             "alter event trigger u1_provider_binding rename to u1_changed_binding",
             "drop event trigger u1_provider_binding",
+            "drop function public.u1_provider_guard() cascade",
             "drop event trigger u1_provider_binding; create event trigger u1_provider_binding on ddl_command_end when tag in ('CREATE TABLE') execute function public.u1_provider_guard()",
             "drop event trigger u1_provider_binding; create event trigger u1_provider_binding on ddl_command_start when tag in ('CREATE TABLE', 'CREATE TABLE AS', 'SELECT INTO') execute function public.u1_provider_guard()",
             "create event trigger u1_extra_binding on ddl_command_end execute function public.u1_provider_guard()",
@@ -265,6 +267,17 @@ Deno.test({
           ];
           for (const mutation of mutations) {
             await probeMutation(mutation, async (mutant) => {
+              if (
+                mutation === "drop function public.u1_provider_guard() cascade"
+              ) {
+                assertEquals(
+                  (await mutant`select count(*)::int as n from still_security.approved_provider_routines`)[
+                    0
+                  ].n,
+                  1,
+                  "missing approved code retains its reconciliation record",
+                );
+              }
               assert(
                 (await mutant`select issue from still_security.audit()`)
                   .some((row) => row.issue === "provider_routine_drift"),
@@ -293,67 +306,11 @@ Deno.test({
       await t.step(
         "creator defaults are hardened without owned objects and drift fails closed",
         async () => {
-          assertEquals(
-            (await sql`select count(*)::int as n from still_security.reconciled_creators where role_name='u1_discovered_creator'`)[
-              0
-            ].n,
-            1,
-            "retain observed creator after its last public default ACL is removed",
-          );
-          for (
-            const creator of [
-              "u1_empty_creator",
-              "u1_default_creator",
-              "u1_discovered_creator",
-            ]
-          ) {
-            await sql.begin(async (tx) => {
-              await tx.unsafe(`set local role ${creator}`);
-              await tx.unsafe(
-                "create function public.u1_future_rpc() returns boolean language sql as 'select true'; create table public.u1_future_table(payload text); create sequence public.u1_future_sequence",
-              );
-              for (const role of ["anon", "authenticated"]) {
-                assertEquals(
-                  (await tx`select has_function_privilege(${role},'public.u1_future_rpc()','EXECUTE') as allowed`)[
-                    0
-                  ].allowed,
-                  false,
-                );
-                assertEquals(
-                  (await tx`select has_table_privilege(${role},'public.u1_future_table','SELECT,INSERT,UPDATE,DELETE') as allowed`)[
-                    0
-                  ].allowed,
-                  false,
-                );
-                assertEquals(
-                  (await tx`select has_sequence_privilege(${role},'public.u1_future_sequence','USAGE,SELECT,UPDATE') as allowed`)[
-                    0
-                  ].allowed,
-                  false,
-                );
-              }
-              await tx.unsafe(
-                "drop function public.u1_future_rpc(); drop table public.u1_future_table; drop sequence public.u1_future_sequence",
-              );
-            });
-            for (
-              const mutation of [
-                `alter default privileges for role ${creator} grant execute on functions to public`,
-                `alter default privileges for role ${creator} in schema public grant execute on functions to anon`,
-                `alter default privileges for role ${creator} in schema public grant select on tables to authenticated`,
-                `alter default privileges for role ${creator} in schema public grant usage on sequences to anon`,
-              ]
-            ) {
-              await probeMutation(mutation, async (mutant) => {
-                await assertSecurityRejected(mutant);
-              });
-            }
-          }
-          await probeMutation(
-            "create role u1_late_creator; grant u1_late_creator to current_user; alter default privileges for role u1_late_creator in schema public grant execute on functions to authenticated",
-            async (mutant) => {
-              await assertSecurityRejected(mutant);
-            },
+          await verifyCreatorCatalog(
+            sql,
+            probeMutation,
+            assertSecurityRejected,
+            await source("hardening-candidate"),
           );
         },
       );
