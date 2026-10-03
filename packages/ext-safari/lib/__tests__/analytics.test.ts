@@ -1,6 +1,31 @@
 import { describe, expect, it, vi } from "vitest";
-import { ANALYTICS_MESSAGE_KIND, QUEUE_KEY, type AnalyticsKeyValue } from "@still/core/analytics";
+import {
+  ANALYTICS_MESSAGE_KIND,
+  CONSENT_KEY,
+  QUEUE_KEY,
+  type AnalyticsKeyValue,
+  type ExtensionAnalyticsHostDeps,
+} from "@still/core/analytics";
+import { TEST_PERMISSION, TEST_PRIVACY_POLICY } from "../../../core/src/analytics/__tests__/privacy-fixture.js";
 import { createSafariBackgroundAnalytics, createSafariPageAnalytics, parseNativeAnalytics } from "../analytics.js";
+
+const HOST_TEST = vi.hoisted(() => ({ inject: true }));
+// Controlled common-host consent/capability seam only; no native/provider readiness is inferred.
+vi.mock("@still/core/analytics", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@still/core/analytics")>();
+  return {
+    ...real,
+    createExtensionAnalyticsHost: (deps: ExtensionAnalyticsHostDeps) =>
+      !HOST_TEST.inject
+        ? real.createExtensionAnalyticsHost(deps)
+        : real.createExtensionAnalyticsHost({
+            ...deps,
+            privacyPolicy: TEST_PRIVACY_POLICY,
+            envelope: { build_channel: "test" },
+            permission: async () => real.readAnalyticsPermission(await deps.local.get(CONSENT_KEY)),
+          }),
+  };
+});
 
 const INSTALL = "11111111-1111-4111-8111-111111111111";
 const ANCHOR = "22222222-2222-4222-8222-222222222222";
@@ -13,18 +38,40 @@ function memory(): AnalyticsKeyValue & { data: Record<string, unknown> } {
   return { data, get: async (k) => structuredClone(data[k]), set: async (k, v) => void (data[k] = structuredClone(v)) };
 }
 
-function setup(native: { consent?: boolean; available?: boolean; signedIn?: boolean; os?: string; platform?: string; device?: string } = {}, local = memory()) {
+function setup(
+  native: {
+    consent?: boolean;
+    available?: boolean;
+    signedIn?: boolean;
+    os?: string;
+    platform?: string;
+    device?: string;
+  } = {},
+  local = memory(),
+) {
+  if (HOST_TEST.inject && local.data[CONSENT_KEY] === undefined) local.data[CONSENT_KEY] = TEST_PERMISSION;
   let consent = native.consent ?? true;
   let signedIn = native.signedIn ?? false;
   let clock = 1_000_000;
   const sendNative = vi.fn(async (message: Record<string, unknown>) => {
     if (native.available === false) throw new Error("no app");
     if (message.kind === "analyticsContext") {
-      return { analytics: { installId: INSTALL, anchorId: ANCHOR, consent, platform: native.platform, device: native.device } };
+      return {
+        analytics: { installId: INSTALL, anchorId: ANCHOR, consent, platform: native.platform, device: native.device },
+      };
     }
     if (message.kind === "getAccountSyncStatus") {
       return signedIn
-        ? { accountSyncStatus: JSON.stringify({ accountId: ACCOUNT, email: null, lastSyncedAt: null, pendingUpload: false, cloudReachable: true, updatedAt: 1 }) }
+        ? {
+            accountSyncStatus: JSON.stringify({
+              accountId: ACCOUNT,
+              email: null,
+              lastSyncedAt: null,
+              pendingUpload: false,
+              cloudReachable: true,
+              updatedAt: 1,
+            }),
+          }
         : { accountSyncStatus: null };
     }
     return null;
@@ -36,30 +83,52 @@ function setup(native: { consent?: boolean; available?: boolean; signedIn?: bool
     platform: async () => native.os ?? "ios",
     local,
     isTrustedPage: (s) => s.url?.startsWith("safari-web-extension://ext/") === true,
-    fetch: (async () => { throw new TypeError("offline in tests"); }) as unknown as typeof fetch,
+    fetch: (async () => {
+      throw new TypeError("offline in tests");
+    }) as unknown as typeof fetch,
     now: () => clock,
-    uuid: (() => { let n = 0; return () => `uuid-${++n}`; })(),
+    uuid: (() => {
+      let n = 0;
+      return () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`;
+    })(),
   });
   const send = (message: unknown, sender: object) =>
     new Promise<unknown>((resolve) => {
       if (!bg.listener(message, sender, resolve)) resolve(undefined);
     });
   const settle = () => new Promise((r) => setTimeout(r, 5));
-  const events = () => ((local.data[QUEUE_KEY] as { event: string; properties: Record<string, unknown> }[] | undefined) ?? []);
-  return { bg, local, send, settle, events, sendNative, setConsent: (v: boolean) => void (consent = v), setSignedIn: (v: boolean) => void (signedIn = v), advance: (ms: number) => void (clock += ms) };
+  const events = () =>
+    (local.data[QUEUE_KEY] as { event: string; properties: Record<string, unknown> }[] | undefined) ?? [];
+  return {
+    bg,
+    local,
+    send,
+    settle,
+    events,
+    sendNative,
+    setConsent: (v: boolean) => void (consent = v),
+    setSignedIn: (v: boolean) => void (signedIn = v),
+    advance: (ms: number) => void (clock += ms),
+  };
 }
 
 describe("Safari extension analytics", () => {
-  it("reports under the app's install, with the right surface, and names the account", async () => {
+  it("reports under the fresh provider scope, with the right surface and current account", async () => {
     const { bg, settle, events } = setup({ signedIn: true, os: "mac" });
     bg.onStart();
+    await settle();
     bg.onActivity(); // real use: a supported site or the popup nudged the background
     await settle();
     const kinds = events().map((e) => e.event);
-    expect(kinds).toEqual(["$identify", "setup_step", "setup_completed", "active"]);
-    expect(events()[1]!.properties).toMatchObject({ step: "extension_enabled" });
-    expect(events()[2]!.properties).toMatchObject({ surface: "safari-macos", store: "macos", $device_id: INSTALL, distinct_id: ACCOUNT });
-    expect(events()[0]!.properties).toMatchObject({ $anon_distinct_id: ANCHOR });
+    expect(kinds).toEqual(["setup_step", "setup_completed", "active"]);
+    expect(events()[0]!.properties).toMatchObject({ step: "extension_enabled" });
+    expect(events()[1]!.properties).toMatchObject({
+      surface: "safari-macos",
+      store: "macos",
+      $device_id: INSTALL,
+      distinct_id: ACCOUNT,
+    });
+    expect(JSON.stringify(events())).not.toContain("$anon_distinct_id");
   });
 
   it("the extension never reports the download itself: that is the app's", async () => {
@@ -73,7 +142,8 @@ describe("Safari extension analytics", () => {
   it("follows the app's switch, re-reading it on every event", async () => {
     const { bg, send, settle, events, setConsent } = setup({ consent: false });
     bg.onStart();
-    const open = () => send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } }, PAGE);
+    const open = () =>
+      send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } }, PAGE);
     await open();
     await settle();
     expect(events()).toEqual([]);
@@ -93,8 +163,12 @@ describe("Safari extension analytics", () => {
   it("only popup/options may use the page protocol", async () => {
     const { bg, send, settle, events } = setup();
     bg.onStart();
-    expect(await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "signed_in", props: {} }, CONTENT)).toBeUndefined();
-    expect(await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } }, PAGE)).toBe(true);
+    expect(
+      await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "signed_in", props: {} }, CONTENT),
+    ).toBeUndefined();
+    expect(
+      await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } }, PAGE),
+    ).toBe(true);
     await settle();
     expect(events().map((e) => e.event)).toEqual(["opened", "active"]);
   });
@@ -117,12 +191,21 @@ describe("Safari extension analytics", () => {
     expect(parseNativeAnalytics({ analytics: { installId: "x", anchorId: ANCHOR } })).toBeNull();
     expect(parseNativeAnalytics(null)).toBeNull();
     expect(parseNativeAnalytics({ analytics: { installId: INSTALL, anchorId: ANCHOR } })).toEqual({
-      installId: INSTALL, anchorId: ANCHOR, consent: false, platform: null, device: null, // no field: off
+      installId: INSTALL,
+      anchorId: ANCHOR,
+      consent: false,
+      platform: null,
+      device: null, // no field: off
     });
-    expect(parseNativeAnalytics({ analytics: { installId: INSTALL, anchorId: ANCHOR, consent: true } })?.consent).toBe(true);
-    expect(parseNativeAnalytics({ analytics: { installId: INSTALL, anchorId: ANCHOR, platform: "ios", device: "tablet" } }))
-      .toMatchObject({ platform: "ios", device: "tablet" });
-    expect(parseNativeAnalytics({ analytics: { installId: INSTALL, anchorId: ANCHOR, device: "https://x" } })?.device).toBeNull();
+    expect(parseNativeAnalytics({ analytics: { installId: INSTALL, anchorId: ANCHOR, consent: true } })?.consent).toBe(
+      true,
+    );
+    expect(
+      parseNativeAnalytics({ analytics: { installId: INSTALL, anchorId: ANCHOR, platform: "ios", device: "tablet" } }),
+    ).toMatchObject({ platform: "ios", device: "tablet" });
+    expect(
+      parseNativeAnalytics({ analytics: { installId: INSTALL, anchorId: ANCHOR, device: "https://x" } })?.device,
+    ).toBeNull();
   });
 });
 
@@ -135,7 +218,10 @@ describe("Safari extension account changes", () => {
     const later = setup({ signedIn: false }, first.local);
     later.bg.onStart();
     await later.settle();
-    await later.send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } }, PAGE);
+    await later.send(
+      { kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } },
+      PAGE,
+    );
     await later.settle();
     const blocked = later.events().find((e) => e.event === "opened")!;
     expect(blocked.properties.distinct_id).not.toBe(ACCOUNT);
@@ -178,6 +264,7 @@ describe("Safari on iPhone, iPad and Mac are told apart", () => {
     it(`${device} reports surface ${surface} and device ${device}`, async () => {
       const { bg, settle, events } = setup({ platform, device, os });
       bg.onStart();
+      await settle();
       bg.onActivity();
       await settle();
       const e = events().find((x) => x.event === "active")!;
@@ -199,5 +286,24 @@ describe("Safari's timed send follows the app's account", () => {
     await settle();
     await new Promise((r) => setTimeout(r, 30));
     expect(JSON.stringify(events())).not.toContain(ACCOUNT);
+  });
+});
+
+describe("production Safari privacy readiness", () => {
+  it("legacy native On alone cannot enable collection when the injected seam is absent", async () => {
+    HOST_TEST.inject = false;
+    try {
+      const { bg, send, settle, events, local } = setup({ consent: true, signedIn: true });
+      bg.onStart();
+      await settle();
+      await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } }, PAGE);
+      bg.onActivity();
+      bg.flush();
+      await settle();
+      expect(events()).toEqual([]);
+      expect(local.data[CONSENT_KEY]).toBeUndefined();
+    } finally {
+      HOST_TEST.inject = true;
+    }
   });
 });

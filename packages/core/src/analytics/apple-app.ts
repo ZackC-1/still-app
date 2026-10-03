@@ -1,5 +1,12 @@
-import { AnalyticsClient, type AnalyticsConfig } from "./client.js";
-import { createAccountIdentifier, PENDING_INSTALL_KEY } from "./extension-host.js";
+import { AnalyticsClient, type AnalyticsConfig, type AnalyticsClientDeps } from "./client.js";
+import {
+  privacyPolicyReady,
+  readAnalyticsPermission,
+  samePermission,
+  type AnalyticsPermission,
+  type AnalyticsPrivacyPolicy,
+} from "./consent.js";
+import { createAccountIdentifier } from "./extension-host.js";
 import type { AnalyticsKeyValue } from "./identity.js";
 import type { AnalyticsContextReply } from "../native/bridge.js";
 import type { UiAnalytics } from "../ui/controller.svelte.js";
@@ -19,10 +26,14 @@ export interface AppAnalyticsBridge {
 export interface AppAnalyticsDeps {
   readonly bridge: AppAnalyticsBridge;
   readonly config: AnalyticsConfig;
+  readonly permission?: () => Promise<AnalyticsPermission | null>;
+  readonly privacyPolicy?: AnalyticsPrivacyPolicy;
+  readonly envelope?: AnalyticsClientDeps["envelope"];
+  readonly commitPermission?: (enabled: boolean) => Promise<void>;
   /** Web view storage for the queue and markers (localStorage, or memory when refused). */
   readonly store: AnalyticsKeyValue;
   /** Ask Still's server to attach the signed-in account's email (analytics-identify). */
-  readonly identifyOnServer?: () => Promise<void>;
+  readonly identifyOnServer?: (signal?: AbortSignal) => Promise<void>;
   readonly fetch?: typeof fetch;
   readonly now?: () => number;
   readonly uuid?: () => string;
@@ -41,7 +52,6 @@ export interface AppAnalytics {
    * account is let go, and its waiting events with it. */
   accountAbsent(): Promise<void>;
 }
-const PENDING_UPDATE_KEY = "still:analytics:pending-update";
 
 interface Ready {
   readonly client: AnalyticsClient;
@@ -55,11 +65,26 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
   let consent = false;
   let noticeSeen = true;
   let readyPromise: Promise<Ready | null> | null = null;
+  let currentReady: Ready | null = null;
+  let epoch = 0;
 
   const ready = (): Promise<Ready | null> =>
     (readyPromise ??= (async () => {
+      const asked = epoch;
+      const permission = readAnalyticsPermission(await deps.permission?.().catch(() => null));
+      if (
+        !privacyPolicyReady(deps.privacyPolicy) ||
+        permission?.state !== "granted" ||
+        permission.version !== deps.privacyPolicy?.permissionVersion
+      )
+        return null;
       const context = await deps.bridge.analyticsContext().catch(() => null);
-      if (!context) return null;
+      if (
+        !context ||
+        asked !== epoch ||
+        !samePermission(permission, readAnalyticsPermission(await deps.permission?.().catch(() => null)))
+      )
+        return null;
       consent = context.consent;
       noticeSeen = context.noticeSeen;
       const client = new AnalyticsClient({
@@ -75,6 +100,9 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
           returning: context.returning,
         }),
         consent: async () => consent,
+        permission: deps.permission,
+        privacyPolicy: deps.privacyPolicy,
+        envelope: deps.envelope,
         fetch: deps.fetch ?? ((...args) => fetch(...args)),
         now: deps.now ?? Date.now,
         uuid: deps.uuid ?? (() => crypto.randomUUID()),
@@ -89,53 +117,51 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         consent: async () => consent,
         identifyOnServer: deps.identifyOnServer,
       });
-      return {
+      currentReady = {
         client,
         context,
         identify: (userId: string) => client.identify(userId), // confirms the account (client.ts rule 3)
         attach: () => accounts.attach(),
       };
-    })());
+      return currentReady;
+    })().then((r) => {
+      if (!r) readyPromise = null;
+      return r;
+    }));
 
+  // Eligibility belongs to the observed action, before native/startup promises settle.
+  const observed = async (): Promise<Ready | null> => {
+    const asked = epoch;
+    const stamp = currentReady?.client.stamp();
+    const permission = readAnalyticsPermission(await deps.permission?.().catch(() => null));
+    if (permission?.state !== "granted") return null;
+    const r = await ready();
+    if (
+      !r ||
+      asked !== epoch ||
+      (stamp && !r.client.isCurrent(stamp)) ||
+      !samePermission(permission, readAnalyticsPermission(await deps.permission?.().catch(() => null)))
+    )
+      return null;
+    return r;
+  };
   const withReady = (run: (r: Ready) => Promise<unknown> | void): void => {
-    void ready()
+    void observed()
       .then((r) => (r ? run(r) : undefined))
       .catch(() => {});
   };
 
-  // An install or update seen while sharing was off is kept (kind, versions, day) and reported the
-  // first time sharing is on, so a person who turns sharing on later is still counted.
-  interface PendingLaunch {
-    readonly kind: "installed" | "updated";
-    readonly returning: boolean;
-    readonly from: string | null;
-    readonly at: number;
-  }
-  const now = deps.now ?? Date.now;
-  // Installs and updates are kept apart: an update before sharing is turned on must not erase the
-  // install still waiting to be counted.
-  const readPending = async (key: string): Promise<PendingLaunch | null> => {
-    const v = (await deps.store.get(key).catch(() => null)) as Partial<PendingLaunch> | null;
-    if (!v || (v.kind !== "installed" && v.kind !== "updated") || typeof v.at !== "number") return null;
-    return { kind: v.kind, returning: v.returning === true, from: typeof v.from === "string" ? v.from : null, at: v.at };
-  };
-  const emitPending = async (r: Ready): Promise<void> => {
-    if (!consent) return;
-    const install = await readPending(PENDING_INSTALL_KEY);
-    if (install) {
-      await r.client.trackOnce("installed", "installed", { returning: install.returning }, { at: install.at });
-      if (await r.client.hasTrackedOnce("installed")) await deps.store.set(PENDING_INSTALL_KEY, null).catch(() => undefined);
-    }
-    const update = await readPending(PENDING_UPDATE_KEY);
-    if (update?.from) {
-      const marker = `updated:${r.context.appVersion}`;
-      await r.client.trackOnce(marker, "updated", { from: update.from, to: r.context.appVersion }, { at: update.at });
-      if (await r.client.hasTrackedOnce(marker)) await deps.store.set(PENDING_UPDATE_KEY, null).catch(() => undefined);
-    }
-  };
-
+  let extensionBaseline: boolean | null = null;
   const reportExtensionEnabled = async (r: Ready, enabled: boolean | null): Promise<void> => {
-    if (enabled === true) await r.client.trackOnce("extension_enabled", "setup_step", { step: "extension_enabled" });
+    if (r.context.platform !== "macos") return;
+    const previous = extensionBaseline;
+    extensionBaseline = enabled;
+    if (enabled === null || previous === null || enabled === previous) return;
+    await r.client.track(
+      enabled ? "extension_enabled" : "extension_disabled",
+      { detected_by: "app_check" },
+      { quiet: true },
+    );
   };
 
   const ui: UiAnalytics = {
@@ -157,22 +183,26 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         .catch(() => undefined),
     async sharing() {
       const r = await ready();
-      return r ? { enabled: consent, noticeNeeded: !noticeSeen } : null;
+      return r ? { enabled: await r.client.canReport(), noticeNeeded: !noticeSeen } : null;
     },
     async setSharing(enabled) {
-      const r = await ready();
-      if (!r) return !enabled;
-      const wasOn = consent;
-      if (!enabled) consent = false; // takes effect now, before any native or network round trip
-      consent = await deps.bridge.setAnalyticsConsent(enabled).catch(() => consent);
-      if (consent) {
-        await emitPending(r);
-        void r.client.flush();
-      } else {
-        // Nothing waiting is sent; then one short standalone attempt records the opt-out.
-        await r.client.clearQueue();
-        if (wasOn && !enabled) void r.client.sendOptOut();
+      epoch += 1;
+      currentReady?.client.permissionChanged();
+      consent = false;
+      if (enabled && !deps.commitPermission) return false;
+      try {
+        if (deps.commitPermission) await deps.commitPermission(enabled);
+        else await deps.bridge.setAnalyticsConsent(false);
+      } catch {
+        return false;
       }
+      await currentReady?.client.clearQueue();
+      if (!enabled) return false;
+      readyPromise = null;
+      currentReady = null;
+      const r = await ready();
+      consent = !!r && (await r.client.canReport());
+      if (consent) await r!.client.track("analytics_choice_made", { choice: "share" });
       return consent;
     },
     acknowledgeNotice() {
@@ -184,23 +214,22 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
   return {
     ui,
     async start() {
-      const r = await ready();
+      const r = await observed();
       if (!r) return;
       const { client, context } = r;
-      // Evidence first, straight away: the app can be closed during the account check, and the native
-      // side has already recorded this launch, so an install or update not saved now would be lost.
-      if (context.previousVersion) {
-        await deps.store.set(PENDING_UPDATE_KEY, { kind: "updated", returning: false, from: context.previousVersion, at: now() })
-          .catch(() => undefined);
-      } else if (context.created && !(await readPending(PENDING_INSTALL_KEY))) {
-        await deps.store.set(PENDING_INSTALL_KEY, { kind: "installed", returning: context.returning, from: null, at: now() })
-          .catch(() => undefined);
-      }
-      // Events recorded before the launch's account check confirms anything carry no person; the
-      // confirmation attributes them and sends them (client.ts rules 2-4), so nothing here waits on
-      // it and nothing can be lost to an account reset.
-      await emitPending(r);
-      await client.trackOnce("app_opened", "setup_step", { step: "app_opened" });
+      // Only launches observed under fresh permission are eligible; never replay stored history.
+      if (context.previousVersion)
+        await client.track("updated", {
+          from: context.previousVersion,
+          to: context.appVersion,
+        });
+      else if (context.created)
+        await client.trackOnce("installed", "installed", {
+          returning: context.returning,
+        });
+      await client.trackOnce("app_opened", "setup_step", {
+        step: "app_opened",
+      });
       await reportExtensionEnabled(r, context.extensionEnabled);
       await client.track("opened", { where: "app" });
       await client.trackDaily("active", "active", {});
@@ -208,9 +237,11 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       void r.attach(); // the flush may have recovered the launch's account confirmation
     },
     async recheckSetup() {
-      const r = await ready();
+      const r = await observed();
       if (!r) return;
+      const observation = await r.client.captureObservation();
       const fresh = await deps.bridge.analyticsContext().catch(() => null);
+      if (!(await r.client.observationCurrent(observation))) return;
       await reportExtensionEnabled(r, fresh?.extensionEnabled ?? null);
       await r.client.trackDaily("active", "active", {});
       void r.attach();

@@ -1,5 +1,6 @@
-import { AnalyticsClient, type AnalyticsConfig, type TrackOptions } from "./client.js";
-import type { AnalyticsDevice, AnalyticsSurface } from "./events.js";
+import type { AnalyticsPermission, AnalyticsPrivacyPolicy } from "./consent.js";
+import { AnalyticsClient, type AnalyticsConfig, type AnalyticsClientDeps, type TrackOptions } from "./client.js";
+import { canonicalEvent, isAppClientEvent, type AnalyticsDevice, type AnalyticsSurface } from "./events.js";
 import type { AnalyticsIdentity, AnalyticsKeyValue } from "./identity.js";
 import type { UiAnalytics, UsageSharingState } from "../ui/controller.svelte.js";
 
@@ -26,8 +27,7 @@ import type { UiAnalytics, UsageSharingState } from "../ui/controller.svelte.js"
 export const ANALYTICS_MESSAGE_KIND = "still:analytics";
 export const NOTICE_KEY = "still:analytics:notice-seen";
 export const SERVER_IDENTIFIED_KEY = "still:analytics:server-identified";
-/** An install recorded while sharing was off (or unreadable), kept so it can still be counted, on
- * its real day, once sharing is on. Holds only the returning flag and the install time. */
+/** Legacy storage key retained for migration/tests. Its pre-consent history is never replayed. */
 export const PENDING_INSTALL_KEY = "still:analytics:pending-install";
 
 const QUIET: TrackOptions = { quiet: true };
@@ -40,6 +40,7 @@ export interface MessageSender {
   readonly id?: string;
   readonly url?: string;
   readonly tab?: unknown;
+  readonly incognito?: boolean;
 }
 
 export interface ExtensionAnalyticsHostDeps {
@@ -53,6 +54,11 @@ export interface ExtensionAnalyticsHostDeps {
   readonly queueStore?: AnalyticsKeyValue;
   readonly identity: () => Promise<AnalyticsIdentity>;
   readonly consent: () => Promise<boolean>;
+  readonly permission?: () => Promise<AnalyticsPermission | null>;
+  readonly privacyPolicy?: AnalyticsPrivacyPolicy;
+  readonly envelope?: AnalyticsClientDeps["envelope"];
+  /** Existing common authority commits the actual reviewed combined choice; legacy toggles cannot grant. */
+  readonly commitPermission?: (enabled: boolean) => Promise<void>;
   /** Persist a switch change. Absent where something else owns consent (Firefox's permission,
    * the Apple app's switch); the host then re-reads `consent` after a change. */
   readonly storeConsent?: (enabled: boolean) => Promise<void>;
@@ -61,7 +67,7 @@ export interface ExtensionAnalyticsHostDeps {
   /** Only extension pages (popup, options) may use the page protocol. */
   readonly isTrustedPage: (sender: MessageSender) => boolean;
   /** Ask Still's server to attach the signed-in account's email (analytics-identify). */
-  readonly identifyOnServer?: () => Promise<void>;
+  readonly identifyOnServer?: (signal?: AbortSignal) => Promise<void>;
   /** Ask for a flush at a random later time (an alarm), for events recorded quietly at a
    * background start. Without it they wait for the next popup or settings open. */
   readonly requestQuietFlush?: () => void;
@@ -86,15 +92,15 @@ export interface ExtensionAnalyticsHost {
   flushWhenReady(): Promise<void>;
   /** Identify the install, and once per account have the server attach the email. */
   identify(userId: string, options?: TrackOptions): Promise<void>;
-  readonly listener: (
-    message: unknown,
-    sender: MessageSender,
-    sendResponse: (response?: unknown) => void,
-  ) => boolean;
+  readonly listener: (message: unknown, sender: MessageSender, sendResponse: (response?: unknown) => void) => boolean;
 }
 
 type PageRequest =
-  | { readonly action: "track"; readonly name: string; readonly props?: unknown }
+  | {
+      readonly action: "track";
+      readonly name: string;
+      readonly props?: unknown;
+    }
   | { readonly action: "identify"; readonly userId: string }
   | { readonly action: "reset"; readonly forgetAccount: boolean }
   | { readonly action: "sharing" }
@@ -119,7 +125,7 @@ export function createAccountIdentifier(deps: {
   readonly client: AnalyticsClient;
   readonly local: AnalyticsKeyValue;
   readonly consent: () => Promise<boolean>;
-  readonly identifyOnServer?: () => Promise<void>;
+  readonly identifyOnServer?: (signal?: AbortSignal) => Promise<void>;
 }): AccountIdentifier {
   const { client } = deps;
   const consented = () => deps.consent().catch(() => false);
@@ -134,19 +140,70 @@ export function createAccountIdentifier(deps: {
     if (existing) return existing;
     const attempt = (async () => {
       const stamp = client.stamp();
-      if (!(await consented())) return;
-      if ((await deps.local.get(SERVER_IDENTIFIED_KEY).catch(() => null)) === userId) return;
+      const observation = await client.captureObservation();
+      if (!observation) return;
+      if (!(await consented()) || !(await client.canReport())) return;
+      const marker = await deps.local.get(SERVER_IDENTIFIED_KEY).catch(() => null);
+      const authority = {
+        userId,
+        origin: observation.permission.origin,
+        generation: observation.permission.generation,
+        version: observation.permission.version,
+      };
+      if (
+        marker &&
+        typeof marker === "object" &&
+        Object.entries(authority).every(([key, value]) => (marker as Record<string, unknown>)[key] === value)
+      )
+        return;
       // Immediately before the request: same confirmed account, sharing still on, nothing reset.
       if ((await client.signedInAs()) !== userId || !(await consented())) return;
-      if (!client.accountConfirmed || !client.isCurrent(stamp)) return;
+      if (
+        !client.accountConfirmed ||
+        !(await client.canReport()) ||
+        !client.isCurrent(stamp) ||
+        !(await client.observationCurrent(observation))
+      )
+        return;
+      const controller = new AbortController();
+      const scope = client.cancellationSignal();
+      const abort = () => controller.abort();
+      scope.addEventListener("abort", abort, { once: true });
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let rejectAbort!: () => void;
+      const cancelled = new Promise<never>((_, reject) => {
+        rejectAbort = () => reject(new Error("cancelled"));
+        controller.signal.addEventListener("abort", rejectAbort, {
+          once: true,
+        });
+      });
       try {
+        if (scope.aborted || !client.isCurrent(stamp)) return;
         await Promise.race([
-          deps.identifyOnServer!(),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), SERVER_ATTACH_LIMIT_MS)),
+          deps.identifyOnServer!(controller.signal),
+          cancelled,
+          new Promise<never>(
+            (_, reject) =>
+              (timer = setTimeout(() => {
+                controller.abort();
+                reject(new Error("timeout"));
+              }, SERVER_ATTACH_LIMIT_MS)),
+          ),
         ]);
-        if (client.isCurrent(stamp)) await deps.local.set(SERVER_IDENTIFIED_KEY, userId);
+        if (
+          client.accountConfirmed &&
+          client.isCurrent(stamp) &&
+          (await client.canReport()) &&
+          (await client.observationCurrent(observation)) &&
+          client.isCurrent(stamp)
+        )
+          await deps.local.set(SERVER_IDENTIFIED_KEY, authority);
       } catch {
         /* retried at the next Still screen */
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+        scope.removeEventListener("abort", abort);
+        controller.signal.removeEventListener("abort", rejectAbort);
       }
     })().finally(() => inflight.delete(userId));
     inflight.set(userId, attempt);
@@ -161,17 +218,6 @@ export function createAccountIdentifier(deps: {
   };
 }
 
-interface PendingInstall {
-  readonly returning: boolean;
-  readonly at: number;
-}
-
-function parsePendingInstall(value: unknown): PendingInstall | null {
-  if (typeof value !== "object" || value === null) return null;
-  const { returning, at } = value as Record<string, unknown>;
-  return typeof returning === "boolean" && typeof at === "number" && Number.isFinite(at) ? { returning, at } : null;
-}
-
 export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): ExtensionAnalyticsHost {
   const uuid = deps.uuid ?? (() => crypto.randomUUID());
   const now = deps.now ?? Date.now;
@@ -184,6 +230,9 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
     queueStore: deps.queueStore,
     identity: deps.identity,
     consent: deps.consent,
+    permission: deps.permission,
+    privacyPolicy: deps.privacyPolicy,
+    envelope: deps.envelope,
     fetch: deps.fetch ?? ((...args) => fetch(...args)),
     now,
     uuid,
@@ -205,42 +254,38 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
   // never treated as a successful check.
   let startSettled!: () => void;
   const started = new Promise<void>((resolve) => (startSettled = resolve));
-  const startResult: Promise<void> = Promise.race([
-    started,
-    new Promise<void>((r) => setTimeout(r, START_HOLD_LIMIT_MS)),
-  ]);
+  let startResult: Promise<void> | null = null;
+  const waitForStart = (): Promise<void> => {
+    if (client.accountConfirmed) return Promise.resolve();
+    return (startResult ??= new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, START_HOLD_LIMIT_MS);
+      void started.then(() => {
+        clearTimeout(timer);
+        resolve();
+      });
+    }));
+  };
   const requestFlushIfNeeded = async (): Promise<void> => {
     if ((await client.queuedCount()) > 0) deps.requestQuietFlush?.();
   };
 
-  /** Count an install recorded earlier, on its own day, the first time sharing allows it. */
-  const emitPendingInstall = async (options: TrackOptions = {}): Promise<void> => {
-    const pending = parsePendingInstall(await deps.local.get(PENDING_INSTALL_KEY).catch(() => null));
-    if (!pending || !(await deps.consent().catch(() => false))) return;
-    const at: TrackOptions = { ...options, at: pending.at };
-    await client.trackOnce("installed", "installed", { returning: pending.returning }, at);
-    // Chrome and Firefox block from the moment of install; there is no further setup step.
-    // (Safari's setup is complete only once Safari runs the extension; see onStart.)
-    if (blocksAtInstall) await client.trackOnce("setup_completed", "setup_completed", {}, at);
-    if (await client.hasTrackedOnce("installed") &&
-        (!blocksAtInstall || await client.hasTrackedOnce("setup_completed"))) {
-      await deps.local.set(PENDING_INSTALL_KEY, null).catch(() => undefined);
-    }
-  };
-
   const sharing = async (): Promise<UsageSharingState | null> => {
     if (!client.enabled) return null;
-    const enabled = await deps.consent().catch(() => false);
-    const noticeNeeded =
-      deps.noticeApplies && (await deps.local.get(NOTICE_KEY).catch(() => true)) !== true;
+    const enabled = await client.canReport();
+    const noticeNeeded = deps.noticeApplies && (await deps.local.get(NOTICE_KEY).catch(() => true)) !== true;
     return { enabled, noticeNeeded };
   };
 
-  const handle = async (request: PageRequest): Promise<unknown> => {
+  const handle = async (
+    request: PageRequest,
+    observation: ReturnType<AnalyticsClient["captureObservation"]>,
+  ): Promise<unknown> => {
     switch (request.action) {
       case "track": {
-        await startResult;
-        await emitPendingInstall();
+        const captured = await observation;
+        if (!captured) return false;
+        await waitForStart();
+        if (!(await client.observationCurrent(captured))) return false;
         await client.trackUnchecked(request.name, request.props);
         // Any use counts toward the day, not only a background start (a worker can live overnight).
         await client.trackDaily("active", "active", {});
@@ -259,21 +304,16 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
       case "sharing":
         return sharing();
       case "setSharing": {
-        const wasOn = await deps.consent().catch(() => false);
-        // The switch takes effect first, whatever the network does.
-        await deps.storeConsent?.(request.enabled);
-        const enabled = await deps.consent().catch(() => false);
-        if (enabled) {
-          await emitPendingInstall();
-          void client.flush();
-        } else {
-          // Nothing waiting is sent. Then one short, standalone attempt records the opt-out itself,
-          // so the opt-out rate is measurable. (Firefox withdraws its permission before this message
-          // arrives, so `wasOn` is false there and nothing more is sent, which is correct.)
-          await client.clearQueue();
-          if (wasOn && !request.enabled) void client.sendOptOut();
+        client.permissionChanged();
+        if (request.enabled && !deps.commitPermission) return false;
+        if (deps.commitPermission) await deps.commitPermission(request.enabled);
+        else await deps.storeConsent?.(false);
+        await client.clearQueue();
+        if (request.enabled && (await client.canReport())) {
+          await client.track("analytics_choice_made", { choice: "share" });
+          return true;
         }
-        return enabled;
+        return false;
       }
       case "acknowledgeNotice":
         await deps.local.set(NOTICE_KEY, true).catch(() => undefined);
@@ -286,17 +326,21 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
     identify,
     onInstalled(details) {
       if (details.reason === "install") {
-        void deps
-          .identity()
-          .then(async (id) => {
-            // Kept whatever the consent answer is right now: someone who allows sharing later (Firefox's
-            // install prompt left unticked, or a consent read that failed) is still counted.
-            await deps.local.set(PENDING_INSTALL_KEY, { returning: id.returning, at: now() });
-            await emitPendingInstall();
-          })
-          .catch(() => {});
+        const asked = client.stamp();
+        void (async () => {
+          if (!(await client.canReport()) || !client.isCurrent(asked)) return;
+          const id = await deps.identity();
+          if (!(await client.canReport()) || !client.isCurrent(asked)) return;
+          await client.trackOnce("installed", "installed", {
+            returning: id.returning,
+          });
+          if (blocksAtInstall) await client.trackOnce("setup_completed", "setup_completed", {});
+        })().catch(() => {});
       } else if (details.reason === "update" && details.previousVersion !== deps.appVersion) {
-        void client.trackUnchecked("updated", { from: details.previousVersion, to: deps.appVersion });
+        void client.trackUnchecked("updated", {
+          from: details.previousVersion,
+          to: deps.appVersion,
+        });
       }
     },
     onStart(userId) {
@@ -309,15 +353,18 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
           await client.confirm(null, { forget: true, quiet: true });
         }
         // undefined: the account could not be read. It stays unconfirmed.
-        await emitPendingInstall(QUIET);
         await requestFlushIfNeeded();
       })()
         .catch(() => {})
         .finally(() => startSettled());
     },
     onActivity() {
+      const observation = client.captureObservation();
       void (async () => {
-        await startResult;
+        const captured = await observation;
+        if (!captured) return;
+        await waitForStart();
+        if (!(await client.observationCurrent(captured))) return;
         // A running Safari extension is the only proof on iPhone that it was switched on.
         if (isSafari) {
           await client.trackOnce("extension_enabled", "setup_step", { step: "extension_enabled" }, QUIET);
@@ -328,16 +375,25 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
       })().catch(() => {});
     },
     async flushWhenReady() {
-      await startResult;
+      await waitForStart();
       await client.flush();
     },
     listener(message, sender, sendResponse) {
       if (typeof message !== "object" || message === null) return false;
       const m = message as Record<string, unknown>;
       if (m.kind !== ANALYTICS_MESSAGE_KIND || !deps.isTrustedPage(sender)) return false;
+      if (
+        sender.incognito === true ||
+        (sender.tab && typeof sender.tab === "object" && (sender.tab as { incognito?: unknown }).incognito === true)
+      )
+        return false;
       const request = parsePageRequest(m);
       if (!request) return false;
-      void handle(request)
+      if (request.action === "setSharing" && !request.enabled) {
+        client.permissionChanged();
+        void client.clearQueue();
+      }
+      void handle(request, client.captureObservation())
         .then(sendResponse, () => sendResponse(null))
         .catch(() => {});
       return true;
@@ -347,8 +403,10 @@ export function createExtensionAnalyticsHost(deps: ExtensionAnalyticsHostDeps): 
 
 function parsePageRequest(m: Record<string, unknown>): PageRequest | null {
   switch (m.action) {
-    case "track":
-      return typeof m.name === "string" ? { action: "track", name: m.name, props: m.props } : null;
+    case "track": {
+      const event = canonicalEvent(m.name, m.props);
+      return event && isAppClientEvent(event.name) ? { action: "track", name: event.name, props: event.props } : null;
+    }
     case "identify":
       return typeof m.userId === "string" ? { action: "identify", userId: m.userId } : null;
     case "setSharing":
@@ -388,7 +446,13 @@ export function createPageAnalytics(options: PageAnalyticsOptions): UiAnalytics 
     identify: (userId) => fire({ action: "identify", userId }),
     // Resolves once the background has let go of the account (deletion waits for it).
     reset: (options) =>
-      send({ action: "reset", forgetAccount: options?.forgetAccount === true }).then(() => undefined, () => undefined),
+      send({
+        action: "reset",
+        forgetAccount: options?.forgetAccount === true,
+      }).then(
+        () => undefined,
+        () => undefined,
+      ),
     acknowledgeNotice: () => fire({ action: "acknowledgeNotice" }),
   };
   if (options.showsSwitch === false) return page;
@@ -402,9 +466,7 @@ export function createPageAnalytics(options: PageAnalyticsOptions): UiAnalytics 
     },
     setSharing(enabled) {
       // Called synchronously from the tap: a permission prompt here still has the user gesture.
-      const change = options.changeConsent
-        ? options.changeConsent(enabled).catch(() => undefined)
-        : Promise.resolve();
+      const change = options.changeConsent ? options.changeConsent(enabled).catch(() => undefined) : Promise.resolve();
       return change.then(async () => {
         const result = await send({ action: "setSharing", enabled }).catch(() => null);
         return typeof result === "boolean" ? result : !enabled;

@@ -3,14 +3,32 @@ import { EVENT_SCHEMA, storeForSurface, validateEvent, ANALYTICS_SURFACES } from
 
 describe("validateEvent", () => {
   it("accepts an event with exactly its schema properties", () => {
-    expect(validateEvent("service_toggled", { service: "youtube", enabled: false, where: "popup" })).toEqual({
-      service: "youtube",
+    expect(
+      validateEvent("master_toggled", {
+        site: "youtube",
+        cause: "direct",
+        enabled: false,
+        where: "popup",
+      }),
+    ).toEqual({
+      site: "youtube",
+      cause: "direct",
       enabled: false,
       where: "popup",
     });
-    expect(validateEvent("service_toggled", { service: "youtube", enabled: false, where: "sidebar" })).toBeNull();
+    expect(
+      validateEvent("master_toggled", {
+        site: "youtube",
+        cause: "direct",
+        enabled: false,
+        where: "sidebar",
+      }),
+    ).toBeNull();
     expect(validateEvent("active", undefined)).toEqual({});
-    expect(validateEvent("updated", { from: "2.0.0", to: "2.1.0" })).toEqual({ from: "2.0.0", to: "2.1.0" });
+    expect(validateEvent("updated", { from: "2.0.0", to: "2.1.0" })).toEqual({
+      from: "2.0.0",
+      to: "2.1.0",
+    });
   });
 
   it("rejects unknown events and inherited names", () => {
@@ -21,9 +39,15 @@ describe("validateEvent", () => {
 
   it("rejects extra, missing or mistyped properties", () => {
     expect(validateEvent("active", { url: "https://youtube.com/shorts/abc" })).toBeNull();
-    expect(validateEvent("service_toggled", { service: "youtube" })).toBeNull();
-    expect(validateEvent("service_toggled", { service: "youtube", enabled: "yes" })).toBeNull();
-    expect(validateEvent("service_toggled", { service: "vimeo", enabled: true, where: "popup" })).toBeNull();
+    expect(validateEvent("master_toggled", { service: "youtube" })).toBeNull();
+    expect(validateEvent("master_toggled", { service: "youtube", enabled: "yes" })).toBeNull();
+    expect(
+      validateEvent("master_toggled", {
+        service: "vimeo",
+        enabled: true,
+        where: "popup",
+      }),
+    ).toBeNull();
     // Owner decision (ADR 0004): no event names a service someone visited.
     expect(validateEvent("blocking_worked", { service: "youtube" })).toBeNull();
     expect(validateEvent("installed", [true])).toBeNull();
@@ -46,6 +70,14 @@ describe("validateEvent", () => {
 
 describe("storeForSurface", () => {
   it("maps every surface to the store it was downloaded from", () => {
-    expect(ANALYTICS_SURFACES.map(storeForSurface)).toEqual(["chrome", "firefox", "ios", "macos", "ios", "macos"]);
+    expect(ANALYTICS_SURFACES.map(storeForSurface)).toEqual([
+      "chrome",
+      "firefox",
+      "firefox",
+      "ios",
+      "macos",
+      "ios",
+      "macos",
+    ]);
   });
 });
