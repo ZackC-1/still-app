@@ -127,6 +127,87 @@ const settle = async () => { for (let i = 0; i < 150; i++) await Promise.resolve
 afterEach(() => vi.useRealTimers());
 
 describe("existing SyncService and exact Supabase modern port", () => {
+  it.each(["first-link", "replacement-session", "failed-retirement"] as const)("unconfirmed getUser cannot mutate a %s record", async kind => {
+    for (const proof of ["missing", "mismatched", "failed"] as const) {
+      const h = harness(); await h.cache.hydrate(); vi.useFakeTimers();
+      if (kind !== "first-link") {
+        await h.service.onSignedIn(A);
+        h.failNext(); await h.cache.setGlobalOn(false); await settle();
+        if (kind === "failed-retirement") {
+          vi.spyOn(h.storage, "set").mockRejectedValueOnce(new Error("retirement disk failure"));
+          await h.service.signOut();
+        } else endLifetime(h.service, h.cache);
+      } else await h.cache.setGlobalOn(false);
+      h.switchSession(NEXT_SESSION);
+      const subject = vi.spyOn(h.auth, "currentUserId");
+      if (proof === "failed") subject.mockRejectedValue(new Error("getUser unavailable"));
+      else subject.mockResolvedValue(proof === "missing" ? null : B);
+      const before = JSON.stringify(await h.storage.get());
+      const requests = structuredClone(h.requests), reads = h.reads();
+      const next = kind === "replacement-session" ? h.newLifetime() : { cache: h.cache, service: h.service };
+      await next.cache.hydrate(); await next.service.resume(A, false); await settle();
+      expect(JSON.stringify(await h.storage.get())).toBe(before);
+      expect(next.cache.current().globalOn).toBe(false);
+      expect(h.requests).toEqual(requests); expect(h.reads()).toBe(reads);
+      expect(next.service.getState().cloudReachable).toBe(false); expect(vi.getTimerCount()).toBe(1);
+      endLifetime(next.service, next.cache); expect(vi.getTimerCount()).toBe(0);
+    }
+  });
+  it.each(["before-write", "after-response"] as const)("missing auth proof %s retries automatically with immutable intent", async phase => {
+    for (const proof of ["missing-claims", "undefined-claims", "failed-claims", "missing-subject", "failed-subject"] as const) {
+      const h = harness(); await h.cache.hydrate(); await h.service.onSignedIn(A); vi.useFakeTimers();
+      const held = phase === "after-response" ? h.hold() : null;
+      if (held) { await h.cache.setGlobalOn(false); await held.started; }
+      const check = proof.endsWith("claims") ? vi.spyOn(h.auth, "currentSettingsSession") : vi.spyOn(h.auth, "currentUserId");
+      if (proof.startsWith("failed")) check.mockRejectedValue(new Error("SDK proof unavailable"));
+      else check.mockResolvedValue(proof === "undefined-claims" ? undefined as never : null);
+      if (!held) await h.cache.setGlobalOn(false);
+      const before = JSON.stringify(await h.storage.get());
+      const original = structuredClone(h.cache.currentRecord().atomic!.pending[0]!);
+      held?.release(); await settle();
+      expect(JSON.stringify(await h.storage.get())).toBe(before);
+      expect(h.service.getState()).toMatchObject({ pendingUpload: true, cloudReachable: false });
+      expect(vi.getTimerCount()).toBe(1); expect(h.requests).toHaveLength(held ? 1 : 0);
+      // Repeated missing proof uses the existing bounded backoff and allocates no new intent.
+      await vi.advanceTimersByTimeAsync(1_000); await settle();
+      expect(h.cache.currentRecord().atomic!.pending).toEqual([original]);
+      expect(vi.getTimerCount()).toBe(1); expect(h.requests).toHaveLength(held ? 1 : 0);
+      check.mockRestore();
+      await vi.advanceTimersByTimeAsync(1_999); await settle();
+      expect(h.cache.currentRecord().atomic!.pending).toEqual([original]);
+      await vi.advanceTimersByTimeAsync(1); await settle();
+      expect(h.requests).toHaveLength(1);
+      expect(h.requests[0]).toMatchObject({ writeId: original.writeId, receipt: original.receipt, operations: original.operations });
+      expect(h.cache.currentRecord().atomic!.pending).toEqual([]);
+      expect(h.cache.current().globalOn).toBe(false);
+      expect(h.service.getState()).toMatchObject({ pendingUpload: false, cloudReachable: true });
+      expect(vi.getTimerCount()).toBe(0);
+      await h.service.signOut(); h.cache.watch()(); expect(h.subscriptions()).toBe(0);
+    }
+  });
+  it.each(["initial-reconcile", "before-write", "after-response"] as const)("late getUser failure during %s cannot poison a newer same-account lifecycle", async phase => {
+    const h = harness(); await h.cache.hydrate(); vi.useFakeTimers();
+    if (phase !== "initial-reconcile") await h.service.onSignedIn(A);
+    const held = phase === "after-response" ? h.hold() : null;
+    if (held) { await h.cache.setGlobalOn(false); await held.started; }
+    let began!: () => void, reject!: (error: Error) => void;
+    const started = new Promise<void>(resolve => { began = resolve; });
+    const proof = new Promise<string | null>((_resolve, fail) => { reject = fail; });
+    vi.spyOn(h.auth, "currentUserId").mockImplementationOnce(() => { began(); return proof; });
+    const original = phase === "initial-reconcile" ? h.service.onSignedIn(A) :
+      held ? Promise.resolve() : h.cache.setGlobalOn(false);
+    held?.release(); await started;
+    h.switchSession(NEXT_SESSION); await h.service.onSignedIn(A);
+    await h.cache.setGlobalOn(false); await settle();
+    const before = JSON.stringify(await h.storage.get()), state = structuredClone(h.service.getState());
+    const requests = structuredClone(h.requests);
+    expect(h.cache.current().globalOn).toBe(false); expect(state.cloudReachable).toBe(true);
+    reject(new Error("old getUser failed late")); await original; await settle();
+    expect(JSON.stringify(await h.storage.get())).toBe(before);
+    expect(h.service.getState()).toEqual(state); expect(h.requests).toEqual(requests);
+    expect(vi.getTimerCount()).toBe(0); expect(h.subscriptions()).toBe(1);
+    await h.service.signOut(); h.cache.watch()(); expect(h.subscriptions()).toBe(0);
+  });
   it.each([false, true])("failed explicit retirement never revives an old write after same-account authentication (restart=%s)", async restart => {
     const h = harness(); await h.cache.hydrate(); await h.service.onSignedIn(A); vi.useFakeTimers();
     h.failNext(); await h.cache.setGlobalOn(false); await settle();
@@ -203,11 +284,15 @@ describe("existing SyncService and exact Supabase modern port", () => {
     expect(next.service.getState()).toMatchObject({ userId: A, cloudReachable: false }); expect(vi.getTimerCount()).toBe(1);
     await next.service.signOut(); next.cache.watch()(); expect(vi.getTimerCount()).toBe(0); expect(h.subscriptions()).toBe(0);
   });
-  it("a delayed write response cannot acknowledge intent after verified session replacement for the same UUID", async () => {
-    const h = harness(); await h.cache.hydrate(); await h.service.onSignedIn(A);
+  it.each(["verified", "missing-subject", "failed-subject"] as const)("a delayed write response cannot acknowledge intent or retry after verified session replacement (%s)", async proof => {
+    const h = harness(); await h.cache.hydrate(); await h.service.onSignedIn(A); vi.useFakeTimers();
     const held = h.hold(); await h.cache.setGlobalOn(false); await held.started;
     const before = structuredClone(await h.storage.get()); h.switchSession(NEXT_SESSION);
-    held.release(); await drain(); expect(await h.storage.get()).toEqual(before);
+    if (proof === "missing-subject") vi.spyOn(h.auth, "currentUserId").mockResolvedValue(null);
+    if (proof === "failed-subject") vi.spyOn(h.auth, "currentUserId").mockRejectedValue(new Error("old subject unavailable"));
+    const state = structuredClone(h.service.getState());
+    held.release(); await settle(); expect(await h.storage.get()).toEqual(before);
+    expect(h.service.getState()).toEqual(state); expect(vi.getTimerCount()).toBe(0);
     await h.service.signOut(); h.cache.watch()(); expect(h.subscriptions()).toBe(0);
   });
   it("a second SyncService lifetime preserves pre-anchor held choice on reconnect to a nonempty row", async () => {
