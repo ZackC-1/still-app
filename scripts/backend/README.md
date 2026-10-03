@@ -12,6 +12,33 @@ requires final assertions to fail, then destroys its data. Cleanup also runs on 
 production secrets or customer data enter this job, its plan or its logs. A failed/skipped cloud
 test is not evidence that SQL safety passed. Synthetic RevenueCat responses do not certify a provider.
 
+The rehearsal supplies an explicit generic event-trigger descriptor through
+[catalog-reconciliation.sql](sql/catalog-reconciliation.sql) and
+[synthetic-catalog-fixture.sql](sql/synthetic-catalog-fixture.sql). Owner-only
+reconciliation tables hold exact routine owner, language, return type,
+configuration, body and trigger owner/bindings, including tags and enabled
+state. Every audit compares the whole descriptor; absent, changed or additional
+event-trigger routines fail. Ordinary RPCs sharing a fixture name receive no
+exemption. The audit role receives fixed issue categories and cannot read these
+raw descriptors.
+
+Creator reconciliation combines selected application owners, explicitly reviewed
+deployment creators and observed public default-ACL creators, including roles
+with no selected objects. Hardening retains observed creator names before
+removing their last public ACL entry, so subsequent global drift stays visible.
+Global defaults applying to public are checked alongside additive public schema
+defaults; default ACLs scoped solely to other schemas do not expand creator
+selection or schema revocations. The generic fixture also proves an unrelated
+schema's explicit defaults survive.
+
+The new SQL probes check exact application policy definitions and deny-default
+rate-limit access, provider preservation/drift, creator-default creation and
+later drift, and raw-metadata access restrictions. They preserve the existing
+free-sync, writer, rule, JWT, webhook and rollback probes. The disposable cloud
+container creates a separate synthetic superuser login for event-trigger DDL.
+This login never appears in production/audit configuration. Local driver/check
+success and ignored SQL tests do not establish a cloud SQL pass.
+
 Before a production candidate can be assigned or a protected apply job built:
 
 1. Run [inventory.sql](sql/inventory.sql) in the actual hosted SQL editor as a read-only owner action. It is a single SELECT returning bounded JSON for the SQL editor,
