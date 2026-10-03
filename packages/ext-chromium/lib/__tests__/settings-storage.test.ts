@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS, type StillSettings } from "@still/shared-types";
 import {
   ChromeStorageAdapter,
@@ -31,6 +31,8 @@ function record(
 
 function installChromeStorage(initial: Record<string, unknown> = {}) {
   const store: Record<string, unknown> = { ...initial };
+  let gate: { began(): void; wait: Promise<void> } | null = null;
+  let replies = 0;
   const listeners = new Set<(
     changes: Record<string, chrome.storage.StorageChange>,
     areaName: string,
@@ -42,6 +44,7 @@ function installChromeStorage(initial: Record<string, unknown> = {}) {
           return { [key]: store[key] };
         },
         async set(values: Record<string, unknown>) {
+          if (gate) { const held = gate; gate = null; held.began(); await held.wait; }
           for (const [key, newValue] of Object.entries(values)) {
             const oldValue = store[key];
             store[key] = newValue;
@@ -62,12 +65,17 @@ function installChromeStorage(initial: Record<string, unknown> = {}) {
   };
   const origin = "chrome-extension://synthetic/";
   Object.assign(chromeMock, { runtime: { id: "synthetic", getURL: () => origin,
-    sendMessage: (message: unknown) => new Promise(resolve => router(message, { id: "synthetic", url: origin + "popup.html" }, resolve)),
+    sendMessage: (message: unknown) => new Promise(resolve => router(message, { id: "synthetic", url: origin + "popup.html" }, reply => { replies += 1; resolve(reply); })),
   } });
   globalThis.chrome = chromeMock as unknown as typeof chrome;
   const authority = new ChromeStorageAdapter({ authority: true });
   const router = createSettingsIntentRouter(intent => authority.commitIntent(intent), "synthetic", origin, r => authority.set(r));
-  return { store };
+  return { store, authority, listeners, replies: () => replies, gate() {
+    let began!: () => void; const started = new Promise<void>(r => { began = r; });
+    let release!: () => void; let reject!: (error: Error) => void;
+    gate = { began, wait: new Promise<void>((r, j) => { release = r; reject = j; }) };
+    return { started, release, fail: () => reject(new Error("commit failed")) };
+  } };
 }
 
 describe("Chromium/Firefox settings storage metadata propagation", () => {
@@ -125,5 +133,44 @@ describe("Chromium/Firefox settings storage metadata propagation", () => {
 
     expect(content.current().globalOn).toBe(false);
     expect(content.currentSyncMetadata()?.version).toBe(1);
+  });
+  it("concurrent default adapters serialize same-key and independent-key broker edits behind durable persistence", async () => {
+    const h = installChromeStorage({ [STORAGE_KEY]: record(settings({ updatedAt: 1 }), null) });
+    await h.authority.initializeAtomic("unknown");
+    const left = new SettingsCache(new ChromeStorageAdapter(), { now: () => 10 });
+    const right = new SettingsCache(new ChromeStorageAdapter(), { now: () => 11 });
+    const content = new SettingsCache(new ChromeStorageAdapter());
+    await Promise.all([left.hydrate(), right.hydrate(), content.hydrate()]);
+    const stop = content.watch(); const notify = vi.fn(); content.subscribe(notify);
+    const before = structuredClone(h.store[STORAGE_KEY]); const held = h.gate();
+    const first = left.setGlobalOn(false); await held.started;
+    const second = right.setGlobalOn(true); const independent = right.setService("youtube", false);
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(h.store[STORAGE_KEY]).toEqual(before); expect(h.replies()).toBe(0); expect(notify).not.toHaveBeenCalled();
+    held.release(); await Promise.all([first, second, independent]);
+    const saved = h.store[STORAGE_KEY] as StoredSettingsRecord;
+    expect(saved.settings).toMatchObject({ globalOn: true, services: { youtube: false } });
+    expect(saved.atomic!.pending).toHaveLength(3); expect(saved.atomic!.sequence).toBe(3);
+    expect(saved.atomic!.pending.map(p => p.operations[0]!.localStep)).toEqual([1, 2, 1]);
+    expect(new Set(saved.atomic!.pending.map(p => p.writeId)).size).toBe(3);
+    expect(content.current()).toMatchObject({ globalOn: true, services: { youtube: false } });
+    expect(h.replies()).toBe(3); expect(notify).toHaveBeenCalledTimes(3);
+    stop(); expect(h.listeners.size).toBe(0);
+  });
+  it("a rejected broker commit retains bytes and sends no change signal, then a later intent recovers", async () => {
+    const h = installChromeStorage({ [STORAGE_KEY]: record(settings({ updatedAt: 1 }), null) });
+    await h.authority.initializeAtomic("unknown");
+    const popup = new SettingsCache(new ChromeStorageAdapter(), { now: () => 10 }); await popup.hydrate();
+    const content = new SettingsCache(new ChromeStorageAdapter()); await content.hydrate();
+    const stop = content.watch(); const notify = vi.fn(); content.subscribe(notify);
+    const before = structuredClone(h.store[STORAGE_KEY]); const held = h.gate();
+    const first = popup.setGlobalOn(false); const failed = expect(first).rejects.toThrow("authority-unavailable");
+    await held.started; held.fail(); await failed;
+    expect(h.store[STORAGE_KEY]).toEqual(before); expect(notify).not.toHaveBeenCalled(); expect(content.current().globalOn).toBe(true);
+    await popup.setService("youtube", false);
+    const saved = h.store[STORAGE_KEY] as StoredSettingsRecord;
+    expect(saved.atomic!.pending).toHaveLength(1); expect(saved.atomic!.sequence).toBe(1);
+    expect(saved.settings).toMatchObject({ globalOn: true, services: { youtube: false } });
+    expect(notify).toHaveBeenCalledTimes(1); stop(); expect(h.listeners.size).toBe(0);
   });
 });

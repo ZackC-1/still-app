@@ -217,9 +217,16 @@ export class SettingsCache {
     let committed = false;
     try {
       const record = await this.adapter.commitIntent!({ path, value, updatedAt: this.now() });
+      this.hydrationRecovery = null;
       this.acceptCommitted(record, "external");
       committed = record.intentCommitted === true;
       return this.snapshot;
+    } catch (error) {
+      if (error instanceof SettingsStorageRecovery) {
+        this.hydrationRecovery = error;
+        if (this.atomic) this.atomic = { ...this.atomic, paused: error.reason };
+      }
+      throw error;
     } finally {
       this.intentsInFlight -= 1;
       if (committed) this.notify("local");

@@ -126,6 +126,13 @@ public enum AtomicSettingsRecord {
       let result = SettingsOrderedField(value: value, stamp: stamp) else { throw Failure.unreadable }
     return result
   }
+  private static func resolvePause(_ state: inout [String: SettingsJSONValue], held: [String: SettingsJSONValue]) {
+    guard held.isEmpty, let scope = state["scope"]?.object,
+      scope["accountId"] == .null || receipt(state["anchor"]) != nil,
+      case .string(let pause) = state["paused"],
+      ["awaiting-anchor", "ownership-hold", "pending-limit", "ordering-hold"].contains(pause) else { return }
+    state["paused"] = .null
+  }
 
   /// Internal host commands operate on the same locked complete record. Receipt syntax is not
   /// authentication: the web backend adapter supplies it only after its authenticated own-row read.
@@ -158,7 +165,7 @@ public enum AtomicSettingsRecord {
       }
       state["scope"] = .object(nextScope)
       state["anchor"] = .null
-      if action["accountId"] != .null, state["ownership"] != .string("never-linked"), priorScope["accountId"] != action["accountId"] {
+      if action["accountId"] != .null, state["ownership"] != .string("never-linked") {
         state["paused"] = .string("ownership-unconfirmed")
       }
       state["pending"] = .array(pending)
@@ -171,12 +178,18 @@ public enum AtomicSettingsRecord {
       guard Set(action.keys) == Set(["action", "envelope", "scope"]), let captured = action["scope"]?.object,
         validScope(captured) else { throw Failure.invalidIntent }
       if captured != priorScope { return raw }
+      guard let local = root["settings"]?.object, local["schemaVersion"] == .number(2),
+        case .ready = SettingsV2Migration.read(try encoder.encode(local), provenance: .init(kind: "readable-local", provenInitialization: local["updatedAt"] == .number(0)))
+      else { throw Failure.unreadable }
       guard let envelope = action["envelope"]?.object, envelope["protocol"] == .number(2),
         let anchor = receipt(envelope["receipt"]), anchor["lineage"] == envelope["lineage"], anchor["revision"] == envelope["version"],
         let remote = envelope["settings"]?.object, case .bool(let empty) = envelope["empty"],
         case .number(let revision) = anchor["revision"],
         case .ready(let canonical, _) = SettingsV2Migration.read(try encoder.encode(remote), provenance: .init(kind: "acknowledged-account", revision: revision, provenInitialization: empty)),
         var settings = root["settings"]?.object else { throw Failure.invalidIntent }
+      for path in PackagedFeatureRegistry.settingsFields {
+        guard try ordered(canonical.document, path: path).baseRevision <= revision else { throw Failure.invalidIntent }
+      }
       if let prior = receipt(state["anchor"]) {
         guard prior["lineage"] == anchor["lineage"], case .number(let oldRevision) = prior["revision"], revision >= oldRevision else { throw Failure.invalidIntent }
       }
@@ -194,7 +207,7 @@ public enum AtomicSettingsRecord {
       for entry in pending {
         guard var operation = entry.object, let scope = operation["scope"]?.object,
           case .array(let ops) = operation["operations"] else { throw Failure.unreadable }
-        if scope["accountId"] != captured["accountId"] { retained.append(entry); continue }
+        if scope != captured { retained.append(entry); continue }
         var remains = false
         for value in ops {
           guard let op = value.object, case .string(let path) = op["path"],
@@ -217,16 +230,24 @@ public enum AtomicSettingsRecord {
         var held = state["held"]!.object!
         if empty {
           for path in PackagedFeatureRegistry.settingsFields {
-            let local = held[path] ?? .bool(field(original, path)!)
-            if local != .bool(field(settings, path)!) { held[path] = local }
+            guard let originalValue = field(original, path), let canonicalValue = field(settings, path) else { throw Failure.unreadable }
+            let local = held[path] ?? .bool(originalValue)
+            if local != .bool(canonicalValue) { held[path] = local }
             else { held.removeValue(forKey: path) }
           }
-        }
+        } else { held.removeAll() }
         state["held"] = .object(held)
         state["paused"] = held.isEmpty ? .null : .string("ownership-hold")
+      } else if case .string(let pause) = state["paused"], ["awaiting-anchor", "pending-limit", "ownership-hold"].contains(pause) {
+        var held = state["held"]!.object!
+        for path in PackagedFeatureRegistry.settingsFields {
+          if let value = field(settings, path), held[path] == .bool(value) { held.removeValue(forKey: path) }
+        }
+        state["held"] = .object(held)
       }
       state["pending"] = .array(retained)
       state["anchor"] = .object(anchor)
+      resolvePause(&state, held: state["held"]!.object!)
       root["settings"] = .object(settings)
       if envelope["serverUpdatedAt"] == .null { root["syncMetadata"] = .null }
       else {
@@ -285,7 +306,7 @@ public enum AtomicSettingsRecord {
         nextClocks[path] = .object(next.stamp)
         settings["clocks"] = .object(nextClocks)
         held.removeValue(forKey: path)
-        if held.isEmpty && atomic["paused"] == .string("ownership-hold") { atomic["paused"] = .null }
+        resolvePause(&atomic, held: held)
         pending.append(.object([
           "writeId": .string(UUID().uuidString.lowercased()), "scope": .object(scope),
           "receipt": atomic["anchor"] ?? .null,
@@ -294,7 +315,7 @@ public enum AtomicSettingsRecord {
         ]))
       } else if case .unchanged = edit {
         held.removeValue(forKey: path)
-        if held.isEmpty && pending.count < 64 && atomic["paused"] != .string("ownership-unconfirmed") { atomic["paused"] = .null }
+        resolvePause(&atomic, held: held)
       } else {
         // Preserve a local choice without fabricating an ordering stamp at saturation/recovery.
         held[path] = .bool(value)

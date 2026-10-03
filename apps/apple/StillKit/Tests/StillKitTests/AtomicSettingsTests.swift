@@ -15,6 +15,39 @@ final class AtomicSettingsTests: XCTestCase {
   private func root(_ data: Data) throws -> [String: Any] {
     try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
   }
+  private func acknowledgement(_ settings: Any, scope: Any) throws -> Data {
+    let lineage = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    return try JSONSerialization.data(withJSONObject: ["action": "acknowledge", "scope": scope,
+      "envelope": ["protocol": 2, "empty": true, "settings": settings, "version": 0,
+        "serverUpdatedAt": NSNull(), "lastWriteId": NSNull(), "lineage": lineage,
+        "receipt": ["version": 1, "lineage": lineage, "revision": 0, "mac": String(repeating: "A", count: 43)]]])
+  }
+  func testFutureLocalAcknowledgementRetainsBytesAndDoesNotNotify() throws {
+    try assertRejectedLocalAcknowledgement { $0["schemaVersion"] = 99 }
+  }
+  func testDamagedLocalAcknowledgementsRetainBytesAndDoNotNotify() throws {
+    try assertRejectedLocalAcknowledgement { $0["globalOn"] = 1 }
+    try assertRejectedLocalAcknowledgement { $0.removeValue(forKey: "globalOn") }
+    try assertRejectedLocalAcknowledgement { $0["services"] = ["youtube": "false"] }
+  }
+  private func assertRejectedLocalAcknowledgement(_ damage: (inout [String: Any]) -> Void) throws {
+    let dir = try directory(); let backing = AtomicSettingsBacking(directory: dir)
+    let store = SharedSettingsStore(backing: backing); try seed(store)
+    let initial = try root(XCTUnwrap(store.encodedRecord()))
+    _ = try store.atomicCommand(JSONSerialization.data(withJSONObject: ["action": "scope", "accountId": "11111111-1111-1111-1111-111111111111"]))
+    var damaged = try root(XCTUnwrap(store.encodedRecord()))
+    var settings = try XCTUnwrap(damaged["settings"] as? [String: Any]); damage(&settings); damaged["settings"] = settings
+    let raw = try JSONSerialization.data(withJSONObject: damaged)
+    try backing.transaction { $0 = raw }
+    let state = try XCTUnwrap(damaged["atomic"] as? [String: Any])
+    let command = try acknowledgement(XCTUnwrap(initial["settings"]), scope: XCTUnwrap(state["scope"]))
+    var notifications = 0; let bridge = SettingsBridge(store: store, notifyChanged: { notifications += 1 })
+    XCTAssertEqual(bridge.handle(.atomic(command)), "{\"status\":\"unavailable\"}")
+    XCTAssertEqual(try store.readCommittedRecord(), raw); XCTAssertEqual(notifications, 0)
+    XCTAssertThrowsError(try store.atomicCommand(command)) { error in
+      XCTAssertEqual(error as? AtomicSettingsRecord.Failure, .unreadable)
+    }
+  }
   func testTwoIndependentHostsAllocateFromCommittedRecord() throws {
     let dir = try directory()
     let first = SharedSettingsStore(backing: AtomicSettingsBacking(directory: dir))
@@ -33,6 +66,31 @@ final class AtomicSettingsTests: XCTestCase {
     let pending = try XCTUnwrap(state["pending"] as? [[String: Any]])
     XCTAssertEqual(pending.count, 3)
     XCTAssertEqual(Set(pending.compactMap { $0["writeId"] as? String }).count, 3)
+  }
+  @MainActor
+  func testMainActorReadWaitsForALivePeerLockOnTheMacOSTestHost() async throws {
+    let dir = try directory()
+    let store = SharedSettingsStore(backing: AtomicSettingsBacking(directory: dir)); try seed(store)
+    let before = try store.readCommittedRecord(); let locked = DispatchSemaphore(value: 0)
+    let released = expectation(description: "live peer releases lock")
+    DispatchQueue.global().async {
+      let peer = AtomicSettingsBacking(directory: dir)
+      defer { released.fulfill() }
+      _ = try? peer.transaction { _ in locked.signal(); Thread.sleep(forTimeInterval: 0.2) }
+    }
+    XCTAssertEqual(locked.wait(timeout: .now() + 2), .success)
+    let callback = expectation(description: "main queue callback resumes")
+    let began = ProcessInfo.processInfo.systemUptime
+    var callbackDelay = 0.0
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.01) {
+      callbackDelay = ProcessInfo.processInfo.systemUptime - began; callback.fulfill()
+    }
+    XCTAssertEqual(try store.readCommittedRecord(), before)
+    let readDelay = ProcessInfo.processInfo.systemUptime - began
+    await fulfillment(of: [released, callback], timeout: 2)
+    XCTAssertGreaterThan(readDelay, 0.1); XCTAssertGreaterThan(callbackDelay, 0.1)
+    print("native-main-actor-live-peer-characterization readMs=\(readDelay * 1000) callbackMs=\(callbackDelay * 1000)")
+    // Deliberate test contention is not ordinary iOS suspension or packaged-device evidence.
   }
   func testFailedReplacementDoesNotNotifyOrChangePeerBytes() throws {
     let dir = try directory()
