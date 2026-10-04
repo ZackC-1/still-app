@@ -188,7 +188,7 @@ export class AtomicSettingsWriter {
         throw new TypeError("Invalid settings intent");
       const current = await this.adapter.get() ?? { settings: DEFAULT_SETTINGS, syncMetadata: null, syncEpoch: 0 };
       if (!current.atomic) {
-        if ("schemaVersion" in current.settings) throw new SettingsStorageRecovery("missing-provenance");
+        if ("schemaVersion" in current.settings && current.settings.schemaVersion !== 1) throw new SettingsStorageRecovery("missing-provenance");
         if (intent.path.startsWith("sites.")) throw new SettingsStorageRecovery("rollout-held");
         const prior = intent.path === "globalOn" ? current.settings.globalOn : current.settings.services[intent.path.slice(9) as keyof typeof current.settings.services];
         if (prior === intent.value) return { ...current, intentCommitted: false };
