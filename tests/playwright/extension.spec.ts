@@ -108,6 +108,8 @@ async function expectPopupFits(
   await page.emulateMedia({ colorScheme });
   await page.goto(`chrome-extension://${extensionId}/popup.html`);
   await page.evaluate(() => document.fonts.ready);
+  // The committed desktop view loads asynchronously; measure its rendered controls.
+  await expect(page.getByRole("switch")).toHaveCount(5);
 
   const fit = await page.evaluate(() => {
     const available = document.documentElement.clientWidth;
