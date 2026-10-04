@@ -3,7 +3,6 @@
     PAID_TIER_ENABLED,
     SERVICE_IDS,
     type ServiceId,
-    type FeatureId,
   } from "@still/shared-types";
   import type { UiController } from "./controller.svelte.js";
   import Toggle from "./components/Toggle.svelte";
@@ -15,10 +14,7 @@
   import { PRIVACY_POLICY_URL, SETUP_GUIDE_URL } from "./config.js";
   import type { SurfaceGuidance } from "./surface-guidance.js";
   import type { CommittedPopupBinding, CommittedPopupToggle } from "./index.js";
-  import type {
-    DesktopPopupBindingState,
-    DesktopPopupCommandOutcome,
-  } from "./v3/desktop-popup-binding.js";
+  import { createPopupViewBinding } from "./v3/popup-view-binding.svelte.js";
   import type { Component } from "svelte";
   import type { DesktopPopupProps } from "./v3/presentation.js";
 
@@ -53,76 +49,18 @@
     onRestore,
     surfaceGuidance,
   }: Props = $props();
-  let observedBinding = $state.raw<CommittedPopupBinding | null>(null);
-  let popupState = $state.raw<DesktopPopupBindingState | null>(null);
-  let popupLifetime = 0;
-  let popupCommandTicket = 0;
-  let settingsRecovery = $state.raw<{
-    binding: CommittedPopupBinding;
-    lifetime: number;
-  } | null>(null);
-  $effect(() => {
-    const binding = committedPopupBinding;
-    if (!binding) return;
-    popupLifetime += 1;
-    observedBinding = binding;
-    popupState = binding.current();
-    settingsRecovery = null;
-    const unsubscribe = binding.subscribe((state) => {
-      popupState = state;
-    });
-    return () => {
-      popupLifetime += 1;
-      settingsRecovery = null;
-      unsubscribe();
-      binding.stop();
-    };
-  });
+  const popupView = createPopupViewBinding(
+    () => committedPopupBinding,
+    reportCommitted,
+  );
+  let popupState = $derived(popupView.state);
   let choices = $derived(
-    committedPopupBinding
-      ? observedBinding === committedPopupBinding
-        ? (popupState?.settings ?? null)
-        : null
-      : c.settings,
+    committedPopupBinding ? (popupView.settings ?? null) : c.settings,
   );
-  let held = $derived(
-    Boolean(committedPopupBinding) &&
-      (observedBinding !== committedPopupBinding ||
-        popupState?.commandAvailability !== "ready"),
-  );
-  let settingsUnavailable = $derived(
-    Boolean(committedPopupBinding) &&
-      observedBinding === committedPopupBinding &&
-      popupState?.commandAvailability === "unavailable" &&
-      committedPopupBinding?.current().reason !== "stopped",
-  );
-  function recoverSettings(): void {
-    const binding = committedPopupBinding;
-    if (!binding || !settingsUnavailable || settingsRecovery) return;
-    const state = binding.current();
-    if (
-      state.commandAvailability !== "unavailable" ||
-      state.reason === "stopped"
-    )
-      return;
-    const flight = { binding, lifetime: popupLifetime };
-    settingsRecovery = flight;
-    void binding
-      .rereadAuthority()
-      .catch(() => {
-        /* The current cache retains the authoritative hold; never replay an intent. */
-      })
-      .finally(() => {
-        if (
-          settingsRecovery === flight &&
-          popupLifetime === flight.lifetime &&
-          committedPopupBinding === binding &&
-          observedBinding === binding &&
-          binding.current().reason !== "stopped"
-        )
-          settingsRecovery = null;
-      });
-  }
+  let held = $derived(popupView.held);
+  let settingsUnavailable = $derived(popupView.settingsUnavailable);
+  let settingsRecovery = $derived(popupView.recovering);
+  const recoverSettings = popupView.recoverSettings;
   let desktopPresentation = $derived(
     committedPopupBinding ? popupPresentation : undefined,
   );
@@ -144,9 +82,7 @@
       active = false;
     };
   });
-  let modern = $derived(
-    observedBinding === committedPopupBinding ? popupState?.settings : null,
-  );
+  let modern = $derived(popupView.settings);
   let syncRetryLifetime = 0;
   $effect.pre(() => {
     // Track controller attachments even on legacy hosts without a binding.
@@ -186,74 +122,7 @@
             : { tone: "pending", text: STRINGS.sync.checking },
     };
   });
-  function currentPopup(binding: CommittedPopupBinding) {
-    if (binding !== committedPopupBinding || binding !== observedBinding)
-      return null;
-    const state = binding.current();
-    return state.commandAvailability === "ready" && state.settings
-      ? state
-      : null;
-  }
-  function runPopupCommand(
-    binding: CommittedPopupBinding,
-    submit: () => Promise<DesktopPopupCommandOutcome>,
-    toggle?: CommittedPopupToggle,
-  ): void {
-    const lifetime = popupLifetime;
-    const ticket = ++popupCommandTicket;
-    const current = () =>
-      lifetime === popupLifetime &&
-      binding === committedPopupBinding &&
-      binding === observedBinding &&
-      binding.current().reason !== "stopped";
-    function reread(reason?: string): void {
-      if (!current() || ticket !== popupCommandTicket) return;
-      const state = binding.current();
-      if (
-        reason !== undefined &&
-        (state.commandAvailability !== "unavailable" || state.reason !== reason)
-      )
-        return;
-      // A failed deliberate action permits one read, never a retry of its intent.
-      void binding.rereadAuthority().catch(() => {
-        /* The maintained cache retains the authoritative recovery hold. */
-      });
-    }
-    void submit()
-      .then((outcome) => {
-        if (!current()) return;
-        if (outcome.status === "committed") {
-          // A newer deliberate command does not erase an earlier real commit receipt.
-          if (toggle) reportCommitted(toggle);
-        } else if (outcome.status === "unavailable") reread(outcome.reason);
-      })
-      .catch(() => reread());
-  }
-  function popupCommands(binding: CommittedPopupBinding) {
-    return {
-      global: (enabled: boolean) => {
-        if (!currentPopup(binding)) return;
-        runPopupCommand(binding, () => binding.setGlobalOn(enabled), {
-          enabled,
-        });
-      },
-      service: (service: ServiceId, enabled: boolean) => {
-        const state = currentPopup(binding);
-        if (!state?.settings?.globalOn) return;
-        runPopupCommand(binding, () => binding.setService(service, enabled), {
-          service,
-          enabled,
-        });
-      },
-      feature: (feature: FeatureId, enabled: boolean) => {
-        if (!currentPopup(binding)) return;
-        runPopupCommand(binding, () => binding.setFeature(feature, enabled));
-      },
-    };
-  }
-  let desktopCommands = $derived(
-    committedPopupBinding ? popupCommands(committedPopupBinding) : null,
-  );
+  let desktopCommands = $derived(popupView.commands);
   const coreBenefit = {
     youtube: "youtube.shorts",
     instagram: "instagram.reels",
@@ -283,7 +152,9 @@
     const state = binding.current();
     if (!state.settings || state.commandAvailability !== "ready") return;
     const enabled = !state.settings.globalOn;
-    runPopupCommand(binding, () => binding.setGlobalOn(enabled), { enabled });
+    popupView.runPopupCommand(binding, () => binding.setGlobalOn(enabled), {
+      enabled,
+    });
   }
   function toggleService(service: ServiceId): void {
     const binding = committedPopupBinding;
@@ -301,10 +172,14 @@
     )
       return;
     const enabled = !state.settings.services[service];
-    runPopupCommand(binding, () => binding.setService(service, enabled), {
-      service,
-      enabled,
-    });
+    popupView.runPopupCommand(
+      binding,
+      () => binding.setService(service, enabled),
+      {
+        service,
+        enabled,
+      },
+    );
   }
 </script>
 
