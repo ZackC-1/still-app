@@ -192,8 +192,12 @@ export class AtomicSettingsWriter {
         if (intent.path.startsWith("sites.")) throw new SettingsStorageRecovery("rollout-held");
         const prior = intent.path === "globalOn" ? current.settings.globalOn : current.settings.services[intent.path.slice(9) as keyof typeof current.settings.services];
         if (prior === intent.value) return { ...current, intentCommitted: false };
-        const settings = intent.path === "globalOn" ? { ...current.settings, globalOn: intent.value, updatedAt: intent.updatedAt }
-          : { ...current.settings, services: { ...current.settings.services, [intent.path.slice(9)]: intent.value }, updatedAt: intent.updatedAt };
+        // Watched legacy peers reject equal/older stamps. Allocate from this serialized durable
+        // read so same-millisecond or backward clocks cannot hide a genuine later choice.
+        const updatedAt = Math.max(intent.updatedAt, Math.floor(current.settings.updatedAt) + 1);
+        if (!integer(updatedAt)) throw new SettingsStorageRecovery("ordering-hold");
+        const settings = intent.path === "globalOn" ? { ...current.settings, globalOn: intent.value, updatedAt }
+          : { ...current.settings, services: { ...current.settings.services, [intent.path.slice(9)]: intent.value }, updatedAt };
         const next = { ...current, settings };
         await this.adapter.set(structuredClone(next));
         return { ...next, intentCommitted: true };

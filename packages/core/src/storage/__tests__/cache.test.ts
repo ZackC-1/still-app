@@ -57,7 +57,7 @@ describe("newer legacy hydration after delayed command receipts", () => {
     cache.subscribeAuthority(() => authority.push(structuredClone(cache.currentRecord())));
     const writes = vi.spyOn(storage, "set");
     const stop = scenario.watch ? cache.watch() : () => {};
-    const old = { ...saved, settings: settings({ globalOn: false, updatedAt: scenario.changed ? 5000 : 9000 }) };
+    const old = { ...saved, settings: settings({ globalOn: false, updatedAt: scenario.changed ? 9001 : 9000 }) };
     const newer = record(true, 1, scenario.authority === "epoch" ? 2 : 1, scenario.authority === "epoch" ? 1 : 6);
     try {
       const command = cache.setGlobalOn(false);
@@ -107,9 +107,9 @@ describe("newer legacy hydration after delayed command receipts", () => {
     const hydration = cache.hydrate(); const settled = cache.whenHydrated();
     await readCaptured.promise;
     const stop = cache.watch();
-    const committed = { ...saved, settings: settings({ globalOn: false, updatedAt: 5000 }) };
+    const committed = { ...saved, settings: settings({ globalOn: false, updatedAt: 9001 }) };
     try {
-      // A real same-authority write moves the device clock backwards while the older get is held.
+      // A backward injected clock still advances the durable authority stamp while the older get is held.
       await expect(writer.commit({ path: "globalOn", value: false, updatedAt: 5000 }))
         .resolves.toEqual({ ...committed, intentCommitted: true });
       const receipt = await writer.commit({ path: "globalOn", value: false, updatedAt: 5000 });
@@ -255,7 +255,7 @@ describe("hydration after accepted legacy commands", () => {
     const settled = cache.whenHydrated();
     await reached;
     const stop = cache.watch();
-    const committed = { ...saved, settings: settings({ globalOn: true, updatedAt: 5000 }) };
+    const committed = { ...saved, settings: settings({ globalOn: true, updatedAt: 9001 }) };
     try {
       await expect(cache.setGlobalOn(true)).resolves.toEqual(committed.settings);
       expect(cache.currentRecord()).toEqual(committed);
