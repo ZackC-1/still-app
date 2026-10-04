@@ -1056,3 +1056,408 @@ describe("maintained App committed popup host", () => {
     expect(document.querySelector(".hero")).toBeNull();
   });
 });
+
+
+describe("current-authority recovery in the same mounted host", () => {
+  async function readyHost(route = "desktop-global") {
+    const f = await browser();
+    await f.authority.commitIntent({
+      path: "services.instagram",
+      value: false,
+      updatedAt: 101,
+    });
+    await f.authority.commitIntent({
+      path: "sites.youtube.shorts",
+      value: false,
+      updatedAt: 102,
+    });
+    const state = capture();
+    await flush();
+    const telemetry = vi.fn(),
+      onSettings = vi.fn();
+    const desktop = route.startsWith("desktop");
+    const props = {
+      controller: state.controller,
+      committedPopupBinding: state.binding,
+      compact: true,
+      onCommittedPopupToggle: telemetry,
+      popupPresentation: desktop
+        ? {
+            browser: "Chrome" as const,
+            onSettings,
+            loadDesktop: () => import("../v3/DesktopPopup.svelte"),
+          }
+        : undefined,
+    };
+    const view = render(App, props);
+    const global = () =>
+      desktop ? screen.getByRole("switch", { name: "Still" }) : globalSwitch();
+    await waitFor(() => expect(global()).toBeTruthy());
+    await flush();
+    if (route === "desktop-feature")
+      await fireEvent.click(
+        screen.getByRole("button", { name: "YouTube Blocker" }),
+      );
+    const control = () =>
+      route.endsWith("feature")
+        ? screen.getByRole("switch", { name: "Shorts" })
+        : route.endsWith("service")
+          ? desktop
+            ? screen.getByRole("switch", { name: "Still on Instagram" })
+            : serviceSwitch("instagram")
+          : global();
+    const saved = (await f.authority.get())!;
+    const get = vi.spyOn(chrome.storage.local, "get");
+    const reread = vi.spyOn(state.binding, "rereadAuthority");
+    get.mockClear();
+    f.set.mockClear();
+    f.sendMessage.mockClear();
+    return {
+      f,
+      state,
+      view,
+      props,
+      telemetry,
+      onSettings,
+      get,
+      reread,
+      control,
+      saved,
+    };
+  }
+
+  it.each([
+    "desktop-global",
+    "desktop-service",
+    "desktop-feature",
+    "legacy-global",
+    "legacy-service",
+  ])(
+    "%s recovers one failed durable write with one read, no replay, then commits only the next deliberate click",
+    async (route) => {
+      const h = await readyHost(route);
+      h.f.set.mockRejectedValueOnce(new Error("Synthetic local.set refusal"));
+      await fireEvent.click(h.control());
+      await waitFor(() => expect(h.reread).toHaveBeenCalledOnce());
+      await waitFor(() =>
+        expect(h.state.binding.current().commandAvailability).toBe("ready"),
+      );
+      expect(h.f.set).toHaveBeenCalledOnce();
+      expect(h.f.sendMessage).toHaveBeenCalledOnce();
+      expect(h.get).toHaveBeenCalledTimes(2); // writer's admission read plus the single recovery read
+      expect(h.telemetry).not.toHaveBeenCalled();
+      expect(await h.f.authority.get()).toEqual(h.saved);
+      expect(h.control()).toHaveAttribute(
+        "aria-checked",
+        route.endsWith("global") ? "true" : "false",
+      );
+      await fireEvent.click(h.control());
+      await waitFor(() =>
+        expect(h.control()).toHaveAttribute(
+          "aria-checked",
+          route.endsWith("global") ? "false" : "true",
+        ),
+      );
+      expect(h.reread).toHaveBeenCalledOnce();
+      expect(h.f.set).toHaveBeenCalledTimes(2);
+      expect(h.f.sendMessage).toHaveBeenCalledTimes(2);
+      const saved = requireModernSettings((await h.f.authority.get())!);
+      expect(saved.globalOn).toBe(!route.endsWith("global"));
+      expect(saved.services.instagram).toBe(route.endsWith("service"));
+      expect(saved.sites["youtube.shorts"]).toBe(route.endsWith("feature"));
+      expect(saved.services.facebook).toBe(true);
+      if (route.endsWith("feature")) expect(h.telemetry).not.toHaveBeenCalled();
+      else
+        await waitFor(() =>
+          expect(h.telemetry).toHaveBeenCalledExactlyOnceWith(
+            route.endsWith("global")
+              ? { enabled: false }
+              : { service: "instagram", enabled: true },
+          ),
+        );
+    },
+  );
+
+  it.each(["read-failure", "unknown"] as const)(
+    "keeps %s held after the one read without replay or false commit",
+    async (reason) => {
+      const h = await readyHost();
+      const get = h.get.getMockImplementation()!;
+      if (reason === "read-failure")
+        h.get
+          .mockImplementationOnce(get)
+          .mockRejectedValueOnce(new Error("Synthetic read refusal"));
+      h.f.set.mockImplementationOnce(async () => {
+        if (reason === "unknown")
+          h.f.store["still:settings"] = {
+            ...h.saved,
+            atomic: {
+              ...h.saved.atomic!,
+              ownership: "unknown",
+              sequence: h.saved.atomic!.sequence + 1,
+            },
+          };
+        throw new Error("Synthetic write refusal without notification");
+      });
+      await fireEvent.click(h.control());
+      await waitFor(() => expect(h.reread).toHaveBeenCalledOnce());
+      await waitFor(() =>
+        expect(h.state.binding.current().reason).toBe(
+          reason === "unknown" ? "ownership-unconfirmed" : "read-failed",
+        ),
+      );
+      expect(h.state.binding.current().commandAvailability).toBe("unavailable");
+      expect(h.control()).toHaveAttribute("aria-disabled", "true");
+      expect(h.control()).toHaveAttribute("aria-checked", "true");
+      expect(h.f.set).toHaveBeenCalledOnce();
+      expect(h.f.sendMessage).toHaveBeenCalledOnce();
+      expect(h.telemetry).not.toHaveBeenCalled();
+      h.control().dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flush();
+      expect(h.reread).toHaveBeenCalledOnce();
+      expect(h.f.sendMessage).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("keeps a newer durable hold when an admitted recovery read returns an older healthy snapshot", async () => {
+    const h = await readyHost();
+    const get = h.get.getMockImplementation()!;
+    const entered = gate(),
+      held = gate();
+    h.get.mockImplementationOnce(get).mockImplementationOnce(async () => {
+      entered.open();
+      await held.promise;
+      return { "still:settings": h.saved };
+    });
+    h.f.set.mockRejectedValueOnce(new Error("Synthetic write refusal"));
+    await fireEvent.click(h.control());
+    await entered.promise;
+    try {
+      const newer = {
+        ...h.saved,
+        atomic: {
+          ...h.saved.atomic!,
+          sequence: h.saved.atomic!.sequence + 1,
+          paused: "ordering-hold",
+        },
+      };
+      await h.f.external(newer);
+      held.open();
+      await flush();
+      await flush();
+      expect(h.state.binding.current().reason).toBe("ordering-hold");
+      expect(h.state.binding.current().commandAvailability).toBe("unavailable");
+      expect(h.reread).toHaveBeenCalledOnce();
+      expect(h.control()).toHaveAttribute("aria-checked", "true");
+      expect(h.telemetry).not.toHaveBeenCalled();
+      expect(await h.f.authority.get()).toEqual(newer);
+    } finally {
+      held.open();
+    }
+  });
+
+  it.each(["unmount", "replacement"] as const)(
+    "fences a previously admitted read after %s without replaying its failed intent",
+    async (close) => {
+      const h = await readyHost();
+      const get = h.get.getMockImplementation()!;
+      const entered = gate(),
+        held = gate();
+      h.get.mockImplementationOnce(get).mockImplementationOnce(async () => {
+        entered.open();
+        await held.promise;
+        return { "still:settings": h.saved };
+      });
+      h.f.set.mockRejectedValueOnce(new Error("Synthetic write refusal"));
+      await fireEvent.click(h.control());
+      await entered.promise;
+      try {
+        const stopped = h.state.binding.current();
+        if (close === "unmount") h.view.unmount();
+        else {
+          const replacement = capture();
+          await flush();
+          const otherRead = vi.spyOn(replacement.binding, "rereadAuthority");
+          await h.view.rerender({
+            ...h.props,
+            controller: replacement.controller,
+            committedPopupBinding: replacement.binding,
+          });
+          await fireEvent.click(h.control());
+          await waitFor(() =>
+            expect(h.control()).toHaveAttribute("aria-checked", "false"),
+          );
+          expect(otherRead).not.toHaveBeenCalled();
+        }
+        held.open();
+        await flush();
+        await flush();
+        expect(h.state.binding.current()).toEqual({
+          ...stopped,
+          commandAvailability: "unavailable",
+          reason: "stopped",
+        });
+        expect(h.reread).toHaveBeenCalledOnce();
+        if (close === "unmount") {
+          expect(h.f.set).toHaveBeenCalledOnce();
+          expect(h.telemetry).not.toHaveBeenCalled();
+          expect(await h.f.authority.get()).toEqual(h.saved);
+        } else {
+          expect(h.f.set).toHaveBeenCalledTimes(2);
+          expect(h.control()).toHaveAttribute("aria-checked", "false");
+          expect(h.telemetry).toHaveBeenCalledExactlyOnceWith({
+            enabled: false,
+          });
+        }
+      } finally {
+        held.open();
+      }
+    },
+  );
+
+  it.each(["unmount", "replacement"] as const)(
+    "does not recover a late rejected command after %s",
+    async (close) => {
+      const h = await readyHost();
+      const entered = gate(),
+        held = gate();
+      vi.spyOn(h.state.binding, "setGlobalOn").mockImplementationOnce(
+        async () => {
+          entered.open();
+          await held.promise;
+          throw new Error("Synthetic late command rejection");
+        },
+      );
+      await fireEvent.click(h.control());
+      await entered.promise;
+      try {
+        if (close === "unmount") h.view.unmount();
+        else {
+          const replacement = capture();
+          await flush();
+          await h.view.rerender({
+            ...h.props,
+            controller: replacement.controller,
+            committedPopupBinding: replacement.binding,
+          });
+        }
+        held.open();
+        await flush();
+        await flush();
+        expect(h.reread).not.toHaveBeenCalled();
+        expect(h.telemetry).not.toHaveBeenCalled();
+        expect(h.f.set).not.toHaveBeenCalled();
+        expect(await h.f.authority.get()).toEqual(h.saved);
+      } finally {
+        held.open();
+      }
+    },
+  );
+
+  it("does not recover an older failed command after a newer deliberate command", async () => {
+    const h = await readyHost();
+    const entered = gate(),
+      held = gate();
+    vi.spyOn(h.state.binding, "setGlobalOn").mockImplementationOnce(
+      async () => {
+        entered.open();
+        await held.promise;
+        return { status: "unavailable", reason: "authority-unavailable" };
+      },
+    );
+    await fireEvent.click(h.control());
+    await entered.promise;
+    try {
+      await fireEvent.click(
+        screen.getByRole("switch", { name: "Still on Instagram" }),
+      );
+      await waitFor(() =>
+        expect(h.telemetry).toHaveBeenCalledExactlyOnceWith({
+          service: "instagram",
+          enabled: true,
+        }),
+      );
+      held.open();
+      await flush();
+      await flush();
+      expect(h.reread).not.toHaveBeenCalled();
+      expect(h.telemetry).toHaveBeenCalledOnce();
+      expect(requireModernSettings((await h.f.authority.get())!)).toMatchObject(
+        { globalOn: true, services: { instagram: true } },
+      );
+    } finally {
+      held.open();
+    }
+  });
+
+  it("reports each real overlapping commit once while the same view remains current", async () => {
+    const h = await readyHost();
+    const entered = gate(),
+      held = gate();
+    h.f.port(async (intent) => {
+      if (intent.path === "globalOn") {
+        entered.open();
+        await held.promise;
+      }
+      return h.f.authority.commitIntent(intent);
+    });
+    await fireEvent.click(h.control());
+    await entered.promise;
+    try {
+      await fireEvent.click(
+        screen.getByRole("switch", { name: "Still on Instagram" }),
+      );
+      await waitFor(() =>
+        expect(h.telemetry).toHaveBeenCalledExactlyOnceWith({
+          service: "instagram",
+          enabled: true,
+        }),
+      );
+      held.open();
+      await waitFor(() => expect(h.telemetry).toHaveBeenCalledTimes(2));
+      expect(h.telemetry.mock.calls).toEqual([
+        [{ service: "instagram", enabled: true }],
+        [{ enabled: false }],
+      ]);
+      expect(h.reread).not.toHaveBeenCalled();
+      expect(requireModernSettings((await h.f.authority.get())!)).toMatchObject(
+        { globalOn: false, services: { instagram: true } },
+      );
+    } finally {
+      held.open();
+    }
+  });
+
+  it("recovers a current rejected command promise once without manufacturing a commit", async () => {
+    const h = await readyHost();
+    vi.spyOn(h.state.binding, "setGlobalOn").mockRejectedValueOnce(
+      new Error("Synthetic boundary rejection"),
+    );
+    await fireEvent.click(h.control());
+    await waitFor(() => expect(h.reread).toHaveBeenCalledOnce());
+    expect(h.f.set).not.toHaveBeenCalled();
+    expect(h.f.sendMessage).not.toHaveBeenCalled();
+    expect(h.telemetry).not.toHaveBeenCalled();
+    expect(h.get).toHaveBeenCalledOnce();
+    expect(h.control()).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("does not reread or replay healthy no-op or invalid/inactive outcomes", async () => {
+    const h = await readyHost();
+    h.f.port(async () => ({ ...h.saved, intentCommitted: false }));
+    await fireEvent.click(h.control());
+    await flush();
+    expect(h.reread).not.toHaveBeenCalled();
+    expect(h.telemetry).not.toHaveBeenCalled();
+    vi.spyOn(h.state.binding, "setGlobalOn").mockResolvedValueOnce({
+      status: "rejected",
+      reason: "invalid-input",
+    });
+    await fireEvent.click(h.control());
+    await flush();
+    expect(h.reread).not.toHaveBeenCalled();
+    expect(h.telemetry).not.toHaveBeenCalled();
+    expect(h.f.set).not.toHaveBeenCalled();
+    expect(h.f.sendMessage).toHaveBeenCalledOnce();
+  });
+});
