@@ -5,6 +5,7 @@ import {
   type SettingsV2,
 } from "@still/shared-types";
 import type { ExtensionSessionDeps } from "@still/core/sync";
+import { migrateSettingsV2 } from "@still/core/storage";
 
 const boundary = vi.hoisted(() => ({
   browser: {} as typeof chrome,
@@ -68,7 +69,13 @@ vi.mock("@still/core/sync", async (importOriginal) => ({
 }));
 
 const KEY = "still:settings";
-async function start(initial: Record<string, unknown> = {}) {
+type DnrUpdate = (
+  options: chrome.declarativeNetRequest.UpdateRulesetOptions,
+) => Promise<void>;
+async function start(
+  initial: Record<string, unknown> = {},
+  updateEnabledRulesets?: DnrUpdate,
+) {
   vi.resetModules();
   const store = structuredClone(initial);
   const installed: Array<(details: chrome.runtime.InstalledDetails) => void> =
@@ -155,6 +162,9 @@ async function start(initial: Record<string, unknown> = {}) {
       },
     },
     runtime,
+    ...(updateEnabledRulesets
+      ? { declarativeNetRequest: { updateEnabledRulesets } }
+      : {}),
   } as unknown as typeof chrome;
   vi.stubGlobal("chrome", boundary.browser);
   vi.stubGlobal("defineBackground", (body: () => void) => body());
@@ -209,6 +219,232 @@ afterEach(() => {
   vi.clearAllMocks();
   boundary.sessionDeps = null;
   boundary.sdkStorage = null;
+});
+
+// Only the browser API is doubled: migration, storage authority, cache and gate remain real.
+function retainedDnrRecord(globalOn: boolean, youtube: boolean) {
+  const migrated = migrateSettingsV2(
+    {
+      ...DEFAULT_SETTINGS,
+      globalOn,
+      services: {
+        ...DEFAULT_SETTINGS.services,
+        youtube,
+        instagram: false,
+        facebook: false,
+        opaque: false,
+      },
+      updatedAt: 42,
+      opaque: { retained: true },
+    },
+    { kind: "readable-local" },
+  );
+  if (migrated.status !== "ready") throw new Error("Invalid retained fixture");
+  return {
+    settings: { ...migrated.settings, pauses: [] },
+    syncMetadata: null,
+    syncEpoch: 0,
+    atomic: {
+      format: 1,
+      sequence: 7,
+      ownership: "unknown",
+      scope: { accountId: null, generation: 0 },
+      anchor: null,
+      pending: [],
+      held: {},
+      paused: null,
+    },
+    opaqueRoot: { retained: 17 },
+  };
+}
+
+const dnrUpdate = () => vi.fn<DnrUpdate>().mockResolvedValue(undefined);
+
+function expectDnr(update: ReturnType<typeof dnrUpdate>, enabled: boolean) {
+  expect(update).toHaveBeenCalled();
+  for (const args of update.mock.calls)
+    expect(args).toEqual([
+      enabled
+        ? { enableRulesetIds: ["youtube-shorts-redirect"] }
+        : { disableRulesetIds: ["youtube-shorts-redirect"] },
+    ]);
+}
+
+describe("maintained background DNR settings gate", () => {
+  it.each([
+    { name: "global Off", globalOn: false, youtube: true, enabled: false },
+    { name: "YouTube Off", globalOn: true, youtube: false, enabled: false },
+    { name: "enabled", globalOn: true, youtube: true, enabled: true },
+  ])(
+    "ordinary $name wake follows retained modern choices without rewriting them",
+    async ({ globalOn, youtube, enabled }) => {
+      const retained = retainedDnrRecord(globalOn, youtube);
+      const before = JSON.stringify(retained);
+      const update = dnrUpdate();
+      const h = await start({ [KEY]: retained }, update);
+      expectDnr(update, enabled);
+      expect(JSON.stringify(h.store[KEY])).toBe(before);
+      expect(h.writes.filter((write) => Object.hasOwn(write, KEY))).toEqual([]);
+      expect(boundary.installed).not.toHaveBeenCalled();
+      expect(boundary.sessionDeps).toBeNull();
+      expect(boundary.sdkStorage).toBeNull();
+    },
+  );
+
+  it("readable legacy Off choices migrate with unknown ownership and disable DNR", async () => {
+    const update = dnrUpdate();
+    const h = await start(
+      {
+        [KEY]: {
+          settings: {
+            ...DEFAULT_SETTINGS,
+            globalOn: false,
+            services: {
+              ...DEFAULT_SETTINGS.services,
+              youtube: false,
+              instagram: false,
+            },
+            updatedAt: 42,
+            opaque: { retained: true },
+          },
+          syncMetadata: null,
+          opaqueRoot: 17,
+        },
+      },
+      update,
+    );
+    expectDnr(update, false);
+    expect(h.store[KEY]).toMatchObject({
+      settings: {
+        schemaVersion: 2,
+        globalOn: false,
+        services: {
+          youtube: false,
+          instagram: false,
+          tiktok: true,
+          facebook: true,
+        },
+        opaque: { retained: true },
+      },
+      atomic: { ownership: "unknown" },
+      opaqueRoot: 17,
+    });
+    expect(h.writes.filter((write) => Object.hasOwn(write, KEY))).toHaveLength(
+      1,
+    );
+  });
+
+  it("actual broker commits and storage notifications change DNR without erasing saved choices", async () => {
+    const retained = retainedDnrRecord(true, true);
+    const update = dnrUpdate();
+    const h = await start({ [KEY]: retained }, update);
+    expectDnr(update, true);
+    const independent = {
+      instagram: retained.settings.services.instagram,
+      facebook: retained.settings.services.facebook,
+      tiktok: retained.settings.services.tiktok,
+      opaque: retained.settings.services.opaque,
+    };
+    for (const [index, [path, value, enabled]] of (
+      [
+        ["services.youtube", false, false],
+        ["globalOn", false, false],
+        ["services.youtube", true, false],
+        ["globalOn", true, true],
+      ] as const
+    ).entries()) {
+      update.mockClear();
+      expect(
+        await h.message({
+          kind: "still:settings-intent",
+          path,
+          value,
+          updatedAt: 50 + index,
+        }),
+      ).toMatchObject({
+        status: "committed",
+        record: { intentCommitted: true },
+      });
+      await h.settle();
+      expectDnr(update, enabled);
+      expect(h.store[KEY]).toMatchObject({
+        settings: {
+          services: independent,
+          sites: retained.settings.sites,
+          opaque: { retained: true },
+        },
+        atomic: { sequence: 8 + index, ownership: "unknown" },
+        opaqueRoot: { retained: 17 },
+      });
+    }
+    expect(h.store[KEY]).toMatchObject({
+      settings: { globalOn: true, services: { youtube: true } },
+      atomic: {
+        pending: [
+          { operations: [{ path: "services.youtube", value: false }] },
+          { operations: [{ path: "globalOn", value: false }] },
+          { operations: [{ path: "services.youtube", value: true }] },
+          { operations: [{ path: "globalOn", value: true }] },
+        ],
+      },
+    });
+  });
+
+  it.each(["startup", "committed edit"] as const)(
+    "rejected DNR update on %s is caught as a held initialization",
+    async (phase) => {
+      const warning = vi
+        .spyOn(console, "warn")
+        .mockImplementation(() => undefined);
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown) => unhandled.push(reason);
+      process.on("unhandledRejection", onUnhandled);
+      try {
+        const retained = retainedDnrRecord(true, true);
+        const update = dnrUpdate();
+        const rejection = new Error("DNR update unavailable");
+        if (phase === "startup") update.mockRejectedValue(rejection);
+        const h = await start({ [KEY]: retained }, update);
+        if (phase === "committed edit") {
+          update.mockClear();
+          update.mockRejectedValue(rejection);
+          expect(
+            await h.message({
+              kind: "still:settings-intent",
+              path: "services.youtube",
+              value: false,
+              updatedAt: 50,
+            }),
+          ).toMatchObject({ status: "committed" });
+          await h.settle();
+          expectDnr(update, false);
+          expect(h.store[KEY]).toMatchObject({
+            settings: {
+              globalOn: true,
+              services: { youtube: false, instagram: false, facebook: false },
+            },
+            atomic: { sequence: 8, ownership: "unknown" },
+          });
+        } else {
+          expectDnr(update, true);
+          expect(JSON.stringify(h.store[KEY])).toBe(JSON.stringify(retained));
+          expect(h.writes.filter((write) => Object.hasOwn(write, KEY))).toEqual(
+            [],
+          );
+        }
+        expect(warning).toHaveBeenCalled();
+        for (const args of warning.mock.calls)
+          expect(args).toEqual([
+            "Still settings initialization held",
+            "storage-unavailable",
+          ]);
+        expect(unhandled).toEqual([]);
+      } finally {
+        process.off("unhandledRejection", onUnhandled);
+        warning.mockRestore();
+      }
+    },
+  );
 });
 
 describe("maintained background settings bootstrap", () => {
