@@ -11,7 +11,7 @@ import {
   requireModernSettings,
   SettingsStorageRecovery,
 } from "../../storage/atomic-settings.js";
-import type { SettingsCache } from "../../storage/cache.js";
+import type { SettingsCache, SettingsAuthorityRereadOutcome } from "../../storage/cache.js";
 import type { DesktopPopupProps } from "./presentation.js";
 
 export interface DesktopPopupBindingState {
@@ -144,6 +144,14 @@ export function createDesktopPopupBinding(
     Promise.resolve({ status: "rejected", reason: "invalid-input" });
   return {
     current: read,
+    async rereadAuthority(): Promise<SettingsAuthorityRereadOutcome> {
+      if (stoppedState) return { status: "unavailable", reason: "stopped" };
+      const outcome = await settingsCache.rereadAuthority();
+      // A shared-cache read may finish after stop; this binding owns only its view lifetime.
+      if (stoppedState) return { status: "unavailable", reason: "stopped" };
+      publish();
+      return outcome;
+    },
     subscribe(listener: (state: DesktopPopupBindingState) => void): () => void {
       if (stoppedState) return () => {};
       listeners.add(listener);

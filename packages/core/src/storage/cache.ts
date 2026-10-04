@@ -1,7 +1,8 @@
 import type { FeatureId, ServiceId, SettingsField, StillSettings } from "@still/shared-types";
 import { SettingsStorageRecovery, type AtomicSettingsState, type CanonicalSettingsEnvelope, type SettingsScope } from "./atomic-settings.js";
 import { DEFAULT_SETTINGS, SETTINGS_FIELDS } from "@still/shared-types";
-import { requireModernSettings } from "./atomic-settings.js";
+import { requireModernSettings, sameSettingsScope } from "./atomic-settings.js";
+import { parseStoredSettingsRecord } from "./settings-validation.js";
 import type {
   SettingsSyncMetadata,
   StorageAdapter,
@@ -34,6 +35,10 @@ export interface AtomicSettingsIntentOutcome {
   readonly settings: StillSettings;
 }
 
+export type SettingsAuthorityRereadOutcome =
+  | { readonly status: "ready" | "superseded" }
+  | { readonly status: "unavailable"; readonly reason: string };
+
 export class SettingsCache {
   private snapshot: StillSettings;
   private atomic: AtomicSettingsState | undefined;
@@ -53,6 +58,7 @@ export class SettingsCache {
   private authorityTicket = 0;
   private committedGeneration = 0;
   private hydrationRecovery: SettingsStorageRecovery | null = null;
+  private authorityReread: Promise<SettingsAuthorityRereadOutcome> | null = null;
 
   constructor(
     private readonly adapter: StorageAdapter,
@@ -82,6 +88,54 @@ export class SettingsCache {
   hydrate(): Promise<StillSettings> {
     this.hydration ??= this.load();
     return this.hydration;
+  }
+
+  /** One explicit current-authority read, never initialization, a write, or an intent replay. */
+  rereadAuthority(): Promise<SettingsAuthorityRereadOutcome> {
+    this.authorityReread ??= this.readCurrentAuthority().finally(() => {
+      this.authorityReread = null;
+    });
+    return this.authorityReread;
+  }
+
+  private async readCurrentAuthority(): Promise<SettingsAuthorityRereadOutcome> {
+    const ticket = this.authorityTicket;
+    const generation = this.committedGeneration;
+    const recovery = this.hydrationRecovery;
+    const superseded = () => ticket !== this.authorityTicket ||
+      generation !== this.committedGeneration || recovery !== this.hydrationRecovery;
+    const unavailable = (reason: string): SettingsAuthorityRereadOutcome => {
+      this.authorityTicket += 1;
+      this.hydrationRecovery = new SettingsStorageRecovery(reason);
+      if (this.atomic) this.atomic = { ...this.atomic, paused: reason };
+      this.notifyAuthority();
+      return { status: "unavailable", reason };
+    };
+    let stored: StoredSettingsRecord | null;
+    try { stored = await this.adapter.get(); }
+    catch (error) {
+      if (superseded()) return { status: "superseded" };
+      return unavailable(error instanceof SettingsStorageRecovery ? error.reason : "read-failed");
+    }
+    if (superseded()) return { status: "superseded" };
+    const record = parseStoredSettingsRecord(stored);
+    if (!record || !("schemaVersion" in record.settings) || record.settings.schemaVersion !== 2 ||
+      !record.atomic || !this.supportsAtomicIntents()) return unavailable("atomic-command-unavailable");
+    if (this.atomic && (record.atomic.scope.generation < this.atomic.scope.generation ||
+      record.atomic.scope.generation === this.atomic.scope.generation &&
+      (!sameSettingsScope(record.atomic.scope, this.atomic.scope) ||
+        record.atomic.sequence < this.atomic.sequence ||
+        record.atomic.ownership !== this.atomic.ownership && record.atomic.ownership !== "unknown")))
+      return { status: "superseded" };
+    if (record.atomic.paused !== null) return unavailable(record.atomic.paused);
+    if (record.atomic.ownership === "unknown") return unavailable("ownership-unconfirmed");
+    // Validation above prevents legacy migration/defaults from becoming recovery authority.
+    this.acceptCommitted(record, "external");
+    // Read-only listeners can synchronously install a newer hold while the receipt publishes.
+    const reason = this.hydrationRecovery?.reason ?? this.atomic?.paused ??
+      (this.atomic?.ownership === "unknown" ? "ownership-unconfirmed" : null);
+    if (reason !== null) return { status: "unavailable", reason };
+    return { status: "ready" };
   }
 
   /**

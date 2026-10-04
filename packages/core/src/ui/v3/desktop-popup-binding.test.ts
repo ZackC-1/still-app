@@ -7,10 +7,12 @@ import {
   type BenefitAccessSnapshot,
   type FeatureId,
   type ServiceId,
+  type SettingsField,
 } from "@still/shared-types";
 import {
   InMemoryStorageAdapter,
   type StorageAdapter,
+  type StoredSettingsRecord,
 } from "../../storage/adapter.js";
 import {
   AtomicSettingsWriter,
@@ -19,6 +21,7 @@ import {
 } from "../../storage/atomic-settings.js";
 import { SettingsCache } from "../../storage/cache.js";
 import { EntitlementCache } from "../../entitlement/cache.js";
+import { ChromeStorageAdapter } from "../../storage/chrome-adapter.js";
 import { ChromeEntitlementAdapter } from "../../entitlement/chrome-adapter.js";
 import { verifyAccessProof, type AccessTrust } from "../../entitlement/access-proof.js";
 import vectors from "../../../../../tests/access-proof/vectors.json";
@@ -759,4 +762,169 @@ describe("D01 committed binding", () => {
     unsubscribe();
     view.unmount();
   });
+});
+
+describe("explicit current-authority reread", () => {
+  async function chromeFixture() {
+    const key = "still:settings";
+    let stored: Record<string, unknown> = {};
+    let failWrite = false;
+    const local = {
+      get: vi.fn(async () => structuredClone(stored)),
+      set: vi.fn(async (items: Record<string, unknown>) => {
+        if (failWrite) throw new Error("storage temporarily unavailable");
+        stored = { ...stored, ...structuredClone(items) };
+      }),
+    };
+    const watchers = new Set<(changes: Record<string, chrome.storage.StorageChange>, area: string) => void>();
+    vi.stubGlobal("chrome", {
+      storage: { local, onChanged: {
+        addListener: (listener: (changes: Record<string, chrome.storage.StorageChange>, area: string) => void) => watchers.add(listener),
+        removeListener: (listener: (changes: Record<string, chrome.storage.StorageChange>, area: string) => void) => watchers.delete(listener),
+      } },
+      runtime: {
+        getURL: () => "chrome-extension://still/",
+        sendMessage: async (message: { path: SettingsField; value: boolean; updatedAt: number }) => {
+          try { return { status: "committed", record: await owner.commitIntent(message) }; }
+          catch { return { status: "unavailable" }; }
+        },
+      },
+    });
+    const owner = new ChromeStorageAdapter({ authority: true });
+    const durable = await owner.initializeFreshAtomic();
+    const adapter = new ChromeStorageAdapter();
+    const cache = new SettingsCache(adapter, { now: () => 100 });
+    await cache.hydrate();
+    const access = new EntitlementCache({ get: async () => false, set: async () => {}, subscribe: () => () => {} });
+    const binding = createDesktopPopupBinding(cache, access);
+    cleanups.push(cache.watch(), binding.stop);
+    local.get.mockClear(); local.set.mockClear();
+    return { key, local, durable, adapter, cache, binding, watchers,
+      fail: (value: boolean) => { failWrite = value; },
+      raw: () => structuredClone(stored[key]),
+      replace: (value: unknown) => { stored[key] = structuredClone(value); },
+    };
+  }
+
+  it("rereads after a real rejected local.set without replaying the failed command", async () => {
+    const f = await chromeFixture();
+    const legacy = vi.fn(); f.cache.subscribe(legacy);
+    f.fail(true);
+    expect(await f.binding.setGlobalOn(false)).toEqual({ status: "unavailable", reason: "authority-unavailable" });
+    expect(f.binding.current().commandAvailability).toBe("unavailable");
+    expect(f.raw()).toEqual(f.durable);
+    expect(f.local.set).toHaveBeenCalledOnce();
+    f.fail(false);
+    await f.cache.hydrate(); // Startup hydration is deliberately once-only.
+    expect(f.binding.current().commandAvailability).toBe("unavailable");
+    f.local.get.mockClear(); f.local.set.mockClear();
+    const result = await f.binding.rereadAuthority();
+    expect(f.binding.current().commandAvailability).toBe("ready");
+    expect(result).toEqual({ status: "ready" });
+    expect(f.local.get).toHaveBeenCalledOnce();
+    expect(f.local.set).not.toHaveBeenCalled();
+    expect(legacy).not.toHaveBeenCalled();
+    expect(f.raw()).toEqual(f.durable);
+    expect(await f.binding.setService("instagram", false)).toEqual({ status: "committed" });
+    const saved = f.raw() as StoredSettingsRecord;
+    const prior = requireModernSettings(f.durable);
+    const expected = { ...f.durable, settings: { ...prior, pauses: [], updatedAt: 100,
+      services: { ...prior.services, instagram: false },
+      clocks: { ...prior.clocks, "services.instagram": { baseRevision: 0, localStep: 1 } } },
+      atomic: { ...f.durable.atomic!, sequence: 1, pending: [expect.objectContaining({
+        scope: f.durable.atomic!.scope, receipt: null,
+        operations: [{ path: "services.instagram", value: false, baseRevision: 0, localStep: 1 }],
+      })] } };
+    expect(saved).toEqual(expected);
+    expect(f.local.set).toHaveBeenCalledExactlyOnceWith({ [f.key]: saved });
+    expect(saved.settings.globalOn).toBe(true);
+    expect(legacy.mock.calls).toEqual([[saved.settings, "local"]]);
+  });
+
+  it("stops new recovery reads and fences a held completion without owning shared watchers", async () => {
+    const f = await chromeFixture();
+    const sibling = createDesktopPopupBinding(f.cache, new EntitlementCache({
+      get: async () => false, set: async () => {}, subscribe: () => () => {},
+    }));
+    cleanups.push(sibling.stop);
+    const listener = vi.fn(); f.binding.subscribe(listener);
+    const siblingListener = vi.fn(); sibling.subscribe(siblingListener);
+    f.fail(true); await f.binding.setGlobalOn(false); f.fail(false);
+    const watchers = f.watchers.size;
+    const reached = gate(), held = gate();
+    const durable = f.raw();
+    f.local.get.mockImplementationOnce(async () => { reached.open(); await held.promise; return { [f.key]: durable }; });
+    const pending = f.binding.rereadAuthority();
+    await reached.promise;
+    f.binding.stop(); const stopped = f.binding.current();
+    listener.mockClear(); siblingListener.mockClear(); f.local.get.mockClear(); f.local.set.mockClear();
+    expect(await f.binding.rereadAuthority()).toEqual({ status: "unavailable", reason: "stopped" });
+    expect(f.local.get).not.toHaveBeenCalled();
+    held.open();
+    expect(await pending).toEqual({ status: "unavailable", reason: "stopped" });
+    expect(f.binding.current()).toEqual(stopped); expect(listener).not.toHaveBeenCalled();
+    expect(sibling.current().commandAvailability).toBe("ready"); expect(siblingListener).toHaveBeenCalledOnce();
+    expect(f.watchers.size).toBe(watchers); expect(f.local.set).not.toHaveBeenCalled();
+  });
+
+  it("does not roll back a deliberate commit while an earlier recovery read is held", async () => {
+    const f = await chromeFixture();
+    const captured = f.raw(); const reached = gate(), held = gate();
+    f.local.get.mockImplementationOnce(async () => { reached.open(); await held.promise; return { [f.key]: captured }; });
+    const pending = f.binding.rereadAuthority(); await reached.promise;
+    expect(await f.binding.setGlobalOn(false)).toEqual({ status: "committed" });
+    const current = f.binding.current(); const saved = f.raw();
+    held.open(); expect(await pending).toEqual({ status: "superseded" });
+    expect(f.binding.current()).toEqual(current); expect(f.raw()).toEqual(saved);
+    expect(f.local.set).toHaveBeenCalledOnce();
+  });
+
+  it.each(["ownership-hold", ""])("reports a newer reentrant %s hold instead of a briefly ready recovery outcome", async reason => {
+    const f = await chromeFixture();
+    f.fail(true); await f.binding.setGlobalOn(false); f.fail(false);
+    f.cache.subscribeAuthority(() => {
+      if (f.cache.currentRecord().atomic?.paused === null) {
+        for (const listener of f.watchers) listener({ [f.key]: { newValue: {
+          ...f.durable, atomic: { ...f.durable.atomic!, paused: reason },
+        } } }, "local");
+      }
+    });
+    expect(await f.binding.rereadAuthority()).toEqual({ status: "unavailable", reason });
+    expect(f.binding.current().reason).toBe(reason);
+    expect(f.raw()).toEqual(f.durable); expect(f.local.set).toHaveBeenCalledOnce();
+  });
+
+  it("keeps real popup controls unchanged after failure and saves only the later deliberate click", async () => {
+    const f = await chromeFixture();
+    let pending: Promise<DesktopPopupCommandOutcome> = Promise.resolve({ status: "not-committed" });
+    const outcomes: DesktopPopupCommandOutcome[] = [];
+    const initial = f.binding.current();
+    const props: DesktopPopupProps = { settings: initial.settings!, access: initial.access,
+      browser: "Chrome", privacyUrl: "https://still.test/privacy", onSettings: () => {},
+      onGlobalChange: next => { pending = f.binding.setGlobalOn(next).then(outcome => { outcomes.push(outcome); return outcome; }); },
+      onServiceChange: (id, next) => { pending = f.binding.setService(id, next); },
+      onFeatureChange: (id, next) => { pending = f.binding.setFeature(id, next); },
+    };
+    const view = render(DesktopPopup, { props });
+    let rendering = Promise.resolve();
+    const unsubscribe = f.binding.subscribe(state => {
+      if (state.settings) rendering = rendering.then(() => view.rerender({ ...props, settings: state.settings!, access: state.access }));
+    });
+    try {
+      await rendering; f.fail(true);
+      await fireEvent.click(screen.getByRole("switch", { name: "Still" })); await pending; await rendering;
+      expect(screen.getByRole("switch", { name: "Still" })).toHaveAttribute("aria-checked", "true");
+      expect(f.raw()).toEqual(f.durable);
+      f.fail(false); f.local.set.mockClear();
+      expect(await f.binding.rereadAuthority()).toEqual({ status: "ready" }); await rendering;
+      expect(f.local.set).not.toHaveBeenCalled();
+      expect(screen.getByRole("switch", { name: "Still" })).toHaveAttribute("aria-checked", "true");
+      await fireEvent.click(screen.getByRole("switch", { name: "Still" })); await pending; await rendering;
+      expect(screen.getByRole("switch", { name: "Still" })).toHaveAttribute("aria-checked", "false");
+      expect((f.raw() as StoredSettingsRecord).settings.globalOn).toBe(false);
+      expect(f.local.set).toHaveBeenCalledOnce();
+      expect(outcomes).toEqual([{ status: "unavailable", reason: "authority-unavailable" }, { status: "committed" }]);
+    } finally { unsubscribe(); view.unmount(); }
+  });
+
 });
