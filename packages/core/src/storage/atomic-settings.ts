@@ -112,11 +112,32 @@ function canReplaceLegacyRecord(current: StoredSettingsRecord, incoming: StoredS
 /** One serialized writer around the EXISTING storage value. Hosts never allocate from a cache. */
 export class AtomicSettingsWriter {
   private tail: Promise<unknown> = Promise.resolve();
+  // Even a failed/removed account-history write is not affirmative pristine evidence in this
+  // worker. A later wake has no install-event authority, so this is never a persisted reset flag.
+  private localHistoryObserved = false;
   constructor(private readonly adapter: StorageAdapter, private readonly uuid: () => string = () => crypto.randomUUID()) {}
   private transaction<T>(body: () => Promise<T>): Promise<T> {
     const run = this.tail.then(body, body);
     this.tail = run.catch(() => undefined);
     return run;
+  }
+  /** Background-owned account/history mutations share the settings admission order. */
+  serializeLocalMutation<T>(body: () => Promise<T>): Promise<T> {
+    return this.transaction(async () => { this.localHistoryObserved = true; return body(); });
+  }
+  /** The host checks raw absence inside this same queue; parsed null is not fresh provenance. */
+  initializeFresh(isPristine: () => Promise<boolean>): Promise<StoredSettingsRecord> {
+    return this.transaction(async () => {
+      if (this.localHistoryObserved || !await isPristine()) throw new SettingsStorageRecovery("fresh-provenance-conflict");
+      const migrated = migrateSettingsV2(null, { kind: "proven-fresh" });
+      if (migrated.status !== "ready") throw new SettingsStorageRecovery(migrated.reason);
+      const next: StoredSettingsRecord = { settings: projection(migrated.settings), syncMetadata: null, syncEpoch: 0, atomic: {
+        format: 1, sequence: 0, ownership: "never-linked", scope: { accountId: null, generation: 0 },
+        anchor: null, pending: [], held: {}, paused: null,
+      } };
+      await this.adapter.set(structuredClone(next));
+      return next;
+    });
   }
   initialize(ownership: AtomicSettingsState["ownership"]): Promise<StoredSettingsRecord> {
     return this.transaction(async () => {

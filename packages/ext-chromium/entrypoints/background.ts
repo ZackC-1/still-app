@@ -1,6 +1,6 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { browser } from "wxt/browser";
-import { SettingsCache, ChromeStorageAdapter, createSettingsIntentRouter } from "@still/core/storage";
+import { SettingsCache, ChromeStorageAdapter, createSettingsIntentRouter, SettingsStorageRecovery } from "@still/core/storage";
 import { ChromeEntitlementAdapter, createEntitlementMessageRouter, packagedAccessContext, type TrustedAccessContext } from "@still/core/entitlement";
 import {
   isServiceEnabledGlobally,
@@ -50,8 +50,23 @@ import { createBackgroundAnalytics, storageKeyValue } from "../lib/analytics.js"
 const RULESET_ID = "youtube-shorts-redirect";
 
 export default defineBackground(() => {
+  const settingsAuthority = new ChromeStorageAdapter({ authority: true });
+  const order: import("../lib/auth-storage.js").AuthMutationOrder = mutation => settingsAuthority.serializeLocalMutation(mutation);
+  // Only durable mutation methods enter the shared queue. Wrapping a whole auth/session/read
+  // operation could deadlock when it in turn writes settings or refreshes persisted SDK auth.
+  class OrderedEntitlements extends ChromeEntitlementAdapter {
+    override setRecord(record: Parameters<ChromeEntitlementAdapter["setRecord"]>[0]) {
+      return order(() => super.setRecord(record));
+    }
+    override mutateAccess(mutation: Parameters<ChromeEntitlementAdapter["mutateAccess"]>[0]) {
+      return order(() => super.mutateAccess(mutation));
+    }
+    override mutateLocalProtection(mutation: Parameters<ChromeEntitlementAdapter["mutateLocalProtection"]>[0]) {
+      return order(() => super.mutateLocalProtection(mutation));
+    }
+  }
   let verifiedAccessSession: (() => Promise<TrustedAccessContext["session"]>) | null = null;
-  const entitlements = new ChromeEntitlementAdapter(Date.now, { authority: true, context: async () => {
+  const entitlements = new OrderedEntitlements(Date.now, { authority: true, context: async () => {
     const context = packagedAccessContext();
     if (!context.paidMode) return context;
     // Existing SDK verified-claims grammar; requester body, raw cached user and purchase Boolean
@@ -79,14 +94,19 @@ export default defineBackground(() => {
   });
 
   // ── Auth/purchase session spine (plan U6/R2) ───────────────────────────────────────────────────
-  const settingsAuthority = new ChromeStorageAdapter({ authority: true });
   chrome.runtime.onMessage.addListener(createSettingsIntentRouter(
     intent => settingsAuthority.commitIntent(intent), chrome.runtime.id, chrome.runtime.getURL(""), record => settingsAuthority.set(record),
   ));
   const cache = new SettingsCache(settingsAuthority);
   cache.watch();
-  const hydrated = cache.hydrate();
-  const spine = createSessionSpine(cache, entitlements);
+  const heldInitialization = (error: unknown) => {
+    // A hold is not a successful default read. No stored settings/account payload is logged.
+    console.warn("Still settings initialization held", error instanceof SettingsStorageRecovery ? error.reason : "storage-unavailable");
+  };
+  // Existing readable choices migrate without a claim about account history. Missing storage
+  // stays missing until the privileged browser install event; wakes and updates never seed it.
+  const hydrated = settingsAuthority.initializeAtomic("unknown").catch(heldInitialization).then(() => cache.hydrate());
+  const spine = createSessionSpine(cache, entitlements, order);
   const session = spine?.session ?? null;
   if (spine) {
     const accessAuth = new SupabaseAuthPort(spine.client);
@@ -118,7 +138,12 @@ export default defineBackground(() => {
     chrome.runtime.id,
     chrome.runtime.getURL(""),
   );
-  chrome.runtime.onInstalled.addListener((details) => analytics.onInstalled(details));
+  chrome.runtime.onInstalled.addListener((details) => {
+    if (details.reason === "install") {
+      void settingsAuthority.initializeFreshAtomic().then(() => cache.hydrate()).catch(heldInitialization);
+    }
+    analytics.onInstalled(details);
+  });
   chrome.alarms?.onAlarm.addListener((alarm) => {
     if (alarm.name === QUIET_FLUSH_ALARM) void analytics.flushWhenReady();
   });
@@ -159,7 +184,7 @@ export default defineBackground(() => {
   // stays on the R4 triggers (popup open, qualifying nudge). It does make one settings read, so a
   // browser that was closed while another device changed something learns about it here rather
   // than publishing over it on its next edit.
-  void hydrated.then(() => session?.resume());
+  void hydrated.then(() => session?.resume()).catch(heldInitialization);
   // No session spine (an unconfigured build) reads as signed out; a failed or stalled read is
   // "unknown", which changes nothing about the account and confirms nothing, so nothing is sent.
   const ACCOUNT_LOOKUP_LIMIT_MS = 8_000;
@@ -180,8 +205,8 @@ export default defineBackground(() => {
     );
   };
 
-  cache.subscribe(() => void syncRuleset());
-  void hydrated.then(syncRuleset);
+  cache.subscribe(() => void syncRuleset().catch(heldInitialization));
+  void hydrated.then(syncRuleset).catch(heldInitialization);
 });
 
 /**
@@ -194,6 +219,7 @@ export default defineBackground(() => {
 function createSessionSpine(
   cache: SettingsCache,
   entitlements: ChromeEntitlementAdapter,
+  order: import("../lib/auth-storage.js").AuthMutationOrder,
 ): { session: ExtensionSession; client: SupabaseClient } | null {
   const config = extensionSupabaseConfig(
     import.meta.env.VITE_SUPABASE_URL as string | undefined,
@@ -206,7 +232,7 @@ function createSessionSpine(
       persistSession: true,
       autoRefreshToken: false,
       detectSessionInUrl: false,
-      storage: createAuthStorage(),
+      storage: createAuthStorage(order),
       storageKey: AUTH_STORAGE_KEY,
     },
   });
@@ -229,7 +255,12 @@ function createSessionSpine(
     currentAccount: () => port.currentAccount(),
   };
   const backend = new SupabaseBackendPort(client);
-  const identity = createIdentityStore();
+  const identityStore = createIdentityStore();
+  const identity = { get: () => identityStore.get(), set: (userId: string) => order(() => identityStore.set(userId)) };
+  const sessionStores = createSessionStores();
+  function orderedSlot<T>(slot: import("@still/core/sync").PersistedSlot<T>): import("@still/core/sync").PersistedSlot<T> {
+    return { get: () => slot.get(), set: value => order(() => slot.set(value)) };
+  }
 
   const session = createExtensionSession({
     auth,
@@ -237,7 +268,11 @@ function createSessionSpine(
     records: entitlements,
     sync: new SyncService(cache, auth, backend, undefined, identity),
     identity,
-    stores: createSessionStores(),
+    stores: {
+      pendingOtp: orderedSlot(sessionStores.pendingOtp),
+      checkoutPending: orderedSlot(sessionStores.checkoutPending),
+      nudgeStamp: orderedSlot(sessionStores.nudgeStamp),
+    },
     // Best-effort teardown of a recorded checkout tab (it still carries the old identity); the
     // session already guards the call, so a missing tab just rejects quietly.
     closeTab: async (tabId: number) => {
@@ -245,7 +280,7 @@ function createSessionSpine(
     },
     // Offline-proof sign-out (F1): drop the persisted session so a failed remote revoke can't leave
     // it on disk for the next wake to resurrect.
-    clearAuthStorage: clearExtensionAuthStorage,
+    clearAuthStorage: () => clearExtensionAuthStorage(order),
   });
   return { session, client };
 }

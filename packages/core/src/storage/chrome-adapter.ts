@@ -4,6 +4,10 @@ import { AtomicSettingsWriter, SettingsStorageRecovery, type AtomicSettingsState
 import { settingsIntentMessage } from "./settings-messages.js";
 
 const STORAGE_KEY = "still:settings";
+// Raw key presence, including null/corruption, rules out pristine history. The startup cohort
+// record is deliberately separate: its own write neither grants nor denies installation proof.
+const FRESH_HISTORY_KEYS = [STORAGE_KEY, "still:auth", "still:auth-code-verifier", "still:last-identity",
+  "still:entitlement", "still:pending-otp", "still:checkout-pending", "still:nudge-stamp"];
 // Reuse the existing mirror transaction for auxiliary replies in this host. It never allocates
 // intent; only native records can enter this projection, and Safari reads remain authoritative.
 const nativeProjections = new WeakMap<object, AtomicSettingsWriter>();
@@ -121,6 +125,20 @@ export class ChromeStorageAdapter implements StorageAdapter {
   initializeAtomic(ownership: AtomicSettingsState["ownership"]): Promise<StoredSettingsRecord> {
     if (!this.writer) return Promise.reject(new SettingsStorageRecovery("authority-unavailable"));
     return this.writer.initialize(ownership);
+  }
+  /** Called only by the maintained background's actual browser install-event closure. */
+  initializeFreshAtomic(): Promise<StoredSettingsRecord> {
+    if (!this.writer || this.options.nativeMirror || this.options.nativeIntent || this.isSafari())
+      return Promise.reject(new SettingsStorageRecovery("authority-unavailable"));
+    return this.writer.initializeFresh(async () => {
+      const raw = await chrome.storage.local.get(FRESH_HISTORY_KEYS);
+      return FRESH_HISTORY_KEYS.every(key => !Object.hasOwn(raw, key));
+    });
+  }
+  serializeLocalMutation<T>(body: () => Promise<T>): Promise<T> {
+    if (!this.writer || this.options.nativeMirror || this.options.nativeIntent || this.isSafari())
+      return Promise.reject(new SettingsStorageRecovery("authority-unavailable"));
+    return this.writer.serializeLocalMutation(body);
   }
   enterScope(accountId: string | null, sessionId?: string): Promise<StoredSettingsRecord> {
     if (!this.writer) return Promise.reject(new SettingsStorageRecovery("authority-unavailable"));

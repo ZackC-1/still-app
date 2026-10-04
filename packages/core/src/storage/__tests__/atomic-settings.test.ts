@@ -33,6 +33,27 @@ function canonical(record: StoredSettingsRecord, revision: number): CanonicalSet
     serverUpdatedAt: "2026-10-02T00:00:00Z", lastWriteId: null, lineage: LINEAGE,
     receipt: { version: 1, lineage: LINEAGE, revision, mac: "A".repeat(43) } };
 }
+describe("fresh initialization in the existing writer transaction", () => {
+  it("waits for prior history persistence and denies fresh provenance without writes", async () => {
+    let history = false; let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const write = vi.fn(async (_record: StoredSettingsRecord) => undefined);
+    const writer = new AtomicSettingsWriter({ get: async () => null, set: write, subscribe: () => () => {} });
+    const mutation = writer.serializeLocalMutation(async () => { await held; history = true; });
+    const check = vi.fn(async () => !history);
+    const fresh = writer.initializeFresh(check); const denied = expect(fresh).rejects.toThrow("fresh-provenance-conflict");
+    await Promise.resolve(); expect(check).not.toHaveBeenCalled(); expect(write).not.toHaveBeenCalled();
+    release(); await mutation; await denied; expect(write).not.toHaveBeenCalled();
+  });
+  it("a rejected history mutation releases the queue but retains uncertain-history admission hold", async () => {
+    const writer = new AtomicSettingsWriter({ get: async () => null, set: vi.fn(), subscribe: () => () => {} });
+    await expect(writer.serializeLocalMutation(async () => { throw new Error("durability unknown"); })).rejects.toThrow("durability unknown");
+    const check = vi.fn(async () => false);
+    await expect(writer.initializeFresh(check)).rejects.toThrow("fresh-provenance-conflict"); expect(check).not.toHaveBeenCalled();
+    expect(await writer.serializeLocalMutation(async () => "next-operation")).toBe("next-operation");
+  });
+});
+
 describe("existing cache and serialized complete-record authority", () => {
   it.each(["mirror", "replace"] as const)("%s orders legacy records by epoch, metadata version, then timestamp", async operation => {
     const current = { settings: { ...DEFAULT_SETTINGS, globalOn: false, updatedAt: 11 }, syncEpoch: 2,

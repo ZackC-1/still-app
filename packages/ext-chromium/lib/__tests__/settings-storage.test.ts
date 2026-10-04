@@ -40,8 +40,8 @@ function installChromeStorage(initial: Record<string, unknown> = {}) {
   const chromeMock = {
     storage: {
       local: {
-        async get(key: string) {
-          return { [key]: store[key] };
+        async get(keys: string | string[]) {
+          return Object.fromEntries((Array.isArray(keys) ? keys : [keys]).filter(key => Object.hasOwn(store, key)).map(key => [key, store[key]]));
         },
         async set(values: Record<string, unknown>) {
           if (gate) { const held = gate; gate = null; held.began(); await held.wait; }
@@ -173,4 +173,46 @@ describe("Chromium/Firefox settings storage metadata propagation", () => {
     expect(saved.settings).toMatchObject({ globalOn: true, services: { youtube: false } });
     expect(notify).toHaveBeenCalledTimes(1); stop(); expect(h.listeners.size).toBe(0);
   });
+  it("only the Chromium/Firefox local authority can admit a fresh record", async () => {
+    const h = installChromeStorage();
+    await expect(new ChromeStorageAdapter().initializeFreshAtomic()).rejects.toThrow("authority-unavailable");
+    await expect(new ChromeStorageAdapter({ authority: true, nativeMirror: true }).initializeFreshAtomic()).rejects.toThrow("authority-unavailable");
+    expect(Object.hasOwn(h.store, STORAGE_KEY)).toBe(false);
+    await h.authority.initializeFreshAtomic();
+    expect(h.store[STORAGE_KEY]).toMatchObject({ atomic: { ownership: "never-linked" } });
+  });
+  it("a settings peer queued before fresh admission preserves its Off choice", async () => {
+    const h = installChromeStorage(); const held = h.gate();
+    const peer = h.authority.commitIntent({ path: "globalOn", value: false, updatedAt: 42 }); await held.started;
+    const fresh = h.authority.initializeFreshAtomic(); const denied = expect(fresh).rejects.toThrow("fresh-provenance-conflict");
+    expect(Object.hasOwn(h.store, STORAGE_KEY)).toBe(false); held.release(); await peer; await denied;
+    expect(h.store[STORAGE_KEY]).toMatchObject({ settings: { globalOn: false, updatedAt: 42 } });
+    expect((h.store[STORAGE_KEY] as StoredSettingsRecord).atomic).toBeUndefined();
+  });
+  it("auth/history mutation and install publication share one admission order", async () => {
+    const h = installChromeStorage(); const held = h.gate();
+    const history = h.authority.serializeLocalMutation(() => chrome.storage.local.set({ "still:last-identity": "retained" })); await held.started;
+    const fresh = h.authority.initializeFreshAtomic(); const denied = expect(fresh).rejects.toThrow("fresh-provenance-conflict");
+    expect(Object.hasOwn(h.store, STORAGE_KEY)).toBe(false); held.release(); await history; await denied;
+    expect(h.store["still:last-identity"]).toBe("retained"); expect(Object.hasOwn(h.store, STORAGE_KEY)).toBe(false);
+  });
+  it("a later account mutation cannot interleave inside an admitted settings publication", async () => {
+    const h = installChromeStorage(); const held = h.gate();
+    const fresh = h.authority.initializeFreshAtomic(); await held.started;
+    const history = h.authority.serializeLocalMutation(() => chrome.storage.local.set({ "still:last-identity": "later" }));
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(Object.hasOwn(h.store, STORAGE_KEY)).toBe(false); expect(Object.hasOwn(h.store, "still:last-identity")).toBe(false);
+    held.release(); await fresh; await history;
+    expect(h.store[STORAGE_KEY]).toMatchObject({ atomic: { ownership: "never-linked" } }); expect(h.store["still:last-identity"]).toBe("later");
+  });
+  it.each(["unknown", "previous-account", "never-linked"] as const)("existing %s modern bytes have no initialization write", async ownership => {
+    const h = installChromeStorage({ [STORAGE_KEY]: record(settings({ globalOn: false, updatedAt: 42 }), null) });
+    const saved = await h.authority.initializeAtomic(ownership);
+    const enhanced = { ...saved, opaque: { retained: true }, atomic: { ...saved.atomic!, futureState: 3, paused: "retained-hold" } };
+    h.store[STORAGE_KEY] = enhanced; const before = JSON.stringify(enhanced); const write = vi.spyOn(chrome.storage.local, "set");
+    await h.authority.initializeAtomic("unknown");
+    await expect(h.authority.initializeFreshAtomic()).rejects.toThrow("fresh-provenance-conflict");
+    expect(JSON.stringify(h.store[STORAGE_KEY])).toBe(before); expect(write).not.toHaveBeenCalled(); write.mockRestore();
+  });
+
 });
