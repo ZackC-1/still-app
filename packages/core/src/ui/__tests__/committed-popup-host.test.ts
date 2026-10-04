@@ -1461,3 +1461,169 @@ describe("current-authority recovery in the same mounted host", () => {
     expect(h.f.sendMessage).toHaveBeenCalledOnce();
   });
 });
+
+describe("mounted sync retry lifecycle", () => {
+  const account = (accountId: string, cloudReachable: boolean) => ({
+    accountId,
+    email: `${accountId}@example.com`,
+    lastSyncedAt: 1000,
+    pendingUpload: false,
+    cloudReachable,
+    updatedAt: 1100,
+  });
+
+  async function observedAccount(
+    state: ReturnType<typeof capture>,
+    id: string,
+    reachable: boolean,
+  ) {
+    const { watchAccountStatus } = await import("../account-status.js");
+    const read = vi.fn(async () => account(id, reachable));
+    stops.push(watchAccountStatus(state.controller, read));
+    await flush();
+    expect(state.controller.userId).toBe(id);
+    return async (nextId: string, nextReachable: boolean) => {
+      const count = read.mock.calls.length;
+      read.mockResolvedValue(account(nextId, nextReachable));
+      document.dispatchEvent(new Event("visibilitychange"));
+      await waitFor(() => expect(read).toHaveBeenCalledTimes(count + 1));
+      await flush();
+      expect(state.controller.userId).toBe(nextId);
+      expect(state.controller.cloudReachable).toBe(nextReachable);
+    };
+  }
+
+  for (const route of ["desktop", "legacy"] as const) {
+    const retry = () =>
+      screen.getByRole("button", {
+        name: route === "desktop" ? "Try again" : STRINGS.sync.retry,
+      });
+    const props = (state: ReturnType<typeof capture>) => ({
+      controller: state.controller,
+      committedPopupBinding: state.binding,
+      compact: true,
+      ...(route === "desktop"
+        ? {
+            popupPresentation: {
+              browser: "Chrome" as const,
+              onSettings: vi.fn(),
+              loadDesktop: () => import("../v3/DesktopPopup.svelte"),
+            },
+          }
+        : {}),
+    });
+
+    it.each(["account-switch", "account-return", "controller-replacement"])(
+      `${route} ignores deferred retry rejection after %s`,
+      async (transition) => {
+        const f = await browser();
+        const p = purchase();
+        const held = gate();
+        p.retrySync.mockImplementationOnce(async () => {
+          await held.promise;
+          throw new Error("Synthetic delayed sync retry failure");
+        });
+        const state = capture({ purchase: p.deps });
+        await flush();
+        const refresh = await observedAccount(state, "accountA", false);
+        const revision = state.controller.accountRevision;
+        const view = render(App, props(state));
+        await waitFor(() => expect(retry()).toBeTruthy());
+        const saved = await f.authority.get();
+        await fireEvent.click(retry());
+        expect(p.retrySync).toHaveBeenCalledOnce();
+        let current = state;
+        try {
+          if (transition === "controller-replacement") {
+            await refresh("accountA", true);
+            const replacementPurchase = purchase();
+            current = capture({ purchase: replacementPurchase.deps });
+            await flush();
+            await observedAccount(current, "accountB", true);
+            // Equal revisions discriminate controller identity from the revision fence.
+            expect(current.controller.accountRevision).toBe(revision);
+            await view.rerender(props(current));
+            expect(replacementPurchase.retrySync).not.toHaveBeenCalled();
+          } else {
+            await refresh("accountB", true);
+            if (transition === "account-return")
+              await refresh("accountA", true);
+            expect(current.controller.accountRevision).toBeGreaterThan(
+              revision,
+            );
+          }
+          expect(screen.getByText(STRINGS.sync.synced)).toBeTruthy();
+          held.open();
+          await flush();
+          expect(current.controller.cloudReachable).toBe(true);
+          expect(state.controller.cloudReachable).toBe(true);
+          expect(screen.getByText(STRINGS.sync.synced)).toBeTruthy();
+          expect(screen.queryByText(STRINGS.sync.unreachable)).toBeNull();
+          expect(p.retrySync).toHaveBeenCalledOnce();
+          expect(f.sendMessage).not.toHaveBeenCalled();
+          expect(await f.authority.get()).toEqual(saved);
+        } finally {
+          held.open();
+        }
+      },
+    );
+
+    it.each(["rejected", "fulfilled"])(
+      `${route} preserves current-lifecycle %s retry behavior`,
+      async (outcome) => {
+        await browser();
+        const p = purchase();
+        const held = gate();
+        p.retrySync.mockImplementationOnce(async () => {
+          await held.promise;
+          if (outcome === "rejected")
+            throw new Error("Synthetic current sync retry failure");
+        });
+        const state = capture({ purchase: p.deps });
+        await flush();
+        const refresh = await observedAccount(state, "accountA", false);
+        const revision = state.controller.accountRevision;
+        render(App, props(state));
+        await waitFor(() => expect(retry()).toBeTruthy());
+        await fireEvent.click(retry());
+        expect(p.retrySync).toHaveBeenCalledOnce();
+        try {
+          // A same-account health refresh does not retire the retry's lifecycle.
+          await refresh("accountA", true);
+          expect(state.controller.accountRevision).toBe(revision);
+          held.open();
+          await flush();
+          expect(state.controller.cloudReachable).toBe(outcome === "fulfilled");
+          expect(
+            screen.getByText(
+              outcome === "fulfilled"
+                ? STRINGS.sync.synced
+                : STRINGS.sync.unreachable,
+            ),
+          ).toBeTruthy();
+        } finally {
+          held.open();
+        }
+      },
+    );
+
+    it(`${route} omits retry when its optional port is absent`, async () => {
+      await browser();
+      const p = purchase();
+      const state = capture({ purchase: { ...p.deps, retrySync: undefined } });
+      await flush();
+      await observedAccount(state, "accountA", false);
+      render(App, props(state));
+      await waitFor(() =>
+        expect(screen.getByText(STRINGS.sync.unreachable)).toBeTruthy(),
+      );
+      expect(
+        screen.queryByRole("button", {
+          name: route === "desktop" ? "Try again" : STRINGS.sync.retry,
+        }),
+      ).toBeNull();
+      expect(p.retrySync).not.toHaveBeenCalled();
+      expect(state.controller.cloudReachable).toBe(false);
+    });
+  }
+});

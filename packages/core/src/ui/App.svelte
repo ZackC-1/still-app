@@ -107,6 +107,14 @@
   let modern = $derived(
     observedBinding === committedPopupBinding ? popupState?.settings : null,
   );
+  function runSyncRetry(): void {
+    const controller = c;
+    const revision = controller.accountRevision;
+    void controller.retrySync?.().catch(() => {
+      if (c === controller && controller.accountRevision === revision)
+        controller.cloudReachable = false;
+    });
+  }
   let desktopAccount = $derived.by((): DesktopPopupProps["account"] => {
     if (!c.userId) return undefined;
     return {
@@ -115,12 +123,7 @@
         ? {
             tone: "failed",
             text: STRINGS.sync.unreachable,
-            retry: c.retrySync
-              ? () =>
-                  void c.retrySync?.().catch(() => {
-                    c.cloudReachable = false;
-                  })
-              : undefined,
+            retry: c.retrySync ? runSyncRetry : undefined,
           }
         : c.pendingUpload
           ? { tone: "pending", text: STRINGS.sync.syncing }
@@ -599,12 +602,8 @@
       {:else if c.popupState === "cloud-unreachable"}
         <p class="muted">{STRINGS.sync.unreachable}</p>
         {#if c.retrySync}
-          <button
-            class="link"
-            onclick={() =>
-              void c.retrySync?.().catch(() => {
-                c.cloudReachable = false;
-              })}>{STRINGS.sync.retry}</button
+          <button class="link" onclick={runSyncRetry}
+            >{STRINGS.sync.retry}</button
           >
         {/if}
         {#if desktopPresentation}{@render accountManagement(false)}{:else}
