@@ -619,8 +619,8 @@ describe("maintained App committed popup host", () => {
     mount(state);
     expect(screen.queryByRole("switch", { name: "Still on/off" })).toBeNull();
     expect(document.querySelectorAll("[data-service]")).toHaveLength(0);
-    expect(screen.getAllByText(STRINGS.sync.checking).length).toBeGreaterThan(
-      0,
+    expect(screen.getByRole("status").textContent).toBe(
+      "Settings are unavailable.",
     );
     expect(
       screen.getByRole("link", { name: STRINGS.account.privacyPolicy }),
@@ -1834,4 +1834,405 @@ describe("mounted sync retry attachment lifetime", () => {
       },
     );
   }
+});
+
+describe("visible current-settings recovery in the maintained App", () => {
+  const key = "still:settings";
+  async function heldHost(route: "desktop" | "legacy" = "desktop") {
+    const f = await browser();
+    await f.authority.commitIntent({
+      path: "services.instagram",
+      value: false,
+      updatedAt: 201,
+    });
+    await f.authority.commitIntent({
+      path: "sites.youtube.shorts",
+      value: false,
+      updatedAt: 202,
+    });
+    f.store[key] = {
+      ...(f.store[key] as StoredSettingsRecord),
+      opaqueRoot: { retained: true },
+    };
+    const state = capture();
+    await flush();
+    const telemetry = vi.fn();
+    const onSettings = vi.fn();
+    const props = {
+      controller: state.controller,
+      committedPopupBinding: state.binding,
+      onCommittedPopupToggle: telemetry,
+      compact: true,
+      popupPresentation:
+        route === "desktop"
+          ? {
+              browser: "Chrome" as const,
+              onSettings,
+              loadDesktop: () => import("../v3/DesktopPopup.svelte"),
+            }
+          : undefined,
+    };
+    const view = render(App, props);
+    const control = () =>
+      screen.getByRole("switch", {
+        name: route === "desktop" ? "Still" : "Still on/off",
+      });
+    await waitFor(() => expect(control()).toBeTruthy());
+    await flush();
+    // This browser fixture implements the single-key Promise form, not callback overloads.
+    const local = chrome.storage.local as unknown as {
+      get(key: string): Promise<Record<string, unknown>>;
+    };
+    const working = local.get;
+    const get = vi.spyOn(local, "get");
+    const reread = vi.spyOn(state.binding, "rereadAuthority");
+    const saved = JSON.stringify(f.store[key]);
+    f.set.mockClear();
+    f.sendMessage.mockClear();
+    get.mockClear();
+    get
+      .mockImplementationOnce(working)
+      .mockRejectedValueOnce(
+        new Error("Synthetic failed automatic authority read"),
+      );
+    f.set.mockRejectedValueOnce(
+      new Error("Synthetic failed deliberate settings write"),
+    );
+    await fireEvent.click(control());
+    await waitFor(() =>
+      expect(state.binding.current().reason).toBe("read-failed"),
+    );
+    await flush();
+    if (route === "desktop")
+      expect(control()).toHaveAttribute("aria-disabled", "true");
+    else expect(control()).toBeDisabled();
+    expect(f.set).toHaveBeenCalledOnce();
+    expect(f.sendMessage).toHaveBeenCalledOnce();
+    expect(reread).toHaveBeenCalledOnce();
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(telemetry).not.toHaveBeenCalled();
+    return {
+      f,
+      state,
+      props,
+      view,
+      telemetry,
+      onSettings,
+      get,
+      working,
+      reread,
+      saved,
+      control,
+    };
+  }
+  function recovery() {
+    return screen.getByRole("button", {
+      name: "Try again",
+    }) as HTMLButtonElement;
+  }
+
+  it.each(["desktop", "legacy"] as const)(
+    "%s offers actual recovery after automatic reread fails, with no write/replay or false telemetry",
+    async (route) => {
+      const h = await heldHost(route);
+      expect(screen.getByRole("status").textContent).toBe(
+        "Settings are unavailable.",
+      );
+      const button = recovery();
+      button.focus();
+      expect(document.activeElement).toBe(button);
+      await fireEvent.click(button);
+      await waitFor(() =>
+        expect(h.state.binding.current().commandAvailability).toBe("ready"),
+      );
+      await waitFor(() =>
+        expect(screen.queryByText("Settings are unavailable.")).toBeNull(),
+      );
+      expect(h.get).toHaveBeenCalledTimes(3);
+      expect(h.reread).toHaveBeenCalledTimes(2);
+      expect(h.f.set).toHaveBeenCalledOnce();
+      expect(h.f.sendMessage).toHaveBeenCalledOnce();
+      expect(JSON.stringify(h.f.store[key])).toBe(h.saved);
+      expect(h.telemetry).not.toHaveBeenCalled();
+      if (route === "desktop")
+        expect(h.control()).not.toHaveAttribute("aria-disabled", "true");
+      else expect(h.control()).not.toBeDisabled();
+      await fireEvent.click(h.control());
+      await waitFor(() =>
+        expect(h.control()).toHaveAttribute("aria-checked", "false"),
+      );
+      expect(h.f.set).toHaveBeenCalledTimes(2);
+      expect(h.f.sendMessage).toHaveBeenCalledTimes(2);
+      await waitFor(() =>
+        expect(h.telemetry).toHaveBeenCalledExactlyOnceWith({ enabled: false }),
+      );
+      expect((await h.f.authority.get())!.settings.services.instagram).toBe(
+        false,
+      );
+      expect(
+        requireModernSettings((await h.f.authority.get())!).sites[
+          "youtube.shorts"
+        ],
+      ).toBe(false);
+    },
+  );
+  it("disables duplicate recovery while its actual pure read is pending", async () => {
+    const h = await heldHost();
+    const entered = gate(),
+      read = gate();
+    h.get.mockImplementationOnce(async (keys) => {
+      entered.open();
+      await read.promise;
+      return h.working(keys);
+    });
+    await fireEvent.click(recovery());
+    await entered.promise;
+    try {
+      expect(recovery().disabled).toBe(true);
+      recovery().dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await flush();
+      expect(h.get).toHaveBeenCalledTimes(3);
+      expect(h.reread).toHaveBeenCalledTimes(2);
+      expect(h.f.set).toHaveBeenCalledOnce();
+      expect(h.telemetry).not.toHaveBeenCalled();
+    } finally {
+      read.open();
+    }
+    expect(await h.reread.mock.results.at(-1)!.value).toEqual({
+      status: "ready",
+    });
+    await waitFor(() =>
+      expect(h.state.binding.current().commandAvailability).toBe("ready"),
+    );
+    expect(JSON.stringify(h.f.store[key])).toBe(h.saved);
+  });
+  it.each(["rejected", "missing"] as const)(
+    "keeps %s current read truthful and recovery reachable without defaults",
+    async (failure) => {
+      const h = await heldHost();
+      if (failure === "rejected")
+        h.get.mockRejectedValueOnce(
+          new Error("Synthetic explicit read failed"),
+        );
+      else h.get.mockResolvedValueOnce({});
+      await fireEvent.click(recovery());
+      await waitFor(() => expect(h.reread).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(recovery().disabled).toBe(false));
+      expect(h.state.binding.current().commandAvailability).toBe("unavailable");
+      expect(h.control()).toHaveAttribute("aria-disabled", "true");
+      expect(screen.getByRole("status").textContent).toBe(
+        "Settings are unavailable.",
+      );
+      expect(JSON.stringify(h.f.store[key])).toBe(h.saved);
+      expect(h.f.set).toHaveBeenCalledOnce();
+      expect(h.f.sendMessage).toHaveBeenCalledOnce();
+      expect(h.telemetry).not.toHaveBeenCalled();
+      await fireEvent.click(recovery());
+      await waitFor(() =>
+        expect(h.state.binding.current().commandAvailability).toBe("ready"),
+      );
+      expect(h.get).toHaveBeenCalledTimes(4);
+      expect(h.f.set).toHaveBeenCalledOnce();
+    },
+  );
+  it("initial actual absence reports unavailable settings and never invents a sync check or seeds defaults", async () => {
+    const f = await browser();
+    delete f.store[key];
+    f.set.mockClear();
+    const state = capture();
+    await flush();
+    render(App, {
+      controller: state.controller,
+      committedPopupBinding: state.binding,
+      compact: true,
+    });
+    await flush();
+    expect(screen.getByRole("status").textContent).toBe(
+      "Settings are unavailable.",
+    );
+    expect(screen.queryByText(STRINGS.sync.checking)).toBeNull();
+    expect(screen.queryAllByRole("switch")).toHaveLength(0);
+    await fireEvent.click(recovery());
+    await flush();
+    expect(state.binding.current().commandAvailability).toBe("unavailable");
+    expect(Object.hasOwn(f.store, key)).toBe(false);
+    expect(f.set).not.toHaveBeenCalled();
+    expect(screen.getByRole("link", { name: "Privacy policy" })).toBeTruthy();
+  });
+
+  it("stops the old binding after unmount without replay or late view publication", async () => {
+    const h = await heldHost();
+    const entered = gate(),
+      read = gate();
+    h.get.mockImplementationOnce(async (keys) => {
+      const saved = await h.working(keys);
+      entered.open();
+      await read.promise;
+      return saved;
+    });
+    await fireEvent.click(recovery());
+    await entered.promise;
+    h.view.unmount();
+    try {
+      expect(h.state.binding.current().reason).toBe("stopped");
+    } finally {
+      read.open();
+    }
+    expect(await h.reread.mock.results.at(-1)!.value).toEqual({
+      status: "unavailable",
+      reason: "stopped",
+    });
+    await flush();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(h.f.set).toHaveBeenCalledOnce();
+    expect(h.f.sendMessage).toHaveBeenCalledOnce();
+    expect(h.telemetry).not.toHaveBeenCalled();
+    expect(JSON.stringify(h.f.store[key])).toBe(h.saved);
+  });
+  it("an old read finalizer cannot release the replacement binding's pending recovery", async () => {
+    const h = await heldHost();
+    const oldEntered = gate(),
+      oldRead = gate(),
+      nextEntered = gate(),
+      nextRead = gate();
+    h.get.mockImplementationOnce(async (keys) => {
+      const saved = await h.working(keys);
+      oldEntered.open();
+      await oldRead.promise;
+      return saved;
+    });
+    await fireEvent.click(recovery());
+    await oldEntered.promise;
+    const second = capture();
+    await flush();
+    h.get.mockRejectedValueOnce(
+      new Error("Synthetic replacement authority read fails"),
+    );
+    await second.binding.rereadAuthority();
+    await h.view.rerender({
+      ...h.props,
+      controller: second.controller,
+      committedPopupBinding: second.binding,
+    });
+    await flush();
+    h.get.mockImplementationOnce(async (keys) => {
+      const saved = await h.working(keys);
+      nextEntered.open();
+      await nextRead.promise;
+      return saved;
+    });
+    await fireEvent.click(recovery());
+    await nextEntered.promise;
+    try {
+      oldRead.open();
+      await h.reread.mock.results.at(-1)!.value;
+      await flush();
+      expect(recovery()).toBeDisabled();
+      expect(second.binding.current().commandAvailability).toBe("unavailable");
+      expect(h.state.binding.current().reason).toBe("stopped");
+      expect(h.f.set).toHaveBeenCalledOnce();
+      expect(h.telemetry).not.toHaveBeenCalled();
+    } finally {
+      oldRead.open();
+      nextRead.open();
+    }
+    await waitFor(() =>
+      expect(second.binding.current().commandAvailability).toBe("ready"),
+    );
+    expect(JSON.stringify(h.f.store[key])).toBe(h.saved);
+  });
+  it("A-B-A return never offers recovery or enabled commands for the stopped binding", async () => {
+    const h = await heldHost();
+    const entered = gate(),
+      read = gate();
+    h.get.mockImplementationOnce(async (keys) => {
+      const saved = await h.working(keys);
+      entered.open();
+      await read.promise;
+      return saved;
+    });
+    await fireEvent.click(recovery());
+    await entered.promise;
+    const second = capture();
+    await flush();
+    await h.view.rerender({
+      ...h.props,
+      controller: second.controller,
+      committedPopupBinding: second.binding,
+    });
+    await flush();
+    await h.view.rerender(h.props);
+    await flush();
+    try {
+      expect(h.state.binding.current().reason).toBe("stopped");
+      expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+      expect(h.control()).toHaveAttribute("aria-disabled", "true");
+      h.control().dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      expect(h.f.set).toHaveBeenCalledOnce();
+      expect(h.f.sendMessage).toHaveBeenCalledOnce();
+    } finally {
+      read.open();
+    }
+    await h.reread.mock.results.at(-1)!.value;
+    await flush();
+    expect(h.control()).toHaveAttribute("aria-disabled", "true");
+    expect(h.reread).toHaveBeenCalledTimes(2);
+    expect(h.telemetry).not.toHaveBeenCalled();
+  });
+  it("a newer external ownership hold supersedes the pending read without enabling or rewriting it", async () => {
+    const h = await heldHost();
+    const entered = gate(),
+      read = gate();
+    h.get.mockImplementationOnce(async (keys) => {
+      const saved = await h.working(keys);
+      entered.open();
+      await read.promise;
+      return saved;
+    });
+    await fireEvent.click(recovery());
+    await entered.promise;
+    const prior = h.f.store[key] as StoredSettingsRecord;
+    const newer = {
+      ...prior,
+      atomic: {
+        ...prior.atomic!,
+        ownership: "previous-account" as const,
+        paused: "ownership-unconfirmed",
+        scope: {
+          ...prior.atomic!.scope,
+          generation: prior.atomic!.scope.generation + 1,
+        },
+        sequence: prior.atomic!.sequence + 1,
+      },
+    };
+    try {
+      await h.f.external(newer);
+      await flush();
+      expect(h.state.binding.current().reason).toBe("ownership-unconfirmed");
+    } finally {
+      read.open();
+    }
+    expect(await h.reread.mock.results.at(-1)!.value).toEqual({
+      status: "superseded",
+    });
+    await flush();
+    expect(h.state.binding.current().reason).toBe("ownership-unconfirmed");
+    expect(h.control()).toHaveAttribute("aria-disabled", "true");
+    expect(recovery()).not.toBeDisabled();
+    expect(h.f.store[key]).toEqual(newer);
+    expect(h.f.set).toHaveBeenCalledTimes(2);
+    expect(h.f.sendMessage).toHaveBeenCalledOnce();
+    expect(h.telemetry).not.toHaveBeenCalled();
+  });
+  it("does not call a binding stopped outside the mounted view through a retained retry button", async () => {
+    const h = await heldHost();
+    const button = recovery();
+    h.state.binding.stop();
+    await fireEvent.click(button);
+    await flush();
+    expect(h.reread).toHaveBeenCalledOnce();
+    expect(h.get).toHaveBeenCalledTimes(2);
+    expect(h.f.set).toHaveBeenCalledOnce();
+    expect(h.telemetry).not.toHaveBeenCalled();
+  });
 });

@@ -57,16 +57,23 @@
   let popupState = $state.raw<DesktopPopupBindingState | null>(null);
   let popupLifetime = 0;
   let popupCommandTicket = 0;
+  let settingsRecovery = $state.raw<{
+    binding: CommittedPopupBinding;
+    lifetime: number;
+  } | null>(null);
   $effect(() => {
     const binding = committedPopupBinding;
     if (!binding) return;
     popupLifetime += 1;
     observedBinding = binding;
+    popupState = binding.current();
+    settingsRecovery = null;
     const unsubscribe = binding.subscribe((state) => {
       popupState = state;
     });
     return () => {
       popupLifetime += 1;
+      settingsRecovery = null;
       unsubscribe();
       binding.stop();
     };
@@ -83,6 +90,39 @@
       (observedBinding !== committedPopupBinding ||
         popupState?.commandAvailability !== "ready"),
   );
+  let settingsUnavailable = $derived(
+    Boolean(committedPopupBinding) &&
+      observedBinding === committedPopupBinding &&
+      popupState?.commandAvailability === "unavailable" &&
+      committedPopupBinding?.current().reason !== "stopped",
+  );
+  function recoverSettings(): void {
+    const binding = committedPopupBinding;
+    if (!binding || !settingsUnavailable || settingsRecovery) return;
+    const state = binding.current();
+    if (
+      state.commandAvailability !== "unavailable" ||
+      state.reason === "stopped"
+    )
+      return;
+    const flight = { binding, lifetime: popupLifetime };
+    settingsRecovery = flight;
+    void binding
+      .rereadAuthority()
+      .catch(() => {
+        /* The current cache retains the authoritative hold; never replay an intent. */
+      })
+      .finally(() => {
+        if (
+          settingsRecovery === flight &&
+          popupLifetime === flight.lifetime &&
+          committedPopupBinding === binding &&
+          observedBinding === binding &&
+          binding.current().reason !== "stopped"
+        )
+          settingsRecovery = null;
+      });
+  }
   let desktopPresentation = $derived(
     committedPopupBinding ? popupPresentation : undefined,
   );
@@ -288,7 +328,9 @@
       sectionMemory={desktopPresentation.sectionMemory}
       privacyUrl={PRIVACY_POLICY_URL}
       account={desktopAccount}
-      accountActions={c.userId ? desktopAccountActions : undefined}
+      accountActions={c.userId || settingsUnavailable
+        ? desktopAccountActions
+        : undefined}
     />
   {:else}
     {#if !desktopPresentation}
@@ -340,9 +382,13 @@
           />
         {/each}
       </div>
-    {:else if !desktopPresentation}
+    {:else if !desktopPresentation && !settingsUnavailable}
       <p class="muted" role="status">{STRINGS.sync.checking}</p>
     {/if}
+  {/if}
+
+  {#if !desktopPresentation || !modern || !popupState || !desktopCommands || !DesktopPopup}
+    {@render settingsRecoveryAction()}
   {/if}
 
   {#if surfaceGuidance}
@@ -439,21 +485,34 @@
       {/if}
     </div>
   {/snippet}
-  {#snippet desktopAccountActions()}
-    {@render accountManagement(false)}
-    {#if c.lastSyncedAt !== null}
-      <p class="sync-time">
-        {STRINGS.sync.lastSynced}
-        <time datetime={new Date(c.lastSyncedAt).toISOString()}
-          >{new Date(c.lastSyncedAt).toLocaleString(undefined, {
-            month: "short",
-            day: "numeric",
-            hour: "numeric",
-            minute: "2-digit",
-          })}</time
-        >
-      </p>
+  {#snippet settingsRecoveryAction()}
+    {#if settingsUnavailable}
+      <p class="muted" role="status">Settings are unavailable.</p>
+      <button
+        class="secondary block"
+        disabled={Boolean(settingsRecovery)}
+        onclick={recoverSettings}>Try again</button
+      >
     {/if}
+  {/snippet}
+  {#snippet desktopAccountActions()}
+    {#if c.userId}
+      {@render accountManagement(false)}
+      {#if c.lastSyncedAt !== null}
+        <p class="sync-time">
+          {STRINGS.sync.lastSynced}
+          <time datetime={new Date(c.lastSyncedAt).toISOString()}
+            >{new Date(c.lastSyncedAt).toLocaleString(undefined, {
+              month: "short",
+              day: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+            })}</time
+          >
+        </p>
+      {/if}
+    {/if}
+    {@render settingsRecoveryAction()}
   {/snippet}
 
   <!-- Sync / account section: renders the popup state matrix. The PAID_TIER_ENABLED checks in this
