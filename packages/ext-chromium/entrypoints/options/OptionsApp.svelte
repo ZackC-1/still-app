@@ -1,6 +1,16 @@
 <script lang="ts">
   import { App } from "@still/core/ui";
   import { createExtensionUiController } from "@still/core/ui";
+  import type {
+    CommittedPopupBinding,
+    CommittedPopupToggle,
+  } from "@still/core/ui";
+  import { SERVICE_IDS, type ServiceId } from "@still/shared-types";
+  import {
+    PRIVACY_POLICY_URL,
+    SETUP_GUIDE_URL,
+    SUPPORT_EMAIL,
+  } from "../../../core/src/ui/config.js";
   import {
     extensionPurchaseDeps,
     restoreHandler,
@@ -8,21 +18,92 @@
   import { emailConsent } from "../../lib/email-consent.js";
   import { surfaceGuidance } from "../../lib/surface-guidance.js";
   import { createPageAnalytics } from "../../lib/analytics.js";
+  import { modernSettingsRuntime } from "../../lib/modern-settings-runtime.js";
 
   // An extension page like the popup, so it gets the same purchase-spine injection (plan U6):
   // message-closures over the background-owned session, present only when this build carries
   // Supabase config (the fail-safe env gate).
   const purchase = extensionPurchaseDeps();
+  const settingsRuntime = modernSettingsRuntime(
+    import.meta.env.VITE_SUPABASE_URL as string | undefined,
+    import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined,
+    import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED as string | undefined,
+  );
+  const analytics = createPageAnalytics(Boolean(import.meta.env.FIREFOX));
+  let committedPopupBinding: CommittedPopupBinding | undefined;
   const controller = createExtensionUiController(purchase, {
     emailConsent,
-    analytics: createPageAnalytics(Boolean(import.meta.env.FIREFOX)),
+    analytics,
+    onCommittedPopupBinding: settingsRuntime.atomicLocal
+      ? (binding) => {
+          committedPopupBinding = binding;
+        }
+      : undefined,
     openedWhere: "options",
   });
   const onRestore = purchase ? restoreHandler(controller) : undefined;
+  const onCommittedPopupToggle = ({
+    service,
+    enabled,
+  }: CommittedPopupToggle) => {
+    if (service === undefined)
+      analytics.track("global_toggled", { enabled, where: "options" });
+    else
+      analytics.track("service_toggled", {
+        service,
+        enabled,
+        where: "options",
+      });
+  };
+  const loadSettings = () =>
+    import("../../../core/src/ui/v3/ExtensionSettings.svelte");
+  const help = {
+    onGuide: () => {
+      window.open(SETUP_GUIDE_URL, "_blank", "noopener,noreferrer");
+    },
+    onSupport: () => {
+      window.location.href = `mailto:${SUPPORT_EMAIL}`;
+    },
+    onPrivacy: () => {
+      window.open(PRIVACY_POLICY_URL, "_blank", "noopener,noreferrer");
+    },
+  };
+  const sectionMemory = {
+    read(): ServiceId | null {
+      try {
+        const saved = localStorage.getItem("still-options-open");
+        return SERVICE_IDS.find((service) => service === saved) ?? null;
+      } catch {
+        return null;
+      }
+    },
+    write(service: ServiceId | null): void {
+      try {
+        if (service) localStorage.setItem("still-options-open", service);
+        else localStorage.removeItem("still-options-open");
+      } catch {
+        /* Local presentation memory cannot interrupt a deliberate command. */
+      }
+    },
+  };
 </script>
 
 <main class="options">
-  <App {controller} {onRestore} {surfaceGuidance} />
+  <App
+    {controller}
+    {onRestore}
+    {surfaceGuidance}
+    {committedPopupBinding}
+    {onCommittedPopupToggle}
+    settingsPresentation={committedPopupBinding
+      ? {
+          browser: import.meta.env.FIREFOX ? "Firefox" : "Chrome",
+          loadSettings,
+          help,
+          sectionMemory,
+        }
+      : undefined}
+  />
 </main>
 
 <style>

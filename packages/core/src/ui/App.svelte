@@ -17,6 +17,7 @@
   import { createPopupViewBinding } from "./v3/popup-view-binding.svelte.js";
   import type { Component } from "svelte";
   import type { DesktopPopupProps } from "./v3/presentation.js";
+  import type { ExtensionSettingsProps } from "./v3/extension-settings-presentation.js";
 
   interface Props {
     controller: UiController;
@@ -29,6 +30,15 @@
       onSettings: () => void;
       loadDesktop: () => Promise<{ default: Component<DesktopPopupProps> }>;
       sectionMemory?: DesktopPopupProps["sectionMemory"];
+    };
+    /** Actual Chromium options host owns the loader and help operations. */
+    settingsPresentation?: {
+      browser: "Chrome" | "Firefox";
+      loadSettings: () => Promise<{
+        default: Component<ExtensionSettingsProps>;
+      }>;
+      help: ExtensionSettingsProps["help"];
+      sectionMemory?: ExtensionSettingsProps["sectionMemory"];
     };
     /** Intentional dense treatment for browser popup panels; never scale the whole interface. */
     compact?: boolean;
@@ -44,6 +54,7 @@
     committedPopupBinding,
     onCommittedPopupToggle,
     popupPresentation,
+    settingsPresentation,
     compact = false,
     onGet,
     onRestore,
@@ -82,6 +93,53 @@
       active = false;
     };
   });
+  let settingsHost = $derived(
+    committedPopupBinding ? settingsPresentation : undefined,
+  );
+  let loadedSettings = $state.raw<{
+    host: NonNullable<Props["settingsPresentation"]>;
+    controller: UiController;
+    binding: CommittedPopupBinding;
+    component: Component<ExtensionSettingsProps>;
+  } | null>(null);
+  $effect(() => {
+    const host = settingsHost;
+    const controller = c;
+    const binding = committedPopupBinding;
+    loadedSettings = null;
+    if (!host || !binding) return;
+    let active = true;
+    void host
+      .loadSettings()
+      .then((module) => {
+        if (
+          active &&
+          host === settingsHost &&
+          controller === c &&
+          binding === committedPopupBinding &&
+          binding.current().reason !== "stopped"
+        )
+          loadedSettings = {
+            host,
+            controller,
+            binding,
+            component: module.default,
+          };
+      })
+      .catch(() => {
+        /* Actual account, privacy and help remain usable; never invent saved choices. */
+      });
+    return () => {
+      active = false;
+    };
+  });
+  let SettingsPresentation = $derived(
+    loadedSettings?.host === settingsHost &&
+      loadedSettings?.controller === c &&
+      loadedSettings?.binding === committedPopupBinding
+      ? loadedSettings.component
+      : null,
+  );
   let modern = $derived(popupView.settings);
   let syncRetryLifetime = 0;
   $effect.pre(() => {
@@ -123,6 +181,82 @@
     };
   });
   let desktopCommands = $derived(popupView.commands);
+  let settingsReady = $derived(
+    Boolean(
+      settingsHost &&
+      popupView.settings &&
+      popupState &&
+      desktopCommands &&
+      SettingsPresentation,
+    ),
+  );
+  let optionsSync = $derived.by((): ExtensionSettingsProps["sync"] => {
+    const controller = c;
+    const identity = controller.userId;
+    const revision = controller.accountRevision;
+    const lifetime = syncRetryLifetime;
+    const host = settingsHost;
+    const binding = committedPopupBinding;
+    const view = loadedSettings;
+    const current = () =>
+      view !== null &&
+      view === loadedSettings &&
+      c === controller &&
+      controller.userId === identity &&
+      controller.accountRevision === revision &&
+      syncRetryLifetime === lifetime &&
+      settingsHost === host &&
+      committedPopupBinding === binding &&
+      binding?.current().reason !== "stopped";
+    if (!identity)
+      return {
+        onSignIn: controller.canSignIn
+          ? () => {
+              if (current()) controller.openSignIn();
+            }
+          : undefined,
+      };
+    return {
+      account: {
+        address: controller.accountEmail ?? undefined,
+        identity,
+        revision,
+        confirmed: false,
+        status: !controller.cloudReachable
+          ? {
+              tone: "failed",
+              text: STRINGS.sync.unreachable,
+              actionLabel: controller.retrySync
+                ? STRINGS.sync.retry
+                : undefined,
+              onAction: controller.retrySync
+                ? () => {
+                    if (current()) runSyncRetry();
+                  }
+                : undefined,
+            }
+          : controller.pendingUpload
+            ? { tone: "pending", text: STRINGS.sync.syncing }
+            : controller.lastSyncedAt !== null
+              ? { tone: "success", text: STRINGS.sync.synced }
+              : { tone: "pending", text: STRINGS.sync.checking },
+        onSignOut: () => {
+          if (current()) void controller.signOut();
+        },
+        onDeleteAccount:
+          controller.canDeleteAccount && controller.deleteFlow !== "deleting"
+            ? () => {
+                if (
+                  current() &&
+                  controller.canDeleteAccount &&
+                  controller.deleteFlow !== "deleting"
+                )
+                  void controller.confirmDeleteAccount();
+              }
+            : undefined,
+      },
+    };
+  });
   const coreBenefit = {
     youtube: "youtube.shorts",
     instagram: "instagram.reels",
@@ -185,11 +319,25 @@
 
 <div
   class="still-ui"
-  class:app={!desktopPresentation || !modern || !DesktopPopup}
+  class:app={!settingsReady &&
+    (!desktopPresentation || !modern || !DesktopPopup)}
   class:v3-popup-host={Boolean(desktopPresentation)}
   data-density={compact ? "compact" : "comfortable"}
 >
-  {#if desktopPresentation && modern && popupState && desktopCommands && DesktopPopup}
+  {#if settingsHost && modern && popupState && desktopCommands && SettingsPresentation}
+    <SettingsPresentation
+      settings={modern}
+      access={popupState.access}
+      commandsDisabled={held}
+      onGlobalChange={desktopCommands.global}
+      onServiceChange={desktopCommands.service}
+      onFeatureChange={desktopCommands.feature}
+      sectionMemory={settingsHost.sectionMemory}
+      sync={{ ...optionsSync, accountActions: optionsAccountActions }}
+      privacyActions={usageActions}
+      help={settingsHost.help}
+    />
+  {:else if desktopPresentation && modern && popupState && desktopCommands && DesktopPopup}
     <DesktopPopup
       settings={modern}
       access={popupState.access}
@@ -208,13 +356,13 @@
         : undefined}
     />
   {:else}
-    {#if !desktopPresentation}
+    {#if !desktopPresentation && !settingsHost}
       <header class="appbar">
         <Logo />
       </header>
     {/if}
 
-    {#if choices && !desktopPresentation}
+    {#if choices && !desktopPresentation && !settingsHost}
       <!-- Global on/off — the hero card -->
       <section class="hero" class:off={!choices.globalOn}>
         <div class="hero-text">
@@ -257,16 +405,16 @@
           />
         {/each}
       </div>
-    {:else if !desktopPresentation && !settingsUnavailable}
+    {:else if !desktopPresentation && !settingsHost && !settingsUnavailable}
       <p class="muted" role="status">{STRINGS.sync.checking}</p>
     {/if}
   {/if}
 
-  {#if !desktopPresentation || !modern || !popupState || !desktopCommands || !DesktopPopup}
+  {#if !settingsReady && (!desktopPresentation || !modern || !popupState || !desktopCommands || !DesktopPopup)}
     {@render settingsRecoveryAction()}
   {/if}
 
-  {#if surfaceGuidance}
+  {#if surfaceGuidance && !settingsHost}
     <a
       class="link setup-guide"
       href={SETUP_GUIDE_URL}
@@ -282,32 +430,35 @@
        floats over the bottom edge until answered, because the browser refuses a popup taller than
        600px and the popup already uses that height. Roomier surfaces show it inline and keep a
        permanent settings row; Firefox, where sharing starts off, uses that row to ask. -->
-  {#if c.usageNoticeVisible}
-    <section class="usage-notice card" aria-live="polite">
-      <p class="muted">{STRINGS.usage.notice}</p>
-      <div class="usage-notice-actions">
-        <button class="link" onclick={() => c.toggleUsageSharing()}
-          >{STRINGS.usage.noticeTurnOff}</button
-        >
-        <button class="secondary" onclick={() => c.dismissUsageNotice()}
-          >{STRINGS.usage.noticeOk}</button
-        >
-      </div>
-    </section>
-  {/if}
-  {#if c.usageSharing !== null && !compact}
-    <section class="usage card">
-      <div class="usage-text">
-        <span class="usage-title">{STRINGS.usage.title}</span>
-        <span class="usage-sub">{STRINGS.usage.body}</span>
-      </div>
-      <Toggle
-        checked={c.usageSharing}
-        label={STRINGS.usage.title}
-        onchange={() => c.toggleUsageSharing()}
-      />
-    </section>
-  {/if}
+  {#snippet usageActions()}
+    {#if c.usageNoticeVisible}
+      <section class="usage-notice card" aria-live="polite">
+        <p class="muted">{STRINGS.usage.notice}</p>
+        <div class="usage-notice-actions">
+          <button class="link" onclick={() => c.toggleUsageSharing()}
+            >{STRINGS.usage.noticeTurnOff}</button
+          >
+          <button class="secondary" onclick={() => c.dismissUsageNotice()}
+            >{STRINGS.usage.noticeOk}</button
+          >
+        </div>
+      </section>
+    {/if}
+    {#if c.usageSharing !== null && !compact}
+      <section class="usage card">
+        <div class="usage-text">
+          <span class="usage-title">{STRINGS.usage.title}</span>
+          <span class="usage-sub">{STRINGS.usage.body}</span>
+        </div>
+        <Toggle
+          checked={c.usageSharing}
+          label={STRINGS.usage.title}
+          onchange={() => c.toggleUsageSharing()}
+        />
+      </section>
+    {/if}
+  {/snippet}
+  {#if !settingsReady}{@render usageActions()}{/if}
 
   <!-- Per-site pause UI removed 2026-07-06 (founder call: popup must fit one panel; feature may
        return). The controller/cache pause mutators went with it (R1) — only the dormant `pauses`
@@ -390,6 +541,29 @@
     {@render settingsRecoveryAction()}
   {/snippet}
 
+  {#snippet optionsAccountActions()}
+    {#if c.userId && c.lastSyncedAt !== null}
+      <p class="sync-time">
+        {STRINGS.sync.lastSynced}
+        <time datetime={new Date(c.lastSyncedAt).toISOString()}
+          >{new Date(c.lastSyncedAt).toLocaleString(undefined, {
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+          })}</time
+        >
+      </p>
+    {/if}
+    {#if c.userId && c.deleteFlow === "deleting"}<p role="status">
+        {STRINGS.account.deleting}
+      </p>{/if}
+    {#if c.userId && c.deleteFlow === "error"}<p class="error" role="alert">
+        {c.deleteError ?? STRINGS.account.deleteError}
+      </p>{/if}
+    {@render settingsRecoveryAction()}
+  {/snippet}
+
   <!-- Sync / account section: renders the popup state matrix. The PAID_TIER_ENABLED checks in this
        section hide the buy and restore calls to action while the paid tier is dormant, leaving
        sign-in as the only thing this card offers. Where the alternative branch was written for a
@@ -398,7 +572,7 @@
        signed-out check just below joins its condition instead, because both sides of that one read
        correctly for a free user: with no purchase to offer, sign-in becomes the primary button.
        The branches themselves are preserved, not deleted. -->
-  {#if !desktopPresentation || !modern || !DesktopPopup}
+  {#if !settingsReady && (!desktopPresentation || !modern || !DesktopPopup)}
     <section class="sync card" data-state={c.popupState}>
       {#if !PAID_TIER_ENABLED}
         <!-- Naming the section is what keeps the invitation calm: someone reading it can see that
@@ -426,7 +600,7 @@
             <p class="muted">{STRINGS.sync.extensionPending}</p>
           {/if}
         {/if}
-        {#if !desktopPresentation}<a
+        {#if !desktopPresentation && !settingsHost}<a
             class="link"
             href={PRIVACY_POLICY_URL}
             target="_blank"
@@ -457,7 +631,7 @@
              plain fact; the host app is where signing in is offered. -->
           <p class="muted">{STRINGS.sync.deviceOnly}</p>
         {/if}
-        {#if !desktopPresentation}<a
+        {#if !desktopPresentation && !settingsHost}<a
             class="link center"
             href={PRIVACY_POLICY_URL}
             target="_blank"
@@ -490,7 +664,7 @@
             {STRINGS.paywall.restoreSignedOut}
           </button>
         {/if}
-        {#if !desktopPresentation}<a
+        {#if !desktopPresentation && !settingsHost}<a
             class="link center"
             href={PRIVACY_POLICY_URL}
             target="_blank"
@@ -519,7 +693,7 @@
             >{STRINGS.auth.signOut}</button
           >
         {/if}
-        {@render accountManagement(!desktopPresentation)}
+        {@render accountManagement(!desktopPresentation && !settingsHost)}
       {:else if c.popupState === "pro-device-only"}
         <!-- Signed in with receipt-only Pro: honest copy — the ACCOUNT isn't entitled (attach
            ineligible, e.g. family-shared, or not yet landed), so never claim sync. Device Pro
@@ -530,7 +704,7 @@
             >{STRINGS.auth.signOut}</button
           >
         {/if}
-        {@render accountManagement(!desktopPresentation)}
+        {@render accountManagement(!desktopPresentation && !settingsHost)}
       {:else if c.popupState === "entitlement-pending"}
         <p class="muted">{STRINGS.sync.pending}</p>
       {:else if c.popupState === "entitled-syncing"}
@@ -546,7 +720,7 @@
             >{STRINGS.auth.signOut}</button
           >
         {/if}
-        {@render accountManagement(!desktopPresentation)}
+        {@render accountManagement(!desktopPresentation && !settingsHost)}
       {:else if c.popupState === "cloud-unreachable"}
         <p class="muted">{STRINGS.sync.unreachable}</p>
         {#if c.retrySync}
@@ -575,6 +749,29 @@
           >
         </p>
       {/if}
+    </section>
+  {/if}
+  {#if settingsHost && !settingsReady}
+    <section class="sync card">
+      <h2 class="sync-title">Help</h2>
+      <button
+        type="button"
+        class="link"
+        disabled={!settingsHost.help.onGuide}
+        onclick={settingsHost.help.onGuide}>Setup guide</button
+      >
+      <button
+        type="button"
+        class="link"
+        disabled={!settingsHost.help.onSupport}
+        onclick={settingsHost.help.onSupport}>Contact support</button
+      >
+      <button
+        type="button"
+        class="link"
+        disabled={!settingsHost.help.onPrivacy}
+        onclick={settingsHost.help.onPrivacy}>Privacy policy</button
+      >
     </section>
   {/if}
   {#if desktopPresentation && (!modern || !DesktopPopup)}

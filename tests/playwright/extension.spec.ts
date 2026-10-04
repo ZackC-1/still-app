@@ -22,7 +22,7 @@ test("the options page renders the four service cards", async ({
 }) => {
   const page = await context.newPage();
   await page.goto(`chrome-extension://${extensionId}/options.html`);
-  await expect(page.locator("[data-service]")).toHaveCount(4);
+  await expect(page.locator("[data-service], .site-section")).toHaveCount(4);
 });
 
 test("the popup keeps every primary control visible without scaling or overflow", async ({

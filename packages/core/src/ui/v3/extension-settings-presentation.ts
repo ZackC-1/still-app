@@ -23,6 +23,8 @@ export interface SyncCardProps {
   };
   owned?: boolean;
   onSignIn?: () => void;
+  /** Actual host status and recovery actions, within the single sync card. */
+  accountActions?: Snippet;
 }
 
 export interface ProOfferCardProps {

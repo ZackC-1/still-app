@@ -1,7 +1,12 @@
 <script lang="ts">
   import type { SyncCardProps } from "./extension-settings-presentation.js";
   import Glyph from "./Glyph.svelte";
-  let { account, owned = false, onSignIn }: SyncCardProps = $props();
+  let {
+    account,
+    owned = false,
+    onSignIn,
+    accountActions,
+  }: SyncCardProps = $props();
   const icons = {
     pending: "spinner",
     success: "check",
@@ -82,4 +87,5 @@
       onclick={onSignIn}>Sign in</button
     >
   {/if}
+  {#if accountActions}{@render accountActions()}{/if}
 </section>

@@ -1198,3 +1198,135 @@ describe("caller supplied privacy action slot", () => {
     view.unmount();
   });
 });
+
+describe("actual caller sync-card action slot", () => {
+  it.each([false, true])(
+    "keeps the real recovery action inside the one sync card when signed-in=%s",
+    async (signedIn) => {
+      const { createRawSnippet } = await import("svelte");
+      const retry = vi.fn();
+      const accountActions = createRawSnippet(() => ({
+        render: () =>
+          '<button type="button">Read actual saved settings again</button>',
+        setup: (node) => {
+          node.addEventListener("click", retry);
+          return () => node.removeEventListener("click", retry);
+        },
+      }));
+      const { props } = await fixture("free");
+      const view = render(ExtensionSettings, {
+        props: {
+          ...props,
+          pro: undefined,
+          sharing: undefined,
+          sync: {
+            account: signedIn
+              ? { identity: "synthetic-current", confirmed: false }
+              : undefined,
+            accountActions,
+          },
+        },
+      });
+      const action = screen.getByRole("button", {
+        name: "Read actual saved settings again",
+      });
+      expect(
+        within(action.closest("section")!).getByRole("heading", {
+          name: "Settings sync",
+        }),
+      ).toBeTruthy();
+      expect(
+        screen.getAllByRole("heading", { name: "Settings sync" }),
+      ).toHaveLength(1);
+      await fireEvent.click(action);
+      expect(retry).toHaveBeenCalledOnce();
+      view.unmount();
+    },
+  );
+});
+
+const retainedConfirmationPorts = vi.hoisted(() => [] as (() => void)[]);
+vi.mock("./ConfirmationDialog.svelte", async (importOriginal) => {
+  const original =
+    await importOriginal<typeof import("./ConfirmationDialog.svelte")>();
+  // Keep the real Svelte dialog and capture exactly the callback passed to it.
+  const invoke = original.default as unknown as (
+    anchor: unknown,
+    props: Record<string, unknown>,
+  ) => unknown;
+  return {
+    default: (anchor: unknown, props: Record<string, unknown>) =>
+      invoke(
+        anchor,
+        new Proxy(props, {
+          get(target, key, receiver) {
+            const value = Reflect.get(target, key, receiver);
+            if (key === "onConfirm" && typeof value === "function")
+              retainedConfirmationPorts.push(value as () => void);
+            return value;
+          },
+        }),
+      ),
+  };
+});
+
+describe("exact mounted deletion dialog lifetime", () => {
+  it.each(["replacement", "same-account reopen", "unmount"] as const)(
+    "rejects retained confirmation after %s without consuming a newer dialog",
+    async (change) => {
+      retainedConfirmationPorts.length = 0;
+      const { props } = await fixture();
+      const removeA = vi.fn();
+      const removeB = vi.fn();
+      props.sync.account = {
+        identity: "account-a",
+        revision: 1,
+        confirmed: false,
+        onDeleteAccount: removeA,
+      };
+      const view = render(ExtensionSettings, { props });
+      await fireEvent.click(
+        screen.getByRole("button", { name: "Delete account" }),
+      );
+      const stale = retainedConfirmationPorts.at(-1);
+      expect(stale).toBeTypeOf("function");
+      if (change === "unmount") {
+        view.unmount();
+        stale!();
+        expect(removeA).not.toHaveBeenCalled();
+        return;
+      }
+      await fireEvent.click(
+        within(screen.getByRole("dialog")).getByRole("button", {
+          name: "Cancel",
+        }),
+      );
+      if (change === "replacement")
+        await view.rerender({
+          sync: {
+            account: {
+              identity: "account-b",
+              revision: 2,
+              confirmed: false,
+              onDeleteAccount: removeB,
+            },
+          },
+        });
+      await fireEvent.click(
+        screen.getByRole("button", { name: "Delete account" }),
+      );
+      stale!();
+      await import("svelte").then(({ tick }) => tick());
+      expect(removeA).not.toHaveBeenCalled();
+      expect(removeB).not.toHaveBeenCalled();
+      const dialog = screen.getByRole("dialog");
+      await fireEvent.click(
+        within(dialog).getByRole("button", { name: "Delete account" }),
+      );
+      expect(
+        change === "replacement" ? removeB : removeA,
+      ).toHaveBeenCalledOnce();
+      expect(screen.queryByRole("dialog")).toBeNull();
+    },
+  );
+});

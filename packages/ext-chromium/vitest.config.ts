@@ -18,7 +18,7 @@ export default defineConfig({
           name: "popup",
           environment: "jsdom",
           globals: true,
-          include: ["entrypoints/popup/**/*.{test,spec}.ts"],
+          include: ["entrypoints/{popup,options}/**/*.{test,spec}.ts"],
         },
       },
     ],

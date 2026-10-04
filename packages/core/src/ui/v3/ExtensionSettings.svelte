@@ -102,8 +102,17 @@
     if (sync.account?.confirmed) pro.onBuy?.();
     else pro.onSignIn?.();
   }
-  function confirmDelete() {
+  $effect(() => () => {
+    deleteTarget = null;
+  });
+  let deleteConfirmation = $derived.by(() => {
     const target = deleteTarget;
+    return target && deleteTargetCurrent
+      ? () => confirmDelete(target)
+      : undefined;
+  });
+  function confirmDelete(target: NonNullable<typeof deleteTarget>) {
+    if (target !== deleteTarget) return;
     deleteTarget = null;
     if (
       target &&
@@ -178,6 +187,7 @@
   <SyncCard
     owned={pro?.ownership === "owned"}
     onSignIn={sync.onSignIn}
+    accountActions={sync.accountActions}
     account={sync.account
       ? {
           ...sync.account,
@@ -235,7 +245,7 @@
     title="Delete your account?"
     body="This deletes your account and the settings synced to it. Settings on this device stay. A Still Pro purchase made in the Still app keeps working on that device."
     confirmLabel="Delete account"
-    onConfirm={deleteTargetCurrent ? confirmDelete : undefined}
+    onConfirm={deleteConfirmation}
     onCancel={() => {
       deleteTarget = null;
     }}
