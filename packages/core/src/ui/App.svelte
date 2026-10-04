@@ -261,7 +261,7 @@
     <DesktopPopup
       settings={modern}
       access={popupState.access}
-      browser={desktopPresentation.browser}
+      {...{ browser: desktopPresentation.browser }}
       commandsDisabled={held}
       onGlobalChange={desktopCommands.global}
       onServiceChange={desktopCommands.service}
