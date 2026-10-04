@@ -6,6 +6,7 @@
     channel,
     offer,
     confirmedAccount,
+    knownMissing,
     accessHeld = false,
     accessChecking = false,
     accessVerify = false,
@@ -15,16 +16,18 @@
     onBuy,
     onRestore,
     onRetry,
-  }: ProOfferCardProps = $props();
+  }: ProOfferCardProps & { knownMissing: boolean } = $props();
   let canBuy = $derived(
-    ownership === "none" &&
+    knownMissing &&
+      ownership === "none" &&
       !accessHeld &&
       !accessChecking &&
       !accessVerify &&
       !restoreHeld &&
       channel === "ready" &&
       Boolean(offer?.price.trim()) &&
-      state !== "failed",
+      state !== "failed" &&
+      state !== "success",
   );
   function request() {
     if (!canBuy || state === "pending") return;
@@ -95,7 +98,7 @@
           >
         </div>
       </div>
-    {:else if state !== "failed" && !restoreHeld}
+    {:else if state !== "failed" && state !== "success" && !restoreHeld}
       <div class="status-line" data-tone="info">
         <div class="status-body">
           <span>Still Pro can't be bought here yet.</span><span

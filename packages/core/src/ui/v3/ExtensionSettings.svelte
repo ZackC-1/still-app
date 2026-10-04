@@ -86,7 +86,8 @@
       Boolean(pro.offer?.price.trim()) &&
       Boolean(sync.account?.confirmed ? pro.onBuy : pro.onSignIn) &&
       pro.state !== "pending" &&
-      pro.state !== "failed",
+      pro.state !== "failed" &&
+      pro.state !== "success",
   );
   function requestPro() {
     if (!proActionReady) return;
@@ -174,6 +175,7 @@
     <ProOfferCard
       {...pro}
       confirmedAccount={sync.account?.confirmed ?? false}
+      {knownMissing}
       {accessHeld}
       {accessChecking}
       {accessVerify}

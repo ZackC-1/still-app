@@ -72,6 +72,170 @@ async function fixture(state: AccessState = "purchased") {
 }
 
 describe("controlled D03 extension settings", () => {
+  it("invalidates deletion when only the account address changes with the same handler", async () => {
+    const { props } = await fixture();
+    const remove = vi.fn();
+    props.sync.account = {
+      address: "first@fixture.test",
+      confirmed: true,
+      onDeleteAccount: remove,
+    };
+    const view = render(ExtensionSettings, { props });
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Delete account" }),
+    );
+    props.sync.account.address = "second@fixture.test";
+    await view.rerender(props);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(remove).not.toHaveBeenCalled();
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Delete account" }),
+    );
+    await fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Delete account",
+      }),
+    );
+    expect(remove).toHaveBeenCalledOnce();
+    view.unmount();
+  });
+
+  it.each(["verify", "failed", "operation-failed"] as const)(
+    "preserves explicit %s status over an actual checking observation",
+    async (status) => {
+      const { props } = await fixture("checking");
+      if (status === "operation-failed") props.pro.state = "failed";
+      else props.pro.ownership = status;
+      const view = render(ExtensionSettings, { props });
+      expect(screen.queryByText("Checking your Still Pro access…")).toBeNull();
+      expect(
+        screen.getByText(
+          status === "verify"
+            ? "Still Pro needs to be verified again."
+            : status === "failed"
+              ? "We couldn't finish checking. Nothing changed."
+              : "The purchase wasn't confirmed.",
+        ),
+      ).toBeVisible();
+      expect(
+        screen.queryByRole("button", { name: "Get Still Pro" }),
+      ).toBeNull();
+      view.unmount();
+    },
+  );
+
+  it("holds failed withdrawal with verified purposes and reopens sharing only for a current none result", async () => {
+    const { props } = await fixture();
+    props.sharing.withdrawal = "failed";
+    const view = render(ExtensionSettings, { props });
+    const toggle = screen.getByRole("switch", {
+      name: "Share email and usage data",
+    });
+    await fireEvent.click(toggle);
+    expect(props.sharing.onChange).not.toHaveBeenCalled();
+    props.sharing.withdrawal = "none";
+    await view.rerender(props);
+    await fireEvent.click(toggle);
+    expect(props.sharing.onChange).toHaveBeenCalledExactlyOnceWith(true);
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    view.unmount();
+  });
+
+  it.each(
+    [false, true].flatMap((confirmed) =>
+      (
+        ["purchased", "protected", "free", "unsupported", "locked"] as const
+      ).map((state) => ({ confirmed, state })),
+    ),
+  )(
+    "holds retained purchase ports after success with $state access and confirmed=$confirmed",
+    async ({ confirmed, state }) => {
+      const { props, storage } = await fixture("locked");
+      const buy = vi.fn(),
+        signIn = vi.fn();
+      props.sectionMemory = { read: () => "youtube", write: vi.fn() };
+      props.sync.account = { address: "fixture@still.test", confirmed };
+      props.pro = {
+        ownership: "none",
+        channel: "ready",
+        state: "idle",
+        offer: { price: "Fixture localized price" },
+        onBuy: buy,
+        onSignIn: signIn,
+      };
+      const view = render(ExtensionSettings, { props });
+      const requestBoth = async () => {
+        const card = screen.queryByRole("button", { name: "Get Still Pro" });
+        if (card) await fireEvent.click(card);
+        const row = screen.queryByRole("button", {
+          name: "Comments. Included in Still Pro. See Still Pro",
+        });
+        if (row) await fireEvent.click(row);
+      };
+      await requestBoth();
+      expect(confirmed ? buy : signIn).toHaveBeenCalledTimes(2);
+      expect(confirmed ? signIn : buy).not.toHaveBeenCalled();
+      const saved = await storage.get();
+      props.pro.state = "success";
+      props.access = {
+        ...props.access,
+        states: Object.fromEntries(
+          Object.entries(props.access.states).map(([id, prior]) => [
+            id,
+            FEATURE_REGISTRY.some((row) => row.id === id && row.tier === "pro")
+              ? state
+              : prior,
+          ]),
+        ) as typeof props.access.states,
+      };
+      await view.rerender(props);
+      await requestBoth();
+      expect(confirmed ? buy : signIn).toHaveBeenCalledTimes(2);
+      expect(confirmed ? signIn : buy).not.toHaveBeenCalled();
+      expect(
+        screen.getByText("Still Pro is ready. New controls start off."),
+      ).toBeVisible();
+      expect(screen.queryByText("Checking your Still Pro access…")).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: "Get Still Pro" }),
+      ).toBeNull();
+      expect(await storage.get()).toEqual(saved);
+      view.unmount();
+    },
+  );
+
+  it.each(["purchased", "protected", "free", "unsupported"] as const)(
+    "withholds a new card offer from completed %s access without manufacturing checking",
+    async (state) => {
+      const { props } = await fixture(state);
+      const buy = vi.fn(),
+        signIn = vi.fn();
+      props.sync.account = { address: "fixture@still.test", confirmed: true };
+      props.pro = {
+        ownership: "none",
+        channel: "ready",
+        state: "pending",
+        offer: {
+          price: "Fixture localized price",
+          priceNote: "Fixture offer detail",
+        },
+        onBuy: buy,
+        onSignIn: signIn,
+      };
+      const view = render(ExtensionSettings, { props });
+      const pending = screen.queryByRole("button", {
+        name: "Waiting for checkout…",
+      });
+      if (pending) await fireEvent.click(pending);
+      expect(buy).not.toHaveBeenCalled();
+      expect(signIn).not.toHaveBeenCalled();
+      expect(pending).toBeNull();
+      expect(screen.queryByText("Fixture offer detail")).toBeNull();
+      expect(screen.queryByText("Checking your Still Pro access…")).toBeNull();
+      view.unmount();
+    },
+  );
+
   it("qualifies signed-out sync coverage and removes the invitation when signed in", async () => {
     const { props } = await fixture();
     const view = render(ExtensionSettings, { props });
