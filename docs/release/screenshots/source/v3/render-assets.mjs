@@ -118,7 +118,9 @@ const access = Object.freeze({ schema:1,generation:0,refreshAfterMs:null,
     row.tier==='free'?'free':frame.proAccess]),['tiktok.all','free']])) });
 mount(StoreAssets,{target:document.querySelector('#root'),props:{
   id:frame.id,headline:frame.headline,body:frame.body,browser:frame.browser,
+  kind:frame.kind,width:${width},height:${height},uiBase:frame.uiBase,
   view:{purpose:'synthetic-reference-only',settings,access,services:frame.services,
+    features:frame.mobile?FEATURE_REGISTRY.filter(row=>row.id!=='facebook.sidebar_ads').map(row=>row.id):undefined,
     open:frame.open,account:frame.account}}});
 `
 }

@@ -15,22 +15,24 @@
     kind = "landscape",
     width = 1280,
     height = 800,
+    uiBase = 3,
     icon,
     view,
   }: {
     id: string;
     headline: string;
     body: string;
-    browser?: "Chrome" | "Firefox";
+    browser?: "Chrome" | "Firefox" | "Safari";
   } & (
     | {
-        kind?: "landscape";
-        width?: never;
-        height?: never;
+        kind?: "landscape" | "portrait";
+        width?: number;
+        height?: number;
+        uiBase?: number;
         icon?: never;
         view: Pick<
           SettingsSiteListProps,
-          "settings" | "access" | "services"
+          "settings" | "access" | "services" | "features"
         > & {
           purpose: "synthetic-reference-only";
           open: ServiceId | null;
@@ -42,11 +44,26 @@
         width: number;
         height: number;
         icon: string;
+        uiBase?: never;
         view?: never;
       }
   ) = $props();
 
   const noOperation = () => {};
+  const portrait = $derived(kind === "portrait");
+  const k = $derived(portrait ? width / 1320 : height / 800);
+  const copyLayout = $derived(
+    portrait
+      ? `left:${110 * k}px;right:${110 * k}px;top:${200 * k}px;gap:${36 * k}px;`
+      : `left:${88 * k}px;top:0;bottom:0;width:${520 * k}px;justify-content:center;gap:${20 * k}px;`,
+  );
+  const uiScale = $derived(portrait ? uiBase * k : 1.2 * k);
+  const uiLeft = $derived(
+    portrait ? (width - 380 * uiBase * k) / 2 : width - (380 * 1.2 + 96) * k,
+  );
+  const uiTop = $derived(
+    portrait ? Math.min(900 * k, height - 600 * uiBase * k - 120 * k) : 40 * k,
+  );
 </script>
 
 <div
@@ -78,15 +95,15 @@
     </div>
   {:else if view}
     <div
-      style="position:absolute;left:88px;top:0;bottom:0;width:520px;display:flex;flex-direction:column;justify-content:center;gap:20px;"
+      style={`position:absolute;display:flex;flex-direction:column;${copyLayout}`}
     >
       <p
-        style="margin:0;font-size:60px;line-height:1.08;font-weight:700;letter-spacing:-0.02em;"
+        style={`margin:0;font-size:${(portrait ? 120 : 60) * k}px;line-height:${portrait ? 1.05 : 1.08};font-weight:700;letter-spacing:-0.02em;`}
       >
         {headline}
       </p>
       <p
-        style="margin:0;font-size:26px;line-height:1.35;color:rgba(255,255,255,.9);"
+        style={`margin:0;font-size:${(portrait ? 52 : 26) * k}px;line-height:${portrait ? 1.3 : 1.35};color:rgba(255,255,255,.9);`}
       >
         {body}
       </p>
@@ -94,7 +111,7 @@
     <div
       class="still-ui"
       data-theme="light"
-      style="position:absolute;transform-origin:0 0;transform:scale(1.2);width:380px;border-radius:16px;overflow:hidden;background:var(--surface);left:728px;top:40px;"
+      style={`position:absolute;transform-origin:0 0;transform:scale(${uiScale});width:380px;border-radius:16px;overflow:hidden;background:var(--surface);left:${uiLeft}px;top:${uiTop}px;`}
     >
       <div
         class="still-ui app"
@@ -109,6 +126,7 @@
           settings={view.settings}
           access={view.access}
           services={view.services}
+          features={view.features}
           onServiceChange={noOperation}
           onFeatureChange={noOperation}
           sectionMemory={{ read: () => view.open, write: noOperation }}
