@@ -4,6 +4,8 @@
   import { rowsFor } from "./presentation.js";
   import type { MobilePopupProps } from "./mobile-presentation.js";
   import { serviceIconSrc } from "./service-icons.js";
+  import PopupInvitation from "./PopupInvitation.svelte";
+  import { invitationVisible } from "./invitation-presentation.js";
   import Toggle from "./Toggle.svelte";
   import FeatureRow from "./FeatureRow.svelte";
   import Glyph from "./Glyph.svelte";
@@ -28,6 +30,7 @@
     services = ["youtube", "instagram", "facebook", "tiktok"],
     labels = {},
     features,
+    invitation,
   }: MobilePopupProps = $props();
   let open = $state<ServiceId | null>(
     untrack(() => sectionMemory?.read() ?? null),
@@ -83,6 +86,14 @@
   let appActionReady = $derived(
     host === "safari" && Boolean(onSeePro) && knownMissing,
   );
+  let invitationReady = $derived(
+    invitation?.identity.surface ===
+      (host === "safari" ? "safari" : "firefox-android") &&
+      (host !== "firefox" || channelReady) &&
+      !(host === "safari" && invitation?.kind === "rating") &&
+      !setup &&
+      !["pending", "failed", "caution"].includes(account?.status?.tone ?? ""),
+  );
   function openPro() {
     if (appActionReady) onSeePro?.();
     else if (offer) onPurchase?.();
@@ -93,7 +104,11 @@
   }
 </script>
 
-<div class="still-ui app" data-density="compact">
+<div
+  class="still-ui app"
+  data-density="compact"
+  class:invitation-scroll={invitationReady && invitationVisible(invitation)}
+>
   <section class="hero compact" class:off={!settings.globalOn}>
     <div class="hero-text">
       <h1>
@@ -218,6 +233,7 @@
       onclick={openPro}>See Still Pro</button
     >
   {/if}
+  <PopupInvitation presentation={invitationReady ? invitation : undefined} />
   <section class="card card-stack">
     <div class="sync-row">
       <div class="sync-row-text">
@@ -264,3 +280,16 @@
     ><a class="link" href={privacyUrl}>Privacy policy</a>
   </footer>
 </div>
+
+<style>
+  .app.invitation-scroll {
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+  .app[data-density="compact"].invitation-scroll .site-scroll {
+    min-block-size: calc(
+      var(--tap-target) * var(--text-scale, 1) + 2 *
+        var(--service-card-padding-block, var(--space-3))
+    );
+  }
+</style>

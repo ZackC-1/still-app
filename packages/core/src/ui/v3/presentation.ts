@@ -1,3 +1,7 @@
+import type {
+  PopupInvitationPresentation,
+  InvitationIntentPort,
+} from "./invitation-presentation.js";
 import {
   FEATURE_REGISTRY,
   type FeatureId,
@@ -57,4 +61,15 @@ export interface DesktopPopupProps {
   features?: readonly FeatureId[];
   labels?: Partial<Record<FeatureId, string>>;
   heroTitle?: string;
+  /** Caller-selected current invitation. Absent by default; never schedules itself. */
+  invitation?: PopupInvitationPresentation;
+  /** Approved D28 typography only; ordinary D01 presentation is unchanged. */
+  invitationVariant?: "d28";
+  /** Caller owns setup wording and the current verified permission action. */
+  desktopSetup?: {
+    title: string;
+    detail: string;
+    actionLabel: string;
+    action?: InvitationIntentPort;
+  };
 }
