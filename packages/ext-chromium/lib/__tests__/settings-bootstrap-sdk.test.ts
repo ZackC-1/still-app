@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { SettingsV2 } from "@still/shared-types";
 
@@ -226,6 +226,7 @@ afterEach(async () => {
 });
 
 describe("configured real SDK signed-out background settings bootstrap", () => {
+  beforeEach(() => vi.stubEnv("VITE_MODERN_SETTINGS_SYNC_ENABLED", "true"));
   it("synchronous first-install admission creates modern free choices once while real SDK startup stays signed out", async () => {
     const h = await start({}, true);
     traces.push({ label: "first-install", entries: h.trace });
@@ -418,6 +419,7 @@ function observedSettingsAuth() {
 }
 
 describe("maintained background verified settings-session forwarding", () => {
+  beforeEach(() => vi.stubEnv("VITE_MODERN_SETTINGS_SYNC_ENABLED", ""));
   it("passes actual SDK signed-out claims through the real auth port without creating settings or auth", async () => {
     const h = await start();
     const auth = observedSettingsAuth();

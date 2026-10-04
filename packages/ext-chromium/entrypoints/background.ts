@@ -11,7 +11,6 @@ import {
   SupabaseBackendPort,
   SyncService,
   createExtensionSession,
-  extensionSupabaseConfig,
   type ExtensionSession,
 } from "@still/core/sync";
 import { AUTH_STORAGE_KEY, clearExtensionAuthStorage, createAuthStorage } from "../lib/auth-storage.js";
@@ -22,6 +21,7 @@ import {
 } from "../lib/session-messages.js";
 import { createIndexedDbKeyValue, QUIET_FLUSH_ALARM, requestQuietFlush } from "@still/core/analytics";
 import { createBackgroundAnalytics, storageKeyValue } from "../lib/analytics.js";
+import { modernSettingsRuntime } from "../lib/modern-settings-runtime.js";
 
 // Chromium/Firefox background (Chrome MV3 service worker / Firefox MV3 event page). Three
 // independent jobs:
@@ -50,6 +50,11 @@ import { createBackgroundAnalytics, storageKeyValue } from "../lib/analytics.js"
 const RULESET_ID = "youtube-shorts-redirect";
 
 export default defineBackground(() => {
+  const settingsRuntime = modernSettingsRuntime(
+    import.meta.env.VITE_SUPABASE_URL as string | undefined,
+    import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined,
+    import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED as string | undefined,
+  );
   const settingsAuthority = new ChromeStorageAdapter({ authority: true });
   const order: import("../lib/auth-storage.js").AuthMutationOrder = mutation => settingsAuthority.serializeLocalMutation(mutation);
   // Only durable mutation methods enter the shared queue. Wrapping a whole auth/session/read
@@ -103,10 +108,12 @@ export default defineBackground(() => {
     // A hold is not a successful default read. No stored settings/account payload is logged.
     console.warn("Still settings initialization held", error instanceof SettingsStorageRecovery ? error.reason : "storage-unavailable");
   };
-  // Existing readable choices migrate without a claim about account history. Missing storage
-  // stays missing until the privileged browser install event; wakes and updates never seed it.
-  const hydrated = settingsAuthority.initializeAtomic("unknown").catch(heldInitialization).then(() => cache.hydrate());
-  const spine = createSessionSpine(cache, entitlements, order);
+  // Configured default builds preserve the maintained legacy free-sync document. Atomic local
+  // builds migrate readable choices without a claim about account history; wakes never seed.
+  const hydrated = settingsRuntime.atomicLocal
+    ? settingsAuthority.initializeAtomic("unknown").catch(heldInitialization).then(() => cache.hydrate())
+    : cache.hydrate();
+  const spine = createSessionSpine(cache, entitlements, order, settingsRuntime);
   const session = spine?.session ?? null;
   if (spine) {
     const accessAuth = new SupabaseAuthPort(spine.client);
@@ -191,7 +198,7 @@ export default defineBackground(() => {
     throw failure;
   };
   chrome.runtime.onInstalled.addListener((details) => {
-    if (details.reason === "install" && !installAdmissionConsumed) {
+    if (details.reason === "install" && settingsRuntime.atomicLocal && !installAdmissionConsumed) {
       installAdmissionConsumed = true;
       void initializeInstalledSettings().catch(heldInitialization);
     }
@@ -273,11 +280,9 @@ function createSessionSpine(
   cache: SettingsCache,
   entitlements: ChromeEntitlementAdapter,
   order: import("../lib/auth-storage.js").AuthMutationOrder,
+  settingsRuntime: ReturnType<typeof modernSettingsRuntime>,
 ): { session: ExtensionSession; client: SupabaseClient } | null {
-  const config = extensionSupabaseConfig(
-    import.meta.env.VITE_SUPABASE_URL as string | undefined,
-    import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined,
-  );
+  const config = settingsRuntime.supabase;
   if (config === null) return null;
 
   const client = createClient(config.url, config.anonKey, {
@@ -308,7 +313,7 @@ function createSessionSpine(
     // Display identity comes from the authenticated session, never the popup's pending OTP draft.
     currentAccount: () => port.currentAccount(),
   };
-  const backend = new SupabaseBackendPort(client);
+  const backend = new SupabaseBackendPort(client, { modernSettings: settingsRuntime.modernCloud });
   const identityStore = createIdentityStore();
   const identity = { get: () => identityStore.get(), set: (userId: string) => order(() => identityStore.set(userId)) };
   const sessionStores = createSessionStores();

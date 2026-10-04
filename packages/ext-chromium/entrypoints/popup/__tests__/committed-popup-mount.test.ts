@@ -60,7 +60,7 @@ afterEach(async () => {
 });
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-async function installBrowser() {
+async function installBrowser(atomic = true) {
   const store: Record<string, unknown> = {
     "still:settings": {
       settings: structuredClone(DEFAULT_SETTINGS),
@@ -170,8 +170,9 @@ async function installBrowser() {
     (intent) => commit(intent),
     "synthetic",
     origin,
+    (record) => authority.set(record),
   );
-  await authority.initializeAtomic("never-linked");
+  if (atomic) await authority.initializeAtomic("never-linked");
   return {
     authority,
     store,
@@ -187,6 +188,78 @@ async function installBrowser() {
 }
 
 describe("actual Chromium popup mount", () => {
+  it("configured default main preserves legacy controls and operational Settings/auth/privacy routes", async () => {
+    const f = await installBrowser(false);
+    vi.stubEnv("VITE_MODERN_SETTINGS_SYNC_ENABLED", "");
+    vi.stubEnv("VITE_SUPABASE_URL", "https://synthetic.invalid");
+    vi.stubEnv("VITE_SUPABASE_ANON_KEY", "synthetic-public-key");
+    const settingsBefore = structuredClone(f.store["still:settings"]);
+    document.body.innerHTML = '<div id="app"></div>';
+    const legacyMain = "../main.js?legacy-compatibility";
+    await import(legacyMain);
+    await waitFor(() =>
+      expect(screen.getByRole("switch", { name: "Still on/off" })).toBeTruthy(),
+    );
+    expect(
+      screen.queryByRole("button", { name: "YouTube Blocker" }),
+    ).toBeNull();
+    expect(f.store["still:settings"]).toEqual(settingsBefore);
+    // The existing bounded core-intent path serializes a legacy save in the same writer.
+    await fireEvent.click(screen.getByRole("switch", { name: "Still on/off" }));
+    await waitFor(() =>
+      expect(
+        (f.store["still:settings"] as { settings: { globalOn: boolean } })
+          .settings.globalOn,
+      ).toBe(false),
+    );
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("switch", { name: "Still on/off" })
+          .getAttribute("aria-checked"),
+      ).toBe("false"),
+    );
+    expect(
+      (f.store["still:settings"] as { atomic?: unknown }).atomic,
+    ).toBeUndefined();
+    await fireEvent.click(screen.getByRole("switch", { name: "Still on/off" }));
+    await waitFor(() =>
+      expect(
+        (f.store["still:settings"] as { settings: { globalOn: boolean } })
+          .settings.globalOn,
+      ).toBe(true),
+    );
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("switch", { name: "Still on/off" })
+          .getAttribute("aria-checked"),
+      ).toBe("true"),
+    );
+    await fireEvent.click(
+      screen.getByRole("switch", { name: "Still on Instagram Reels" }),
+    );
+    await waitFor(() =>
+      expect(
+        (
+          f.store["still:settings"] as {
+            settings: { services: { instagram: boolean } };
+          }
+        ).settings.services.instagram,
+      ).toBe(false),
+    );
+    await fireEvent.click(
+      screen.getByRole("button", { name: /Open settings & setup guide/ }),
+    );
+    expect(f.openOptionsPage).toHaveBeenCalledOnce();
+    await fireEvent.click(screen.getByRole("button", { name: /Sign in/ }));
+    expect(screen.getByRole("dialog")).toBeTruthy();
+    expect(screen.getByText(STRINGS.emailConsent.disclosureTitle)).toBeTruthy();
+    await f.background.client.flush();
+    expect(f.store[QUEUE_KEY] ?? []).toEqual([]);
+    expect(f.fetch).not.toHaveBeenCalled();
+  });
+
   async function mountDesktop() {
     let binding!: CommittedPopupBinding;
     const controller = createExtensionUiController(undefined, {
@@ -323,6 +396,7 @@ describe("actual Chromium popup mount", () => {
 
   it("real main captures the factory binding, preserves actual Settings/auth routes and emits only committed toggle messages", async () => {
     const f = await installBrowser();
+    vi.stubEnv("VITE_MODERN_SETTINGS_SYNC_ENABLED", "true");
     vi.stubEnv("VITE_SUPABASE_URL", "https://synthetic.invalid");
     vi.stubEnv("VITE_SUPABASE_ANON_KEY", "synthetic-public-key");
     document.body.innerHTML = '<div id="app"></div>';

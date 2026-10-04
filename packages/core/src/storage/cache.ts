@@ -295,16 +295,19 @@ export class SettingsCache {
   }
 
   setGlobalOn(on: boolean): Promise<StillSettings> {
+    if (this.hydrationRecovery?.reason === "unreadable") return Promise.reject(this.hydrationRecovery);
     if (this.adapter.commitIntent) return this.commitIntent("globalOn", on);
     return this.commit({ ...this.snapshot, globalOn: on });
   }
 
   setService(id: ServiceId, on: boolean): Promise<StillSettings> {
+    if (this.hydrationRecovery?.reason === "unreadable") return Promise.reject(this.hydrationRecovery);
     if (this.adapter.commitIntent) return this.commitIntent(`services.${id}`, on);
     return this.commit({ ...this.snapshot, services: { ...this.snapshot.services, [id]: on } });
   }
 
   setFeature(id: FeatureId, on: boolean): Promise<StillSettings> {
+    if (this.hydrationRecovery?.reason === "unreadable") return Promise.reject(this.hydrationRecovery);
     if (!this.adapter.commitIntent) return Promise.reject(new Error("Atomic settings authority unavailable"));
     return this.commitIntent(`sites.${id}`, on);
   }
@@ -385,6 +388,7 @@ export class SettingsCache {
 
   /** Apply a mutation: stamp a fresh updatedAt, persist locally, and notify. No network. */
   private async commit(next: StillSettings): Promise<StillSettings> {
+    if (this.hydrationRecovery) throw this.hydrationRecovery;
     const stamped: StillSettings = { ...next, updatedAt: this.now() };
     this.snapshot = stamped;
     await this.persist();

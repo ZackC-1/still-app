@@ -80,9 +80,11 @@ export class ChromeStorageAdapter implements StorageAdapter {
     return record;
   }
   private async getProjection(): Promise<StoredSettingsRecord | null> {
-    const value = (await chrome.storage.local.get(STORAGE_KEY))[STORAGE_KEY];
+    const raw = await chrome.storage.local.get(STORAGE_KEY);
+    const value = raw[STORAGE_KEY];
     const parsed = parseStoredSettingsRecord(value);
-    if (value !== undefined && value !== null && !parsed) throw new SettingsStorageRecovery("unreadable");
+    // Only actual key absence is empty history; keyed null/undefined is retained unreadable data.
+    if (Object.hasOwn(raw, STORAGE_KEY) && !parsed) throw new SettingsStorageRecovery("unreadable");
     // Preserve opaque legacy members too; the validated projection alone is never write authority.
     if (!parsed || !value || typeof value !== "object") return parsed;
     const root = value as Record<string, unknown>;
