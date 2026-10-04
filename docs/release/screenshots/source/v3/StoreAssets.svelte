@@ -11,11 +11,13 @@
     id,
     headline,
     body,
+    browser = "Chrome",
     view,
   }: {
     id: string;
     headline: string;
     body: string;
+    browser?: "Chrome" | "Firefox";
     view: Pick<SettingsSiteListProps, "settings" | "access" | "services"> & {
       purpose: "synthetic-reference-only";
       open: ServiceId | null;
@@ -94,7 +96,8 @@
         <button
           type="button"
           class="open-options"
-          aria-label="Settings. Find Still in Chrome.">Settings</button
+          aria-label={"Settings. Find Still in " + browser + "."}
+          >Settings</button
         >
         <a class="link" href="#reference-privacy-policy">Privacy policy</a>
       </footer>

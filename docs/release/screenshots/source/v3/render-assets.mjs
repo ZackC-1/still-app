@@ -104,7 +104,7 @@ const access = Object.freeze({ schema:1,generation:0,refreshAfterMs:null,
   states:Object.freeze(Object.fromEntries([...FEATURE_REGISTRY.map(row=>[row.id,
     row.tier==='free'?'free':frame.proAccess]),['tiktok.all','free']])) });
 mount(StoreAssets,{target:document.querySelector('#root'),props:{
-  id:frame.id,headline:frame.headline,body:frame.body,
+  id:frame.id,headline:frame.headline,body:frame.body,browser:frame.browser,
   view:{purpose:'synthetic-reference-only',settings,access,services:frame.services,
     open:frame.open,account:frame.account}}});
 window.referenceFixturePurpose='synthetic-reference-only';
@@ -188,6 +188,11 @@ overflow:hidden;border-radius:${radius}px;--text-scale:1}</style>
         uiTheme: element.querySelector(".still-ui").dataset.theme,
       };
     });
+    if (frame.browser) {
+      observed.settingsHostLabel = await page
+        .locator(".open-options")
+        .getAttribute("aria-label");
+    }
     if (
       errors.length ||
       !observed.fontLoaded ||
