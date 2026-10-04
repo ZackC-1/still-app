@@ -362,3 +362,173 @@ describe("configured real SDK signed-out background settings bootstrap", () => {
     },
   );
 });
+
+// This observer delegates to the real session constructor. Original startup
+// cases above retain real SDK transport; only the explicitly labelled claims
+// cases below control the SDK's already-verified getClaims response boundary.
+const verifiedSessionBoundary = vi.hoisted(() => ({
+  spines: [] as Parameters<
+    typeof import("@still/core/sync").createExtensionSession
+  >[0][],
+}));
+vi.mock("@still/core/sync", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@still/core/sync")>();
+  return {
+    ...real,
+    createExtensionSession: (
+      ...args: Parameters<typeof real.createExtensionSession>
+    ) => {
+      verifiedSessionBoundary.spines.push(args[0]);
+      return real.createExtensionSession(...args);
+    },
+  };
+});
+
+afterEach(() => {
+  verifiedSessionBoundary.spines.length = 0;
+  vi.restoreAllMocks();
+});
+
+type ClaimsResult = Awaited<ReturnType<SupabaseClient["auth"]["getClaims"]>>;
+const USER_A = "11111111-1111-4111-8111-111111111111";
+const USER_B = "22222222-2222-4222-8222-222222222222";
+const SESSION_A1 = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const SESSION_A2 = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const SESSION_B = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+const SESSION_A3 = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+
+// Synthetic SDK-boundary results, not tokens or evidence of cryptographic or
+// hosted verification. The actual maintained auth port still validates scope.
+function controlledClaims(claims: Record<string, unknown>): ClaimsResult {
+  return {
+    data: {
+      claims,
+      header: { alg: "ES256", typ: "JWT" },
+      signature: new Uint8Array(),
+    },
+    error: null,
+  } as ClaimsResult;
+}
+
+function observedSettingsAuth() {
+  expect(verifiedSessionBoundary.spines).toHaveLength(1);
+  const spine = verifiedSessionBoundary.spines[0]!;
+  expect(spine.backend.modernSettingsEnabled).toBe(false);
+  return spine.auth;
+}
+
+describe("maintained background verified settings-session forwarding", () => {
+  it("passes actual SDK signed-out claims through the real auth port without creating settings or auth", async () => {
+    const h = await start();
+    const auth = observedSettingsAuth();
+    const claims = vi.spyOn(boundary.clients[0]!.auth, "getClaims");
+    const before = structuredClone(h.store);
+    expect(await auth.currentSettingsSession?.()).toBeNull();
+    expect(await auth.currentUserId()).toBeNull();
+    expect(claims).toHaveBeenCalledOnce();
+    expect(h.store).toEqual(before);
+    expect(h.network).toHaveBeenCalledOnce();
+  });
+
+  it("controlled SDK claims preserve refresh identity and follow same-user relogin and A→B→A through the same real port", async () => {
+    const h = await start();
+    const auth = observedSettingsAuth();
+    const client = boundary.clients[0]!;
+    const core = await import("@still/core/sync");
+    const port = vi.spyOn(
+      core.SupabaseAuthPort.prototype,
+      "currentSettingsSession",
+    );
+    const claims = vi.spyOn(client.auth, "getClaims");
+    const user = vi.spyOn(client.auth, "getUser");
+    const before = structuredClone(h.store);
+    const sequence = [
+      { userId: USER_A, sessionId: SESSION_A1, issuedAt: 100 },
+      { userId: USER_A, sessionId: SESSION_A1, issuedAt: 200 },
+      { userId: USER_A, sessionId: SESSION_A2, issuedAt: 300 },
+      { userId: USER_B, sessionId: SESSION_B, issuedAt: 400 },
+      { userId: USER_A, sessionId: SESSION_A3, issuedAt: 500 },
+    ];
+    for (const { userId, sessionId, issuedAt } of sequence) {
+      claims.mockResolvedValueOnce(
+        controlledClaims({
+          sub: userId,
+          session_id: sessionId,
+          iat: issuedAt,
+          exp: issuedAt + 3600,
+        }),
+      );
+      expect(await auth.currentSettingsSession?.()).toEqual({
+        userId,
+        sessionId,
+      });
+      // Display reads remain real cached SDK reads, separate from verified scope.
+      expect(await auth.currentUserId()).toBeNull();
+    }
+    expect(claims).toHaveBeenCalledTimes(sequence.length);
+    expect(port).toHaveBeenCalledTimes(sequence.length);
+    for (const instance of port.mock.contexts)
+      expect(instance).toBe(port.mock.contexts[0]);
+    expect(user).not.toHaveBeenCalled();
+    expect(h.store).toEqual(before);
+    expect(h.network).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    ["absent", { data: null, error: null } as ClaimsResult],
+    [
+      "SDK error even with claims",
+      {
+        ...controlledClaims({ sub: USER_A, session_id: SESSION_A1 }),
+        error: new Error("Synthetic SDK verification unavailable"),
+      } as ClaimsResult,
+    ],
+    ["missing subject", controlledClaims({ session_id: SESSION_A1 })],
+    [
+      "malformed subject",
+      controlledClaims({ sub: "display-id", session_id: SESSION_A1 }),
+    ],
+    ["missing session", controlledClaims({ sub: USER_A })],
+    [
+      "malformed session",
+      controlledClaims({ sub: USER_A, session_id: "access-token" }),
+    ],
+  ])(
+    "controlled SDK %s returns no verified scope and never manufactures local history",
+    async (_label, response) => {
+      const h = await start();
+      const auth = observedSettingsAuth();
+      const claims = vi.spyOn(boundary.clients[0]!.auth, "getClaims");
+      claims.mockResolvedValueOnce(response);
+      const before = structuredClone(h.store);
+      expect(await auth.currentSettingsSession?.()).toBeNull();
+      expect(claims).toHaveBeenCalledOnce();
+      expect(h.store).toEqual(before);
+      expect(Object.hasOwn(h.store, KEY)).toBe(false);
+      expect(Object.hasOwn(h.store, AUTH)).toBe(false);
+      expect(h.network).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("controlled SDK rejection remains unavailable and a later independent call reads new verified scope", async () => {
+    const h = await start();
+    const auth = observedSettingsAuth();
+    const claims = vi.spyOn(boundary.clients[0]!.auth, "getClaims");
+    claims.mockRejectedValueOnce(
+      new Error("Synthetic claims transport failure"),
+    );
+    await expect(auth.currentSettingsSession?.()).rejects.toThrow(
+      "Synthetic claims transport failure",
+    );
+    claims.mockResolvedValueOnce(
+      controlledClaims({ sub: USER_B, session_id: SESSION_B }),
+    );
+    expect(await auth.currentSettingsSession?.()).toEqual({
+      userId: USER_B,
+      sessionId: SESSION_B,
+    });
+    expect(claims).toHaveBeenCalledTimes(2);
+    expect(Object.hasOwn(h.store, KEY)).toBe(false);
+    expect(h.network).toHaveBeenCalledOnce();
+  });
+});

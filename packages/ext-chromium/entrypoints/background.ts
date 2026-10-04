@@ -251,6 +251,7 @@ function createSessionSpine(
       const { data } = await client.auth.getSession();
       return data.session?.user.id ?? null;
     },
+    currentSettingsSession: () => port.currentSettingsSession(),
     // Display identity comes from the authenticated session, never the popup's pending OTP draft.
     currentAccount: () => port.currentAccount(),
   };
