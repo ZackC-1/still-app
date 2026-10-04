@@ -5,6 +5,7 @@
   import type { MobilePopupProps } from "./mobile-presentation.js";
   import { serviceIconSrc } from "./service-icons.js";
   import PopupInvitation from "./PopupInvitation.svelte";
+  import { invitationVisible } from "./invitation-presentation.js";
   import Toggle from "./Toggle.svelte";
   import FeatureRow from "./FeatureRow.svelte";
   import Glyph from "./Glyph.svelte";
@@ -103,7 +104,11 @@
   }
 </script>
 
-<div class="still-ui app" data-density="compact">
+<div
+  class="still-ui app"
+  data-density="compact"
+  class:invitation-scroll={invitationReady && invitationVisible(invitation)}
+>
   <section class="hero compact" class:off={!settings.globalOn}>
     <div class="hero-text">
       <h1>
@@ -275,3 +280,16 @@
     ><a class="link" href={privacyUrl}>Privacy policy</a>
   </footer>
 </div>
+
+<style>
+  .app.invitation-scroll {
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+  .app[data-density="compact"].invitation-scroll .site-scroll {
+    min-block-size: calc(
+      var(--tap-target) * var(--text-scale, 1) + 2 *
+        var(--service-card-padding-block, var(--space-3))
+    );
+  }
+</style>

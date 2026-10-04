@@ -23,7 +23,26 @@
         }
       : undefined,
   );
-  let requested = $state.raw<typeof current>();
+  // Remember the issued choice rather than the caller's observation wrapper.
+  let requested = $state.raw<{
+    kind: PopupInvitationPresentation["kind"];
+    identity: PopupInvitationPresentation["identity"];
+    admission: string | undefined;
+    which: "accept" | "dismiss";
+    request: () => void;
+  }>();
+  function choiceClaimed(observation: PopupInvitationPresentation) {
+    return Boolean(
+      requested &&
+      requested.kind === observation.kind &&
+      sameInvitationIdentity(requested.identity, observation.identity) &&
+      requested.admission ===
+        (observation.kind === "rating"
+          ? observation.rating?.display.receiptId
+          : undefined) &&
+      requested.request === observation[requested.which]?.request,
+    );
+  }
   let mounted = true;
   onDestroy(() => {
     mounted = false;
@@ -59,7 +78,7 @@
         !mounted ||
         !scope ||
         current !== scope ||
-        requested === scope ||
+        choiceClaimed(observation) ||
         presentation !== observation ||
         presentation.kind !== kind ||
         !sameInvitationIdentity(identity, presentation.identity) ||
@@ -69,7 +88,14 @@
         !invitationPortReady(presentation, port)
       )
         return;
-      requested = scope;
+      requested = {
+        kind,
+        identity,
+        admission:
+          kind === "rating" ? observation.rating?.display.receiptId : undefined,
+        which,
+        request: port.request,
+      };
       request?.();
     };
   }
@@ -86,7 +112,7 @@
         <button
           type="button"
           class="primary inline"
-          aria-disabled={requested === current ||
+          aria-disabled={choiceClaimed(presentation) ||
             !invitationPortReady(presentation, presentation.accept) ||
             undefined}
           onclick={intent(presentation, presentation.accept, "accept")}
@@ -95,7 +121,7 @@
         <button
           type="button"
           class="link"
-          aria-disabled={requested === current ||
+          aria-disabled={choiceClaimed(presentation) ||
             !invitationPortReady(presentation, presentation.dismiss) ||
             undefined}
           onclick={intent(presentation, presentation.dismiss, "dismiss")}

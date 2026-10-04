@@ -718,3 +718,96 @@ describe("optional D28 desktop invitation", () => {
     expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
   });
 });
+
+describe("issued invitation across actual host sync suppression", () => {
+  it.each(["accept", "dismiss"] as const)(
+    "retains the %s claim through pending sync and identical restoration",
+    async (first) => {
+      const { props, storage } = await fixture();
+
+      const p = invitationSpecimen("rating", "chrome");
+      props.invitation = p;
+      const saved = await storage.get();
+      const view = render(DesktopPopup, { props });
+      const name = (choice: "accept" | "dismiss") =>
+        choice === "accept" ? "Rate Still" : "Not now";
+      const opposite = first === "accept" ? "dismiss" : "accept";
+      await fireEvent.click(screen.getByRole("button", { name: name(first) }));
+      expect(p[first]!.request).toHaveBeenCalledOnce();
+      props.account = {
+        address: "specimen@still.test",
+        status: { tone: "pending", text: "Current sync pending" },
+      };
+      await view.rerender(props);
+      expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+      props.account = undefined;
+      await view.rerender(props);
+      expect(props.invitation).toBe(p);
+      await fireEvent.click(screen.getByRole("button", { name: name(first) }));
+      await fireEvent.click(
+        screen.getByRole("button", { name: name(opposite) }),
+      );
+      expect(p[first]!.request).toHaveBeenCalledOnce();
+      expect(p[opposite]!.request).not.toHaveBeenCalled();
+      expect(screen.getByRole("region", { name: "Rate Still" })).toBeTruthy();
+      expect(await storage.get()).toEqual(saved);
+      expect(props.onGlobalChange).not.toHaveBeenCalled();
+      expect(props.onServiceChange).not.toHaveBeenCalled();
+      expect(props.onFeatureChange).not.toHaveBeenCalled();
+    },
+  );
+});
+
+describe("issued desktop setup request", () => {
+  it.each(["duplicate", "reentrant"] as const)(
+    "claims the verified Allow request before %s delivery",
+    async (schedule) => {
+      const { props, storage } = await fixture();
+      const port = invitationSpecimen().accept!;
+      let entered = false;
+      port.request = vi.fn(() => {
+        if (schedule === "reentrant" && !entered) {
+          entered = true;
+          screen.getByRole("button", { name: "Allow" }).click();
+        }
+      });
+      props.desktopSetup = {
+        title: "Still can't block on these websites yet.",
+        detail: "Allow Still on these websites so it can block there.",
+        actionLabel: "Allow",
+        action: port,
+      };
+      const saved = await storage.get();
+      const view = render(DesktopPopup, { props });
+      const old = screen.getByRole("button", { name: "Allow" });
+      await fireEvent.click(old);
+      if (schedule === "duplicate") await fireEvent.click(old);
+      expect(port.request).toHaveBeenCalledOnce();
+      expect(old).toHaveAttribute("aria-disabled", "true");
+      props.desktopSetup = { ...props.desktopSetup, action: { ...port } };
+      await view.rerender(props);
+      await fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+      expect(port.request).toHaveBeenCalledOnce();
+      expect(screen.getByRole("button", { name: "Allow" })).toHaveAttribute(
+        "aria-disabled",
+        "true",
+      );
+      const fresh = { ...port, request: vi.fn() };
+      props.desktopSetup = { ...props.desktopSetup, action: fresh };
+      await view.rerender(props);
+      await fireEvent.click(old);
+      expect(fresh.request).not.toHaveBeenCalled();
+      const current = screen.getByRole("button", { name: "Allow" });
+      expect(current).not.toHaveAttribute("aria-disabled", "true");
+      await fireEvent.click(current);
+      expect(fresh.request).toHaveBeenCalledOnce();
+      expect(await storage.get()).toEqual(saved);
+      expect(props.onGlobalChange).not.toHaveBeenCalled();
+      expect(props.onServiceChange).not.toHaveBeenCalled();
+      expect(props.onFeatureChange).not.toHaveBeenCalled();
+      view.unmount();
+      await fireEvent.click(current);
+      expect(fresh.request).toHaveBeenCalledOnce();
+    },
+  );
+});

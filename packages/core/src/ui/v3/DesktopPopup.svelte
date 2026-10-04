@@ -4,7 +4,11 @@
   import { rowsFor, type DesktopPopupProps } from "./presentation.js";
   import { serviceIconSrc } from "./service-icons.js";
   import PopupInvitation from "./PopupInvitation.svelte";
-  import { sameInvitationIdentity } from "./invitation-presentation.js";
+  import {
+    sameInvitationIdentity,
+    invitationVisible,
+    type InvitationIntentPort,
+  } from "./invitation-presentation.js";
   import Toggle from "./Toggle.svelte";
   import FeatureRow from "./FeatureRow.svelte";
   import Glyph from "./Glyph.svelte";
@@ -73,6 +77,18 @@
       !desktopSetup &&
       !["pending", "failed", "caution"].includes(account?.status?.tone ?? ""),
   );
+  let setupRequested = $state.raw<{
+    identity: InvitationIntentPort["identity"];
+    request: InvitationIntentPort["request"];
+  }>();
+  function setupClaimed(port: InvitationIntentPort | undefined) {
+    return Boolean(
+      port &&
+      setupRequested &&
+      setupRequested.request === port.request &&
+      sameInvitationIdentity(setupRequested.identity, port.identity),
+    );
+  }
   function setupIntent(
     current: NonNullable<DesktopPopupProps["desktopSetup"]>,
   ) {
@@ -83,6 +99,7 @@
       if (
         desktopSetup !== current ||
         current.action !== port ||
+        setupClaimed(port) ||
         !port?.verified ||
         port.status !== "ready" ||
         port.request !== request ||
@@ -93,6 +110,7 @@
         identity.surface !== browser.toLowerCase()
       )
         return;
+      setupRequested = { identity, request: port.request };
       request?.();
     };
   }
@@ -100,6 +118,7 @@
     const port = desktopSetup?.action;
     return Boolean(
       port?.verified &&
+      !setupClaimed(port) &&
       port.status === "ready" &&
       port.identity.installation.trim() &&
       port.identity.opening.trim() &&
@@ -116,6 +135,7 @@
   class="still-ui app"
   data-density="compact"
   class:d28-invitation={invitationVariant === "d28"}
+  class:invitation-scroll={invitationReady && invitationVisible(invitation)}
   style="max-inline-size: 380px;"
 >
   <section class="hero compact" class:off={!settings.globalOn}>
@@ -283,6 +303,16 @@
 </div>
 
 <style>
+  .app.invitation-scroll {
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+  .app[data-density="compact"].invitation-scroll .site-scroll {
+    min-block-size: calc(
+      var(--tap-target) * var(--text-scale, 1) + 2 *
+        var(--service-card-padding-block, var(--space-3))
+    );
+  }
   /* The approved desktop reference's section heading cascade wins over the
      generic SettingsCard typography. Keep that result without review chrome. */
   .sync-row-title {

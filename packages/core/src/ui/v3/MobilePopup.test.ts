@@ -525,3 +525,43 @@ describe("optional D28 mobile invitation", () => {
     expect(props.onFeatureChange).not.toHaveBeenCalled();
   });
 });
+
+describe("issued invitation across actual host sync suppression", () => {
+  it.each(["accept", "dismiss"] as const)(
+    "retains the %s claim through pending sync and identical restoration",
+    async (first) => {
+      const { props, storage } = await fixture();
+      props.host = "firefox";
+      props.channelReady = true;
+      const p = invitationSpecimen("rating", "firefox-android");
+      props.invitation = p;
+      const saved = await storage.get();
+      const view = render(MobilePopup, { props });
+      const name = (choice: "accept" | "dismiss") =>
+        choice === "accept" ? "Rate Still" : "Not now";
+      const opposite = first === "accept" ? "dismiss" : "accept";
+      await fireEvent.click(screen.getByRole("button", { name: name(first) }));
+      expect(p[first]!.request).toHaveBeenCalledOnce();
+      props.account = {
+        address: "specimen@still.test",
+        status: { tone: "pending", text: "Current sync pending" },
+      };
+      await view.rerender(props);
+      expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+      props.account = undefined;
+      await view.rerender(props);
+      expect(props.invitation).toBe(p);
+      await fireEvent.click(screen.getByRole("button", { name: name(first) }));
+      await fireEvent.click(
+        screen.getByRole("button", { name: name(opposite) }),
+      );
+      expect(p[first]!.request).toHaveBeenCalledOnce();
+      expect(p[opposite]!.request).not.toHaveBeenCalled();
+      expect(screen.getByRole("region", { name: "Rate Still" })).toBeTruthy();
+      expect(await storage.get()).toEqual(saved);
+      expect(props.onGlobalChange).not.toHaveBeenCalled();
+      expect(props.onServiceChange).not.toHaveBeenCalled();
+      expect(props.onFeatureChange).not.toHaveBeenCalled();
+    },
+  );
+});

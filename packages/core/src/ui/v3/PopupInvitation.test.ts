@@ -252,6 +252,59 @@ describe("controlled popup invitation", () => {
   });
 });
 
+describe("issued invitation choice across caller publication", () => {
+  it.each(
+    (["accept", "dismiss"] as const).flatMap((first) =>
+      (
+        ["snapshot", "opposite-port", "equivalent-port", "suppression"] as const
+      ).map((schedule) => [first, schedule] as const),
+    ),
+  )(
+    "retains %s across %s without dispatching either choice again",
+    async (first, schedule) => {
+      const p = admitted();
+      const opposite = first === "accept" ? "dismiss" : "accept";
+      const name = (choice: "accept" | "dismiss") =>
+        choice === "accept" ? "Rate Still" : "Not now";
+      const view = render(PopupInvitation, { presentation: p });
+      await fireEvent.click(screen.getByRole("button", { name: name(first) }));
+      expect(p[first]!.request).toHaveBeenCalledOnce();
+      let next = { ...p };
+      if (schedule === "opposite-port")
+        next = { ...p, [opposite]: { ...p[opposite]!, request: vi.fn() } };
+      if (schedule === "equivalent-port")
+        next = { ...p, [first]: { ...p[first]! } };
+      if (schedule === "suppression") {
+        await view.rerender({ presentation: undefined });
+        expect(screen.queryByRole("region")).toBeNull();
+        next = p;
+      }
+      await view.rerender({ presentation: next });
+      await fireEvent.click(screen.getByRole("button", { name: name(first) }));
+      await fireEvent.click(
+        screen.getByRole("button", { name: name(opposite) }),
+      );
+      expect(p[first]!.request).toHaveBeenCalledOnce();
+      expect(next[opposite]!.request).not.toHaveBeenCalled();
+      for (const choice of [first, opposite] as const)
+        expect(
+          screen.getByRole("button", { name: name(choice) }),
+        ).toHaveAttribute("aria-disabled", "true");
+      expect(screen.getByRole("region", { name: "Rate Still" })).toBeTruthy();
+    },
+  );
+
+  it("does not display or dispatch when only the supplied surface allowance is Off", () => {
+    const p = admitted();
+    p.rating!.allowance.surface = false;
+    render(PopupInvitation, { presentation: p });
+    expect(p.rating!.allowance.global).toBe(true);
+    expect(screen.queryByRole("region")).toBeNull();
+    expect(p.accept!.request).not.toHaveBeenCalled();
+    expect(p.dismiss!.request).not.toHaveBeenCalled();
+  });
+});
+
 describe("current invitation request fence", () => {
   it.each(["accept", "dismiss"] as const)(
     "dispatches only the first %s choice before caller status publication",
