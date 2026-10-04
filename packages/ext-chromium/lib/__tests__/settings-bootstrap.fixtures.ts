@@ -72,6 +72,7 @@ async function start(
   initial: Record<string, unknown> = {},
   updateEnabledRulesets?: DnrUpdate,
 ) {
+  vi.stubEnv("VITE_MODERN_SETTINGS_SYNC_ENABLED", "true");
   vi.resetModules();
   const store = structuredClone(initial);
   const installed: Array<(details: chrome.runtime.InstalledDetails) => void> =
