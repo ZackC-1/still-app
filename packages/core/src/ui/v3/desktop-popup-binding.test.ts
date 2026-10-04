@@ -19,6 +19,9 @@ import {
 } from "../../storage/atomic-settings.js";
 import { SettingsCache } from "../../storage/cache.js";
 import { EntitlementCache } from "../../entitlement/cache.js";
+import { ChromeEntitlementAdapter } from "../../entitlement/chrome-adapter.js";
+import { verifyAccessProof, type AccessTrust } from "../../entitlement/access-proof.js";
+import vectors from "../../../../../tests/access-proof/vectors.json";
 import {
   ACCESS_BENEFITS,
   initialAccessSnapshot,
@@ -33,9 +36,98 @@ import {
 const cleanups: (() => void)[] = [];
 afterEach(() => {
   for (const stop of cleanups.splice(0)) stop();
+  vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
 
 describe("reviewed authority publication and stop admission", () => {
+  it("keeps later subscribers on nested authority recovery instead of the superseded hold", async () => {
+    const f = await fixture();
+    const durable = (await f.storage.get())!;
+    f.binding.subscribe(state => {
+      if (state.reason === "ownership-hold") f.storage.emitExternal(durable);
+    });
+    const later: (string | null)[] = [];
+    f.binding.subscribe(state => later.push(state.reason));
+    const writerCalls = vi.fn(f.writer.commit.bind(f.writer));
+    f.port(writerCalls);
+    f.writes.mockClear();
+    f.storage.emitExternal({
+      ...durable,
+      atomic: { ...durable.atomic!, paused: "ownership-hold" },
+    });
+    expect(f.binding.current().commandAvailability).toBe("ready");
+    expect(later).toEqual([null, null]);
+    // An identical healthy receipt is deduplicated; it cannot repair stale delivery.
+    f.storage.emitExternal(durable);
+    expect(later).toEqual([null, null]);
+    expect(await f.storage.get()).toEqual(durable);
+    expect(writerCalls).not.toHaveBeenCalled();
+    expect(f.writes).not.toHaveBeenCalled();
+  });
+
+  it("keeps later subscribers on nested signed access expiry with saved On and no new writer", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(1000);
+    const f = await fixture();
+    await f.settings.setFeature("youtube.comments", true);
+    // Public synthetic signed vectors exercise the maintained verifier and authority;
+    // this sandbox trust never grants a production capability.
+    const trust: AccessTrust = {
+      environment: "sandbox",
+      keys: [{ kid: "synthetic-access", purpose: "access", environment: "sandbox", publicKeyHex: vectors.publicKeyHex }],
+    };
+    const store: Record<string, unknown> = {};
+    vi.stubGlobal("chrome", { storage: { local: {
+      get: async (key: string) => ({ [key]: structuredClone(store[key]) }),
+      set: async (items: Record<string, unknown>) => { Object.assign(store, structuredClone(items)); },
+    } } });
+    const authority = new ChromeEntitlementAdapter(Date.now, {
+      authority: true,
+      trust,
+      context: () => ({
+        paidMode: true,
+        supported: new Set(ACCESS_BENEFITS),
+        session: { userId: vectors.account, sessionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
+        localRights: new Set<string>(),
+        evidenceStatus: "unknown",
+      }),
+    });
+    await authority.observeBenefits();
+    const scope = await authority.observeAccess();
+    const proof = await verifyAccessProof(vectors.vectors.find(v => v.name === "paid-account")!.envelope, trust);
+    if (proof.status !== "verified") throw new Error("Synthetic signed access proof rejected");
+    await authority.mutateAccess({ kind: "install", proof: proof.proof, generation: scope.generation, issuerNow: vectors.verifiedAt, wall: 1000, localRights: new Set() });
+    const access = new EntitlementCache(authority, { access: { paidMode: true, supported: new Set(ACCESS_BENEFITS) } });
+    const grant = await access.refreshAccess();
+    expect(grant.states["youtube.comments"]).toBe("purchased");
+    expect(grant.refreshAfterMs).toBeGreaterThan(0);
+    // No timer/watch: model a suspended page reaching expiry inside a synchronous read.
+    const binding = createDesktopPopupBinding(f.settings, access);
+    cleanups.push(binding.stop);
+    binding.subscribe(state => {
+      if (!state.settings!.services.instagram && state.access.states["youtube.comments"] === "purchased") {
+        vi.setSystemTime(1000 + grant.refreshAfterMs!);
+        access.currentAccessSnapshot();
+      }
+    });
+    const later: AccessState[] = [];
+    binding.subscribe(state => later.push(state.access.states["youtube.comments"]));
+    await f.settings.setService("instagram", false);
+    expect(binding.current().access.states["youtube.comments"]).toBe("verification_required");
+    expect(later).toEqual(["purchased", "verification_required"]);
+    const saved = await f.storage.get();
+    const writerCalls = vi.fn(f.writer.commit.bind(f.writer));
+    f.port(writerCalls);
+    f.writes.mockClear();
+    expect(binding.current().commandAvailability).toBe("ready");
+    expect(binding.current().settings!.sites["youtube.comments"]).toBe(true);
+    expect(await binding.setFeature("youtube.comments", false)).toEqual({ status: "rejected", reason: "inactive-or-unavailable" });
+    expect(await f.storage.get()).toEqual(saved);
+    expect(writerCalls).not.toHaveBeenCalled();
+    expect(f.writes).not.toHaveBeenCalled();
+  });
+
   it("publishes same-choice same-sequence recovery without inventing a saved edit", async () => {
     const f = await fixture();
     const durable = (await f.storage.get())!;

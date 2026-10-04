@@ -79,7 +79,7 @@ export function createDesktopPopupBinding(
     if (signature === published) return;
     published = signature;
     for (const listener of [...listeners]) {
-      if (stoppedState) break;
+      if (stoppedState || published !== signature) break;
       if (listeners.has(listener)) listener(state);
     }
   }
