@@ -35,6 +35,108 @@ afterEach(() => {
   for (const stop of cleanups.splice(0)) stop();
 });
 
+describe("reviewed authority publication and stop admission", () => {
+  it("publishes same-choice same-sequence recovery without inventing a saved edit", async () => {
+    const f = await fixture();
+    const durable = (await f.storage.get())!;
+    const seen: string[] = [];
+    f.binding.subscribe(state => seen.push(state.commandAvailability));
+    const legacy = vi.fn();
+    cleanups.push(f.settings.subscribe(legacy));
+    f.port(async () => { throw new SettingsStorageRecovery("native-authority-unavailable"); });
+    expect((await f.binding.setGlobalOn(false)).status).toBe("unavailable");
+    expect(seen).toEqual(["ready", "unavailable"]);
+    await f.storage.set(durable);
+    expect(f.binding.current().commandAvailability).toBe("ready");
+    expect(seen).toEqual(["ready", "unavailable", "ready"]);
+    expect(legacy).not.toHaveBeenCalled();
+    expect(await f.storage.get()).toEqual(durable);
+    expect(f.settings.currentRecord().atomic!.sequence).toBe(durable.atomic!.sequence);
+  });
+
+  it.each(["paused", "ownership"] as const)("publishes metadata-only %s holds without changing choices", async kind => {
+    const f = await fixture();
+    const durable = (await f.storage.get())!;
+    const seen: (string | null)[] = [];
+    f.binding.subscribe(state => seen.push(state.reason));
+    const legacy = vi.fn();
+    cleanups.push(f.settings.subscribe(legacy));
+    await f.storage.set({ ...durable, atomic: { ...durable.atomic!,
+      paused: kind === "paused" ? "ownership-hold" : null,
+      ownership: kind === "ownership" ? "unknown" : "never-linked",
+    } });
+    const reason = kind === "paused" ? "ownership-hold" : "ownership-unconfirmed";
+    expect(seen).toEqual([null, reason]);
+    expect(f.binding.current().settings).toEqual(requireModernSettings(durable));
+    f.writes.mockClear();
+    expect((await f.binding.setGlobalOn(false)).status).toBe("unavailable");
+    expect(f.writes).not.toHaveBeenCalled();
+    await f.storage.set(durable);
+    expect(seen).toEqual([null, reason, null]);
+    expect(legacy).not.toHaveBeenCalled();
+  });
+
+  it("publishes a sibling-origin failure and recovery while a stopped instance stays silent", async () => {
+    const f = await fixture();
+    const sibling = createDesktopPopupBinding(f.settings, f.access);
+    cleanups.push(sibling.stop);
+    const first: string[] = [], second: string[] = [];
+    f.binding.subscribe(state => first.push(state.commandAvailability));
+    sibling.subscribe(state => second.push(state.commandAvailability));
+    const durable = (await f.storage.get())!;
+    f.port(async () => { throw new SettingsStorageRecovery("native-authority-unavailable"); });
+    await f.binding.setGlobalOn(false);
+    expect(second).toEqual(["ready", "unavailable"]);
+    f.binding.stop();
+    const frozen = f.binding.current();
+    await f.storage.set(durable);
+    expect(second).toEqual(["ready", "unavailable", "ready"]);
+    expect(first).toEqual(["ready", "unavailable"]);
+    expect(f.binding.current()).toEqual(frozen);
+    expect(await f.storage.get()).toEqual(durable);
+  });
+
+  it.each(["global", "service", "feature"] as const)("keeps stopped %s admission private despite a mutated returned view", async kind => {
+    const f = await fixture();
+    const writerCalls = vi.fn(f.writer.commit.bind(f.writer));
+    f.port(writerCalls);
+    const durable = await f.storage.get();
+    f.binding.stop();
+    const exposed = f.binding.current();
+    Reflect.set(exposed, "commandAvailability", "ready");
+    Reflect.set(exposed, "reason", null);
+    const command = kind === "global" ? f.binding.setGlobalOn(false)
+      : kind === "service" ? f.binding.setService("youtube", false)
+      : f.binding.setFeature("youtube.shorts", false);
+    expect(await command).toEqual({ status: "unavailable", reason: "stopped" });
+    expect(writerCalls).not.toHaveBeenCalled();
+    expect(await f.storage.get()).toEqual(durable);
+    expect(f.binding.current().commandAvailability).toBe("unavailable");
+    expect(f.binding.current().reason).toBe("stopped");
+  });
+
+  it("allows reentrant stop to fence later listeners without cancelling the admitted writer", async () => {
+    const f = await fixture();
+    let stopping = false;
+    f.binding.subscribe(state => {
+      if (!stopping) return;
+      f.binding.stop();
+      Reflect.set(state, "commandAvailability", "ready");
+      Reflect.set(state, "reason", null);
+    });
+    const later = vi.fn();
+    f.binding.subscribe(later);
+    later.mockClear();
+    stopping = true;
+    expect(await f.binding.setGlobalOn(false)).toEqual({ status: "committed" });
+    expect(later).not.toHaveBeenCalled();
+    expect((await f.storage.get())!.settings.globalOn).toBe(false);
+    f.writes.mockClear();
+    expect(await f.binding.setGlobalOn(true)).toEqual({ status: "unavailable", reason: "stopped" });
+    expect(f.writes).not.toHaveBeenCalled();
+  });
+});
+
 function gate() {
   let open!: () => void;
   const promise = new Promise<void>((resolve) => {

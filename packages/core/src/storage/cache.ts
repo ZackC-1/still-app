@@ -25,6 +25,7 @@ export interface SettingsCacheOptions {
 
 export type SettingsChangeSource = "local" | "external" | "synced";
 export type SettingsListener = (settings: StillSettings, source: SettingsChangeSource) => void;
+export type SettingsAuthorityListener = () => void;
 
 export interface AtomicSettingsIntentOutcome {
   /** Request-specific authority receipt; false does not distinguish refusal from a no-op. */
@@ -44,6 +45,8 @@ export class SettingsCache {
   private syncEpoch = 0;
   private readonly now: () => number;
   private readonly listeners = new Set<SettingsListener>();
+  private readonly authorityListeners = new Set<SettingsAuthorityListener>();
+  private publishedAuthority: string | null = null;
   private intentsInFlight = 0;
   private unwatch: (() => void) | null = null;
   private hydration: Promise<StillSettings> | null = null;
@@ -105,12 +108,13 @@ export class SettingsCache {
       return this.snapshot;
     } catch (error) {
       if (error instanceof SettingsStorageRecovery && authorityTicket === this.authorityTicket) {
-        if (!error.retained) { this.hydrationRecovery = error; throw error; }
+        if (!error.retained) { this.hydrationRecovery = error; this.notifyAuthority(); throw error; }
         // Last-known local choices keep free blocking useful during unavailable native reads.
         // Sync hydration remains a recovery gate, never a fresh canonical receipt.
-        this.acceptCommitted(error.retained, "external");
+        this.acceptCommitted(error.retained, "external", false);
         if (this.atomic) this.atomic = { ...this.atomic, paused: "native-authority-unavailable" };
         this.hydrationRecovery = error;
+        this.notifyAuthority();
         return this.snapshot;
       }
       throw error;
@@ -126,6 +130,8 @@ export class SettingsCache {
         this.hydrationRecovery = null;
       }
       this.applyStoredRecord(record, "external");
+      // Atomic acceptance already publishes; legacy same-choice rereads can clear recovery here.
+      if (!record.atomic && !this.atomic) this.notifyAuthority();
     });
     return () => {
       this.unwatch?.();
@@ -190,12 +196,20 @@ export class SettingsCache {
     if (repoint) this.syncEpoch += 1;
     void this.persist();
     if (settingsChanged) this.notify("synced");
+    else this.notifyAuthority();
     return true;
   }
 
   subscribe(listener: SettingsListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** Observe current record/recovery changes without inventing a saved edit or owning watchers. */
+  subscribeAuthority(listener: SettingsAuthorityListener): () => void {
+    if (this.authorityListeners.size === 0) this.publishedAuthority = this.authoritySignature();
+    this.authorityListeners.add(listener);
+    return () => { this.authorityListeners.delete(listener); };
   }
 
   /** Capability only; never initializes storage or proves current ownership/access. */
@@ -260,6 +274,7 @@ export class SettingsCache {
       if (error instanceof SettingsStorageRecovery && authorityTicket === this.authorityTicket) {
         this.hydrationRecovery = error;
         if (this.atomic) this.atomic = { ...this.atomic, paused: error.reason };
+        this.notifyAuthority();
       }
       throw error;
     } finally {
@@ -269,7 +284,7 @@ export class SettingsCache {
     }
   }
 
-  private acceptCommitted(record: StoredSettingsRecord, source: SettingsChangeSource): boolean {
+  private acceptCommitted(record: StoredSettingsRecord, source: SettingsChangeSource, publishAuthority = true): boolean {
     const previous = this.snapshot;
     if (record.atomic && this.atomic) {
       if (record.atomic.scope.generation < this.atomic.scope.generation) return false;
@@ -294,7 +309,8 @@ export class SettingsCache {
       }
     }
     const changed = !sameSettings(previous, this.snapshot);
-    if (changed) this.notify(source);
+    if (changed) this.notify(source, publishAuthority);
+    else if (publishAuthority) this.notifyAuthority();
     return changed;
   }
 
@@ -348,6 +364,7 @@ export class SettingsCache {
       this.snapshot = record.settings;
       this.syncMetadata = record.syncMetadata;
       if (settingsChanged) this.notify(source);
+      else this.notifyAuthority();
       return settingsChanged || metadataChanged;
     }
     const metadata = record.syncMetadata;
@@ -358,6 +375,7 @@ export class SettingsCache {
           if (!sameMetadata(this.syncMetadata, metadata)) {
             this.syncMetadata = metadata;
             void this.persist();
+            this.notifyAuthority();
             return true;
           }
           return false;
@@ -369,6 +387,7 @@ export class SettingsCache {
       this.snapshot = record.settings;
       this.syncMetadata = metadata;
       if (settingsChanged) this.notify(source);
+      else this.notifyAuthority();
       return true;
     }
 
@@ -383,9 +402,30 @@ export class SettingsCache {
     return this.adapter.set(this.currentRecord());
   }
 
-  private notify(source: SettingsChangeSource): void {
-    if (source === "external" && this.intentsInFlight > 0) return;
+  private notify(source: SettingsChangeSource, publishAuthority = true): void {
+    if (source === "external" && this.intentsInFlight > 0) {
+      if (publishAuthority) this.notifyAuthority();
+      return;
+    }
     for (const l of [...this.listeners]) l(this.snapshot, source);
+    if (publishAuthority) this.notifyAuthority();
+  }
+
+  private authoritySignature(): string {
+    return JSON.stringify([this.currentRecord(), this.hydrationRecovery?.reason ?? null]);
+  }
+
+  private notifyAuthority(): void {
+    if (this.authorityListeners.size === 0) return;
+    const signature = this.authoritySignature();
+    if (signature === this.publishedAuthority) return;
+    this.publishedAuthority = signature;
+    for (const listener of [...this.authorityListeners]) {
+      if (this.publishedAuthority !== signature) break;
+      if (!this.authorityListeners.has(listener)) continue;
+      try { listener(); }
+      catch { /* Read-only observers cannot change writer receipts or sibling delivery. */ }
+    }
   }
 }
 

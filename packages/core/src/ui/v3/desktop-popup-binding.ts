@@ -38,8 +38,7 @@ export function createDesktopPopupBinding(
   const listeners = new Set<(state: DesktopPopupBindingState) => void>();
   let stoppedState: DesktopPopupBindingState | null = null;
 
-  function read(): DesktopPopupBindingState {
-    if (stoppedState) return stoppedState;
+  function readAuthority(): DesktopPopupBindingState {
     const access = accessCache.currentAccessSnapshot();
     const record = settingsCache.currentRecord();
     let settings: DesktopPopupProps["settings"] | null = null;
@@ -68,6 +67,10 @@ export function createDesktopPopupBinding(
     };
   }
 
+  function read(): DesktopPopupBindingState {
+    return stoppedState ? structuredClone(stoppedState) : readAuthority();
+  }
+
   let published = JSON.stringify(read());
   function publish(): void {
     if (stoppedState) return;
@@ -80,14 +83,15 @@ export function createDesktopPopupBinding(
       if (listeners.has(listener)) listener(state);
     }
   }
-  const unsubscribeSettings = settingsCache.subscribe(publish);
+  const unsubscribeSettings = settingsCache.subscribeAuthority(publish);
   const unsubscribeAccess = accessCache.subscribeAccess(publish);
 
   async function command(
     path: SettingsField,
     value: boolean,
   ): Promise<DesktopPopupCommandOutcome> {
-    const state = read();
+    if (stoppedState) return { status: "unavailable", reason: "stopped" };
+    const state = readAuthority();
     if (state.commandAvailability !== "ready")
       return { status: "unavailable", reason: state.reason! };
     const settings = state.settings!;
@@ -171,11 +175,11 @@ export function createDesktopPopupBinding(
     },
     stop(): void {
       if (stoppedState) return;
-      stoppedState = {
-        ...read(),
+      stoppedState = structuredClone({
+        ...readAuthority(),
         commandAvailability: "unavailable",
         reason: "stopped",
-      };
+      });
       unsubscribeSettings();
       unsubscribeAccess();
       listeners.clear();

@@ -17,6 +17,132 @@ function settings(over: Partial<StillSettings> = {}): StillSettings {
   return { ...DEFAULT_SETTINGS, ...over };
 }
 
+describe("read-only authority observation", () => {
+  async function fixture() {
+    const storage = new InMemoryStorageAdapter(DEFAULT_SETTINGS);
+    const writer = new AtomicSettingsWriter(storage);
+    const durable = await writer.initialize("never-linked");
+    let port: typeof writer.commit = writer.commit.bind(writer);
+    const cache = new SettingsCache({ get: storage.get.bind(storage), set: storage.set.bind(storage),
+      subscribe: storage.subscribe.bind(storage), commitIntent: intent => port(intent) }, { now: () => 100 });
+    await cache.hydrate();
+    const stop = cache.watch();
+    return { storage, writer, durable, cache, stop, port: (next: typeof port) => { port = next; } };
+  }
+
+  it("publishes metadata-only authority holds and recovery without legacy edit events or writes", async () => {
+    const f = await fixture();
+    const seen: (string | null | undefined)[] = [];
+    const off = f.cache.subscribeAuthority(() => seen.push(f.cache.currentRecord().atomic!.paused));
+    const legacy = vi.fn(); f.cache.subscribe(legacy);
+    const writes = vi.spyOn(f.storage, "set");
+    f.storage.emitExternal({ ...f.durable, atomic: { ...f.durable.atomic!, paused: "ownership-hold" } });
+    f.storage.emitExternal(f.durable);
+    f.storage.emitExternal(f.durable); // Repeated identical receipt is no new observable state.
+    expect(seen).toEqual(["ownership-hold", null]);
+    expect(legacy).not.toHaveBeenCalled(); expect(writes).not.toHaveBeenCalled();
+    expect(await f.storage.get()).toEqual(f.durable);
+    off(); f.stop();
+  });
+
+  it("publishes a coherent held projection after accepted metadata is installed", async () => {
+    const f = await fixture();
+    const seen: unknown[] = [];
+    f.cache.subscribeAuthority(() => seen.push(structuredClone(f.cache.currentRecord())));
+    const legacy = vi.fn(); f.cache.subscribe(legacy);
+    const supplied = { ...f.durable, atomic: { ...f.durable.atomic!, paused: "ownership-hold", held: { globalOn: false } } };
+    const writes = vi.spyOn(f.storage, "set");
+    f.storage.emitExternal(supplied);
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ settings: { globalOn: false }, atomic: { paused: "ownership-hold", held: { globalOn: false } } });
+    expect(legacy).toHaveBeenCalledOnce(); expect(legacy.mock.calls[0]![1]).toBe("external");
+    expect(await f.storage.get()).toEqual(supplied); expect(writes).not.toHaveBeenCalled(); f.stop();
+  });
+
+  it("publishes current recovery and its unchanged healthy reread to authority listeners only", async () => {
+    const f = await fixture(); const seen: (string | null)[] = [];
+    f.cache.subscribeAuthority(() => seen.push(f.cache.currentRecord().atomic!.paused));
+    const legacy = vi.fn(); f.cache.subscribe(legacy);
+    f.port(async () => { throw new SettingsStorageRecovery("native-authority-unavailable"); });
+    await expect(f.cache.commitAtomicIntent("globalOn", false)).rejects.toThrow("native-authority-unavailable");
+    f.storage.emitExternal(f.durable);
+    expect(seen).toEqual(["native-authority-unavailable", null]);
+    expect(legacy).not.toHaveBeenCalled(); expect(await f.storage.get()).toEqual(f.durable); f.stop();
+  });
+
+  it("does not publish stale authority or an obsolete failed request over a newer accepted edit", async () => {
+    const f = await fixture(); const seen: unknown[] = [];
+    f.cache.subscribeAuthority(() => seen.push(structuredClone(f.cache.currentRecord())));
+    let reject!: (error: Error) => void;
+    f.port(() => new Promise((_resolve, r) => { reject = r; }));
+    const pending = f.cache.commitAtomicIntent("sites.youtube.shorts", false);
+    const failed = expect(pending).rejects.toThrow("native-authority-unavailable");
+    await f.writer.commit({ path: "services.instagram", value: false, updatedAt: 101 });
+    const healthy = f.cache.currentRecord();
+    expect(seen).toHaveLength(1);
+    reject(new SettingsStorageRecovery("native-authority-unavailable")); await failed;
+    f.storage.emitExternal(f.durable);
+    expect(seen).toHaveLength(1); expect(f.cache.currentRecord()).toEqual(healthy); f.stop();
+  });
+
+  it.each(["success", "failure"] as const)("fences late hydration %s after a newer authority receipt", async kind => {
+    const f = await fixture();
+    let resolve!: (record: typeof f.durable) => void, reject!: (error: Error) => void;
+    const cache = new SettingsCache({ get: () => new Promise((r, j) => { resolve = r; reject = j; }),
+      set: f.storage.set.bind(f.storage), subscribe: f.storage.subscribe.bind(f.storage), commitIntent: f.writer.commit.bind(f.writer) });
+    const seen: unknown[] = []; cache.subscribeAuthority(() => seen.push(structuredClone(cache.currentRecord())));
+    const hydration = cache.hydrate();
+    const result = kind === "failure" ? expect(hydration).rejects.toThrow("native-authority-unavailable") : expect(hydration).resolves.toHaveProperty("globalOn", false);
+    await cache.setGlobalOn(false); const healthy = cache.currentRecord();
+    if (kind === "failure") reject(new SettingsStorageRecovery("native-authority-unavailable", f.durable)); else resolve(f.durable);
+    await result; expect(seen).toHaveLength(1); expect(cache.currentRecord()).toEqual(healthy);
+    await expect(cache.whenHydrated()).resolves.toBeUndefined(); f.stop();
+  });
+
+  it("does not publish a retired generation even with a higher incoming sequence", async () => {
+    const f = await fixture(); const seen: unknown[] = [];
+    f.cache.subscribeAuthority(() => seen.push(structuredClone(f.cache.currentRecord())));
+    await f.writer.enterScope("00000000-0000-4000-8000-000000000091", "00000000-0000-4000-8000-000000000092");
+    const current = f.cache.currentRecord();
+    expect(current.atomic!.scope.generation).toBe(1); expect(seen).toHaveLength(1);
+    f.storage.emitExternal({ ...f.durable, atomic: { ...f.durable.atomic!, sequence: current.atomic!.sequence + 1 } });
+    expect(seen).toHaveLength(1); expect(f.cache.currentRecord()).toEqual(current); f.stop();
+  });
+
+  it("never announces briefly ready during retained-load recovery", async () => {
+    const f = await fixture();
+    const cache = new SettingsCache({ get: async () => { throw new SettingsStorageRecovery("native-authority-unavailable", f.durable); },
+      set: f.storage.set.bind(f.storage), subscribe: f.storage.subscribe.bind(f.storage), commitIntent: f.writer.commit.bind(f.writer) });
+    const seen: (string | null | undefined)[] = []; cache.subscribeAuthority(() => seen.push(cache.currentRecord().atomic?.paused));
+    const legacy = vi.fn(); cache.subscribe(legacy);
+    await cache.hydrate();
+    expect(seen).toEqual(["native-authority-unavailable"]); expect(legacy).toHaveBeenCalledOnce();
+    await expect(cache.whenHydrated()).rejects.toThrow("native-authority-unavailable");
+    expect(await f.storage.get()).toEqual(f.durable); f.stop();
+  });
+
+  it("keeps unsubscribed observers silent even when another observer disposes them reentrantly", async () => {
+    const f = await fixture(); const later = vi.fn();
+    let offLater = () => {};
+    const offFirst = f.cache.subscribeAuthority(() => offLater());
+    offLater = f.cache.subscribeAuthority(later);
+    f.storage.emitExternal({ ...f.durable, atomic: { ...f.durable.atomic!, paused: "ownership-hold" } });
+    expect(later).not.toHaveBeenCalled(); offFirst();
+    f.storage.emitExternal(f.durable); expect(later).not.toHaveBeenCalled(); f.stop();
+  });
+
+  it("keeps read-only observer errors outside the writer outcome and other observer delivery", async () => {
+    const f = await fixture(); const seen: boolean[] = [];
+    f.cache.subscribeAuthority(() => { throw new Error("observer failed"); });
+    f.cache.subscribeAuthority(() => seen.push(f.cache.current().globalOn));
+    const legacy = vi.fn(); f.cache.subscribe(legacy);
+    const result = await f.cache.commitAtomicIntent("globalOn", false);
+    expect(result.intentCommitted).toBe(true); expect(seen).toEqual([false]);
+    expect((await f.storage.get())!.settings.globalOn).toBe(false);
+    expect(legacy).toHaveBeenCalledOnce(); expect(legacy.mock.calls[0]![1]).toBe("local"); f.stop();
+  });
+});
+
 describe("SettingsCache", () => {
   it("round-trips a write through the adapter and the snapshot", async () => {
     const { adapter, cache } = makeCache();
