@@ -197,6 +197,9 @@ describe("controlled D03 extension settings", () => {
       ).toBeVisible();
       expect(screen.queryByText("Checking your Still Pro access…")).toBeNull();
       expect(
+        screen.queryByText("Still Pro can't be bought here yet."),
+      ).toBeNull();
+      expect(
         screen.queryByRole("button", { name: "Get Still Pro" }),
       ).toBeNull();
       expect(await storage.get()).toEqual(saved);
