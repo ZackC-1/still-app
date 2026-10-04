@@ -1,6 +1,7 @@
-import type { FeatureId, ServiceId, StillSettings } from "@still/shared-types";
+import type { FeatureId, ServiceId, SettingsField, StillSettings } from "@still/shared-types";
 import { SettingsStorageRecovery, type AtomicSettingsState, type CanonicalSettingsEnvelope, type SettingsScope } from "./atomic-settings.js";
-import { DEFAULT_SETTINGS } from "@still/shared-types";
+import { DEFAULT_SETTINGS, SETTINGS_FIELDS } from "@still/shared-types";
+import { requireModernSettings } from "./atomic-settings.js";
 import type {
   SettingsSyncMetadata,
   StorageAdapter,
@@ -24,6 +25,14 @@ export interface SettingsCacheOptions {
 
 export type SettingsChangeSource = "local" | "external" | "synced";
 export type SettingsListener = (settings: StillSettings, source: SettingsChangeSource) => void;
+export type SettingsAuthorityListener = () => void;
+
+export interface AtomicSettingsIntentOutcome {
+  /** Request-specific authority receipt; false does not distinguish refusal from a no-op. */
+  readonly intentCommitted: boolean;
+  /** Current accepted projection, which may already supersede this request's receipt. */
+  readonly settings: StillSettings;
+}
 
 export class SettingsCache {
   private snapshot: StillSettings;
@@ -36,10 +45,13 @@ export class SettingsCache {
   private syncEpoch = 0;
   private readonly now: () => number;
   private readonly listeners = new Set<SettingsListener>();
+  private readonly authorityListeners = new Set<SettingsAuthorityListener>();
+  private publishedAuthority: string | null = null;
   private intentsInFlight = 0;
   private unwatch: (() => void) | null = null;
   private hydration: Promise<StillSettings> | null = null;
   private authorityTicket = 0;
+  private committedGeneration = 0;
   private hydrationRecovery: SettingsStorageRecovery | null = null;
 
   constructor(
@@ -90,19 +102,30 @@ export class SettingsCache {
 
   private async load(): Promise<StillSettings> {
     const authorityTicket = this.authorityTicket;
+    const committedGeneration = this.committedGeneration;
     try {
       const stored = this.atomicOwnership !== undefined && this.adapter.initializeAtomic
         ? await this.adapter.initializeAtomic(this.atomicOwnership) : await this.adapter.get();
-      if (stored) void this.applyStoredRecord(stored, "external");
+      // Same-authority captured reads cannot undo accepted backwards-clock command receipts.
+      // A demonstrably newer legacy epoch/version still reaches the existing record arbitration;
+      // either atomic record retains both the command-generation and authority-ticket fences.
+      const newerLegacyAuthority = stored && !stored.atomic && !this.atomic && stored.syncEpoch !== undefined &&
+        (stored.syncEpoch > this.syncEpoch || stored.syncEpoch === this.syncEpoch &&
+          stored.syncMetadata !== null && this.syncMetadata !== null &&
+          stored.syncMetadata.version > this.syncMetadata.version);
+      if (stored && (committedGeneration === this.committedGeneration || newerLegacyAuthority) &&
+        ((!stored.atomic && !this.atomic) || authorityTicket === this.authorityTicket))
+        void this.applyStoredRecord(stored, "external");
       return this.snapshot;
     } catch (error) {
       if (error instanceof SettingsStorageRecovery && authorityTicket === this.authorityTicket) {
-        if (!error.retained) { this.hydrationRecovery = error; throw error; }
+        if (!error.retained) { this.hydrationRecovery = error; this.notifyAuthority(); throw error; }
         // Last-known local choices keep free blocking useful during unavailable native reads.
         // Sync hydration remains a recovery gate, never a fresh canonical receipt.
-        this.acceptCommitted(error.retained, "external");
+        this.acceptCommitted(error.retained, "external", false);
         if (this.atomic) this.atomic = { ...this.atomic, paused: "native-authority-unavailable" };
         this.hydrationRecovery = error;
+        this.notifyAuthority();
         return this.snapshot;
       }
       throw error;
@@ -118,6 +141,8 @@ export class SettingsCache {
         this.hydrationRecovery = null;
       }
       this.applyStoredRecord(record, "external");
+      // Atomic acceptance already publishes; legacy same-choice rereads can clear recovery here.
+      if (!record.atomic && !this.atomic) this.notifyAuthority();
     });
     return () => {
       this.unwatch?.();
@@ -182,12 +207,37 @@ export class SettingsCache {
     if (repoint) this.syncEpoch += 1;
     void this.persist();
     if (settingsChanged) this.notify("synced");
+    else this.notifyAuthority();
     return true;
   }
 
   subscribe(listener: SettingsListener): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** Observe current record/recovery changes without inventing a saved edit or owning watchers. */
+  subscribeAuthority(listener: SettingsAuthorityListener): () => void {
+    if (this.authorityListeners.size === 0) this.publishedAuthority = this.authoritySignature();
+    this.authorityListeners.add(listener);
+    return () => { this.authorityListeners.delete(listener); };
+  }
+
+  /** Capability only; never initializes storage or proves current ownership/access. */
+  supportsAtomicIntents(): boolean {
+    return typeof this.adapter.commitIntent === "function";
+  }
+
+  /** Explicit V3 command entry: no legacy optimistic persistence fallback. */
+  commitAtomicIntent(path: SettingsField, value: boolean): Promise<AtomicSettingsIntentOutcome> {
+    if (!SETTINGS_FIELDS.includes(path) || typeof value !== "boolean")
+      return Promise.reject(new TypeError("Invalid settings intent"));
+    if (!this.supportsAtomicIntents() || !this.atomic || this.atomic.paused !== null ||
+      this.atomic.ownership === "unknown" || !("schemaVersion" in this.snapshot) || this.snapshot.schemaVersion !== 2)
+      return Promise.reject(new SettingsStorageRecovery("atomic-command-unavailable"));
+    try { requireModernSettings(this.currentRecord()); }
+    catch { return Promise.reject(new SettingsStorageRecovery("atomic-command-unavailable")); }
+    return this.executeIntent(path, value);
   }
 
   setGlobalOn(on: boolean): Promise<StillSettings> {
@@ -217,7 +267,11 @@ export class SettingsCache {
     this.acceptCommitted(await this.adapter.acknowledgeAtomic(envelope, scope), "synced");
   }
 
-  private async commitIntent(path: import("@still/shared-types").SettingsField, value: boolean): Promise<StillSettings> {
+  private async commitIntent(path: SettingsField, value: boolean): Promise<StillSettings> {
+    return (await this.executeIntent(path, value)).settings;
+  }
+
+  private async executeIntent(path: SettingsField, value: boolean): Promise<AtomicSettingsIntentOutcome> {
     const previous = this.snapshot;
     const authorityTicket = this.authorityTicket;
     this.intentsInFlight += 1;
@@ -226,11 +280,12 @@ export class SettingsCache {
       const record = await this.adapter.commitIntent!({ path, value, updatedAt: this.now() });
       this.acceptCommitted(record, "external");
       committed = record.intentCommitted === true;
-      return this.snapshot;
+      return { settings: this.snapshot, intentCommitted: committed };
     } catch (error) {
       if (error instanceof SettingsStorageRecovery && authorityTicket === this.authorityTicket) {
         this.hydrationRecovery = error;
         if (this.atomic) this.atomic = { ...this.atomic, paused: error.reason };
+        this.notifyAuthority();
       }
       throw error;
     } finally {
@@ -240,7 +295,7 @@ export class SettingsCache {
     }
   }
 
-  private acceptCommitted(record: StoredSettingsRecord, source: SettingsChangeSource): boolean {
+  private acceptCommitted(record: StoredSettingsRecord, source: SettingsChangeSource, publishAuthority = true): boolean {
     const previous = this.snapshot;
     if (record.atomic && this.atomic) {
       if (record.atomic.scope.generation < this.atomic.scope.generation) return false;
@@ -249,6 +304,7 @@ export class SettingsCache {
     }
     // Any accepted authority result supersedes failures of requests started before it.
     this.authorityTicket += 1;
+    this.committedGeneration += 1;
     this.hydrationRecovery = null;
     this.snapshot = record.settings;
     this.syncMetadata = record.syncMetadata;
@@ -265,7 +321,8 @@ export class SettingsCache {
       }
     }
     const changed = !sameSettings(previous, this.snapshot);
-    if (changed) this.notify(source);
+    if (changed) this.notify(source, publishAuthority);
+    else if (publishAuthority) this.notifyAuthority();
     return changed;
   }
 
@@ -319,6 +376,7 @@ export class SettingsCache {
       this.snapshot = record.settings;
       this.syncMetadata = record.syncMetadata;
       if (settingsChanged) this.notify(source);
+      else this.notifyAuthority();
       return settingsChanged || metadataChanged;
     }
     const metadata = record.syncMetadata;
@@ -329,6 +387,7 @@ export class SettingsCache {
           if (!sameMetadata(this.syncMetadata, metadata)) {
             this.syncMetadata = metadata;
             void this.persist();
+            this.notifyAuthority();
             return true;
           }
           return false;
@@ -340,6 +399,7 @@ export class SettingsCache {
       this.snapshot = record.settings;
       this.syncMetadata = metadata;
       if (settingsChanged) this.notify(source);
+      else this.notifyAuthority();
       return true;
     }
 
@@ -354,9 +414,30 @@ export class SettingsCache {
     return this.adapter.set(this.currentRecord());
   }
 
-  private notify(source: SettingsChangeSource): void {
-    if (source === "external" && this.intentsInFlight > 0) return;
+  private notify(source: SettingsChangeSource, publishAuthority = true): void {
+    if (source === "external" && this.intentsInFlight > 0) {
+      if (publishAuthority) this.notifyAuthority();
+      return;
+    }
     for (const l of [...this.listeners]) l(this.snapshot, source);
+    if (publishAuthority) this.notifyAuthority();
+  }
+
+  private authoritySignature(): string {
+    return JSON.stringify([this.currentRecord(), this.hydrationRecovery?.reason ?? null]);
+  }
+
+  private notifyAuthority(): void {
+    if (this.authorityListeners.size === 0) return;
+    const signature = this.authoritySignature();
+    if (signature === this.publishedAuthority) return;
+    this.publishedAuthority = signature;
+    for (const listener of [...this.authorityListeners]) {
+      if (this.publishedAuthority !== signature) break;
+      if (!this.authorityListeners.has(listener)) continue;
+      try { listener(); }
+      catch { /* Read-only observers cannot change writer receipts or sibling delivery. */ }
+    }
   }
 }
 
