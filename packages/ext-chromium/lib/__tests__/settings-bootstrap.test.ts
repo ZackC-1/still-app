@@ -706,3 +706,82 @@ describe("maintained background settings bootstrap", () => {
     expect(Object.hasOwn(h.store, KEY)).toBe(false);
   });
 });
+
+// The real background/cache consumes persisted feature choices; the DNR browser port is observed.
+describe("maintained background DNR free-core choice", () => {
+  it.each([
+    { globalOn: true, youtube: true, shorts: false, enabled: false },
+    { globalOn: true, youtube: true, shorts: true, enabled: true },
+    { globalOn: false, youtube: true, shorts: true, enabled: false },
+    { globalOn: true, youtube: false, shorts: true, enabled: false },
+    { globalOn: false, youtube: false, shorts: true, enabled: false },
+    { globalOn: false, youtube: true, shorts: false, enabled: false },
+    { globalOn: true, youtube: false, shorts: false, enabled: false },
+    { globalOn: false, youtube: false, shorts: false, enabled: false },
+  ])(
+    "retained master=$globalOn service=$youtube core=$shorts produces DNR=$enabled",
+    async ({ globalOn, youtube, shorts, enabled }) => {
+      const original = retainedDnrRecord(globalOn, youtube);
+      const retained = {
+        ...original,
+        settings: {
+          ...original.settings,
+          sites: {
+            ...original.settings.sites,
+            "youtube.shorts": shorts,
+            "youtube.comments": true,
+            "unknown.core": true,
+          },
+        },
+      };
+      const before = JSON.stringify(retained);
+      const update = dnrUpdate();
+      const h = await start({ [KEY]: retained }, update);
+      expectDnr(update, enabled);
+      expect(JSON.stringify(h.store[KEY])).toBe(before);
+      expect(h.writes.filter((write) => Object.hasOwn(write, KEY))).toEqual([]);
+      expect(boundary.sessionDeps).toBeNull();
+    },
+  );
+
+  it("broker commits and storage events disable then enable DNR with core Off then On", async () => {
+    const retained = retainedDnrRecord(true, true);
+    const update = dnrUpdate();
+    const h = await start({ [KEY]: retained }, update);
+    expectDnr(update, true);
+    for (const [index, value] of [false, true].entries()) {
+      update.mockClear();
+      expect(
+        await h.message({
+          kind: "still:settings-intent",
+          path: "sites.youtube.shorts",
+          value,
+          updatedAt: 50 + index,
+        }),
+      ).toMatchObject({
+        status: "committed",
+        record: { intentCommitted: true },
+      });
+      await h.settle();
+      expectDnr(update, value);
+      expect(h.store[KEY]).toMatchObject({
+        settings: {
+          globalOn: true,
+          services: retained.settings.services,
+          sites: { ...retained.settings.sites, "youtube.shorts": value },
+          opaque: { retained: true },
+        },
+        atomic: { sequence: 8 + index, ownership: "unknown" },
+        opaqueRoot: { retained: 17 },
+      });
+    }
+    expect(h.store[KEY]).toMatchObject({
+      atomic: {
+        pending: [
+          { operations: [{ path: "sites.youtube.shorts", value: false }] },
+          { operations: [{ path: "sites.youtube.shorts", value: true }] },
+        ],
+      },
+    });
+  });
+});

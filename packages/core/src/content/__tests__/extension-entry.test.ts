@@ -9,6 +9,8 @@ import { signRuleSet } from "../../rules/signature.js";
 import { writeCachedRuleSet, type ReadableArea, type WritableArea } from "../../rules/loader.js";
 import type { SignedRuleSet } from "@still/shared-types";
 import seed from "../../../rules/seed.json";
+import { ChromeStorageAdapter } from "../../storage/chrome-adapter.js";
+import { ROOT_ACTIVE_CLASS, rootServiceClass } from "../../rules/engine.js";
 
 type Listener = (
   changes: Record<string, { oldValue?: unknown; newValue?: unknown }>,
@@ -235,4 +237,128 @@ describe("createExtensionContentEntry", () => {
     refreshing.mockRestore();
   });
 
+});
+
+async function committedContentStorage() {
+  const listeners = installChrome();
+  const records = new Map<string, unknown>();
+  vi.stubGlobal("chrome", {
+    ...chrome,
+    runtime: { getURL: () => "chrome-extension://synthetic/" },
+    storage: {
+      ...chrome.storage,
+      local: {
+        get: async (key: string | string[]) =>
+          Object.fromEntries(
+            (Array.isArray(key) ? key : [key])
+              .filter((name) => records.has(name))
+              .map((name) => [name, structuredClone(records.get(name))]),
+          ),
+        set: async (items: Record<string, unknown>) => {
+          for (const [key, value] of Object.entries(items)) {
+            const oldValue = records.get(key);
+            records.set(key, structuredClone(value));
+            for (const listener of listeners)
+              listener({ [key]: { oldValue, newValue: value } }, "local");
+          }
+        },
+      },
+    },
+  });
+  const authority = new ChromeStorageAdapter({ authority: true });
+  await authority.initializeFreshAtomic();
+  return { authority, records };
+}
+
+describe("packaged content entry committed free-core choices", () => {
+  it.each([false, true])(
+    "saved Shorts Off prevents the entry redirect (earlyRedirect=%s)",
+    async (earlyRedirect) => {
+      const { authority, records } = await committedContentStorage();
+      await authority.commitIntent({
+        path: "sites.youtube.shorts",
+        value: false,
+        updatedAt: 42,
+      });
+      const saved = JSON.stringify(records.get("still:settings"));
+      const win = makeWin("https://www.youtube.com/shorts/abc");
+      document.body.innerHTML =
+        '<ytd-reel-shelf-renderer id="short"></ytd-reel-shelf-renderer><div id="ordinary">Keep</div>';
+      await createExtensionContentEntry({
+        storage: ruleSetStorage,
+        prod: false,
+        earlyRedirect,
+        win: win as never,
+        doc: document,
+        onScriptCreated: (script) => startedScripts.add(script),
+      })();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(win.location.replace).not.toHaveBeenCalled();
+      expect(win.location.href).toBe("https://www.youtube.com/shorts/abc");
+      expect(document.getElementById("short")).not.toBeNull();
+      expect(document.getElementById("ordinary")).not.toBeNull();
+      expect(document.getElementById("still-placeholder")).toBeNull();
+      expect(
+        document.documentElement.classList.contains(ROOT_ACTIVE_CLASS),
+      ).toBe(false);
+      expect(JSON.stringify(records.get("still:settings"))).toBe(saved);
+    },
+  );
+
+  it("retracts packaged CSS root classes and resumes removals on persisted Shorts On to Off to On", async () => {
+    const { authority } = await committedContentStorage();
+    document.body.innerHTML =
+      '<ytd-reel-shelf-renderer id="short"></ytd-reel-shelf-renderer><div id="ordinary">Keep</div>';
+    const ordinary = document.getElementById("ordinary");
+    let script!: ContentScriptHandle;
+    await createExtensionContentEntry({
+      storage: ruleSetStorage,
+      prod: false,
+      earlyRedirect: false,
+      win: makeWin("https://www.youtube.com/") as never,
+      doc: document,
+      onScriptCreated: (created) => {
+        script = created;
+        startedScripts.add(created);
+      },
+    })();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(document.documentElement.classList.contains(ROOT_ACTIVE_CLASS)).toBe(
+      true,
+    );
+    expect(
+      document.documentElement.classList.contains(rootServiceClass("youtube")),
+    ).toBe(true);
+    expect(document.getElementById("short")).toBeNull();
+    await authority.commitIntent({
+      path: "sites.youtube.shorts",
+      value: false,
+      updatedAt: 43,
+    });
+    expect(document.documentElement.classList.contains(ROOT_ACTIVE_CLASS)).toBe(
+      false,
+    );
+    expect(
+      document.documentElement.classList.contains(rootServiceClass("youtube")),
+    ).toBe(false);
+    document.body.insertAdjacentHTML(
+      "beforeend",
+      '<ytd-reel-shelf-renderer id="off-short"></ytd-reel-shelf-renderer>',
+    );
+    script.reapply();
+    expect(document.getElementById("off-short")).not.toBeNull();
+    await authority.commitIntent({
+      path: "sites.youtube.shorts",
+      value: true,
+      updatedAt: 44,
+    });
+    expect(document.documentElement.classList.contains(ROOT_ACTIVE_CLASS)).toBe(
+      true,
+    );
+    expect(
+      document.documentElement.classList.contains(rootServiceClass("youtube")),
+    ).toBe(true);
+    expect(document.getElementById("off-short")).toBeNull();
+    expect(document.getElementById("ordinary")).toBe(ordinary);
+  });
 });
