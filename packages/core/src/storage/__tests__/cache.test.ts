@@ -120,6 +120,88 @@ describe("legacy hydration arbitration", () => {
   });
 });
 
+describe("hydration after accepted legacy commands", () => {
+  it.each([undefined, 5])("preserves a real writer receipt over a captured saved read (version=%s)", async version => {
+    const metadata = version === undefined ? null : {
+      version, serverUpdatedAt: "2026-07-09T18:00:00.000Z", lastWriteId: null,
+    };
+    const saved: StoredSettingsRecord = {
+      settings: settings({ globalOn: false, updatedAt: 9000 }), syncMetadata: metadata, syncEpoch: 0,
+    };
+    const storage = new InMemoryStorageAdapter(saved);
+    const writer = new AtomicSettingsWriter(storage);
+    let release!: () => void;
+    let started!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const reached = new Promise<void>(resolve => { started = resolve; });
+    const cache = new SettingsCache({
+      get: async () => { const captured = await storage.get(); started(); await gate; return captured; },
+      set: storage.set.bind(storage), subscribe: storage.subscribe.bind(storage), commitIntent: writer.commit.bind(writer),
+    }, { now: () => 5000 });
+    const legacy = vi.fn(); cache.subscribe(legacy);
+    const authority = vi.fn(); cache.subscribeAuthority(authority);
+    const writes = vi.spyOn(storage, "set");
+    const hydration = cache.hydrate();
+    const settled = cache.whenHydrated();
+    await reached;
+    const stop = cache.watch();
+    const committed = { ...saved, settings: settings({ globalOn: true, updatedAt: 5000 }) };
+    try {
+      await expect(cache.setGlobalOn(true)).resolves.toEqual(committed.settings);
+      expect(cache.currentRecord()).toEqual(committed);
+      expect(await storage.get()).toEqual(committed);
+      expect(legacy.mock.calls).toEqual([[committed.settings, "local"]]);
+      expect(authority).toHaveBeenCalledOnce();
+      release();
+      await expect(hydration).resolves.toEqual(committed.settings);
+      await expect(settled).resolves.toBeUndefined();
+      await expect(cache.whenHydrated()).resolves.toBeUndefined();
+      expect(cache.currentRecord()).toEqual(committed);
+      expect(cache.currentSyncMetadata()).toEqual(metadata);
+      expect(await storage.get()).toEqual(committed);
+      expect(legacy.mock.calls).toEqual([[committed.settings, "local"]]);
+      expect(authority).toHaveBeenCalledOnce();
+      storage.emitExternal(committed);
+      expect(cache.currentRecord()).toEqual(committed);
+      expect(await storage.get()).toEqual(committed);
+      expect(legacy.mock.calls).toEqual([[committed.settings, "local"]]);
+      expect(authority).toHaveBeenCalledOnce();
+      expect(writes).toHaveBeenCalledExactlyOnceWith(committed);
+    } finally { release(); stop(); }
+  });
+
+  it("keeps a captured atomic read fenced after a current legacy notification", async () => {
+    const storage = new InMemoryStorageAdapter(DEFAULT_SETTINGS);
+    const writer = new AtomicSettingsWriter(storage);
+    const saved = await writer.initialize("never-linked");
+    let release!: () => void;
+    let started!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const reached = new Promise<void>(resolve => { started = resolve; });
+    const cache = new SettingsCache({
+      get: async () => { const captured = await storage.get(); started(); await gate; return captured; },
+      set: storage.set.bind(storage), subscribe: storage.subscribe.bind(storage), commitIntent: writer.commit.bind(writer),
+    });
+    const legacy = vi.fn(); cache.subscribe(legacy);
+    const writes = vi.spyOn(storage, "set");
+    const hydration = cache.hydrate();
+    await reached;
+    const stop = cache.watch();
+    const current = { settings: settings({ globalOn: false, updatedAt: 100 }), syncMetadata: null, syncEpoch: 0 };
+    try {
+      expect(saved.atomic).toBeDefined();
+      storage.emitExternal(current);
+      release();
+      await expect(hydration).resolves.toEqual(current.settings);
+      await expect(cache.whenHydrated()).resolves.toBeUndefined();
+      expect(cache.currentRecord()).toEqual(current);
+      expect(legacy.mock.calls).toEqual([[current.settings, "external"]]);
+      expect(await storage.get()).toEqual(current);
+      expect(writes).not.toHaveBeenCalled();
+    } finally { release(); stop(); }
+  });
+});
+
 describe("read-only authority observation", () => {
   async function fixture() {
     const storage = new InMemoryStorageAdapter(DEFAULT_SETTINGS);

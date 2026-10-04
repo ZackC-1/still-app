@@ -51,6 +51,7 @@ export class SettingsCache {
   private unwatch: (() => void) | null = null;
   private hydration: Promise<StillSettings> | null = null;
   private authorityTicket = 0;
+  private committedGeneration = 0;
   private hydrationRecovery: SettingsStorageRecovery | null = null;
 
   constructor(
@@ -101,12 +102,15 @@ export class SettingsCache {
 
   private async load(): Promise<StillSettings> {
     const authorityTicket = this.authorityTicket;
+    const committedGeneration = this.committedGeneration;
     try {
       const stored = this.atomicOwnership !== undefined && this.adapter.initializeAtomic
         ? await this.adapter.initializeAtomic(this.atomicOwnership) : await this.adapter.get();
-      // Legacy notifications still arbitrate by epoch, server version, and timestamp. Atomic
-      // authority receipts supersede pending reads, even at the same sequence.
-      if (stored && ((!stored.atomic && !this.atomic) || authorityTicket === this.authorityTicket))
+      // Accepted command/authority results supersede captured reads, including legacy receipts
+      // whose clock moved backwards. Legacy notifications still arbitrate by epoch, server
+      // version, and timestamp; either atomic record retains the authority-ticket fence.
+      if (stored && committedGeneration === this.committedGeneration &&
+        ((!stored.atomic && !this.atomic) || authorityTicket === this.authorityTicket))
         void this.applyStoredRecord(stored, "external");
       return this.snapshot;
     } catch (error) {
@@ -296,6 +300,7 @@ export class SettingsCache {
     }
     // Any accepted authority result supersedes failures of requests started before it.
     this.authorityTicket += 1;
+    this.committedGeneration += 1;
     this.hydrationRecovery = null;
     this.snapshot = record.settings;
     this.syncMetadata = record.syncMetadata;
