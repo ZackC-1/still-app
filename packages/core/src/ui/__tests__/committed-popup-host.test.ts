@@ -1662,3 +1662,176 @@ describe("retained local-only authority in the actual desktop host", () => {
     expect(await f.authority.get()).toEqual(saved);
   });
 });
+
+describe("mounted sync retry attachment lifetime", () => {
+  async function observe(
+    state: ReturnType<typeof capture>,
+    reachable: boolean,
+  ) {
+    const { watchAccountStatus } = await import("../account-status.js");
+    const snapshot = (cloudReachable: boolean) => ({
+      accountId: "accountA",
+      email: "accountA@example.com",
+      lastSyncedAt: 1000,
+      pendingUpload: false,
+      cloudReachable,
+      updatedAt: 1100,
+    });
+    const read = vi.fn(async () => snapshot(reachable));
+    stops.push(watchAccountStatus(state.controller, read));
+    await flush();
+    expect(state.controller.userId).toBe("accountA");
+    expect(state.controller.cloudReachable).toBe(reachable);
+    return async (nextReachable: boolean) => {
+      const count = read.mock.calls.length;
+      read.mockResolvedValue(snapshot(nextReachable));
+      document.dispatchEvent(new Event("visibilitychange"));
+      await waitFor(() => expect(read).toHaveBeenCalledTimes(count + 1));
+      await flush();
+      expect(state.controller.cloudReachable).toBe(nextReachable);
+    };
+  }
+
+  for (const route of ["desktop", "legacy"] as const) {
+    const retry = () =>
+      screen.getByRole("button", {
+        name: route === "desktop" ? "Try again" : STRINGS.sync.retry,
+      });
+    const props = (
+      state: ReturnType<typeof capture>,
+      controller = state.controller,
+    ) => ({
+      controller,
+      compact: true,
+      ...(route === "desktop"
+        ? {
+            committedPopupBinding: state.binding,
+            popupPresentation: {
+              browser: "Chrome" as const,
+              onSettings: vi.fn(),
+              loadDesktop: () => import("../v3/DesktopPopup.svelte"),
+            },
+          }
+        : {}),
+    });
+
+    it.each(["unmount-remount", "controller-return"] as const)(
+      `${route} ignores old retry rejection after attachment %s`,
+      async (transition) => {
+        const f = await browser();
+        const p = purchase();
+        const held = gate();
+        p.retrySync.mockImplementationOnce(async () => {
+          await held.promise;
+          throw new Error("Synthetic obsolete attachment retry failure");
+        });
+        const state = capture({ purchase: p.deps });
+        await flush();
+        const refresh = await observe(state, false);
+        const revision = state.controller.accountRevision;
+        const view = render(App, props(state));
+        await waitFor(() => expect(retry()).toBeTruthy());
+        const saved = await f.authority.get();
+        await fireEvent.click(retry());
+        expect(p.retrySync).toHaveBeenCalledOnce();
+        try {
+          await refresh(true);
+          const replacement = capture();
+          await flush();
+          if (transition === "unmount-remount") {
+            view.unmount();
+            // The new component reuses the exact same controller. A desktop
+            // mount gets fresh settings observation after the old binding stops.
+            render(App, props(replacement, state.controller));
+          } else {
+            await observe(replacement, true);
+            expect(replacement.controller.accountRevision).toBe(revision);
+            // Keep the settings binding fixed: this is a controller attachment
+            // change, independent of the settings-command lifetime.
+            await view.rerender(props(state, replacement.controller));
+            expect(screen.getByText(STRINGS.sync.synced)).toBeTruthy();
+            await view.rerender(props(state));
+          }
+          if (route === "desktop")
+            await waitFor(() =>
+              expect(
+                screen.getByRole("switch", { name: "Still" }),
+              ).toBeTruthy(),
+            );
+          await waitFor(() =>
+            expect(screen.getByText(STRINGS.sync.synced)).toBeTruthy(),
+          );
+          expect(state.controller.accountRevision).toBe(revision);
+          expect(state.controller.cloudReachable).toBe(true);
+          held.open();
+          await flush();
+          expect(state.controller.cloudReachable).toBe(true);
+          expect(screen.getByText(STRINGS.sync.synced)).toBeTruthy();
+          expect(screen.queryByText(STRINGS.sync.unreachable)).toBeNull();
+          expect(p.retrySync).toHaveBeenCalledOnce();
+          expect(f.sendMessage).not.toHaveBeenCalled();
+          expect(await f.authority.get()).toEqual(saved);
+        } finally {
+          held.open();
+        }
+      },
+    );
+
+    it.each(["rejected", "fulfilled", "absent"] as const)(
+      `${route} keeps current attachment %s retry behavior`,
+      async (outcome) => {
+        await browser();
+        const p = purchase();
+        const held = gate();
+        p.retrySync.mockImplementationOnce(async () => {
+          await held.promise;
+          if (outcome === "rejected")
+            throw new Error("Synthetic current attachment retry failure");
+        });
+        const state = capture({
+          purchase:
+            outcome === "absent" ? { ...p.deps, retrySync: undefined } : p.deps,
+        });
+        await flush();
+        const refresh = await observe(state, false);
+        const revision = state.controller.accountRevision;
+        render(App, props(state));
+        if (route === "desktop")
+          await waitFor(() =>
+            expect(screen.getByRole("switch", { name: "Still" })).toBeTruthy(),
+          );
+        await waitFor(() =>
+          expect(screen.getByText(STRINGS.sync.unreachable)).toBeTruthy(),
+        );
+        if (outcome === "absent") {
+          expect(
+            screen.queryByRole("button", {
+              name: route === "desktop" ? "Try again" : STRINGS.sync.retry,
+            }),
+          ).toBeNull();
+          expect(p.retrySync).not.toHaveBeenCalled();
+          expect(state.controller.cloudReachable).toBe(false);
+          return;
+        }
+        await fireEvent.click(retry());
+        expect(p.retrySync).toHaveBeenCalledOnce();
+        try {
+          await refresh(true);
+          expect(state.controller.accountRevision).toBe(revision);
+          held.open();
+          await flush();
+          expect(state.controller.cloudReachable).toBe(outcome === "fulfilled");
+          expect(
+            screen.getByText(
+              outcome === "fulfilled"
+                ? STRINGS.sync.synced
+                : STRINGS.sync.unreachable,
+            ),
+          ).toBeTruthy();
+        } finally {
+          held.open();
+        }
+      },
+    );
+  }
+});

@@ -107,11 +107,25 @@
   let modern = $derived(
     observedBinding === committedPopupBinding ? popupState?.settings : null,
   );
+  let syncRetryLifetime = 0;
+  $effect.pre(() => {
+    // Track controller attachments even on legacy hosts without a binding.
+    void c;
+    syncRetryLifetime += 1;
+    return () => {
+      syncRetryLifetime += 1;
+    };
+  });
   function runSyncRetry(): void {
     const controller = c;
     const revision = controller.accountRevision;
+    const lifetime = syncRetryLifetime;
     void controller.retrySync?.().catch(() => {
-      if (c === controller && controller.accountRevision === revision)
+      if (
+        syncRetryLifetime === lifetime &&
+        c === controller &&
+        controller.accountRevision === revision
+      )
         controller.cloudReachable = false;
     });
   }
