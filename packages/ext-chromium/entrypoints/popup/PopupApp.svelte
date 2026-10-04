@@ -4,16 +4,26 @@
     OpenSettingsButton,
     type SurfaceGuidance,
     type UiController,
+    type CommittedPopupBinding,
+    type CommittedPopupToggle,
   } from "@still/core/ui";
 
   interface Props {
     controller: UiController;
+    committedPopupBinding?: CommittedPopupBinding;
+    onCommittedPopupToggle?: (toggle: CommittedPopupToggle) => void;
     /** Web restore = a fresh authenticated reconcile (plan U5/U6). Absent on builds without the
      * purchase spine — the paywall then renders its explanatory state with no live buttons. */
     onRestore?: () => void;
     surfaceGuidance: SurfaceGuidance;
   }
-  let { controller, onRestore, surfaceGuidance }: Props = $props();
+  let {
+    controller,
+    committedPopupBinding,
+    onCommittedPopupToggle,
+    onRestore,
+    surfaceGuidance,
+  }: Props = $props();
 
   function openOptions(): void {
     chrome.runtime.openOptionsPage();
@@ -21,7 +31,13 @@
 </script>
 
 <div class="popup">
-  <App {controller} {onRestore} compact />
+  <App
+    {controller}
+    {committedPopupBinding}
+    {onCommittedPopupToggle}
+    {onRestore}
+    compact
+  />
   <OpenSettingsButton {surfaceGuidance} onOpen={openOptions} />
 </div>
 

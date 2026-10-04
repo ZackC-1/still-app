@@ -1,6 +1,10 @@
 import { mount } from "svelte";
 import "@still/core/ui/tokens.css";
-import { createExtensionUiController } from "@still/core/ui";
+import {
+  createExtensionUiController,
+  type CommittedPopupBinding,
+  type CommittedPopupToggle,
+} from "@still/core/ui";
 import {
   extensionPurchaseDeps,
   restoreHandler,
@@ -16,15 +20,31 @@ import PopupApp from "./PopupApp.svelte";
 // 2026-07-06; only the dormant `pauses` settings field remains in core.
 function init(): void {
   const purchase = extensionPurchaseDeps();
+  const analytics = createPageAnalytics(Boolean(import.meta.env.FIREFOX));
+  let committedPopupBinding: CommittedPopupBinding | undefined;
+  const onCommittedPopupToggle = ({
+    service,
+    enabled,
+  }: CommittedPopupToggle): void => {
+    if (service === undefined)
+      analytics.track("global_toggled", { enabled, where: "popup" });
+    else
+      analytics.track("service_toggled", { service, enabled, where: "popup" });
+  };
   const controller = createExtensionUiController(purchase, {
     emailConsent,
-    analytics: createPageAnalytics(Boolean(import.meta.env.FIREFOX)),
+    analytics,
+    onCommittedPopupBinding: (binding) => {
+      committedPopupBinding = binding;
+    },
     openedWhere: "popup",
   });
   mount(PopupApp, {
     target: document.getElementById("app")!,
     props: {
       controller,
+      committedPopupBinding,
+      onCommittedPopupToggle,
       onRestore: purchase ? restoreHandler(controller) : undefined,
       surfaceGuidance,
     },

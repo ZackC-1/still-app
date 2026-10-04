@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { PAID_TIER_ENABLED, SERVICE_IDS } from "@still/shared-types";
+  import {
+    PAID_TIER_ENABLED,
+    SERVICE_IDS,
+    type ServiceId,
+  } from "@still/shared-types";
   import type { UiController } from "./controller.svelte.js";
   import Toggle from "./components/Toggle.svelte";
   import ServiceCard from "./components/ServiceCard.svelte";
@@ -9,9 +13,14 @@
   import { STRINGS } from "./strings.js";
   import { PRIVACY_POLICY_URL, SETUP_GUIDE_URL } from "./config.js";
   import type { SurfaceGuidance } from "./surface-guidance.js";
+  import type { CommittedPopupBinding, CommittedPopupToggle } from "./index.js";
+  import type { DesktopPopupBindingState } from "./v3/desktop-popup-binding.js";
 
   interface Props {
     controller: UiController;
+    /** Optional actual committed settings authority; absent preserves every legacy host. */
+    committedPopupBinding?: CommittedPopupBinding;
+    onCommittedPopupToggle?: (toggle: CommittedPopupToggle) => void;
     /** Intentional dense treatment for browser popup panels; never scale the whole interface. */
     compact?: boolean;
     onGet?: () => void;
@@ -23,11 +32,103 @@
   }
   let {
     controller: c,
+    committedPopupBinding,
+    onCommittedPopupToggle,
     compact = false,
     onGet,
     onRestore,
     surfaceGuidance,
   }: Props = $props();
+  let observedBinding = $state.raw<CommittedPopupBinding | null>(null);
+  let popupState = $state.raw<DesktopPopupBindingState | null>(null);
+  $effect(() => {
+    const binding = committedPopupBinding;
+    if (!binding) return;
+    observedBinding = binding;
+    const unsubscribe = binding.subscribe((state) => {
+      popupState = state;
+    });
+    return () => {
+      unsubscribe();
+      binding.stop();
+    };
+  });
+  let choices = $derived(
+    committedPopupBinding
+      ? observedBinding === committedPopupBinding
+        ? (popupState?.settings ?? null)
+        : null
+      : c.settings,
+  );
+  let held = $derived(
+    Boolean(committedPopupBinding) &&
+      (observedBinding !== committedPopupBinding ||
+        popupState?.commandAvailability !== "ready"),
+  );
+  const coreBenefit = {
+    youtube: "youtube.shorts",
+    instagram: "instagram.reels",
+    facebook: "facebook.reels",
+    tiktok: "tiktok.all",
+  } as const;
+  function serviceAvailable(service: ServiceId): boolean {
+    if (!committedPopupBinding) return true;
+    const access = popupState?.access.states[coreBenefit[service]];
+    return (
+      access === "free" || access === "protected" || access === "purchased"
+    );
+  }
+  function reportCommitted(toggle: CommittedPopupToggle): void {
+    try {
+      onCommittedPopupToggle?.(toggle);
+    } catch {
+      /* Telemetry never changes the saved outcome. */
+    }
+  }
+  function toggleGlobal(): void {
+    const binding = committedPopupBinding;
+    if (!binding) {
+      c.toggleGlobal();
+      return;
+    }
+    const state = binding.current();
+    if (!state.settings || state.commandAvailability !== "ready") return;
+    const enabled = !state.settings.globalOn;
+    void binding
+      .setGlobalOn(enabled)
+      .then((outcome) => {
+        if (outcome.status === "committed") reportCommitted({ enabled });
+      })
+      .catch(() => {
+        /* Authority observations remain the only saved choices. */
+      });
+  }
+  function toggleService(service: ServiceId): void {
+    const binding = committedPopupBinding;
+    if (!binding) {
+      c.toggleService(service);
+      return;
+    }
+    const state = binding.current();
+    const access = state.access.states[coreBenefit[service]];
+    if (
+      !state.settings ||
+      !state.settings.globalOn ||
+      state.commandAvailability !== "ready" ||
+      (access !== "free" && access !== "protected" && access !== "purchased")
+    )
+      return;
+    const enabled = !state.settings.services[service];
+    void binding
+      .setService(service, enabled)
+      .then((outcome) => {
+        if (outcome.status === "committed")
+          reportCommitted({ service, enabled });
+      })
+      .catch(() => {
+        /* Authority observations remain the only saved choices. */
+      });
+  }
 </script>
 
 <div class="still-ui app" data-density={compact ? "compact" : "comfortable"}>
@@ -35,47 +136,52 @@
     <Logo />
   </header>
 
-  <!-- Global on/off — the hero card -->
-  <section class="hero" class:off={!c.settings.globalOn}>
-    <div class="hero-text">
-      <h1>{c.settings.globalOn ? STRINGS.global.on : STRINGS.global.off}</h1>
-      <p>
-        <!-- With every service included there is one line for everyone: "on enabled sites" already
+  {#if choices}
+    <!-- Global on/off — the hero card -->
+    <section class="hero" class:off={!choices.globalOn}>
+      <div class="hero-text">
+        <h1>{choices.globalOn ? STRINGS.global.on : STRINGS.global.off}</h1>
+        <p>
+          <!-- With every service included there is one line for everyone: "on enabled sites" already
              hedges per-service state. The two paid-era alternatives below it were written for a
              free tier that removed YouTube Shorts only, where the hero had to say what the rest
              cost and had to stop claiming removal when the one included row was itself off. They
              return with the switch. -->
-        {c.settings.globalOn
-          ? !PAID_TIER_ENABLED || c.entitled
-            ? STRINGS.global.onSecondary
-            : c.settings.services.youtube
-              ? STRINGS.global.onFree
-              : STRINGS.global.onFreeYoutubeOff
-          : STRINGS.global.offSecondary}
-      </p>
-    </div>
-    <Toggle
-      checked={c.settings.globalOn}
-      label="Still on/off"
-      variant={c.settings.globalOn ? "on-blue" : "default"}
-      onchange={() => c.toggleGlobal()}
-    />
-  </section>
-
-  <!-- Per-service cards. Pro-gated rows render locked for un-entitled users: tapping the lock is
-       the Pro discovery path (paywall / sign-in first), not a toggle that silently does nothing. -->
-  <div class="services" aria-disabled={!c.settings.globalOn}>
-    {#each SERVICE_IDS as service (service)}
-      <ServiceCard
-        {service}
-        on={c.settings.globalOn && c.settings.services[service]}
-        onchange={() => c.toggleService(service)}
-        locked={c.isLocked(service)}
-        disabled={!c.settings.globalOn}
-        onLockedTap={() => c.lockedTap()}
+          {choices.globalOn
+            ? committedPopupBinding || !PAID_TIER_ENABLED || c.entitled
+              ? STRINGS.global.onSecondary
+              : choices.services.youtube
+                ? STRINGS.global.onFree
+                : STRINGS.global.onFreeYoutubeOff
+            : STRINGS.global.offSecondary}
+        </p>
+      </div>
+      <Toggle
+        checked={choices.globalOn}
+        label="Still on/off"
+        variant={choices.globalOn ? "on-blue" : "default"}
+        disabled={held}
+        onchange={toggleGlobal}
       />
-    {/each}
-  </div>
+    </section>
+
+    <!-- Per-service cards. Pro-gated rows render locked for un-entitled users: tapping the lock is
+       the Pro discovery path (paywall / sign-in first), not a toggle that silently does nothing. -->
+    <div class="services" aria-disabled={!choices.globalOn || held}>
+      {#each SERVICE_IDS as service (service)}
+        <ServiceCard
+          {service}
+          on={choices.globalOn && choices.services[service]}
+          onchange={() => toggleService(service)}
+          locked={!committedPopupBinding && c.isLocked(service)}
+          disabled={!choices.globalOn || held || !serviceAvailable(service)}
+          onLockedTap={() => c.lockedTap()}
+        />
+      {/each}
+    </div>
+  {:else}
+    <p class="muted" role="status">{STRINGS.sync.checking}</p>
+  {/if}
 
   {#if surfaceGuidance}
     <a class="link setup-guide" href={SETUP_GUIDE_URL} target="_blank" rel="noopener noreferrer">
