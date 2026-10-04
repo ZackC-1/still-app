@@ -6,6 +6,7 @@
   import { serviceIconSrc } from "./service-icons.js";
   import Toggle from "./Toggle.svelte";
   import Glyph from "./Glyph.svelte";
+  import FeatureRow from "./FeatureRow.svelte";
   let {
     settings,
     access,
@@ -96,68 +97,23 @@
             <div class="list">
               {#each rows as row (row.id)}
                 {@const state = access.states[row.id]}
-                {@const usable =
-                  state === "free" ||
-                  state === "purchased" ||
-                  state === "protected"}
                 {@const inactive =
                   !settings.globalOn || !settings.services[service]}
                 {@const label = labels[row.id] ?? row.label}
-                {@const key = row.id.replace(/\W+/g, "-")}
-                {@const note =
-                  state === "unsupported"
-                    ? "Not available in this browser. Your choice is saved."
-                    : row.id === "instagram.explore"
-                      ? "Search stays."
-                      : undefined}
-                {@const srNote =
-                  state === "checking"
-                    ? "Checking your Still Pro access. Your choice is saved."
-                    : state === "verification_required"
-                      ? "Verify Still Pro to use this. Your choice is saved."
-                      : undefined}
-                <div
-                  class="option-row"
-                  data-access={state === "verification_required"
-                    ? "verify"
-                    : state}
-                  data-inactive={inactive ||
-                    state === "unsupported" ||
-                    state === "locked" ||
-                    undefined}
-                >
-                  <div class="row-main">
-                    <span class="label"
-                      ><span id={`${key}-l`}>{label}</span></span
-                    >
-                    {#if note}<span class="sub" id={`${key}-s`}>{note}</span
-                      >{:else if srNote}<span class="sr-only" id={`${key}-s`}
-                        >{srNote}</span
-                      >{/if}
-                  </div>
-                  {#if usable || state === "checking" || state === "verification_required"}
-                    <Toggle
-                      small
-                      checked={settings.sites[row.id]}
-                      onChange={(next) => onFeatureChange(row.id, next)}
-                      disabled={inactive || !usable}
-                      labelledBy={`${key}-l`}
-                      describedBy={note || srNote ? `${key}-s` : undefined}
-                    />
-                  {:else if state === "locked"}
-                    <button
-                      type="button"
-                      class="lock-pro"
-                      aria-label={`${label}. Included in Still Pro. See Still Pro`}
-                      aria-disabled={!onProAction || undefined}
-                      onclick={() => {
-                        onProAction?.();
-                      }}
-                      ><Glyph name="lock" size={14} /><span>Still Pro</span
-                      ></button
-                    >
-                  {/if}
-                </div>
+                <FeatureRow
+                  id={row.id}
+                  {label}
+                  {state}
+                  checked={settings.sites[row.id]}
+                  {inactive}
+                  unsupportedText="Not available in this browser. Your choice is saved."
+                  note={row.id === "instagram.explore"
+                    ? "Search stays."
+                    : undefined}
+                  onChange={(next) => onFeatureChange(row.id, next)}
+                  onLock={onProAction}
+                  lockLabel={`${label}. Included in Still Pro. See Still Pro`}
+                />
               {/each}
             </div>
           </div>

@@ -155,4 +155,34 @@ describe("controlled shared feature access row", () => {
     expect(screen.queryByRole("switch")).toBeNull();
     view.unmount();
   });
+
+  it("adds the settings surface note without losing held access guidance or unsupported precedence", async () => {
+    const { props, storage } = await fixture("verification_required");
+    const before = await storage.get();
+    const view = render(FeatureRow, {
+      props: { ...props, note: "Search stays." },
+    });
+    const control = screen.getByRole("switch", { name: "Comments" });
+    expect(screen.getByText("Search stays.")).toBeVisible();
+    expect(control).toHaveAccessibleDescription(
+      "Search stays. Verify Still Pro to use this. Your choice is saved.",
+    );
+    await fireEvent.click(control);
+    expect(props.onChange).not.toHaveBeenCalled();
+    expect(await storage.get()).toEqual(before);
+    await view.rerender({
+      ...props,
+      state: "unsupported",
+      note: "Search stays.",
+    });
+    expect(screen.getByText(props.unsupportedText)).toBeVisible();
+    expect(screen.queryByText("Search stays.")).toBeNull();
+    expect(screen.queryByRole("switch")).toBeNull();
+    await view.rerender({ ...props, state: "purchased", note: undefined });
+    expect(screen.queryByText("Search stays.")).toBeNull();
+    expect(
+      screen.getByRole("switch", { name: "Comments" }),
+    ).not.toHaveAttribute("aria-describedby");
+    view.unmount();
+  });
 });

@@ -13,9 +13,8 @@
     onRequestDeletion,
     onRetry,
   }: SharingCardProps = $props();
-  let canShare = $derived(
-    purposesVerified && Boolean(purposes?.length) && Boolean(onShare),
-  );
+  let hasPurposes = $derived(purposesVerified && Boolean(purposes?.length));
+  let canShare = $derived(hasPurposes && Boolean(onShare));
   let withdrawalHeld = $derived(withdrawal === "failed");
   const outcomes = {
     requested: {
@@ -90,13 +89,28 @@
       <Toggle
         checked={state === "on"}
         labelledBy="share-t"
-        describedBy="share-s"
-        disabled={!onChange || withdrawalHeld}
+        describedBy={state === "off" && hasPurposes
+          ? "share-s share-purposes"
+          : "share-s"}
+        disabled={!onChange ||
+          withdrawalHeld ||
+          (state === "off" && !hasPurposes)}
         onChange={(next) => {
-          if (!withdrawalHeld) onChange?.(next);
+          if (!withdrawalHeld && (!next || hasPurposes)) onChange?.(next);
         }}
       />
     </div>
+    {#if state === "off" && hasPurposes}
+      <ul class="purpose-list" id="share-purposes">
+        {#each purposes ?? [] as purpose (purpose.name)}
+          <li>
+            <span class="purpose-name">{purpose.name}</span><span
+              >{purpose.text}</span
+            >
+          </li>
+        {/each}
+      </ul>
+    {/if}
     {#if state === "off" && withdrawal === "none" && onRequestDeletion}<button
         type="button"
         class="link"

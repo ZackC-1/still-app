@@ -55,7 +55,17 @@ async function fixture(state: AccessState = "purchased") {
     }),
     sync: { onSignIn: vi.fn() },
     pro: { ownership: "none", channel: "unverified" },
-    sharing: { state: "off", onChange: vi.fn() },
+    sharing: {
+      state: "off",
+      onChange: vi.fn(),
+      purposesVerified: true,
+      purposes: [
+        {
+          name: "Fixture email plus usage",
+          text: "Fixture purpose disclosure.",
+        },
+      ],
+    },
     help: { onGuide: vi.fn(), onSupport: vi.fn(), onPrivacy: vi.fn() },
   };
   return { storage, cache, props, settled: () => pending };
@@ -460,12 +470,119 @@ describe("controlled D03 extension settings", () => {
     outside.remove();
   });
 
+  it.each(["replacement", "signed-out", "same-address-handler"] as const)(
+    "invalidates an account confirmation on %s before any destructive callback",
+    async (change) => {
+      const { props } = await fixture();
+      const first = vi.fn();
+      const second = vi.fn();
+      props.sync.account = {
+        address: "first@fixture.test",
+        confirmed: true,
+        onDeleteAccount: first,
+      };
+      const view = render(ExtensionSettings, { props });
+      await fireEvent.click(
+        screen.getByRole("button", { name: "Delete account" }),
+      );
+      expect(screen.getByRole("dialog")).toBeVisible();
+      if (change === "signed-out") {
+        props.sync.account = undefined;
+        await view.rerender(props);
+      }
+      props.sync.account = {
+        address:
+          change === "same-address-handler"
+            ? "first@fixture.test"
+            : "second@fixture.test",
+        confirmed: true,
+        onDeleteAccount: second,
+      };
+      await view.rerender(props);
+      const stale = screen.queryByRole("dialog");
+      if (stale)
+        await fireEvent.click(
+          within(stale).getByRole("button", { name: "Delete account" }),
+        );
+      expect(first).not.toHaveBeenCalled();
+      expect(second).not.toHaveBeenCalled();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      await fireEvent.click(
+        screen.getByRole("button", { name: "Delete account" }),
+      );
+      await fireEvent.click(
+        within(screen.getByRole("dialog")).getByRole("button", {
+          name: "Delete account",
+        }),
+      );
+      expect(second).toHaveBeenCalledOnce();
+      expect(first).not.toHaveBeenCalled();
+      view.unmount();
+    },
+  );
+
+  it("keeps the original account handler on an unchanged confirmation and tears down an open modal on unmount", async () => {
+    const { props } = await fixture();
+    const remove = vi.fn();
+    props.sync.account = {
+      address: "first@fixture.test",
+      confirmed: true,
+      onDeleteAccount: remove,
+    };
+    const view = render(ExtensionSettings, { props });
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Delete account" }),
+    );
+    await view.rerender({
+      ...props,
+      sync: { ...props.sync, account: { ...props.sync.account } },
+    });
+    await fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Delete account",
+      }),
+    );
+    expect(remove).toHaveBeenCalledOnce();
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Delete account" }),
+    );
+    expect(screen.getByRole("dialog")).toBeVisible();
+    view.unmount();
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    outside.focus();
+    const event = new KeyboardEvent("keydown", {
+      key: "Tab",
+      cancelable: true,
+      bubbles: true,
+    });
+    window.dispatchEvent(event);
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+    expect(event.defaultPrevented).toBe(false);
+    expect(outside).toHaveFocus();
+    expect(remove).toHaveBeenCalledOnce();
+    outside.remove();
+  });
+
   it.each(["none", "requested", "verifying"] as const)(
     "keeps the %s sharing switch controlled until the caller reports a changed device choice",
     async (withdrawal) => {
       const change = vi.fn();
       const view = render(SharingCard, {
-        props: { state: "off", withdrawal, onChange: change },
+        props: {
+          state: "off",
+          withdrawal,
+          onChange: change,
+          purposesVerified: true,
+          purposes: [
+            {
+              name: "Fixture email plus usage",
+              text: "Fixture purpose disclosure.",
+            },
+          ],
+        },
       });
       const toggle = screen.getByRole("switch", {
         name: "Share email and usage data",
@@ -481,4 +598,247 @@ describe("controlled D03 extension settings", () => {
       view.unmount();
     },
   );
+
+  it.each(["missing", "unverified", "empty"] as const)(
+    "holds Off-to-On sharing with %s purposes without a callback",
+    async (kind) => {
+      const change = vi.fn();
+      const view = render(SharingCard, {
+        props: {
+          state: "off",
+          onChange: change,
+          purposesVerified: kind !== "unverified",
+          purposes:
+            kind === "missing"
+              ? undefined
+              : kind === "empty"
+                ? []
+                : [
+                    {
+                      name: "Fixture email plus usage",
+                      text: "Fixture purpose disclosure.",
+                    },
+                  ],
+        },
+      });
+      const toggle = screen.getByRole("switch", {
+        name: "Share email and usage data",
+      });
+      await fireEvent.click(toggle);
+      expect(change).not.toHaveBeenCalled();
+      expect(toggle).toHaveAttribute("aria-checked", "false");
+      view.unmount();
+    },
+  );
+
+  it("discloses verified purposes before Off-to-On, while On-to-Off needs no affirmative disclosure", async () => {
+    const change = vi.fn();
+    const view = render(SharingCard, {
+      props: {
+        state: "off",
+        purposesVerified: true,
+        purposes: [
+          {
+            name: "Fixture email plus usage",
+            text: "Fixture purpose disclosure.",
+          },
+        ],
+        onChange: change,
+      },
+    });
+    expect(screen.getByText("Fixture email plus usage")).toBeVisible();
+    expect(screen.getByText("Fixture purpose disclosure.")).toBeVisible();
+    const toggle = screen.getByRole("switch", {
+      name: "Share email and usage data",
+    });
+    expect(toggle).toHaveAccessibleDescription(/Fixture purpose disclosure\./);
+    await fireEvent.click(toggle);
+    expect(change).toHaveBeenCalledExactlyOnceWith(true);
+    expect(toggle).toHaveAttribute("aria-checked", "false");
+    await view.rerender({ state: "on", onChange: change });
+    await fireEvent.click(toggle);
+    expect(change).toHaveBeenNthCalledWith(2, false);
+    expect(toggle).toHaveAttribute("aria-checked", "true");
+    view.unmount();
+  });
+
+  it("does not turn an acknowledged decline into affirmative consent without purposes", async () => {
+    const decline = vi.fn(),
+      share = vi.fn(),
+      change = vi.fn();
+    const view = render(SharingCard, {
+      props: { state: "unasked", onDecline: decline, onShare: share },
+    });
+    await fireEvent.click(screen.getByRole("button", { name: "Don't share" }));
+    expect(decline).toHaveBeenCalledOnce();
+    await view.rerender({ state: "off", onChange: change });
+    await fireEvent.click(
+      screen.getByRole("switch", { name: "Share email and usage data" }),
+    );
+    expect(change).not.toHaveBeenCalled();
+    expect(share).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it.each(["free", "unsupported", "purchased", "protected"] as const)(
+    "never fabricates pending Pro checks from completed %s access",
+    async (state) => {
+      const { props } = await fixture(state);
+      const view = render(ExtensionSettings, { props });
+      expect(screen.queryByText("Checking your Still Pro access…")).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: "Get Still Pro" }),
+      ).toBeNull();
+      expect(screen.getByRole("switch", { name: "Still" })).toBeVisible();
+      view.unmount();
+    },
+  );
+
+  it.each(["verify", "failed"] as const)(
+    "preserves explicit %s recovery while access remains held",
+    async (ownership) => {
+      const { props } = await fixture("verification_required");
+      props.pro.ownership = ownership;
+      const view = render(ExtensionSettings, { props });
+      expect(screen.queryByText("Checking your Still Pro access…")).toBeNull();
+      expect(
+        screen.getByText(
+          ownership === "verify"
+            ? "Still Pro needs to be verified again."
+            : "We couldn't finish checking. Nothing changed.",
+        ),
+      ).toBeVisible();
+      expect(
+        screen.queryByRole("button", { name: "Get Still Pro" }),
+      ).toBeNull();
+      view.unmount();
+    },
+  );
+
+  it("announces checking only from an actual pending access observation", async () => {
+    const { props } = await fixture("checking");
+    const view = render(ExtensionSettings, { props });
+    expect(screen.getByText("Checking your Still Pro access…")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Get Still Pro" })).toBeNull();
+    view.unmount();
+  });
+
+  it("shares Explore access rendering and preserves real settings while the service is off", async () => {
+    const { props, storage, cache, settled } = await fixture("purchased");
+    await cache.setFeature("instagram.explore", true);
+    props.settings = requireModernSettings(cache.currentRecord());
+    const view = render(ExtensionSettings, { props });
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Instagram Blocker" }),
+    );
+    const explore = screen.getByRole("switch", {
+      name: "Explore recommendations",
+    });
+    expect(explore).toHaveAccessibleDescription("Search stays.");
+    await fireEvent.click(
+      screen.getByRole("switch", { name: "Still on Instagram" }),
+    );
+    await settled();
+    props.settings = requireModernSettings(cache.currentRecord());
+    await view.rerender(props);
+    const saved = await storage.get();
+    await fireEvent.click(explore);
+    await settled();
+    expect(await storage.get()).toEqual(saved);
+    expect(props.onFeatureChange).not.toHaveBeenCalled();
+    expect(explore).toHaveAttribute("aria-checked", "true");
+    props.access = {
+      ...props.access,
+      states: { ...props.access.states, "instagram.explore": "unsupported" },
+    };
+    await view.rerender(props);
+    const row = screen
+      .getByText("Explore recommendations")
+      .closest<HTMLElement>(".option-row")!;
+    expect(
+      within(row).getByText(
+        "Not available in this browser. Your choice is saved.",
+      ),
+    ).toBeVisible();
+    expect(within(row).queryByText("Search stays.")).toBeNull();
+    view.unmount();
+  });
+
+  it("holds both card and locked-row purchase ports for every unavailable current channel, offer, operation or account", async () => {
+    const { props } = await fixture("locked");
+    const buy = vi.fn(),
+      signIn = vi.fn();
+    props.sectionMemory = { read: () => "youtube", write: vi.fn() };
+    props.pro = {
+      ownership: "none",
+      channel: "ready",
+      offer: { price: "Fixture localized price" },
+      onBuy: buy,
+      onSignIn: signIn,
+    };
+    props.sync.account = { address: "fixture@still.test", confirmed: true };
+    const view = render(ExtensionSettings, { props });
+    const rowAction = () =>
+      screen.getByRole("button", {
+        name: "Comments. Included in Still Pro. See Still Pro",
+      });
+    const requestBoth = async () => {
+      const card = screen.queryByRole("button", { name: "Get Still Pro" });
+      if (card) await fireEvent.click(card);
+      const pending = screen.queryByRole("button", {
+        name: "Waiting for checkout…",
+      });
+      if (pending) await fireEvent.click(pending);
+      await fireEvent.click(rowAction());
+    };
+    await requestBoth();
+    expect(buy).toHaveBeenCalledTimes(2);
+    for (const offer of [undefined, { price: "" }, { price: "   " }]) {
+      props.pro.offer = offer;
+      await view.rerender(props);
+      await requestBoth();
+      expect(buy).toHaveBeenCalledTimes(2);
+    }
+    props.pro.offer = { price: "Fixture localized price" };
+    for (const channel of ["unverified", "unavailable"] as const) {
+      props.pro.channel = channel;
+      await view.rerender(props);
+      await requestBoth();
+      expect(buy).toHaveBeenCalledTimes(2);
+    }
+    props.pro.channel = "ready";
+    for (const state of ["pending", "failed"] as const) {
+      props.pro.state = state;
+      await view.rerender(props);
+      await requestBoth();
+      expect(buy).toHaveBeenCalledTimes(2);
+    }
+    props.pro.state = "idle";
+    for (const state of ["checking", "verify", "failed"] as const) {
+      props.restore = { state };
+      await view.rerender(props);
+      await requestBoth();
+      expect(buy).toHaveBeenCalledTimes(2);
+    }
+    props.restore = undefined;
+    props.sync.account.confirmed = false;
+    await view.rerender(props);
+    await requestBoth();
+    expect(buy).toHaveBeenCalledTimes(2);
+    expect(signIn).toHaveBeenCalledTimes(2);
+    props.pro.onSignIn = undefined;
+    await view.rerender(props);
+    await requestBoth();
+    expect(signIn).toHaveBeenCalledTimes(2);
+    props.sync.account.confirmed = true;
+    props.pro.onBuy = undefined;
+    await view.rerender(props);
+    await requestBoth();
+    expect(buy).toHaveBeenCalledTimes(2);
+    props.pro.onBuy = buy;
+    await view.rerender(props);
+    await requestBoth();
+    expect(buy).toHaveBeenCalledTimes(4);
+    view.unmount();
+  });
 });
