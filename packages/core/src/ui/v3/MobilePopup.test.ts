@@ -565,3 +565,102 @@ describe("issued invitation across actual host sync suppression", () => {
     },
   );
 });
+
+describe("per-issued invitation claims through MobilePopup", () => {
+  const title = (kind: "rating" | "sync" | "link") =>
+    ({
+      rating: "Rate Still",
+      sync: "Use the same settings in every browser",
+      link: "Link Still Pro to an account",
+    })[kind];
+  const control = (
+    kind: "rating" | "sync" | "link",
+    choice: "accept" | "dismiss",
+  ) =>
+    within(screen.getByRole("region", { name: title(kind) })).getByRole(
+      "button",
+      {
+        name:
+          choice === "dismiss"
+            ? "Not now"
+            : { rating: "Rate Still", sync: "Sign in", link: "Link" }[kind],
+      },
+    );
+  it.each(
+    (["rating", "sync", "link"] as const).flatMap((kind) =>
+      (["accept", "dismiss"] as const).flatMap((first) =>
+        (["missing", "unready"] as const).map(
+          (unavailable) => [kind, first, unavailable] as const,
+        ),
+      ),
+    ),
+  )(
+    "holds %s %s when chosen host port is %s",
+    async (kind, first, unavailable) => {
+      const { props, storage } = await fixture();
+      props.host = "firefox";
+      props.channelReady = true;
+      const a = invitationSpecimen(kind, "firefox-android");
+      const opposite = first === "accept" ? "dismiss" : "accept";
+      const saved = await storage.get();
+      props.invitation = a;
+      const view = render(MobilePopup, { props });
+      await fireEvent.click(control(kind, first));
+      expect(a[first]!.request).toHaveBeenCalledOnce();
+      props.invitation = {
+        ...a,
+        [first]:
+          unavailable === "missing"
+            ? undefined
+            : { ...a[first]!, verified: false, request: vi.fn() },
+      };
+      await view.rerender(props);
+      await fireEvent.click(control(kind, opposite));
+      expect(a[opposite]!.request).not.toHaveBeenCalled();
+      props.invitation = a;
+      await view.rerender(props);
+      await fireEvent.click(control(kind, first));
+      await fireEvent.click(control(kind, opposite));
+      expect(a[first]!.request).toHaveBeenCalledOnce();
+      expect(a[opposite]!.request).not.toHaveBeenCalled();
+      expect(await storage.get()).toEqual(saved);
+      expect(props.onGlobalChange).not.toHaveBeenCalled();
+      expect(props.onServiceChange).not.toHaveBeenCalled();
+      expect(props.onFeatureChange).not.toHaveBeenCalled();
+    },
+  );
+  it.each(
+    (["rating", "sync", "link"] as const).flatMap((kind) =>
+      (["accept", "dismiss"] as const).map((first) => [kind, first] as const),
+    ),
+  )(
+    "holds restored %s %s A after issuing B through the host",
+    async (kind, first) => {
+      const { props, storage } = await fixture();
+      props.host = "firefox";
+      props.channelReady = true;
+      const a = invitationSpecimen(kind, "firefox-android");
+      const b = invitationSpecimen(kind, "firefox-android");
+      const opposite = first === "accept" ? "dismiss" : "accept";
+      const saved = await storage.get();
+      props.invitation = a;
+      const view = render(MobilePopup, { props });
+      await fireEvent.click(control(kind, first));
+      expect(a[first]!.request).toHaveBeenCalledOnce();
+      props.invitation = b;
+      await view.rerender(props);
+      await fireEvent.click(control(kind, first));
+      expect(b[first]!.request).toHaveBeenCalledOnce();
+      props.invitation = a;
+      await view.rerender(props);
+      await fireEvent.click(control(kind, first));
+      expect(a[first]!.request).toHaveBeenCalledOnce();
+      await fireEvent.click(control(kind, opposite));
+      expect(a[opposite]!.request).not.toHaveBeenCalled();
+      expect(await storage.get()).toEqual(saved);
+      expect(props.onGlobalChange).not.toHaveBeenCalled();
+      expect(props.onServiceChange).not.toHaveBeenCalled();
+      expect(props.onFeatureChange).not.toHaveBeenCalled();
+    },
+  );
+});

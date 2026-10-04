@@ -23,24 +23,30 @@
         }
       : undefined,
   );
-  // Remember the issued choice rather than the caller's observation wrapper.
-  let requested = $state.raw<{
-    kind: PopupInvitationPresentation["kind"];
-    identity: PopupInvitationPresentation["identity"];
-    admission: string | undefined;
-    which: "accept" | "dismiss";
-    request: () => void;
-  }>();
+  // Retain every issued choice for this mounted component, including while its
+  // chosen port is unavailable. Caller publication cannot erase an earlier claim.
+  let requested = $state.raw<
+    {
+      kind: PopupInvitationPresentation["kind"];
+      identity: PopupInvitationPresentation["identity"];
+      admission: string | undefined;
+      which: "accept" | "dismiss";
+      request: () => void;
+    }[]
+  >([]);
   function choiceClaimed(observation: PopupInvitationPresentation) {
     return Boolean(
-      requested &&
-      requested.kind === observation.kind &&
-      sameInvitationIdentity(requested.identity, observation.identity) &&
-      requested.admission ===
-        (observation.kind === "rating"
-          ? observation.rating?.display.receiptId
-          : undefined) &&
-      requested.request === observation[requested.which]?.request,
+      requested.some(
+        (claim) =>
+          claim.kind === observation.kind &&
+          sameInvitationIdentity(claim.identity, observation.identity) &&
+          claim.admission ===
+            (observation.kind === "rating"
+              ? observation.rating?.display.receiptId
+              : undefined) &&
+          (!invitationPortReady(observation, observation[claim.which]) ||
+            claim.request === observation[claim.which]?.request),
+      ),
     );
   }
   let mounted = true;
@@ -88,14 +94,19 @@
         !invitationPortReady(presentation, port)
       )
         return;
-      requested = {
-        kind,
-        identity,
-        admission:
-          kind === "rating" ? observation.rating?.display.receiptId : undefined,
-        which,
-        request: port.request,
-      };
+      requested = [
+        ...requested,
+        {
+          kind,
+          identity,
+          admission:
+            kind === "rating"
+              ? observation.rating?.display.receiptId
+              : undefined,
+          which,
+          request: port.request,
+        },
+      ];
       request?.();
     };
   }

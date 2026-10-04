@@ -363,3 +363,180 @@ describe("current invitation request fence", () => {
     expect(replacement.request).toHaveBeenCalledOnce();
   });
 });
+
+describe("retained per-issued invitation claims", () => {
+  const actionName = (
+    kind: "rating" | "sync" | "link",
+    choice: "accept" | "dismiss",
+  ) =>
+    choice === "dismiss"
+      ? "Not now"
+      : { rating: "Rate Still", sync: "Sign in", link: "Link" }[kind];
+
+  it.each(
+    (["rating", "sync", "link"] as const).flatMap((kind) =>
+      (["accept", "dismiss"] as const).flatMap((first) =>
+        (
+          [
+            "missing",
+            "pending",
+            "unknown",
+            "unverified",
+            "foreign",
+            "unready-replacement",
+          ] as const
+        ).map((unavailable) => [kind, first, unavailable] as const),
+      ),
+    ),
+  )(
+    "retains %s %s when chosen port is %s",
+    async (kind, first, unavailable) => {
+      const p = admitted(kind);
+      const chosen = p[first]!;
+      const opposite = first === "accept" ? "dismiss" : "accept";
+      const view = render(PopupInvitation, { presentation: p });
+      await fireEvent.click(
+        screen.getByRole("button", { name: actionName(kind, first) }),
+      );
+      expect(chosen.request).toHaveBeenCalledOnce();
+      const port =
+        unavailable === "missing"
+          ? undefined
+          : {
+              ...chosen,
+              ...(unavailable === "pending" || unavailable === "unknown"
+                ? { status: unavailable }
+                : {}),
+              ...(unavailable === "unverified" ? { verified: false } : {}),
+              ...(unavailable === "foreign"
+                ? { identity: { ...p.identity, opening: "foreign" } }
+                : {}),
+              ...(unavailable === "unready-replacement"
+                ? { verified: false, request: vi.fn() }
+                : {}),
+            };
+      const next = { ...p, [first]: port };
+      await view.rerender({ presentation: next });
+      await fireEvent.click(
+        screen.getByRole("button", { name: actionName(kind, opposite) }),
+      );
+      expect(next[opposite]!.request).not.toHaveBeenCalled();
+      await fireEvent.click(
+        screen.getByRole("button", { name: actionName(kind, first) }),
+      );
+      expect(chosen.request).toHaveBeenCalledOnce();
+      if (port && unavailable === "unready-replacement")
+        expect(port.request).not.toHaveBeenCalled();
+      await view.rerender({ presentation: p });
+      await fireEvent.click(
+        screen.getByRole("button", { name: actionName(kind, first) }),
+      );
+      await fireEvent.click(
+        screen.getByRole("button", { name: actionName(kind, opposite) }),
+      );
+      expect(chosen.request).toHaveBeenCalledOnce();
+      expect(p[opposite]!.request).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(
+    (["rating", "sync", "link"] as const).flatMap((kind) =>
+      (["accept", "dismiss"] as const).map((first) => [kind, first] as const),
+    ),
+  )(
+    "retains earlier %s %s after issuing B and restoring A",
+    async (kind, first) => {
+      const a = admitted(kind);
+      const b = admitted(kind);
+      const opposite = first === "accept" ? "dismiss" : "accept";
+      const view = render(PopupInvitation, { presentation: a });
+      const old = screen.getByRole("button", { name: actionName(kind, first) });
+      await fireEvent.click(old);
+      expect(a[first]!.request).toHaveBeenCalledOnce();
+      await view.rerender({ presentation: b });
+      await fireEvent.click(old);
+      expect(b[first]!.request).not.toHaveBeenCalled();
+      await fireEvent.click(
+        screen.getByRole("button", { name: actionName(kind, first) }),
+      );
+      expect(b[first]!.request).toHaveBeenCalledOnce();
+      await view.rerender({ presentation: a });
+      await fireEvent.click(
+        screen.getByRole("button", { name: actionName(kind, first) }),
+      );
+      expect(a[first]!.request).toHaveBeenCalledOnce();
+      await fireEvent.click(
+        screen.getByRole("button", { name: actionName(kind, opposite) }),
+      );
+      expect(a[opposite]!.request).not.toHaveBeenCalled();
+      view.unmount();
+      await fireEvent.click(old);
+      expect(a[first]!.request).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(
+    (
+      ["kind", "installation", "opening", "surface", "admission"] as const
+    ).flatMap((field) =>
+      (["accept", "dismiss"] as const).map((first) => [field, first] as const),
+    ),
+  )(
+    "renews %s authority with the same %s callback exactly once",
+    async (field, first) => {
+      const p = admitted();
+      const request = p[first]!.request;
+      const view = render(PopupInvitation, { presentation: p });
+      const old = screen.getByRole("button", {
+        name: actionName(p.kind, first),
+      });
+      await fireEvent.click(old);
+      expect(request).toHaveBeenCalledOnce();
+      const identity = { ...p.identity };
+      if (field === "installation" || field === "opening")
+        identity[field] += "-renewed";
+      if (field === "surface") identity.surface = "firefox";
+      const next = {
+        ...p,
+        kind: field === "kind" ? ("sync" as const) : p.kind,
+        identity,
+        accept: { ...p.accept!, identity: { ...identity } },
+        dismiss: { ...p.dismiss!, identity: { ...identity } },
+        rating: {
+          ...p.rating!,
+          display: {
+            ...p.rating!.display,
+            identity: { ...identity },
+            receiptId:
+              field === "admission"
+                ? "renewed-display"
+                : p.rating!.display.receiptId,
+          },
+        },
+      };
+      expect(next[first]!.request).toBe(request);
+      await view.rerender({ presentation: next });
+      await fireEvent.click(old);
+      expect(request).toHaveBeenCalledOnce();
+      const current = screen.getByRole("button", {
+        name: actionName(next.kind, first),
+      });
+      expect(current).not.toHaveAttribute("aria-disabled", "true");
+      await fireEvent.click(current);
+      await fireEvent.click(current);
+      expect(request).toHaveBeenCalledTimes(2);
+      await view.rerender({
+        presentation: { ...next, [first]: { ...next[first]! } },
+      });
+      await fireEvent.click(
+        screen.getByRole("button", { name: actionName(next.kind, first) }),
+      );
+      expect(request).toHaveBeenCalledTimes(2);
+      const opposite = first === "accept" ? "dismiss" : "accept";
+      await fireEvent.click(
+        screen.getByRole("button", { name: actionName(next.kind, opposite) }),
+      );
+      expect(next[opposite]!.request).not.toHaveBeenCalled();
+    },
+  );
+});

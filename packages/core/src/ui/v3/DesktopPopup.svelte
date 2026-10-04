@@ -77,16 +77,20 @@
       !desktopSetup &&
       !["pending", "failed", "caution"].includes(account?.status?.tone ?? ""),
   );
-  let setupRequested = $state.raw<{
-    identity: InvitationIntentPort["identity"];
-    request: InvitationIntentPort["request"];
-  }>();
+  let setupRequested = $state.raw<
+    {
+      identity: InvitationIntentPort["identity"];
+      request: InvitationIntentPort["request"];
+    }[]
+  >([]);
   function setupClaimed(port: InvitationIntentPort | undefined) {
     return Boolean(
       port &&
-      setupRequested &&
-      setupRequested.request === port.request &&
-      sameInvitationIdentity(setupRequested.identity, port.identity),
+      setupRequested.some(
+        (claim) =>
+          claim.request === port.request &&
+          sameInvitationIdentity(claim.identity, port.identity),
+      ),
     );
   }
   function setupIntent(
@@ -110,7 +114,7 @@
         identity.surface !== browser.toLowerCase()
       )
         return;
-      setupRequested = { identity, request: port.request };
+      setupRequested = [...setupRequested, { identity, request: port.request }];
       request?.();
     };
   }
