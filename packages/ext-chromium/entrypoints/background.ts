@@ -138,9 +138,62 @@ export default defineBackground(() => {
     chrome.runtime.id,
     chrome.runtime.getURL(""),
   );
+  // Admission belongs only to this process's actual install event. A duplicate callback cannot
+  // replenish an exhausted budget, and a wake/update never inherits a persisted retry grant.
+  let installAdmissionConsumed = false;
+  const initializeInstalledSettings = async (): Promise<void> => {
+    const rereadInstalledSettings = async (): Promise<void> => {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        const outcome = await cache.rereadAuthority();
+        if (outcome.status !== "unavailable") return; // a newer authority owns superseded reads
+        if (outcome.reason !== "read-failed")
+          throw new SettingsStorageRecovery(outcome.reason);
+      }
+      throw new SettingsStorageRecovery("read-failed");
+    };
+    let readbacks = 0;
+    let failure: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await settingsAuthority.initializeFreshAtomic();
+      } catch (error) {
+        if (error instanceof SettingsStorageRecovery) throw error;
+        failure = error;
+        // A rejected write may already have persisted. Only a successful read can resolve that
+        // ambiguity; any retained current record stops seeding without attributing it to us.
+        let absent = false;
+        while (readbacks < 3) {
+          readbacks += 1;
+          let current: Awaited<ReturnType<typeof settingsAuthority.get>>;
+          try {
+            current = await settingsAuthority.get();
+          } catch (readError) {
+            if (readError instanceof SettingsStorageRecovery) throw readError;
+            failure = readError;
+            continue;
+          }
+          if (current !== null) {
+            await rereadInstalledSettings();
+            return;
+          }
+          absent = true;
+          break;
+        }
+        if (!absent) throw failure;
+        // Parsed absence is not admission: the next SAMEwriter initializer checks all raw keys
+        // and observed history again. No new write is attempted while readback is ambiguous.
+        continue;
+      }
+      // hydrate() is memoized. A failed readiness read must never repeat fresh persistence.
+      await rereadInstalledSettings();
+      return;
+    }
+    throw failure;
+  };
   chrome.runtime.onInstalled.addListener((details) => {
-    if (details.reason === "install") {
-      void settingsAuthority.initializeFreshAtomic().then(() => cache.hydrate()).catch(heldInitialization);
+    if (details.reason === "install" && !installAdmissionConsumed) {
+      installAdmissionConsumed = true;
+      void initializeInstalledSettings().catch(heldInitialization);
     }
     analytics.onInstalled(details);
   });
