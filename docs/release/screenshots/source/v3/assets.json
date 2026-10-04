@@ -1,0 +1,56 @@
+{
+  "designVersion": "3.0.1",
+  "purpose": "synthetic-reference-only",
+  "publication": "held: actual working candidate, rights, supported floors and owner approval required",
+  "canvas": {
+    "width": 1280,
+    "height": 800,
+    "format": "png",
+    "theme": "light",
+    "textScale": 1
+  },
+  "comparison": {
+    "deviceScaleFactor": 2,
+    "parentRadius": 8,
+    "parentBackground": "#e9ebf2"
+  },
+  "export": { "deviceScaleFactor": 1, "parentRadius": 0 },
+  "frames": [
+    {
+      "id": "cws-1",
+      "scene": 1,
+      "headline": "Do what you came to do.",
+      "body": "Still removes Shorts, Reels and the TikTok website. Free, no account needed.",
+      "services": ["youtube", "instagram", "facebook", "tiktok"],
+      "open": null,
+      "proAccess": "locked",
+      "account": null,
+      "reference": "d41-d43-d45-store-assets-and-icons/01-chrome-1-1280-800.png",
+      "origin": { "x": 334, "y": 210 }
+    },
+    {
+      "id": "cws-2",
+      "scene": 2,
+      "headline": "Choose what stays.",
+      "body": "Turn off comments, related videos, Stories and more with Still Pro. One payment.",
+      "services": ["youtube", "tiktok"],
+      "open": "youtube",
+      "proAccess": "purchased",
+      "account": null,
+      "reference": "d41-d43-d45-store-assets-and-icons/02-chrome-2-1280-800.png",
+      "origin": { "x": 160, "y": 1040 }
+    },
+    {
+      "id": "cws-3",
+      "scene": 3,
+      "headline": "Same settings in every browser.",
+      "body": "Free, optional settings sync.",
+      "services": ["youtube", "instagram", "facebook", "tiktok"],
+      "open": null,
+      "proAccess": "locked",
+      "account": { "address": "sam@example.com", "status": "Settings synced." },
+      "reference": "d41-d43-d45-store-assets-and-icons/03-chrome-3-1280-800.png",
+      "origin": { "x": 160, "y": 940 }
+    }
+  ]
+}
