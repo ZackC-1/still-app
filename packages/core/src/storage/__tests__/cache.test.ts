@@ -4,6 +4,8 @@ import { DEFAULT_SETTINGS } from "@still/shared-types";
 import { SettingsCache } from "../cache.js";
 import { AtomicSettingsWriter, SettingsStorageRecovery, requireModernSettings } from "../atomic-settings.js";
 import { InMemoryStorageAdapter } from "../adapter.js";
+import { EntitlementCache } from "../../entitlement/cache.js";
+import { createDesktopPopupBinding } from "../../ui/v3/desktop-popup-binding.js";
 
 /** A cache backed by an in-memory adapter with a deterministic monotonic clock. */
 function makeCache(initial?: StillSettings) {
@@ -368,6 +370,63 @@ describe("SettingsCache", () => {
 
 
 describe("cache authority recovery supersession", () => {
+  it.each(["get", "initializeAtomic"] as const)("late successful %s hydration preserves a newer same-sequence ownership hold", async read => {
+    const storage = new InMemoryStorageAdapter(DEFAULT_SETTINGS);
+    const writer = new AtomicSettingsWriter(storage);
+    const durable = await writer.initialize("never-linked");
+    let release!: () => void;
+    let started!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const reached = new Promise<void>(resolve => { started = resolve; });
+    async function heldRead(record: typeof durable) {
+      started();
+      await gate;
+      return record;
+    }
+    const commitIntent = vi.fn(writer.commit.bind(writer));
+    const cache = new SettingsCache({
+      get: async () => heldRead((await storage.get())!),
+      initializeAtomic: async ownership => heldRead(await writer.initialize(ownership)),
+      set: storage.set.bind(storage), subscribe: storage.subscribe.bind(storage), commitIntent,
+    }, read === "initializeAtomic" ? { atomicOwnership: "never-linked" } : {});
+    const hydration = cache.hydrate();
+    await reached;
+    const stop = cache.watch();
+    const writes = vi.spyOn(storage, "set");
+    storage.emitExternal({ ...durable, atomic: { ...durable.atomic!, paused: "ownership-hold" } });
+    const held = structuredClone(cache.currentRecord());
+    const legacy = vi.fn(); cache.subscribe(legacy);
+    const access = new EntitlementCache({ get: async () => false, set: async () => {}, subscribe: () => () => {} });
+    const binding = createDesktopPopupBinding(cache, access);
+    const seen: (string | null)[] = [];
+    binding.subscribe(state => seen.push(state.reason));
+    try {
+      expect(binding.current().commandAvailability).toBe("unavailable");
+      expect(held.atomic!.sequence).toBe(durable.atomic!.sequence);
+      expect(held.settings).toEqual(durable.settings);
+      release();
+      await expect(hydration).resolves.toEqual(held.settings);
+      await expect(cache.whenHydrated()).resolves.toBeUndefined();
+      expect(seen).toEqual(["ownership-hold"]);
+      expect(cache.currentRecord()).toEqual(held);
+      expect(binding.current()).toMatchObject({ commandAvailability: "unavailable", reason: "ownership-hold" });
+      expect(await binding.setGlobalOn(false)).toEqual({ status: "unavailable", reason: "ownership-hold" });
+      expect(commitIntent).not.toHaveBeenCalled();
+      expect(await storage.get()).toMatchObject({ settings: durable.settings, atomic: held.atomic });
+
+      // A subsequent independent healthy authority reread may genuinely clear the hold.
+      storage.emitExternal(durable);
+      expect(binding.current()).toMatchObject({ commandAvailability: "ready", reason: null });
+      expect(seen).toEqual(["ownership-hold", null]);
+      expect(cache.currentRecord().atomic).toEqual(durable.atomic);
+      expect(await storage.get()).toEqual(durable);
+      expect(writes).not.toHaveBeenCalled();
+      expect(legacy).not.toHaveBeenCalled();
+    } finally {
+      release(); binding.stop(); stop();
+    }
+  });
+
   it.each([false, true])("late failed hydration cannot poison a later successful authority commit (retained=%s)", async retained => {
     const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 1 });
     const writer = new AtomicSettingsWriter(storage); const prior = await writer.initialize("unknown");
