@@ -7,6 +7,8 @@
     offer,
     confirmedAccount,
     accessHeld = false,
+    accessChecking = false,
+    accessVerify = false,
     restoreHeld = false,
     state = "idle",
     onSignIn,
@@ -17,9 +19,11 @@
   let canBuy = $derived(
     ownership === "none" &&
       !accessHeld &&
+      !accessChecking &&
+      !accessVerify &&
       !restoreHeld &&
       channel === "ready" &&
-      Boolean(offer?.price) &&
+      Boolean(offer?.price.trim()) &&
       state !== "failed",
   );
   function request() {
@@ -38,7 +42,7 @@
     <p class="card-body">
       You have Still Pro. New controls start off, so turn on the ones you want.
     </p>
-  {:else if ownership === "checking" || accessHeld}
+  {:else if (ownership === "checking" || accessChecking) && ownership !== "verify" && ownership !== "failed" && state !== "failed"}
     <h2 class="card-title">Still Pro</h2>
     <div class="status-line" data-tone="pending" role="status">
       <span class="glyph"><Glyph name="spinner" size={16} /></span>
@@ -69,7 +73,7 @@
       >
         {state === "pending" ? "Waiting for checkout…" : "Get Still Pro"}
       </button>
-    {:else if ownership === "verify"}
+    {:else if ownership === "verify" || (accessVerify && ownership !== "failed")}
       <div class="status-line" data-tone="caution" role="status">
         <span class="glyph"><Glyph name="clock" size={16} /></span>
         <div class="status-body">

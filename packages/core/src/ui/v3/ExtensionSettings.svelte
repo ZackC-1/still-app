@@ -29,7 +29,17 @@
     setup,
     help,
   }: ExtensionSettingsProps = $props();
-  let confirming = $state(false);
+  let deleteTarget = $state<{ address: string; handler: () => void } | null>(
+    null,
+  );
+  let deleteTargetCurrent = $derived(
+    deleteTarget !== null &&
+      deleteTarget.address === sync.account?.address &&
+      deleteTarget.handler === sync.account?.onDeleteAccount,
+  );
+  $effect(() => {
+    if (deleteTarget && !deleteTargetCurrent) deleteTarget = null;
+  });
   let knownMissing = $derived(
     FEATURE_REGISTRY.some(
       (row) => row.tier === "pro" && access.states[row.id] === "locked",
@@ -52,6 +62,17 @@
         ["checking", "verification_required"].includes(access.states[row.id]),
     ),
   );
+  let accessChecking = $derived(
+    FEATURE_REGISTRY.some(
+      (row) => row.tier === "pro" && access.states[row.id] === "checking",
+    ),
+  );
+  let accessVerify = $derived(
+    FEATURE_REGISTRY.some(
+      (row) =>
+        row.tier === "pro" && access.states[row.id] === "verification_required",
+    ),
+  );
   let restoreHeld = $derived(
     restore?.state === "checking" ||
       restore?.state === "verify" ||
@@ -62,7 +83,8 @@
       pro.ownership === "none" &&
       !restoreHeld &&
       pro.channel === "ready" &&
-      Boolean(pro.offer?.price) &&
+      Boolean(pro.offer?.price.trim()) &&
+      Boolean(sync.account?.confirmed ? pro.onBuy : pro.onSignIn) &&
       pro.state !== "pending" &&
       pro.state !== "failed",
   );
@@ -72,8 +94,23 @@
     else pro.onSignIn?.();
   }
   function confirmDelete() {
-    sync.account?.onDeleteAccount?.();
-    confirming = false;
+    const target = deleteTarget;
+    deleteTarget = null;
+    if (
+      target &&
+      target.address === sync.account?.address &&
+      target.handler === sync.account?.onDeleteAccount
+    )
+      target.handler();
+  }
+  function openDelete() {
+    const account = sync.account;
+    if (account?.onDeleteAccount) {
+      deleteTarget = {
+        address: account.address,
+        handler: account.onDeleteAccount,
+      };
+    }
   }
 </script>
 
@@ -128,18 +165,18 @@
       ? {
           ...sync.account,
           onDeleteAccount: sync.account.onDeleteAccount
-            ? () => {
-                confirming = true;
-              }
+            ? openDelete
             : undefined,
         }
       : undefined}
   />
-  {#if pro.ownership !== "owned"}
+  {#if pro.ownership !== "owned" && (pro.ownership !== "none" || knownMissing || accessHeld || (pro.state && pro.state !== "idle"))}
     <ProOfferCard
       {...pro}
       confirmedAccount={sync.account?.confirmed ?? false}
-      accessHeld={accessHeld || (pro.ownership === "none" && !knownMissing)}
+      {accessHeld}
+      {accessChecking}
+      {accessVerify}
       {restoreHeld}
     />
   {/if}
@@ -174,13 +211,13 @@
     </p>
   </section>
   <ConfirmationDialog
-    open={confirming}
+    open={deleteTargetCurrent}
     title="Delete your account?"
     body="This deletes your account and the settings synced to it. Settings on this device stay. A Still Pro purchase made in the Still app keeps working on that device."
     confirmLabel="Delete account"
-    onConfirm={sync.account?.onDeleteAccount ? confirmDelete : undefined}
+    onConfirm={deleteTargetCurrent ? confirmDelete : undefined}
     onCancel={() => {
-      confirming = false;
+      deleteTarget = null;
     }}
   />
 </div>

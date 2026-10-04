@@ -1,7 +1,8 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { FEATURE_REGISTRY, type ServiceId } from "@still/shared-types";
-  import { rowsFor, type DesktopPopupProps } from "./presentation.js";
+  import { rowsFor } from "./presentation.js";
+  import type { MobilePopupProps } from "./mobile-presentation.js";
   import { serviceIconSrc } from "./service-icons.js";
   import Toggle from "./Toggle.svelte";
   import FeatureRow from "./FeatureRow.svelte";
@@ -11,7 +12,10 @@
   let {
     settings,
     access,
-    browser,
+    host,
+    channelReady = false,
+    onSeePro,
+    setup,
     onGlobalChange,
     onServiceChange,
     onFeatureChange,
@@ -24,8 +28,7 @@
     services = ["youtube", "instagram", "facebook", "tiktok"],
     labels = {},
     features,
-    heroTitle,
-  }: DesktopPopupProps = $props();
+  }: MobilePopupProps = $props();
   let open = $state<ServiceId | null>(
     untrack(() => sectionMemory?.read() ?? null),
   );
@@ -47,11 +50,22 @@
     failed: "alert",
     caution: "clock",
   } as const;
-  let offer = $derived(
-    Boolean(onPurchase) &&
-      FEATURE_REGISTRY.some(
-        (row) => row.tier === "pro" && access.states[row.id] === "locked",
-      ) &&
+  const setupCopy = {
+    safari: [
+      "Still can't block on these websites yet.",
+      "In Safari, tap the extensions button, choose Still, then Always Allow on Every Website.",
+      "Show me how",
+    ],
+    firefox: [
+      "Still needs permission for these websites.",
+      "Firefox asks once. Allow it so Still can remove short-form video on supported sites.",
+      "Allow",
+    ],
+  } as const;
+  let knownMissing = $derived(
+    FEATURE_REGISTRY.some(
+      (row) => row.tier === "pro" && access.states[row.id] === "locked",
+    ) &&
       !FEATURE_REGISTRY.some(
         (row) =>
           row.tier === "pro" &&
@@ -63,21 +77,27 @@
           ].includes(access.states[row.id]),
       ),
   );
+  let offer = $derived(
+    host === "firefox" && channelReady && Boolean(onPurchase) && knownMissing,
+  );
+  let appActionReady = $derived(
+    host === "safari" && Boolean(onSeePro) && knownMissing,
+  );
+  function openPro() {
+    if (appActionReady) onSeePro?.();
+    else if (offer) onPurchase?.();
+  }
   function toggleSection(service: ServiceId) {
     open = open === service ? null : service;
     sectionMemory?.write(open);
   }
 </script>
 
-<div
-  class="still-ui app"
-  data-density="compact"
-  style="max-inline-size: 380px;"
->
+<div class="still-ui app" data-density="compact">
   <section class="hero compact" class:off={!settings.globalOn}>
     <div class="hero-text">
       <h1>
-        {heroTitle ?? (settings.globalOn ? "Still is active" : "Still is off")}
+        {settings.globalOn ? "Still is active" : "Still is off"}
       </h1>
     </div>
     <Toggle
@@ -87,6 +107,27 @@
       onBlue={settings.globalOn}
     />
   </section>
+  {#if setup}
+    <section class="card card-stack">
+      <div class="status-line" data-tone="caution">
+        <span class="glyph"><Glyph name="clock" size={16} /></span>
+        <div class="status-body">
+          <span>{setupCopy[host][0]}</span>
+          <span
+            class="muted"
+            style="font-size:calc(12.5px * var(--text-scale, 1));"
+            >{setupCopy[host][1]}</span
+          >
+        </div>
+      </div>
+      <button
+        type="button"
+        class="secondary block"
+        aria-disabled={!setup.onAction || undefined}
+        onclick={() => setup?.onAction?.()}>{setupCopy[host][2]}</button
+      >
+    </section>
+  {/if}
   <div
     class="service-group site-scroll services"
     data-paused={!settings.globalOn || undefined}
@@ -94,7 +135,9 @@
     {#each services as service, index (service)}
       {#if index > 0}<div class="divider"></div>{/if}
       {@const rows = rowsFor(service).filter(
-        (row) => !features || features.includes(row.id),
+        (row) =>
+          row.id !== "facebook.sponsored" &&
+          (!features || features.includes(row.id)),
       )}
       <div class="site-section" data-paused={!settings.globalOn || undefined}>
         <div class="service-row">
@@ -150,14 +193,10 @@
                     state={access.states[row.id]}
                     checked={settings.sites[row.id]}
                     inactive={!settings.globalOn || !settings.services[service]}
-                    unsupportedText="Not available in this browser. Your choice is saved."
+                    unsupportedText={`Not available in ${host === "safari" ? "Safari" : "this browser"}. Your choice is saved.`}
                     onChange={(next) => onFeatureChange(row.id, next)}
-                    onLock={offer
-                      ? () => {
-                          if (offer) onPurchase?.();
-                        }
-                      : undefined}
-                    lockLabel={`${labels[row.id] ?? row.label}. Included in Still Pro. See Still Pro`}
+                    onLock={appActionReady || offer ? openPro : undefined}
+                    lockLabel={`${labels[row.id] ?? row.label}. Included in Still Pro. ${host === "safari" ? "Open the Still app" : "See Still Pro"}`}
                   />
                 {/each}
               </div>
@@ -170,6 +209,15 @@
   {#if offer}<button type="button" class="secondary block" onclick={onPurchase}
       >Purchase Still Pro</button
     >{/if}
+  {#if host === "safari" && knownMissing}
+    <button
+      type="button"
+      class="secondary block"
+      aria-label="See Still Pro in the Still app"
+      aria-disabled={!appActionReady || undefined}
+      onclick={openPro}>See Still Pro</button
+    >
+  {/if}
   <section class="card card-stack">
     <div class="sync-row">
       <div class="sync-row-text">
@@ -209,18 +257,10 @@
     <button
       type="button"
       class="open-options"
-      aria-label={`Settings. Find Still in ${browser}.`}
+      aria-label={host === "safari"
+        ? "Settings. Opens Still settings."
+        : "Settings. Find Still in Firefox."}
       onclick={onSettings}>Settings</button
     ><a class="link" href={privacyUrl}>Privacy policy</a>
   </footer>
 </div>
-
-<style>
-  /* The approved desktop reference's section heading cascade wins over the
-     generic SettingsCard typography. Keep that result without review chrome. */
-  .sync-row-title {
-    margin: 0 0 4px;
-    font-size: 17px;
-    letter-spacing: -0.01em;
-  }
-</style>

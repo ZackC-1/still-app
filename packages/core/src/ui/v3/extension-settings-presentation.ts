@@ -30,6 +30,9 @@ export interface ProOfferCardProps {
   offer?: { price: string; priceNote?: string };
   confirmedAccount: boolean;
   accessHeld?: boolean;
+  /** Actual pending observation, separate from a held or completed access result. */
+  accessChecking?: boolean;
+  accessVerify?: boolean;
   restoreHeld?: boolean;
   state?: "idle" | "pending" | "failed" | "success";
   onSignIn?: () => void;
@@ -102,7 +105,11 @@ export interface ExtensionSettingsProps extends Pick<
   sync: SyncCardProps;
   pro: Omit<
     ProOfferCardProps,
-    "confirmedAccount" | "accessHeld" | "restoreHeld"
+    | "confirmedAccount"
+    | "accessHeld"
+    | "accessChecking"
+    | "accessVerify"
+    | "restoreHeld"
   >;
   restore?: RestoreStatusCardProps;
   link?: AccountLinkCardProps;
