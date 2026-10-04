@@ -1,4 +1,3 @@
-import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
@@ -215,8 +214,10 @@ describe("actual Chromium popup mount", () => {
     const saved = await f.authority.get();
     const first = await mountDesktop();
     expect(
-      screen.getByRole("button", { name: "YouTube Blocker" }),
-    ).toHaveAttribute("aria-expanded", "false");
+      screen
+        .getByRole("button", { name: "YouTube Blocker" })
+        .getAttribute("aria-expanded"),
+    ).toBe("false");
     await fireEvent.click(
       screen.getByRole("button", { name: "YouTube Blocker" }),
     );
@@ -227,11 +228,15 @@ describe("actual Chromium popup mount", () => {
     first.unmount();
     const second = await mountDesktop();
     expect(
-      screen.getByRole("button", { name: "Instagram Blocker" }),
-    ).toHaveAttribute("aria-expanded", "true");
+      screen
+        .getByRole("button", { name: "Instagram Blocker" })
+        .getAttribute("aria-expanded"),
+    ).toBe("true");
     expect(
-      screen.getByRole("button", { name: "YouTube Blocker" }),
-    ).toHaveAttribute("aria-expanded", "false");
+      screen
+        .getByRole("button", { name: "YouTube Blocker" })
+        .getAttribute("aria-expanded"),
+    ).toBe("false");
     await fireEvent.click(
       screen.getByRole("button", { name: "Instagram Blocker" }),
     );
@@ -255,8 +260,10 @@ describe("actual Chromium popup mount", () => {
         });
       await mountDesktop();
       expect(
-        screen.getByRole("button", { name: "YouTube Blocker" }),
-      ).toHaveAttribute("aria-expanded", "false");
+        screen
+          .getByRole("button", { name: "YouTube Blocker" })
+          .getAttribute("aria-expanded"),
+      ).toBe("false");
       await fireEvent.click(
         screen.getByRole("button", { name: "YouTube Blocker" }),
       );
