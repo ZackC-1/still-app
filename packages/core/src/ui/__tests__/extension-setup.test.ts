@@ -8,6 +8,10 @@ import {
 import type { RequestCodeOutcome, VerifyCodeOutcome, WebCheckoutOutcome } from "../../sync/ports.js";
 import type { CheckoutReconcileOutcome } from "../controller.svelte.js";
 import { PAID_TIER_ENABLED } from "@still/shared-types";
+import { DEFAULT_SETTINGS } from "@still/shared-types";
+import { SettingsCache, type StoredSettingsRecord, type SettingsIntent, SettingsStorageRecovery } from "../../storage/index.js";
+import { EntitlementCache } from "../../entitlement/cache.js";
+import type { createDesktopPopupBinding } from "../v3/desktop-popup-binding.js";
 
 const paidTierIt = it.runIf(PAID_TIER_ENABLED);
 const includedAccessIt = it.runIf(!PAID_TIER_ENABLED);
@@ -283,5 +287,266 @@ describe("extensionSupabaseConfig — the build-mode trust gate (fail-safe)", ()
       url: "https://x.supabase.co",
       anonKey: "anon-key",
     });
+  });
+});
+
+type CommittedPopupBinding = ReturnType<typeof createDesktopPopupBinding>;
+const bindingStops: (() => void)[] = [];
+afterEach(() => {
+  for (const stop of bindingStops.splice(0)) stop();
+  vi.restoreAllMocks();
+});
+
+/** Synthetic browser API only: the maintained adapter, writer and message router own commits. */
+async function installCommittedChrome() {
+  const store: Record<string, unknown> = {
+    "still:settings": { settings: structuredClone(DEFAULT_SETTINGS), syncMetadata: null },
+  };
+  const listeners = new Set<Listener>();
+  const set = vi.fn(async (items: Record<string, unknown>) => {
+    for (const [key, value] of Object.entries(items)) {
+      const oldValue = store[key];
+      store[key] = structuredClone(value);
+      for (const listener of [...listeners])
+        listener({ [key]: { oldValue, newValue: structuredClone(value) } }, "local");
+    }
+  });
+  const origin = "chrome-extension://synthetic/";
+  const sendMessage = vi.fn((message: unknown) => new Promise(resolve => {
+    router(message, { id: "synthetic", url: origin + "popup.html" }, resolve);
+  }));
+  vi.stubGlobal("chrome", {
+    storage: {
+      local: {
+        get: async (key: string) => key in store ? { [key]: structuredClone(store[key]) } : {},
+        set,
+      },
+      onChanged: {
+        addListener: (listener: Listener) => listeners.add(listener),
+        removeListener: (listener: Listener) => listeners.delete(listener),
+      },
+    },
+    runtime: { id: "synthetic", getURL: () => origin, sendMessage },
+  });
+  const authority = new ChromeStorageAdapter({ authority: true });
+  let commit = (intent: SettingsIntent) => authority.commitIntent(intent);
+  const router = createSettingsIntentRouter(intent => commit(intent), "synthetic", origin);
+  await authority.initializeAtomic("never-linked");
+  set.mockClear();
+  return {
+    store, authority, set, sendMessage, listeners,
+    port(next: typeof commit) { commit = next; },
+    async external(record: StoredSettingsRecord) { await set({ "still:settings": record }); },
+  };
+}
+
+function captureCommittedFactory(options: {
+  onLocalSettingsCommit?: (record: StoredSettingsRecord) => void;
+} = {}) {
+  const handed = vi.fn<(binding: CommittedPopupBinding) => void>();
+  let binding: CommittedPopupBinding | undefined;
+  const controller = createExtensionUiController(undefined, {
+    ...options,
+    onCommittedPopupBinding(value) {
+      binding = value;
+      bindingStops.push(value.stop);
+      handed(value);
+    },
+  });
+  expect(handed).toHaveBeenCalledOnce();
+  expect(binding).toBeDefined();
+  return { controller, binding: binding!, handed };
+}
+
+function boundaryGate() {
+  let open!: () => void;
+  const promise = new Promise<void>(resolve => { open = resolve; });
+  return { promise, open };
+}
+
+describe("createExtensionUiController — committed popup handoff", () => {
+  it("hands off the same watched caches once, initially held, then hydrates real free accountless state", async () => {
+    const f = await installCommittedChrome();
+    const settingsHydrate = vi.spyOn(SettingsCache.prototype, "hydrate");
+    const settingsObserve = vi.spyOn(SettingsCache.prototype, "subscribeAuthority");
+    const accessHydrate = vi.spyOn(EntitlementCache.prototype, "hydrate");
+    const accessObserve = vi.spyOn(EntitlementCache.prototype, "subscribeAccess");
+    const { controller, binding, handed } = captureCommittedFactory();
+    expect(binding.current().commandAvailability).toBe("unavailable");
+    expect(binding.current().settings).toBeNull();
+    expect(await binding.setGlobalOn(false)).toEqual({ status: "unavailable", reason: "modern-settings-unavailable" });
+    await flush();
+    expect(handed).toHaveBeenCalledOnce();
+    expect(settingsHydrate).toHaveBeenCalledOnce();
+    expect(settingsObserve).toHaveBeenCalledOnce();
+    expect(settingsObserve.mock.instances[0]).toBe(settingsHydrate.mock.instances[0]);
+    expect(accessHydrate).toHaveBeenCalledOnce();
+    expect(accessObserve).toHaveBeenCalledOnce();
+    expect(accessObserve.mock.instances[0]).toBe(accessHydrate.mock.instances[0]);
+    expect(binding.current().commandAvailability).toBe("ready");
+    expect(binding.current().settings!.globalOn).toBe(true);
+    expect(binding.current().access.states["youtube.shorts"]).toBe("free");
+    expect(binding.current().access.states["tiktok.all"]).toBe("free");
+    expect(controller.userId).toBeNull();
+    expect(controller.canSignIn).toBe(false);
+    expect(f.set).not.toHaveBeenCalled();
+    expect(f.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("uses real committed receipts for free controls and only local commits reach the existing hook", async () => {
+    const f = await installCommittedChrome();
+    const commits = vi.fn();
+    const { controller, binding } = captureCommittedFactory({ onLocalSettingsCommit: commits });
+    await flush();
+    for (const request of [
+      () => binding.setFeature("youtube.shorts", false),
+      () => binding.setService("instagram", false),
+      () => binding.setGlobalOn(false),
+    ]) {
+      const before = (await f.authority.get())!;
+      expect(await request()).toEqual({ status: "committed" });
+      expect((await f.authority.get())!.atomic!.sequence).toBe(before.atomic!.sequence + 1);
+    }
+    expect(binding.current().settings!.sites["youtube.shorts"]).toBe(false);
+    expect(binding.current().settings!.services.instagram).toBe(false);
+    expect(controller.settings.globalOn).toBe(false);
+    expect(commits).toHaveBeenCalledTimes(3);
+    const saved = await f.authority.get();
+    expect(await binding.setGlobalOn(false)).toEqual({ status: "not-committed" });
+    expect(await binding.setFeature("youtube.shorts", true)).toEqual({ status: "rejected", reason: "inactive-or-unavailable" });
+    expect(await binding.setService("youtube", false)).toEqual({ status: "rejected", reason: "inactive-or-unavailable" });
+    expect(await f.authority.get()).toEqual(saved);
+    expect(commits).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not grant unsupported optional controls from a legacy entitled boolean", async () => {
+    const f = await installCommittedChrome();
+    const { controller, binding } = captureCommittedFactory();
+    await flush();
+    await chrome.storage.local.set({ "still:entitlement": { entitled: true, updatedAt: Date.now() } });
+    await flush();
+    expect(controller.entitled).toBe(true);
+    expect(binding.current().access.states["youtube.comments"]).toBe("unsupported");
+    const saved = await f.authority.get();
+    expect(await binding.setFeature("youtube.comments", true)).toEqual({ status: "rejected", reason: "inactive-or-unavailable" });
+    expect(await f.authority.get()).toEqual(saved);
+  });
+
+  it.each(["paused", "unknown"] as const)("observes external %s authority without claiming a local commit or rewriting choices", async kind => {
+    const f = await installCommittedChrome();
+    const commits = vi.fn();
+    const { binding } = captureCommittedFactory({ onLocalSettingsCommit: commits });
+    await flush();
+    const saved = (await f.authority.get())!;
+    const displayed = binding.current().settings;
+    const record: StoredSettingsRecord = {
+      ...saved,
+      atomic: {
+        ...saved.atomic!, sequence: saved.atomic!.sequence + 1,
+        paused: kind === "paused" ? "ordering-hold" : null,
+        ownership: kind === "unknown" ? "unknown" : "never-linked",
+      },
+    };
+    const states: string[] = [];
+    binding.subscribe(state => states.push(state.commandAvailability));
+    await f.external(record);
+    const before = await f.authority.get();
+    expect(binding.current().commandAvailability).toBe("unavailable");
+    expect(states).toEqual(["ready", "unavailable"]);
+    expect(binding.current().settings).toEqual(displayed);
+    expect((await binding.setGlobalOn(false)).status).toBe("unavailable");
+    expect(await f.authority.get()).toEqual(before);
+    expect(commits).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [0, "modern-settings-unavailable"],
+    [101, "atomic-command-unavailable"],
+  ] as const)("holds initially missing atomic provenance at timestamp %s without creating defaults or a new authority", async (updatedAt, reason) => {
+    const f = await installCommittedChrome();
+    const saved = (await f.authority.get())!;
+    const unproven = { ...saved, settings: { ...saved.settings, updatedAt }, atomic: undefined };
+    await f.external(unproven);
+    f.set.mockClear();
+    const { binding } = captureCommittedFactory();
+    await flush();
+    expect(binding.current().commandAvailability).toBe("unavailable");
+    expect(binding.current().reason).toBe(reason);
+    expect((await binding.setGlobalOn(false)).status).toBe("unavailable");
+    expect(await f.authority.get()).toEqual(unproven);
+    expect(f.set).not.toHaveBeenCalled();
+    expect(f.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("returns non-commit for a refused request even when an independent real edit matches its value", async () => {
+    const f = await installCommittedChrome();
+    const { binding } = captureCommittedFactory();
+    await flush();
+    const reached = boundaryGate(), held = boundaryGate();
+    f.port(async () => {
+      reached.open();
+      await held.promise;
+      return { ...(await f.authority.get())!, intentCommitted: false };
+    });
+    const pending = binding.setGlobalOn(false);
+    await reached.promise;
+    await f.authority.commitIntent({ path: "globalOn", value: false, updatedAt: 101 });
+    held.open();
+    expect(await pending).toEqual({ status: "not-committed" });
+    expect(binding.current().settings!.globalOn).toBe(false);
+  });
+
+  it("keeps refused authority writes truthful and saved choices intact", async () => {
+    const f = await installCommittedChrome();
+    const { binding } = captureCommittedFactory();
+    await flush();
+    const saved = await f.authority.get();
+    f.port(async () => { throw new SettingsStorageRecovery("authority-unavailable"); });
+    expect(await binding.setGlobalOn(false)).toEqual({ status: "unavailable", reason: "authority-unavailable" });
+    expect(binding.current().settings!.globalOn).toBe(true);
+    expect(await f.authority.get()).toEqual(saved);
+    expect(f.set).not.toHaveBeenCalled();
+  });
+
+  it("stops new commands and late views while an already-admitted real write can still commit", async () => {
+    const f = await installCommittedChrome();
+    const { controller, binding } = captureCommittedFactory();
+    await flush();
+    const reached = boundaryGate(), held = boundaryGate();
+    f.port(async intent => { reached.open(); await held.promise; return f.authority.commitIntent(intent); });
+    const listener = vi.fn();
+    binding.subscribe(listener);
+    const pending = binding.setGlobalOn(false);
+    await reached.promise;
+    binding.stop();
+    const stopped = binding.current();
+    listener.mockClear();
+    const calls = f.sendMessage.mock.calls.length;
+    expect(await binding.setGlobalOn(false)).toEqual({ status: "unavailable", reason: "stopped" });
+    expect(f.sendMessage).toHaveBeenCalledTimes(calls);
+    held.open();
+    expect(await pending).toEqual({ status: "committed" });
+    expect((await f.authority.get())!.settings.globalOn).toBe(false);
+    expect(controller.settings.globalOn).toBe(false); // Factory page-lifetime watchers remain.
+    expect(listener).not.toHaveBeenCalled();
+    expect(binding.current()).toEqual(stopped);
+  });
+
+  it("stops the handed binding and propagates a callback failure", async () => {
+    const f = await installCommittedChrome();
+    let binding: CommittedPopupBinding | undefined;
+    const failure = new Error("Synthetic handoff failed");
+    expect(() => createExtensionUiController(undefined, {
+      onCommittedPopupBinding(value) { binding = value; bindingStops.push(value.stop); throw failure; },
+    })).toThrow(failure);
+    expect(binding!.current().reason).toBe("stopped");
+    await flush();
+    expect(await binding!.setGlobalOn(false)).toEqual({ status: "unavailable", reason: "stopped" });
+    const listener = vi.fn();
+    binding!.subscribe(listener);
+    const saved = (await f.authority.get())!;
+    await f.external({ ...saved, atomic: { ...saved.atomic!, sequence: saved.atomic!.sequence + 1, paused: "ordering-hold" } });
+    expect(listener).not.toHaveBeenCalled();
+    expect(f.sendMessage).not.toHaveBeenCalled();
   });
 });
