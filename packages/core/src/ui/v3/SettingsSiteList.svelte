@@ -17,6 +17,7 @@
     features,
     labels = {},
     onProAction,
+    commandsDisabled = false,
   }: SettingsSiteListProps = $props();
   let open = $state<ServiceId | null>(
     untrack(() => sectionMemory?.read() ?? null),
@@ -80,8 +81,10 @@
           </div>{/if}
         <Toggle
           checked={settings.services[service]}
-          onChange={(next) => onServiceChange(service, next)}
-          disabled={!settings.globalOn}
+          onChange={(next) => {
+            if (!commandsDisabled) onServiceChange(service, next);
+          }}
+          disabled={!settings.globalOn || commandsDisabled}
           label={serviceLabels[service]}
         />
       </div>
@@ -98,7 +101,9 @@
               {#each rows as row (row.id)}
                 {@const state = access.states[row.id]}
                 {@const inactive =
-                  !settings.globalOn || !settings.services[service]}
+                  !settings.globalOn ||
+                  !settings.services[service] ||
+                  commandsDisabled}
                 {@const label = labels[row.id] ?? row.label}
                 <FeatureRow
                   id={row.id}
@@ -110,7 +115,9 @@
                   note={row.id === "instagram.explore"
                     ? "Search stays."
                     : undefined}
-                  onChange={(next) => onFeatureChange(row.id, next)}
+                  onChange={(next) => {
+                    if (!commandsDisabled) onFeatureChange(row.id, next);
+                  }}
                   onLock={onProAction}
                   lockLabel={`${label}. Included in Still Pro. See Still Pro`}
                 />

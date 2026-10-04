@@ -1,4 +1,5 @@
 import type { DesktopPopupProps } from "./presentation.js";
+import type { Snippet } from "svelte";
 
 export interface OperationStatus {
   tone: "pending" | "success" | "failed" | "caution" | "info";
@@ -10,7 +11,10 @@ export interface OperationStatus {
 
 export interface SyncCardProps {
   account?: {
-    address: string;
+    address?: string;
+    /** Actual account and session revision supplied by the host, never inferred from email. */
+    identity?: string;
+    revision?: number;
     /** Actual caller-confirmed session; an address alone is not checkout authority. */
     confirmed: boolean;
     status?: OperationStatus;
@@ -77,6 +81,7 @@ export type SettingsSiteListProps = Pick<
   | "services"
   | "features"
   | "labels"
+  | "commandsDisabled"
 > & { onProAction?: () => void };
 
 export interface ConfirmationDialogProps {
@@ -99,9 +104,10 @@ export interface ExtensionSettingsProps extends Pick<
   | "services"
   | "features"
   | "labels"
+  | "commandsDisabled"
 > {
   sync: SyncCardProps;
-  pro: Omit<
+  pro?: Omit<
     ProOfferCardProps,
     | "confirmedAccount"
     | "accessHeld"
@@ -111,7 +117,9 @@ export interface ExtensionSettingsProps extends Pick<
   >;
   restore?: RestoreStatusCardProps;
   link?: AccountLinkCardProps;
-  sharing: SharingCardProps;
+  sharing?: SharingCardProps;
+  /** Existing real privacy actions when no genuine combined-consent producer is supplied. */
+  privacyActions?: Snippet;
   /** Verified setup instructions and action, supplied without fabricated permission state. */
   setup?: { detail: string; onAction?: () => void };
   help: {

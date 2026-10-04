@@ -27,7 +27,7 @@
     </div>
   {/if}
   {#if account}
-    <p class="synced">{account.address}</p>
+    {#if account.address}<p class="synced">{account.address}</p>{/if}
     {#if account.status}
       <div
         class="status-line"

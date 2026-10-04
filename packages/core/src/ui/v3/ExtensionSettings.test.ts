@@ -41,7 +41,10 @@ async function fixture(state: AccessState = "purchased") {
   for (const row of FEATURE_REGISTRY)
     if (row.tier === "pro") states[row.id] = state;
   let pending: Promise<unknown> = Promise.resolve();
-  const props: ExtensionSettingsProps = {
+  const props: ExtensionSettingsProps & {
+    pro: NonNullable<ExtensionSettingsProps["pro"]>;
+    sharing: NonNullable<ExtensionSettingsProps["sharing"]>;
+  } = {
     settings: requireModernSettings(cache.currentRecord()),
     access: { ...access, states },
     onGlobalChange: vi.fn((next: boolean) => {
@@ -1006,6 +1009,192 @@ describe("controlled D03 extension settings", () => {
     await view.rerender(props);
     await requestBoth();
     expect(buy).toHaveBeenCalledTimes(4);
+    view.unmount();
+  });
+});
+
+describe("options host leaf contracts", () => {
+  it("holds current global, service and free feature callbacks while preserving saved choices and focus", async () => {
+    const { props, storage } = await fixture("free");
+    props.sectionMemory = { read: () => "youtube", write: vi.fn() };
+    const view = render(ExtensionSettings, { props });
+    const global = screen.getByRole("switch", { name: "Still" });
+    const service = screen.getByRole("switch", { name: "Still on YouTube" });
+    const shorts = screen.getByRole("switch", { name: "Shorts" });
+    const saved = await storage.get();
+    await view.rerender({ ...props, commandsDisabled: true });
+    for (const toggle of [global, service, shorts]) {
+      toggle.focus();
+      expect(toggle).toHaveFocus();
+      expect(toggle).not.toHaveAttribute("disabled");
+      await fireEvent.click(toggle);
+    }
+    expect(props.onGlobalChange).not.toHaveBeenCalled();
+    expect(props.onServiceChange).not.toHaveBeenCalled();
+    expect(props.onFeatureChange).not.toHaveBeenCalled();
+    for (const toggle of [global, service, shorts]) {
+      expect(toggle).toHaveAttribute("aria-disabled", "true");
+      expect(toggle).toHaveAttribute("aria-checked", "true");
+    }
+    expect(await storage.get()).toEqual(saved);
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Facebook Blocker" }),
+    );
+    expect(props.sectionMemory.write).toHaveBeenCalledWith("facebook");
+    expect(document.querySelectorAll(".service-options.open")).toHaveLength(1);
+    await view.rerender({ ...props, commandsDisabled: false });
+    await fireEvent.click(global);
+    expect(props.onGlobalChange).toHaveBeenCalledExactlyOnceWith(false);
+    view.unmount();
+  });
+
+  it("retains real signed-in status and account actions without an email address", async () => {
+    const { props } = await fixture("free");
+    const signOut = vi.fn(),
+      remove = vi.fn(),
+      retry = vi.fn();
+    props.sync.account = {
+      confirmed: true,
+      identity: "actual-account-A",
+      revision: 1,
+      onSignOut: signOut,
+      onDeleteAccount: remove,
+      status: {
+        tone: "failed",
+        text: "Sync did not finish.",
+        actionLabel: "Try again",
+        onAction: retry,
+      },
+    };
+    const view = render(ExtensionSettings, { props });
+    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+    expect(
+      screen.queryByText(
+        "Free. Keep your settings updated across every supported surface",
+      ),
+    ).toBeNull();
+    expect(screen.getByText("Sync did not finish.")).toBeVisible();
+    expect(document.querySelector(".synced")).toBeNull();
+    await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    expect(retry).toHaveBeenCalledOnce();
+    expect(signOut).toHaveBeenCalledOnce();
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Delete account" }),
+    );
+    await fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", {
+        name: "Delete account",
+      }),
+    );
+    expect(remove).toHaveBeenCalledOnce();
+    view.unmount();
+  });
+
+  it.each(["identity", "revision", "ABA"] as const)(
+    "invalidates a same-address, same-handler deletion target after actual %s replacement",
+    async (change) => {
+      const { props } = await fixture("free");
+      const remove = vi.fn();
+      const account = {
+        address: "same@fixture.test",
+        confirmed: true,
+        identity: "account-A",
+        revision: 1,
+        onDeleteAccount: remove,
+      };
+      props.sync.account = account;
+      const view = render(ExtensionSettings, { props });
+      await fireEvent.click(
+        screen.getByRole("button", { name: "Delete account" }),
+      );
+      expect(screen.getByRole("dialog")).toBeVisible();
+      const next =
+        change === "identity"
+          ? { ...account, identity: "account-B" }
+          : { ...account, revision: 2 };
+      await view.rerender({ ...props, sync: { ...props.sync, account: next } });
+      if (change === "ABA")
+        await view.rerender({
+          ...props,
+          sync: { ...props.sync, account: { ...account, revision: 3 } },
+        });
+      const stale = screen.queryByRole("dialog");
+      if (stale)
+        await fireEvent.click(
+          within(stale).getByRole("button", { name: "Delete account" }),
+        );
+      expect(remove).not.toHaveBeenCalled();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      await fireEvent.click(
+        screen.getByRole("button", { name: "Delete account" }),
+      );
+      await fireEvent.click(
+        within(screen.getByRole("dialog")).getByRole("button", {
+          name: "Delete account",
+        }),
+      );
+      expect(remove).toHaveBeenCalledOnce();
+      view.unmount();
+    },
+  );
+
+  it("omits absent combined-consent and paid producers without fabricating a panel or callback", async () => {
+    const { props } = await fixture("locked");
+    const view = render(ExtensionSettings, {
+      props: { ...props, sharing: undefined, pro: undefined },
+    });
+    expect(
+      screen.queryByText("Share your email and usage data with Still?"),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("switch", { name: "Share email and usage data" }),
+    ).toBeNull();
+    expect(
+      screen.queryByText("Still Pro can't be bought here yet."),
+    ).toBeNull();
+    expect(screen.queryByText("Checking your Still Pro access…")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Get Still Pro" })).toBeNull();
+    expect(screen.getByText("Settings sync")).toBeVisible();
+    expect(screen.queryByText("Still Pro and sync")).toBeNull();
+    expect(screen.getByRole("switch", { name: "Still" })).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Privacy policy" }),
+    ).toBeVisible();
+    view.unmount();
+  });
+});
+
+describe("caller supplied privacy action slot", () => {
+  it("keeps supplied privacy actions operational without representing them as combined consent", async () => {
+    const { createRawSnippet } = await import("svelte");
+    const optOut = vi.fn();
+    const privacyActions = createRawSnippet(() => ({
+      render: () =>
+        '<button type="button">Keep legacy usage sharing off</button>',
+      setup: (node) => {
+        node.addEventListener("click", optOut);
+        return () => node.removeEventListener("click", optOut);
+      },
+    }));
+    const { props } = await fixture("free");
+    const view = render(ExtensionSettings, {
+      props: { ...props, sharing: undefined, pro: undefined, privacyActions },
+    });
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Keep legacy usage sharing off" }),
+    );
+    expect(optOut).toHaveBeenCalledOnce();
+    expect(
+      screen.queryByRole("switch", { name: "Share email and usage data" }),
+    ).toBeNull();
+    await view.rerender({ ...props, privacyActions });
+    expect(
+      screen.getByRole("switch", { name: "Share email and usage data" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Keep legacy usage sharing off" }),
+    ).toBeNull();
     view.unmount();
   });
 });
