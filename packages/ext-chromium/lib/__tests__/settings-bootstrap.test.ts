@@ -772,12 +772,8 @@ describe("maintained background DNR free-core choice", () => {
       });
     }
     expect(h.store[KEY]).toMatchObject({
-      atomic: {
-        pending: [
-          { operations: [{ path: "sites.youtube.shorts", value: false }] },
-          { operations: [{ path: "sites.youtube.shorts", value: true }] },
-        ],
-      },
+      // Retained local-only edits preserve the existing journal; they mint no cloud requests.
+      atomic: { pending: retained.atomic.pending },
     });
   });
 });
