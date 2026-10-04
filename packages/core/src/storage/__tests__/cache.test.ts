@@ -21,6 +21,116 @@ function settings(over: Partial<StillSettings> = {}): StillSettings {
   return { ...DEFAULT_SETTINGS, ...over };
 }
 
+describe("newer legacy hydration after delayed command receipts", () => {
+  function gate() {
+    let release!: () => void;
+    const promise = new Promise<void>(resolve => { release = resolve; });
+    return { promise, release };
+  }
+
+  function record(globalOn: boolean, updatedAt: number, syncEpoch: number, version: number): StoredSettingsRecord {
+    return { settings: settings({ globalOn, updatedAt }), syncEpoch,
+      syncMetadata: { version, serverUpdatedAt: "2026-07-09T18:00:00.000Z", lastWriteId: null } };
+  }
+
+  const schedules = [false, true].flatMap(watch => [false, true].flatMap(changed =>
+    ["epoch", "version"].map(authority => ({ watch, changed, authority }))));
+
+  it.each(schedules)("recovers newer $authority authority (watch=$watch, changed=$changed)", async scenario => {
+    const saved = record(scenario.changed, 9000, 1, 5);
+    const storage = new InMemoryStorageAdapter(saved);
+    const writer = new AtomicSettingsWriter(storage);
+    const commandWritten = gate(); const commandReply = gate();
+    const readCaptured = gate(); const readReply = gate();
+    let receipt!: StoredSettingsRecord;
+    let captured: StoredSettingsRecord | null = null;
+    const cache = new SettingsCache({
+      get: async () => { captured = await storage.get(); readCaptured.release(); await readReply.promise; return captured; },
+      set: storage.set.bind(storage), subscribe: storage.subscribe.bind(storage),
+      commitIntent: async intent => {
+        receipt = await writer.commit(intent);
+        commandWritten.release(); await commandReply.promise; return receipt;
+      },
+    }, { initial: saved.settings, now: () => 5000 });
+    const legacy = vi.fn(); cache.subscribe(legacy);
+    const authority: StoredSettingsRecord[] = [];
+    cache.subscribeAuthority(() => authority.push(structuredClone(cache.currentRecord())));
+    const writes = vi.spyOn(storage, "set");
+    const stop = scenario.watch ? cache.watch() : () => {};
+    const old = { ...saved, settings: settings({ globalOn: false, updatedAt: scenario.changed ? 5000 : 9000 }) };
+    const newer = record(true, 1, scenario.authority === "epoch" ? 2 : 1, scenario.authority === "epoch" ? 1 : 6);
+    try {
+      const command = cache.setGlobalOn(false);
+      await commandWritten.promise;
+      expect(receipt).toEqual({ ...old, intentCommitted: scenario.changed });
+      expect(await storage.get()).toEqual(old);
+      // The actual writer has finished; only its transport reply remains delayed.
+      await expect(writer.replace(newer)).resolves.toEqual(newer);
+      const hydration = cache.hydrate(); const settled = cache.whenHydrated();
+      await readCaptured.promise;
+      expect(captured).toEqual(newer);
+      commandReply.release();
+      await expect(command).resolves.toEqual(old.settings);
+      expect(cache.currentRecord()).toEqual(old);
+      expect(await storage.get()).toEqual(newer);
+      expect(legacy.mock.calls).toEqual(scenario.changed ? [[old.settings, "local"]] : []);
+      readReply.release();
+      await expect(hydration).resolves.toEqual(newer.settings);
+      await expect(settled).resolves.toBeUndefined();
+      await expect(cache.whenHydrated()).resolves.toBeUndefined();
+      expect(cache.currentRecord()).toEqual(newer);
+      expect(cache.currentSyncMetadata()).toEqual(newer.syncMetadata);
+      expect(await storage.get()).toEqual(newer);
+      expect(legacy.mock.calls).toEqual([
+        ...(scenario.changed ? [[old.settings, "local"]] : []), [newer.settings, "external"],
+      ]);
+      expect(authority).toEqual(scenario.watch
+        ? [...(scenario.changed ? [old] : []), newer, old, newer] : [old, newer]);
+      expect(writes.mock.calls).toEqual([...(scenario.changed ? [[old]] : []), [newer]]);
+    } finally { commandReply.release(); readReply.release(); stop(); }
+  });
+
+  it.each([undefined, 5])("keeps a real no-op receipt over an older same-authority read (version=%s)", async version => {
+    const saved: StoredSettingsRecord = { settings: settings({ globalOn: true, updatedAt: 9000 }), syncEpoch: 1,
+      syncMetadata: version === undefined ? null : record(true, 9000, 1, version).syncMetadata };
+    const storage = new InMemoryStorageAdapter(saved);
+    const writer = new AtomicSettingsWriter(storage);
+    const readCaptured = gate(); const readReply = gate();
+    const cache = new SettingsCache({
+      get: async () => { const captured = await storage.get(); readCaptured.release(); await readReply.promise; return captured; },
+      set: storage.set.bind(storage), subscribe: storage.subscribe.bind(storage), commitIntent: writer.commit.bind(writer),
+    }, { now: () => 5000 });
+    const legacy = vi.fn(); cache.subscribe(legacy);
+    const authority: StoredSettingsRecord[] = [];
+    cache.subscribeAuthority(() => authority.push(structuredClone(cache.currentRecord())));
+    const writes = vi.spyOn(storage, "set");
+    const hydration = cache.hydrate(); const settled = cache.whenHydrated();
+    await readCaptured.promise;
+    const stop = cache.watch();
+    const committed = { ...saved, settings: settings({ globalOn: false, updatedAt: 5000 }) };
+    try {
+      // A real same-authority write moves the device clock backwards while the older get is held.
+      await expect(writer.commit({ path: "globalOn", value: false, updatedAt: 5000 }))
+        .resolves.toEqual({ ...committed, intentCommitted: true });
+      const receipt = await writer.commit({ path: "globalOn", value: false, updatedAt: 5000 });
+      expect(receipt).toEqual({ ...committed, intentCommitted: false });
+      await expect(cache.setGlobalOn(false)).resolves.toEqual(committed.settings);
+      expect(cache.currentRecord()).toEqual(committed);
+      const before = [...authority]; const legacyBefore = [...legacy.mock.calls];
+      readReply.release();
+      await expect(hydration).resolves.toEqual(committed.settings);
+      await expect(settled).resolves.toBeUndefined();
+      await expect(cache.whenHydrated()).resolves.toBeUndefined();
+      expect(cache.currentRecord()).toEqual(committed);
+      expect(cache.currentSyncMetadata()).toEqual(saved.syncMetadata);
+      expect(await storage.get()).toEqual(committed);
+      expect(authority).toEqual(before);
+      expect(legacy.mock.calls).toEqual(legacyBefore);
+      expect(writes).toHaveBeenCalledExactlyOnceWith(committed);
+    } finally { readReply.release(); stop(); }
+  });
+});
+
 describe("legacy hydration arbitration", () => {
   function record(globalOn: boolean, updatedAt: number, version?: number, syncEpoch = 0): StoredSettingsRecord {
     return { settings: settings({ globalOn, updatedAt }), syncEpoch,

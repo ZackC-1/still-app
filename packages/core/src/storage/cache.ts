@@ -106,10 +106,14 @@ export class SettingsCache {
     try {
       const stored = this.atomicOwnership !== undefined && this.adapter.initializeAtomic
         ? await this.adapter.initializeAtomic(this.atomicOwnership) : await this.adapter.get();
-      // Accepted command/authority results supersede captured reads, including legacy receipts
-      // whose clock moved backwards. Legacy notifications still arbitrate by epoch, server
-      // version, and timestamp; either atomic record retains the authority-ticket fence.
-      if (stored && committedGeneration === this.committedGeneration &&
+      // Same-authority captured reads cannot undo accepted backwards-clock command receipts.
+      // A demonstrably newer legacy epoch/version still reaches the existing record arbitration;
+      // either atomic record retains both the command-generation and authority-ticket fences.
+      const newerLegacyAuthority = stored && !stored.atomic && !this.atomic && stored.syncEpoch !== undefined &&
+        (stored.syncEpoch > this.syncEpoch || stored.syncEpoch === this.syncEpoch &&
+          stored.syncMetadata !== null && this.syncMetadata !== null &&
+          stored.syncMetadata.version > this.syncMetadata.version);
+      if (stored && (committedGeneration === this.committedGeneration || newerLegacyAuthority) &&
         ((!stored.atomic && !this.atomic) || authorityTicket === this.authorityTicket))
         void this.applyStoredRecord(stored, "external");
       return this.snapshot;
