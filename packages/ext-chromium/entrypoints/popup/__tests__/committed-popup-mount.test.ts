@@ -1,3 +1,4 @@
+import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
@@ -11,6 +12,7 @@ import { DEFAULT_SETTINGS } from "@still/shared-types";
 import {
   ChromeStorageAdapter,
   createSettingsIntentRouter,
+  requireModernSettings,
   type SettingsIntent,
 } from "@still/core/storage";
 import {
@@ -55,6 +57,7 @@ afterEach(async () => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+  localStorage.clear();
 });
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
@@ -185,6 +188,132 @@ async function installBrowser() {
 }
 
 describe("actual Chromium popup mount", () => {
+  async function mountDesktop() {
+    let binding!: CommittedPopupBinding;
+    const controller = createExtensionUiController(undefined, {
+      onCommittedPopupBinding(value) {
+        binding = value;
+        stops.push(value.stop);
+      },
+    });
+    await flush();
+    const view = render(PopupApp, {
+      controller,
+      committedPopupBinding: binding,
+      surfaceGuidance: CHROMIUM_SURFACE_GUIDANCE,
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "YouTube Blocker" }),
+      ).toBeTruthy(),
+    );
+    return view;
+  }
+
+  it("remembers one open section on this origin across popup lifetimes without changing saved blocking choices", async () => {
+    const f = await installBrowser();
+    const saved = await f.authority.get();
+    const first = await mountDesktop();
+    expect(
+      screen.getByRole("button", { name: "YouTube Blocker" }),
+    ).toHaveAttribute("aria-expanded", "false");
+    await fireEvent.click(
+      screen.getByRole("button", { name: "YouTube Blocker" }),
+    );
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Instagram Blocker" }),
+    );
+    expect(localStorage.getItem("still-popup-open")).toBe("instagram");
+    first.unmount();
+    const second = await mountDesktop();
+    expect(
+      screen.getByRole("button", { name: "Instagram Blocker" }),
+    ).toHaveAttribute("aria-expanded", "true");
+    expect(
+      screen.getByRole("button", { name: "YouTube Blocker" }),
+    ).toHaveAttribute("aria-expanded", "false");
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Instagram Blocker" }),
+    );
+    expect(localStorage.getItem("still-popup-open")).toBeNull();
+    expect(await f.authority.get()).toEqual(saved);
+    second.unmount();
+  });
+
+  it.each(["malformed", "throwing-read", "throwing-write"])(
+    "keeps real controls usable with %s presentation memory",
+    async (mode) => {
+      const f = await installBrowser();
+      localStorage.setItem("still-popup-open", "not-a-service");
+      if (mode === "throwing-read")
+        vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+          throw new Error("Synthetic storage denial");
+        });
+      if (mode === "throwing-write")
+        vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+          throw new Error("Synthetic storage denial");
+        });
+      await mountDesktop();
+      expect(
+        screen.getByRole("button", { name: "YouTube Blocker" }),
+      ).toHaveAttribute("aria-expanded", "false");
+      await fireEvent.click(
+        screen.getByRole("button", { name: "YouTube Blocker" }),
+      );
+      await fireEvent.click(screen.getByRole("switch", { name: "Shorts" }));
+      await waitFor(async () =>
+        expect(
+          requireModernSettings((await f.authority.get())!).sites[
+            "youtube.shorts"
+          ],
+        ).toBe(false),
+      );
+      expect(
+        requireModernSettings((await f.authority.get())!).services.youtube,
+      ).toBe(true);
+    },
+  );
+
+  it("mounts the desktop expander and commits Shorts through the actual authority without a legacy setter", async () => {
+    const f = await installBrowser();
+    let binding!: CommittedPopupBinding;
+    const controller = createExtensionUiController(undefined, {
+      onCommittedPopupBinding(value) {
+        binding = value;
+        stops.push(value.stop);
+      },
+    });
+    await flush();
+    const legacy = vi.spyOn(controller, "toggleService");
+    render(PopupApp, {
+      controller,
+      committedPopupBinding: binding,
+      surfaceGuidance: CHROMIUM_SURFACE_GUIDANCE,
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "YouTube Blocker" }),
+      ).toBeTruthy(),
+    );
+    await fireEvent.click(
+      screen.getByRole("button", { name: "YouTube Blocker" }),
+    );
+    const before = (await f.authority.get())!;
+    await fireEvent.click(screen.getByRole("switch", { name: "Shorts" }));
+    await waitFor(async () =>
+      expect(
+        requireModernSettings((await f.authority.get())!).sites[
+          "youtube.shorts"
+        ],
+      ).toBe(false),
+    );
+    const after = (await f.authority.get())!;
+    expect(after.atomic!.sequence).toBe(before.atomic!.sequence + 1);
+    expect(requireModernSettings(after).services.youtube).toBe(true);
+    expect(requireModernSettings(after).sites["instagram.reels"]).toBe(true);
+    expect(legacy).not.toHaveBeenCalled();
+  });
+
   it("real main captures the factory binding, preserves actual Settings/auth routes and emits only committed toggle messages", async () => {
     const f = await installBrowser();
     vi.stubEnv("VITE_SUPABASE_URL", "https://synthetic.invalid");
@@ -192,7 +321,7 @@ describe("actual Chromium popup mount", () => {
     document.body.innerHTML = '<div id="app"></div>';
     await import("../main.js");
     await waitFor(() =>
-      expect(screen.getByRole("switch", { name: "Still on/off" })).toBeTruthy(),
+      expect(screen.getByRole("switch", { name: "Still" })).toBeTruthy(),
     );
     const toggles = () =>
       f.messages.filter(
@@ -201,7 +330,7 @@ describe("actual Chromium popup mount", () => {
           ["global_toggled", "service_toggled"].includes(String(message.name)),
       );
     expect(toggles()).toEqual([]);
-    await fireEvent.click(screen.getByRole("switch", { name: "Still on/off" }));
+    await fireEvent.click(screen.getByRole("switch", { name: "Still" }));
     await waitFor(() =>
       expect(toggles()).toEqual([
         {
@@ -221,7 +350,7 @@ describe("actual Chromium popup mount", () => {
     await flush();
     expect(toggles()).toHaveLength(1);
     await fireEvent.click(
-      screen.getByRole("switch", { name: "Still on Instagram Reels" }),
+      screen.getByRole("switch", { name: "Still on Instagram" }),
     );
     await waitFor(() => expect(toggles()).toHaveLength(2));
     expect(toggles()[1]).toMatchObject({
@@ -232,16 +361,14 @@ describe("actual Chromium popup mount", () => {
       ...(await f.authority.get())!,
       intentCommitted: false,
     }));
-    await fireEvent.click(screen.getByRole("switch", { name: "Still on/off" }));
+    await fireEvent.click(screen.getByRole("switch", { name: "Still" }));
     await flush();
     expect(toggles()).toHaveLength(2);
     await fireEvent.click(
-      screen.getByRole("button", { name: /Open settings & setup guide/ }),
+      screen.getByRole("button", { name: /Settings. Find Still in Chrome/ }),
     );
     expect(f.openOptionsPage).toHaveBeenCalledOnce();
-    await fireEvent.click(
-      screen.getByRole("button", { name: STRINGS.auth.signInCta }),
-    );
+    await fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
     expect(screen.getByRole("dialog")).toBeTruthy();
     expect(screen.getByText(STRINGS.emailConsent.disclosureTitle)).toBeTruthy();
     await f.background.client.flush();
@@ -270,9 +397,9 @@ describe("actual Chromium popup mount", () => {
       committedPopupBinding: binding,
       surfaceGuidance: CHROMIUM_SURFACE_GUIDANCE,
     });
-    expect(screen.queryByRole("switch", { name: "Still on/off" })).toBeNull();
+    expect(screen.queryByRole("switch", { name: "Still" })).toBeNull();
     await fireEvent.click(
-      screen.getByRole("button", { name: /Open settings & setup guide/ }),
+      screen.getByRole("button", { name: /Settings. Find Still in Chrome/ }),
     );
     expect(f.openOptionsPage).toHaveBeenCalledOnce();
     view.unmount();
@@ -318,7 +445,10 @@ describe("actual Chromium popup mount", () => {
       data_collection: ["technicalAndInteraction"],
     });
     expect(request).not.toHaveBeenCalled();
-    await fireEvent.click(screen.getByRole("switch", { name: "Still on/off" }));
+    await waitFor(() =>
+      expect(screen.getByRole("switch", { name: "Still" })).toBeTruthy(),
+    );
+    await fireEvent.click(screen.getByRole("switch", { name: "Still" }));
     await waitFor(async () =>
       expect((await f.authority.get())!.settings.globalOn).toBe(false),
     );

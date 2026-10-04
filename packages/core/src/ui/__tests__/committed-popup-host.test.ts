@@ -15,6 +15,7 @@ import {
   SettingsStorageRecovery,
   type SettingsIntent,
   type StoredSettingsRecord,
+  requireModernSettings,
 } from "../../storage/index.js";
 import {
   createExtensionUiController,
@@ -36,6 +37,433 @@ afterEach(() => {
   for (const stop of stops.splice(0)) stop();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+describe("actual desktop presentation on the maintained authority", () => {
+  async function desktop(state: ReturnType<typeof capture>) {
+    const onSettings = vi.fn();
+    const telemetry = vi.fn();
+    const view = render(App, {
+      controller: state.controller,
+      committedPopupBinding: state.binding,
+      popupPresentation: {
+        browser: "Chrome",
+        onSettings,
+        loadDesktop: () => import("../v3/DesktopPopup.svelte"),
+      },
+      onCommittedPopupToggle: telemetry,
+      compact: true,
+    });
+    if (state.binding.current().settings)
+      await waitFor(() => expect(global()).toBeTruthy());
+    return { ...view, onSettings, telemetry };
+  }
+  it("keeps actual settings and privacy usable when the host presentation loader rejects", async () => {
+    await browser();
+    const state = capture();
+    await flush();
+    const onSettings = vi.fn();
+    render(App, {
+      controller: state.controller,
+      committedPopupBinding: state.binding,
+      popupPresentation: {
+        browser: "Chrome",
+        onSettings,
+        loadDesktop: () => Promise.reject(new Error("load failed")),
+      },
+      compact: true,
+    });
+    await flush();
+    expect(screen.queryAllByRole("switch")).toHaveLength(0);
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Settings. Find Still in Chrome." }),
+    );
+    expect(onSettings).toHaveBeenCalledOnce();
+    expect(
+      screen.getAllByRole("link", { name: "Privacy policy" }),
+    ).toHaveLength(1);
+  });
+
+  for (const close of ["opt-out", "unmount"] as const) {
+    it(`ignores delayed host presentation completion after ${close}`, async () => {
+      await browser();
+      const state = capture();
+      await flush();
+      const delayed = gate();
+      const loadDesktop = vi.fn(() =>
+        delayed.promise.then(() => import("../v3/DesktopPopup.svelte")),
+      );
+      const view = render(App, {
+        controller: state.controller,
+        committedPopupBinding: state.binding,
+        popupPresentation: {
+          browser: "Chrome",
+          onSettings: vi.fn(),
+          loadDesktop,
+        },
+        compact: true,
+      });
+      await flush();
+      expect(loadDesktop).toHaveBeenCalledOnce();
+      expect(
+        screen.queryByRole("switch", { name: "Still" }),
+      ).toBeNull();
+      if (close === "unmount") view.unmount();
+      else
+        await view.rerender({
+          controller: state.controller,
+          committedPopupBinding: state.binding,
+          popupPresentation: undefined,
+          compact: true,
+        });
+      delayed.open();
+      await flush();
+      await flush();
+      expect(
+        screen.queryByRole("switch", { name: "Still" }),
+      ).toBeNull();
+      if (close === "opt-out")
+        expect(
+          screen.getByRole("switch", { name: "Still on/off" }),
+        ).toBeTruthy();
+    });
+  }
+
+  const global = () => screen.getByRole("switch", { name: "Still" });
+  const instagram = () =>
+    screen.getByRole("switch", { name: "Still on Instagram" });
+
+  it("holds the requested global choice until its real receipt and reports only that committed toggle", async () => {
+    const f = await browser();
+    const state = capture();
+    await flush();
+    const view = await desktop(state);
+    const entered = gate(),
+      held = gate();
+    f.port(async (intent) => {
+      entered.open();
+      await held.promise;
+      return f.authority.commitIntent(intent);
+    });
+    await fireEvent.click(global());
+    await entered.promise;
+    try {
+      expect(global()).toHaveAttribute("aria-checked", "true");
+      expect(view.telemetry).not.toHaveBeenCalled();
+      held.open();
+      await waitFor(() =>
+        expect(global()).toHaveAttribute("aria-checked", "false"),
+      );
+    } finally {
+      held.open();
+    }
+    await waitFor(() =>
+      expect(view.telemetry).toHaveBeenCalledExactlyOnceWith({
+        enabled: false,
+      }),
+    );
+    const saved = requireModernSettings((await f.authority.get())!);
+    expect(saved.services).toEqual({
+      youtube: true,
+      instagram: true,
+      facebook: true,
+      tiktok: true,
+    });
+    expect(saved.sites["youtube.shorts"]).toBe(true);
+  });
+
+  it("saves the free core feature without changing its service or reporting a feature analytics event", async () => {
+    const f = await browser();
+    const state = capture();
+    await flush();
+    const view = await desktop(state);
+    const legacy = vi.spyOn(state.controller, "toggleService");
+    await fireEvent.click(
+      screen.getByRole("button", { name: "YouTube Blocker" }),
+    );
+    await fireEvent.click(screen.getByRole("switch", { name: "Shorts" }));
+    await waitFor(async () =>
+      expect(
+        requireModernSettings((await f.authority.get())!).sites[
+          "youtube.shorts"
+        ],
+      ).toBe(false),
+    );
+    expect(
+      requireModernSettings((await f.authority.get())!).services.youtube,
+    ).toBe(true);
+    expect(
+      requireModernSettings((await f.authority.get())!).sites[
+        "instagram.reels"
+      ],
+    ).toBe(true);
+    expect(legacy).not.toHaveBeenCalled();
+    expect(view.telemetry).not.toHaveBeenCalled();
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Instagram Blocker" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "YouTube Blocker" }),
+    ).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it.each(["paused", "unknown"] as const)(
+    "preserves choices under %s and refuses captured commands while settings and privacy stay usable",
+    async (kind) => {
+      const f = await browser();
+      const state = capture();
+      await flush();
+      const view = await desktop(state);
+      await fireEvent.click(
+        screen.getByRole("button", { name: "YouTube Blocker" }),
+      );
+      const before = (await f.authority.get())!;
+      await f.external({
+        ...before,
+        atomic: {
+          ...before.atomic!,
+          sequence: before.atomic!.sequence + 1,
+          paused: kind === "paused" ? "ordering-hold" : null,
+          ownership: kind === "unknown" ? "unknown" : "never-linked",
+        },
+      });
+      await flush();
+      for (const element of [
+        global(),
+        instagram(),
+        screen.getByRole("switch", { name: "Shorts" }),
+      ]) {
+        expect(element).toHaveAttribute("aria-disabled", "true");
+        element.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      }
+      await flush();
+      expect(f.sendMessage).not.toHaveBeenCalled();
+      expect(view.telemetry).not.toHaveBeenCalled();
+      expect(global()).toHaveAttribute("aria-checked", "true");
+      expect(screen.getByRole("switch", { name: "Shorts" })).toHaveAttribute(
+        "aria-checked",
+        "true",
+      );
+      await fireEvent.click(
+        screen.getByRole("button", { name: /Settings. Find Still in Chrome/ }),
+      );
+      expect(view.onSettings).toHaveBeenCalledOnce();
+      expect(
+        screen.getAllByRole("link", { name: "Privacy policy" }),
+      ).toHaveLength(1);
+      expect(document.querySelectorAll(".still-ui.app")).toHaveLength(1);
+    },
+  );
+
+  it("shows accepted nonatomic choices disabled without manufacturing command authority", async () => {
+    const f = await browser();
+    const before = (await f.authority.get())!;
+    await f.external({
+      ...before,
+      settings: {
+        ...before.settings,
+        updatedAt: before.settings.updatedAt + 1,
+      },
+      atomic: undefined,
+    });
+    const state = capture();
+    await flush();
+    await desktop(state);
+    expect(state.binding.current().reason).toBe("atomic-command-unavailable");
+    expect(global()).toHaveAttribute("aria-checked", "true");
+    expect(global()).toHaveAttribute("aria-disabled", "true");
+    await fireEvent.click(global());
+    expect(f.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("keeps a missing record unchanged without fake switches or storage Checking sync and preserves usage/OTP/actions", async () => {
+    const f = await browser();
+    const legacy = {
+      settings: {
+        ...structuredClone(DEFAULT_SETTINGS),
+        globalOn: false,
+        updatedAt: 999,
+      },
+      syncMetadata: null,
+    };
+    await f.external(legacy);
+    const p = purchase(),
+      setSharing = vi.fn(async (enabled: boolean) => enabled);
+    const analytics: UiAnalytics = {
+      track() {},
+      identify() {},
+      reset() {},
+      sharing: async () => ({ enabled: true, noticeNeeded: true }),
+      setSharing,
+      acknowledgeNotice() {},
+    };
+    const state = capture({ purchase: p.deps, analytics });
+    await flush();
+    const view = await desktop(state);
+    expect(screen.queryByRole("switch", { name: "Still" })).toBeNull();
+    expect(screen.queryByText(STRINGS.sync.checking)).toBeNull();
+    expect(document.querySelector(".hero")).toBeNull();
+    expect(
+      screen.getAllByRole("link", { name: "Privacy policy" }),
+    ).toHaveLength(1);
+    await fireEvent.click(
+      screen.getByRole("button", { name: /Settings. Find Still in Chrome/ }),
+    );
+    expect(view.onSettings).toHaveBeenCalledOnce();
+    await fireEvent.click(
+      screen.getByRole("button", { name: STRINGS.usage.noticeTurnOff }),
+    );
+    await flush();
+    expect(setSharing).toHaveBeenCalledWith(false);
+    await fireEvent.click(
+      screen.getByRole("button", { name: STRINGS.auth.signInCta }),
+    );
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    await fireEvent.input(screen.getByLabelText(STRINGS.auth.emailLabel), {
+      target: { value: "synthetic@example.com" },
+    });
+    await fireEvent.click(
+      screen.getByRole("button", { name: STRINGS.codeAuth.send }),
+    );
+    await flush();
+    expect(p.auth.requestCode).toHaveBeenCalledWith("synthetic@example.com");
+    await fireEvent.click(
+      within(screen.getByRole("dialog")).getByText(STRINGS.auth.cancel),
+    );
+    await flush();
+    await fireEvent.click(
+      screen.getByRole("button", { name: STRINGS.auth.signInCta }),
+    );
+    expect(screen.getAllByRole("dialog")).toHaveLength(1);
+    expect(await f.authority.get()).toEqual(legacy);
+    expect(f.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("uses actual identity with no email and keeps retry/delete/time in one sync card without granting success", async () => {
+    await browser();
+    const p = purchase();
+    const state = capture({ purchase: p.deps });
+    await flush();
+    state.controller.userId = "synthetic-account";
+    state.controller.accountEmail = null;
+    await desktop(state);
+    expect(screen.queryByRole("button", { name: /Sign in/ })).toBeNull();
+    expect(screen.getByText(STRINGS.sync.checking)).toBeTruthy();
+    expect(screen.queryByText(STRINGS.sync.synced)).toBeNull();
+    state.controller.pendingUpload = true;
+    await tick();
+    expect(screen.getByText(STRINGS.sync.syncing)).toBeTruthy();
+    state.controller.pendingUpload = false;
+    state.controller.cloudReachable = false;
+    await tick();
+    await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(p.retrySync).toHaveBeenCalledOnce();
+    await fireEvent.click(
+      screen.getByRole("button", { name: STRINGS.account.delete }),
+    );
+    await fireEvent.click(
+      screen.getByRole("button", { name: STRINGS.account.deleteCancel }),
+    );
+    expect(p.auth.deleteAccount).not.toHaveBeenCalled();
+    const held = gate();
+    p.auth.deleteAccount.mockImplementationOnce(async () => {
+      await held.promise;
+      throw new Error("Synthetic deletion failure");
+    });
+    await fireEvent.click(
+      screen.getByRole("button", { name: STRINGS.account.delete }),
+    );
+    await fireEvent.click(
+      screen.getByRole("button", { name: STRINGS.account.deleteConfirm }),
+    );
+    try {
+      expect(
+        screen.getByRole("button", { name: STRINGS.account.deleting }),
+      ).toBeDisabled();
+      held.open();
+      await flush();
+    } finally {
+      held.open();
+    }
+    expect(state.controller.deleteFlow).toBe("error");
+    expect(
+      screen.getByRole("button", { name: STRINGS.account.delete }),
+    ).toBeTruthy();
+    state.controller.cloudReachable = true;
+    state.controller.lastSyncedAt = 1000;
+    await tick();
+    expect(screen.getByText(STRINGS.sync.synced)).toBeTruthy();
+    expect(document.querySelectorAll("time")).toHaveLength(1);
+    expect(
+      screen.getAllByRole("link", { name: "Privacy policy" }),
+    ).toHaveLength(1);
+    expect(
+      document
+        .querySelector(".account")
+        ?.closest(".card")
+        ?.querySelector(".sync-row-title")?.textContent,
+    ).toBe("Settings sync");
+  });
+
+  it("never reports no-op/refused writes or another actor's matching state as a successful local toggle", async () => {
+    const f = await browser();
+    const state = capture();
+    await flush();
+    const view = await desktop(state);
+    f.port(async (intent) => {
+      await f.authority.commitIntent(intent);
+      return f.authority.commitIntent(intent);
+    });
+    await fireEvent.click(instagram());
+    await waitFor(() =>
+      expect(instagram()).toHaveAttribute("aria-checked", "false"),
+    );
+    expect(view.telemetry).not.toHaveBeenCalled();
+    f.port(async () => {
+      await f.authority.commitIntent({
+        path: "globalOn",
+        value: false,
+        updatedAt: 101,
+      });
+      return { ...(await f.authority.get())!, intentCommitted: false };
+    });
+    await fireEvent.click(global());
+    await waitFor(() =>
+      expect(global()).toHaveAttribute("aria-checked", "false"),
+    );
+    expect(view.telemetry).not.toHaveBeenCalled();
+  });
+
+  it("stops replaced and unmounted bindings without publishing or admitting new commands", async () => {
+    await browser();
+    const first = capture(),
+      second = capture();
+    await flush();
+    const view = await desktop(first);
+    const firstStop = vi.spyOn(first.binding, "stop"),
+      secondStop = vi.spyOn(second.binding, "stop");
+    await view.rerender({
+      controller: second.controller,
+      committedPopupBinding: second.binding,
+      compact: true,
+      popupPresentation: {
+        browser: "Firefox",
+        onSettings: view.onSettings,
+        loadDesktop: () => import("../v3/DesktopPopup.svelte"),
+      },
+    });
+    expect(firstStop).toHaveBeenCalledOnce();
+    expect(await first.binding.setFeature("youtube.shorts", false)).toEqual({
+      status: "unavailable",
+      reason: "stopped",
+    });
+    view.unmount();
+    expect(secondStop).toHaveBeenCalledOnce();
+    expect(await second.binding.setGlobalOn(false)).toEqual({
+      status: "unavailable",
+      reason: "stopped",
+    });
+  });
 });
 const flush = async () => {
   await new Promise((resolve) => setTimeout(resolve, 0));

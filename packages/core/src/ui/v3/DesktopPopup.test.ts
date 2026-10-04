@@ -71,6 +71,84 @@ function bindWriter(cache: SettingsCache, props: DesktopPopupProps) {
 }
 
 describe("controlled D01 presentation", () => {
+  it("mounts feature controls only in the one open section and preserves saved choices on close", async () => {
+    const { props } = await fixture("purchased");
+    const saved = structuredClone(props.settings);
+    const { container } = render(DesktopPopup, { props });
+    expect(container.querySelectorAll('button[role="switch"]')).toHaveLength(5);
+    const youtube = screen.getByRole("button", { name: "YouTube Blocker" });
+    await fireEvent.click(youtube);
+    expect(screen.getByRole("switch", { name: "Shorts" })).toBeVisible();
+    expect(
+      container.querySelectorAll("#site-instagram-panel button"),
+    ).toHaveLength(0);
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Instagram Blocker" }),
+    );
+    expect(
+      container.querySelectorAll("#site-youtube-panel button"),
+    ).toHaveLength(0);
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Instagram Blocker" }),
+    );
+    expect(container.querySelectorAll('button[role="switch"]')).toHaveLength(5);
+    expect(props.settings).toEqual(saved);
+    expect(props.onFeatureChange).not.toHaveBeenCalled();
+  });
+
+  it("holds already rendered controls and delivered click events without changing choices or blocking expanders/settings", async () => {
+    const { props } = await fixture();
+    const view = render(DesktopPopup, { props });
+    await fireEvent.click(
+      screen.getByRole("button", { name: "YouTube Blocker" }),
+    );
+    const global = screen.getByRole("switch", { name: "Still" });
+    const service = screen.getByRole("switch", { name: "Still on YouTube" });
+    const shorts = screen.getByRole("switch", { name: "Shorts" });
+    const delivered = [global, service, shorts].map(
+      (element) => () =>
+        element.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+    props.commandsDisabled = true;
+    await view.rerender(props);
+    for (const element of [global, service, shorts]) {
+      expect(element).toHaveAttribute("aria-disabled", "true");
+      expect(element).toHaveAttribute("aria-checked", "true");
+    }
+    for (const click of delivered) click();
+    expect(props.onGlobalChange).not.toHaveBeenCalled();
+    expect(props.onServiceChange).not.toHaveBeenCalled();
+    expect(props.onFeatureChange).not.toHaveBeenCalled();
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Instagram Blocker" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Instagram Blocker" }),
+    ).toHaveAttribute("aria-expanded", "true");
+    await fireEvent.click(
+      screen.getByRole("button", { name: /Settings. Find Still in Chrome/ }),
+    );
+    expect(props.onSettings).toHaveBeenCalledOnce();
+  });
+
+  it("uses account presence independently of its optional display address", async () => {
+    const { props } = await fixture();
+    props.account = {
+      status: { tone: "pending", text: "Checking settings sync" },
+    };
+    render(DesktopPopup, { props });
+    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+    expect(
+      screen.queryByText(
+        "Free. Keep your settings updated across every supported surface.",
+      ),
+    ).toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Checking settings sync",
+    );
+    expect(props.onSignIn).not.toHaveBeenCalled();
+  });
+
   it("presents packaged unsupported choices honestly while free controls commit through the writer", async () => {
     const { storage, cache, props } = await fixture();
     await cache.setFeature("youtube.comments", true);

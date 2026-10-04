@@ -43,6 +43,7 @@ function init(): void {
     target: document.getElementById("app")!,
     props: {
       controller,
+      browser: import.meta.env.FIREFOX ? "Firefox" : "Chrome",
       committedPopupBinding,
       onCommittedPopupToggle,
       onRestore: purchase ? restoreHandler(controller) : undefined,

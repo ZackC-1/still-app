@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { SERVICE_IDS, type ServiceId } from "@still/shared-types";
   import {
     App,
     OpenSettingsButton,
@@ -10,6 +11,7 @@
 
   interface Props {
     controller: UiController;
+    browser?: "Chrome" | "Firefox";
     committedPopupBinding?: CommittedPopupBinding;
     onCommittedPopupToggle?: (toggle: CommittedPopupToggle) => void;
     /** Web restore = a fresh authenticated reconcile (plan U5/U6). Absent on builds without the
@@ -19,15 +21,39 @@
   }
   let {
     controller,
+    browser = "Chrome",
     committedPopupBinding,
     onCommittedPopupToggle,
     onRestore,
     surfaceGuidance,
   }: Props = $props();
 
+  // Keep V3 global styles out of shared default/native/options build graphs.
+  const loadDesktop = () =>
+    import("../../../core/src/ui/v3/DesktopPopup.svelte");
+
   function openOptions(): void {
     chrome.runtime.openOptionsPage();
   }
+  // Presentation-only: this origin-local choice never enters the blocking document or sync.
+  const sectionMemory = {
+    read(): ServiceId | null {
+      try {
+        const saved = localStorage.getItem("still-popup-open");
+        return SERVICE_IDS.find((service) => service === saved) ?? null;
+      } catch {
+        return null;
+      }
+    },
+    write(service: ServiceId | null): void {
+      try {
+        if (service) localStorage.setItem("still-popup-open", service);
+        else localStorage.removeItem("still-popup-open");
+      } catch {
+        /* Local presentation memory must never interrupt a settings command. */
+      }
+    },
+  };
 </script>
 
 <div class="popup">
@@ -36,9 +62,15 @@
     {committedPopupBinding}
     {onCommittedPopupToggle}
     {onRestore}
+    popupPresentation={committedPopupBinding
+      ? { browser, onSettings: openOptions, loadDesktop, sectionMemory }
+      : undefined}
     compact
   />
-  <OpenSettingsButton {surfaceGuidance} onOpen={openOptions} />
+  {#if !committedPopupBinding}<OpenSettingsButton
+      {surfaceGuidance}
+      onOpen={openOptions}
+    />{/if}
 </div>
 
 <style>

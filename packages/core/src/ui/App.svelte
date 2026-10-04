@@ -3,6 +3,7 @@
     PAID_TIER_ENABLED,
     SERVICE_IDS,
     type ServiceId,
+    type FeatureId,
   } from "@still/shared-types";
   import type { UiController } from "./controller.svelte.js";
   import Toggle from "./components/Toggle.svelte";
@@ -15,12 +16,21 @@
   import type { SurfaceGuidance } from "./surface-guidance.js";
   import type { CommittedPopupBinding, CommittedPopupToggle } from "./index.js";
   import type { DesktopPopupBindingState } from "./v3/desktop-popup-binding.js";
+  import type { Component } from "svelte";
+  import type { DesktopPopupProps } from "./v3/presentation.js";
 
   interface Props {
     controller: UiController;
     /** Optional actual committed settings authority; absent preserves every legacy host. */
     committedPopupBinding?: CommittedPopupBinding;
     onCommittedPopupToggle?: (toggle: CommittedPopupToggle) => void;
+    /** Actual desktop browser host opts in with its existing options-page operation. */
+    popupPresentation?: {
+      browser: "Chrome" | "Firefox";
+      onSettings: () => void;
+      loadDesktop: () => Promise<{ default: Component<DesktopPopupProps> }>;
+      sectionMemory?: DesktopPopupProps["sectionMemory"];
+    };
     /** Intentional dense treatment for browser popup panels; never scale the whole interface. */
     compact?: boolean;
     onGet?: () => void;
@@ -34,6 +44,7 @@
     controller: c,
     committedPopupBinding,
     onCommittedPopupToggle,
+    popupPresentation,
     compact = false,
     onGet,
     onRestore,
@@ -64,6 +75,97 @@
     Boolean(committedPopupBinding) &&
       (observedBinding !== committedPopupBinding ||
         popupState?.commandAvailability !== "ready"),
+  );
+  let desktopPresentation = $derived(
+    committedPopupBinding ? popupPresentation : undefined,
+  );
+  let DesktopPopup = $state<Component<DesktopPopupProps> | null>(null);
+  $effect(() => {
+    const loadDesktop = desktopPresentation?.loadDesktop;
+    if (!loadDesktop || DesktopPopup) return;
+    let active = true;
+    // The reference CSS contains global tokens. Load it only in this explicit host,
+    // keeping the original stylesheet on Safari, options and default App routes.
+    void loadDesktop()
+      .then((module) => {
+        if (active) DesktopPopup = module.default;
+      })
+      .catch(() => {
+        /* Account/privacy operations remain available without fabricated controls. */
+      });
+    return () => {
+      active = false;
+    };
+  });
+  let modern = $derived(
+    observedBinding === committedPopupBinding ? popupState?.settings : null,
+  );
+  let desktopAccount = $derived.by((): DesktopPopupProps["account"] => {
+    if (!c.userId) return undefined;
+    return {
+      address: c.accountEmail ?? undefined,
+      status: !c.cloudReachable
+        ? {
+            tone: "failed",
+            text: STRINGS.sync.unreachable,
+            retry: c.retrySync
+              ? () =>
+                  void c.retrySync?.().catch(() => {
+                    c.cloudReachable = false;
+                  })
+              : undefined,
+          }
+        : c.pendingUpload
+          ? { tone: "pending", text: STRINGS.sync.syncing }
+          : c.lastSyncedAt !== null
+            ? { tone: "success", text: STRINGS.sync.synced }
+            : { tone: "pending", text: STRINGS.sync.checking },
+    };
+  });
+  function currentPopup(binding: CommittedPopupBinding) {
+    if (binding !== committedPopupBinding || binding !== observedBinding)
+      return null;
+    const state = binding.current();
+    return state.commandAvailability === "ready" && state.settings
+      ? state
+      : null;
+  }
+  function popupCommands(binding: CommittedPopupBinding) {
+    return {
+      global: (enabled: boolean) => {
+        if (!currentPopup(binding)) return;
+        void binding
+          .setGlobalOn(enabled)
+          .then((outcome) => {
+            if (outcome.status === "committed") reportCommitted({ enabled });
+          })
+          .catch(() => {
+            /* Only authority observations publish saved choices. */
+          });
+      },
+      service: (service: ServiceId, enabled: boolean) => {
+        const state = currentPopup(binding);
+        if (!state?.settings?.globalOn) return;
+        void binding
+          .setService(service, enabled)
+          .then((outcome) => {
+            if (outcome.status === "committed")
+              reportCommitted({ service, enabled });
+          })
+          .catch(() => {
+            /* Only authority observations publish saved choices. */
+          });
+      },
+      feature: (feature: FeatureId, enabled: boolean) => {
+        if (!currentPopup(binding)) return;
+        void binding.setFeature(feature, enabled).catch(() => {
+          /* Feature rights and enabled parents are revalidated by the same binding. */
+        });
+      },
+    };
+  }
+  let desktopCommands = $derived(
+    committedPopupBinding ? popupCommands(committedPopupBinding) : null,
   );
   const coreBenefit = {
     youtube: "youtube.shorts",
@@ -131,60 +233,90 @@
   }
 </script>
 
-<div class="still-ui app" data-density={compact ? "compact" : "comfortable"}>
-  <header class="appbar">
-    <Logo />
-  </header>
+<div
+  class="still-ui"
+  class:app={!desktopPresentation || !modern || !DesktopPopup}
+  class:v3-popup-host={Boolean(desktopPresentation)}
+  data-density={compact ? "compact" : "comfortable"}
+>
+  {#if desktopPresentation && modern && popupState && desktopCommands && DesktopPopup}
+    <DesktopPopup
+      settings={modern}
+      access={popupState.access}
+      browser={desktopPresentation.browser}
+      commandsDisabled={held}
+      onGlobalChange={desktopCommands.global}
+      onServiceChange={desktopCommands.service}
+      onFeatureChange={desktopCommands.feature}
+      onSignIn={!c.userId && c.canSignIn ? () => c.openSignIn() : undefined}
+      onSettings={desktopPresentation.onSettings}
+      sectionMemory={desktopPresentation.sectionMemory}
+      privacyUrl={PRIVACY_POLICY_URL}
+      account={desktopAccount}
+      accountActions={c.userId ? desktopAccountActions : undefined}
+    />
+  {:else}
+    {#if !desktopPresentation}
+      <header class="appbar">
+        <Logo />
+      </header>
+    {/if}
 
-  {#if choices}
-    <!-- Global on/off — the hero card -->
-    <section class="hero" class:off={!choices.globalOn}>
-      <div class="hero-text">
-        <h1>{choices.globalOn ? STRINGS.global.on : STRINGS.global.off}</h1>
-        <p>
-          <!-- With every service included there is one line for everyone: "on enabled sites" already
+    {#if choices && !desktopPresentation}
+      <!-- Global on/off — the hero card -->
+      <section class="hero" class:off={!choices.globalOn}>
+        <div class="hero-text">
+          <h1>{choices.globalOn ? STRINGS.global.on : STRINGS.global.off}</h1>
+          <p>
+            <!-- With every service included there is one line for everyone: "on enabled sites" already
              hedges per-service state. The two paid-era alternatives below it were written for a
              free tier that removed YouTube Shorts only, where the hero had to say what the rest
              cost and had to stop claiming removal when the one included row was itself off. They
              return with the switch. -->
-          {choices.globalOn
-            ? committedPopupBinding || !PAID_TIER_ENABLED || c.entitled
-              ? STRINGS.global.onSecondary
-              : choices.services.youtube
-                ? STRINGS.global.onFree
-                : STRINGS.global.onFreeYoutubeOff
-            : STRINGS.global.offSecondary}
-        </p>
-      </div>
-      <Toggle
-        checked={choices.globalOn}
-        label="Still on/off"
-        variant={choices.globalOn ? "on-blue" : "default"}
-        disabled={held}
-        onchange={toggleGlobal}
-      />
-    </section>
-
-    <!-- Per-service cards. Pro-gated rows render locked for un-entitled users: tapping the lock is
-       the Pro discovery path (paywall / sign-in first), not a toggle that silently does nothing. -->
-    <div class="services" aria-disabled={!choices.globalOn || held}>
-      {#each SERVICE_IDS as service (service)}
-        <ServiceCard
-          {service}
-          on={choices.globalOn && choices.services[service]}
-          onchange={() => toggleService(service)}
-          locked={!committedPopupBinding && c.isLocked(service)}
-          disabled={!choices.globalOn || held || !serviceAvailable(service)}
-          onLockedTap={() => c.lockedTap()}
+            {choices.globalOn
+              ? committedPopupBinding || !PAID_TIER_ENABLED || c.entitled
+                ? STRINGS.global.onSecondary
+                : choices.services.youtube
+                  ? STRINGS.global.onFree
+                  : STRINGS.global.onFreeYoutubeOff
+              : STRINGS.global.offSecondary}
+          </p>
+        </div>
+        <Toggle
+          checked={choices.globalOn}
+          label="Still on/off"
+          variant={choices.globalOn ? "on-blue" : "default"}
+          disabled={held}
+          onchange={toggleGlobal}
         />
-      {/each}
-    </div>
-  {:else}
-    <p class="muted" role="status">{STRINGS.sync.checking}</p>
+      </section>
+
+      <!-- Per-service cards. Pro-gated rows render locked for un-entitled users: tapping the lock is
+       the Pro discovery path (paywall / sign-in first), not a toggle that silently does nothing. -->
+      <div class="services" aria-disabled={!choices.globalOn || held}>
+        {#each SERVICE_IDS as service (service)}
+          <ServiceCard
+            {service}
+            on={choices.globalOn && choices.services[service]}
+            onchange={() => toggleService(service)}
+            locked={!committedPopupBinding && c.isLocked(service)}
+            disabled={!choices.globalOn || held || !serviceAvailable(service)}
+            onLockedTap={() => c.lockedTap()}
+          />
+        {/each}
+      </div>
+    {:else if !desktopPresentation}
+      <p class="muted" role="status">{STRINGS.sync.checking}</p>
+    {/if}
   {/if}
 
   {#if surfaceGuidance}
-    <a class="link setup-guide" href={SETUP_GUIDE_URL} target="_blank" rel="noopener noreferrer">
+    <a
+      class="link setup-guide"
+      href={SETUP_GUIDE_URL}
+      target="_blank"
+      rel="noopener noreferrer"
+    >
       How to set up Still
     </a>
   {/if}
@@ -198,8 +330,12 @@
     <section class="usage-notice card" aria-live="polite">
       <p class="muted">{STRINGS.usage.notice}</p>
       <div class="usage-notice-actions">
-        <button class="link" onclick={() => c.toggleUsageSharing()}>{STRINGS.usage.noticeTurnOff}</button>
-        <button class="secondary" onclick={() => c.dismissUsageNotice()}>{STRINGS.usage.noticeOk}</button>
+        <button class="link" onclick={() => c.toggleUsageSharing()}
+          >{STRINGS.usage.noticeTurnOff}</button
+        >
+        <button class="secondary" onclick={() => c.dismissUsageNotice()}
+          >{STRINGS.usage.noticeOk}</button
+        >
       </div>
     </section>
   {/if}
@@ -222,19 +358,21 @@
        settings field and engine.isPaused remain as the seam for its return. -->
 
   <!-- Account management (App Store 5.1.1): privacy policy link + in-app account deletion. -->
-  {#snippet accountManagement()}
+  {#snippet accountManagement(includePrivacy = true)}
     <div class="account">
       {#if compact}
-        <button class="link" onclick={() => c.signOut()}>{STRINGS.auth.signOut}</button>
+        <button class="link" onclick={() => c.signOut()}
+          >{STRINGS.auth.signOut}</button
+        >
       {/if}
-      <a
-        class="link"
-        href={PRIVACY_POLICY_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        {STRINGS.account.privacyPolicy}
-      </a>
+      {#if includePrivacy}<a
+          class="link"
+          href={PRIVACY_POLICY_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {STRINGS.account.privacyPolicy}
+        </a>{/if}
       {#if c.canDeleteAccount}
         {#if c.deleteFlow === "confirming"}
           <div
@@ -266,6 +404,22 @@
       {/if}
     </div>
   {/snippet}
+  {#snippet desktopAccountActions()}
+    {@render accountManagement(false)}
+    {#if c.lastSyncedAt !== null}
+      <p class="sync-time">
+        {STRINGS.sync.lastSynced}
+        <time datetime={new Date(c.lastSyncedAt).toISOString()}
+          >{new Date(c.lastSyncedAt).toLocaleString(undefined, {
+            month: "short",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+          })}</time
+        >
+      </p>
+    {/if}
+  {/snippet}
 
   <!-- Sync / account section: renders the popup state matrix. The PAID_TIER_ENABLED checks in this
        section hide the buy and restore calls to action while the paid tier is dormant, leaving
@@ -275,145 +429,200 @@
        signed-out check just below joins its condition instead, because both sides of that one read
        correctly for a free user: with no purchase to offer, sign-in becomes the primary button.
        The branches themselves are preserved, not deleted. -->
-  <section class="sync card" data-state={c.popupState}>
-    {#if !PAID_TIER_ENABLED}
-      <!-- Naming the section is what keeps the invitation calm: someone reading it can see that
+  {#if !desktopPresentation || !modern || !DesktopPopup}
+    <section class="sync card" data-state={c.popupState}>
+      {#if !PAID_TIER_ENABLED}
+        <!-- Naming the section is what keeps the invitation calm: someone reading it can see that
            this card is about settings following them between devices, and about nothing else. -->
-      <h2 class="sync-title">{STRINGS.sync.sectionTitle}</h2>
-    {/if}
-    {#if c.userId && c.accountEmail}
-      <p class="account-email">{c.accountEmail}</p>
-    {/if}
-    {#if c.accountManagedByApp}
-      {#if !c.userId || !compact}
-        <p class="muted">{c.userId ? STRINGS.sync.appManaged : STRINGS.sync.deviceOnly}</p>
+        <h2 class="sync-title">{STRINGS.sync.sectionTitle}</h2>
       {/if}
-      {#if c.userId}
-        {#if !compact || (c.cloudReachable && !c.pendingUpload)}
-          <p class="muted">{c.extensionMatchesApp === true ? STRINGS.sync.extensionCurrent : STRINGS.sync.extensionChecking}</p>
-        {/if}
-        {#if !c.cloudReachable || c.pendingUpload}
-          <p class="muted">{STRINGS.sync.extensionPending}</p>
-
-        {/if}
+      {#if c.userId && c.accountEmail}
+        <p class="account-email">{c.accountEmail}</p>
       {/if}
-      <a class="link" href={PRIVACY_POLICY_URL} target="_blank" rel="noopener noreferrer">{STRINGS.account.privacyPolicy}</a>
-    {:else if c.popupState === "signed-out"}
-      {#if c.canSignIn}
-        {#if PAID_TIER_ENABLED && c.host.canPurchase}
-          <button class="primary block" onclick={() => c.startUpgrade()}>
-            {STRINGS.paywall.upgradeCta}
-          </button>
+      {#if c.accountManagedByApp}
+        {#if !c.userId || !compact}
+          <p class="muted">
+            {c.userId ? STRINGS.sync.appManaged : STRINGS.sync.deviceOnly}
+          </p>
+        {/if}
+        {#if c.userId}
+          {#if !compact || (c.cloudReachable && !c.pendingUpload)}
+            <p class="muted">
+              {c.extensionMatchesApp === true
+                ? STRINGS.sync.extensionCurrent
+                : STRINGS.sync.extensionChecking}
+            </p>
+          {/if}
+          {#if !c.cloudReachable || c.pendingUpload}
+            <p class="muted">{STRINGS.sync.extensionPending}</p>
+          {/if}
+        {/if}
+        {#if !desktopPresentation}<a
+            class="link"
+            href={PRIVACY_POLICY_URL}
+            target="_blank"
+            rel="noopener noreferrer">{STRINGS.account.privacyPolicy}</a
+          >{/if}
+      {:else if c.popupState === "signed-out"}
+        {#if c.canSignIn}
+          {#if PAID_TIER_ENABLED && c.host.canPurchase}
+            <button class="primary block" onclick={() => c.startUpgrade()}>
+              {STRINGS.paywall.upgradeCta}
+            </button>
+            <button class="secondary block" onclick={() => c.openSignIn()}>
+              {STRINGS.auth.signInCta}
+            </button>
+          {:else}
+            <p class="muted">{STRINGS.sync.signedOut}</p>
+            <button class="primary block" onclick={() => c.openSignIn()}>
+              {STRINGS.auth.signInCta}
+            </button>
+          {/if}
+        {:else if PAID_TIER_ENABLED}
+          <!-- No auth path on this host (the browser extensions, until U10): a sign-in CTA here
+             would silently do nothing, so show the quiet explanatory note instead. -->
+          <p class="muted">{STRINGS.paywall.nonApple}</p>
+        {:else}
+          <!-- The Safari extension popup, which has no sign-in path of its own and, under App Store
+             Review Guideline 4.4, carries no invitation to create an account either. It states the
+             plain fact; the host app is where signing in is offered. -->
+          <p class="muted">{STRINGS.sync.deviceOnly}</p>
+        {/if}
+        {#if !desktopPresentation}<a
+            class="link center"
+            href={PRIVACY_POLICY_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {STRINGS.account.privacyPolicy}
+          </a>{/if}
+      {:else if c.popupState === "pro-no-account"}
+        <!-- Receipt-entitled with no session (purchase-first, R3/R9): Pro is ACTIVE — never a buy
+           CTA here (startUpgrade would no-op against it). Sign-in stays visible as the path to
+           the other surfaces, and the settings-row Restore (R4) lives here for returners. -->
+        <p class="synced">{STRINGS.proNoAccount.active}</p>
+        <p class="muted">{STRINGS.proNoAccount.hint}</p>
+        {#if c.canSignIn}
           <button class="secondary block" onclick={() => c.openSignIn()}>
             {STRINGS.auth.signInCta}
           </button>
-        {:else}
-          <p class="muted">{STRINGS.sync.signedOut}</p>
-          <button class="primary block" onclick={() => c.openSignIn()}>
-            {STRINGS.auth.signInCta}
-          </button>
         {/if}
-      {:else if PAID_TIER_ENABLED}
-        <!-- No auth path on this host (the browser extensions, until U10): a sign-in CTA here
-             would silently do nothing, so show the quiet explanatory note instead. -->
-        <p class="muted">{STRINGS.paywall.nonApple}</p>
-      {:else}
-        <!-- The Safari extension popup, which has no sign-in path of its own and, under App Store
-             Review Guideline 4.4, carries no invitation to create an account either. It states the
-             plain fact; the host app is where signing in is offered. -->
-        <p class="muted">{STRINGS.sync.deviceOnly}</p>
-      {/if}
-      <a
-        class="link center"
-        href={PRIVACY_POLICY_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        {STRINGS.account.privacyPolicy}
-      </a>
-    {:else if c.popupState === "pro-no-account"}
-      <!-- Receipt-entitled with no session (purchase-first, R3/R9): Pro is ACTIVE — never a buy
-           CTA here (startUpgrade would no-op against it). Sign-in stays visible as the path to
-           the other surfaces, and the settings-row Restore (R4) lives here for returners. -->
-      <p class="synced">{STRINGS.proNoAccount.active}</p>
-      <p class="muted">{STRINGS.proNoAccount.hint}</p>
-      {#if c.canSignIn}
-        <button class="secondary block" onclick={() => c.openSignIn()}>
-          {STRINGS.auth.signInCta}
-        </button>
-      {/if}
-      {#if PAID_TIER_ENABLED}
-        <!-- Restore has nothing to report while the paid tier is dormant: the native action is
+        {#if PAID_TIER_ENABLED}
+          <!-- Restore has nothing to report while the paid tier is dormant: the native action is
              refused and its answer only ever renders inside the paywall sheet, so the control
              would look tappable and do nothing at all. The device still proves its own purchase
              through the receipt read, which runs on its own and is untouched. -->
-        <button
-          class="link"
-          onclick={() => {
-            if (onRestore && c.beginRestore()) onRestore();
-          }}
-        >
-          {STRINGS.paywall.restoreSignedOut}
-        </button>
-      {/if}
-      <a
-        class="link center"
-        href={PRIVACY_POLICY_URL}
-        target="_blank"
-        rel="noopener noreferrer"
-      >
-        {STRINGS.account.privacyPolicy}
-      </a>
-    {:else if c.popupState === "not-entitled"}
-      {#if PAID_TIER_ENABLED}
-        {#if c.host.canPurchase}
-          <div class="syncrow">
-            <div class="syncrow-text">
-              <span class="syncrow-title">{STRINGS.paywall.title}</span>
-              <span class="syncrow-sub">{STRINGS.paywall.body}</span>
-            </div>
-            <button class="primary block" onclick={() => c.startUpgrade()}
-              >{STRINGS.paywall.upgradeCta}</button
-            >
-          </div>
-        {:else}
-          <p class="muted">{STRINGS.paywall.nonApple}</p>
+          <button
+            class="link"
+            onclick={() => {
+              if (onRestore && c.beginRestore()) onRestore();
+            }}
+          >
+            {STRINGS.paywall.restoreSignedOut}
+          </button>
         {/if}
-      {/if}
-      {#if !compact}
-        <button class="link" onclick={() => c.signOut()}>{STRINGS.auth.signOut}</button>
-      {/if}
-      {@render accountManagement()}
-    {:else if c.popupState === "pro-device-only"}
-      <!-- Signed in with receipt-only Pro: honest copy — the ACCOUNT isn't entitled (attach
+        {#if !desktopPresentation}<a
+            class="link center"
+            href={PRIVACY_POLICY_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            {STRINGS.account.privacyPolicy}
+          </a>{/if}
+      {:else if c.popupState === "not-entitled"}
+        {#if PAID_TIER_ENABLED}
+          {#if c.host.canPurchase}
+            <div class="syncrow">
+              <div class="syncrow-text">
+                <span class="syncrow-title">{STRINGS.paywall.title}</span>
+                <span class="syncrow-sub">{STRINGS.paywall.body}</span>
+              </div>
+              <button class="primary block" onclick={() => c.startUpgrade()}
+                >{STRINGS.paywall.upgradeCta}</button
+              >
+            </div>
+          {:else}
+            <p class="muted">{STRINGS.paywall.nonApple}</p>
+          {/if}
+        {/if}
+        {#if !compact}
+          <button class="link" onclick={() => c.signOut()}
+            >{STRINGS.auth.signOut}</button
+          >
+        {/if}
+        {@render accountManagement(!desktopPresentation)}
+      {:else if c.popupState === "pro-device-only"}
+        <!-- Signed in with receipt-only Pro: honest copy — the ACCOUNT isn't entitled (attach
            ineligible, e.g. family-shared, or not yet landed), so never claim sync. Device Pro
            already unlocks the rows above. -->
-      <p class="synced">{STRINGS.proNoAccount.active}</p>
-      {#if !compact}
-        <button class="link" onclick={() => c.signOut()}>{STRINGS.auth.signOut}</button>
+        <p class="synced">{STRINGS.proNoAccount.active}</p>
+        {#if !compact}
+          <button class="link" onclick={() => c.signOut()}
+            >{STRINGS.auth.signOut}</button
+          >
+        {/if}
+        {@render accountManagement(!desktopPresentation)}
+      {:else if c.popupState === "entitlement-pending"}
+        <p class="muted">{STRINGS.sync.pending}</p>
+      {:else if c.popupState === "entitled-syncing"}
+        <p class="synced">
+          {c.pendingUpload
+            ? STRINGS.sync.syncing
+            : c.lastSyncedAt !== null
+              ? STRINGS.sync.synced
+              : STRINGS.sync.checking}
+        </p>
+        {#if !compact}
+          <button class="link" onclick={() => c.signOut()}
+            >{STRINGS.auth.signOut}</button
+          >
+        {/if}
+        {@render accountManagement(!desktopPresentation)}
+      {:else if c.popupState === "cloud-unreachable"}
+        <p class="muted">{STRINGS.sync.unreachable}</p>
+        {#if c.retrySync}
+          <button
+            class="link"
+            onclick={() =>
+              void c.retrySync?.().catch(() => {
+                c.cloudReachable = false;
+              })}>{STRINGS.sync.retry}</button
+          >
+        {/if}
+        {#if desktopPresentation}{@render accountManagement(false)}{:else}
+          <button class="link" onclick={() => c.signOut()}
+            >{STRINGS.auth.signOut}</button
+          >
+        {/if}
       {/if}
-      {@render accountManagement()}
-    {:else if c.popupState === "entitlement-pending"}
-      <p class="muted">{STRINGS.sync.pending}</p>
-    {:else if c.popupState === "entitled-syncing"}
-      <p class="synced">{c.pendingUpload ? STRINGS.sync.syncing : c.lastSyncedAt !== null ? STRINGS.sync.synced : STRINGS.sync.checking}</p>
-      {#if !compact}
-        <button class="link" onclick={() => c.signOut()}>{STRINGS.auth.signOut}</button>
+      {#if c.userId && c.lastSyncedAt !== null}
+        <p class="sync-time">
+          {c.accountManagedByApp
+            ? STRINGS.sync.appLastSynced
+            : STRINGS.sync.lastSynced}
+          <time datetime={new Date(c.lastSyncedAt).toISOString()}
+            >{new Date(c.lastSyncedAt).toLocaleString(undefined, {
+              month: "short",
+              day: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+            })}</time
+          >
+        </p>
       {/if}
-      {@render accountManagement()}
-    {:else if c.popupState === "cloud-unreachable"}
-      <p class="muted">{STRINGS.sync.unreachable}</p>
-      {#if c.retrySync}
-        <button class="link" onclick={() => void c.retrySync?.().catch(() => { c.cloudReachable = false; })}>{STRINGS.sync.retry}</button>
-      {/if}
-      <button class="link" onclick={() => c.signOut()}
-        >{STRINGS.auth.signOut}</button
+    </section>
+  {/if}
+  {#if desktopPresentation && (!modern || !DesktopPopup)}
+    <footer class="popup-footer">
+      <button
+        type="button"
+        class="open-options"
+        aria-label={`Settings. Find Still in ${desktopPresentation.browser}.`}
+        onclick={desktopPresentation.onSettings}>Settings</button
       >
-    {/if}
-    {#if c.userId && c.lastSyncedAt !== null}
-      <p class="sync-time">{c.accountManagedByApp ? STRINGS.sync.appLastSynced : STRINGS.sync.lastSynced} <time datetime={new Date(c.lastSyncedAt).toISOString()}>{new Date(c.lastSyncedAt).toLocaleString(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</time></p>
-    {/if}
-  </section>
+      <a class="link" href={PRIVACY_POLICY_URL}>Privacy policy</a>
+    </footer>
+  {/if}
 
   {#if c.signInOpen && (c.popupState === "signed-out" || c.popupState === "pro-no-account")}
     <SignInSheet controller={c} onDismiss={() => c.dismissSignIn()} />
@@ -454,8 +663,16 @@
 </div>
 
 <style>
-  .account-email { margin: 0; overflow-wrap: anywhere; font-weight: 500; }
-  .sync-time { margin: 0; font-size: 12px; color: var(--ink-secondary); }
+  .account-email {
+    margin: 0;
+    overflow-wrap: anywhere;
+    font-weight: 500;
+  }
+  .sync-time {
+    margin: 0;
+    font-size: 12px;
+    color: var(--ink-secondary);
+  }
 
   .app {
     display: flex;
@@ -569,7 +786,8 @@
     font-size: 13px;
     color: var(--ink-secondary);
   }
-  .app[data-density="compact"] .usage-notice {
+  .app[data-density="compact"] .usage-notice,
+  .v3-popup-host[data-density="compact"] .usage-notice {
     position: fixed;
     inset-inline: var(--space-3);
     bottom: var(--space-3);
