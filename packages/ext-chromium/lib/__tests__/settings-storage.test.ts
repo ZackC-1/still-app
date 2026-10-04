@@ -136,7 +136,7 @@ describe("Chromium/Firefox settings storage metadata propagation", () => {
   });
   it("concurrent default adapters serialize same-key and independent-key broker edits behind durable persistence", async () => {
     const h = installChromeStorage({ [STORAGE_KEY]: record(settings({ updatedAt: 1 }), null) });
-    await h.authority.initializeAtomic("unknown");
+    await h.authority.initializeAtomic("never-linked");
     const left = new SettingsCache(new ChromeStorageAdapter(), { now: () => 10 });
     const right = new SettingsCache(new ChromeStorageAdapter(), { now: () => 11 });
     const content = new SettingsCache(new ChromeStorageAdapter());
@@ -159,7 +159,7 @@ describe("Chromium/Firefox settings storage metadata propagation", () => {
   });
   it("a rejected broker commit retains bytes and sends no change signal, then a later intent recovers", async () => {
     const h = installChromeStorage({ [STORAGE_KEY]: record(settings({ updatedAt: 1 }), null) });
-    await h.authority.initializeAtomic("unknown");
+    await h.authority.initializeAtomic("never-linked");
     const popup = new SettingsCache(new ChromeStorageAdapter(), { now: () => 10 }); await popup.hydrate();
     const content = new SettingsCache(new ChromeStorageAdapter()); await content.hydrate();
     const stop = content.watch(); const notify = vi.fn(); content.subscribe(notify);

@@ -159,6 +159,7 @@ describe("reviewed authority publication and stop admission", () => {
     await f.storage.set({ ...durable, atomic: { ...durable.atomic!,
       paused: kind === "paused" ? "ownership-hold" : null,
       ownership: kind === "ownership" ? "unknown" : "never-linked",
+      anchor: kind === "ownership" ? { version: 1 as const, lineage: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", revision: 0, mac: "A".repeat(43) } : durable.atomic!.anchor,
     } });
     const reason = kind === "paused" ? "ownership-hold" : "ownership-unconfirmed";
     expect(seen).toEqual([null, reason]);
@@ -523,6 +524,7 @@ describe("D01 committed binding", () => {
           sequence: record.atomic!.sequence + 1,
           paused: kind === "paused" ? "ordering-hold" : null,
           ownership: kind === "unknown" ? "unknown" : "never-linked",
+          anchor: kind === "unknown" ? { version: 1 as const, lineage: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", revision: 0, mac: "A".repeat(43) } : record.atomic!.anchor,
         },
       });
       const before = await storage.get();
@@ -927,4 +929,55 @@ describe("explicit current-authority reread", () => {
     } finally { unsubscribe(); view.unmount(); }
   });
 
+});
+describe("retained unknown local-only binding", () => {
+  it.each(["account", "session", "anchor", "mixed", "receipt", "origin", "paused", "future", "malformed", "sequence"] as const)(
+    "keeps unsafe unknown %s authority unavailable without any local command", async kind => {
+      const f = await fixture(); const record = (await f.storage.get())!;
+      const scope = { ...record.atomic!.scope, ...(kind === "account" ? { accountId: "11111111-1111-1111-1111-111111111111" } : {}),
+        ...(kind === "session" ? { sessionId: "cccccccc-cccc-cccc-cccc-cccccccccccc" } : {}) };
+      const receipt = { version: 1 as const, lineage: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", revision: 0, mac: "A".repeat(43) };
+      const pending = ["mixed", "receipt", "origin", "malformed"].includes(kind) ? [{
+        writeId: "dddddddd-dddd-dddd-dddd-dddddddddddd", scope: { ...scope, generation: kind === "mixed" ? 1 : 0 },
+        receipt: kind === "receipt" ? receipt : null,
+        ...(kind === "origin" ? { originScope: scope } : {}),
+        operations: [{ path: "globalOn" as const, value: false, baseRevision: 0, localStep: kind === "malformed" ? 0 : 1 }],
+      }] : [];
+      const supplied = { ...record, settings: kind === "future" ? { ...record.settings, schemaVersion: 3 } : record.settings,
+        atomic: { ...record.atomic!, ownership: "unknown" as const, scope, pending, sequence: kind === "sequence" ? Number.MAX_SAFE_INTEGER : 1,
+          anchor: kind === "anchor" ? receipt : null, paused: kind === "paused" ? "pending-limit" : null } };
+      await f.storage.set(supplied);
+      // A separate host hydrates the exact durable record, not an earlier accepted generation.
+      const cache = new SettingsCache({ get: f.storage.get.bind(f.storage), set: f.storage.set.bind(f.storage),
+        subscribe: f.storage.subscribe.bind(f.storage), commitIntent: f.writer.commit.bind(f.writer) });
+      await cache.hydrate(); const binding = createDesktopPopupBinding(cache, f.access); cleanups.push(binding.stop);
+      f.writes.mockClear(); const before = await f.storage.get();
+      expect(binding.current().commandAvailability).toBe("unavailable");
+      expect((await binding.setGlobalOn(false)).status).toBe("unavailable");
+      expect((await cache.rereadAuthority()).status).toBe("unavailable");
+      expect(f.writes).not.toHaveBeenCalled(); expect(await f.storage.get()).toEqual(before);
+    });
+
+  it("allows deliberate free controls while preserving inherited Off and unknown ownership", async () => {
+    const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, globalOn: false, updatedAt: 21,
+      services: { ...DEFAULT_SETTINGS.services, facebook: false, tiktok: false } });
+    const uuid = vi.fn(() => "dddddddd-dddd-dddd-dddd-dddddddddddd");
+    const writer = new AtomicSettingsWriter(storage, uuid); await writer.initialize("unknown");
+    const cache = new SettingsCache({ get: storage.get.bind(storage), set: storage.set.bind(storage),
+      subscribe: storage.subscribe.bind(storage), commitIntent: writer.commit.bind(writer) }, { now: () => 500 });
+    await cache.hydrate();
+    const access = new EntitlementCache({ get: async () => false, set: async () => {}, subscribe: () => () => {},
+      observeBenefits: async () => initialAccessSnapshot() }); await access.refreshAccess();
+    const binding = createDesktopPopupBinding(cache, access); cleanups.push(binding.stop);
+    expect(binding.current().commandAvailability).toBe("ready");
+    expect(await binding.setGlobalOn(true)).toEqual({ status: "committed" });
+    expect(await binding.setService("youtube", false)).toEqual({ status: "committed" });
+    expect(await binding.setService("youtube", true)).toEqual({ status: "committed" });
+    expect(await binding.setFeature("youtube.shorts", false)).toEqual({ status: "committed" });
+    expect(await binding.setFeature("youtube.comments", true)).toEqual({ status: "rejected", reason: "inactive-or-unavailable" });
+    expect(cache.current()).toMatchObject({ services: { facebook: false, tiktok: false }, sites: { "youtube.shorts": false } });
+    expect((await storage.get())!.atomic).toMatchObject({ ownership: "unknown", pending: [], paused: null });
+    binding.stop(); expect(await binding.rereadAuthority()).toEqual({ status: "unavailable", reason: "stopped" });
+    expect(uuid).not.toHaveBeenCalled();
+  });
 });

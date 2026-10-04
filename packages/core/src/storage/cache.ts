@@ -1,7 +1,7 @@
 import type { FeatureId, ServiceId, SettingsField, StillSettings } from "@still/shared-types";
 import { SettingsStorageRecovery, type AtomicSettingsState, type CanonicalSettingsEnvelope, type SettingsScope } from "./atomic-settings.js";
 import { DEFAULT_SETTINGS, SETTINGS_FIELDS } from "@still/shared-types";
-import { requireModernSettings, sameSettingsScope } from "./atomic-settings.js";
+import { permitsUnknownLocalEdit, requireModernSettings, sameSettingsScope } from "./atomic-settings.js";
 import { parseStoredSettingsRecord } from "./settings-validation.js";
 import type {
   SettingsSyncMetadata,
@@ -128,12 +128,12 @@ export class SettingsCache {
         record.atomic.ownership !== this.atomic.ownership && record.atomic.ownership !== "unknown")))
       return { status: "superseded" };
     if (record.atomic.paused !== null) return unavailable(record.atomic.paused);
-    if (record.atomic.ownership === "unknown") return unavailable("ownership-unconfirmed");
+    if (record.atomic.ownership === "unknown" && !permitsUnknownLocalEdit(record)) return unavailable("ownership-unconfirmed");
     // Validation above prevents legacy migration/defaults from becoming recovery authority.
     this.acceptCommitted(record, "external");
     // Read-only listeners can synchronously install a newer hold while the receipt publishes.
     const reason = this.hydrationRecovery?.reason ?? this.atomic?.paused ??
-      (this.atomic?.ownership === "unknown" ? "ownership-unconfirmed" : null);
+      (this.atomic?.ownership === "unknown" && !permitsUnknownLocalEdit(this.currentRecord()) ? "ownership-unconfirmed" : null);
     if (reason !== null) return { status: "unavailable", reason };
     return { status: "ready" };
   }
@@ -287,7 +287,7 @@ export class SettingsCache {
     if (!SETTINGS_FIELDS.includes(path) || typeof value !== "boolean")
       return Promise.reject(new TypeError("Invalid settings intent"));
     if (!this.supportsAtomicIntents() || !this.atomic || this.atomic.paused !== null ||
-      this.atomic.ownership === "unknown" || !("schemaVersion" in this.snapshot) || this.snapshot.schemaVersion !== 2)
+      this.atomic.ownership === "unknown" && !permitsUnknownLocalEdit(this.currentRecord()) || !("schemaVersion" in this.snapshot) || this.snapshot.schemaVersion !== 2)
       return Promise.reject(new SettingsStorageRecovery("atomic-command-unavailable"));
     try { requireModernSettings(this.currentRecord()); }
     catch { return Promise.reject(new SettingsStorageRecovery("atomic-command-unavailable")); }

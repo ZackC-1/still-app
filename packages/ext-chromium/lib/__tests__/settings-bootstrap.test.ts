@@ -377,15 +377,11 @@ describe("maintained background DNR settings gate", () => {
         opaqueRoot: { retained: 17 },
       });
     }
+    expect((h.store[KEY] as typeof retained).atomic.pending).toEqual(retained.atomic.pending);
     expect(h.store[KEY]).toMatchObject({
       settings: { globalOn: true, services: { youtube: true } },
       atomic: {
-        pending: [
-          { operations: [{ path: "services.youtube", value: false }] },
-          { operations: [{ path: "globalOn", value: false }] },
-          { operations: [{ path: "services.youtube", value: true }] },
-          { operations: [{ path: "globalOn", value: true }] },
-        ],
+        pending: retained.atomic!.pending,
       },
     });
   });

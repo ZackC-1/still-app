@@ -91,6 +91,17 @@ export function requireModernSettings(record: StoredSettingsRecord): SettingsV2 
   if (result.status !== "ready") throw new SettingsStorageRecovery(result.reason);
   return result.settings;
 }
+/** Local edit capability is separate from eligibility to transfer intent into an account. */
+export function permitsUnknownLocalEdit(record: StoredSettingsRecord): boolean {
+  if (!("schemaVersion" in record.settings) || record.settings.schemaVersion !== 2) return false;
+  const state = readAtomicSettingsState(record.atomic);
+  if (!state || state.ownership !== "unknown" || state.scope.accountId !== null ||
+    state.scope.sessionId !== undefined || state.anchor !== null || state.paused !== null ||
+    state.sequence === Number.MAX_SAFE_INTEGER || state.pending.some(p => p.receipt !== null ||
+      p.originScope !== undefined || !sameSettingsScope(p.scope, state.scope))) return false;
+  try { requireModernSettings(record); return true; }
+  catch { return false; }
+}
 function projection(settings: SettingsV2): StoredSettingsRecord["settings"] {
   return { ...settings, pauses: [] };
 }
@@ -184,6 +195,24 @@ export class AtomicSettingsWriter {
         const settings = intent.path === "globalOn" ? { ...current.settings, globalOn: intent.value, updatedAt: intent.updatedAt }
           : { ...current.settings, services: { ...current.settings.services, [intent.path.slice(9)]: intent.value }, updatedAt: intent.updatedAt };
         const next = { ...current, settings };
+        await this.adapter.set(structuredClone(next));
+        return { ...next, intentCommitted: true };
+      }
+      if (current.atomic.ownership === "unknown" && current.atomic.scope.accountId === null) {
+        if (current.atomic.sequence === Number.MAX_SAFE_INTEGER) throw new SettingsStorageRecovery("sequence-saturated");
+        if (!permitsUnknownLocalEdit(current)) throw new SettingsStorageRecovery("atomic-command-unavailable");
+        const state = current.atomic;
+        let settings = requireModernSettings(current);
+        const priorValue = settingsFieldValue(settings, intent.path);
+        // A matching overlay alone is not a saved field; persist the person's deliberate choice.
+        if (priorValue === intent.value && state.held[intent.path] === undefined)
+          return { ...current, intentCommitted: false };
+        const edit = allocateSettingsFieldEdit({ value: priorValue, stamp: settings.clocks[intent.path] }, 0, intent.value);
+        if (edit.status !== "edited" && edit.status !== "unchanged") throw new SettingsStorageRecovery("ordering-hold");
+        const held = { ...state.held }; delete held[intent.path];
+        if (edit.status === "edited") settings = { ...withField(settings, intent.path, intent.value),
+          clocks: { ...settings.clocks, [intent.path]: edit.field.stamp }, updatedAt: intent.updatedAt };
+        const next = { ...current, settings: projection(settings), atomic: { ...state, sequence: state.sequence + 1, held } };
         await this.adapter.set(structuredClone(next));
         return { ...next, intentCommitted: true };
       }

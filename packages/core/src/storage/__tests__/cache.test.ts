@@ -796,7 +796,7 @@ describe("explicit atomic command receipts", () => {
     const { storage } = await atomicCache();
     const record = (await storage.get())!;
     const settings = kind === "legacy" ? DEFAULT_SETTINGS : kind === "future" ? { ...record.settings, schemaVersion: 3 } : record.settings;
-    await storage.set({ ...record, settings, atomic: { ...record.atomic!, paused: kind === "paused" ? "ownership-hold" : null, ownership: kind === "unknown" ? "unknown" : "never-linked" } });
+    await storage.set({ ...record, settings, atomic: { ...record.atomic!, paused: kind === "paused" ? "ownership-hold" : null, ownership: kind === "unknown" ? "unknown" : "never-linked", anchor: kind === "unknown" ? { version: 1 as const, lineage: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", revision: 0, mac: "A".repeat(43) } : record.atomic!.anchor } });
     const commitIntent = vi.fn();
     const cache = new SettingsCache({ get: storage.get.bind(storage), set: storage.set.bind(storage), subscribe: storage.subscribe.bind(storage), commitIntent });
     await cache.hydrate();
@@ -903,7 +903,7 @@ describe("bounded explicit authority recovery", () => {
         : kind === "legacy" ? { settings: DEFAULT_SETTINGS, syncMetadata: null }
         : { ...f.durable, atomic: { ...f.durable.atomic!,
           paused: kind === "paused" ? "ordering-hold" : null,
-          ownership: kind === "unknown" ? "unknown" : "never-linked" } });
+          ownership: kind === "unknown" ? "unknown" : "never-linked", anchor: kind === "unknown" ? { version: 1 as const, lineage: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", revision: 0, mac: "A".repeat(43) } : f.durable.atomic!.anchor } });
       expect((await f.cache.rereadAuthority()).status).toBe("unavailable");
       expect(f.cache.current().globalOn).toBe(true);
       expect(f.cache.currentRecord().atomic!.paused).not.toBeNull();
@@ -1000,4 +1000,24 @@ describe("bounded explicit authority recovery", () => {
     expect(f.authority).toHaveBeenCalledOnce(); expect(f.legacy).not.toHaveBeenCalled(); expect(f.writes).not.toHaveBeenCalled();
   });
 
+});
+describe("retained unknown local-only cache recovery", () => {
+  it("recovers a refused write by one pure read and saves only a later deliberate edit", async () => {
+    const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, globalOn: false, updatedAt: 21 });
+    const uuid = vi.fn(() => "dddddddd-dddd-dddd-dddd-dddddddddddd");
+    const writer = new AtomicSettingsWriter(storage, uuid); await writer.initialize("unknown");
+    const get = vi.fn(storage.get.bind(storage)); const set = vi.spyOn(storage, "set");
+    const commit = vi.fn(writer.commit.bind(writer));
+    const cache = new SettingsCache({ get, set, subscribe: storage.subscribe.bind(storage), commitIntent: commit }, { now: () => 500 });
+    await cache.hydrate(); const before = await storage.get(); get.mockClear(); set.mockClear();
+    set.mockRejectedValueOnce(new SettingsStorageRecovery("authority-unavailable"));
+    await expect(cache.commitAtomicIntent("globalOn", true)).rejects.toThrow("authority-unavailable");
+    expect(cache.current().globalOn).toBe(false); expect(await storage.get()).toEqual(before);
+    commit.mockClear(); set.mockClear();
+    expect(await cache.rereadAuthority()).toEqual({ status: "ready" });
+    expect(get).toHaveBeenCalledOnce(); expect(commit).not.toHaveBeenCalled(); expect(set).not.toHaveBeenCalled();
+    expect(await cache.commitAtomicIntent("globalOn", true)).toMatchObject({ intentCommitted: true });
+    expect(cache.currentRecord().atomic).toMatchObject({ ownership: "unknown", pending: [], paused: null });
+    expect(uuid).not.toHaveBeenCalled();
+  });
 });

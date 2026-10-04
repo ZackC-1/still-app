@@ -9,6 +9,7 @@ import type { EntitlementCache } from "../../entitlement/cache.js";
 import { isBenefitEffective } from "../../entitlement/access-policy.js";
 import {
   requireModernSettings,
+  permitsUnknownLocalEdit,
   SettingsStorageRecovery,
 } from "../../storage/atomic-settings.js";
 import type { SettingsCache, SettingsAuthorityRereadOutcome } from "../../storage/cache.js";
@@ -58,7 +59,7 @@ export function createDesktopPopupBinding(
       : !settingsCache.supportsAtomicIntents() || !atomic
         ? "atomic-command-unavailable"
         : (atomic.paused ??
-          (atomic.ownership === "unknown" ? "ownership-unconfirmed" : null));
+          (atomic.ownership === "unknown" && !permitsUnknownLocalEdit(record) ? "ownership-unconfirmed" : null));
     return {
       settings,
       access,

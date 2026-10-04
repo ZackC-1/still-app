@@ -207,7 +207,7 @@ describe("actual desktop presentation on the maintained authority", () => {
     ).toHaveAttribute("aria-expanded", "false");
   });
 
-  it.each(["paused", "unknown"] as const)(
+  it.each(["paused", "previous-account"] as const)(
     "preserves choices under %s and refuses captured commands while settings and privacy stay usable",
     async (kind) => {
       const f = await browser();
@@ -223,8 +223,8 @@ describe("actual desktop presentation on the maintained authority", () => {
         atomic: {
           ...before.atomic!,
           sequence: before.atomic!.sequence + 1,
-          paused: kind === "paused" ? "ordering-hold" : null,
-          ownership: kind === "unknown" ? "unknown" : "never-linked",
+          paused: kind === "paused" ? "ordering-hold" : "ownership-unconfirmed",
+          ownership: kind === "previous-account" ? "previous-account" : "never-linked",
         },
       });
       await flush();
@@ -695,7 +695,7 @@ describe("maintained App committed popup host", () => {
     expect(screen.queryByText(STRINGS.paywall.upgradeCta)).toBeNull();
   });
 
-  it.each(["paused", "unknown"] as const)(
+  it.each(["paused", "previous-account"] as const)(
     "keeps saved choices but disables real controls under %s authority, then recovers",
     async (kind) => {
       const f = await browser();
@@ -708,8 +708,8 @@ describe("maintained App committed popup host", () => {
         atomic: {
           ...saved.atomic!,
           sequence: saved.atomic!.sequence + 1,
-          paused: kind === "paused" ? "ordering-hold" : null,
-          ownership: kind === "unknown" ? "unknown" : "never-linked",
+          paused: kind === "paused" ? "ordering-hold" : "ownership-unconfirmed",
+          ownership: kind === "previous-account" ? "previous-account" : "never-linked",
         },
       });
       await flush();
@@ -1178,7 +1178,7 @@ describe("current-authority recovery in the same mounted host", () => {
     },
   );
 
-  it.each(["read-failure", "unknown"] as const)(
+  it.each(["read-failure", "previous-account"] as const)(
     "keeps %s held after the one read without replay or false commit",
     async (reason) => {
       const h = await readyHost();
@@ -1188,12 +1188,14 @@ describe("current-authority recovery in the same mounted host", () => {
           .mockImplementationOnce(get)
           .mockRejectedValueOnce(new Error("Synthetic read refusal"));
       h.f.set.mockImplementationOnce(async () => {
-        if (reason === "unknown")
+        if (reason === "previous-account")
           h.f.store["still:settings"] = {
             ...h.saved,
             atomic: {
               ...h.saved.atomic!,
-              ownership: "unknown",
+              ownership: "previous-account",
+              paused: "ownership-unconfirmed",
+              scope: { ...h.saved.atomic!.scope, generation: h.saved.atomic!.scope.generation + 1 },
               sequence: h.saved.atomic!.sequence + 1,
             },
           };
@@ -1203,7 +1205,7 @@ describe("current-authority recovery in the same mounted host", () => {
       await waitFor(() => expect(h.reread).toHaveBeenCalledOnce());
       await waitFor(() =>
         expect(h.state.binding.current().reason).toBe(
-          reason === "unknown" ? "ownership-unconfirmed" : "read-failed",
+          reason === "previous-account" ? "ownership-unconfirmed" : "read-failed",
         ),
       );
       expect(h.state.binding.current().commandAvailability).toBe("unavailable");
@@ -1626,4 +1628,37 @@ describe("mounted sync retry lifecycle", () => {
       expect(state.controller.cloudReachable).toBe(false);
     });
   }
+});
+
+describe("retained local-only authority in the actual desktop host", () => {
+  it("saves deliberate free controls after a retained Off migration without creating cloud requests", async () => {
+    const f = await browser();
+    f.store["still:settings"] = { settings: { ...DEFAULT_SETTINGS, globalOn: false, updatedAt: 21,
+      services: { ...DEFAULT_SETTINGS.services, facebook: false, tiktok: false } }, syncMetadata: null, syncEpoch: 0 };
+    await f.authority.initializeAtomic("unknown");
+    const state = capture(); await flush();
+    const telemetry = vi.fn();
+    const view = render(App, { controller: state.controller, committedPopupBinding: state.binding,
+      popupPresentation: { browser: "Chrome", onSettings: vi.fn(), loadDesktop: () => import("../v3/DesktopPopup.svelte") },
+      onCommittedPopupToggle: telemetry, compact: true });
+    const global = () => screen.getByRole("switch", { name: "Still" });
+    await waitFor(() => expect(global()).toHaveAttribute("aria-checked", "false"));
+    expect(global()).not.toHaveAttribute("aria-disabled", "true");
+    expect(telemetry).not.toHaveBeenCalled();
+    await fireEvent.click(global());
+    await waitFor(() => expect(global()).toHaveAttribute("aria-checked", "true"));
+    await fireEvent.click(screen.getByRole("button", { name: "YouTube Blocker" }));
+    await fireEvent.click(screen.getByRole("switch", { name: "Shorts" }));
+    await waitFor(() => expect(requireModernSettings((f.store["still:settings"] as StoredSettingsRecord)).sites["youtube.shorts"]).toBe(false));
+    const saved = (await f.authority.get())!;
+    expect(saved).toMatchObject({ settings: { globalOn: true, services: { facebook: false, tiktok: false },
+      clocks: { globalOn: { localStep: 1 }, "sites.youtube.shorts": { localStep: 1 } } },
+      atomic: { ownership: "unknown", sequence: 2, pending: [], paused: null } });
+    expect(telemetry).toHaveBeenCalledExactlyOnceWith({ enabled: true });
+    view.unmount(); state.binding.stop();
+    const reopened = capture(); await flush();
+    expect(reopened.binding.current().commandAvailability).toBe("ready");
+    expect(reopened.binding.current().settings!.sites["youtube.shorts"]).toBe(false);
+    expect(await f.authority.get()).toEqual(saved);
+  });
 });
