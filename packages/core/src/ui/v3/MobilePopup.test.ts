@@ -19,6 +19,7 @@ import {
   initialAccessSnapshot,
 } from "../../entitlement/access-policy.js";
 import MobilePopup from "./MobilePopup.svelte";
+import DesktopPopup from "./DesktopPopup.svelte";
 import type { MobilePopupProps } from "./mobile-presentation.js";
 
 async function fixture(state: AccessState = "purchased") {
@@ -61,6 +62,32 @@ async function fixture(state: AccessState = "purchased") {
 }
 
 describe("controlled D02 mobile presentation", () => {
+  it("describes optional free sync on supported surfaces", async () => {
+    const { props } = await fixture();
+    const view = render(MobilePopup, { props });
+    expect(
+      screen.getByText(
+        "Free. Keep your settings updated across every supported surface.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/every device and browser/)).toBeNull();
+    view.unmount();
+  });
+
+  it("keeps the desktop's optional sync claim within the same supported surfaces", async () => {
+    const { props } = await fixture();
+    const view = render(DesktopPopup, {
+      props: { ...props, browser: "Chrome" },
+    });
+    expect(
+      screen.getByText(
+        "Free. Keep your settings updated across every supported surface.",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/every device and browser/)).toBeNull();
+    view.unmount();
+  });
+
   it("commits free and optional choices through the actual writer, retaining choices while site/global Off", async () => {
     const { props, storage, cache, settled } = await fixture();
     const view = render(MobilePopup, { props });
@@ -256,7 +283,8 @@ describe("controlled D02 mobile presentation", () => {
 
   it("routes Safari app actions only with eligible controlled ports and never offers price or Buy", async () => {
     const { props } = await fixture("locked");
-    props.onSeePro = vi.fn();
+    const seePro = vi.fn();
+    props.onSeePro = seePro;
     props.onPurchase = vi.fn();
     props.channelReady = true;
     const view = render(MobilePopup, { props });
@@ -280,6 +308,12 @@ describe("controlled D02 mobile presentation", () => {
     await fireEvent.click(
       screen.getByRole("button", { name: "See Still Pro in the Still app" }),
     );
+    const heldLock = screen.getByRole("button", {
+      name: "Comments. Included in Still Pro. Open the Still app",
+    });
+    expect(heldLock).toHaveAttribute("aria-disabled", "true");
+    await fireEvent.click(heldLock);
+    expect(seePro).toHaveBeenCalledTimes(2);
     expect(props.onPurchase).not.toHaveBeenCalled();
     view.unmount();
   });
@@ -301,10 +335,12 @@ describe("controlled D02 mobile presentation", () => {
     expect(screen.queryByText("See Still Pro")).toBeNull();
     props.channelReady = true;
     await view.rerender(props);
+    await fireEvent.click(lock);
+    expect(props.onPurchase).toHaveBeenCalledOnce();
     await fireEvent.click(
       screen.getByRole("button", { name: "Purchase Still Pro" }),
     );
-    expect(props.onPurchase).toHaveBeenCalledOnce();
+    expect(props.onPurchase).toHaveBeenCalledTimes(2);
     for (const state of ["checking", "verification_required"] as const) {
       props.access = {
         ...props.access,
@@ -317,7 +353,7 @@ describe("controlled D02 mobile presentation", () => {
           name: "Related videos. Included in Still Pro. See Still Pro",
         }),
       );
-      expect(props.onPurchase).toHaveBeenCalledOnce();
+      expect(props.onPurchase).toHaveBeenCalledTimes(2);
     }
     view.unmount();
   });

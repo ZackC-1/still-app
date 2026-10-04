@@ -5,6 +5,7 @@
   import type { MobilePopupProps } from "./mobile-presentation.js";
   import { serviceIconSrc } from "./service-icons.js";
   import Toggle from "./Toggle.svelte";
+  import FeatureRow from "./FeatureRow.svelte";
   import Glyph from "./Glyph.svelte";
   import "./design/styles.css";
 
@@ -186,65 +187,17 @@
             <div class="inner">
               <div class="list">
                 {#each rows as row (row.id)}
-                  {@const state = access.states[row.id]}
-                  {@const usable =
-                    state === "free" ||
-                    state === "purchased" ||
-                    state === "protected"}
-                  {@const inactive =
-                    !settings.globalOn || !settings.services[service]}
-                  {@const label = labels[row.id] ?? row.label}
-                  {@const key = row.id.replace(/\W+/g, "-")}
-                  {@const note =
-                    state === "unsupported"
-                      ? `Not available in ${host === "safari" ? "Safari" : "this browser"}. Your choice is saved.`
-                      : undefined}
-                  {@const srNote =
-                    state === "checking"
-                      ? "Checking your Still Pro access. Your choice is saved."
-                      : state === "verification_required"
-                        ? "Verify Still Pro to use this. Your choice is saved."
-                        : undefined}
-                  <div
-                    class="option-row"
-                    data-access={state === "verification_required"
-                      ? "verify"
-                      : state}
-                    data-inactive={inactive ||
-                      state === "unsupported" ||
-                      state === "locked" ||
-                      undefined}
-                  >
-                    <div class="row-main">
-                      <span class="label"
-                        ><span id={`${key}-l`}>{label}</span></span
-                      >
-                      {#if note}<span class="sub" id={`${key}-s`}>{note}</span
-                        >{:else if srNote}<span class="sr-only" id={`${key}-s`}
-                          >{srNote}</span
-                        >{/if}
-                    </div>
-                    {#if usable || state === "checking" || state === "verification_required"}
-                      <Toggle
-                        small
-                        checked={settings.sites[row.id]}
-                        onChange={(next) => onFeatureChange(row.id, next)}
-                        disabled={inactive || !usable}
-                        labelledBy={`${key}-l`}
-                        describedBy={srNote ? `${key}-s` : undefined}
-                      />
-                    {:else if state === "locked"}
-                      <button
-                        type="button"
-                        class="lock-pro"
-                        aria-label={`${label}. Included in Still Pro. ${host === "safari" ? "Open the Still app" : "See Still Pro"}`}
-                        aria-disabled={!(appActionReady || offer) || undefined}
-                        onclick={openPro}
-                        ><Glyph name="lock" size={14} /><span>Still Pro</span
-                        ></button
-                      >
-                    {/if}
-                  </div>
+                  <FeatureRow
+                    id={row.id}
+                    label={labels[row.id] ?? row.label}
+                    state={access.states[row.id]}
+                    checked={settings.sites[row.id]}
+                    inactive={!settings.globalOn || !settings.services[service]}
+                    unsupportedText={`Not available in ${host === "safari" ? "Safari" : "this browser"}. Your choice is saved.`}
+                    onChange={(next) => onFeatureChange(row.id, next)}
+                    onLock={appActionReady || offer ? openPro : undefined}
+                    lockLabel={`${labels[row.id] ?? row.label}. Included in Still Pro. ${host === "safari" ? "Open the Still app" : "See Still Pro"}`}
+                  />
                 {/each}
               </div>
             </div>
@@ -272,7 +225,7 @@
         <p class="muted sync-row-sub">
           {account
             ? account.address
-            : "Free. Keep your settings updated across every device and browser"}
+            : "Free. Keep your settings updated across every supported surface."}
         </p>
       </div>
       {#if !account && onSignIn}<button
