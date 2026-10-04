@@ -99,6 +99,25 @@ function resolvedPause(state: AtomicSettingsState, held: AtomicSettingsState["he
     ["awaiting-anchor", "ownership-hold", "pending-limit", "ordering-hold"].includes(state.paused ?? "")) return null;
   return state.paused;
 }
+// Only an initial, wholly unsubmitted local journal may discard superseded requests.
+// Keep entire winning requests (including multi-field bodies and ties), never rewrite them.
+function compactNeverLinkedPending(record: StoredSettingsRecord): readonly PendingSettingsIntent[] {
+  const state = record.atomic!;
+  if (state.ownership !== "never-linked" || state.scope.accountId !== null || state.scope.generation !== 0 ||
+    state.scope.sessionId !== undefined || record.syncEpoch !== 0 || record.syncMetadata !== null || state.anchor !== null ||
+    !readAtomicSettingsState(state) || state.pending.some(p => p.receipt !== null || p.originScope !== undefined ||
+      !sameSettingsScope(p.scope, state.scope))) return state.pending;
+  const latest = new Map<SettingsField, UntrustedSettingsFieldOperation>();
+  for (const pending of state.pending) for (const operation of pending.operations) {
+    const prior = latest.get(operation.path);
+    if (!prior || operation.baseRevision > prior.baseRevision ||
+      operation.baseRevision === prior.baseRevision && operation.localStep > prior.localStep) latest.set(operation.path, operation);
+  }
+  return state.pending.filter(p => p.operations.some(operation => {
+    const winner = latest.get(operation.path)!;
+    return operation.baseRevision === winner.baseRevision && operation.localStep === winner.localStep;
+  }));
+}
 // Legacy projections and snapshot imports use the same existing account-epoch/row ordering.
 // Device timestamps decide only when both records have the same epoch and metadata version.
 function canReplaceLegacyRecord(current: StoredSettingsRecord, incoming: StoredSettingsRecord): boolean {
@@ -168,7 +187,7 @@ export class AtomicSettingsWriter {
         await this.adapter.set(structuredClone(next));
         return { ...next, intentCommitted: true };
       }
-      const state = { ...current.atomic, pending: current.atomic.pending.filter(p => sameSettingsScope(p.scope, current.atomic!.scope)) };
+      const state = { ...current.atomic, pending: compactNeverLinkedPending(current).filter(p => sameSettingsScope(p.scope, current.atomic!.scope)) };
       if (state.sequence === Number.MAX_SAFE_INTEGER) throw new SettingsStorageRecovery("sequence-saturated");
       let settings = requireModernSettings(current);
       const priorValue = settingsFieldValue(settings, intent.path);
