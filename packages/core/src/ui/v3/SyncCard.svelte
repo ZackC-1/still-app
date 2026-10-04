@@ -73,7 +73,7 @@
     {/if}
   {:else}
     <p class="muted">
-      Free. Keep your settings updated across every device and browser
+      Free. Keep your settings updated across every supported surface
     </p>
     <button
       type="button"

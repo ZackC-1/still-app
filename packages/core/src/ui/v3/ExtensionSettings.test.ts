@@ -62,6 +62,24 @@ async function fixture(state: AccessState = "purchased") {
 }
 
 describe("controlled D03 extension settings", () => {
+  it("qualifies signed-out sync coverage and removes the invitation when signed in", async () => {
+    const { props } = await fixture();
+    const view = render(ExtensionSettings, { props });
+    const invitation =
+      "Free. Keep your settings updated across every supported surface";
+    expect(screen.getByText(invitation)).toBeVisible();
+    expect(screen.queryByText(/every device and browser/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeVisible();
+
+    props.sync.account = { address: "fixture@still.test", confirmed: true };
+    await view.rerender(props);
+    expect(screen.getByText("fixture@still.test")).toBeVisible();
+    expect(screen.queryByText(invitation)).toBeNull();
+    expect(screen.queryByText(/every device and browser/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+    view.unmount();
+  });
+
   it("uses actual free writer requests without a sign-in gate, preserves saved choices and guards Off writes", async () => {
     const { storage, cache, props, settled } = await fixture();
     const view = render(ExtensionSettings, { props });
