@@ -4,6 +4,7 @@
   import { rowsFor } from "./presentation.js";
   import type { MobilePopupProps } from "./mobile-presentation.js";
   import { serviceIconSrc } from "./service-icons.js";
+  import PopupInvitation from "./PopupInvitation.svelte";
   import Toggle from "./Toggle.svelte";
   import FeatureRow from "./FeatureRow.svelte";
   import Glyph from "./Glyph.svelte";
@@ -28,6 +29,7 @@
     services = ["youtube", "instagram", "facebook", "tiktok"],
     labels = {},
     features,
+    invitation,
   }: MobilePopupProps = $props();
   let open = $state<ServiceId | null>(
     untrack(() => sectionMemory?.read() ?? null),
@@ -82,6 +84,14 @@
   );
   let appActionReady = $derived(
     host === "safari" && Boolean(onSeePro) && knownMissing,
+  );
+  let invitationReady = $derived(
+    invitation?.identity.surface ===
+      (host === "safari" ? "safari" : "firefox-android") &&
+      (host !== "firefox" || channelReady) &&
+      !(host === "safari" && invitation?.kind === "rating") &&
+      !setup &&
+      !["pending", "failed", "caution"].includes(account?.status?.tone ?? ""),
   );
   function openPro() {
     if (appActionReady) onSeePro?.();
@@ -218,6 +228,7 @@
       onclick={openPro}>See Still Pro</button
     >
   {/if}
+  <PopupInvitation presentation={invitationReady ? invitation : undefined} />
   <section class="card card-stack">
     <div class="sync-row">
       <div class="sync-row-text">

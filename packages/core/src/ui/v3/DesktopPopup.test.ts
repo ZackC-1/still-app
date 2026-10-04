@@ -570,3 +570,151 @@ describe("controlled D01 presentation", () => {
     expect(buy).toHaveBeenCalledOnce();
   });
 });
+
+function invitationSpecimen(
+  kind: "rating" | "sync" | "link" = "rating",
+  surface = "chrome",
+): import("./invitation-presentation.js").PopupInvitationPresentation {
+  const identity = {
+    installation: "specimen-install",
+    opening: "specimen-opening",
+    surface,
+  };
+  return {
+    kind,
+    identity,
+    verified: true,
+    fresh: true,
+    status: "ready",
+    ordinaryOpening: true,
+    rating: {
+      allowance: { verified: true, fresh: true, global: true, surface: true },
+      eligibility: {
+        verified: true,
+        ageDays: 7,
+        distinctUseDays: 3,
+        laterOpening: true,
+      },
+      display: {
+        verified: true,
+        fresh: true,
+        status: "admitted",
+        receiptId: "specimen-admission",
+        identity: { ...identity },
+      },
+    },
+    accept: {
+      verified: true,
+      status: "ready",
+      identity: { ...identity },
+      request: vi.fn(),
+    },
+    dismiss: {
+      verified: true,
+      status: "ready",
+      identity: { ...identity },
+      request: vi.fn(),
+    },
+  };
+}
+
+describe("optional D28 desktop invitation", () => {
+  it("keeps default popup DOM and real writer choices while rendering only one current selected invitation", async () => {
+    const { props, storage, cache } = await fixture();
+    const settled = bindWriter(cache, props);
+    const saved = await storage.get();
+    const view = render(DesktopPopup, { props });
+    expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+    const headings = Array.from(
+      document.querySelectorAll("h2"),
+      (h) => h.textContent,
+    );
+    props.invitation = invitationSpecimen();
+    await view.rerender(props);
+    const card = screen.getByRole("region", { name: "Rate Still" });
+    expect(card.previousElementSibling?.classList.contains("site-scroll")).toBe(
+      true,
+    );
+    expect(card.nextElementSibling?.textContent).toContain("Settings sync");
+    await fireEvent.click(screen.getByRole("button", { name: "Rate Still" }));
+    expect(props.invitation.accept!.request).toHaveBeenCalledOnce();
+    expect(await storage.get()).toEqual(saved);
+    props.invitation = invitationSpecimen("sync");
+    await view.rerender(props);
+    expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+    expect(
+      screen.getByRole("region", {
+        name: "Use the same settings in every browser",
+      }),
+    ).toBeTruthy();
+    await fireEvent.click(
+      screen.getByRole("button", { name: "YouTube Blocker" }),
+    );
+    await fireEvent.click(screen.getByRole("switch", { name: "Shorts" }));
+    await settled();
+    expect(
+      requireModernSettings((await storage.get())!).sites["youtube.shorts"],
+    ).toBe(false);
+    props.invitation = undefined;
+    await view.rerender(props);
+    expect(
+      Array.from(document.querySelectorAll("h2"), (h) => h.textContent),
+    ).toEqual(headings);
+    expect(document.querySelectorAll(".service-options.open")).toHaveLength(1);
+  });
+
+  it.each(["pending", "failed", "caution"] as const)(
+    "suppresses invitation during known %s sync state without rewriting settings",
+    async (tone) => {
+      const { props, storage } = await fixture();
+      const saved = await storage.get();
+      props.invitation = invitationSpecimen();
+      props.account = {
+        address: "specimen@still.test",
+        status: { tone, text: "Current sync observation" },
+      };
+      render(DesktopPopup, { props });
+      expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+      expect(await storage.get()).toEqual(saved);
+    },
+  );
+
+  it("holds desktop setup until a current verified port and suppresses invitations", async () => {
+    const { props, storage } = await fixture();
+    const saved = await storage.get();
+    props.invitation = invitationSpecimen();
+    props.desktopSetup = {
+      title: "Still can't block on these websites yet.",
+      detail: "Allow Still on these websites so it can block there.",
+      actionLabel: "Allow",
+    };
+    const view = render(DesktopPopup, { props });
+    const held = screen.getByRole("button", { name: "Allow" });
+    expect(held).toHaveAttribute("aria-disabled", "true");
+    await fireEvent.click(held);
+    expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+    const port = invitationSpecimen().accept!;
+    props.desktopSetup = { ...props.desktopSetup, action: port };
+    await view.rerender(props);
+    await fireEvent.click(held);
+    expect(port.request).not.toHaveBeenCalled();
+    await fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+    expect(port.request).toHaveBeenCalledOnce();
+    props.desktopSetup = {
+      ...props.desktopSetup,
+      action: { ...port, verified: false },
+    };
+    await view.rerender(props);
+    await fireEvent.click(screen.getByRole("button", { name: "Allow" }));
+    expect(port.request).toHaveBeenCalledOnce();
+    expect(await storage.get()).toEqual(saved);
+  });
+
+  it("does not transplant a Chrome receipt into a Firefox popup", async () => {
+    const { props } = await fixture();
+    props.browser = "Firefox";
+    props.invitation = invitationSpecimen();
+    render(DesktopPopup, { props });
+    expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+  });
+});

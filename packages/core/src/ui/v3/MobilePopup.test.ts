@@ -407,3 +407,121 @@ describe("controlled D02 mobile presentation", () => {
     },
   );
 });
+
+function invitationSpecimen(
+  kind: "rating" | "sync" | "link" = "rating",
+  surface = "chrome",
+): import("./invitation-presentation.js").PopupInvitationPresentation {
+  const identity = {
+    installation: "specimen-install",
+    opening: "specimen-opening",
+    surface,
+  };
+  return {
+    kind,
+    identity,
+    verified: true,
+    fresh: true,
+    status: "ready",
+    ordinaryOpening: true,
+    rating: {
+      allowance: { verified: true, fresh: true, global: true, surface: true },
+      eligibility: {
+        verified: true,
+        ageDays: 7,
+        distinctUseDays: 3,
+        laterOpening: true,
+      },
+      display: {
+        verified: true,
+        fresh: true,
+        status: "admitted",
+        receiptId: "specimen-admission",
+        identity: { ...identity },
+      },
+    },
+    accept: {
+      verified: true,
+      status: "ready",
+      identity: { ...identity },
+      request: vi.fn(),
+    },
+    dismiss: {
+      verified: true,
+      status: "ready",
+      identity: { ...identity },
+      request: vi.fn(),
+    },
+  };
+}
+
+describe("optional D28 mobile invitation", () => {
+  it("never draws a browser rating in Safari and keeps optional free sync available", async () => {
+    const { props, storage } = await fixture();
+    const saved = await storage.get();
+    props.invitation = invitationSpecimen("rating", "safari");
+    props.channelReady = true;
+    const view = render(MobilePopup, { props });
+    expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+    props.invitation = invitationSpecimen("sync", "safari");
+    await view.rerender(props);
+    const card = screen.getByRole("region", {
+      name: "Use the same settings in every browser",
+    });
+    await fireEvent.click(
+      within(card).getByRole("button", { name: "Sign in" }),
+    );
+    expect(props.invitation.accept!.request).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Purchase Still Pro")).toBeNull();
+    expect(await storage.get()).toEqual(saved);
+  });
+
+  it("requires the illustrative Firefox channel, current surface and setup/error-free opening", async () => {
+    const { props } = await fixture();
+    props.host = "firefox";
+    props.invitation = invitationSpecimen("rating", "firefox-android");
+    const view = render(MobilePopup, { props });
+    expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+    props.channelReady = true;
+    await view.rerender(props);
+    expect(screen.getByRole("region", { name: "Rate Still" })).toBeTruthy();
+    props.setup = {};
+    await view.rerender(props);
+    expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+    props.setup = undefined;
+    props.account = {
+      address: "specimen@still.test",
+      status: { tone: "failed", text: "Current sync failed" },
+    };
+    await view.rerender(props);
+    expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+    props.account = undefined;
+    props.invitation = invitationSpecimen();
+    await view.rerender(props);
+    expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+  });
+
+  it("preserves saved settings and one open site while a higher-priority link invitation replaces rating", async () => {
+    const { props, storage, settled } = await fixture();
+    props.host = "firefox";
+    props.channelReady = true;
+    props.invitation = invitationSpecimen("rating", "firefox-android");
+    const view = render(MobilePopup, { props });
+    const saved = await storage.get();
+    await fireEvent.click(
+      screen.getByRole("button", { name: "YouTube Blocker" }),
+    );
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Instagram Blocker" }),
+    );
+    props.invitation = invitationSpecimen("link", "firefox-android");
+    await view.rerender(props);
+    expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+    expect(document.querySelectorAll(".service-options.open")).toHaveLength(1);
+    await fireEvent.click(screen.getByRole("button", { name: "Link" }));
+    expect(props.invitation.accept!.request).toHaveBeenCalledOnce();
+    await settled();
+    expect(await storage.get()).toEqual(saved);
+    expect(props.onFeatureChange).not.toHaveBeenCalled();
+  });
+});

@@ -3,6 +3,8 @@
   import { FEATURE_REGISTRY, type ServiceId } from "@still/shared-types";
   import { rowsFor, type DesktopPopupProps } from "./presentation.js";
   import { serviceIconSrc } from "./service-icons.js";
+  import PopupInvitation from "./PopupInvitation.svelte";
+  import { sameInvitationIdentity } from "./invitation-presentation.js";
   import Toggle from "./Toggle.svelte";
   import FeatureRow from "./FeatureRow.svelte";
   import Glyph from "./Glyph.svelte";
@@ -25,6 +27,9 @@
     labels = {},
     features,
     heroTitle,
+    invitation,
+    invitationVariant,
+    desktopSetup,
   }: DesktopPopupProps = $props();
   let open = $state<ServiceId | null>(
     untrack(() => sectionMemory?.read() ?? null),
@@ -63,6 +68,44 @@
           ].includes(access.states[row.id]),
       ),
   );
+  let invitationReady = $derived(
+    invitation?.identity.surface === browser.toLowerCase() &&
+      !desktopSetup &&
+      !["pending", "failed", "caution"].includes(account?.status?.tone ?? ""),
+  );
+  function setupIntent(
+    current: NonNullable<DesktopPopupProps["desktopSetup"]>,
+  ) {
+    const port = current.action;
+    const request = port?.request;
+    const identity = port ? { ...port.identity } : undefined;
+    return () => {
+      if (
+        desktopSetup !== current ||
+        current.action !== port ||
+        !port?.verified ||
+        port.status !== "ready" ||
+        port.request !== request ||
+        !identity ||
+        !sameInvitationIdentity(identity, port.identity) ||
+        !identity.installation.trim() ||
+        !identity.opening.trim() ||
+        identity.surface !== browser.toLowerCase()
+      )
+        return;
+      request?.();
+    };
+  }
+  function setupReady() {
+    const port = desktopSetup?.action;
+    return Boolean(
+      port?.verified &&
+      port.status === "ready" &&
+      port.identity.installation.trim() &&
+      port.identity.opening.trim() &&
+      port.identity.surface === browser.toLowerCase(),
+    );
+  }
   function toggleSection(service: ServiceId) {
     open = open === service ? null : service;
     sectionMemory?.write(open);
@@ -72,6 +115,7 @@
 <div
   class="still-ui app"
   data-density="compact"
+  class:d28-invitation={invitationVariant === "d28"}
   style="max-inline-size: 380px;"
 >
   <section class="hero compact" class:off={!settings.globalOn}>
@@ -87,6 +131,28 @@
       onBlue={settings.globalOn}
     />
   </section>
+  {#if desktopSetup}
+    {#key desktopSetup}
+      <section class="card card-stack">
+        <div class="status-line" data-tone="caution">
+          <span class="glyph"><Glyph name="clock" size={16} /></span>
+          <div class="status-body">
+            <span>{desktopSetup.title}</span><span
+              class="muted"
+              style="font-size:calc(12.5px * var(--text-scale, 1));"
+              >{desktopSetup.detail}</span
+            >
+          </div>
+        </div>
+        <button
+          type="button"
+          class="secondary block"
+          aria-disabled={!setupReady() || undefined}
+          onclick={setupIntent(desktopSetup)}>{desktopSetup.actionLabel}</button
+        >
+      </section>
+    {/key}
+  {/if}
   <div
     class="service-group site-scroll services"
     data-paused={!settings.globalOn || undefined}
@@ -170,6 +236,7 @@
   {#if offer}<button type="button" class="secondary block" onclick={onPurchase}
       >Purchase Still Pro</button
     >{/if}
+  <PopupInvitation presentation={invitationReady ? invitation : undefined} />
   <section class="card card-stack">
     <div class="sync-row">
       <div class="sync-row-text">
@@ -222,5 +289,10 @@
     margin: 0 0 4px;
     font-size: 17px;
     letter-spacing: -0.01em;
+  }
+  .d28-invitation .sync-row-title {
+    margin: 0;
+    font-size: calc(15px * var(--text-scale, 1));
+    letter-spacing: normal;
   }
 </style>
