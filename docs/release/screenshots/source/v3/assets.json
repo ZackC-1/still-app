@@ -117,6 +117,38 @@
         "y": 1040
       },
       "browser": "Firefox"
+    },
+    {
+      "id": "cws-small",
+      "kind": "tile",
+      "canvas": {
+        "width": 440,
+        "height": 280
+      },
+      "headline": "Still",
+      "body": "Do what you came to do.",
+      "icon": "assets/logos/still-app-icon-1024.png",
+      "reference": "d41-d43-d45-store-assets-and-icons/04-small-promo-tile-440-280.png",
+      "origin": {
+        "x": 160,
+        "y": 1040
+      }
+    },
+    {
+      "id": "cws-marquee",
+      "kind": "tile",
+      "canvas": {
+        "width": 1400,
+        "height": 560
+      },
+      "headline": "Still",
+      "body": "Do what you came to do.",
+      "icon": "assets/logos/still-app-icon-1024.png",
+      "reference": "d41-d43-d45-store-assets-and-icons/05-marquee-1400-560.png",
+      "origin": {
+        "x": 160,
+        "y": 680
+      }
     }
   ]
 }

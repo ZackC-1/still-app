@@ -78,6 +78,11 @@ async function main() {
   );
   if (tokens.version !== manifest.designVersion)
     throw new Error("Design version mismatch.");
+  const { width, height } = frame.canvas ?? manifest.canvas;
+  const tile = frame.kind === "tile";
+  const icon = tile
+    ? `data:image/png;base64,${(await readFile(join(design, frame.icon))).toString("base64")}`
+    : undefined;
   const harness = join(output, ".harness");
   await mkdir(harness, { mode: 0o700 }); // Refuse to overwrite a previous proof run.
   await mkdir(join(harness, "node_modules"), { mode: 0o700 });
@@ -94,6 +99,14 @@ import { FEATURE_REGISTRY } from '@still/shared-types';
 import StoreAssets from ${JSON.stringify(fromFs(join(here, "StoreAssets.svelte")))};
 import ${JSON.stringify(fromFs(join(design, "styles.css")))};
 const frame = ${frameJson};
+${
+  tile
+    ? `
+mount(StoreAssets,{target:document.querySelector('#root'),props:{
+  id:frame.id,headline:frame.headline,body:frame.body,kind:'tile',
+  width:${width},height:${height},icon:${JSON.stringify(icon)}}});
+`
+    : `
 const settings = Object.freeze({ schemaVersion:2, globalOn:true,
   services:Object.freeze({youtube:true,instagram:true,facebook:true,tiktok:true}),
   sites:Object.freeze(Object.fromEntries(FEATURE_REGISTRY.map(row=>[row.id,
@@ -107,6 +120,8 @@ mount(StoreAssets,{target:document.querySelector('#root'),props:{
   id:frame.id,headline:frame.headline,body:frame.body,browser:frame.browser,
   view:{purpose:'synthetic-reference-only',settings,access,services:frame.services,
     open:frame.open,account:frame.account}}});
+`
+}
 window.referenceFixturePurpose='synthetic-reference-only';
 `;
   const comparison = mode === "comparison";
@@ -117,7 +132,7 @@ window.referenceFixturePurpose='synthetic-reference-only';
   const html = `<!doctype html><html data-theme="light"><meta charset="utf-8">
 <style>html,body{margin:0}body{background:${manifest.comparison.parentBackground};
 font-family:var(--font-ui);-webkit-font-smoothing:antialiased}
-#root{position:absolute;left:${origin.x}px;top:${origin.y}px;width:1280px;height:800px;
+#root{position:absolute;left:${origin.x}px;top:${origin.y}px;width:${width}px;height:${height}px;
 overflow:hidden;border-radius:${radius}px;--text-scale:1}</style>
 <div id="root"></div><script type="module" src="/entry.js"></script></html>`;
   await writeFile(join(harness, "entry.js"), entry, { mode: 0o600 });
@@ -185,9 +200,16 @@ overflow:hidden;border-radius:${radius}px;--text-scale:1}</style>
         fontLoaded: document.fonts.check('16px "InterVariable"'),
         fontStatus: document.fonts.status,
         openSections: document.querySelectorAll(".service-options.open").length,
-        uiTheme: element.querySelector(".still-ui").dataset.theme,
+        uiTheme:
+          element.querySelector(".still-ui")?.dataset.theme ??
+          document.documentElement.dataset.theme,
       };
     });
+    if (tile) {
+      observed.tileArtworkLoaded = await page
+        .locator("[data-asset] img")
+        .evaluate((image) => image.complete && image.naturalWidth === 1024);
+    }
     if (frame.browser) {
       observed.settingsHostLabel = await page
         .locator(".open-options")
@@ -196,6 +218,7 @@ overflow:hidden;border-radius:${radius}px;--text-scale:1}</style>
     if (
       errors.length ||
       !observed.fontLoaded ||
+      (tile && !observed.tileArtworkLoaded) ||
       observed.purpose !== manifest.purpose
     ) {
       throw new Error(
@@ -210,7 +233,7 @@ overflow:hidden;border-radius:${radius}px;--text-scale:1}</style>
     const buffer = await readFile(destination);
     const dimensions = [buffer.readUInt32BE(16), buffer.readUInt32BE(20)];
     const scale = comparison ? 2 : 1;
-    if (dimensions[0] !== 1280 * scale || dimensions[1] !== 800 * scale) {
+    if (dimensions[0] !== width * scale || dimensions[1] !== height * scale) {
       throw new Error(`Incorrect raster dimensions: ${dimensions}`);
     }
     const result = {
