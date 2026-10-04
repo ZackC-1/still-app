@@ -19,6 +19,8 @@ export interface SyncCardProps {
   };
   owned?: boolean;
   onSignIn?: () => void;
+  /** Optional host explanation; omission preserves the extension card. */
+  caption?: string;
 }
 
 export interface ProOfferCardProps {
