@@ -104,8 +104,10 @@ export class SettingsCache {
     try {
       const stored = this.atomicOwnership !== undefined && this.adapter.initializeAtomic
         ? await this.adapter.initializeAtomic(this.atomicOwnership) : await this.adapter.get();
-      // A newer accepted authority receipt owns the snapshot, even at the same sequence.
-      if (stored && authorityTicket === this.authorityTicket) void this.applyStoredRecord(stored, "external");
+      // Legacy notifications still arbitrate by epoch, server version, and timestamp. Atomic
+      // authority receipts supersede pending reads, even at the same sequence.
+      if (stored && ((!stored.atomic && !this.atomic) || authorityTicket === this.authorityTicket))
+        void this.applyStoredRecord(stored, "external");
       return this.snapshot;
     } catch (error) {
       if (error instanceof SettingsStorageRecovery && authorityTicket === this.authorityTicket) {

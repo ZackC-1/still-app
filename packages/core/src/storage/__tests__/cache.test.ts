@@ -4,6 +4,8 @@ import { DEFAULT_SETTINGS } from "@still/shared-types";
 import { SettingsCache } from "../cache.js";
 import { AtomicSettingsWriter, SettingsStorageRecovery, requireModernSettings } from "../atomic-settings.js";
 import { InMemoryStorageAdapter } from "../adapter.js";
+import type { StoredSettingsRecord } from "../adapter.js";
+import { ChromeStorageAdapter } from "../chrome-adapter.js";
 import { EntitlementCache } from "../../entitlement/cache.js";
 import { createDesktopPopupBinding } from "../../ui/v3/desktop-popup-binding.js";
 
@@ -18,6 +20,105 @@ function makeCache(initial?: StillSettings) {
 function settings(over: Partial<StillSettings> = {}): StillSettings {
   return { ...DEFAULT_SETTINGS, ...over };
 }
+
+describe("legacy hydration arbitration", () => {
+  function record(globalOn: boolean, updatedAt: number, version?: number, syncEpoch = 0): StoredSettingsRecord {
+    return { settings: settings({ globalOn, updatedAt }), syncEpoch,
+      syncMetadata: version === undefined ? null : {
+        version, serverUpdatedAt: "2026-07-09T18:00:00.000Z", lastWriteId: null,
+      } };
+  }
+
+  const saved = record(false, 300);
+  const intermediate = record(true, 200);
+  const newer = record(true, 400);
+  const versioned = record(false, 1, 5);
+  const skewed = record(true, 9000, 4);
+  const reset = record(false, 1, 1, 2);
+  const priorAccount = record(true, 9000, 99, 1);
+  const currentAccount = record(true, 1, 3, 2);
+
+  it.each([
+    { name: "ignored equal-timestamp notification", saved, notification: record(true, 0), chosen: saved, events: [saved] },
+    { name: "accepted intermediate older notification", saved, notification: intermediate, chosen: saved, events: [intermediate, saved] },
+    { name: "server version ahead of a skewed timestamp", saved: versioned, notification: skewed, chosen: versioned, events: [skewed, versioned] },
+    { name: "new epoch reset ahead of old account version", saved: reset, notification: priorAccount, chosen: reset, events: [priorAccount, reset] },
+    { name: "stale saved epoch denied after account reset", saved: priorAccount, notification: currentAccount, chosen: currentAccount, events: [currentAccount] },
+    { name: "genuinely newer notification", saved, notification: newer, chosen: newer, events: [newer] },
+    { name: "no notification", saved, notification: null, chosen: saved, events: [saved] },
+  ])("preserves $name while the saved get is pending", async scenario => {
+    const storage = new InMemoryStorageAdapter(scenario.saved);
+    let release!: () => void;
+    let started!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const reached = new Promise<void>(resolve => { started = resolve; });
+    const writes = vi.spyOn(storage, "set");
+    const cache = new SettingsCache({
+      get: async () => { const captured = await storage.get(); started(); await gate; return captured; },
+      set: storage.set.bind(storage), subscribe: storage.subscribe.bind(storage),
+    });
+    const legacy = vi.fn(); cache.subscribe(legacy);
+    const hydration = cache.hydrate();
+    const settled = cache.whenHydrated();
+    await reached;
+    const stop = cache.watch();
+    try {
+      if (scenario.notification) storage.emitExternal(scenario.notification);
+      release();
+      await expect(hydration).resolves.toEqual(scenario.chosen.settings);
+      await expect(settled).resolves.toBeUndefined();
+      await expect(cache.whenHydrated()).resolves.toBeUndefined();
+      expect(cache.currentRecord()).toEqual(scenario.chosen);
+      expect(cache.currentSyncMetadata()).toEqual(scenario.chosen.syncMetadata);
+      expect(legacy.mock.calls).toEqual(scenario.events.map(event => [event.settings, "external"]));
+      expect(writes).not.toHaveBeenCalled();
+      expect(await storage.get()).toEqual(scenario.notification ?? scenario.saved);
+    } finally { release(); stop(); }
+  });
+
+  it("arbitrates an ignored Chrome onChanged signal against the held saved get", async () => {
+    let release!: (values: Record<string, unknown>) => void;
+    let changed!: (changes: Record<string, chrome.storage.StorageChange>, area: string) => void;
+    const get = vi.fn(() => new Promise<Record<string, unknown>>(resolve => { release = resolve; }));
+    const set = vi.fn();
+    const sendMessage = vi.fn();
+    const sendNativeMessage = vi.fn();
+    const addListener = vi.fn(listener => { changed = listener; });
+    const removeListener = vi.fn();
+    vi.stubGlobal("chrome", {
+      storage: { local: { get, set }, onChanged: { addListener, removeListener } },
+      runtime: { getURL: () => "chrome-extension://test/", sendMessage, sendNativeMessage },
+    });
+    const adapter = new ChromeStorageAdapter();
+    const commit = vi.spyOn(adapter, "commitIntent");
+    const initialize = vi.spyOn(adapter, "initializeAtomic");
+    const cache = new SettingsCache(adapter);
+    const legacy = vi.fn(); cache.subscribe(legacy);
+    const hydration = cache.hydrate();
+    const settled = cache.whenHydrated();
+    const stop = cache.watch();
+    try {
+      expect(get).toHaveBeenCalledExactlyOnceWith("still:settings");
+      changed({ "still:settings": { newValue: record(true, 0) } }, "local");
+      expect(cache.current()).toEqual(DEFAULT_SETTINGS);
+      expect(legacy).not.toHaveBeenCalled();
+      release({ "still:settings": saved });
+      await expect(hydration).resolves.toEqual(saved.settings);
+      await expect(settled).resolves.toBeUndefined();
+      await expect(cache.whenHydrated()).resolves.toBeUndefined();
+      expect(cache.currentRecord()).toEqual(saved);
+      expect(cache.currentSyncMetadata()).toBeNull();
+      expect(legacy.mock.calls).toEqual([[saved.settings, "external"]]);
+      expect(set).not.toHaveBeenCalled();
+      expect(commit).not.toHaveBeenCalled(); expect(initialize).not.toHaveBeenCalled();
+      expect(sendMessage).not.toHaveBeenCalled(); expect(sendNativeMessage).not.toHaveBeenCalled();
+    } finally {
+      release({ "still:settings": saved }); stop();
+      expect(removeListener).toHaveBeenCalledExactlyOnceWith(changed);
+      vi.unstubAllGlobals();
+    }
+  });
+});
 
 describe("read-only authority observation", () => {
   async function fixture() {
