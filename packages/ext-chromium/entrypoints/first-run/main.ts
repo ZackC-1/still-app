@@ -12,6 +12,7 @@ import { createPageAnalytics } from "../../lib/analytics.js";
 import { modernSettingsRuntime } from "../../lib/modern-settings-runtime.js";
 import { declaredSiteOrigins, firstRunAnalytics, type PinApi } from "./first-run-ports.js";
 import FirstRunApp from "./FirstRunApp.svelte";
+import { bindTextScale } from "../../../core/src/ui/v3/text-scale.js";
 
 // The D14 first-run page. The background opens it once, on a brand-new install; Settings → Setup
 // guide reopens it. It is a thin host over the same pieces the popup and settings page use: the
@@ -43,6 +44,14 @@ function init(): void {
         }
       : undefined,
   });
+  // Text size follows the browser's font size on the V3 screens (owner decision 51). The condition
+  // is modernSettingsRuntime's atomicLocal rule written inline, so Vite folds it: configured 2.x
+  // builds contain none of this and stay byte-identical.
+  if (
+    !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
+    import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true"
+  )
+    bindTextScale(document, "browser");
   mount(FirstRunApp, {
     target: document.getElementById("app")!,
     props: {

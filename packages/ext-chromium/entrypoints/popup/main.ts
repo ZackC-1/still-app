@@ -14,6 +14,7 @@ import { emailConsent } from "../../lib/email-consent.js";
 import { surfaceGuidance } from "../../lib/surface-guidance.js";
 import { createPageAnalytics } from "../../lib/analytics.js";
 import PopupApp from "./PopupApp.svelte";
+import { bindTextScale } from "../../../core/src/ui/v3/text-scale.js";
 import { modernSettingsRuntime } from "../../lib/modern-settings-runtime.js";
 
 // Build the controller — with the purchase-spine injection when this build carries Supabase config
@@ -54,6 +55,17 @@ function init(): void {
       : undefined,
     openedWhere: "popup",
   });
+  // Text size follows the browser's font size on the V3 screens (owner decision 51). The condition
+  // is modernSettingsRuntime's atomicLocal rule written inline, so Vite folds it: configured 2.x
+  // builds contain none of this and stay byte-identical.
+  if (
+    !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
+    import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true"
+  )
+    bindTextScale(document, "browser", {
+      compactPopup: true,
+      desktopPopupHeading: true,
+    });
   mount(PopupApp, {
     target: document.getElementById("app")!,
     props: {
