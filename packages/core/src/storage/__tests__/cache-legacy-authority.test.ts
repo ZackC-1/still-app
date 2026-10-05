@@ -2796,3 +2796,139 @@ describe("current-slot invalidation lifetime and authority ordering", () => {
     expect(cache.current().globalOn).toBe(true);
   });
 });
+
+const invalidatedReplyCases = (["legacy", "modern"] as const).flatMap((mode) =>
+  (["missing", "keyed unreadable"] as const).flatMap((disk) =>
+    ([false, true] as const).flatMap((committed) =>
+      (["pending", "terminal"] as const).map((timing) => ({
+        mode,
+        disk,
+        committed,
+        timing,
+      })),
+    ),
+  ),
+);
+
+describe("delayed request receipts after actual current-slot invalidation", () => {
+  it.each(invalidatedReplyCases)(
+    "retains $mode $disk $timing authority for real committed=$committed reply",
+    async ({ mode, disk, committed, timing }) => {
+      const initial =
+        mode === "legacy"
+          ? saved()
+          : await new AtomicSettingsWriter(
+              new InMemoryStorageAdapter(saved()),
+            ).initialize("never-linked");
+      const h = invalidationBrowser(initial);
+      await h.cache.hydrate();
+      const stop = h.cache.watch();
+      const before = h.cache.currentRecord();
+      const captured = deferred<void>();
+      const releaseReply = deferred<void>();
+      const send = h.sendMessage.getMockImplementation()!;
+      // Maintain the real adapter/router/writer result; delay only consumer transport delivery.
+      h.sendMessage.mockImplementationOnce(async (message) => {
+        const result = await send(message);
+        captured.resolve();
+        await releaseReply.promise;
+        return result;
+      });
+      const local = vi.fn();
+      h.cache.subscribe((_settings, source) => {
+        if (source === "local") local();
+      });
+      const command =
+        mode === "legacy"
+          ? h.cache.commitLegacyIntent("globalOn", committed)
+          : h.cache.commitAtomicIntent("globalOn", committed);
+      await captured.promise;
+      expect(h.local.set).toHaveBeenCalledTimes(committed ? 1 : 0);
+      expect(h.sendMessage).toHaveBeenCalledTimes(1);
+      const currentRead = deferred<Record<string, unknown>>();
+      h.local.get.mockImplementationOnce(() => currentRead.promise);
+      h.signal(
+        disk === "missing" ? null : { invalid: true },
+        disk !== "missing",
+        disk === "missing"
+          ? { oldValue: initial }
+          : { newValue: { invalid: true } },
+      );
+      await settleInvalidation();
+      const heldRead = h.cache.legacyReadState();
+      const heldRecord = h.cache.currentRecord();
+      const raw = h.raw();
+      const gets = h.local.get.mock.calls.length;
+      const finishRead = async () => {
+        currentRead.resolve(
+          disk === "missing" ? {} : { [KEY]: { invalid: true } },
+        );
+        await settleInvalidation();
+      };
+      try {
+        if (timing === "terminal") await finishRead();
+        const expectedRead = h.cache.legacyReadState();
+        const expectedRecord = h.cache.currentRecord();
+        releaseReply.resolve();
+        expect((await command).intentCommitted).toBe(committed);
+        expect(local).toHaveBeenCalledTimes(committed ? 1 : 0);
+        expect(h.cache.legacyReadState()).toBe(expectedRead);
+        expect(h.cache.currentRecord()).toEqual(expectedRecord);
+        expect(h.cache.current().globalOn).toBe(false);
+        expect(h.local.get).toHaveBeenCalledTimes(gets);
+        expect(h.local.set).toHaveBeenCalledTimes(committed ? 1 : 0);
+        expect(h.sendMessage).toHaveBeenCalledTimes(1);
+        expect(h.raw()).toEqual(raw);
+        if (timing === "pending") {
+          expect(h.cache.legacyReadState()).toBe(heldRead);
+          expect(h.cache.currentRecord()).toEqual(heldRecord);
+          await finishRead();
+        }
+        if (mode === "legacy") {
+          expect(h.cache.legacyReadState()).toMatchObject(
+            disk === "missing"
+              ? { status: "absent", settings: null }
+              : { status: "unavailable", settings: { globalOn: false } },
+          );
+        } else {
+          expect(h.cache.currentRecord().atomic).toMatchObject({
+            scope: before.atomic!.scope,
+            sequence: before.atomic!.sequence,
+            ownership: before.atomic!.ownership,
+          });
+          expect(h.cache.currentRecord().atomic?.paused).not.toBeNull();
+          expect(h.cache.legacyReadState().status).not.toBe("absent");
+          await expect(
+            h.cache.commitAtomicIntent("globalOn", true),
+          ).rejects.toThrow("atomic-command-unavailable");
+        }
+        // A subsequent actual valid observation restores capability without replaying the old request.
+        h.put(initial);
+        if (mode === "legacy")
+          await expect(h.cache.rereadLegacyAuthority()).resolves.toEqual({
+            status: "ready",
+          });
+        else
+          await expect(h.cache.rereadAuthority()).resolves.toEqual({
+            status: "ready",
+          });
+        const fresh =
+          mode === "legacy"
+            ? await h.cache.commitLegacyIntent("globalOn", true)
+            : await h.cache.commitAtomicIntent("globalOn", true);
+        expect(fresh.intentCommitted).toBe(true);
+        expect(h.cache.current().globalOn).toBe(true);
+        expect(local).toHaveBeenCalledTimes((committed ? 1 : 0) + 1);
+        expect(h.local.set).toHaveBeenCalledTimes((committed ? 1 : 0) + 1);
+        expect(h.sendMessage).toHaveBeenCalledTimes(2);
+      } finally {
+        releaseReply.resolve();
+        currentRead.resolve(
+          disk === "missing" ? {} : { [KEY]: { invalid: true } },
+        );
+        await command;
+        stop();
+      }
+    },
+  );
+});

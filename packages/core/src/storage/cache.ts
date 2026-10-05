@@ -66,6 +66,7 @@ export class SettingsCache {
   private unwatch: (() => void) | null = null;
   private watchLifetime: object | null = null;
   private invalidationLifetime: object | null = null;
+  private invalidationLineage = 0;
   private hydration: Promise<StillSettings> | null = null;
   private authorityTicket = 0;
   private committedGeneration = 0;
@@ -391,6 +392,7 @@ export class SettingsCache {
       const detachInvalidation = this.adapter.subscribeInvalidation(() => {
         if (this.watchLifetime !== lifetime) return;
         this.invalidationLifetime = lifetime;
+        this.invalidationLineage += 1;
         // A payload-free signal retires captured reads and failures before any observer runs.
         this.authorityTicket += 1;
         this.legacyReadTicket += 1;
@@ -549,32 +551,69 @@ export class SettingsCache {
     return (await this.executeIntent(path, value)).settings;
   }
 
-  private async executeIntent(path: SettingsField, value: boolean, legacyCommand = false): Promise<AtomicSettingsIntentOutcome> {
+  private async executeIntent(
+    path: SettingsField,
+    value: boolean,
+    legacyCommand = false,
+  ): Promise<AtomicSettingsIntentOutcome> {
     const previous = this.snapshot;
+    const invalidationLineage = this.invalidationLineage;
     const authorityTicket = this.authorityTicket;
     const absent = legacyCommand && this.legacyRead.status === "absent";
     const legacyReadTicket = this.legacyReadTicket;
     this.intentsInFlight += 1;
     let committed = false;
     try {
-      const record = await this.adapter.commitIntent!({ path, value, updatedAt: this.now() });
-      const currentAbsence = absent && this.legacyAbsenceCurrent && previous === this.snapshot &&
-        authorityTicket === this.authorityTicket && legacyReadTicket === this.legacyReadTicket;
-      // A false no-op cannot establish presence: the writer may have found absent defaults or
-      // a peer's saved matching choice. One fenced pure read distinguishes them without replay.
-      if (currentAbsence && record.intentCommitted === false && this.isLegacyAuthority(record))
-        await this.readLegacyAuthority(true);
-      // A real recreation belongs to current absence, not the vanished record's ordering.
-      else if (!legacyCommand || record.atomic ||
-        (currentAbsence ? record.intentCommitted === true && this.isLegacyAuthority(record) :
-          (!absent || record.intentCommitted === true && this.legacyRead.status === "ready") && this.isCurrentLegacyRecord(record)))
-        this.acceptCommitted(record, "external");
-      else if (authorityTicket === this.authorityTicket && !this.isLegacyAuthority(record))
-        this.publishLegacyRead({ status: "unavailable", settings: null, reason: "legacy-command-unavailable" });
+      const record = await this.adapter.commitIntent!({
+        path,
+        value,
+        updatedAt: this.now(),
+      });
+      // Invalidation retires captured projections, never the writer's actual request receipt.
+      if (invalidationLineage === this.invalidationLineage) {
+        const currentAbsence =
+          absent &&
+          this.legacyAbsenceCurrent &&
+          previous === this.snapshot &&
+          authorityTicket === this.authorityTicket &&
+          legacyReadTicket === this.legacyReadTicket;
+        // A false no-op cannot establish presence: the writer may have found absent defaults or
+        // a peer's saved matching choice. One fenced pure read distinguishes them without replay.
+        if (
+          currentAbsence &&
+          record.intentCommitted === false &&
+          this.isLegacyAuthority(record)
+        )
+          await this.readLegacyAuthority(true);
+        // A real recreation belongs to current absence, not the vanished record's ordering.
+        else if (
+          !legacyCommand ||
+          record.atomic ||
+          (currentAbsence
+            ? record.intentCommitted === true && this.isLegacyAuthority(record)
+            : (!absent ||
+                (record.intentCommitted === true &&
+                  this.legacyRead.status === "ready")) &&
+              this.isCurrentLegacyRecord(record))
+        )
+          this.acceptCommitted(record, "external");
+        else if (
+          authorityTicket === this.authorityTicket &&
+          !this.isLegacyAuthority(record)
+        )
+          this.publishLegacyRead({
+            status: "unavailable",
+            settings: null,
+            reason: "legacy-command-unavailable",
+          });
+      }
       committed = record.intentCommitted === true;
       return { settings: this.snapshot, intentCommitted: committed };
     } catch (error) {
-      if (error instanceof SettingsStorageRecovery && authorityTicket === this.authorityTicket) {
+      if (
+        error instanceof SettingsStorageRecovery &&
+        authorityTicket === this.authorityTicket
+      ) {
         this.hydrationRecovery = error;
         if (legacyCommand) this.publishLegacyFailure(error.reason);
         if (this.atomic) this.atomic = { ...this.atomic, paused: error.reason };
@@ -584,7 +623,11 @@ export class SettingsCache {
     } finally {
       this.intentsInFlight -= 1;
       if (committed) this.notify("local");
-      else if (this.intentsInFlight === 0 && !sameSettings(previous, this.snapshot)) this.notify("external");
+      else if (
+        this.intentsInFlight === 0 &&
+        !sameSettings(previous, this.snapshot)
+      )
+        this.notify("external");
     }
   }
 

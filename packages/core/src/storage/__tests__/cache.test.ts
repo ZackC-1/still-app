@@ -193,7 +193,8 @@ describe("legacy hydration arbitration", () => {
     const set = vi.fn();
     const sendMessage = vi.fn();
     const sendNativeMessage = vi.fn();
-    const addListener = vi.fn(listener => { changed = listener; });
+    const registered: (typeof changed)[] = [];
+    const addListener = vi.fn(listener => { registered.push(listener); changed = listener; });
     const removeListener = vi.fn();
     vi.stubGlobal("chrome", {
       storage: { local: { get, set }, onChanged: { addListener, removeListener } },
@@ -209,7 +210,8 @@ describe("legacy hydration arbitration", () => {
     const stop = cache.watch();
     try {
       expect(get).toHaveBeenCalledExactlyOnceWith("still:settings");
-      changed({ "still:settings": { newValue: record(true, 0) } }, "local");
+      for (const handler of registered)
+        handler({ "still:settings": { newValue: record(true, 0) } }, "local");
       expect(cache.current()).toEqual(DEFAULT_SETTINGS);
       expect(legacy).not.toHaveBeenCalled();
       release({ "still:settings": saved });
