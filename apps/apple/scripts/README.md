@@ -46,7 +46,7 @@ On a Release build the "Copy Safari Web Extension Resources" run-script phase fi
 commands refuse to build when the web and Safari-extension builds disagree about cloud-sync
 configuration, exactly like the script. It checks both packages' production environments with the
 real Vite and WXT loaders and never prints a value; it covers the extension build the phase runs,
-and the web bundle you built beforehand must have been built the same way. Node must be on PATH.
+and the prebuilt web bundle is checked through `packages/app-webview/dist/.env-state`, a token-only stamp (never a value) that `pnpm --filter @still/app-webview build` writes. A missing or differing stamp refuses; rebuild the web bundle. Node must be on PATH.
 
 These commands do not request provisioning updates or upload. Use unique archive/DerivedData
 paths for each candidate. Missing signing profiles/certificates are a gate to resolve against the

@@ -508,7 +508,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nexport PATH=\"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}\"\nPNPM=\"$(command -v pnpm || true)\"\nif [ -z \"${PNPM}\" ]; then\n  echo \"error: pnpm not found. Install pnpm or open Xcode from a shell with pnpm on PATH.\"\n  exit 1\nfi\nREPO=\"${SRCROOT}/../../..\"\nif [ \"${CONFIGURATION:-}\" = \"Release\" ]; then\n  /bin/bash \"${REPO}/apps/apple/scripts/release-env-guard.sh\" \"${REPO}/packages/app-webview\" \"${REPO}/packages/ext-safari\" \"${REPO}/apps/apple/scripts/modern-sync-shipped\"\nfi\n( cd \"${REPO}\" && \"${PNPM}\" --filter @still/ext-safari build )\nSRC=\"${REPO}/packages/ext-safari/dist/safari-mv3\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nif [ ! -f \"${SRC}/manifest.json\" ]; then\n  echo \"error: Safari extension build missing at ${SRC}\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --exclude='.DS_Store' \"${SRC}/\" \"${DEST}/\"\n\"${REPO}/apps/apple/scripts/resign-safari-extension.sh\"\n";
+			shellScript = "set -euo pipefail\nexport PATH=\"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}\"\nPNPM=\"$(command -v pnpm || true)\"\nif [ -z \"${PNPM}\" ]; then\n  echo \"error: pnpm not found. Install pnpm or open Xcode from a shell with pnpm on PATH.\"\n  exit 1\nfi\nREPO=\"${SRCROOT}/../../..\"\nif [ \"${CONFIGURATION:-}\" = \"Release\" ]; then\n  /bin/bash \"${REPO}/apps/apple/scripts/release-env-guard.sh\" \"${REPO}/packages/app-webview\" \"${REPO}/packages/ext-safari\" \"${REPO}/apps/apple/scripts/modern-sync-shipped\" \"${REPO}/packages/app-webview/dist/.env-state\"\nfi\n( cd \"${REPO}\" && \"${PNPM}\" --filter @still/ext-safari build )\nSRC=\"${REPO}/packages/ext-safari/dist/safari-mv3\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nif [ ! -f \"${SRC}/manifest.json\" ]; then\n  echo \"error: Safari extension build missing at ${SRC}\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --exclude='.DS_Store' \"${SRC}/\" \"${DEST}/\"\n\"${REPO}/apps/apple/scripts/resign-safari-extension.sh\"\n";
 		};
 		363E50207F4EF8662ACF74FC /* Copy Still Web UI */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -527,7 +527,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nSRC=\"${SRCROOT}/../../../packages/app-webview/dist\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebUI\"\nif [ ! -f \"${SRC}/index.html\" ]; then\n  echo \"error: Still web UI build missing at ${SRC} — run: pnpm --filter @still/app-webview build\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --delete --exclude='.DS_Store' \"${SRC}/\" \"${DEST}/\"\n";
+			shellScript = "set -euo pipefail\nSRC=\"${SRCROOT}/../../../packages/app-webview/dist\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebUI\"\nif [ ! -f \"${SRC}/index.html\" ]; then\n  echo \"error: Still web UI build missing at ${SRC} — run: pnpm --filter @still/app-webview build\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --delete --exclude='.DS_Store' --exclude='.env-state' \"${SRC}/\" \"${DEST}/\"\n";
 		};
 		7032E4A88B4C9FA11815A4E5 /* Copy Still Web UI */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -546,7 +546,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nSRC=\"${SRCROOT}/../../../packages/app-webview/dist\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebUI\"\nif [ ! -f \"${SRC}/index.html\" ]; then\n  echo \"error: Still web UI build missing at ${SRC} — run: pnpm --filter @still/app-webview build\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --delete --exclude='.DS_Store' \"${SRC}/\" \"${DEST}/\"\n";
+			shellScript = "set -euo pipefail\nSRC=\"${SRCROOT}/../../../packages/app-webview/dist\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/WebUI\"\nif [ ! -f \"${SRC}/index.html\" ]; then\n  echo \"error: Still web UI build missing at ${SRC} — run: pnpm --filter @still/app-webview build\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --delete --exclude='.DS_Store' --exclude='.env-state' \"${SRC}/\" \"${DEST}/\"\n";
 		};
 		DC102694116D440915AA842D /* Copy Safari Web Extension Resources */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -565,7 +565,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -euo pipefail\nexport PATH=\"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}\"\nPNPM=\"$(command -v pnpm || true)\"\nif [ -z \"${PNPM}\" ]; then\n  echo \"error: pnpm not found. Install pnpm or open Xcode from a shell with pnpm on PATH.\"\n  exit 1\nfi\nREPO=\"${SRCROOT}/../../..\"\nif [ \"${CONFIGURATION:-}\" = \"Release\" ]; then\n  /bin/bash \"${REPO}/apps/apple/scripts/release-env-guard.sh\" \"${REPO}/packages/app-webview\" \"${REPO}/packages/ext-safari\" \"${REPO}/apps/apple/scripts/modern-sync-shipped\"\nfi\n( cd \"${REPO}\" && \"${PNPM}\" --filter @still/ext-safari build )\nSRC=\"${REPO}/packages/ext-safari/dist/safari-mv3\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nif [ ! -f \"${SRC}/manifest.json\" ]; then\n  echo \"error: Safari extension build missing at ${SRC}\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --exclude='.DS_Store' \"${SRC}/\" \"${DEST}/\"\n\"${REPO}/apps/apple/scripts/resign-safari-extension.sh\"\n";
+			shellScript = "set -euo pipefail\nexport PATH=\"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:${PATH:-}\"\nPNPM=\"$(command -v pnpm || true)\"\nif [ -z \"${PNPM}\" ]; then\n  echo \"error: pnpm not found. Install pnpm or open Xcode from a shell with pnpm on PATH.\"\n  exit 1\nfi\nREPO=\"${SRCROOT}/../../..\"\nif [ \"${CONFIGURATION:-}\" = \"Release\" ]; then\n  /bin/bash \"${REPO}/apps/apple/scripts/release-env-guard.sh\" \"${REPO}/packages/app-webview\" \"${REPO}/packages/ext-safari\" \"${REPO}/apps/apple/scripts/modern-sync-shipped\" \"${REPO}/packages/app-webview/dist/.env-state\"\nfi\n( cd \"${REPO}\" && \"${PNPM}\" --filter @still/ext-safari build )\nSRC=\"${REPO}/packages/ext-safari/dist/safari-mv3\"\nDEST=\"${BUILT_PRODUCTS_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}\"\nif [ ! -f \"${SRC}/manifest.json\" ]; then\n  echo \"error: Safari extension build missing at ${SRC}\"\n  exit 1\nfi\nmkdir -p \"${DEST}\"\nrsync -a --exclude='.DS_Store' \"${SRC}/\" \"${DEST}/\"\n\"${REPO}/apps/apple/scripts/resign-safari-extension.sh\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 

@@ -21,7 +21,12 @@
 
 _GUARD_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# release_env_guard <app-webview-dir> <ext-safari-dir> <shipped-marker-file>
+# A raw Xcode Release build copies a PREBUILT app-webview/dist, so the env the web bundle would use
+# now is not what it was built with. When a 4th argument names the build stamp (dist/.env-state,
+# written after `vite build` by the app-webview build script: state tokens only), the web side is
+# read from that stamp instead of re-resolved; a missing, malformed or differing stamp refuses.
+#
+# release_env_guard <app-webview-dir> <ext-safari-dir> <shipped-marker-file> [<web-build-stamp>]
 # Returns 0 when the two builds agree (and, once shipped, are configured with the modern flag);
 # otherwise prints a reason naming packages and variables only, and returns 1.
 release_env_guard() {
@@ -35,7 +40,7 @@ release_env_guard() {
 }
 
 _release_env_guard_checked() {
-  local web="$1" ext="$2" marker="$3"
+  local web="$1" ext="$2" marker="$3" stamp="${4-}"
   local failed=0 dir
 
   for dir in "$web" "$ext"; do
@@ -46,7 +51,32 @@ _release_env_guard_checked() {
   done
 
   local state
-  if ! state="$(node "$_GUARD_DIR/release-env-state.mjs" "$web" "$ext" 2>/dev/null)"; then
+  if [ -n "$stamp" ]; then
+    if [ ! -f "$stamp" ]; then
+      echo "release env guard: refusing to archive. The web bundle has no build stamp ($(basename "$stamp")). Rebuild it with: pnpm --filter @still/app-webview build" >&2
+      return 1
+    fi
+    local stamped extstate stamp_line
+    stamped=""
+    while IFS= read -r stamp_line || [ -n "$stamp_line" ]; do
+      # Only exact state tokens are accepted: anything else (a stray value, a blank) refuses.
+      case "$stamp_line" in
+        app-webview.configured=configured|app-webview.configured=unconfigured|app-webview.configured=partial| \
+        app-webview.modern=on|app-webview.modern=off|app-webview.atomic=on|app-webview.atomic=off)
+          stamped="$stamped$stamp_line
+" ;;
+        *)
+          echo "release env guard: refusing to archive. The web build stamp ($(basename "$stamp")) is not a plain state stamp. Rebuild the web bundle." >&2
+          return 1
+          ;;
+      esac
+    done < "$stamp"
+    if ! extstate="$(node "$_GUARD_DIR/release-env-state.mjs" --ext-only "$ext" 2>/dev/null)"; then
+      echo "release env guard: refusing to archive. Could not work out the extension build's environment (is node on PATH and pnpm install done?)." >&2
+      return 1
+    fi
+    state="$stamped$(printf '%s\n' "$extstate" | grep '^ext-safari\.')"
+  elif ! state="$(node "$_GUARD_DIR/release-env-state.mjs" "$web" "$ext" 2>/dev/null)"; then
     echo "release env guard: refusing to archive. Could not work out each build's environment (is node on PATH and pnpm install done?)." >&2
     return 1
   fi

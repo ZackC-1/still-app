@@ -2,6 +2,8 @@
 // Release-build env state for the Apple archive guard (U3-W4 P6).
 //
 // Usage: node release-env-state.mjs <app-webview-dir> <ext-safari-dir>
+//        node release-env-state.mjs --web-only <app-webview-dir>   (the build stamp; see below)
+//        node release-env-state.mjs --ext-only <ext-safari-dir>
 //
 // Resolves what each package's PRODUCTION build would see for the variables the guard cares about,
 // using the real loaders from the repo's installed dependencies rather than a reimplementation:
@@ -17,6 +19,11 @@
 // Output: state tokens only, one per line, e.g. "app-webview.configured=configured". It never prints
 // a value. Tokens: configured = configured|unconfigured|partial; modern, atomic = on|off ("on" only
 // for the exact value "true", which is what the app and extension code compare against).
+// The `debug` package (which Vite uses) prints values it sees when DEBUG is set, and a person can
+// have it exported. Remove both before anything is imported so even a direct run cannot print one.
+delete process.env.DEBUG;
+delete process.env.NODE_DEBUG;
+
 import { createRequire } from "node:module";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -24,13 +31,19 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "../../..");
-const [webDir, extDir] = process.argv.slice(2).map((p) => resolve(p));
+const args = process.argv.slice(2);
+const only = args[0] === "--web-only" ? "web" : args[0] === "--ext-only" ? "ext" : null;
+if (only) args.shift();
+const dirs = args.map((p) => resolve(p));
+const [webDir, extDir] = only === "web" ? [dirs[0], dirs[0]] : only === "ext" ? [dirs[0], dirs[0]] : dirs;
 
 function fail(reason) {
   process.stderr.write(`release env state: ${reason}\n`);
   process.exit(2);
 }
-if (!webDir || !extDir) fail("usage: release-env-state.mjs <app-webview-dir> <ext-safari-dir>");
+if (!webDir || !extDir || (only ? dirs.length !== 1 : dirs.length !== 2)) {
+  fail("usage: release-env-state.mjs [--web-only|--ext-only] <package-dir> | <app-webview-dir> <ext-safari-dir>");
+}
 
 async function loadVite() {
   const require = createRequire(join(repo, "packages/app-webview/package.json"));
@@ -72,10 +85,12 @@ function tokens(label, env) {
 const vite = await loadVite();
 const out = [];
 // app-webview first, from the untouched process environment.
-out.push(...tokens("app-webview", vite.loadEnv("production", webDir, "VITE_")));
+if (only !== "ext") out.push(...tokens("app-webview", vite.loadEnv("production", webDir, "VITE_")));
 // ext-safari: WXT's loader (relative to its cwd) fills process.env, then Vite reads it.
-const wxtLoadEnv = await loadWxtEnv();
-process.chdir(extDir);
-wxtLoadEnv("production", "safari");
-out.push(...tokens("ext-safari", vite.loadEnv("production", extDir, "VITE_")));
+if (only !== "web") {
+  const wxtLoadEnv = await loadWxtEnv();
+  process.chdir(extDir);
+  wxtLoadEnv("production", "safari");
+  out.push(...tokens("ext-safari", vite.loadEnv("production", extDir, "VITE_")));
+}
 process.stdout.write(`${out.join("\n")}\n`);

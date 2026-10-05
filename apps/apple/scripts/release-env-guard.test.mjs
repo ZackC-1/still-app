@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { after, describe, test } from "node:test";
+import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 // U3-W4 P6 / T13: the release-build env guard. It runs the guard in isolation (no Xcode, no pnpm,
@@ -43,10 +44,10 @@ function fixture({ web = {}, ext = {}, marker = "not-shipped\n", packageJson = t
   return { ...dirs, marker: markerPath };
 }
 
-function run(f, { script = GUARD, env = {}, trace = false, after = "" } = {}) {
+function run(f, { script = GUARD, env = {}, trace = false, after = "", stamp = "" } = {}) {
   const r = spawnSync(
     "bash",
-    [...(trace ? ["-x"] : []), "-c", `source "$1"; release_env_guard "$2" "$3" "$4"; status=$?; ${after || ":"}; exit $status`, "guard", script, f.web, f.ext, f.marker],
+    [...(trace ? ["-x"] : []), "-c", `source "$1"; release_env_guard "$2" "$3" "$4" "$5"; status=$?; ${after || ":"}; exit $status`, "guard", script, f.web, f.ext, f.marker, stamp],
     { env: { PATH: process.env.PATH, ...env }, encoding: "utf8" },
   );
   return { status: r.status, output: `${r.stdout}${r.stderr}` };
@@ -225,8 +226,103 @@ describe("release env guard", () => {
       assert.ok(guard > 0, "the phase runs the guard");
       assert.ok(phase.includes('if [ \\"${CONFIGURATION:-}\\" = \\"Release\\" ]'), "gated on Release");
       assert.ok(phase.includes("modern-sync-shipped"), "with the committed marker");
+      assert.ok(phase.includes("packages/app-webview/dist/.env-state"), "and the web build stamp");
       assert.ok(guard < phase.indexOf("@still/ext-safari build"), "before the extension build");
       assert.ok(phase.includes("set -euo pipefail"), "a refusal fails the phase");
+    }
+  });
+});
+
+describe("the web build stamp (a prebuilt app-webview/dist on the raw Xcode path)", () => {
+  const TOKENS = (cfg, modern = "off", atomic = "off") =>
+    `app-webview.configured=${cfg}\napp-webview.modern=${modern}\napp-webview.atomic=${atomic}\n`;
+  const withStamp = (text) => {
+    const f = fixture({ web: {}, ext: { ".env": CONFIGURED } }); // what the extension is built with
+    const stamp = join(dirname(f.web), "env-state");
+    if (text !== null) writeFileSync(stamp, text);
+    return { f, stamp };
+  };
+
+  test("a matching stamp passes; the web dir's files are not consulted (the bundle is already built)", () => {
+    const { f, stamp } = withStamp(TOKENS("configured"));
+    const r = run(f, { stamp });
+    assert.equal(r.status, 0, r.output);
+    noSecrets(r.output);
+  });
+
+  test("a missing stamp is refused", () => {
+    const { f, stamp } = withStamp(null);
+    const r = run(f, { stamp });
+    assert.equal(r.status, 1);
+    assert.match(r.output, /no build stamp/);
+  });
+
+  test("a stamp that differs from the extension build is refused", () => {
+    for (const tokens of [TOKENS("unconfigured"), TOKEN_MODERN_ON(), TOKENS("configured", "off", "on")]) {
+      const { f, stamp } = withStamp(tokens);
+      const r = run(f, { stamp });
+      assert.equal(r.status, 1, tokens);
+      assert.match(r.output, /refusing to archive/);
+    }
+  });
+
+  test("a stamp that is not plain state tokens is refused, so a value can never ride in it", () => {
+    for (const text of ["", TOKENS("configured") + `leak=${KEY_SECRET}\n`, `app-webview.configured=${URL_SECRET}\n`, TOKENS("configured").split("\n")[0]]) {
+      const { f, stamp } = withStamp(text);
+      const r = run(f, { stamp });
+      assert.equal(r.status, 1, JSON.stringify(text.slice(0, 40)));
+      noSecrets(r.output);
+    }
+  });
+
+  test("once shipped, the stamp must show the flag and a configured web bundle", () => {
+    const f = fixture({ ext: { ".env": CONFIGURED + MODERN }, marker: "shipped\n" });
+    const stamp = join(dirname(f.web), "env-state");
+    writeFileSync(stamp, TOKENS("configured", "off"));
+    assert.equal(run(f, { stamp }).status, 1);
+    writeFileSync(stamp, TOKENS("configured", "on"));
+    assert.equal(run(f, { stamp }).status, 0);
+  });
+
+  test("the app-webview build writes the stamp from the real loaders, tokens only", () => {
+    const pkg = JSON.parse(readFileSync(join(REPO, "packages/app-webview/package.json"), "utf8"));
+    assert.match(pkg.scripts.build, /vite build && node \.\.\/\.\.\/apps\/apple\/scripts\/release-env-state\.mjs --web-only \. > dist\/\.env-state$/);
+    const f = fixture({ web: { ".env": CONFIGURED + MODERN } });
+    const r = spawnSync("node", [join(SCRIPTS, "release-env-state.mjs"), "--web-only", f.web], { env: { PATH: process.env.PATH }, encoding: "utf8" });
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout, TOKENS("configured", "on"));
+    noSecrets(`${r.stdout}${r.stderr}`);
+  });
+
+  test("the Xcode web-UI copy phases leave the stamp out of the app bundle", () => {
+    const phases = readFileSync(PBXPROJ, "utf8").split("\n").filter((l) => l.includes("rsync -a --delete") && l.includes("app-webview/dist"));
+    assert.equal(phases.length, 2);
+    for (const phase of phases) assert.ok(phase.includes("--exclude='.env-state'"));
+  });
+});
+const TOKEN_MODERN_ON = () => "app-webview.configured=configured\napp-webview.modern=on\napp-webview.atomic=off\n";
+
+describe("the state helper never prints values", () => {
+  test("a DEBUG setting that would make the loaders print values is ignored, even run directly", () => {
+    const f = fixture({ web: { ".env": CONFIGURED }, ext: { ".env": CONFIGURED } });
+    for (const mode of [[f.web, f.ext], ["--web-only", f.web], ["--ext-only", f.ext]]) {
+      const r = spawnSync("node", [join(SCRIPTS, "release-env-state.mjs"), ...mode], {
+        env: { PATH: process.env.PATH, DEBUG: "*,vite:*", NODE_DEBUG: "module" },
+        encoding: "utf8",
+      });
+      assert.equal(r.status, 0, r.stderr);
+      noSecrets(`${r.stdout}${r.stderr}`);
+    }
+  });
+
+  test("pins: WXT still loads env through ./utils/env.mjs's loadEnv(mode, browser), and neither build moves its env dir", () => {
+    const require = createRequire(join(REPO, "packages/ext-safari/package.json"));
+    const resolveConfig = join(dirname(require.resolve("wxt")), "core/resolve-config.mjs");
+    const text = readFileSync(resolveConfig, "utf8");
+    assert.ok(text.includes('import { loadEnv } from "./utils/env.mjs"'), "WXT's resolve-config imports the loader the helper uses");
+    assert.ok(/loadEnv\(mode, browser\)/.test(text), "and calls it with (mode, browser)");
+    for (const config of ["packages/app-webview/vite.config.ts", "packages/ext-safari/wxt.config.ts"]) {
+      assert.equal(/envDir|envPrefix|loadEnv/.test(readFileSync(join(REPO, config), "utf8")), false, `${config} reads env from the package root`);
     }
   });
 });
@@ -307,6 +403,42 @@ describe("xtrace never leaks", () => {
 });
 
 describe("negative controls: each broken guard fails the matching test", () => {
+  const stampFixture = (text) => {
+    const f = fixture({ web: {}, ext: { ".env": CONFIGURED } });
+    const stamp = join(dirname(f.web), "env-state");
+    if (text !== null) writeFileSync(stamp, text);
+    return { f, stamp };
+  };
+
+  test("without the stamp checks, a missing or differing stamp passes", () => {
+    const script = mutatedBundle({
+      guard: [
+        ['if [ ! -f "$stamp" ]; then', "if false; then"],
+        ['if ! extstate="$(node "$_GUARD_DIR/release-env-state.mjs" --ext-only "$ext" 2>/dev/null)"; then', 'extstate="ext-safari.configured=configured\next-safari.modern=off\next-safari.atomic=off"; stamped="app-webview.configured=configured\napp-webview.modern=off\napp-webview.atomic=off\n"; if false; then'],
+      ],
+    });
+    const { f, stamp } = stampFixture(null);
+    assert.equal(run(f, { stamp, script }).status, 0);
+    assert.equal(run(f, { stamp }).status, 1, "the real guard refuses the same fixture");
+  });
+
+  test("a helper that ignored --ext-only's stamp mode would read the web dir instead", () => {
+    // Stand-in for "skip the stamp comparison": the stamp is read but the web side is re-resolved.
+    const script = mutatedBundle({ guard: ['state="$stamped$(printf', 'state="$(printf'] });
+    const { f, stamp } = stampFixture("app-webview.configured=unconfigured\napp-webview.modern=off\napp-webview.atomic=off\n");
+    assert.notEqual(run(f, { stamp }).status, 0, "the real guard compares the stamp");
+    assert.notEqual(run(f, { stamp, script }).status, 0, "without the stamp tokens the answer is incomplete, so it still refuses, by a different message");
+    assert.match(run(f, { stamp, script }).output, /incomplete answer/);
+  });
+
+  test("without removing DEBUG, the helper prints a value", () => {
+    const script = mutatedBundle({ state: ["delete process.env.DEBUG;\n", ""] });
+    const f = fixture({ web: { ".env": CONFIGURED }, ext: { ".env": CONFIGURED } });
+    const helper = join(dirname(script), "release-env-state.mjs");
+    const r = spawnSync("node", [helper, f.web, f.ext], { env: { PATH: process.env.PATH, DEBUG: "*" }, encoding: "utf8" });
+    assert.equal(`${r.stdout}${r.stderr}`.includes("fixture-secret-host"), true, "the control proves the check can fail");
+  });
+
   const mismatch = () => fixture({ web: { ".env": CONFIGURED }, ext: {} });
 
   test("a guard that always passes lets a configured mismatch through", () => {
