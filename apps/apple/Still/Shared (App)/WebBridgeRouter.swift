@@ -116,6 +116,12 @@ final class WebBridgeRouter {
       }
       settings.submit(request) { json in reply(json, nil) }
 
+    case "safariSetupState":
+      Task {
+        let observation = await SafariExtensionBridge.observeSetup()
+        reply(Self.json(observation.bridgeReply), nil)
+      }
+
     case "signInWithApple":
       Task { await self.handleSignIn(reply: reply) }
 
