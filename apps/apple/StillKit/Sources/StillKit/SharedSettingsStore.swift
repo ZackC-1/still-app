@@ -149,8 +149,9 @@ public final class SharedSettingsStore {
         return result
       }
       let result = try AtomicSettingsRecord.commit(data, path: path, value: value, updatedAt: updatedAt)
-      data = result.data
-      return result
+      // A no-op on an absent record stores nothing; the reply still reports the defaults in effect.
+      if let stored = result.data { data = stored }
+      return (try result.data ?? AtomicSettingsRecord.absentRecord(), result.changed)
     }
   }
 
