@@ -11,6 +11,7 @@ import { NAVIGATION_DNR_FEATURES, NAVIGATION_DNR_RULE_IDS, planNavigationDnr, ty
 import { PACKAGED_RULE_SET_V2, admitPackagedRuleSetV2 } from "../packaged.js";
 import { createEnginePageSession, createFormat2PageSessionForTest, type EnginePageSession } from "../engine.js";
 import { exactPath, type ExtrasRouteTable } from "../extras.js";
+import { EXTRAS_CONTROLS } from "./extras-fixtures.js";
 import { DEFAULT_SETTINGS_V2, access as everyFeatureAccess, capabilities as everyFeature } from "./format2-fixtures.js";
 
 // The session rules must never redirect a top-level request anywhere the format-2 engine's own
@@ -167,6 +168,8 @@ describe("format-2 navigation session rules", () => {
       // A query URLSearchParams would rewrite (or an existing v) stays with the content script.
       ["https://www.youtube.com/shorts/abc123?v=other", null],
       ["https://www.youtube.com/shorts/abc123?q=a%20b", null],
+      // Two or more pairs exceed Chrome's compiled-regex budget, so they stay with the content script.
+      ["https://www.youtube.com/shorts/abc123?feature=share&si=x", null],
       // Decision 32: Facebook's Reels feed under Watch goes home; profile/Page Reels and shared Reels stay.
       ["https://www.facebook.com/watch/reels/", "https://www.facebook.com/"],
       ["https://www.facebook.com/reels/?ref=bookmarks", "https://www.facebook.com/"],
@@ -226,6 +229,10 @@ describe("format-2 navigation session rules", () => {
       // ...and never a session rule.
       expect(simulate(plan(everyProOn).rules, href), href).toBeNull();
     }
+    // Every extras route address the dormancy fixtures pin as "left exactly as typed".
+    const pinned = EXTRAS_CONTROLS.flatMap((control) => control.pages.filter((page) => page.route).map((page) => page.url));
+    expect(pinned.length).toBeGreaterThan(10);
+    for (const href of pinned) expect(simulate(plan(everyProOn).rules, new URL(href).href), href).toBeNull();
   });
 
   it("follows the content script's lane: no rules where its pages run the legacy engine", () => {
