@@ -19,7 +19,7 @@ import { WKWebViewStorageAdapter, type StillBridgeWindow } from "../../storage/w
 import { NativeBridge } from "../../native/bridge.js";
 import { UiController, type UiAnalytics } from "../controller.svelte.js";
 import { STRINGS } from "../strings.js";
-import { PRIVACY_POLICY_URL, SETUP_GUIDE_URL } from "../config.js";
+import { FIND_MY_PURCHASE_MAILTO, PRIVACY_POLICY_URL, SETUP_GUIDE_URL, SUPPORT_EMAIL } from "../config.js";
 import { createDesktopPopupBinding } from "./desktop-popup-binding.js";
 import { createAppAnalytics } from "../../analytics/apple-app.js";
 import LegacyApp from "../App.svelte";
@@ -30,6 +30,8 @@ import {
   appleSettingsPlatform,
   appleSettingsRestore,
   appleSettingsSetup,
+  createAppleSettingsRestore,
+  SUPPORT_MAILTO,
   createAppleSettingsSync,
   APPLE_SETUP_OBSERVATION_DEADLINE_MS,
   observeAppleSetup,
@@ -149,7 +151,15 @@ const BACKENDS: readonly (readonly [string, (seed: StillSettings | null) => Prom
 ];
 
 /** The WK port in front of a backend, with transport faults and an initialization gate. */
-function port(backend: SettingsBackend, options: { failOnce?: string[]; initialized?: Promise<void> } = {}) {
+function port(
+  backend: SettingsBackend,
+  options: {
+    failOnce?: string[];
+    initialized?: Promise<void>;
+    /** Replies for non-settings messages (restore, receiptStatus); a throw is a rejected post. */
+    replies?: Record<string, () => Promise<unknown>>;
+  } = {},
+) {
   const failOnce = [...(options.failOnce ?? [])];
   const fail = new Set<string>();
   const messages: NativeMessage[] = [];
@@ -162,6 +172,8 @@ function port(backend: SettingsBackend, options: { failOnce?: string[]; initiali
       return null;
     }
     if (fail.has(message.kind)) return null;
+    const reply = options.replies?.[message.kind];
+    if (reply) return reply();
     return backend.post(message);
   });
   const win: StillBridgeWindow = { webkit: { messageHandlers: { still: { postMessage } } } };
@@ -200,7 +212,9 @@ async function composeAtomic(
   });
   const { analytics, setSharing } = analyticsDouble();
   const controller = new UiController({ cache, host: { canPurchase: true }, analytics });
-  return { backend, native, adapter, cache, authority, controller, setSharing, hydrated };
+  // The entry passes this same NativeBridge as the free-period Restore bridge.
+  const bridge = new NativeBridge(native.win);
+  return { backend, native, adapter, cache, authority, controller, setSharing, hydrated, bridge };
 }
 
 async function renderHost(f: Awaited<ReturnType<typeof composeAtomic>>, overrides: Record<string, unknown> = {}) {
@@ -213,6 +227,7 @@ async function renderHost(f: Awaited<ReturnType<typeof composeAtomic>>, override
       authority: f.authority,
       observeSetup: async () => null,
       help: appleSettingsHelp(open),
+      restoreBridge: f.bridge,
       onCommittedToggle: report,
       ...overrides,
     },
@@ -265,6 +280,10 @@ describe("Apple settings mode rule", () => {
     expect(main).toContain(": new SettingsCache(new WKWebViewStorageAdapter());");
     expect(main).toContain("else void cache.hydrate();");
     expect(main).toContain("void cache.hydrate().catch(() => {});");
+    // D04 help opens through the anchor route; the free-period Restore uses the one native bridge.
+    expect(main).toContain("help: appleSettingsHelp((url) => openExternalLink(url)),");
+    expect(main).toContain("restoreBridge: bridge,");
+    expect(main).not.toMatch(/location\.href/);
     const index = readFileSync(resolve(import.meta.dirname, "../index.ts"), "utf8");
     expect(index).not.toMatch(/AppleSettings\.svelte/);
   });
@@ -475,14 +494,18 @@ describe("D04 host", () => {
     f.authority.stop();
   });
 
-  it("paid tier off: no Still Pro card, Buy, price or Restore entry; Pro rows are not owned", async () => {
+  it("paid tier off: a plain Restore purchase link, but no Still Pro card, Buy or price; Pro rows are not owned", async () => {
     const f = await composeAtomic();
     await f.hydrated;
     await renderHost(f);
     await screen.findByText("Still is active");
     expect(screen.queryByText("Get Still Pro")).toBeNull();
     expect(screen.queryByText(/Checking your Still Pro access/)).toBeNull();
-    expect(screen.queryByRole("button", { name: "Restore purchase" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "Restore purchase" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Restore purchase" })).toBeEnabled();
+    expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull();
+    expect(screen.queryByText("Still Pro can't be bought here yet.")).toBeNull();
+    expect(screen.queryByText("No account needed. Payment is handled by Apple.")).toBeNull();
     expect(screen.queryByText(/\$\d/)).toBeNull();
     expect(screen.queryByText("Purchased")).toBeNull();
     expect(screen.getByRole("heading", { name: "Settings sync" })).toBeInTheDocument();
@@ -506,15 +529,31 @@ describe("D04 host", () => {
     f.authority.stop();
   });
 
-  it("help: setup guide and privacy open the shipped pages; support stays unsupplied", async () => {
+  it("help: setup guide, support email and privacy open the shipped destinations", async () => {
     const f = await composeAtomic();
     await f.hydrated;
     const { open } = await renderHost(f);
     await fireEvent.click(await screen.findByRole("button", { name: "Setup guide" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Contact support" }));
     await fireEvent.click(screen.getByRole("button", { name: "Privacy policy" }));
-    expect(open.mock.calls).toEqual([[SETUP_GUIDE_URL], [PRIVACY_POLICY_URL]]);
+    expect(open.mock.calls).toEqual([[SETUP_GUIDE_URL], ["mailto:support@stillapp.fit"], [PRIVACY_POLICY_URL]]);
     expect(SETUP_GUIDE_URL).toBe("https://stillapp.fit/setup/");
-    expect(screen.getByRole("button", { name: "Contact support" })).toBeDisabled();
+    f.authority.stop();
+  });
+
+  it("Contact support reaches native as a user-activated anchor to exactly the support address", async () => {
+    const f = await composeAtomic();
+    await f.hydrated;
+    const clicked: HTMLAnchorElement[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      clicked.push(this);
+    });
+    await renderHost(f, { help: appleSettingsHelp((url) => openExternalLink(url)) });
+    await fireEvent.click(await screen.findByRole("button", { name: "Contact support" }));
+    expect(clicked).toHaveLength(1);
+    expect(clicked[0]!.getAttribute("href")).toBe("mailto:support@stillapp.fit");
+    expect(clicked[0]!.target).toBe("_blank");
+    expect(document.querySelector("a[hidden]")).toBeNull();
     f.authority.stop();
   });
 
@@ -917,9 +956,38 @@ describe("account, restore, help and telemetry mapping", () => {
     expect(document.querySelector("a[hidden]")).toBeNull();
     openExternalLink("javascript:alert(1)");
     openExternalLink("http://example.com/");
-    openExternalLink("mailto:support@stillapp.fit");
     expect(clicked).toHaveLength(1);
-    expect(appleSettingsHelp(vi.fn())).toEqual({ onGuide: expect.any(Function), onPrivacy: expect.any(Function) });
+    expect(appleSettingsHelp(vi.fn())).toEqual({
+      onGuide: expect.any(Function),
+      onSupport: expect.any(Function),
+      onPrivacy: expect.any(Function),
+    });
+  });
+
+  it("opens exactly mailto:support@stillapp.fit and no other mailto", () => {
+    const clicked: string[] = [];
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) {
+      clicked.push(this.getAttribute("href")!);
+    });
+    expect(SUPPORT_MAILTO).toBe("mailto:support@stillapp.fit");
+    expect(SUPPORT_MAILTO).toBe(`mailto:${SUPPORT_EMAIL}`);
+    for (const refused of [
+      "mailto:support@stillapp.fit?subject=Help",
+      FIND_MY_PURCHASE_MAILTO,
+      "mailto:someone@example.com",
+      "mailto:support@stillapp.fit,someone@example.com",
+      "mailto:support@stillapp.fit#x",
+      "MAILTO:support@stillapp.fit",
+      "mailto://support@stillapp.fit",
+      " mailto:support@stillapp.fit",
+    ])
+      openExternalLink(refused);
+    expect(clicked).toEqual([]);
+    openExternalLink("mailto:support@stillapp.fit");
+    expect(clicked).toEqual(["mailto:support@stillapp.fit"]);
+    const open = vi.fn();
+    appleSettingsHelp(open).onSupport!();
+    expect(open).toHaveBeenCalledExactlyOnceWith("mailto:support@stillapp.fit");
   });
 
   it("reports existing toggle events and never throws from telemetry", () => {
@@ -936,5 +1004,252 @@ describe("account, restore, help and telemetry mapping", () => {
     expect(appleSettingsPlatform({ ok: true, platform: "macos", extensionStatus: "enabled", enableLocation: "safariExtensionSettings" })).toBe("mac");
     expect(appleSettingsPlatform({ ok: true, platform: "ios", extensionStatus: "unknown", enableLocation: "settingsAppStillPage" })).toBe("ios");
     expect(appleSettingsPlatform(null)).toBe("ios");
+  });
+});
+
+describe("free-period Restore purchase (owner decision 17)", () => {
+  const RESTORED = "Still Pro is restored on this device.";
+  const NOTHING = "No Still Pro purchase was found for this account.";
+  const FAILED = "We couldn't finish checking. Nothing changed.";
+  type Replies = Record<string, () => Promise<unknown>>;
+  const json =
+    (value: unknown) =>
+    async (): Promise<unknown> =>
+      JSON.stringify(value);
+
+  /** Settings-affecting native message kinds; a restore must never send one. */
+  const SETTINGS_KINDS = new Set(["get", "set", "settingsAtomic", "settingsIntent"]);
+
+  async function restoreHost(replies: Replies) {
+    const f = await composeAtomic(tsBackend, { replies });
+    await f.hydrated;
+    await renderHost(f);
+    await screen.findByText("Still is active");
+    const saved = await f.backend.read();
+    const before = f.native.messages.length;
+    const sentAfter = () => f.native.messages.slice(before).map((m) => m.kind);
+    return { f, saved, sentAfter };
+  }
+
+  async function expectUnchanged(h: Awaited<ReturnType<typeof restoreHost>>) {
+    expect(h.sentAfter().filter((kind) => SETTINGS_KINDS.has(kind))).toEqual([]);
+    expect(await h.f.backend.read()).toEqual(h.saved);
+    expect(screen.queryByText("Get Still Pro")).toBeNull();
+    expect(screen.queryByText("Purchased")).toBeNull();
+    expect(screen.queryByText(/\$\d/)).toBeNull();
+    expect(screen.getByRole("heading", { name: "Settings sync" })).toBeInTheDocument();
+  }
+
+  it("success: shows restored without changing saved settings or revealing paid UI", async () => {
+    const h = await restoreHost({ restore: json({ entitled: true }) });
+    await fireEvent.click(screen.getByRole("button", { name: "Restore purchase" }));
+    expect(await screen.findByText(RESTORED)).toBeInTheDocument();
+    expect(h.sentAfter()).toEqual(["restore"]);
+    await expectUnchanged(h);
+    expect(screen.getByRole("button", { name: "Restore purchase" })).toBeEnabled();
+    h.f.authority.stop();
+  });
+
+  it("an entitled device receipt after a refused native restore is restored", async () => {
+    const h = await restoreHost({
+      restore: json({ entitled: false }),
+      receiptStatus: json({ receipt: "entitled" }),
+    });
+    await fireEvent.click(screen.getByRole("button", { name: "Restore purchase" }));
+    expect(await screen.findByText(RESTORED)).toBeInTheDocument();
+    expect(h.sentAfter()).toEqual(["restore", "receiptStatus"]);
+    await expectUnchanged(h);
+    h.f.authority.stop();
+  });
+
+  // Today's native contract while paid is off: restore is refused without asking StoreKit
+  // ({ entitled: false }) and a person who never bought has no transaction, so the receipt read is
+  // noSignal. That is not a conclusive answer, so it is "couldn't finish", never "nothing found".
+  it("never purchased (native refuses restore, receipt has no signal): couldn't finish, not nothing found", async () => {
+    const h = await restoreHost({
+      restore: json({ entitled: false }),
+      receiptStatus: json({ receipt: "noSignal" }),
+    });
+    await fireEvent.click(screen.getByRole("button", { name: "Restore purchase" }));
+    expect(await screen.findByText(FAILED)).toBeInTheDocument();
+    expect(screen.queryByText(NOTHING)).toBeNull();
+    expect(h.sentAfter()).toEqual(["restore", "receiptStatus"]);
+    await expectUnchanged(h);
+    h.f.authority.stop();
+  });
+
+  it("refunded or revoked purchase (receipt verified not entitled): nothing found", async () => {
+    const h = await restoreHost({
+      restore: json({ entitled: false }),
+      receiptStatus: json({ receipt: "verifiedNotEntitled" }),
+    });
+    await fireEvent.click(screen.getByRole("button", { name: "Restore purchase" }));
+    expect(await screen.findByText(NOTHING)).toBeInTheDocument();
+    expect(screen.queryByText(FAILED)).toBeNull();
+    await expectUnchanged(h);
+    h.f.authority.stop();
+  });
+
+  it("unmounting mid-restore: the late reply sends nothing further and publishes nothing", async () => {
+    let finish!: (value: unknown) => void;
+    const f = await composeAtomic(tsBackend, {
+      replies: {
+        restore: () => new Promise((r) => (finish = r)),
+        receiptStatus: json({ receipt: "verifiedNotEntitled" }),
+      },
+    });
+    await f.hydrated;
+    const errors = vi.spyOn(console, "error");
+    const { view } = await renderHost(f);
+    await fireEvent.click(await screen.findByRole("button", { name: "Restore purchase" }));
+    expect(await screen.findByText("Checking for Still Pro purchases…")).toBeInTheDocument();
+    const before = f.native.messages.length;
+    view.unmount();
+    finish(JSON.stringify({ entitled: false }));
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(f.native.messages.slice(before).map((m) => m.kind)).toEqual([]);
+    expect(document.body.textContent).not.toMatch(/Still Pro|couldn't finish|Restore purchase/);
+    expect(errors).not.toHaveBeenCalled();
+    f.authority.stop();
+  });
+
+  const FAILURES: [string, Replies & { restore: () => Promise<unknown> }][] = [
+    ["the native restore rejects", { restore: () => Promise.reject(new Error("store down")) }],
+    ["the receipt read rejects", { restore: json({ entitled: false }), receiptStatus: () => Promise.reject(new Error("store down")) }],
+    ["native gives no reply at all", { restore: async () => null, receiptStatus: async () => null }],
+  ];
+  it.each(FAILURES)("failure or unavailable (%s): couldn't finish, never nothing found; Try again restores", async (_name, replies) => {
+    const outcomes: (() => Promise<unknown>)[] = [];
+    const h = await restoreHost({ ...replies, restore: () => (outcomes.shift() ?? replies.restore)() });
+    await fireEvent.click(screen.getByRole("button", { name: "Restore purchase" }));
+    expect(await screen.findByText(FAILED)).toBeInTheDocument();
+    expect(screen.queryByText(NOTHING)).toBeNull();
+    expect(screen.getByRole("button", { name: "Restore purchase" })).toBeDisabled();
+    await expectUnchanged(h);
+    outcomes.push(json({ entitled: true }));
+    await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText(RESTORED)).toBeInTheDocument();
+    expect(h.sentAfter().filter((kind) => kind === "restore")).toHaveLength(2);
+    await expectUnchanged(h);
+    h.f.authority.stop();
+  });
+
+  it("double tap: one native restore while the first is in flight", async () => {
+    let finish!: (value: unknown) => void;
+    const h = await restoreHost({ restore: () => new Promise((r) => (finish = r)) });
+    const link = screen.getByRole("button", { name: "Restore purchase" });
+    await fireEvent.click(link);
+    await fireEvent.click(link);
+    expect(await screen.findByText("Checking for Still Pro purchases…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Restore purchase" })).toBeDisabled();
+    await fireEvent.click(screen.getByRole("button", { name: "Restore purchase" }));
+    expect(h.sentAfter()).toEqual(["restore"]);
+    finish(JSON.stringify({ entitled: true }));
+    expect(await screen.findByText(RESTORED)).toBeInTheDocument();
+    expect(h.sentAfter()).toEqual(["restore"]);
+    h.f.authority.stop();
+  });
+
+  it("without a restore bridge there is no Restore link", async () => {
+    const f = await composeAtomic();
+    await f.hydrated;
+    await renderHost(f, { restoreBridge: undefined });
+    await screen.findByText("Still is active");
+    expect(screen.queryByRole("button", { name: "Restore purchase" })).toBeNull();
+    f.authority.stop();
+  });
+});
+
+describe("createAppleSettingsRestore", () => {
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (error: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+  function entry(bridge: { restore: () => Promise<boolean>; receiptStatus?: () => Promise<"entitled" | "verifiedNotEntitled" | "noSignal"> }, refreshAccess = vi.fn(async () => {})) {
+    const published: unknown[] = [];
+    const restore = vi.fn(bridge.restore);
+    const receiptStatus = vi.fn(bridge.receiptStatus ?? (async () => "noSignal" as const));
+    const handle = createAppleSettingsRestore({
+      bridge: { restore, receiptStatus },
+      refreshAccess,
+      publish: (next) => published.push(next),
+    });
+    const settle = () => new Promise((r) => setTimeout(r, 0));
+    return { handle, published, restore, receiptStatus, refreshAccess, settle };
+  }
+
+  it("single flight: a second start while running does nothing", async () => {
+    const pending = deferred<boolean>();
+    const e = entry({ restore: () => pending.promise });
+    e.handle.start();
+    e.handle.start();
+    expect(e.restore).toHaveBeenCalledOnce();
+    pending.resolve(true);
+    await e.settle();
+    expect(e.published).toEqual([{ state: "checking" }, { state: "restored" }]);
+    e.handle.start();
+    expect(e.restore).toHaveBeenCalledTimes(2);
+  });
+
+  it("re-reads access through the entitlement path after every outcome, and survives its failure", async () => {
+    const refresh = vi.fn(async () => {
+      throw new Error("held");
+    });
+    const e = entry({ restore: async () => false, receiptStatus: async () => "verifiedNotEntitled" }, refresh);
+    e.handle.start();
+    await e.settle();
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(e.published).toEqual([{ state: "checking" }, { state: "nothing" }]);
+  });
+
+  it("maps outcomes to existing RestoreStatusCard states only", async () => {
+    const cases = [
+      [{ restore: async () => true }, "restored"],
+      [{ restore: async () => false, receiptStatus: async () => "entitled" as const }, "restored"],
+      [{ restore: async () => false, receiptStatus: async () => "verifiedNotEntitled" as const }, "nothing"],
+      [{ restore: async () => false, receiptStatus: async () => "noSignal" as const }, "failed"],
+      [{ restore: async () => false, receiptStatus: () => Promise.reject(new Error("x")) }, "failed"],
+      [{ restore: () => Promise.reject(new Error("x")) }, "failed"],
+    ] as const;
+    for (const [bridge, state] of cases) {
+      const e = entry(bridge);
+      e.handle.start();
+      await e.settle();
+      expect(e.published.at(-1)).toMatchObject({ state });
+      const last = e.published.at(-1) as { onAction?: () => void };
+      expect(typeof last.onAction === "function").toBe(state === "failed");
+    }
+  });
+
+  it("stopping during the access re-read publishes nothing", async () => {
+    const refresh = deferred<void>();
+    const e = entry({ restore: async () => true }, vi.fn(() => refresh.promise));
+    e.handle.start();
+    await e.settle();
+    expect(e.refreshAccess).toHaveBeenCalledOnce();
+    e.handle.stop();
+    refresh.resolve();
+    await e.settle();
+    expect(e.published).toEqual([{ state: "checking" }]);
+  });
+
+  it.each([true, false])("after stop, a late reply (%s) publishes nothing, reads nothing more, and start does nothing", async (reply) => {
+    const pending = deferred<boolean>();
+    const e = entry({ restore: () => pending.promise, receiptStatus: async () => "verifiedNotEntitled" });
+    e.handle.start();
+    e.handle.stop();
+    pending.resolve(reply);
+    await e.settle();
+    expect(e.published).toEqual([{ state: "checking" }]);
+    expect(e.receiptStatus).not.toHaveBeenCalled();
+    expect(e.refreshAccess).not.toHaveBeenCalled();
+    e.handle.start();
+    expect(e.restore).toHaveBeenCalledOnce();
   });
 });

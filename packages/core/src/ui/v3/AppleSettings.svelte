@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { FEATURE_REGISTRY } from "@still/shared-types";
+  import { FEATURE_REGISTRY, PAID_TIER_ENABLED } from "@still/shared-types";
   import { onDestroy } from "svelte";
   import type { AppleSettingsProps } from "./apple-settings-presentation.js";
   import Toggle from "./Toggle.svelte";
@@ -25,6 +25,7 @@
     sync,
     pro,
     restore,
+    onRestore,
     link,
     linkInvitation,
     sharing,
@@ -176,6 +177,14 @@
   function requestPro() {
     if (proActionReady) pro?.onBuy?.();
   }
+  // Free period only: the compiled paid flag is off and no paid producer is supplied. With paid on
+  // and no producer there is nothing to show, never this link. Inert while a Restore is held, as
+  // the native card's Restore link is.
+  let freeRestoreShown = $derived(!PAID_TIER_ENABLED && !pro && Boolean(onRestore));
+  let freeRestoreReady = $derived(freeRestoreShown && !restoreHeld);
+  function requestFreeRestore() {
+    if (mounted && freeRestoreReady) onRestore?.();
+  }
   function requestRestoreAction() {
     if (
       mounted &&
@@ -296,6 +305,18 @@
     >
       No account needed. Payment is handled by Apple.
     </p>{/if}
+  {#if freeRestoreShown}
+    <!-- Free period (owner decision 17): the Still Pro card's slot holds only its plain Restore
+      link, so past purchasers can restore; no offer, Buy or price. -->
+    <section class="card card-stack">
+      <button
+        type="button"
+        class="link"
+        disabled={!freeRestoreReady}
+        onclick={requestFreeRestore}>Restore purchase</button
+      >
+    </section>
+  {/if}
   {#if restore}<RestoreStatusCard
       {...restore}
       onAction={pro?.state !== "pending" && restore?.onAction

@@ -11,7 +11,9 @@
 //  `StillOnboardingPresenter` (OnboardingGate.presenterInfoKey). No key (every shipped build) keeps
 //  this SwiftUI flow; the exact string "web" hands the same OnboardingGate to the V3 D12 screens in
 //  the web view (WebBridgeRouter `onboardingState` / `completeOnboarding`) and this presenter never
-//  presents, not even through the DEBUG screenshot hook.
+//  presents, not even through the DEBUG screenshot hook. "web" takes effect only when the bundled
+//  web UI contains the D12 onboarding (OnboardingGate.webD12Marker); with a legacy web build the
+//  SwiftUI flow keeps the gate, so a mismatched build can never end up with no onboarding.
 //
 
 import SwiftUI
@@ -27,7 +29,13 @@ enum OnboardingPresenter {
   /// Who presents onboarding on this launch. Read once (a static let is initialised lazily and
   /// exactly once), so the router and this presenter can never disagree within a launch.
   static let selected: OnboardingPresenterChoice = OnboardingGate.presenter(
-    fromInfoValue: Bundle.main.object(forInfoDictionaryKey: OnboardingGate.presenterInfoKey))
+    fromInfoValue: Bundle.main.object(forInfoDictionaryKey: OnboardingGate.presenterInfoKey),
+    webUIIndexHTML: {
+      // The same file ViewController loads. Read only when the Info.plist asks for the web flow.
+      guard let url = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "WebUI")
+      else { return nil }
+      return try? String(contentsOf: url, encoding: .utf8)
+    })
 
   @MainActor
   static func presentIfNeeded(from host: PlatformViewController) {

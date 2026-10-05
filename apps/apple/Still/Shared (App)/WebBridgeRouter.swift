@@ -28,15 +28,29 @@
 //      `shouldShow` is true only when the Info.plist presenter flag selects the web flow AND the gate
 //      is not complete; with the shipped (absent) flag the SwiftUI OnboardingPresenter owns the gate,
 //      `shouldShow` is always false and completion is refused, so the two flows can never both show.
-//      platform/osMajorVersion are host facts for choosing the approved setup steps.
+//      platform/osMajorVersion are host facts for choosing the approved setup steps. The Info.plist
+//      "web" flag takes effect only when the bundled web UI contains the D12 onboarding; a legacy
+//      web build keeps SwiftUI (OnboardingGate.presenter(fromInfoValue:webUIIndexHTML:)).
+//
+//    • Open a fixed destination (NativeOpenDestination.swift is the contract):
+//        { kind:"openDestination", destination:"safariExtensionSettings"|"settingsAppStillPage"|"safari" }
+//                                             → { ok:true, destination } | error "still: open refused
+//                                               (<reason>)" | error "still: open failed"
+//      Exactly those two keys; no URL ever comes from the page. Native re-checks the bundled main
+//      frame, accepts only a destination this platform supports (macOS: Safari's Extensions settings
+//      and Safari; iOS: Still's page in the Settings app) and only while the app is active.
 //
 //    • U19 auth + purchase (reply a small JSON object; purchase-first — plan 2026-07-15-001):
 //        { kind:"signInWithApple" }           → { identityToken, nonce, email?, fullName? } | { error }
 //        { kind:"configurePurchases", appUserID } → { ok:true }   (KTD5 — RC re-keyed to the Supabase UUID)
 //        { kind:"purchase" }                  → { outcome, entitled }   (works signed out — R1)
 //        { kind:"restore" }                   → { entitled }            (works signed out — R4)
-//      purchase and restore are refused while MonetizationConfig.paidTierEnabled is false: they
-//      reply "unavailable" / not entitled without reaching StoreKit. Nothing else here changes.
+//      purchase is refused while MonetizationConfig.paidTierEnabled is false: it replies
+//      "unavailable" without reaching StoreKit. restore then runs the free-period check instead
+//      (FreePeriodRestore.swift): read-only StoreKit 2, never RevenueCat, and it replies
+//        { entitled, restore: "restored"|"none"|"failed" }
+//      "none" only after a successful App Store sync verified no purchase; any sync error, cancel
+//      or timeout is "failed".
 //        { kind:"purchaseStatus" }            → { entitled }
 //        { kind:"receiptStatus" }             → { receipt: "entitled"|"verifiedNotEntitled"|"noSignal" }
 //        { kind:"attachPurchases" }           → { entitled }   (R7 — attach the receipt to the account)
@@ -86,6 +100,9 @@ final class WebBridgeRouter {
   private let analyticsContextThisLaunch = LaunchValue<AnalyticsAppContext>()
   private let purchases = PurchaseManager.shared
   private let siwa = SignInWithAppleCoordinator()
+  /// The Restore tap while the paid tier is off. One check at a time, so one tap raises at most
+  /// one App Store sign-in sheet.
+  private let freePeriodRestore = FreePeriodRestoreCheck(store: AppStoreRestoreCheck())
 
   /// At most one ask for Apple's purchase history per launch. `refreshReceiptStamp` runs at launch
   /// AND every time the app becomes active, and on a cold launch both of those happen before
@@ -127,7 +144,7 @@ final class WebBridgeRouter {
     Task { await self.captureOriginalInstall() }
   }
 
-  func handle(_ body: Any, reply: @escaping (Any?, String?) -> Void) {
+  func handle(_ body: Any, frame: BridgeFrame, reply: @escaping (Any?, String?) -> Void) {
     guard let dict = body as? [String: Any], let kind = dict["kind"] as? String else {
       reply(nil, "still: malformed message")
       return
@@ -165,6 +182,23 @@ final class WebBridgeRouter {
       }
       reply(Self.json(["ok": true]), nil)
 
+    case NativeOpenRequest.messageKind:
+      switch NativeOpenRequest.authorize(
+        body: body, frame: frame, platform: Self.setupPlatform,
+        appIsActive: SafariExtensionBridge.appIsActive)
+      {
+      case .failure(let refusal):
+        reply(nil, "still: open refused (\(refusal.rawValue))")
+      case .success(let destination):
+        Task {
+          if await SafariExtensionBridge.open(destination) {
+            reply(Self.json(NativeOpenRequest.reply(destination)), nil)
+          } else {
+            reply(nil, "still: open failed")
+          }
+        }
+      }
+
     case "signInWithApple":
       Task { await self.handleSignIn(reply: reply) }
 
@@ -201,12 +235,18 @@ final class WebBridgeRouter {
       }
 
     case "restore":
-      // Refused for the same reason as purchase. This does not strand a customer who already
-      // bought: the receipt is still read at launch and on every foreground return, and the web
-      // view's own receiptStatus call below restamps too, so the device keeps proving its own
-      // entitlement without the restore round trip.
+      // While the paid tier is off the RevenueCat restore below is never reached: it would act on
+      // the RevenueCat identity, and nothing is for sale. The person's Restore tap instead gets a
+      // real, read-only App Store check (owner decision 17) with a conclusive answer: restored,
+      // none, or failed. It cannot sell or unlock anything. The stamp refresh after it is the same
+      // receipt lane launch and foreground already run, through StampPolicy, and while the paid
+      // tier is off the extension's access snapshot ignores that stamp.
       guard MonetizationConfig.paidTierEnabled else {
-        reply(Self.json(["entitled": false]), nil)
+        Task {
+          let result = await self.freePeriodRestore.run()
+          await self.refreshReceiptStamp()
+          reply(Self.json(FreePeriodRestoreCheck.reply(for: result)), nil)
+        }
         return
       }
       Task {

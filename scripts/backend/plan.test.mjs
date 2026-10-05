@@ -9,6 +9,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
@@ -202,7 +203,7 @@ test("handler workflows run the retained limiter assertion with exact source-rea
     const permission = args.find((arg) => arg.startsWith("--allow-read="));
     assert.equal(
       permission,
-      "--allow-read=../migrations/0013_counter_retention.sql,../../scripts/backend/sql/settings-sync-candidate.sql",
+      "--allow-read=../migrations/0013_counter_retention.sql,../migrations/0015_settings_sync_per_field.sql",
     );
     const options = {
       cwd: join(root, "supabase/functions"),
@@ -224,10 +225,10 @@ test("handler workflows run the retained limiter assertion with exact source-rea
   }
 });
 
-test("candidate SQL structural constants and fields equal the maintained grammar", async () => {
+test("migration 0015 structural constants and fields equal the maintained grammar", async () => {
   const root = fileURLToPath(new URL("../../", import.meta.url));
   const sql = await readFile(
-    join(root, "scripts/backend/sql/settings-sync-candidate.sql"),
+    join(root, "supabase/migrations/0015_settings_sync_per_field.sql"),
     "utf8",
   );
   const source = await readFile(
@@ -269,7 +270,7 @@ test("candidate SQL structural constants and fields equal the maintained grammar
     ),
   );
   const actual =
-    /create function private.settings_fields\(\)[\s\S]*?select array\[([^\]]+)\]/
+    /create or replace function private\.settings_fields\(\)[\s\S]*?select array\[([^\]]+)\]/
       .exec(sql)[1]
       .split(",")
       .map((s) => s.trim().slice(1, -1));
@@ -280,6 +281,57 @@ test("candidate SQL structural constants and fields equal the maintained grammar
       .map((s) => s.trim().slice(1, -1)),
     maintained.coreSites,
   );
+});
+
+test("0015 post-apply verification pins the migration's exact routine bodies", async () => {
+  const root = fileURLToPath(new URL("../../", import.meta.url));
+  const migration = await readFile(
+    join(root, "supabase/migrations/0015_settings_sync_per_field.sql"),
+    "utf8",
+  );
+  const verification = await readFile(
+    join(root, "scripts/backend/deploy/verify/0015_settings_sync_per_field.sql"),
+    "utf8",
+  );
+  // PostgreSQL stores the text between the dollar quotes verbatim as prosrc.
+  function body(name) {
+    const start = migration.indexOf(`create or replace function ${name}(`);
+    assert(start >= 0, `${name} defined`);
+    assert.equal(
+      migration.indexOf(`create or replace function ${name}(`, start + 1),
+      -1,
+      `${name} defined once`,
+    );
+    const open = migration.indexOf("$$", start);
+    const close = migration.indexOf("$$", open + 2);
+    return createHash("md5").update(migration.slice(open + 2, close)).digest("hex");
+  }
+  const pinned = new Map(
+    [...verification.matchAll(/\('((?:private|public)\.[a-z_]+)\([^)]*\)'(?:, (?:true|false), (?:true|false)|, '[a-z_]+'), '([0-9a-f]{32})'\)/g)]
+      .map((m) => [m[1], m[2]]),
+  );
+  assert.deepEqual([...pinned.keys()].sort(), [
+    "private.claim_settings_write",
+    "private.cleanup_settings_writes",
+    "private.commit_settings",
+    "private.lock_settings",
+    "private.settings_canonical_valid",
+    "private.settings_fields",
+    "private.settings_json_bounded",
+    "public.consume_rate_limit",
+    "public.write_profile_settings",
+  ]);
+  for (const [name, digest] of pinned) assert.equal(body(name), digest, name);
+  // Every function the migration defines searches pg_temp last; the empty path is gone.
+  for (const name of pinned.keys()) {
+    const start = migration.indexOf(`create or replace function ${name}(`);
+    const header = migration.slice(start, migration.indexOf("$$", start));
+    assert.match(header, /set search_path = pg_catalog, pg_temp\s/, name);
+  }
+  assert.doesNotMatch(migration, /search_path = ''/);
+  assert.doesNotMatch(migration, /search_path=""/);
+  assert.match(verification, /'search_path=pg_catalog, pg_temp'/);
+  assert.doesNotMatch(verification, /'search_path=""'/);
 });
 
 async function fixture(t) {

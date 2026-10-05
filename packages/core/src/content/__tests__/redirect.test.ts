@@ -403,6 +403,45 @@ describe("content script — redirect + SPA navigation (U7)", () => {
     cs.stop();
   });
 
+  includedAccessIt("paid tier off: a restored purchase changes nothing the content script blocks", async () => {
+    // The Apple Restore tap can record a past buyer's purchase in the App Group stamp, which the
+    // Safari extension reads as its entitlement. While the paid tier is off that must not change
+    // a single decision on any supported surface.
+    expect(PAID_TIER_ENABLED).toBe(false);
+    const urls = [
+      "https://www.youtube.com/shorts/abc123",
+      "https://www.instagram.com/reel/XYZ/",
+      "https://www.facebook.com/reel/123",
+      "https://www.tiktok.com/foryou",
+    ];
+    async function observe(url: string, entitled: boolean) {
+      document.documentElement.className = "";
+      document.body.innerHTML = "";
+      const win = makeWin(url);
+      const redirectPort = { replace: vi.fn() };
+      const cs = createContentScript({
+        win,
+        doc: document,
+        ruleSet,
+        cache: cacheWith(null),
+        entitlement: entitlementWith(entitled),
+        redirectPort,
+        schedule: sync,
+      });
+      await cs.start();
+      const seen = {
+        placeholder: document.querySelector("#still-placeholder") !== null,
+        rootClasses: document.documentElement.className,
+        redirects: redirectPort.replace.mock.calls,
+      };
+      cs.stop();
+      return seen;
+    }
+    for (const url of urls) {
+      expect(await observe(url, true), url).toEqual(await observe(url, false));
+    }
+  });
+
   it("Pro user: production content-script path placeholders a Pro Instagram Reel URL", async () => {
     const win = makeWin("https://www.instagram.com/reel/XYZ/");
     const cs = createContentScript({
