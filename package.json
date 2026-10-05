@@ -18,7 +18,8 @@
     "version:check": "node scripts/release/version.mjs check",
     "version:sync": "node scripts/release/version.mjs sync",
     "package:release": "node scripts/release/package.mjs",
-    "test:release": "node --test scripts/release/release.test.mjs"
+    "test:release": "node --test scripts/release/release.test.mjs scripts/release/chrome-store.test.mjs scripts/release/chrome-workflow.test.mjs",
+    "test:chrome-release": "node --test scripts/release/chrome-store.test.mjs scripts/release/chrome-workflow.test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

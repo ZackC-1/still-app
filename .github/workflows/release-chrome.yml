@@ -1,0 +1,218 @@
+name: Chrome Web Store release
+
+# Publishes Still to the Chrome Web Store, one owner-approved step at a time.
+#
+# Manual start only (workflow_dispatch), from main only. It never runs on push, pull request or
+# schedule, so merging changes to this file publishes nothing.
+#
+# This file's path is part of Google's trust rule: Google hands out a short-lived Chrome Web Store
+# token only to `.github/workflows/release-chrome.yml` on refs/heads/main, started by hand, inside
+# the `chrome-release` environment. Renaming or copying this file, or renaming the repository,
+# makes sign-in fail (closed). There is no key, refresh token or any other credential to fall back on.
+#
+#   package  builds the Chrome package for one commit on main and fingerprints it. It is bound to
+#            `chrome-release` only to read the public build values (owner ruling Q2) and therefore
+#            waits for the owner's approval; it has NO id-token permission, so the npm packages it
+#            installs can never request a Google token.
+#   store    (every mode except package-only) waits for the owner's approval, rechecks the approval
+#            rules, verifies the package byte-for-byte, signs in keylessly read-only, checks that the
+#            version is higher than the store's, and only then signs in with upload rights, uploads a
+#            draft, and submits for review only in upload-and-submit mode with the typed confirmation.
+#
+# Never: cancels a review (dashboard only), changes a rollout percentage, skips review, or retries an
+# upload or submission automatically. See docs/release/chrome-publish-workflow.md.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "package-only builds and fingerprints (no store); status reads the store; upload adds a draft; upload-and-submit also sends it for review"
+        required: true
+        default: package-only
+        type: choice
+        options:
+          - package-only
+          - status
+          - upload
+          - upload-and-submit
+      commit:
+        description: "Full 40-character commit SHA on main to build"
+        required: true
+        type: string
+      version:
+        description: "Extension version at that commit (version.json 'extension'), e.g. 2.2.0"
+        required: true
+        type: string
+      chrome_zip_sha256:
+        description: "Package fingerprint printed by a package-only run (required for every other mode)"
+        required: false
+        default: ""
+        type: string
+      confirm_submit:
+        description: "Only for upload-and-submit: type exactly 'submit <version>'"
+        required: false
+        default: ""
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: release-chrome
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Build and fingerprint the Chrome package
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: chrome-release
+    permissions:
+      contents: read
+    outputs:
+      zip-sha256: ${{ steps.package.outputs.zip-sha256 }}
+    env:
+      RELEASE_MODE: ${{ inputs.mode }}
+      RELEASE_COMMIT: ${{ inputs.commit }}
+      RELEASE_VERSION: ${{ inputs.version }}
+      RELEASE_ZIP_SHA256: ${{ inputs.chrome_zip_sha256 }}
+      RELEASE_CONFIRM_SUBMIT: ${{ inputs.confirm_submit }}
+    steps:
+      - name: Refuse anything but a manual start from main
+        run: |
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF" = refs/heads/main
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      # Exact Node version: the package fingerprint is byte-stable only for one Node release.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.23.3"
+      - name: Use the pnpm version pinned in package.json
+        env:
+          COREPACK_ENABLE_DOWNLOAD_PROMPT: "0"
+        run: corepack enable
+      - name: Check the inputs
+        run: node scripts/release/chrome-release.mjs check-inputs
+      - name: Build the named commit and fingerprint the Chrome package
+        id: package
+        env:
+          VITE_SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+          VITE_POSTHOG_KEY: ${{ vars.VITE_POSTHOG_KEY }}
+          VITE_POSTHOG_HOST: ${{ vars.VITE_POSTHOG_HOST }}
+          VITE_MODERN_SETTINGS_SYNC_ENABLED: ${{ vars.VITE_MODERN_SETTINGS_SYNC_ENABLED }}
+        run: node scripts/release/chrome-package.mjs --out "$RUNNER_TEMP/chrome-package"
+      - name: Keep the package for the store job and for testing
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: chrome-package
+          path: ${{ runner.temp }}/chrome-package
+          if-no-files-found: error
+          retention-days: 90
+
+  store:
+    name: Check, upload and (only if asked) submit to the Chrome Web Store
+    needs: package
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.mode != 'package-only'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # The owner approves this job separately. Only after that does it see the Chrome identifiers.
+    environment: chrome-release
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      RELEASE_MODE: ${{ inputs.mode }}
+      RELEASE_COMMIT: ${{ inputs.commit }}
+      RELEASE_VERSION: ${{ inputs.version }}
+      RELEASE_ZIP_SHA256: ${{ inputs.chrome_zip_sha256 }}
+      RELEASE_CONFIRM_SUBMIT: ${{ inputs.confirm_submit }}
+      PACKAGE_ZIP_SHA256: ${{ needs.package.outputs.zip-sha256 }}
+    steps:
+      - name: Refuse anything but a manual start from main
+        run: |
+          test "$GITHUB_EVENT_NAME" = workflow_dispatch
+          test "$GITHUB_REF" = refs/heads/main
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22.23.3"
+      - name: Check the inputs and that this is the real workflow on main
+        run: node scripts/release/chrome-release.mjs check-inputs
+      - name: Confirm the owner approved and the safeguards are unchanged (read-only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release/chrome-release.mjs protection
+      - name: Fetch the package the build job fingerprinted
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: chrome-package
+          path: ${{ runner.temp }}/chrome-release/package
+      - name: Verify it is byte-for-byte the approved package
+        run: node scripts/release/chrome-release.mjs verify-artifact --dir "$RUNNER_TEMP/chrome-release"
+      - name: Keyless sign-in, read-only
+        id: auth-read
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.CWS_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.CWS_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/chromewebstore.readonly
+          access_token_lifetime: 300s
+          create_credentials_file: false
+          export_environment_variables: false
+      - name: Read the store's version and decide (read-only)
+        id: preflight
+        env:
+          CWS_ACCESS_TOKEN: ${{ steps.auth-read.outputs.access_token }}
+          CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
+          CWS_EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID }}
+        run: node scripts/release/chrome-release.mjs preflight --dir "$RUNNER_TEMP/chrome-release"
+      - name: Keyless sign-in with upload rights
+        id: auth-write
+        if: (inputs.mode == 'upload' || inputs.mode == 'upload-and-submit') && steps.preflight.outputs.action == 'proceed'
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
+        with:
+          workload_identity_provider: ${{ vars.CWS_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.CWS_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/chromewebstore
+          access_token_lifetime: 900s
+          create_credentials_file: false
+          export_environment_variables: false
+      - name: Upload the package as a draft
+        id: upload
+        if: (inputs.mode == 'upload' || inputs.mode == 'upload-and-submit') && steps.preflight.outputs.action == 'proceed'
+        env:
+          CWS_ACCESS_TOKEN: ${{ steps.auth-write.outputs.access_token }}
+          CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
+          CWS_EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID }}
+        run: node scripts/release/chrome-release.mjs upload --dir "$RUNNER_TEMP/chrome-release"
+      - name: Submit for Google's review
+        if: inputs.mode == 'upload-and-submit' && steps.upload.outputs.uploaded == 'true'
+        env:
+          CWS_ACCESS_TOKEN: ${{ steps.auth-write.outputs.access_token }}
+          CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
+          CWS_EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID }}
+        run: node scripts/release/chrome-release.mjs submit --dir "$RUNNER_TEMP/chrome-release"
+      - name: Closing record (always; no secret)
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          CWS_EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID }}
+        run: node scripts/release/chrome-release.mjs receipt --dir "$RUNNER_TEMP/chrome-release"
+      - name: Keep the closing record
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: chrome-release-receipt
+          path: ${{ runner.temp }}/chrome-release/receipt.json
+          if-no-files-found: ignore
+          retention-days: 90
