@@ -49,7 +49,12 @@ describe("retained unknown local-only authority", () => {
         if (snapshot === null) return null;
         const raw = JSON.parse(snapshot); return parseStoredSettingsRecord(raw) ? raw : null;
       },
-      set: async (record: StoredSettingsRecord) => { snapshot = JSON.stringify(record); },
+      // Serialize at call time, then yield before the bytes land, as an awaited file write would.
+      set: async (record: StoredSettingsRecord) => {
+        const bytes = JSON.stringify(record);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        snapshot = bytes;
+      },
       subscribe: () => () => {},
     };
     const uuid = vi.fn(() => "dddddddd-dddd-dddd-dddd-dddddddddddd");
