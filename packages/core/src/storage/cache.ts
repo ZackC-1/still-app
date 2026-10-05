@@ -73,6 +73,8 @@ export class SettingsCache {
   private readonly legacyReadListeners = new Set<SettingsAuthorityListener>();
   private legacyReread: Promise<LegacySettingsRereadOutcome> | null = null;
   private legacyReadTicket = 0;
+  // Presence checks may publish loading without retiring already admitted absent commands.
+  private legacyAbsenceCurrent = false;
 
   constructor(
     private readonly adapter: StorageAdapter,
@@ -116,13 +118,18 @@ export class SettingsCache {
   private async readLegacyAuthority(afterAbsentNoop = false): Promise<LegacySettingsRereadOutcome> {
     if (this.atomic || this.atomicOwnership !== undefined)
       return { status: "unavailable", reason: "legacy-command-unavailable" };
+    if (!afterAbsentNoop) {
+      this.legacyAbsenceCurrent = false;
+      this.legacyReadTicket += 1;
+    }
+    const readTicket = this.legacyReadTicket;
     const ticket = this.authorityTicket;
     const generation = this.committedGeneration;
     const recovery = this.hydrationRecovery;
     const epoch = this.syncEpoch;
     const metadata = this.syncMetadata;
     const snapshot = this.snapshot;
-    const superseded = () => ticket !== this.authorityTicket || generation !== this.committedGeneration ||
+    const superseded = () => readTicket !== this.legacyReadTicket || ticket !== this.authorityTicket || generation !== this.committedGeneration ||
       recovery !== this.hydrationRecovery || epoch !== this.syncEpoch || metadata !== this.syncMetadata ||
       snapshot !== this.snapshot || this.atomic !== undefined;
     const unavailable = (reason: string, retained: StoredSettingsRecord | null = null, discardRetained = false): LegacySettingsRereadOutcome => {
@@ -143,8 +150,11 @@ export class SettingsCache {
     }
     if (superseded()) return { status: "superseded" };
     if (stored === null) {
-      this.authorityTicket += 1;
-      this.legacyReadTicket += 1;
+      // Reconfirming the same absence preserves other replies admitted on that lineage.
+      if (!afterAbsentNoop) {
+        this.authorityTicket += 1;
+        this.legacyReadTicket += 1;
+      }
       this.hydrationRecovery = null;
       this.publishLegacyRead({ status: "absent", settings: null });
       return { status: "absent" };
@@ -455,7 +465,7 @@ export class SettingsCache {
     let committed = false;
     try {
       const record = await this.adapter.commitIntent!({ path, value, updatedAt: this.now() });
-      const currentAbsence = absent && this.legacyRead.status === "absent" &&
+      const currentAbsence = absent && this.legacyAbsenceCurrent && previous === this.snapshot &&
         authorityTicket === this.authorityTicket && legacyReadTicket === this.legacyReadTicket;
       // A false no-op cannot establish presence: the writer may have found absent defaults or
       // a peer's saved matching choice. One fenced pure read distinguishes them without replay.
@@ -463,7 +473,8 @@ export class SettingsCache {
         await this.readLegacyAuthority(true);
       // A real recreation belongs to current absence, not the vanished record's ordering.
       else if (!legacyCommand || record.atomic ||
-        (currentAbsence ? record.intentCommitted === true && this.isLegacyAuthority(record) : this.isCurrentLegacyRecord(record)))
+        (currentAbsence ? record.intentCommitted === true && this.isLegacyAuthority(record) :
+          (!absent || record.intentCommitted === true && this.legacyRead.status === "ready") && this.isCurrentLegacyRecord(record)))
         this.acceptCommitted(record, "external");
       else if (authorityTicket === this.authorityTicket && !this.isLegacyAuthority(record))
         this.publishLegacyRead({ status: "unavailable", settings: null, reason: "legacy-command-unavailable" });
@@ -631,6 +642,8 @@ export class SettingsCache {
   }
 
   private publishLegacyRead(state: LegacySettingsReadState): void {
+    if (state.status === "absent") this.legacyAbsenceCurrent = true;
+    else if (state.status !== "loading") this.legacyAbsenceCurrent = false;
     if (JSON.stringify(state) === JSON.stringify(this.legacyRead)) return;
     this.legacyRead = state;
     for (const listener of [...this.legacyReadListeners]) {

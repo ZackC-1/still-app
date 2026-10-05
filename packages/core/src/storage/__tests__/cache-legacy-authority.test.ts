@@ -1298,3 +1298,257 @@ describe("normalized legacy watch recovery", () => {
     },
   );
 });
+
+// Delay only transport delivery: both commands still execute through the same real router/writer.
+function queuedLegacyReplies(h: ReturnType<typeof browser>) {
+  const send = h.sendMessage.getMockImplementation()!;
+  const releases: ReturnType<typeof deferred<void>>[] = [];
+  const replies: unknown[] = [];
+  h.sendMessage.mockImplementation(async (message) => {
+    const index = releases.length;
+    if (index >= 2) return send(message);
+    const release = deferred<void>();
+    releases.push(release);
+    const reply = await send(message);
+    replies[index] = reply;
+    await release.promise;
+    return reply;
+  });
+  return {
+    replies,
+    release: (index: number) => releases[index]!.resolve(),
+    releaseAll: () => releases.forEach((release) => release.resolve()),
+  };
+}
+
+describe("absence-bound legacy replies across pure presence reads", () => {
+  it.each([
+    ["globalOn", "pending"],
+    ["globalOn", "settled"],
+    ["services.youtube", "pending"],
+    ["services.youtube", "settled"],
+  ] as const)(
+    "keeps two matching-default %s no-ops unsaved with presence read %s",
+    async (path, timing) => {
+      const h = browser(undefined, false);
+      await h.cache.hydrate();
+      const initialize = vi.spyOn(h.consumer, "initializeAtomic");
+      const edits = vi.fn();
+      h.cache.subscribe(edits);
+      const transport = queuedLegacyReplies(h);
+      const pending = new Set<Promise<unknown>>();
+      const submit = () => {
+        const command = h.cache.commitLegacyIntent(path, true);
+        pending.add(command);
+        void command.finally(() => pending.delete(command));
+        return command;
+      };
+      const first = submit();
+      const second = submit();
+      const presence = deferred<Record<string, unknown>>();
+      try {
+        await vi.waitFor(() => expect(transport.replies).toHaveLength(2));
+        expect(transport.replies).toEqual([
+          expect.objectContaining({
+            record: expect.objectContaining({ intentCommitted: false }),
+          }),
+          expect.objectContaining({
+            record: expect.objectContaining({ intentCommitted: false }),
+          }),
+        ]);
+        h.local.get.mockImplementationOnce(() => presence.promise);
+        transport.release(0);
+        await vi.waitFor(() =>
+          expect(h.cache.legacyReadState().status).toBe("loading"),
+        );
+        await expect(h.cache.commitLegacyIntent(path, false)).rejects.toThrow(
+          "legacy-command-unavailable",
+        );
+        expect(h.sendMessage).toHaveBeenCalledTimes(2);
+        if (timing === "settled") {
+          presence.resolve({});
+          await first;
+          expect(h.cache.legacyReadState()).toEqual({
+            status: "absent",
+            settings: null,
+          });
+        }
+        transport.release(1);
+        const later = await second;
+        expect(later.intentCommitted).toBe(false);
+        expect(h.cache.legacyReadState().status).not.toBe("ready");
+        presence.resolve({});
+        expect(
+          (await Promise.all([first, second])).map(
+            (outcome) => outcome.intentCommitted,
+          ),
+        ).toEqual([false, false]);
+        expect([...pending]).toEqual([]);
+        expect(h.cache.legacyReadState()).toEqual({
+          status: "absent",
+          settings: null,
+        });
+        expect(h.cache.current()).toEqual(DEFAULT_SETTINGS);
+        expect(h.raw()).toBeUndefined();
+        expect(h.local.set).not.toHaveBeenCalled();
+        expect(initialize).not.toHaveBeenCalled();
+        expect(edits).not.toHaveBeenCalled();
+      } finally {
+        presence.resolve({});
+        transport.releaseAll();
+        await Promise.allSettled([first, second]);
+      }
+    },
+  );
+
+  it("accepts a lower-clock real Off recreation while an earlier no-op's captured null read is pending", async () => {
+    const h = browser(saved(true, 9000));
+    await h.cache.hydrate();
+    expect(await h.cache.rereadLegacyAuthority()).toEqual({ status: "ready" });
+    h.put(undefined, false);
+    expect(await h.cache.rereadLegacyAuthority()).toEqual({ status: "absent" });
+    const initialize = vi.spyOn(h.consumer, "initializeAtomic");
+    const edits = vi.fn();
+    h.cache.subscribe(edits);
+    const transport = queuedLegacyReplies(h);
+    const first = h.cache.commitLegacyIntent("globalOn", true);
+    const second = h.cache.commitLegacyIntent("globalOn", false);
+    const presence = deferred<Record<string, unknown>>();
+    try {
+      await vi.waitFor(() => expect(transport.replies).toHaveLength(2));
+      expect(transport.replies).toEqual([
+        expect.objectContaining({
+          record: expect.objectContaining({ intentCommitted: false }),
+        }),
+        expect.objectContaining({
+          record: expect.objectContaining({ intentCommitted: true }),
+        }),
+      ]);
+      const durable = h.raw();
+      expect(durable).toMatchObject({
+        settings: { globalOn: false, updatedAt: 200 },
+      });
+      h.local.get.mockImplementationOnce(() => presence.promise);
+      transport.release(0);
+      await vi.waitFor(() =>
+        expect(h.cache.legacyReadState().status).toBe("loading"),
+      );
+      expect(h.cache.current().globalOn).toBe(true);
+      expect(h.cache.current().updatedAt).toBe(9000);
+      transport.release(1);
+      const recreation = await second;
+      expect(recreation.intentCommitted).toBe(true);
+      expect(recreation.settings).toMatchObject({
+        globalOn: false,
+        updatedAt: 200,
+      });
+      expect(h.cache.legacyReadState()).toEqual({
+        status: "ready",
+        settings: recreation.settings,
+      });
+      presence.resolve({});
+      const noop = await first;
+      expect(noop.intentCommitted).toBe(false);
+      expect(noop.settings).toEqual(recreation.settings);
+      expect(h.cache.current()).toEqual(recreation.settings);
+      expect(h.cache.legacyReadState()).toEqual({
+        status: "ready",
+        settings: recreation.settings,
+      });
+      expect(h.raw()).toEqual(durable);
+      expect(h.local.set).toHaveBeenCalledTimes(1);
+      expect(h.sendMessage).toHaveBeenCalledTimes(2);
+      expect(initialize).not.toHaveBeenCalled();
+      expect(
+        edits.mock.calls.filter(([, source]) => source === "local"),
+      ).toHaveLength(1);
+      expect(
+        edits.mock.calls.every(([settings]) => settings.globalOn === false),
+      ).toBe(true);
+    } finally {
+      presence.resolve({});
+      transport.releaseAll();
+      await Promise.allSettled([first, second]);
+    }
+  });
+
+  it.each(
+    (
+      [
+        "read-loading",
+        "read-failed",
+        "unreadable",
+        "watch",
+        "command",
+        "atomic",
+      ] as const
+    ).flatMap((kind) =>
+      ([false, true] as const).map((committed) => [kind, committed] as const),
+    ),
+  )(
+    "an older absence-bound reply cannot clear newer %s authority with committed=%s",
+    async (kind, committed) => {
+      const h = browser(undefined, false);
+      await h.cache.hydrate();
+      const stop = h.cache.watch();
+      const transport = queuedLegacyReplies(h);
+      const first = h.cache.commitLegacyIntent("globalOn", true);
+      const second = h.cache.commitLegacyIntent("globalOn", !committed);
+      const presence = deferred<Record<string, unknown>>();
+      const newerRead = deferred<Record<string, unknown>>();
+      let reread:
+        ReturnType<SettingsCache["rereadLegacyAuthority"]> | undefined;
+      try {
+        await vi.waitFor(() => expect(transport.replies).toHaveLength(2));
+        h.local.get.mockImplementationOnce(() => presence.promise);
+        transport.release(0);
+        await vi.waitFor(() =>
+          expect(h.cache.legacyReadState().status).toBe("loading"),
+        );
+        if (kind === "read-loading") {
+          h.local.get.mockImplementationOnce(() => newerRead.promise);
+          reread = h.cache.rereadLegacyAuthority();
+          await vi.waitFor(() => expect(h.local.get).toHaveBeenCalledTimes(5));
+        } else if (kind === "read-failed" || kind === "unreadable") {
+          if (kind === "read-failed")
+            h.local.get.mockRejectedValueOnce(new Error("Newer read failed"));
+          else h.put({ settings: { globalOn: false } });
+          expect(await h.cache.rereadLegacyAuthority()).toEqual({
+            status: "unavailable",
+            reason: kind,
+          });
+        } else if (kind === "watch") h.emit(saved(false, 300));
+        else if (kind === "command") await h.cache.setGlobalOn(false);
+        else {
+          h.put(saved());
+          await h.authority.initializeAtomic("never-linked");
+          h.emit(
+            await h.authority.commitIntent({
+              path: "globalOn",
+              value: false,
+              updatedAt: 300,
+            }),
+          );
+        }
+        const state = h.cache.legacyReadState();
+        const current = h.cache.currentRecord();
+        transport.release(1);
+        expect((await second).intentCommitted).toBe(committed);
+        expect(h.cache.legacyReadState()).toEqual(state);
+        expect(h.cache.currentRecord()).toEqual(current);
+        presence.resolve({});
+        expect((await first).intentCommitted).toBe(false);
+        expect(h.cache.legacyReadState()).toEqual(state);
+        expect(h.cache.currentRecord()).toEqual(current);
+        if (kind === "read-failed" || kind === "unreadable")
+          await expect(h.cache.whenHydrated()).rejects.toThrow(kind);
+      } finally {
+        newerRead.resolve({});
+        presence.resolve({});
+        transport.releaseAll();
+        await Promise.allSettled([first, second, ...(reread ? [reread] : [])]);
+        stop();
+      }
+    },
+  );
+});
