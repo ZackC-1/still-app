@@ -79,6 +79,61 @@ final class MonetizationConfigTests: XCTestCase {
     }
   }
 
+  /// While the paid tier is off, the Restore tap runs the free-period check and nothing else that
+  /// could sell or touch the RevenueCat identity. The refusal's else branch is read on its own: it
+  /// must run the read-only check and must not reach PurchaseManager or RevenueCat directly. (The
+  /// stamp refresh it ends with is the router's own receipt lane, shared with launch.)
+  func testTheFreePeriodRestoreBranchRunsOnlyTheReadOnlyCheck() throws {
+    let source = try routerSource()
+    let arm = try XCTUnwrap(
+      bridgeActionBody(named: "restore", in: source),
+      "this test can no longer find the \"restore\" arm of the router's switch"
+    )
+    let refusal = try XCTUnwrap(
+      arm.range(of: "guard MonetizationConfig.paidTierEnabled else {"),
+      "the restore arm no longer starts with the paid-tier guard"
+    )
+    let afterGuard = arm[refusal.upperBound...]
+    let close = try XCTUnwrap(
+      afterGuard.range(of: "\n      }\n"),
+      "this test can no longer find where the restore arm's free-period branch ends"
+    )
+    let branch = String(afterGuard[afterGuard.startIndex..<close.lowerBound])
+    XCTAssertTrue(
+      branch.contains("self.freePeriodRestore.run()"),
+      "the free-period Restore must run the read-only App Store check"
+    )
+    for forbidden in ["self.purchases.", "Purchases.", "purchase(", "restorePurchases", "syncPurchases"] {
+      XCTAssertFalse(
+        branch.contains(forbidden),
+        "the free-period Restore must not reach \(forbidden): nothing is for sale and the "
+          + "RevenueCat identity stays untouched while the paid tier is off"
+      )
+    }
+  }
+
+  /// The live App Store half of the free-period Restore may only read. It may not import or name
+  /// RevenueCat, hold a product, or call anything that starts a purchase or a RevenueCat restore.
+  func testTheLiveFreePeriodRestoreCheckCannotReachAPurchaseOrRevenueCat() throws {
+    let url = repositoryRoot
+      .appendingPathComponent("apps/apple/Still/Shared (App)/Purchases/AppStoreRestoreCheck.swift")
+    let text = try String(contentsOf: url, encoding: .utf8)
+    let code = text.split(separator: "\n", omittingEmptySubsequences: false)
+      .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+      .joined(separator: "\n")
+    XCTAssertTrue(code.contains("Transaction.currentEntitlements"), "the check reads current entitlements")
+    XCTAssertTrue(code.contains("AppStore.sync()"), "the check syncs with the App Store")
+    for forbidden in [
+      "RevenueCat", "Purchases", "PurchaseManager", "purchase(", "Product.", "Product(",
+      "restorePurchases", "syncPurchases", "AppTransaction",
+    ] {
+      XCTAssertFalse(
+        code.contains(forbidden),
+        "AppStoreRestoreCheck must stay read-only: found \(forbidden)"
+      )
+    }
+  }
+
   /// The cohort record is written from this router at first launch and cannot be recreated later,
   /// so the value it stores has to be interpretable on both platforms. Apple reports
   /// `originalAppVersion` as a build number on iOS and a marketing version on macOS; asking
