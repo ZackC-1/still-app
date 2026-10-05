@@ -142,6 +142,20 @@ test.describe("Videos and Watch (paid on)", () => {
     expect(await stillElements(page)).toBe(0);
   });
 
+  test("the Watch live hub goes silently to Home, while a direct live link plays (Q10)", async ({ page, authority }) => {
+    await commit(authority, ALL_ON);
+    const loads = await serveFacebook(page, "fb-videos.html");
+    await gotoRedirected(page, `${FB}/watch/live/`);
+    await expect(page).toHaveURL(`${FB}/`);
+    await engineRan(page);
+    await page.goto(`${FB}/watch/live/?v=900000000112`);
+    await engineRan(page);
+    await page.waitForTimeout(300);
+    expect(page.url()).toBe(`${FB}/watch/live/?v=900000000112`);
+    await expect(page.locator("#keep-direct-player video")).toBeVisible();
+    expect(loads).toEqual(["/watch/live/", "/", "/watch/live/?v=900000000112"]);
+  });
+
   for (const path of ["/watch/?v=900000000105", "/inventedpage/videos/900000000106", "/videos/900000000107", "/watch/900000000108"])
     test(`the direct player ${path} stays playable`, async ({ page, authority }) => {
       await commit(authority, ALL_ON);

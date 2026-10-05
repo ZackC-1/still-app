@@ -130,6 +130,24 @@ describe("Facebook extras routes (paid on through the test seams)", () => {
   });
 });
 
+describe("Videos and Watch: the live hub (owner question Q10, its own droppable entry)", () => {
+  const evaluate = (path: string, settings: SettingsV2 = ALL_ON) => session().evaluate(settings, new URL(path, FB), ON);
+
+  it.each(["/watch/live", "/watch/live/", "/watch/live/?ref=bookmarks"])("%s goes silently to Home", (path) => {
+    expect(evaluate(path)).toEqual({ kind: "redirect", url: `${FB}/` });
+  });
+
+  it.each(["/watch/live/?v=900000000112", "/watch/live/900000000112", "/inventedpage/videos/900000000112"])(
+    "the direct live link %s stays playable", (path) => {
+      expect(evaluate(path)).toEqual({ kind: "apply" });
+    });
+
+  it("needs Videos and Watch effective", () => {
+    expect(evaluate("/watch/live/", settingsWith({ "facebook.reels": true, "facebook.stories": true }))).toEqual({ kind: "apply" });
+    expect(session().evaluate(ALL_ON, new URL("/watch/live/", FB))).toEqual({ kind: "apply" });
+  });
+});
+
 describe("free Facebook Reels are never shadowed", () => {
   const REEL_PATHS = [
     "/reel/", "/reel/900000000103", "/reel/900000000103/", "/reel/900000000103/?s=1",

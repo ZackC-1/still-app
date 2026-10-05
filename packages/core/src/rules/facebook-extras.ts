@@ -91,6 +91,17 @@ export const FACEBOOK_WATCH_HUB_ROUTE: ExtrasRoute = Object.freeze({
   destination: home,
 });
 
+/**
+ * The Watch live hub: exactly /watch/live or /watch/live/ with no video named. A direct live link
+ * (/watch/live/?v=<id>, a Page's /videos/<id>) stays playable. Owner question Q10 is open; this
+ * entry ships on its own so it can be dropped without touching the Watch hub above.
+ */
+export const FACEBOOK_WATCH_LIVE_HUB_ROUTE: ExtrasRoute = Object.freeze({
+  feature: "facebook.videos",
+  matches: (url: URL) => isPath(url.pathname, "/watch/live") && !namesVideo(url),
+  destination: home,
+});
+
 export const FACEBOOK_EXTRAS: ServiceExtras = Object.freeze({
   surfaces: Object.freeze([
     Object.freeze({ id: "facebook-stories-tray", feature: "facebook.stories", action: "hide", selectors: STORIES_TRAY }),
@@ -98,6 +109,6 @@ export const FACEBOOK_EXTRAS: ServiceExtras = Object.freeze({
     Object.freeze({ id: "facebook-videos-watch-nav", feature: "facebook.videos", action: "hide", selectors: VIDEOS_WATCH_NAV }),
     Object.freeze({ id: "facebook-sponsored-sidebar", feature: "facebook.sponsored", action: "hide", selectors: SIDEBAR_ADS }),
   ]),
-  routes: Object.freeze([FACEBOOK_STORIES_ROUTE, FACEBOOK_WATCH_HUB_ROUTE]),
+  routes: Object.freeze([FACEBOOK_STORIES_ROUTE, FACEBOOK_WATCH_HUB_ROUTE, FACEBOOK_WATCH_LIVE_HUB_ROUTE]),
   markers: Object.freeze([]),
 });
