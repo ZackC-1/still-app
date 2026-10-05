@@ -168,8 +168,18 @@ test("blocking works on a fresh install without ever looking at the first-run pa
     route.fulfill({ contentType: "text/html; charset=utf-8", body: fixture("youtube.html") }),
   );
   await page.goto("https://www.youtube.com/feed/subscriptions");
-  await expect(page.locator("#shelf")).toHaveCount(0);
-  await expect(page.locator("#rich-shorts-section")).toHaveCount(0);
+  if (syncConfigured) {
+    // Configured builds keep the legacy engine, which removes these surfaces.
+    await expect(page.locator("#shelf")).toHaveCount(0);
+    await expect(page.locator("#rich-shorts-section")).toHaveCount(0);
+  } else {
+    // An unconfigured fresh install runs the format-2 engine once its settings are committed,
+    // which hides these surfaces and leaves them in the page (the legacy engine, used for a page
+    // that loads before that, removes them). Either way nobody sees them.
+    await expect(page.locator("#shelf")).toBeHidden();
+    await expect(page.locator("#rich-shorts-section")).toBeHidden();
+  }
+  await expect(page.locator("#keep-video")).toBeVisible();
 });
 
 test("Settings → Setup guide reopens the first-run page", async ({ context, extensionId }) => {

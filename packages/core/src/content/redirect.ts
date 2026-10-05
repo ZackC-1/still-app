@@ -26,7 +26,41 @@ export interface NavigationEventLike {
   readonly defaultPrevented?: boolean;
   readonly isTrusted?: boolean;
   readonly navigationType?: "push" | "replace" | "reload" | "traverse";
+  /** True when the person activated a link (or similar), false when page script navigated. */
+  readonly userInitiated?: boolean;
   preventDefault?(): void;
+}
+
+/**
+ * Who asked for a prospective navigation. "deliberate": the person activated a link (trusted
+ * click/Enter, or a Navigation API event marked userInitiated), or moved through history.
+ * "page": page script changed the URL on its own, e.g. a viewer advancing to its next item.
+ */
+export type NavigationIntent = "deliberate" | "page";
+
+/** A deliberate link activation still counts for the page's own pushState within this window. */
+const DELIBERATE_WINDOW_MS = 2_500;
+
+/**
+ * Remembers the last link the person deliberately activated (trusted click or Enter on an
+ * anchor). Single-page sites intercept the click and push the URL themselves, so a push to that
+ * exact route soon afterwards carries the person's intent, not the page's. Generic button clicks
+ * and keys are never recorded: only an exact link route counts.
+ */
+export interface NavigationIntentTracker {
+  recordLink(url: URL): void;
+  intentFor(url: URL): NavigationIntent;
+}
+
+export function createNavigationIntentTracker(now: () => number = Date.now): NavigationIntentTracker {
+  let deliberate: { readonly key: string; readonly at: number } | null = null;
+  const routeKey = (url: URL) => `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+  return {
+    recordLink: (url) => { deliberate = { key: routeKey(url), at: now() }; },
+    intentFor: (url) =>
+      deliberate && deliberate.key === routeKey(url) && now() - deliberate.at <= DELIBERATE_WINDOW_MS
+        ? "deliberate" : "page",
+  };
 }
 
 /**
@@ -74,8 +108,9 @@ export function locationRedirectPort(win: StillWindow): RedirectPort {
 export function installNavigationHooks(
   win: StillWindow,
   onNavigate: () => void,
-  beforeNavigate?: (target: URL, mode: "push" | "replace") => boolean,
+  beforeNavigate?: (target: URL, mode: "push" | "replace", intent: NavigationIntent) => boolean,
   doc?: Document,
+  intents: NavigationIntentTracker = createNavigationIntentTracker(),
 ): () => void {
   const history = win.history;
   const push = history.pushState;
@@ -96,6 +131,7 @@ export function installNavigationHooks(
       return null;
     }
   };
+  const intentFor = (url: URL): NavigationIntent => intents.intentFor(url);
   const historyConsumed = (
     value: string | URL | null | undefined,
     mode: "push" | "replace",
@@ -105,7 +141,7 @@ export function installNavigationHooks(
     return (
       !!url &&
       url.origin === new URL(win.location.href).origin &&
-      beforeNavigate?.(url, mode) === true
+      beforeNavigate?.(url, mode, intentFor(url)) === true
     );
   };
 
@@ -139,6 +175,11 @@ export function installNavigationHooks(
         !event.navigationType || event.navigationType === "push"
           ? "push"
           : "replace",
+        event.userInitiated === true ||
+          event.navigationType === "traverse" ||
+          event.navigationType === "reload"
+          ? "deliberate"
+          : intentFor(url),
       )
     ) {
       event.preventDefault();
@@ -181,7 +222,8 @@ export function installNavigationHooks(
     )
       return;
     const url = targetUrl(anchor.href);
-    if (url && beforeNavigate(url, "push")) {
+    if (url) intents.recordLink(url);
+    if (url && beforeNavigate(url, "push", "deliberate")) {
       event.preventDefault();
       event.stopImmediatePropagation();
     }
@@ -200,5 +242,95 @@ export function installNavigationHooks(
     if (beforeNavigate) nav?.removeEventListener("navigatesuccess", onSuccess);
     doc?.removeEventListener("click", onLink, true);
     doc?.removeEventListener("keydown", onLink, true);
+  };
+}
+
+/**
+ * URL-change fallback for browsers without the Navigation API (Safari before 26.2, Firefox ESR).
+ * A content script's history wrapper lives in its isolated world and never sees the page's own
+ * pushState, so without `window.navigation` page-driven moves are invisible. This polls
+ * location.href on a short interval (no MutationObserver, no main-world script) and reports
+ * each change once, with the previous URL. popstate/hashchange report at once; popstate is
+ * history traversal (deliberate). The poll runs only while `active` and the document is
+ * visible; the history listeners stay attached while `active`, hidden or not.
+ */
+export interface UrlChangeWatch {
+  /** Re-evaluate whether to run; call after anything that may change `active`. */
+  sync(active: boolean): void;
+  stop(): void;
+  /** Test/diagnostic: whether the interval is currently scheduled. */
+  running(): boolean;
+}
+
+export const URL_WATCH_INTERVAL_MS = 250;
+
+export function createUrlChangeWatch(input: {
+  readonly win: StillWindow;
+  readonly doc: Document;
+  readonly onChange: (from: URL, to: URL, traverse: boolean) => void;
+  readonly intervalMs?: number;
+}): UrlChangeWatch {
+  const { win, doc, onChange } = input;
+  let last = win.location.href;
+  let wanted = false;
+  let stopped = false;
+  let timer: ReturnType<typeof setInterval> | null = null;
+  const report = (traverse: boolean) => {
+    const href = win.location.href;
+    if (href === last) return;
+    const from = last;
+    last = href;
+    let previous: URL, next: URL;
+    try {
+      previous = new URL(from);
+      next = new URL(href);
+    } catch {
+      return;
+    }
+    onChange(previous, next, traverse);
+  };
+  const poll = () => report(false);
+  // History listeners stay attached whenever the watch is wanted, visible or not: a Back or
+  // forward taken while the tab is hidden still moves the baseline, so resuming the poll never
+  // mistakes that traversal for the page advancing on its own.
+  let listening = false;
+  const onPop = () => { if (listening) report(true); };
+  const onHash = () => { if (listening) report(false); };
+  const apply = () => {
+    const listen = wanted && !stopped;
+    if (listen && !listening) {
+      win.addEventListener("popstate", onPop);
+      win.addEventListener("hashchange", onHash);
+      listening = true;
+    } else if (!listen && listening) {
+      win.removeEventListener("popstate", onPop);
+      win.removeEventListener("hashchange", onHash);
+      listening = false;
+    }
+    const run = listen && doc.visibilityState !== "hidden";
+    if (run && timer === null) {
+      timer = setInterval(poll, input.intervalMs ?? URL_WATCH_INTERVAL_MS);
+    } else if (!run && timer !== null) {
+      clearInterval(timer);
+      timer = null;
+    }
+  };
+  const onVisibility = () => apply();
+  doc.addEventListener("visibilitychange", onVisibility);
+  return {
+    sync(active) {
+      if (stopped) return;
+      // Starting fresh baselines on the URL the caller has just handled.
+      if (active && !wanted) last = win.location.href;
+      wanted = active;
+      apply();
+    },
+    stop() {
+      stopped = true;
+      wanted = false;
+      apply();
+      doc.removeEventListener("visibilitychange", onVisibility);
+    },
+    running: () => timer !== null,
   };
 }

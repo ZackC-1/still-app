@@ -154,6 +154,28 @@ export class StillFirefox {
     return await this.openTab(`moz-extension://${EXTENSION_UUID}/${name}`);
   }
 
+  /**
+   * Wait until the background has committed schema-2 settings, as a fresh install of this
+   * unconfigured build does. The content script picks its engine from the saved settings once per
+   * page, so a page opened before this could still run the legacy engine.
+   */
+  async waitForModernSettings(): Promise<void> {
+    const page = await this.openExtensionPage("options.html");
+    try {
+      await page.waitFor(
+        "the background to commit schema-2 settings",
+        () =>
+          page.evaluate<number | null>(
+            `browser.storage.local.get("still:settings").then((raw) => raw["still:settings"]?.settings?.schemaVersion ?? null)`,
+          ),
+        (schema) => schema === 2,
+        15_000,
+      );
+    } finally {
+      await page.close();
+    }
+  }
+
   async stop(): Promise<void> {
     await this.session.stop();
   }
