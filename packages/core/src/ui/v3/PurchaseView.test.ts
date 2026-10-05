@@ -1,4 +1,5 @@
 import { render, screen, fireEvent, cleanup } from "@testing-library/svelte";
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import PurchaseView from "./PurchaseView.svelte";
 import type { PurchaseViewProps } from "./purchase-presentation.js";
@@ -318,5 +319,40 @@ describe("controlled D18 purchase view", () => {
     expect(screen.getByText("Facebook Blocking Options")).toBeTruthy();
     expect(screen.queryByText("YouTube Blocking Options")).toBeNull();
     expect(screen.queryByText("Desktop sidebar ads")).toBeNull();
+  });
+});
+
+describe("D18 screen layout", () => {
+  // The view keeps its own scoped `.ob*` copy (Svelte-scoped specificity, no global leak), so it
+  // must stay value-for-value identical to the shared D12 layout sheet it was copied from.
+  function rules(css: string) {
+    const result = new Map<string, string[]>();
+    for (const [, selector, body] of css
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .matchAll(/([^{}]+)\{([^{}]*)\}/g))
+      result.set(
+        selector!.trim().replace(/\s+/g, " "),
+        body!
+          .split(";")
+          .map((declaration) => declaration.trim().replace(/\s+/g, " "))
+          .filter(Boolean),
+      );
+    return result;
+  }
+  const read = (file: string) =>
+    readFileSync(new URL(file, import.meta.url), "utf8");
+
+  it("matches the shared onboarding layout sheet value for value", () => {
+    const view = read("./PurchaseView.svelte");
+    const scoped = rules(
+      view.slice(view.indexOf("<style>") + 7, view.indexOf("</style>")),
+    );
+    const shared = new Map(
+      [...rules(read("./apple-onboarding-layout.css"))].filter(([selector]) =>
+        selector.startsWith(".ob"),
+      ),
+    );
+    expect(shared.size).toBeGreaterThan(0);
+    expect(scoped).toEqual(shared);
   });
 });
