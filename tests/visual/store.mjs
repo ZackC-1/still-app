@@ -1,17 +1,19 @@
-// V3 store-image visual check (VD-8): renders the private store canvas renderer
+// V3 store-image visual check: renders the store canvas renderer
 // (docs/release/screenshots/source/v3/render-assets.mjs, comparison mode) and compares each canvas
 // with its approved 2x reference PNG using the design package's own compare script.
 //
 //   STILL_DESIGN_PACKAGE=/abs/path/to/still-design-system-v3.2 node tests/visual/store.mjs
 //   pnpm visual:store                       # same, package defaults to build/v3/still-design-system-v3.2
-//   node tests/visual/store.mjs --only cws-2
+//   node tests/visual/store.mjs --only cws-2   # frame ids from assets.json, comma list ok
+//   node tests/visual/store.mjs --self-test    # proves the gate: cws-1 PASSes, then FAILs once the
+//                                              # render is shifted 2px (test-only, no product change)
 //
 // Same rules as tests/visual/run.mjs: deviceScaleFactor 2, pass only when differing pixels * 200
 // <= total pixels (0.5%, unrounded), no masks, no reference edits. Store canvases are fixed-pixel
 // (per-frame size in assets.json), so the 2x render is compared against the 2560x1600 reference at its native size; the
 // store export itself is the 1x render of the same canvas (renderer "export" mode).
 //
-// LOCAL ONLY, not CI: the pixels depend on the machine's font rasteriser and the private, gitignored
+// LOCAL ONLY, not CI: the pixels depend on the machine's font rasteriser and the local, gitignored
 // design package. The script prints SKIPPED and exits 0 when the package is absent. Reference
 // frames with no renderer are listed as "not mapped" with the reason, never forced.
 //
@@ -58,9 +60,18 @@ const MANIFEST = JSON.parse(
 );
 
 const args = process.argv.slice(2);
-const only = args.flatMap((a, i) =>
-  args[i - 1] === "--only" ? a.split(",") : [],
-);
+const selfTest = args.includes("--self-test");
+const only = selfTest
+  ? ["cws-1"]
+  : args.flatMap((a, i) => (args[i - 1] === "--only" ? a.split(",") : []));
+const unknown = only.filter((id) => !MANIFEST.frames.some((f) => f.id === id));
+if (unknown.length || (args.includes("--only") && !only.length)) {
+  console.error(
+    `Usage error: unknown --only frame id(s) ${unknown.join(", ") || "(none given)"}. ` +
+      `Known: ${MANIFEST.frames.map((f) => f.id).join(", ")}`,
+  );
+  process.exit(2);
+}
 
 if (!existsSync(COMPARE) || !existsSync(join(PKG, "tokens/tokens.json"))) {
   console.log(
@@ -167,11 +178,14 @@ mkdirSync(join(OUT, "impl"), { recursive: true });
 mkdirSync(join(OUT, "diff"), { recursive: true });
 
 const rows = [];
-const mappedRefs = new Set();
+let selfTestOutcome = null;
+// Built from the manifest before any --only filtering, so unselected frames are not "no renderer".
+const mappedRefs = new Set(
+  MANIFEST.frames.map((f) => f.reference.split("/").pop()),
+);
 for (const frame of MANIFEST.frames) {
   if (only.length && !only.includes(frame.id)) continue;
   const reference = join(REFERENCES, frame.reference);
-  mappedRefs.add(frame.reference.split("/").pop());
   const scratch = mkdtempSync(join(tmpdir(), "still-store-visual-"));
   chmodSync(scratch, 0o700);
   const run = spawnSync(
@@ -207,6 +221,28 @@ for (const frame of MANIFEST.frames) {
     const diff = join(OUT, "diff", `${frame.id}.png`);
     copyFileSync(rendered, impl);
     const result = compare(reference, impl, diff);
+    if (selfTest && result.passed) {
+      // Shift the render 2px right (duplicating the left edge) and expect the gate to fail it.
+      const png = PNG.sync.read(readFileSync(impl));
+      const shifted = new PNG({ width: png.width, height: png.height });
+      for (let y = 0; y < png.height; y++)
+        for (let x = 0; x < png.width; x++) {
+          const from = (y * png.width + Math.max(0, x - 2)) * 4;
+          png.data.copy(shifted.data, (y * png.width + x) * 4, from, from + 4);
+        }
+      const shiftedFile = join(OUT, "impl", `${frame.id}-shifted.png`);
+      writeFileSync(shiftedFile, PNG.sync.write(shifted));
+      const bad = compare(
+        reference,
+        shiftedFile,
+        join(OUT, "diff", `${frame.id}-shifted.png`),
+      );
+      selfTestOutcome = {
+        baseline: result.percent,
+        shifted: bad.percent,
+        shiftedFails: bad.passed === false,
+      };
+    }
     rows.push(
       result.error
         ? { ...row, status: "ERROR", error: result.error }
@@ -255,4 +291,11 @@ const md = [
 ].join("\n");
 writeFileSync(join(OUT, "report.md"), md);
 console.log(md);
+if (selfTest) {
+  const ok = selfTestOutcome?.shiftedFails === true;
+  console.log(
+    `SELF-TEST ${ok ? "OK" : "BROKEN"}: ${JSON.stringify(selfTestOutcome)} (shifted render must FAIL the gate)`,
+  );
+  process.exit(ok ? 0 : 1);
+}
 process.exit(rows.some((r) => r.status !== "PASS") ? 1 : 0);

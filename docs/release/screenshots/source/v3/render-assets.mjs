@@ -1,4 +1,4 @@
-// Private reference rehearsal only; never uploads or claims operational access.
+// Reference rehearsal only; never uploads or claims operational access.
 // node render-assets.mjs --id cws-1 --mode comparison|export
 //   --design-root /path/to/approved/package --output-dir /private/tmp/owned-empty-dir
 import {
