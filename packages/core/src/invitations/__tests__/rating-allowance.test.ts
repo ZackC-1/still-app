@@ -4,9 +4,10 @@ import { parseInvitationLedger, PROPOSED_INVITATION_PARAMETERS, type InvitationL
 import { InMemoryInvitationLedgerPort, type InvitationLedgerStore } from "../storage.js";
 import {
   RATING_ALLOWANCE_TIMEOUT_MS, RATING_INVITATION_PARAMETERS, admitRatingCard, ratingCardSurface, ratingInvitationStore,
-  ratingPolicySurface, ratingReviewUrl, recordRatingOpening,
+  ratingPolicySurface, recordRatingOpening,
   type RatingAdmissionDeps, type RatingAdmissionRequest, type RatingAllowance,
 } from "../rating-allowance.js";
+import { ratingReviewUrl } from "../rating-review.js";
 
 const T0 = 1_790_000_000_000, DAY = 86_400_000, ZONE = "UTC";
 const ON: RatingAllowance = { allowed: true, reason: "on" };

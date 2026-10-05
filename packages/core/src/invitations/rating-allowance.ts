@@ -18,10 +18,9 @@
 //     background's own, gets nothing.
 //   * No analytics, no notifications, no identifiers: this module sends and records nothing.
 
-import { CHROME_WEB_STORE_REVIEW_URL, FIREFOX_ADDONS_REVIEW_URL } from "../ui/config.js";
 import { localDayOrdinal } from "./day-ordinal.js";
 import {
-  PROPOSED_INVITATION_PARAMETERS, validInvitationId, type InvitationOwnerParameters, type InvitationReservation,
+  validInvitationId, type InvitationOwnerParameters, type InvitationReservation,
 } from "./ledger.js";
 import type { InvitationSuppression } from "./arbiter.js";
 import { InvitationLedgerStore, type InvitationLedgerPort, type InvitationStoreStatus } from "./storage.js";
@@ -31,8 +30,9 @@ import { InvitationLedgerStore, type InvitationLedgerPort, type InvitationStoreS
  * two invitations, sync or rating, in both directions. Every other parameter keeps the proposal.
  */
 export const RATING_INVITATION_PARAMETERS: InvitationOwnerParameters = /* @__PURE__ */ Object.freeze({
-  ...PROPOSED_INVITATION_PARAMETERS,
   spaceRatingFromInvitations: true,
+  // The proposal's counted controls, written out (not spread) so bundlers can drop this constant.
+  countedControls: /* @__PURE__ */ Object.freeze(["site", "feature"] as const),
 });
 
 /** A fresh allowance check that has not answered within this many milliseconds is Off. */
@@ -42,9 +42,9 @@ export const RATING_ALLOWANCE_TIMEOUT_MS = 5000;
 export type RatingCardSurface = "chrome" | "firefox";
 /** The U6 policy surface (shared-types/product-policy.ts) whose allowance a card surface needs. */
 export type RatingPolicySurface = "chrome_desktop" | "firefox_desktop";
-const CARD_SURFACES: Readonly<Record<RatingCardSurface, { policy: RatingPolicySurface; reviewUrl: string }>> = /* @__PURE__ */ Object.freeze({
-  chrome: /* @__PURE__ */ Object.freeze({ policy: "chrome_desktop", reviewUrl: CHROME_WEB_STORE_REVIEW_URL }),
-  firefox: /* @__PURE__ */ Object.freeze({ policy: "firefox_desktop", reviewUrl: FIREFOX_ADDONS_REVIEW_URL }),
+const CARD_SURFACES: Readonly<Record<RatingCardSurface, { policy: RatingPolicySurface }>> = /* @__PURE__ */ Object.freeze({
+  chrome: /* @__PURE__ */ Object.freeze({ policy: "chrome_desktop" }),
+  firefox: /* @__PURE__ */ Object.freeze({ policy: "firefox_desktop" }),
 });
 
 /** The card surface a value names, or null (Safari, Apple hosts and anything else). */
@@ -54,10 +54,6 @@ export function ratingCardSurface(value: unknown): RatingCardSurface | null {
 /** The policy surface whose allowance a card surface needs. */
 export function ratingPolicySurface(surface: RatingCardSurface): RatingPolicySurface {
   return CARD_SURFACES[surface].policy;
-}
-/** The packaged store review page a card surface opens. Never a remotely supplied link. */
-export function ratingReviewUrl(surface: RatingCardSurface): string {
-  return CARD_SURFACES[surface].reviewUrl;
 }
 
 /** The ledger store every rating host uses, with the coordinator's spacing parameters. */

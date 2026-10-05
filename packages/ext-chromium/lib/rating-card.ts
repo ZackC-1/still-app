@@ -5,7 +5,8 @@
 // (tabs.create, no new permission). Nothing here records analytics: no event, no outcome, no "did
 // they rate" signal.
 
-import { ratingReviewUrl, type RatingCardSurface } from "../../core/src/invitations/rating-allowance.js";
+import type { RatingCardSurface } from "../../core/src/invitations/rating-allowance.js";
+import { ratingReviewUrl } from "../../core/src/invitations/rating-review.js";
 import type { InvitationIdentity, PopupInvitationPresentation } from "../../core/src/ui/v3/invitation-presentation.js";
 
 export function ratingCardPresentation(input: {

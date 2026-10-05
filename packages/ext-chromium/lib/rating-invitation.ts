@@ -13,9 +13,13 @@
 //     a guess, so a phone can never be authorized by the desktop allowance.
 //   * No identifier, analytics or notification. The request is the policy client's one plain read.
 
-import type { ProductPolicySurface } from "@still/shared-types/product-policy";
 import type { RatingAllowance } from "../../core/src/invitations/rating-allowance.js";
-import { createChromeProductPolicyRuntime, type ProductPolicyRuntime } from "./product-policy-runtime.js";
+import {
+  createChromeProductPolicyRuntime, type ProductPolicyRuntime, type ProductPolicyRuntimeOptions,
+} from "./product-policy-runtime.js";
+
+/** A policy surface, as the policy client names it. */
+type ProductPolicySurface = ProductPolicyRuntimeOptions["surface"];
 
 /** How long to wait for the browser's platform answer before the allowance is Off. */
 export const PLATFORM_ANSWER_LIMIT_MS = 1_000;
