@@ -28,19 +28,44 @@ trap 'exit 130' INT TERM
 export SUPABASE_AUTH_JWT_ISSUER='http://kong:8000/auth/v1'
 supabase start --exclude studio,imgproxy,mailpit,logflare,vector >/dev/null
 export STILL_SETTINGS_TEST_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
-# Migration 0015 exactly as the CLI applies it, as the ordinary non-superuser postgres role:
-# first on a clean head, then as an upgrade from 0014 holding realistic released-app rows.
+# Apply pending migrations only up to and including version $1, still through the CLI as the
+# ordinary postgres role, from a temporary copy of the project that holds no later migration.
+migrate_up_to() {
+  local upto
+  upto=$(mktemp -d)
+  mkdir -p "$upto/supabase/migrations"
+  cp supabase/config.toml "$upto/supabase/"
+  for migration in supabase/migrations/*.sql; do
+    local name=${migration##*/}
+    if (( 10#${name%%_*} <= 10#$1 )); then cp "$migration" "$upto/supabase/migrations/"; fi
+  done
+  supabase migration up --local --workdir "$upto" >/dev/null
+  rm -rf "$upto"
+}
+# Migration 0015 exactly as the CLI applies it, as the ordinary non-superuser postgres role and as
+# the newest migration (0015's check enumerates the private schema, which 0016 extends): first on
+# a clean database at 0015, then as an upgrade from 0014 holding realistic released-app rows.
 migration_test() {
   STILL_U3_MIGRATION_TEST_DATABASE_URL="$STILL_SETTINGS_TEST_DATABASE_URL" STILL_U3_MIGRATION_TEST_MODE="$1" \
     deno test --frozen --config supabase/functions/deno.json --allow-env --allow-read=supabase/migrations,supabase/tests,scripts/backend/deploy/verify --allow-net=127.0.0.1:54322 supabase/tests/settings_sync_migration_test.ts
 }
-supabase db reset --local --no-seed >/dev/null
+supabase db reset --local --no-seed --version 0015 >/dev/null
 migration_test clean
 supabase db reset --local --no-seed --version 0014 >/dev/null
 psql "$STILL_SETTINGS_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --file=supabase/tests/settings_sync_migration_seed.sql
 migration_test pre-upgrade
-supabase migration up --local >/dev/null
+migrate_up_to 0015
 migration_test upgrade
+# Then 0016 on top of that settings-bearing database, so the lifecycle and served probes below run
+# at the head with the product policy store present.
+policy_test() {
+  STILL_U6_POLICY_TEST_DATABASE_URL="$STILL_SETTINGS_TEST_DATABASE_URL" STILL_U6_POLICY_TEST_MODE="$1" \
+    deno test --frozen --config supabase/functions/deno.json --allow-env --allow-read=supabase/migrations,supabase/tests,scripts/backend/deploy/verify --allow-net=127.0.0.1:54322 supabase/tests/product_policy_migration_test.ts
+}
+psql "$STILL_SETTINGS_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --file=supabase/tests/product_policy_migration_seed.sql
+policy_test pre-upgrade
+supabase migration up --local >/dev/null
+policy_test upgrade
 # The lifecycle and served probes run on that upgraded database. The synthetic superuser only
 # prefills rows, holds blocking locks and probes owner drift; it never applies the migration.
 docker exec -i supabase_db_still-app psql -U supabase_admin -d postgres -X --set=ON_ERROR_STOP=1 <<'SQL'
