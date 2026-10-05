@@ -647,7 +647,12 @@ export class SettingsCache {
   private publishLegacyRead(state: LegacySettingsReadState): void {
     if (state.status === "absent") this.legacyAbsenceCurrent = true;
     else if (state.status !== "loading") this.legacyAbsenceCurrent = false;
-    if (JSON.stringify(state) === JSON.stringify(this.legacyRead)) return;
+    // Each accepted ready receipt proves freshness, even when saved choices are unchanged.
+    if (
+      state.status !== "ready" &&
+      JSON.stringify(state) === JSON.stringify(this.legacyRead)
+    )
+      return;
     this.legacyRead = state;
     for (const listener of [...this.legacyReadListeners]) {
       if (this.legacyRead !== state) break;

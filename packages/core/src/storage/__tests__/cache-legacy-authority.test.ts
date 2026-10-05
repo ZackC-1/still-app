@@ -1810,3 +1810,394 @@ describe("hydration publication follows the current legacy read operation", () =
     },
   );
 });
+
+describe("successful current legacy receipt observation", () => {
+  it("publishes a fresh same-JSON ready watch before an older command rejects", async () => {
+    const h = browser(saved());
+    await h.cache.hydrate();
+    const stop = h.cache.watch();
+    const before = h.cache.legacyReadState();
+    const observed: ReturnType<SettingsCache["legacyReadState"]>[] = [];
+    const detach = h.cache.subscribeLegacyRead(() =>
+      observed.push(h.cache.legacyReadState()),
+    );
+    const write = deferred<void>();
+    h.local.set.mockImplementationOnce(() => write.promise);
+    const command = h.cache.commitLegacyIntent("globalOn", true);
+    const rejected = command.catch((error: unknown) => error);
+    try {
+      await vi.waitFor(() => expect(h.local.set).toHaveBeenCalledTimes(1));
+      const gets = h.local.get.mock.calls.length;
+      const messages = h.sendMessage.mock.calls.length;
+      h.emit(saved());
+      const ready = h.cache.legacyReadState();
+      expect(ready).toEqual(before);
+      expect(ready).not.toBe(before);
+      expect(observed).toHaveLength(1);
+      expect(observed[0]).toBe(ready);
+      expect(h.local.get).toHaveBeenCalledTimes(gets);
+      expect(h.local.set).toHaveBeenCalledTimes(1);
+      expect(h.sendMessage).toHaveBeenCalledTimes(messages);
+      write.reject(new Error("Older command persistence failed"));
+      expect(await rejected).toMatchObject({ reason: "authority-unavailable" });
+      expect(h.cache.legacyReadState()).toBe(ready);
+      expect(observed).toHaveLength(1);
+      await expect(h.cache.whenHydrated()).resolves.toBeUndefined();
+      expect(h.raw()).toEqual(saved());
+    } finally {
+      write.resolve();
+      await rejected;
+      detach();
+      stop();
+    }
+  });
+
+  it("observes each accepted same-choice watch once without a read or saved edit", async () => {
+    const h = browser(saved());
+    await h.cache.hydrate();
+    const stop = h.cache.watch();
+    const before = h.cache.legacyReadState();
+    const snapshot = h.cache.current();
+    const observed: ReturnType<SettingsCache["legacyReadState"]>[] = [];
+    const detach = h.cache.subscribeLegacyRead(() =>
+      observed.push(h.cache.legacyReadState()),
+    );
+    const edits = vi.fn();
+    h.cache.subscribe(edits);
+    const gets = h.local.get.mock.calls.length;
+    try {
+      h.emit(saved());
+      const first = h.cache.legacyReadState();
+      h.emit(saved());
+      const second = h.cache.legacyReadState();
+      expect(observed).toHaveLength(2);
+      expect(observed[0]).toBe(first);
+      expect(observed[1]).toBe(second);
+      expect(first).toEqual(before);
+      expect(second).toEqual(before);
+      expect(first).not.toBe(before);
+      expect(second).not.toBe(first);
+      expect(h.cache.current()).toBe(snapshot);
+      expect(edits).not.toHaveBeenCalled();
+      expect(h.local.get).toHaveBeenCalledTimes(gets);
+      expect(h.local.set).not.toHaveBeenCalled();
+      expect(h.sendMessage).not.toHaveBeenCalled();
+    } finally {
+      detach();
+      stop();
+    }
+  });
+
+  it("shares a current same-JSON reread and emits loading then one fresh ready", async () => {
+    const h = browser(saved());
+    await h.cache.hydrate();
+    const before = h.cache.legacyReadState();
+    const observed: ReturnType<SettingsCache["legacyReadState"]>[] = [];
+    let reentrant:
+      ReturnType<SettingsCache["rereadLegacyAuthority"]> | undefined;
+    const detach = h.cache.subscribeLegacyRead(() => {
+      observed.push(h.cache.legacyReadState());
+      reentrant = h.cache.rereadLegacyAuthority();
+    });
+    const edits = vi.fn();
+    h.cache.subscribe(edits);
+    const gets = h.local.get.mock.calls.length;
+    try {
+      const first = h.cache.rereadLegacyAuthority();
+      expect(h.cache.rereadLegacyAuthority()).toBe(first);
+      expect(await first).toEqual({ status: "ready" });
+      expect(reentrant).toBe(first);
+      expect(observed.map((state) => state.status)).toEqual([
+        "loading",
+        "ready",
+      ]);
+      expect(observed[1]).toBe(h.cache.legacyReadState());
+      expect(observed[1]).toEqual(before);
+      expect(observed[1]).not.toBe(before);
+      expect(h.local.get.mock.calls.length - gets).toBe(1);
+      expect(h.local.set).not.toHaveBeenCalled();
+      expect(h.sendMessage).not.toHaveBeenCalled();
+      expect(edits).not.toHaveBeenCalled();
+    } finally {
+      detach();
+    }
+  });
+
+  it.each(["globalOn", "services.youtube"] as const)(
+    "publishes each accepted no-op %s receipt once with fresh ready identity",
+    async (path) => {
+      // The Chrome command reply uses the normalized legacy projection.
+      const {
+        schemaVersion: _schemaVersion,
+        opaqueChoice: _opaqueChoice,
+        ...settings
+      } = saved().settings;
+      const record = { ...saved(), settings };
+      const h = browser(record);
+      await h.cache.hydrate();
+      const before = h.cache.legacyReadState();
+      const observed: ReturnType<SettingsCache["legacyReadState"]>[] = [];
+      const detach = h.cache.subscribeLegacyRead(() =>
+        observed.push(h.cache.legacyReadState()),
+      );
+      const edits = vi.fn();
+      h.cache.subscribe(edits);
+      try {
+        expect(
+          (await h.cache.commitLegacyIntent(path, false)).intentCommitted,
+        ).toBe(false);
+        const first = h.cache.legacyReadState();
+        expect(
+          (await h.cache.commitLegacyIntent(path, false)).intentCommitted,
+        ).toBe(false);
+        const second = h.cache.legacyReadState();
+        expect(observed).toHaveLength(2);
+        expect(observed[0]).toBe(first);
+        expect(observed[1]).toBe(second);
+        expect(first).toEqual(before);
+        expect(second).toEqual(before);
+        expect(first).not.toBe(before);
+        expect(second).not.toBe(first);
+        expect(h.local.get).toHaveBeenCalledTimes(3);
+        expect(h.local.set).not.toHaveBeenCalled();
+        expect(h.sendMessage).toHaveBeenCalledTimes(2);
+        expect(edits).not.toHaveBeenCalled();
+        expect(h.raw()).toEqual(record);
+      } finally {
+        detach();
+      }
+    },
+  );
+
+  it("observes a true committed receipt once after its same-JSON watch already arrived", async () => {
+    const { opaqueChoice: _opaqueChoice, ...settings } = saved().settings;
+    const h = browser({ ...saved(), settings });
+    await h.cache.hydrate();
+    const stop = h.cache.watch();
+    const reply = deferred<void>();
+    const send = h.sendMessage.getMockImplementation()!;
+    h.sendMessage.mockImplementationOnce(async (message) => {
+      const result = await send(message);
+      await reply.promise;
+      return result;
+    });
+    const observed: ReturnType<SettingsCache["legacyReadState"]>[] = [];
+    const detach = h.cache.subscribeLegacyRead(() =>
+      observed.push(h.cache.legacyReadState()),
+    );
+    const edits = vi.fn();
+    h.cache.subscribe(edits);
+    const command = h.cache.commitLegacyIntent("globalOn", true);
+    try {
+      await vi.waitFor(() => expect(h.local.set).toHaveBeenCalledTimes(1));
+      h.emit(h.raw() as StoredSettingsRecord);
+      const watched = h.cache.legacyReadState();
+      expect(observed).toHaveLength(1);
+      expect(watched).toMatchObject({
+        status: "ready",
+        settings: { globalOn: true, updatedAt: 200 },
+      });
+      reply.resolve();
+      expect((await command).intentCommitted).toBe(true);
+      const committed = h.cache.legacyReadState();
+      expect(committed).toEqual(watched);
+      expect(committed).not.toBe(watched);
+      expect(observed).toHaveLength(2);
+      expect(observed[1]).toBe(committed);
+      expect(edits).toHaveBeenCalledTimes(1);
+      expect(edits.mock.calls[0]?.[1]).toBe("local");
+      expect(h.local.get).toHaveBeenCalledTimes(2);
+      expect(h.local.set).toHaveBeenCalledTimes(1);
+      expect(h.sendMessage).toHaveBeenCalledTimes(1);
+    } finally {
+      reply.resolve();
+      await command.catch(() => undefined);
+      detach();
+      stop();
+    }
+  });
+
+  it.each(["watch", "command"] as const)(
+    "a changed %s receipt still emits exactly one ready notification",
+    async (kind) => {
+      const h = browser(saved());
+      await h.cache.hydrate();
+      const stop = h.cache.watch();
+      const observed: ReturnType<SettingsCache["legacyReadState"]>[] = [];
+      const detach = h.cache.subscribeLegacyRead(() =>
+        observed.push(h.cache.legacyReadState()),
+      );
+      try {
+        if (kind === "watch") h.emit(saved(true, 300));
+        else
+          expect(
+            (await h.cache.commitLegacyIntent("globalOn", true))
+              .intentCommitted,
+          ).toBe(true);
+        expect(observed).toHaveLength(1);
+        expect(observed[0]).toBe(h.cache.legacyReadState());
+        expect(observed[0]).toMatchObject({
+          status: "ready",
+          settings: { globalOn: true },
+        });
+      } finally {
+        detach();
+        stop();
+      }
+    },
+  );
+
+  it.each([
+    "choice",
+    "timestamp",
+    "epoch",
+    "version",
+    "unsupported",
+    "unreadable",
+  ] as const)(
+    "a rejected %s watch cannot manufacture fresh successful readiness",
+    async (kind) => {
+      const record = {
+        ...saved(),
+        syncEpoch: 3,
+        syncMetadata: {
+          version: 8,
+          serverUpdatedAt: "2026-10-04T00:00:00Z",
+          lastWriteId: null,
+        },
+      };
+      const h = browser(record);
+      await h.cache.hydrate();
+      const stop = h.cache.watch();
+      const before = h.cache.legacyReadState();
+      const observed = vi.fn();
+      const detach = h.cache.subscribeLegacyRead(observed);
+      const gets = h.local.get.mock.calls.length;
+      try {
+        const rejected = {
+          ...record,
+          syncEpoch: kind === "epoch" ? 2 : 3,
+          syncMetadata: {
+            ...record.syncMetadata,
+            version: kind === "version" ? 7 : 8,
+          },
+          settings: {
+            ...record.settings,
+            globalOn: kind === "choice" ? true : false,
+            updatedAt: kind === "timestamp" ? 50 : 100,
+            ...(kind === "unsupported" ? { schemaVersion: 3 } : {}),
+          },
+        };
+        h.emit(
+          kind === "unreadable"
+            ? ({
+                ...rejected,
+                settings: { globalOn: false },
+              } as unknown as StoredSettingsRecord)
+            : rejected,
+        );
+        expect(h.cache.legacyReadState()).toBe(before);
+        expect(observed).not.toHaveBeenCalled();
+        expect(h.local.get).toHaveBeenCalledTimes(gets);
+        expect(h.local.set).not.toHaveBeenCalled();
+        expect(h.sendMessage).not.toHaveBeenCalled();
+      } finally {
+        detach();
+        stop();
+      }
+    },
+  );
+
+  it.each(["unsupported", "unreadable", "absent"] as const)(
+    "a current %s read emits no successful ready receipt",
+    async (kind) => {
+      const h = browser(saved());
+      await h.cache.hydrate();
+      const observed: ReturnType<SettingsCache["legacyReadState"]>[] = [];
+      const detach = h.cache.subscribeLegacyRead(() =>
+        observed.push(h.cache.legacyReadState()),
+      );
+      if (kind === "unsupported") {
+        const modern = await new AtomicSettingsWriter(
+          new InMemoryStorageAdapter(saved()),
+        ).initialize("unknown");
+        const { atomic: _atomic, ...unsupported } = modern;
+        h.put(unsupported);
+      } else if (kind === "unreadable") h.put(null);
+      else h.put(undefined, false);
+      try {
+        expect(await h.cache.rereadLegacyAuthority()).toEqual(
+          kind === "absent"
+            ? { status: "absent" }
+            : {
+                status: "unavailable",
+                reason:
+                  kind === "unreadable"
+                    ? "unreadable"
+                    : "legacy-command-unavailable",
+              },
+        );
+        expect(observed.map((state) => state.status)).toEqual([
+          "loading",
+          kind === "absent" ? "absent" : "unavailable",
+        ]);
+        expect(h.local.get).toHaveBeenCalledTimes(2);
+        expect(h.local.set).not.toHaveBeenCalled();
+        expect(h.sendMessage).not.toHaveBeenCalled();
+      } finally {
+        detach();
+      }
+    },
+  );
+
+  it("a synchronous same-JSON ready observer's atomic takeover stops stale sibling delivery", async () => {
+    const h = browser(saved());
+    await h.cache.hydrate();
+    const stop = h.cache.watch();
+    const modern = await new AtomicSettingsWriter(
+      new InMemoryStorageAdapter(saved()),
+    ).initialize("unknown");
+    const held = {
+      ...modern,
+      atomic: { ...modern.atomic!, paused: "ownership-hold" },
+    };
+    const before = h.cache.legacyReadState();
+    const first: ReturnType<SettingsCache["legacyReadState"]>[] = [];
+    const sibling: ReturnType<SettingsCache["legacyReadState"]>[] = [];
+    const detachFirst = h.cache.subscribeLegacyRead(() => {
+      const state = h.cache.legacyReadState();
+      first.push(state);
+      if (state.status === "ready") h.emit(held);
+    });
+    const detachSibling = h.cache.subscribeLegacyRead(() =>
+      sibling.push(h.cache.legacyReadState()),
+    );
+    try {
+      h.emit(saved());
+      expect(first.map((state) => state.status)).toEqual([
+        "ready",
+        "unavailable",
+      ]);
+      expect(first[0]).toEqual(before);
+      expect(first[0]).not.toBe(before);
+      expect(sibling.map((state) => state.status)).toEqual(["unavailable"]);
+      expect(sibling[0]).toBe(h.cache.legacyReadState());
+      expect(h.cache.currentRecord().atomic?.paused).toBe("ownership-hold");
+      expect(h.cache.legacyReadState()).toMatchObject({
+        status: "unavailable",
+        settings: null,
+        reason: "legacy-command-unavailable",
+      });
+      h.emit(saved());
+      expect(first).toHaveLength(2);
+      expect(sibling).toHaveLength(1);
+      expect(h.local.get).toHaveBeenCalledTimes(1);
+      expect(h.local.set).not.toHaveBeenCalled();
+      expect(h.sendMessage).not.toHaveBeenCalled();
+    } finally {
+      detachFirst();
+      detachSibling();
+      stop();
+    }
+  });
+});
