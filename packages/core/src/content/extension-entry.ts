@@ -162,12 +162,17 @@ export function createExtensionContentEntry(
 }
 
 /**
- * Services whose pages run the packaged format-2 lane in shipping builds. Held empty: every
- * shipping page keeps the legacy seed engine until each service's built-extension contract
- * (hide-not-remove, no route placeholders, root classes, YouTube's Shorts-filter recovery) is
- * accepted. Adding a service here is the whole activation; the lane rules below stay the same.
+ * Services whose pages run the packaged format-2 lane in shipping builds. A page still uses it
+ * only when its committed settings are schema 2, so builds that keep the legacy settings
+ * document (configured store builds until the modern settings rollout) run the legacy seed
+ * engine unchanged. TikTok stays on its legacy site block until the trusted blocked-screen port
+ * exists; the lane rules below also enforce that.
  */
-export const FORMAT2_SHIPPING_SERVICES: ReadonlySet<ServiceId> = new Set<ServiceId>();
+export const FORMAT2_SHIPPING_SERVICES: ReadonlySet<ServiceId> = new Set<ServiceId>([
+  "youtube",
+  "instagram",
+  "facebook",
+]);
 
 /** The settings key the content script's ChromeStorageAdapter reads (its local projection). */
 const SETTINGS_KEY = "still:settings";

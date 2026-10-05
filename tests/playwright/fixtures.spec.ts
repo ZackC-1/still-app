@@ -7,6 +7,11 @@ import { PAID_TIER_ENABLED } from "../../packages/shared-types/src/entitlement.j
 
 const FIXTURE_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "../fixtures");
 
+// Every case here pins the LEGACY seed engine: a schema-1 settings profile, as configured store
+// builds keep until the modern settings rollout. The format-2 lane's contract for the same
+// fixtures lives in fixtures-format2.spec.ts.
+test.use({ settingsProfile: "legacy" });
+
 // Serve a service's fixture HTML for every request to its domain (no real network); the extension's
 // content script injects because the committed URL matches its host pattern.
 async function serve(page: Page, domainGlob: string, html: string): Promise<void> {

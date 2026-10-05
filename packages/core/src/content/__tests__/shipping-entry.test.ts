@@ -65,14 +65,31 @@ function legacySettings(h: Host, settings: object = { ...DEFAULT_SETTINGS, updat
 }
 
 describe("shipping content entry lane selection", () => {
-  it("holds every shipping service on the legacy seed engine today, with no extra settings read", async () => {
-    expect([...FORMAT2_SHIPPING_SERVICES]).toEqual([]);
-    const h = await host("youtube.html", "https://www.youtube.com/");
+  it("ships format-2 for YouTube, Instagram and Facebook; TikTok stays on its legacy block with no extra read", async () => {
+    expect([...FORMAT2_SHIPPING_SERVICES].sort()).toEqual(["facebook", "instagram", "youtube"]);
+    const h = await host("tiktok.html", "https://www.tiktok.com/foryou");
     const { lanes, reads } = await start(h, { format2Services: undefined });
+    expect(lanes).toEqual([{ kind: "legacy", reason: "service-held" }]);
+    expect(reads).not.toContain("still:settings");
+    expect(document.body.textContent).toContain("This site is blocked.");
+    expect(rootClasses().some((name) => name.startsWith("still-feature-"))).toBe(false);
+  });
+
+  it("a held service (not in the shipping set) keeps the legacy engine with no extra settings read", async () => {
+    const h = await host("youtube.html", "https://www.youtube.com/");
+    const { lanes, reads } = await start(h, { format2Services: new Set() });
     expect(lanes).toEqual([{ kind: "legacy", reason: "service-held" }]);
     expect(reads).not.toContain("still:settings");
     expect(rootClasses()).toEqual(expect.arrayContaining(["still-active", "still-service-youtube"]));
     expect(rootClasses().some((name) => name.startsWith("still-feature-"))).toBe(false);
+  });
+
+  it("the production shipping set runs format-2 on YouTube with committed schema-2 settings", async () => {
+    const h = await host("youtube.html", "https://www.youtube.com/");
+    const { lanes } = await start(h, { format2Services: undefined });
+    expect(lanes).toEqual([{ kind: "format2" }]);
+    expect(hidden("shelf")).toBe(true);
+    expect(rootClasses().some((name) => name === "still-active")).toBe(false);
   });
 
   it("runs the packaged format-2 lane for an activated service with committed schema-2 settings", async () => {
