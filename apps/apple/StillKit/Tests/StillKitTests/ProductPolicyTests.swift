@@ -141,10 +141,10 @@ final class ProductPolicyTests: XCTestCase {
     XCTAssertEqual(ProductPolicy.evaluateRating(edge, fresh(ratingBody()), highestSeenRevision: 0, now: clock), ProductPolicy.Verdict(.deferredSurface))
   }
 
-  /// Dormant: nothing in StillKit or the app targets consults this policy yet, so free blocking,
-  /// free sync and Restore cannot depend on it, and no production source reaches the seam. The one
-  /// permitted user is the dormant client, `ProductPolicyRuntime.swift`, which must itself use only
-  /// the public evaluators. Any other source naming it (it contains "ProductPolicy") fails below.
+  /// Free blocking, free sync and Restore never consult this policy, and no production source
+  /// reaches the seam. The permitted users are the client, `ProductPolicyRuntime.swift`, which must
+  /// itself use only the public evaluators, and its one consumer, the rating path (see below). Any
+  /// other source naming it (it contains "ProductPolicy") fails below.
   func testNoProductionSwiftUsesProductPolicy() throws {
     var root = URL(fileURLWithPath: #filePath)
     for _ in 0..<6 { root.deleteLastPathComponent() }
@@ -157,6 +157,16 @@ final class ProductPolicyTests: XCTestCase {
       let source = try String(contentsOf: url, encoding: .utf8)
       if url.lastPathComponent == "ProductPolicyRuntime.swift" && path.contains("/StillKit/Sources/StillKit/") {
         if source.contains("RestrictedJSON") || source.contains("compiledPaidTierEnabled") { users.append(url.lastPathComponent) }
+        continue
+      }
+      // U13-P3: the rating path is the one consumer of the runtime. StillKit's coordinator takes a
+      // fresh `.rating` verdict and the app presenter constructs the runtime; both use only the
+      // public surface. Exactly these two files, at these paths; nothing else may name it.
+      if (url.lastPathComponent == "RatingPrompt.swift" && path.contains("/StillKit/Sources/StillKit/")) ||
+        (url.lastPathComponent == "RatingPromptPresenter.swift" && path.contains("/Still/Shared (App)/")) {
+        if source.contains("RestrictedJSON") || source.contains("compiledPaidTierEnabled") || source.contains(".sales") {
+          users.append(url.lastPathComponent)
+        }
         continue
       }
       if source.contains("ProductPolicy") || source.contains("RestrictedJSON") || source.contains("compiledPaidTierEnabled") {
