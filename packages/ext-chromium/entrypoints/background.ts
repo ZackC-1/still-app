@@ -5,6 +5,8 @@ import { ChromeEntitlementAdapter, createEntitlementMessageRouter, packagedAcces
 import {
   isServiceEnabledGlobally,
   createRuleSetRefresher,
+  admitPackagedRuleSetV2,
+  PACKAGED_RULE_SET_V2,
 } from "@still/core/rules";
 import {
   SupabaseAuthPort,
@@ -22,6 +24,8 @@ import {
 import { createIndexedDbKeyValue, QUIET_FLUSH_ALARM, requestQuietFlush } from "@still/core/analytics";
 import { createBackgroundAnalytics, storageKeyValue } from "../lib/analytics.js";
 import { modernSettingsRuntime } from "../lib/modern-settings-runtime.js";
+import { createNavigationDnrSync, type NavigationDnrApi } from "../lib/navigation-dnr.js";
+import { FORMAT2_SHIPPING_SERVICES } from "../../core/src/content/extension-entry.js";
 import { FIRST_RUN_PAGE, shouldOpenFirstRun } from "../../core/src/ui/v3/first-run-host.js";
 import seed from "@still/core/seed";
 import { PAID_TIER_ENABLED, type SignedRuleSet, type SignedRuleSetV2 } from "@still/shared-types";
@@ -50,6 +54,10 @@ import { tiktokBlockedPageEnabled } from "./tiktok-blocked/gate.js";
 //     isServiceActive composes (R2), so this gate can't drift from the content script's. The
 //     Firefox build ships no DNR ruleset (it redirects via the content script), so that wiring
 //     bails cleanly when the API is absent.
+//     Builds that run the format-2 engine (settingsRuntime.atomicLocal) and have session rules
+//     instead mirror the engine's FREE navigation redirects as session rules compiled from the
+//     packaged format-2 set and the committed settings (lib/navigation-dnr.ts); the static ruleset
+//     then serves only pages still on the legacy lane. Configured builds keep the static gate as is.
 //
 // Product analytics (lib/analytics.ts) also lives here: this context owns the one PostHog client,
 // pages report to it by message, and content scripts may only name a service they blocked on.
@@ -58,6 +66,8 @@ import { tiktokBlockedPageEnabled } from "./tiktok-blocked/gate.js";
 // first ran Still and on which version (lib/original-install.ts). It is local, never transmitted,
 // and it is how the people who installed while everything was included can be recognised later.
 const RULESET_ID = "youtube-shorts-redirect";
+// The committed settings record's storage key (ChromeStorageAdapter, the content script's lane read).
+const SETTINGS_KEY = "still:settings";
 // The unlisted page built from entrypoints/tiktok-blocked/ (no manifest entry, no new permission).
 const TIKTOK_BLOCKED_PAGE = "tiktok-blocked.html";
 
@@ -68,6 +78,35 @@ export default defineBackground(() => {
     import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED as string | undefined,
   );
   const settingsAuthority = new ChromeStorageAdapter({ authority: true });
+  // Format-2 navigation rules, where this build runs format-2 and the browser has session rules.
+  // Built in the first synchronous pass so the settings router below can wait on it; it reads the
+  // cache (declared below) only when a pass runs, never during this pass.
+  const dnrApi = chrome.declarativeNetRequest as unknown as Partial<NavigationDnrApi> | undefined;
+  const navigationDnr =
+    settingsRuntime.atomicLocal &&
+    typeof dnrApi?.updateSessionRules === "function" &&
+    typeof dnrApi.getSessionRules === "function" &&
+    typeof dnrApi.updateEnabledRulesets === "function"
+      ? createNavigationDnrSync({
+          api: dnrApi as NavigationDnrApi,
+          staticRulesetId: RULESET_ID,
+          readSettings: async () => (await settingsAuthority.get())?.settings ?? null,
+          cachedSettings: () => cache.current(),
+          packaged: admitPackagedRuleSetV2(PACKAGED_RULE_SET_V2),
+          shippingServices: FORMAT2_SHIPPING_SERVICES,
+        })
+      : null;
+  // A settings change made through the router replies only after the navigation rules match it,
+  // so nothing an extension page sees as saved is still redirected (or left unredirected). A rule
+  // failure never fails the saved change: the content script stays the authority. (Like the
+  // cache, heldInitialization is declared below and only reached once a reply is pending.)
+  const afterSettingsWrite = <T>(value: T): Promise<T> | T =>
+    navigationDnr
+      ? navigationDnr().then(() => value, (error: unknown) => {
+          heldInitialization(error);
+          return value;
+        })
+      : value;
   const order: import("../lib/auth-storage.js").AuthMutationOrder = mutation => settingsAuthority.serializeLocalMutation(mutation);
   // Only durable mutation methods enter the shared queue. Wrapping a whole auth/session/read
   // operation could deadlock when it in turn writes settings or refreshes persisted SDK auth.
@@ -112,7 +151,10 @@ export default defineBackground(() => {
 
   // ── Auth/purchase session spine (plan U6/R2) ───────────────────────────────────────────────────
   chrome.runtime.onMessage.addListener(createSettingsIntentRouter(
-    intent => settingsAuthority.commitIntent(intent), chrome.runtime.id, chrome.runtime.getURL(""), record => settingsAuthority.set(record),
+    intent => settingsAuthority.commitIntent(intent).then(afterSettingsWrite),
+    chrome.runtime.id,
+    chrome.runtime.getURL(""),
+    record => settingsAuthority.set(record).then(afterSettingsWrite),
   ));
   const cache = new SettingsCache(settingsAuthority);
   cache.watch();
@@ -304,6 +346,21 @@ export default defineBackground(() => {
 
   // ── DNR gating — Chromium only from here down. ───────────────────────────────────────────────
   if (!chrome.declarativeNetRequest?.updateEnabledRulesets) return;
+
+  if (navigationDnr) {
+    // Every committed settings write (this worker's router, the sync service, another context)
+    // lands in storage, and every pass reads storage when it starts. A browser start wakes this
+    // worker too, because session rules begin each browser session empty.
+    const sync = () => void navigationDnr().catch(heldInitialization);
+    cache.subscribe(sync);
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === "local" && Object.hasOwn(changes, SETTINGS_KEY)) sync();
+    });
+    chrome.runtime.onStartup?.addListener(sync);
+    // A held initialization still syncs: an unreadable record means no format-2 rules.
+    void hydrated.then(sync, sync);
+    return;
+  }
 
   const syncRuleset = async (): Promise<void> => {
     // The engine's own URL-free gate (R2) — no re-derived inline predicate. Per-URL pauses don't
