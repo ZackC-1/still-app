@@ -1,5 +1,5 @@
-import { TEST_PRIVACY } from "./privacy-fixture.js";
-import { createStoredConsent } from "../consent.js";
+import { TEST_PERMISSION, TEST_PRIVACY } from "./privacy-fixture.js";
+import { createStoredConsent, type AnalyticsPermission } from "../consent.js";
 import { describe, it, expect, vi } from "vitest";
 import { createAppAnalytics, type AppAnalyticsBridge } from "../apple-app.js";
 import { QUEUE_KEY, STATE_KEY } from "../client.js";
@@ -37,14 +37,21 @@ function setup(
     identifyOnServer?: () => Promise<void>;
     holdAccount?: boolean;
     fetch?: typeof globalThis.fetch;
+    /** The native context read waits for this (a first launch can wait up to 5 s for iCloud). */
+    gate?: Promise<void>;
+    permission?: () => Promise<AnalyticsPermission | null>;
+    store?: ReturnType<typeof memory>;
   } = {},
 ) {
-  const store = memory();
+  const store = over.store ?? memory();
   let current = context === null ? null : { ...CONTEXT, ...context };
   const bridge: AppAnalyticsBridge & {
     setAnalyticsConsent: ReturnType<typeof vi.fn>;
   } = {
-    analyticsContext: vi.fn(async () => current),
+    analyticsContext: vi.fn(async () => {
+      await over.gate;
+      return current;
+    }),
     setAnalyticsConsent: vi.fn(async (enabled: boolean) => enabled),
     acknowledgeAnalyticsNotice: vi.fn(async () => {}),
   };
@@ -56,6 +63,7 @@ function setup(
   let n = 0;
   const app = createAppAnalytics({
     ...TEST_PRIVACY,
+    ...(over.permission ? { permission: over.permission } : {}),
     bridge,
     config: { key: "phc_test", host: "https://us.i.posthog.com" },
     store,
@@ -210,6 +218,18 @@ describe("Apple app installs counted after sharing is turned on", () => {
 });
 
 describe("Apple app follows a choice committed natively elsewhere", () => {
+  const settle = () => new Promise((r) => setTimeout(r, 20));
+  /** A later, separately granted permission: a new origin with its own provider ids. */
+  const NEWER_PERMISSION: AnalyticsPermission = {
+    ...TEST_PERMISSION,
+    origin: "88888888-8888-4888-8888-888888888888",
+    generation: TEST_PERMISSION.generation + 1,
+    provider: {
+      anonymousId: "77777777-7777-4777-8777-777777777777",
+      deviceId: "66666666-6666-4666-8666-666666666666",
+    },
+  };
+
   it("adopting Don't share drops the queue and stops sending, with no write and no event", async () => {
     const { app, events, bridge } = setup();
     await app.start();
@@ -254,14 +274,112 @@ describe("Apple app follows a choice committed natively elsewhere", () => {
   });
 
   it("stays off after Don't share even when native could not record it and still reads on", async () => {
-    const { app, events } = setup(); // native context keeps reporting consent: true
-    await app.start();
+    // Native keeps reading consent: true. The tap lands before the launch's client exists, and by the
+    // time the client is built the permission is a newer one, so retiring the tapped permission does
+    // not touch it: only the Don't share hold keeps reporting off, until an explicit Share.
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let permission: AnalyticsPermission = TEST_PERMISSION;
+    const { app, events } = setup({}, { gate, permission: async () => permission });
+    void app.start();
     app.adoptCommittedConsent(false);
+    await settle(); // the stop made at the tap has ended the tapped permission
+    permission = NEWER_PERMISSION;
+    release();
+    await settle(); // the launch's client is now built, under the newer permission
     app.ui.track("opened", { where: "app" });
     await app.recheckSetup();
-    await app.identifyAccount("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
-    await vi.waitFor(() => expect(events()).toEqual([]));
-    expect(await app.ui.sharing!()).toMatchObject({ enabled: false });
+    await app.identifyAccount(U1);
+    await settle();
+    expect(events()).toEqual([]);
+    // The hold is not a block: an explicit Share on the newer permission reports again.
+    app.adoptCommittedConsent(true);
+    await vi.waitFor(() =>
+      expect(events().map((e) => e.event)).toContain("analytics_choice_made"),
+    );
+  });
+
+  it("Don't share tapped before the launch read finishes ends that permission exactly as after it", async () => {
+    type Arm = "after-read" | "share-while-pending" | "share-after-read" | "control";
+    const run = async (arm: Arm) => {
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      const { app, events } = setup({}, { gate }); // the launch's account check is already waiting
+      if (arm === "after-read") {
+        release();
+        await app.start();
+      } else void app.start();
+      if (arm !== "control") app.adoptCommittedConsent(false);
+      if (arm === "share-while-pending" || arm === "control")
+        app.adoptCommittedConsent(true);
+      release();
+      await settle();
+      if (arm === "after-read" || arm === "share-after-read")
+        app.adoptCommittedConsent(true);
+      app.ui.track("opened", { where: "app" });
+      await app.recheckSetup();
+      await settle();
+      return events().map((e) => e.event);
+    };
+    expect(await run("after-read")).toEqual([]);
+    expect(await run("share-while-pending")).toEqual([]);
+    expect(await run("share-after-read")).toEqual([]);
+    // Control: the same launch with Share alone reports, choice event included.
+    expect(await run("control")).toEqual(
+      expect.arrayContaining(["analytics_choice_made", "opened"]),
+    );
+  });
+
+  it("a Share right after a Don't share, before any launch read began, still needs a fresh permission", async () => {
+    // The launch's client is built while the stop is still being saved; slow first writes (device
+    // storage can be slower than a read) would let the two overwrite each other's state.
+    const store = memory();
+    const set = store.set;
+    let writes = 0;
+    store.set = async (k, v) => {
+      if (++writes <= 2) await new Promise((r) => setTimeout(r, 5));
+      await set(k, v);
+    };
+    const { app, events } = setup({}, { holdAccount: true, store });
+    app.adoptCommittedConsent(false);
+    app.adoptCommittedConsent(true);
+    app.ui.track("opened", { where: "app" });
+    await settle();
+    await settle();
+    app.ui.track("opened", { where: "app" });
+    await app.accountAbsent();
+    await app.recheckSetup();
+    await settle();
+    expect(events()).toEqual([]);
+    expect(store.data[STATE_KEY]).toMatchObject({ stoppedOrigin: TEST_PERMISSION.origin });
+  });
+
+  it("a Don't share tapped before the launch read is durable, and a fresh permission later reports", async () => {
+    const store = memory();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const first = setup({}, { gate, store });
+    first.app.adoptCommittedConsent(false);
+    release();
+    first.app.ui.track("opened", { where: "app" }); // builds the client, which ends the permission
+    await settle();
+    expect(first.events()).toEqual([]);
+    expect(store.data[STATE_KEY]).toMatchObject({ stoppedOrigin: TEST_PERMISSION.origin });
+    // Relaunch under the same permission: a Share still needs a fresh one.
+    const same = setup({}, { store });
+    same.app.adoptCommittedConsent(true);
+    same.app.ui.track("opened", { where: "app" });
+    await settle();
+    expect(same.events()).toEqual([]);
+    // Relaunch after a fresh grant: Share reports again.
+    const fresh = setup({}, { store, permission: async () => NEWER_PERMISSION });
+    fresh.app.adoptCommittedConsent(true);
+    fresh.app.ui.track("opened", { where: "app" });
+    await vi.waitFor(() =>
+      expect(fresh.events().map((e) => e.event)).toEqual(
+        expect.arrayContaining(["analytics_choice_made", "opened"]),
+      ),
+    );
   });
 
   it("after a withdrawal, a later Share needs a fresh permission exactly like setSharing", async () => {
