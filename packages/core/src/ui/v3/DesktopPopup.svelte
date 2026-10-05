@@ -3,7 +3,14 @@
   import { FEATURE_REGISTRY, type ServiceId } from "@still/shared-types";
   import { rowsFor, type DesktopPopupProps } from "./presentation.js";
   import { serviceIconSrc } from "./service-icons.js";
+  import PopupInvitation from "./PopupInvitation.svelte";
+  import {
+    sameInvitationIdentity,
+    invitationVisible,
+    type InvitationIntentPort,
+  } from "./invitation-presentation.js";
   import Toggle from "./Toggle.svelte";
+  import FeatureRow from "./FeatureRow.svelte";
   import Glyph from "./Glyph.svelte";
   import "./design/styles.css";
 
@@ -17,6 +24,8 @@
     onSignIn,
     onSettings,
     privacyUrl,
+    commandsDisabled = false,
+    accountActions,
     onPurchase,
     account,
     sectionMemory,
@@ -24,6 +33,9 @@
     labels = {},
     features,
     heroTitle,
+    invitation,
+    invitationVariant,
+    desktopSetup,
   }: DesktopPopupProps = $props();
   let open = $state<ServiceId | null>(
     untrack(() => sectionMemory?.read() ?? null),
@@ -62,6 +74,63 @@
           ].includes(access.states[row.id]),
       ),
   );
+  let invitationReady = $derived(
+    invitation?.identity.surface === browser.toLowerCase() &&
+      !desktopSetup &&
+      !["pending", "failed", "caution"].includes(account?.status?.tone ?? ""),
+  );
+  let setupRequested = $state.raw<
+    {
+      identity: InvitationIntentPort["identity"];
+      request: InvitationIntentPort["request"];
+    }[]
+  >([]);
+  function setupClaimed(port: InvitationIntentPort | undefined) {
+    return Boolean(
+      port &&
+      setupRequested.some(
+        (claim) =>
+          claim.request === port.request &&
+          sameInvitationIdentity(claim.identity, port.identity),
+      ),
+    );
+  }
+  function setupIntent(
+    current: NonNullable<DesktopPopupProps["desktopSetup"]>,
+  ) {
+    const port = current.action;
+    const request = port?.request;
+    const identity = port ? { ...port.identity } : undefined;
+    return () => {
+      if (
+        desktopSetup !== current ||
+        current.action !== port ||
+        setupClaimed(port) ||
+        !port?.verified ||
+        port.status !== "ready" ||
+        port.request !== request ||
+        !identity ||
+        !sameInvitationIdentity(identity, port.identity) ||
+        !identity.installation.trim() ||
+        !identity.opening.trim() ||
+        identity.surface !== browser.toLowerCase()
+      )
+        return;
+      setupRequested = [...setupRequested, { identity, request: port.request }];
+      request?.();
+    };
+  }
+  function setupReady() {
+    const port = desktopSetup?.action;
+    return Boolean(
+      port?.verified &&
+      !setupClaimed(port) &&
+      port.status === "ready" &&
+      port.identity.installation.trim() &&
+      port.identity.opening.trim() &&
+      port.identity.surface === browser.toLowerCase(),
+    );
+  }
   function toggleSection(service: ServiceId) {
     open = open === service ? null : service;
     sectionMemory?.write(open);
@@ -71,6 +140,8 @@
 <div
   class="still-ui app"
   data-density="compact"
+  class:d28-invitation={invitationVariant === "d28"}
+  class:invitation-scroll={invitationReady && invitationVisible(invitation)}
   style="max-inline-size: 380px;"
 >
   <section class="hero compact" class:off={!settings.globalOn}>
@@ -81,11 +152,36 @@
     </div>
     <Toggle
       checked={settings.globalOn}
-      onChange={onGlobalChange}
+      disabled={commandsDisabled}
+      onChange={(next) => {
+        if (!commandsDisabled) onGlobalChange(next);
+      }}
       label="Still"
       onBlue={settings.globalOn}
     />
   </section>
+  {#if desktopSetup}
+    {#key desktopSetup}
+      <section class="card card-stack">
+        <div class="status-line" data-tone="caution">
+          <span class="glyph"><Glyph name="clock" size={16} /></span>
+          <div class="status-body">
+            <span>{desktopSetup.title}</span><span
+              class="muted"
+              style="font-size:calc(12.5px * var(--text-scale, 1));"
+              >{desktopSetup.detail}</span
+            >
+          </div>
+        </div>
+        <button
+          type="button"
+          class="secondary block"
+          aria-disabled={!setupReady() || undefined}
+          onclick={setupIntent(desktopSetup)}>{desktopSetup.actionLabel}</button
+        >
+      </section>
+    {/key}
+  {/if}
   <div
     class="service-group site-scroll services"
     data-paused={!settings.globalOn || undefined}
@@ -127,8 +223,11 @@
             </div>{/if}
           <Toggle
             checked={settings.services[service]}
-            onChange={(next) => onServiceChange(service, next)}
-            disabled={!settings.globalOn}
+            onChange={(next) => {
+              if (!commandsDisabled && settings.globalOn)
+                onServiceChange(service, next);
+            }}
+            disabled={commandsDisabled || !settings.globalOn}
             label={serviceLabels[service]}
           />
         </div>
@@ -142,69 +241,34 @@
           >
             <div class="inner">
               <div class="list">
-                {#each rows as row (row.id)}
-                  {@const state = access.states[row.id]}
-                  {@const usable =
-                    state === "free" ||
-                    state === "purchased" ||
-                    state === "protected"}
-                  {@const inactive =
-                    !settings.globalOn || !settings.services[service]}
-                  {@const label = labels[row.id] ?? row.label}
-                  {@const key = row.id.replace(/\W+/g, "-")}
-                  {@const note =
-                    state === "unsupported"
-                      ? "Not available in this browser. Your choice is saved."
-                      : undefined}
-                  {@const srNote =
-                    state === "checking"
-                      ? "Checking your Still Pro access. Your choice is saved."
-                      : state === "verification_required"
-                        ? "Verify Still Pro to use this. Your choice is saved."
+                {#if open === service}
+                  {#each rows as row (row.id)}
+                    <FeatureRow
+                      id={row.id}
+                      label={labels[row.id] ?? row.label}
+                      state={access.states[row.id]}
+                      checked={settings.sites[row.id]}
+                      inactive={commandsDisabled ||
+                        !settings.globalOn ||
+                        !settings.services[service]}
+                      unsupportedText="Not available in this browser. Your choice is saved."
+                      onChange={(next) => {
+                        if (
+                          !commandsDisabled &&
+                          settings.globalOn &&
+                          settings.services[service]
+                        )
+                          onFeatureChange(row.id, next);
+                      }}
+                      onLock={offer
+                        ? () => {
+                            if (offer) onPurchase?.();
+                          }
                         : undefined}
-                  <div
-                    class="option-row"
-                    data-access={state === "verification_required"
-                      ? "verify"
-                      : state}
-                    data-inactive={inactive ||
-                      state === "unsupported" ||
-                      state === "locked" ||
-                      undefined}
-                  >
-                    <div class="row-main">
-                      <span class="label"
-                        ><span id={`${key}-l`}>{label}</span></span
-                      >
-                      {#if note}<span class="sub" id={`${key}-s`}>{note}</span
-                        >{:else if srNote}<span class="sr-only" id={`${key}-s`}
-                          >{srNote}</span
-                        >{/if}
-                    </div>
-                    {#if usable || state === "checking" || state === "verification_required"}
-                      <Toggle
-                        small
-                        checked={settings.sites[row.id]}
-                        onChange={(next) => onFeatureChange(row.id, next)}
-                        disabled={inactive || !usable}
-                        labelledBy={`${key}-l`}
-                        describedBy={srNote ? `${key}-s` : undefined}
-                      />
-                    {:else if state === "locked"}
-                      <button
-                        type="button"
-                        class="lock-pro"
-                        aria-label={`${label}. Included in Still Pro. See Still Pro`}
-                        aria-disabled={!offer || undefined}
-                        onclick={() => {
-                          if (offer) onPurchase?.();
-                        }}
-                        ><Glyph name="lock" size={14} /><span>Still Pro</span
-                        ></button
-                      >
-                    {/if}
-                  </div>
-                {/each}
+                      lockLabel={`${labels[row.id] ?? row.label}. Included in Still Pro. See Still Pro`}
+                    />
+                  {/each}
+                {/if}
               </div>
             </div>
           </div>
@@ -215,15 +279,16 @@
   {#if offer}<button type="button" class="secondary block" onclick={onPurchase}
       >Purchase Still Pro</button
     >{/if}
+  <PopupInvitation presentation={invitationReady ? invitation : undefined} />
   <section class="card card-stack">
     <div class="sync-row">
       <div class="sync-row-text">
         <h2 class="sync-row-title">Settings sync</h2>
-        <p class="muted sync-row-sub">
-          {account
-            ? account.address
-            : "Free. Keep your settings updated across every device and browser"}
-        </p>
+        {#if !account || account.address}<p class="muted sync-row-sub">
+            {account
+              ? account.address
+              : "Free. Keep your settings updated across every supported surface."}
+          </p>{/if}
       </div>
       {#if !account && onSignIn}<button
           type="button"
@@ -249,6 +314,7 @@
         </div>
       </div>
     {/if}
+    {#if accountActions}{@render accountActions()}{/if}
   </section>
   <footer class="popup-footer">
     <button
@@ -261,11 +327,26 @@
 </div>
 
 <style>
+  .app.invitation-scroll {
+    overflow-y: auto;
+    overscroll-behavior-y: contain;
+  }
+  .app[data-density="compact"].invitation-scroll .site-scroll {
+    min-block-size: calc(
+      var(--tap-target) * var(--text-scale, 1) + 2 *
+        var(--service-card-padding-block, var(--space-3))
+    );
+  }
   /* The approved desktop reference's section heading cascade wins over the
      generic SettingsCard typography. Keep that result without review chrome. */
   .sync-row-title {
     margin: 0 0 4px;
     font-size: 17px;
     letter-spacing: -0.01em;
+  }
+  .d28-invitation .sync-row-title {
+    margin: 0;
+    font-size: calc(15px * var(--text-scale, 1));
+    letter-spacing: normal;
   }
 </style>

@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 import { DEFAULT_SETTINGS, MAX_SETTINGS_LOCAL_STEP, type SettingsV2 } from "@still/shared-types";
-import { AtomicSettingsWriter, pendingSettingsRequest, type CanonicalSettingsEnvelope } from "../atomic-settings.js";
+import { AtomicSettingsWriter, pendingSettingsRequest } from "../atomic-settings.js";
 import { InMemoryStorageAdapter, type StoredSettingsRecord } from "../adapter.js";
 import { SettingsCache } from "../cache.js";
 import { WKWebViewStorageAdapter } from "../wkwebview-adapter.js";
@@ -15,24 +15,35 @@ import { ChromeStorageAdapter } from "../chrome-adapter.js";
 import { createExtensionContentEntry } from "../../content/extension-entry.js";
 import type { ContentScriptHandle } from "../../content/index.js";
 import { createSettingsIntentRouter } from "../settings-messages.js";
+// This is a JSON disk snapshot/reopen boundary, not a crash-atomic filesystem claim.
+import { readFile, writeFile } from "node:fs/promises";
+import { EntitlementCache } from "../../entitlement/cache.js";
+import { initialAccessSnapshot } from "../../entitlement/access-policy.js";
+import { createDesktopPopupBinding } from "../../ui/v3/desktop-popup-binding.js";
+import type { AtomicSettingsState } from "../atomic-settings.js";
+import { A, B, SESSION, authority, canonical } from "./atomic-settings-test-fixtures.js";
 
-const A = "11111111-1111-1111-1111-111111111111";
-const B = "22222222-2222-2222-2222-222222222222";
-const LINEAGE = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
-const SESSION = "cccccccc-cccc-cccc-cccc-cccccccccccc";
-function authority() {
-  const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 1 });
-  const writer = new AtomicSettingsWriter(storage);
-  const port = { get: () => storage.get(), set: (r: StoredSettingsRecord) => writer.replace(r).then(() => undefined),
-    subscribe: storage.subscribe.bind(storage), commitIntent: writer.commit.bind(writer), initializeAtomic: writer.initialize.bind(writer),
-    enterScope: writer.enterScope.bind(writer), acknowledgeAtomic: writer.acknowledge.bind(writer) };
-  return { storage, writer, port };
-}
-function canonical(record: StoredSettingsRecord, revision: number): CanonicalSettingsEnvelope {
-  return { protocol: 2, empty: false, settings: record.settings, version: revision,
-    serverUpdatedAt: "2026-10-02T00:00:00Z", lastWriteId: null, lineage: LINEAGE,
-    receipt: { version: 1, lineage: LINEAGE, revision, mac: "A".repeat(43) } };
-}
+describe("fresh initialization in the existing writer transaction", () => {
+  it("waits for prior history persistence and denies fresh provenance without writes", async () => {
+    let history = false; let release!: () => void;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    const write = vi.fn(async (_record: StoredSettingsRecord) => undefined);
+    const writer = new AtomicSettingsWriter({ get: async () => null, set: write, subscribe: () => () => {} });
+    const mutation = writer.serializeLocalMutation(async () => { await held; history = true; });
+    const check = vi.fn(async () => !history);
+    const fresh = writer.initializeFresh(check); const denied = expect(fresh).rejects.toThrow("fresh-provenance-conflict");
+    await Promise.resolve(); expect(check).not.toHaveBeenCalled(); expect(write).not.toHaveBeenCalled();
+    release(); await mutation; await denied; expect(write).not.toHaveBeenCalled();
+  });
+  it("a rejected history mutation releases the queue but retains uncertain-history admission hold", async () => {
+    const writer = new AtomicSettingsWriter({ get: async () => null, set: vi.fn(), subscribe: () => () => {} });
+    await expect(writer.serializeLocalMutation(async () => { throw new Error("durability unknown"); })).rejects.toThrow("durability unknown");
+    const check = vi.fn(async () => false);
+    await expect(writer.initializeFresh(check)).rejects.toThrow("fresh-provenance-conflict"); expect(check).not.toHaveBeenCalled();
+    expect(await writer.serializeLocalMutation(async () => "next-operation")).toBe("next-operation");
+  });
+});
+
 describe("existing cache and serialized complete-record authority", () => {
   it.each(["mirror", "replace"] as const)("%s orders legacy records by epoch, metadata version, then timestamp", async operation => {
     const current = { settings: { ...DEFAULT_SETTINGS, globalOn: false, updatedAt: 11 }, syncEpoch: 2,
@@ -127,7 +138,7 @@ describe("existing cache and serialized complete-record authority", () => {
   });
   it("two actual cache hosts merge independent actions and allocate no duplicate step", async () => {
     const h = authority();
-    const left = new SettingsCache(h.port, { atomicOwnership: "unknown", now: () => 10 });
+    const left = new SettingsCache(h.port, { atomicOwnership: "never-linked", now: () => 10 });
     const right = new SettingsCache(h.port, { now: () => 10 });
     await left.hydrate(); await right.hydrate();
     await Promise.all([left.setGlobalOn(false), right.setService("youtube", false)]);
@@ -167,7 +178,7 @@ describe("existing cache and serialized complete-record authority", () => {
     expect(await h.storage.get()).toEqual(before);
   });
   it("saturation keeps local choice in held state without inventing a step", async () => {
-    const h = authority(); const initial = await h.writer.initialize("unknown");
+    const h = authority(); const initial = await h.writer.initialize("never-linked");
     const modern = initial.settings as unknown as SettingsV2;
     const saturated = { ...modern, pauses: [], clocks: { ...modern.clocks,
       globalOn: { baseRevision: 0, localStep: MAX_SETTINGS_LOCAL_STEP } } };
@@ -237,7 +248,7 @@ describe("existing cache and serialized complete-record authority", () => {
   it("writer rejects reused operation identity before mutation", async () => {
     const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 1 });
     const writer = new AtomicSettingsWriter(storage, () => A);
-    await writer.initialize("unknown");
+    await writer.initialize("never-linked");
     await writer.commit({ path: "globalOn", value: false, updatedAt: 10 });
     const before = await storage.get();
     await expect(writer.commit({ path: "globalOn", value: true, updatedAt: 11 })).rejects.toThrow("write-id-conflict");
@@ -713,5 +724,216 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
       expect((await first.adapter.get())!.settings.services.youtube).toBe(false);
       expect((await readdir(directory)).filter(name => name.endsWith(".tmp"))).toEqual([]);
     } finally { await first.close(); if (interrupted) await interrupted.close(); }
+  });
+});
+
+
+describe("never-linked local pending compaction", () => {
+  async function fullLocalJournal() {
+    const h = authority();
+    const initial = await h.writer.initialize("never-linked");
+    const settings = initial.settings as unknown as SettingsV2;
+    const pending = Array.from({ length: 64 }, (_, i) => ({
+      writeId: `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`,
+      scope: initial.atomic!.scope, receipt: null,
+      operations: [{ path: "globalOn" as const, value: i % 2 === 1, baseRevision: 0, localStep: i + 1 }],
+    }));
+    const fullSettings = { ...settings, pauses: [], globalOn: true, updatedAt: 64,
+      clocks: { ...settings.clocks, globalOn: { baseRevision: 0, localStep: 64 } } };
+    const record: StoredSettingsRecord = { ...initial, syncEpoch: 0, syncMetadata: null, settings: fullSettings,
+      atomic: { ...initial.atomic!, sequence: 64, pending },
+    };
+    await h.storage.set(record);
+    return { ...h, record };
+  }
+
+  it("keeps 196 deliberate free binding edits usable across an exact disk snapshot reopen", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "still-never-linked-journal-"));
+    const file = join(dir, "settings.json");
+    const storage = {
+      get: async (): Promise<StoredSettingsRecord | null> => {
+        try { return parseStoredSettingsRecord(JSON.parse(await readFile(file, "utf8"))); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
+      },
+      set: async (record: StoredSettingsRecord) => { await writeFile(file, JSON.stringify(record)); },
+      subscribe: () => () => {},
+    };
+    const stops: (() => void)[] = [];
+    const makeHost = async (writer: AtomicSettingsWriter) => {
+      const cache = new SettingsCache({ ...storage, commitIntent: writer.commit.bind(writer),
+        initializeAtomic: writer.initialize.bind(writer) }, { now: () => 100 });
+      await cache.hydrate();
+      const access = new EntitlementCache({ get: async () => false, set: async () => {}, subscribe: () => () => {},
+        observeBenefits: async () => initialAccessSnapshot() });
+      await access.refreshAccess();
+      const binding = createDesktopPopupBinding(cache, access); stops.push(binding.stop);
+      return { cache, binding };
+    };
+    try {
+      let writer = new AtomicSettingsWriter(storage);
+      await writer.initializeFresh(async () => await storage.get() === null);
+      let host = await makeHost(writer);
+      const latest = new Map<string, AtomicSettingsState["pending"][number]>();
+      let commits = 0;
+      const change = async (path: "globalOn" | "services.youtube" | "services.instagram" | "sites.youtube.shorts", value: boolean) => {
+        const outcome = path === "globalOn" ? await host.binding.setGlobalOn(value)
+          : path === "sites.youtube.shorts" ? await host.binding.setFeature("youtube.shorts", value)
+          : await host.binding.setService(path === "services.youtube" ? "youtube" : "instagram", value);
+        expect(outcome, `deliberate edit ${commits + 1}: ${path}`).toEqual({ status: "committed" });
+        const record = (await storage.get())!;
+        expect(record.atomic).toMatchObject({ ownership: "never-linked", scope: { accountId: null, generation: 0 },
+          anchor: null, paused: null, held: {}, sequence: ++commits });
+        if (commits > 64) expect(record.atomic!.pending.length).toBeLessThanOrEqual(5);
+        const newest = record.atomic!.pending.at(-1)!;
+        expect(newest.operations).toMatchObject([{ path, value }]);
+        latest.set(path, newest);
+        for (const request of latest.values()) expect(record.atomic!.pending).toContainEqual(request);
+        expect(host.binding.current().commandAvailability).toBe("ready");
+        expect(host.cache.currentRecord()).toEqual(record);
+      };
+      for (let round = 0; round < 24; round++) {
+        await change("globalOn", false); await change("globalOn", true);
+        await change("services.youtube", false); await change("services.youtube", true);
+        await change("sites.youtube.shorts", false); await change("sites.youtube.shorts", true);
+        await change("services.instagram", false); await change("services.instagram", true);
+        if (round === 11) {
+          const bytes = await readFile(file, "utf8"); host.binding.stop();
+          writer = new AtomicSettingsWriter(storage);
+          await writer.initialize("unknown");
+          expect(await readFile(file, "utf8")).toBe(bytes);
+          host = await makeHost(writer);
+          expect(host.binding.current().commandAvailability).toBe("ready");
+          expect(host.cache.currentRecord()).toEqual(JSON.parse(bytes));
+        }
+      }
+      await change("sites.youtube.shorts", false); await change("services.youtube", false);
+      await change("services.instagram", false); await change("globalOn", false);
+      const saved = (await storage.get())!;
+      expect(saved.settings).toMatchObject({ globalOn: false, services: { youtube: false, instagram: false },
+        sites: { "youtube.shorts": false }, clocks: {
+          globalOn: { baseRevision: 0, localStep: 49 },
+          "services.youtube": { baseRevision: 0, localStep: 49 },
+          "services.instagram": { baseRevision: 0, localStep: 49 },
+          "sites.youtube.shorts": { baseRevision: 0, localStep: 49 },
+        } });
+      const bytes = await readFile(file, "utf8"); host.binding.stop();
+      host = await makeHost(new AtomicSettingsWriter(storage));
+      expect(host.cache.currentRecord()).toEqual(saved);
+      expect(host.binding.current().commandAvailability).toBe("ready");
+      expect(await host.binding.setGlobalOn(false)).toEqual({ status: "not-committed" });
+      expect(await readFile(file, "utf8")).toBe(bytes);
+    } finally { for (const stop of stops) stop(); await rm(dir, { recursive: true, force: true }); }
+  });
+
+  it.each([63, 64])("admits a new edit from a pre-existing eligible %i-entry journal without changing surviving requests", async count => {
+    const h = await fullLocalJournal();
+    const record = { ...h.record, atomic: { ...h.record.atomic!, pending: h.record.atomic!.pending.slice(0, count) } };
+    if (count === 63) {
+      const settings = record.settings as unknown as SettingsV2;
+      const partialSettings = { ...settings, pauses: [], globalOn: false,
+        clocks: { ...settings.clocks, globalOn: { baseRevision: 0, localStep: 63 } } };
+      record.settings = partialSettings;
+    }
+    await h.storage.set(record);
+    const latest = record.atomic.pending.at(-1)!;
+    const saved = await h.writer.commit({ path: "services.instagram", value: false, updatedAt: 100 });
+    expect(saved.atomic).toMatchObject({ paused: null, held: {}, sequence: 65 });
+    expect(saved.atomic!.pending).toHaveLength(2);
+    expect(saved.atomic!.pending[0]).toEqual(latest);
+    expect(saved.settings).toMatchObject({ globalOn: count === 64, services: { instagram: false } });
+  });
+
+  it("uses field rank instead of array position and preserves surviving multi-field request bodies", async () => {
+    const h = await fullLocalJournal();
+    const settings = h.record.settings as unknown as SettingsV2;
+    const winner = { ...h.record.atomic!.pending[63]!, operations: [
+      ...h.record.atomic!.pending[63]!.operations,
+      { path: "services.youtube" as const, value: false, baseRevision: 0, localStep: 1 },
+    ] };
+    const winningSettings = { ...settings, pauses: [], services: { ...settings.services, youtube: false },
+      clocks: { ...settings.clocks, "services.youtube": { baseRevision: 0, localStep: 1 } } };
+    await h.storage.set({ ...h.record, settings: winningSettings,
+      atomic: { ...h.record.atomic!, pending: [winner, ...h.record.atomic!.pending.slice(0, 63).reverse()] },
+    });
+    const saved = await h.writer.commit({ path: "services.instagram", value: false, updatedAt: 100 });
+    expect(saved.atomic!.paused).toBeNull();
+    expect(saved.atomic!.pending).toHaveLength(2);
+    expect(saved.atomic!.pending[0]).toEqual(winner);
+    expect(saved.settings).toMatchObject({ globalOn: true, services: { youtube: false, instagram: false } });
+  });
+
+  it.each(["previous-account", "unknown", "anchor", "receipt", "origin", "generation", "epoch", "metadata", "mixed-origin", "malformed", "epoch-absent", "metadata-absent"] as const)(
+    "keeps the full journal immutable and holds when provenance is %s", async reason => {
+      const h = await fullLocalJournal();
+      let record: StoredSettingsRecord = structuredClone(h.record);
+      const state = record.atomic!;
+      const receipt = canonical(record, 0).receipt;
+      if (reason === "previous-account" || reason === "unknown") record = { ...record, atomic: { ...state, ownership: reason } };
+      if (reason === "anchor") record = { ...record, atomic: { ...state, anchor: receipt } };
+      if (reason === "receipt") record = { ...record, atomic: { ...state, pending: state.pending.map(p => ({ ...p, receipt })) } };
+      if (reason === "origin" || reason === "mixed-origin") record = { ...record, atomic: { ...state,
+        pending: state.pending.map((p, i) => reason === "origin" || i === 63 ? { ...p, originScope: { accountId: null, generation: 0 } } : p) } };
+      if (reason === "generation") record = { ...record, atomic: { ...state, scope: { accountId: null, generation: 1 },
+        pending: state.pending.map(p => ({ ...p, scope: { accountId: null, generation: 1 } })) } };
+      if (reason === "epoch") record = { ...record, syncEpoch: 1 };
+      if (reason === "epoch-absent") { const { syncEpoch: _epoch, ...rest } = record; record = rest; }
+      // Deliberately incomplete untrusted adapter record exercises the provenance refusal.
+      if (reason === "metadata-absent") { const { syncMetadata: _metadata, ...rest } = record; record = rest as StoredSettingsRecord; }
+      if (reason === "metadata") record = { ...record, syncMetadata: { version: 1, serverUpdatedAt: "2026-10-02T00:00:00Z", lastWriteId: null } };
+      if (reason === "malformed") record = { ...record, atomic: { ...state, pending: state.pending.map((p, i) => i === 63
+        ? { ...p, operations: [{ ...p.operations[0]!, localStep: 0 }] } : p) } };
+      await h.storage.set(record);
+      const saved = await h.writer.commit({ path: "globalOn", value: false, updatedAt: 100 });
+      expect(saved.atomic!.pending).toEqual(record.atomic!.pending);
+      if (reason === "unknown") {
+        expect(saved.atomic).toMatchObject({ ownership: "unknown", paused: null, held: {}, sequence: 65 });
+        expect(saved.settings.globalOn).toBe(false);
+      } else {
+      expect(saved.atomic).toMatchObject({ paused: "pending-limit", held: { globalOn: false }, sequence: 65 });
+      expect(saved.settings).toEqual(record.settings);
+      }
+    });
+
+  it("retains all top-rank ties instead of selecting one request by value or position", async () => {
+    const h = await fullLocalJournal();
+    const on = h.record.atomic!.pending[63]!;
+    const off = { ...h.record.atomic!.pending[62]!, operations: [{ ...on.operations[0]!, value: false }] };
+    await h.storage.set({ ...h.record, atomic: { ...h.record.atomic!, pending: [on, off, ...h.record.atomic!.pending.slice(0, 62)] } });
+    const saved = await h.writer.commit({ path: "services.instagram", value: false, updatedAt: 100 });
+    expect(saved.atomic!.paused).toBeNull();
+    expect(saved.atomic!.pending).toHaveLength(3);
+    expect(saved.atomic!.pending.slice(0, 2)).toEqual([on, off]);
+  });
+
+  it("does not compact immutable account-bound requests at capacity", async () => {
+    const h = await fullLocalJournal();
+    const receipt = canonical(h.record, 0).receipt;
+    const scope = { accountId: A, generation: 1, sessionId: SESSION };
+    const record = { ...h.record, syncEpoch: 1, atomic: { ...h.record.atomic!, ownership: "previous-account" as const,
+      scope, anchor: receipt, pending: h.record.atomic!.pending.map(p => ({ ...p, scope, receipt })) } };
+    await h.storage.set(record);
+    const requests = record.atomic.pending.map(p => JSON.stringify(pendingSettingsRequest(p, record.atomic)));
+    const saved = await h.writer.commit({ path: "globalOn", value: false, updatedAt: 100 });
+    expect(saved.atomic!.pending).toEqual(record.atomic.pending);
+    expect(saved.atomic!.pending.map(p => JSON.stringify(pendingSettingsRequest(p, saved.atomic!)))).toEqual(requests);
+    expect(saved.atomic).toMatchObject({ paused: "pending-limit", held: { globalOn: false } });
+    expect(saved.settings.globalOn).toBe(true);
+  });
+
+  it("first-link transfer and acknowledgement retain the compacted newest choices and original identities", async () => {
+    const h = await fullLocalJournal();
+    const compacted = await h.writer.commit({ path: "services.youtube", value: false, updatedAt: 100 });
+    const pending = structuredClone(compacted.atomic!.pending);
+    expect(pending).toHaveLength(2);
+    const linked = await h.writer.enterScope(A, SESSION);
+    expect(linked.atomic!.pending).toEqual(pending.map(p => ({ ...p, originScope: p.scope, scope: linked.atomic!.scope })));
+    const defaults = authority(); const baseline = await defaults.writer.initialize("unknown");
+    const acknowledged = await h.writer.acknowledge(canonical(baseline, 0), linked.atomic!.scope);
+    expect(acknowledged.settings).toMatchObject({ globalOn: true, services: { youtube: false } });
+    expect(acknowledged.atomic!.pending.map(p => p.writeId)).toEqual(pending.map(p => p.writeId));
+    expect(acknowledged.atomic!.pending.map(p => p.operations)).toEqual(pending.map(p => p.operations));
+    for (const request of acknowledged.atomic!.pending) expect(pendingSettingsRequest(request, acknowledged.atomic!)).toMatchObject({
+      writeId: request.writeId, receipt: { revision: 0 }, operations: request.operations,
+    });
   });
 });

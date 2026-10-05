@@ -21,14 +21,14 @@ async function checkFilter(context: BrowserContext, extensionId: string): Promis
 
   const options = await context.newPage();
   await options.goto(`chrome-extension://${extensionId}/options.html`);
-  await options.getByRole("switch", { name: "Still on/off", exact: true }).click();
+  await options.getByRole("switch", { name: /^(Still|Still on\/off)$/, exact: true }).click();
   await expect(page.locator("#shorts")).toBeVisible();
   await page.reload();
   await expect(page.locator("#shorts")).toBeVisible();
   await expect(page.locator("#shorts button")).toHaveAttribute("aria-selected", "true");
   expect((await state()).allClicks).toBe(0);
 
-  await options.getByRole("switch", { name: "Still on/off", exact: true }).click();
+  await options.getByRole("switch", { name: /^(Still|Still on\/off)$/, exact: true }).click();
   await expect(page.locator("#shorts")).toBeHidden();
   await expect(page.locator("#ordinary")).toBeVisible();
   expect((await state()).allClicks).toBe(1);
@@ -50,7 +50,7 @@ async function checkMobileTopics(context: BrowserContext, extensionId: string, e
   const options = await context.newPage();
   await options.goto(`chrome-extension://${extensionId}/options.html`);
   if (!enabled) {
-    await options.getByRole("switch", { name: "Still on/off", exact: true }).click();
+    await options.getByRole("switch", { name: /^(Still|Still on\/off)$/, exact: true }).click();
   }
   await page.setViewportSize({ width: 393, height: 852 });
   await page.goto("https://m.youtube.com/");
@@ -65,9 +65,9 @@ async function checkMobileTopics(context: BrowserContext, extensionId: string, e
   expect(await page.evaluate(() => (window as unknown as { topicErrors: string[] }).topicErrors)).toEqual([]);
   if (enabled) {
     await expect(page.locator("#reused-card")).toBeHidden();
-    await options.getByRole("switch", { name: "Still on/off", exact: true }).click();
+    await options.getByRole("switch", { name: /^(Still|Still on\/off)$/, exact: true }).click();
     await expect(page.locator("#reused-card")).toBeVisible();
-    await options.getByRole("switch", { name: "Still on/off", exact: true }).click();
+    await options.getByRole("switch", { name: /^(Still|Still on\/off)$/, exact: true }).click();
     await expect(page.locator("#reused-card")).toBeHidden();
     // Mobile renderers can also reuse a card, changing only its existing thumbnail destination.
     // No new elements are added: CSS must stop matching without waiting for a content-script sweep.

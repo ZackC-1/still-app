@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import seed from "../../../rules/seed.json";
 import type { SignedRuleSet, StillSettings, ServiceId } from "@still/shared-types";
 import { DEFAULT_SETTINGS, PAID_TIER_ENABLED, SERVICE_IDS } from "@still/shared-types";
 import {
@@ -13,15 +12,11 @@ import {
   ALWAYS_FREE_SURFACE_IDS,
   STILL_PLACEHOLDER_LINE,
 } from "../engine.js";
+import { ruleSet, settings } from "./engine-test-fixtures.js";
 
 const paidTierIt = it.runIf(PAID_TIER_ENABLED);
 const includedAccessIt = it.runIf(!PAID_TIER_ENABLED);
-const ruleSet = seed as unknown as SignedRuleSet;
 const allOn: StillSettings = DEFAULT_SETTINGS;
-
-function settings(over: Partial<StillSettings> = {}): StillSettings {
-  return { ...DEFAULT_SETTINGS, ...over };
-}
 function servicesWith(off: ServiceId): StillSettings["services"] {
   const s = { youtube: true, instagram: true, tiktok: true, facebook: true };
   s[off] = false;

@@ -9,10 +9,12 @@ import type { SupportedStorage } from "@supabase/supabase-js";
 // documented in the plan's KTD; page JS can never touch extension storage).
 
 export const AUTH_STORAGE_KEY = "still:auth";
+export type AuthMutationOrder = <T>(mutation: () => Promise<T>) => Promise<T>;
+const immediate: AuthMutationOrder = mutation => mutation();
 
 /** Adapter over browser.storage.local. Defensive on every call: Supabase auth must never throw
  * out of storage access (the app-webview safeStorage rule) — a torn read is a signed-out read. */
-export function createAuthStorage(): SupportedStorage {
+export function createAuthStorage(order: AuthMutationOrder = immediate): SupportedStorage {
   return {
     async getItem(key: string): Promise<string | null> {
       try {
@@ -24,14 +26,14 @@ export function createAuthStorage(): SupportedStorage {
     },
     async setItem(key: string, value: string): Promise<void> {
       try {
-        await browser.storage.local.set({ [key]: value });
+        await order(() => browser.storage.local.set({ [key]: value }));
       } catch {
         /* a failed persist costs re-auth after the worker dies, never a crash */
       }
     },
     async removeItem(key: string): Promise<void> {
       try {
-        await browser.storage.local.remove(key);
+        await order(() => browser.storage.local.remove(key));
       } catch {
         /* best-effort — teardown also writes the signed-out state through the session */
       }
@@ -44,9 +46,9 @@ export function createAuthStorage(): SupportedStorage {
  * session AFTER a successful server revoke, so a failed/offline sign-out would otherwise leave the
  * session on disk and the next background wake would resurrect the signed-out user. Removes the
  * session record and its PKCE code-verifier sibling; best-effort, never throws. */
-export async function clearExtensionAuthStorage(): Promise<void> {
+export async function clearExtensionAuthStorage(order: AuthMutationOrder = immediate): Promise<void> {
   try {
-    await browser.storage.local.remove([AUTH_STORAGE_KEY, `${AUTH_STORAGE_KEY}-code-verifier`]);
+    await order(() => browser.storage.local.remove([AUTH_STORAGE_KEY, `${AUTH_STORAGE_KEY}-code-verifier`]));
   } catch {
     /* best-effort — the SDK sign-out already attempted local removal too */
   }

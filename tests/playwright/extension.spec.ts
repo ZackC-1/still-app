@@ -22,7 +22,7 @@ test("the options page renders the four service cards", async ({
 }) => {
   const page = await context.newPage();
   await page.goto(`chrome-extension://${extensionId}/options.html`);
-  await expect(page.locator("[data-service]")).toHaveCount(4);
+  await expect(page.locator("[data-service], .site-section")).toHaveCount(4);
 });
 
 test("the popup keeps every primary control visible without scaling or overflow", async ({
@@ -40,7 +40,7 @@ test("the popup keeps every primary control visible without scaling or overflow"
 
   if (syncConfigured !== undefined) {
     await expect(
-      page.getByRole("button", { name: "Sign in to sync", exact: true }),
+      page.getByRole("button", { name: /^(Sign in|Sign in to sync)$/, exact: true }),
     ).toHaveCount(syncConfigured === "true" ? 1 : 0);
   }
   await expect(page.getByRole("switch")).toHaveCount(5);
@@ -86,7 +86,7 @@ test("the popup keeps every primary control visible without scaling or overflow"
   // Substring match on the stable visible label: the surface-specific aria-label suffix may change.
   // No scrolling first, so this asserts the control is wholly visible in the popup as it opens.
   await expect(
-    page.getByRole("button", { name: "Open settings & setup guide" }),
+    page.getByRole("button", { name: /^(Settings\. Find Still in Chrome\.|Open settings & setup guide\. Find Still in your browser\.)$/, exact: true }),
   ).toBeInViewport({ ratio: 1 });
 });
 
@@ -108,6 +108,8 @@ async function expectPopupFits(
   await page.emulateMedia({ colorScheme });
   await page.goto(`chrome-extension://${extensionId}/popup.html`);
   await page.evaluate(() => document.fonts.ready);
+  // The committed desktop view loads asynchronously; measure its rendered controls.
+  await expect(page.getByRole("switch")).toHaveCount(5);
 
   const fit = await page.evaluate(() => {
     const available = document.documentElement.clientWidth;
@@ -215,7 +217,7 @@ for (const colorScheme of ["light", "dark"] as const) {
     expect(fit.width).toBeLessThanOrEqual(POPUP_INLINE_SIZE);
     expect(fit.height).toBeLessThanOrEqual(POPUP_MAX_BLOCK_SIZE);
     expect(fit.bottom).toBeLessThanOrEqual(POPUP_MAX_BLOCK_SIZE);
-    await expect(page.getByRole("button", { name: "Open settings & setup guide" })).toBeInViewport({ ratio: 1 });
+    await expect(page.getByRole("button", { name: /^(Settings\. Find Still in Chrome\.|Open settings & setup guide\. Find Still in your browser\.)$/, exact: true })).toBeInViewport({ ratio: 1 });
   });
 }
 
