@@ -11,7 +11,7 @@ name: Chrome Web Store release
 # makes sign-in fail (closed). There is no key, refresh token or any other credential to fall back on.
 #
 #   package  builds the Chrome package for one commit on main and fingerprints it. It is bound to
-#            `chrome-release` only to read the public build values (owner ruling Q2) and therefore
+#            `chrome-release` only to read the public build values (by owner decision) and therefore
 #            waits for the owner's approval; it has NO id-token permission, so the npm packages it
 #            installs can never request a Google token.
 #   store    (every mode except package-only) waits for the owner's approval, rechecks the approval

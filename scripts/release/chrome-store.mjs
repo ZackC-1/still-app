@@ -2,7 +2,7 @@
 // read an item's status, upload a package, and submit it for review. Nothing else.
 //
 // Deliberately absent: cancelling a review and changing a rollout percentage. Reviews are cancelled
-// in the dashboard by the owner, and Still has no percentage rollout (owner rulings Q5/Q10, D203).
+// in the dashboard by the owner, and Still has no percentage rollout (both by owner decision).
 //
 // Rules this module keeps:
 //   - Node built-ins only. It runs in the one job that holds a Google token, so no package from
@@ -19,7 +19,7 @@ export const READ_SCOPE = "https://www.googleapis.com/auth/chromewebstore.readon
 export const WRITE_SCOPE = "https://www.googleapis.com/auth/chromewebstore";
 
 // Publish exactly like this, always: normal review (never an attempt to skip it), live automatically
-// once Google approves (no staged hold, D203), stop on any warning, and no rollout percentage.
+// once Google approves (no staged hold, by owner decision), stop on any warning, and no rollout percentage.
 export const PUBLISH_BODY = Object.freeze({ publishType: "DEFAULT_PUBLISH", skipReview: false, blockOnWarnings: true });
 
 const EXTENSION_ID = /^[a-p]{32}$/;

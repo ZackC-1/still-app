@@ -6,8 +6,8 @@
 //   node scripts/release/chrome-package.mjs --out <dir>
 //
 // Inputs (environment only): RELEASE_MODE, RELEASE_COMMIT, RELEASE_VERSION, RELEASE_ZIP_SHA256,
-// RELEASE_CONFIRM_SUBMIT, the public build values named in PUBLIC_ENV_KEYS (owner ruling Q2: they are
-// `chrome-release` environment variables, and they ship inside every copy of the extension anyway),
+// RELEASE_CONFIRM_SUBMIT, the public build values named in PUBLIC_ENV_KEYS (by owner decision they
+// are `chrome-release` environment variables; they ship inside every copy of the extension anyway),
 // and GitHub's own GITHUB_* values.
 //
 // Writes <dir>/still-chrome-<version>.zip and <dir>/SHA256SUMS.json (the build's own manifest), and
@@ -29,7 +29,7 @@ import { redact, StoreRefusal } from "./chrome-store.mjs";
 export const REQUIRED_PUBLIC_KEYS = Object.freeze(["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY", "VITE_POSTHOG_KEY", "VITE_POSTHOG_HOST"]);
 const PAID_FLAG_FILE = "packages/shared-types/src/entitlement.ts";
 
-/** Store packages ship with the paid tier switched off (product truth; D203 rejects paid-test packages). */
+/** Store packages ship with the paid tier switched off (product rule: a paid-test package never goes to a store). */
 export function assertPaidTierOff(sourceText) {
   const matches = [...String(sourceText).matchAll(/export const PAID_TIER_ENABLED\s*=\s*(true|false)\s*;/g)];
   if (matches.length !== 1) throw new StoreRefusal("paid-flag-unknown", `Could not find exactly one PAID_TIER_ENABLED in ${PAID_FLAG_FILE}`);

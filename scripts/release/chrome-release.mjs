@@ -283,7 +283,9 @@ export async function main(argv, deps = {}) {
     if (!(rest.length === 0 || (rest.length === 2 && rest[0] === "--dir" && dirArg && !dirArg.startsWith("--")))) throw new StoreRefusal("usage", "Only --dir <work> is accepted");
     const dir = dirArg && resolve(dirArg);
     if (command !== "check-inputs" && command !== "protection" && !dir) throw new StoreRefusal("usage", "--dir is required");
-    // Hide the publisher ID in anything GitHub prints after this point.
+    // Mask the publisher ID in what GitHub prints AFTER this line. Its first appearance, in the env
+    // list GitHub shows at the top of the first step that receives it, is printed unmasked; that is
+    // accepted because it is an identifier, not a credential (see docs/release/chrome-publish-workflow.md).
     if (env.GITHUB_ACTIONS === "true" && env.CWS_PUBLISHER_ID) out(`::add-mask::${env.CWS_PUBLISHER_ID}\n`);
 
     if (command === "receipt") {

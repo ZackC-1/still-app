@@ -17,7 +17,7 @@ dashboard, which stays available as the fallback for any problem.
 - It never cancels a review, never changes a rollout percentage, never tries to skip review and never
   repeats an upload or a submission on its own. Cancelling a review is done in the dashboard.
 - A submitted update goes live to everyone once Google approves it. Still is too small for Chrome's
-  partial rollouts (that needs more than 10,000 weekly users), and staged holds are not used (D203).
+  partial rollouts (that needs more than 10,000 weekly users), and by owner decision staged holds are not used.
   To undo a bad release, ship a higher version with the earlier code, or cancel in the dashboard while
   it is still in review.
 
@@ -48,6 +48,12 @@ mode), `confirm_submit`.
    again before submitting, because the store does not report a draft's version. Whether the store accepts
    the same version over an existing draft has not been observed yet; if it refuses, submit that draft in
    the dashboard instead.
+
+**While a run is in progress, nobody changes a draft by hand in the dashboard** (no manual package upload,
+no discarding the draft). The store keeps only one draft and reports only the state of the most recent
+upload, not which package it was. The run waits on that state after uploading. A hand-made change in the
+meantime could make the run treat someone else's upload as its own, and then submit it. Wait until the
+run has finished (its summary shows the outcome) before touching the dashboard.
 
 Before uploading, the run checks that the store has a lower version and that nothing else is in review.
 If a previous run already submitted this version, a re-run reports that and writes nothing.
