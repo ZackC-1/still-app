@@ -63,11 +63,17 @@ adb shell chmod 644 "/data/local/tmp/$PACKAGE-geckoview-config.yaml" || true
 
 log "launch Firefox"
 adb shell am force-stop "$PACKAGE" || true
-# Open with a blank tab, as geckodriver does: the BiDi session needs a browsing context, and a
-# first launch without one sits on Firefox's welcome screen with no tab at all.
-adb shell am start -W -a android.intent.action.VIEW -d about:blank "$PACKAGE" > "$ART/am-start.txt" 2>&1 \
-  || adb shell monkey -p "$PACKAGE" -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1 \
-  || stop "could not launch Firefox"
+adb shell monkey -p "$PACKAGE" -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1 || stop "could not launch Firefox"
+sleep 5
+# Also open a blank tab, as geckodriver does (explicit component: about:blank has no intent filter).
+# The BiDi session needs a browsing context, and a first launch sits on the welcome screen with none.
+# `am start` exits 0 even when it fails, so its output is checked and recorded instead.
+adb shell am start -W -n "$PACKAGE/org.mozilla.fenix.IntentReceiverActivity" -a android.intent.action.VIEW -d about:blank > "$ART/am-start.txt" 2>&1 || true
+if grep -q "^Error" "$ART/am-start.txt"; then
+  log "blank-tab intent refused (see am-start.txt); continuing with the launcher start only"
+else
+  log "blank-tab intent accepted"
+fi
 
 log "wait for Firefox to report its BiDi port"
 listening=""
