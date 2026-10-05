@@ -224,7 +224,9 @@ describe("legacy hydration arbitration", () => {
       expect(sendMessage).not.toHaveBeenCalled(); expect(sendNativeMessage).not.toHaveBeenCalled();
     } finally {
       release({ "still:settings": saved }); stop();
-      expect(removeListener).toHaveBeenCalledExactlyOnceWith(changed);
+      expect(removeListener).toHaveBeenCalledTimes(2);
+      expect(removeListener).toHaveBeenCalledWith(changed);
+      expect(new Set(removeListener.mock.calls.map(([listener]) => listener)).size).toBe(2);
       vi.unstubAllGlobals();
     }
   });

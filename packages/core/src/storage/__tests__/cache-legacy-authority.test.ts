@@ -2070,7 +2070,8 @@ describe("successful current legacy receipt observation", () => {
       await h.cache.hydrate();
       const stop = h.cache.watch();
       const before = h.cache.legacyReadState();
-      const observed = vi.fn();
+      const emitted: ReturnType<SettingsCache["legacyReadState"]>[] = [];
+      const observed = vi.fn(() => emitted.push(h.cache.legacyReadState()));
       const detach = h.cache.subscribeLegacyRead(observed);
       const gets = h.local.get.mock.calls.length;
       try {
@@ -2096,9 +2097,24 @@ describe("successful current legacy receipt observation", () => {
               } as unknown as StoredSettingsRecord)
             : rejected,
         );
-        expect(h.cache.legacyReadState()).toBe(before);
-        expect(observed).not.toHaveBeenCalled();
-        expect(h.local.get).toHaveBeenCalledTimes(gets);
+        if (kind === "unsupported" || kind === "unreadable") {
+          const raw = JSON.stringify(h.raw());
+          expect(h.cache.legacyReadState()).toEqual({
+            status: "loading", settings: before.settings,
+          });
+          await settleInvalidation();
+          expect(h.local.get).toHaveBeenCalledTimes(gets + 1);
+          expect(h.cache.legacyReadState()).toMatchObject({
+            status: "unavailable", settings: before.settings,
+          });
+          expect(emitted.map((state) => state.status)).toEqual(["loading", "unavailable"]);
+          for (const state of emitted) expect(state.settings).toEqual(before.settings);
+          expect(JSON.stringify(h.raw())).toBe(raw);
+        } else {
+          expect(h.cache.legacyReadState()).toBe(before);
+          expect(observed).not.toHaveBeenCalled();
+          expect(h.local.get).toHaveBeenCalledTimes(gets);
+        }
         expect(h.local.set).not.toHaveBeenCalled();
         expect(h.sendMessage).not.toHaveBeenCalled();
       } finally {
@@ -2199,5 +2215,584 @@ describe("successful current legacy receipt observation", () => {
       detachSibling();
       stop();
     }
+  });
+});
+
+// Exercise the maintained producer with notifications independent of current disk contents.
+function invalidationBrowser(initial: unknown = saved()) {
+  const h = browser(initial);
+  type Handler = Parameters<typeof chrome.storage.onChanged.addListener>[0];
+  const active = new Set<Handler>();
+  const retained: Handler[] = [];
+  const add = chrome.storage.onChanged.addListener;
+  const remove = chrome.storage.onChanged.removeListener;
+  vi.spyOn(chrome.storage.onChanged, "addListener").mockImplementation(
+    (handler) => {
+      active.add(handler);
+      retained.push(handler);
+      add(handler);
+    },
+  );
+  vi.spyOn(chrome.storage.onChanged, "removeListener").mockImplementation(
+    (handler) => {
+      active.delete(handler);
+      remove(handler);
+    },
+  );
+  return {
+    ...h,
+    active,
+    retained,
+    signal(
+      disk: unknown,
+      present = true,
+      change: chrome.storage.StorageChange = { oldValue: saved() },
+    ) {
+      h.put(disk, present);
+      for (const handler of [...active]) handler({ [KEY]: change }, "local");
+    },
+  };
+}
+
+async function settleInvalidation() {
+  // The real Chrome adapter crosses storage.get, validation and the cache receipt microtasks.
+  for (let i = 0; i < 12; i += 1) await Promise.resolve();
+}
+
+describe("current-slot invalidation through the actual cache watch", () => {
+  it("holds saved Off synchronously, reads actual deletion once, and never writes or replays", async () => {
+    const h = invalidationBrowser();
+    await h.cache.hydrate();
+    const stop = h.cache.watch();
+    const gate = deferred<Record<string, unknown>>();
+    h.local.get.mockImplementationOnce(() => gate.promise);
+    h.local.get.mockClear();
+    h.signal(null, false);
+    expect(h.cache.legacyReadState()).toMatchObject({
+      status: "loading",
+      settings: { globalOn: false },
+    });
+    expect(h.cache.current().globalOn).toBe(false);
+    await expect(h.cache.commitLegacyIntent("globalOn", true)).rejects.toThrow(
+      "legacy-command-unavailable",
+    );
+    await settleInvalidation();
+    expect(h.local.get).toHaveBeenCalledTimes(1);
+    gate.resolve({});
+    await settleInvalidation();
+    expect(h.cache.legacyReadState()).toEqual({
+      status: "absent",
+      settings: null,
+    });
+    expect(h.cache.current().globalOn).toBe(false);
+    expect(h.local.set).not.toHaveBeenCalled();
+    expect(h.sendMessage).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it.each([
+    ["keyed null", null],
+    ["corrupt", { invalid: true }],
+    [
+      "future schema",
+      { ...saved(), settings: { ...saved().settings, schemaVersion: 99 } },
+    ],
+  ])(
+    "retains saved Off and holds %s instead of manufacturing absence",
+    async (_label, disk) => {
+      const h = invalidationBrowser();
+      await h.cache.hydrate();
+      const stop = h.cache.watch();
+      h.local.get.mockClear();
+      h.signal(disk, true, { newValue: disk });
+      expect(h.cache.legacyReadState().status).toBe("loading");
+      await settleInvalidation();
+      expect(h.cache.legacyReadState()).toMatchObject({
+        status: "unavailable",
+        settings: { globalOn: false },
+      });
+      expect(h.local.get).toHaveBeenCalledTimes(1);
+      expect(h.local.set).not.toHaveBeenCalled();
+      expect(h.sendMessage).not.toHaveBeenCalled();
+      h.put(saved());
+      await expect(h.cache.rereadLegacyAuthority()).resolves.toEqual({
+        status: "ready",
+      });
+      expect(h.local.get).toHaveBeenCalledTimes(2);
+      expect(h.local.set).not.toHaveBeenCalled();
+      stop();
+    },
+  );
+
+  it("uses current valid disk, never the invalid notification payload, and publishes same-choice freshness", async () => {
+    const h = invalidationBrowser();
+    await h.cache.hydrate();
+    const ready = vi.fn();
+    h.cache.subscribeLegacyRead(() => {
+      if (h.cache.legacyReadState().status === "ready") ready();
+    });
+    const stop = h.cache.watch();
+    h.local.get.mockClear();
+    h.signal(saved(), true, { newValue: null });
+    expect(h.cache.legacyReadState().status).toBe("loading");
+    await settleInvalidation();
+    expect(h.cache.legacyReadState()).toMatchObject({
+      status: "ready",
+      settings: { globalOn: false },
+    });
+    expect(ready).toHaveBeenCalledTimes(1);
+    expect(h.local.get).toHaveBeenCalledTimes(1);
+    expect(h.local.set).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it("fences initial hydration captured before a deletion signal", async () => {
+    const h = invalidationBrowser();
+    const old = deferred<Record<string, unknown>>();
+    h.local.get.mockImplementationOnce(() => old.promise);
+    const load = h.cache.hydrate();
+    const stop = h.cache.watch();
+    h.signal(null, false);
+    await settleInvalidation();
+    expect(h.cache.legacyReadState().status).toBe("absent");
+    old.resolve({ [KEY]: saved(false, 900) });
+    await load;
+    expect(h.cache.legacyReadState().status).toBe("absent");
+    expect(h.cache.current()).toEqual(DEFAULT_SETTINGS);
+    expect(h.local.set).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it.each(["success", "error"])(
+    "starts a new read despite an older explicit reread and fences its late %s",
+    async (kind) => {
+      const h = invalidationBrowser();
+      await h.cache.hydrate();
+      const stop = h.cache.watch();
+      const old = deferred<Record<string, unknown>>();
+      h.local.get.mockImplementationOnce(() => old.promise);
+      const reread = h.cache.rereadLegacyAuthority();
+      await settleInvalidation();
+      h.local.get.mockClear();
+      h.signal(saved(false, 500), true, { newValue: null });
+      await settleInvalidation();
+      expect(h.local.get).toHaveBeenCalledTimes(1);
+      expect(h.cache.legacyReadState()).toMatchObject({
+        status: "ready",
+        settings: { updatedAt: 500, globalOn: false },
+      });
+      if (kind === "success") old.resolve({ [KEY]: saved(true, 1000) });
+      else old.reject(new Error("obsolete read failed"));
+      await expect(reread).resolves.toEqual({ status: "superseded" });
+      expect(h.cache.current().globalOn).toBe(false);
+      expect(h.cache.current().updatedAt).toBe(500);
+      stop();
+    },
+  );
+
+  it.each(["success", "error"])(
+    "fences reversed %s from two real invalidations and keeps the newer singleflight holder",
+    async (kind) => {
+      const h = invalidationBrowser();
+      await h.cache.hydrate();
+      const stop = h.cache.watch();
+      const old = deferred<Record<string, unknown>>();
+      const fresh = deferred<Record<string, unknown>>();
+      h.local.get
+        .mockImplementationOnce(() => old.promise)
+        .mockImplementationOnce(() => fresh.promise);
+      h.signal(null, false);
+      await settleInvalidation();
+      h.signal(saved(false, 500), true, { newValue: null });
+      await settleInvalidation();
+      const shared = h.cache.rereadLegacyAuthority();
+      if (kind === "success") old.resolve({ [KEY]: saved(true, 1000) });
+      else old.reject(new Error("obsolete signal read failed"));
+      await settleInvalidation();
+      expect(h.cache.rereadLegacyAuthority()).toBe(shared);
+      expect(h.cache.legacyReadState().status).toBe("loading");
+      fresh.resolve({ [KEY]: saved(false, 500) });
+      await expect(shared).resolves.toEqual({ status: "ready" });
+      expect(h.cache.current().globalOn).toBe(false);
+      expect(h.local.get).toHaveBeenCalledTimes(3); // hydrate and two post-signal reads
+      stop();
+    },
+  );
+
+  it("shares the forced promise with a reentrant observer before its read starts", async () => {
+    const h = invalidationBrowser();
+    await h.cache.hydrate();
+    const stop = h.cache.watch();
+    const reentrant: Promise<unknown>[] = [];
+    h.cache.subscribeLegacyRead(() => {
+      if (h.cache.legacyReadState().status === "loading")
+        reentrant.push(h.cache.rereadLegacyAuthority());
+    });
+    h.local.get.mockClear();
+    h.signal(saved(), true, { newValue: null });
+    expect(reentrant).toHaveLength(1);
+    expect(h.cache.rereadLegacyAuthority()).toBe(reentrant[0]);
+    await Promise.all(reentrant);
+    expect(h.local.get).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it("owns both listeners, ignores retained callbacks and does not let an old stop detach a replacement watch", async () => {
+    const h = invalidationBrowser();
+    await h.cache.hydrate();
+    const stop = h.cache.watch();
+    const siblingStop = h.cache.watch();
+    expect(h.active.size).toBe(2);
+    const oldHandlers = [...h.retained];
+    stop();
+    expect(h.active.size).toBe(0);
+    const replacementStop = h.cache.watch();
+    expect(h.active.size).toBe(2);
+    siblingStop();
+    expect(h.active.size).toBe(2);
+    h.local.get.mockClear();
+    const observer = vi.fn();
+    h.cache.subscribeLegacyRead(observer);
+    for (const handler of oldHandlers)
+      handler({ [KEY]: { newValue: null } }, "local");
+    await settleInvalidation();
+    expect(h.local.get).not.toHaveBeenCalled();
+    expect(observer).not.toHaveBeenCalled();
+    h.signal(null, false);
+    await settleInvalidation();
+    expect(h.cache.legacyReadState().status).toBe("absent");
+    replacementStop();
+    expect(h.active.size).toBe(0);
+  });
+
+  it("does not read or publish from an invalidation synchronously detached by an observer", async () => {
+    const h = invalidationBrowser();
+    await h.cache.hydrate();
+    const stop = h.cache.watch();
+    h.cache.subscribeLegacyRead(() => {
+      if (h.cache.legacyReadState().status === "loading") stop();
+    });
+    h.local.get.mockClear();
+    h.signal(null, false);
+    await settleInvalidation();
+    expect(h.local.get).not.toHaveBeenCalled();
+    expect(h.cache.legacyReadState()).toMatchObject({
+      status: "loading",
+      settings: { globalOn: false },
+    });
+    expect(h.active.size).toBe(0);
+  });
+
+  it("does not let an older command failure replace a same-choice fresh post-signal receipt", async () => {
+    const h = invalidationBrowser();
+    await h.cache.hydrate();
+    const stop = h.cache.watch();
+    const old = deferred<unknown>();
+    h.sendMessage.mockImplementationOnce(() => old.promise);
+    const command = h.cache
+      .commitLegacyIntent("globalOn", true)
+      .catch((error: unknown) => error);
+    h.signal(saved(), true, { newValue: null });
+    await settleInvalidation();
+    old.resolve({
+      type: "settings:intent:result",
+      ok: false,
+      reason: "late-command-failure",
+    });
+    await command;
+    expect(h.cache.legacyReadState()).toMatchObject({
+      status: "ready",
+      settings: { globalOn: false },
+    });
+    expect(h.local.set).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it.each(["missing", "corrupt", "future", "valid"])(
+    "holds known atomic ownership across %s current-slot invalidation without initialization",
+    async (kind) => {
+      const modern = await new AtomicSettingsWriter(
+        new InMemoryStorageAdapter(saved()),
+      ).initialize("never-linked");
+      const h = invalidationBrowser(modern);
+      await h.cache.hydrate();
+      const before = h.cache.currentRecord();
+      const stop = h.cache.watch();
+      const initialize = vi.spyOn(h.consumer, "initializeAtomic");
+      const gate = deferred<Record<string, unknown>>();
+      h.local.get.mockImplementationOnce(() => gate.promise);
+      h.signal(null, false);
+      expect(h.cache.currentRecord().atomic).toMatchObject({
+        ...before.atomic,
+        paused: "authority-read-pending",
+      });
+      await expect(
+        h.cache.commitAtomicIntent("globalOn", true),
+      ).rejects.toThrow();
+      await settleInvalidation();
+      const disk =
+        kind === "missing"
+          ? {}
+          : {
+              [KEY]:
+                kind === "corrupt"
+                  ? { invalid: true }
+                  : kind === "future"
+                    ? {
+                        ...modern,
+                        settings: { ...modern.settings, schemaVersion: 99 },
+                      }
+                    : modern,
+            };
+      gate.resolve(disk);
+      await settleInvalidation();
+      expect(h.cache.current().globalOn).toBe(false);
+      expect(h.cache.currentRecord().atomic?.scope).toEqual(
+        before.atomic?.scope,
+      );
+      expect(h.cache.currentRecord().atomic?.sequence).toBe(
+        before.atomic?.sequence,
+      );
+      expect(h.cache.currentRecord().atomic?.ownership).toBe(
+        before.atomic?.ownership,
+      );
+      expect(h.cache.currentRecord().atomic?.paused === null).toBe(
+        kind === "valid",
+      );
+      expect(h.cache.legacyReadState().status).not.toBe("absent");
+      expect(initialize).not.toHaveBeenCalled();
+      expect(h.local.set).not.toHaveBeenCalled();
+      expect(h.sendMessage).not.toHaveBeenCalled();
+      stop();
+    },
+  );
+});
+
+describe("current-slot invalidation lifetime and authority ordering", () => {
+  it("fences a legacy reread started before a later actual hydration absence while watch is active", async () => {
+    const h = invalidationBrowser();
+    const stop = h.cache.watch();
+    const old = deferred<Record<string, unknown>>();
+    h.local.get.mockImplementationOnce(() => old.promise);
+    const read = h.cache.rereadLegacyAuthority();
+    await settleInvalidation();
+    h.put(null, false);
+    await h.cache.hydrate();
+    expect(h.cache.legacyReadState().status).toBe("absent");
+    old.resolve({ [KEY]: saved(false, 900) });
+    await expect(read).resolves.toEqual({ status: "superseded" });
+    expect(h.cache.legacyReadState().status).toBe("absent");
+    expect(h.cache.current()).toEqual(DEFAULT_SETTINGS);
+    stop();
+  });
+
+  it("holds retained choices on generic get failure and performs a single pure Try again", async () => {
+    const h = invalidationBrowser();
+    await h.cache.hydrate();
+    const stop = h.cache.watch();
+    h.local.get.mockRejectedValueOnce(
+      new Error("synthetic current read failure"),
+    );
+    h.signal(null, false);
+    await settleInvalidation();
+    expect(h.cache.legacyReadState()).toMatchObject({
+      status: "unavailable",
+      settings: { globalOn: false },
+    });
+    h.put(saved());
+    h.local.get.mockClear();
+    const one = h.cache.rereadLegacyAuthority();
+    expect(h.cache.rereadLegacyAuthority()).toBe(one);
+    await expect(one).resolves.toEqual({ status: "ready" });
+    expect(h.local.get).toHaveBeenCalledTimes(1);
+    expect(h.local.set).not.toHaveBeenCalled();
+    expect(h.sendMessage).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it("keeps another cache owner subscribed after one owner detaches", async () => {
+    const h = invalidationBrowser();
+    const peer = new SettingsCache(h.consumer);
+    await Promise.all([h.cache.hydrate(), peer.hydrate()]);
+    const stop = h.cache.watch();
+    const peerStop = peer.watch();
+    expect(h.active.size).toBe(4);
+    stop();
+    expect(h.active.size).toBe(2);
+    h.signal(null, false);
+    await settleInvalidation();
+    expect(peer.legacyReadState().status).toBe("absent");
+    expect(h.cache.legacyReadState().status).toBe("ready");
+    peerStop();
+    expect(h.active.size).toBe(0);
+  });
+
+  it("fences an invalidation read after a newer valid watch receipt", async () => {
+    const h = invalidationBrowser();
+    await h.cache.hydrate();
+    const stop = h.cache.watch();
+    const old = deferred<Record<string, unknown>>();
+    h.local.get.mockImplementationOnce(() => old.promise);
+    h.signal(null, false);
+    await settleInvalidation();
+    h.emit(saved(false, 600));
+    expect(h.cache.legacyReadState()).toMatchObject({
+      status: "ready",
+      settings: { updatedAt: 600 },
+    });
+    old.resolve({});
+    await settleInvalidation();
+    expect(h.cache.legacyReadState()).toMatchObject({
+      status: "ready",
+      settings: { updatedAt: 600 },
+    });
+    stop();
+  });
+
+  it("preserves a genuinely committed request receipt after a newer invalidation", async () => {
+    const h = invalidationBrowser();
+    await h.cache.hydrate();
+    const stop = h.cache.watch();
+    const reply = deferred<unknown>();
+    const actualSend = h.sendMessage.getMockImplementation()!;
+    let actualReply: unknown;
+    h.sendMessage.mockImplementationOnce(async (message) => {
+      actualReply = await actualSend(message);
+      return reply.promise;
+    });
+    const local = vi.fn();
+    h.cache.subscribe((_settings, source) => {
+      if (source === "local") local();
+    });
+    const command = h.cache.commitLegacyIntent("globalOn", true);
+    await settleInvalidation();
+    expect(h.local.set).toHaveBeenCalledTimes(1);
+    h.signal(h.raw(), true, { newValue: null });
+    await settleInvalidation();
+    reply.resolve(actualReply);
+    expect((await command).intentCommitted).toBe(true);
+    expect(local).toHaveBeenCalledTimes(1);
+    expect(h.local.set).toHaveBeenCalledTimes(1);
+    expect(h.sendMessage).toHaveBeenCalledTimes(1);
+    const noop = await h.cache.commitLegacyIntent("globalOn", true);
+    expect(noop.intentCommitted).toBe(false);
+    expect(local).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it.each([
+    "older sequence",
+    "account mismatch",
+    "older generation",
+    "unknown ownership",
+    "paused",
+  ])("retains modern provenance and a command hold for %s", async (kind) => {
+    const initial = await new AtomicSettingsWriter(
+      new InMemoryStorageAdapter(saved()),
+    ).initialize("never-linked");
+    const modern = {
+      ...initial,
+      atomic: {
+        ...initial.atomic!,
+        sequence: 5,
+        scope: { generation: 2, accountId: null as string | null },
+      },
+    };
+    const h = invalidationBrowser(modern);
+    await h.cache.hydrate();
+    const stop = h.cache.watch();
+    const incoming = structuredClone(modern);
+    if (kind === "older sequence") incoming.atomic.sequence = 4;
+    if (kind === "account mismatch")
+      incoming.atomic.scope = {
+        generation: 2,
+        accountId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      };
+    if (kind === "older generation") incoming.atomic.scope.generation = 1;
+    if (kind === "unknown ownership") {
+      incoming.atomic.ownership = "unknown";
+      incoming.atomic.anchor = {
+        version: 1,
+        lineage: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+        revision: 0,
+        mac: "A".repeat(43),
+      };
+    }
+    if (kind === "paused") incoming.atomic.paused = "synthetic-hold";
+    h.signal(incoming, true, { newValue: null });
+    await settleInvalidation();
+    expect(h.cache.currentRecord().atomic?.scope).toEqual(modern.atomic.scope);
+    expect(h.cache.currentRecord().atomic?.sequence).toBe(5);
+    expect(h.cache.currentRecord().atomic?.ownership).toBe("never-linked");
+    expect(h.cache.currentRecord().atomic?.paused).not.toBeNull();
+    await expect(
+      h.cache.commitAtomicIntent("globalOn", true),
+    ).rejects.toThrow();
+    expect(h.cache.legacyReadState().status).not.toBe("absent");
+    expect(h.local.set).not.toHaveBeenCalled();
+    expect(h.sendMessage).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it("forces a new modern read and preserves its singleflight when the obsolete read finishes", async () => {
+    const modern = await new AtomicSettingsWriter(
+      new InMemoryStorageAdapter(saved()),
+    ).initialize("never-linked");
+    const h = invalidationBrowser(modern);
+    await h.cache.hydrate();
+    const stop = h.cache.watch();
+    const old = deferred<Record<string, unknown>>();
+    const current = deferred<Record<string, unknown>>();
+    h.local.get
+      .mockImplementationOnce(() => old.promise)
+      .mockImplementationOnce(() => current.promise);
+    const explicit = h.cache.rereadAuthority();
+    await settleInvalidation();
+    h.signal(modern, true, { newValue: null });
+    await settleInvalidation();
+    const shared = h.cache.rereadAuthority();
+    old.resolve({});
+    await expect(explicit).resolves.toEqual({ status: "superseded" });
+    expect(h.cache.rereadAuthority()).toBe(shared);
+    current.resolve({ [KEY]: modern });
+    await expect(shared).resolves.toEqual({ status: "ready" });
+    expect(h.local.get).toHaveBeenCalledTimes(3);
+    expect(h.cache.currentRecord().atomic?.paused).toBeNull();
+    stop();
+  });
+
+  it("holds explicit atomic ownership on actual missing storage without invoking initialization", async () => {
+    const modern = await new AtomicSettingsWriter(
+      new InMemoryStorageAdapter(saved()),
+    ).initialize("never-linked");
+    const h = invalidationBrowser(modern);
+    const cache = new SettingsCache(h.authority, {
+      atomicOwnership: "never-linked",
+    });
+    await cache.hydrate();
+    const initialize = vi.spyOn(h.authority, "initializeAtomic");
+    const stop = cache.watch();
+    h.signal(null, false);
+    await settleInvalidation();
+    expect(cache.currentRecord().atomic?.ownership).toBe("never-linked");
+    expect(cache.currentRecord().atomic?.paused).not.toBeNull();
+    expect(cache.legacyReadState().status).not.toBe("absent");
+    expect(initialize).not.toHaveBeenCalled();
+    expect(h.local.set).not.toHaveBeenCalled();
+    stop();
+  });
+
+  it("preserves normal watch/hydration behavior for an adapter without optional invalidation", async () => {
+    const adapter = new InMemoryStorageAdapter(saved());
+    expect(adapter).not.toHaveProperty("subscribeInvalidation");
+    const cache = new SettingsCache(adapter);
+    await cache.hydrate();
+    const stop = cache.watch();
+    await adapter.set(saved(true, 500));
+    expect(cache.current().globalOn).toBe(true);
+    expect(cache.legacyReadState().status).toBe("ready");
+    stop();
+    await adapter.set(saved(false, 600));
+    expect(cache.current().globalOn).toBe(true);
   });
 });

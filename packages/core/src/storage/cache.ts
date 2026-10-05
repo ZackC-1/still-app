@@ -64,6 +64,8 @@ export class SettingsCache {
   private publishedAuthority: string | null = null;
   private intentsInFlight = 0;
   private unwatch: (() => void) | null = null;
+  private watchLifetime: object | null = null;
+  private invalidationLifetime: object | null = null;
   private hydration: Promise<StillSettings> | null = null;
   private authorityTicket = 0;
   private committedGeneration = 0;
@@ -113,8 +115,18 @@ export class SettingsCache {
   /** Pure legacy recovery: exactly one shared adapter read, without hydration or replay. */
   rereadLegacyAuthority(): Promise<LegacySettingsRereadOutcome> {
     // Install the shared promise before observers can synchronously request another reread.
-    this.legacyReread ??= Promise.resolve().then(() => this.readLegacyAuthority()).finally(() => { this.legacyReread = null; });
-    return this.legacyReread;
+    if (this.legacyReread) return this.legacyReread;
+    const pending: Promise<LegacySettingsRereadOutcome> = Promise.resolve()
+      .then(() =>
+        this.legacyReread === pending
+          ? this.readLegacyAuthority()
+          : ({ status: "superseded" } as const),
+      )
+      .finally(() => {
+        if (this.legacyReread === pending) this.legacyReread = null;
+      });
+    this.legacyReread = pending;
+    return pending;
   }
 
   private async readLegacyAuthority(afterAbsentNoop = false): Promise<LegacySettingsRereadOutcome> {
@@ -144,6 +156,7 @@ export class SettingsCache {
       return { status: "unavailable", reason };
     };
     this.publishLegacyRead({ status: "loading", settings: this.legacyRead.settings });
+    if (superseded()) return { status: "superseded" };
     let stored: StoredSettingsRecord | null;
     try { stored = await this.adapter.get(); }
     catch (error) {
@@ -198,10 +211,19 @@ export class SettingsCache {
 
   /** One explicit current-authority read, never initialization, a write, or an intent replay. */
   rereadAuthority(): Promise<SettingsAuthorityRereadOutcome> {
-    this.authorityReread ??= this.readCurrentAuthority().finally(() => {
-      this.authorityReread = null;
+    if (this.authorityReread) return this.authorityReread;
+    let resolve!: (outcome: SettingsAuthorityRereadOutcome) => void;
+    let reject!: (error: unknown) => void;
+    const pending = new Promise<SettingsAuthorityRereadOutcome>((yes, no) => {
+      resolve = yes;
+      reject = no;
+    }).finally(() => {
+      if (this.authorityReread === pending) this.authorityReread = null;
     });
-    return this.authorityReread;
+    this.authorityReread = pending;
+    // Preserve the ordinary immediate read while installing its holder before adapter reentrancy.
+    void this.readCurrentAuthority().then(resolve, reject);
+    return pending;
   }
 
   private async readCurrentAuthority(): Promise<SettingsAuthorityRereadOutcome> {
@@ -261,6 +283,7 @@ export class SettingsCache {
   }
 
   private async load(): Promise<StillSettings> {
+    const observation = ++this.legacyReadObservation;
     const authorityTicket = this.authorityTicket;
     const committedGeneration = this.committedGeneration;
     const legacyReadTicket = this.legacyReadTicket;
@@ -274,7 +297,7 @@ export class SettingsCache {
         (stored.syncEpoch > this.syncEpoch || stored.syncEpoch === this.syncEpoch &&
           stored.syncMetadata !== null && this.syncMetadata !== null &&
           stored.syncMetadata.version > this.syncMetadata.version);
-      if (stored && legacyReadTicket === this.legacyReadTicket && (committedGeneration === this.committedGeneration || newerLegacyAuthority) &&
+      if (stored && observation === this.legacyReadObservation && legacyReadTicket === this.legacyReadTicket && (committedGeneration === this.committedGeneration || newerLegacyAuthority) &&
         ((!stored.atomic && !this.atomic) || authorityTicket === this.authorityTicket)) {
         // An actual first saved zero-clock read is authority, not an echo of startup defaults.
         if (authorityTicket === this.authorityTicket && committedGeneration === this.committedGeneration &&
@@ -284,7 +307,7 @@ export class SettingsCache {
           this.acceptCommitted(stored, "external");
         else void this.applyStoredRecord(stored, "external");
       }
-      if (legacyReadTicket === this.legacyReadTicket && authorityTicket === this.authorityTicket && committedGeneration === this.committedGeneration) {
+      if (observation === this.legacyReadObservation && legacyReadTicket === this.legacyReadTicket && authorityTicket === this.authorityTicket && committedGeneration === this.committedGeneration) {
         if (stored === null && !this.atomic && this.atomicOwnership === undefined)
           this.publishLegacyRead({ status: "absent", settings: null });
         else if (stored && this.isCurrentLegacyRecord(stored))
@@ -294,10 +317,10 @@ export class SettingsCache {
       }
       return this.snapshot;
     } catch (error) {
-      if (legacyReadTicket === this.legacyReadTicket && authorityTicket === this.authorityTicket && committedGeneration === this.committedGeneration)
+      if (observation === this.legacyReadObservation && legacyReadTicket === this.legacyReadTicket && authorityTicket === this.authorityTicket && committedGeneration === this.committedGeneration)
         this.publishLegacyFailure(error instanceof SettingsStorageRecovery ? error.reason : "read-failed",
           error instanceof SettingsStorageRecovery ? error.retained : null);
-      if (error instanceof SettingsStorageRecovery && legacyReadTicket === this.legacyReadTicket && authorityTicket === this.authorityTicket) {
+      if (error instanceof SettingsStorageRecovery && observation === this.legacyReadObservation && legacyReadTicket === this.legacyReadTicket && authorityTicket === this.authorityTicket) {
         if (!error.retained) { this.hydrationRecovery = error; this.notifyAuthority(); throw error; }
         // Last-known local choices keep free blocking useful during unavailable native reads.
         // Sync hydration remains a recovery gate, never a fresh canonical receipt.
@@ -313,24 +336,91 @@ export class SettingsCache {
 
   /** Start reacting to external writes (other contexts / cloud mirror). Returns an unsubscribe. */
   watch(): () => void {
-    this.unwatch ??= this.adapter.subscribe((record) => {
+    if (this.unwatch) return this.unwatch;
+    const lifetime = {};
+    const unsubscribe: (() => void)[] = [];
+    this.watchLifetime = lifetime;
+    const stop = () => {
+      if (this.watchLifetime !== lifetime) return;
+      this.watchLifetime = null;
+      this.unwatch = null;
+      if (this.invalidationLifetime === lifetime) {
+        this.invalidationLifetime = null;
+        this.authorityTicket += 1;
+        this.legacyReadTicket += 1;
+        this.legacyReadObservation += 1;
+        this.legacyReread = null;
+        this.authorityReread = null;
+      }
+      for (const detach of unsubscribe) detach();
+    };
+    this.unwatch = stop;
+    const detachRecords = this.adapter.subscribe((record) => {
+      if (this.watchLifetime !== lifetime) return;
+      const observation = this.legacyReadObservation;
       // Safari subscriptions supply a successful authority reread, never the auxiliary signal.
       this.applyStoredRecord(record, "external");
+      if (
+        this.watchLifetime !== lifetime ||
+        observation !== this.legacyReadObservation
+      )
+        return;
       // Rejected older/conflicting notifications are not successful current-authority reads.
-      if (this.isCurrentLegacyRecord(record) && sameLegacySettings(record.settings, this.snapshot)) {
+      if (
+        this.isCurrentLegacyRecord(record) &&
+        sameLegacySettings(record.settings, this.snapshot)
+      ) {
         this.authorityTicket += 1;
         this.hydrationRecovery = null;
         this.publishLegacyRead({ status: "ready", settings: this.snapshot });
-      }
-      else if (!this.atomic && !this.isLegacyAuthority(record))
-        this.publishLegacyRead({ status: "unavailable", settings: null, reason: "legacy-command-unavailable" });
+      } else if (!this.atomic && !this.isLegacyAuthority(record))
+        this.publishLegacyRead({
+          status: "unavailable",
+          settings: null,
+          reason: "legacy-command-unavailable",
+        });
       // Atomic acceptance already publishes; legacy same-choice rereads can clear recovery here.
       if (!record.atomic && !this.atomic) this.notifyAuthority();
     });
-    return () => {
-      this.unwatch?.();
-      this.unwatch = null;
-    };
+    if (this.watchLifetime === lifetime) unsubscribe.push(detachRecords);
+    else {
+      detachRecords();
+      return stop;
+    }
+    if (this.adapter.subscribeInvalidation) {
+      const detachInvalidation = this.adapter.subscribeInvalidation(() => {
+        if (this.watchLifetime !== lifetime) return;
+        this.invalidationLifetime = lifetime;
+        // A payload-free signal retires captured reads and failures before any observer runs.
+        this.authorityTicket += 1;
+        this.legacyReadTicket += 1;
+        this.legacyReadObservation += 1;
+        this.legacyAbsenceCurrent = false;
+        this.legacyReread = null;
+        this.authorityReread = null;
+        this.hydrationRecovery = new SettingsStorageRecovery(
+          "authority-read-pending",
+        );
+        if (this.atomic)
+          this.atomic = { ...this.atomic, paused: "authority-read-pending" };
+        // Install the new shared promise before loading/hold observers can reenter or detach.
+        const pending =
+          this.atomic || this.atomicOwnership !== undefined
+            ? this.rereadAuthority()
+            : this.rereadLegacyAuthority();
+        if (!this.atomic && this.atomicOwnership === undefined)
+          this.publishLegacyRead({
+            status: "loading",
+            settings: this.legacyRead.settings,
+          });
+        if (this.watchLifetime === lifetime) this.notifyAuthority();
+        // The signal has no caller to consume a failed read-only observer/adapter operation.
+        void pending.catch(() => {});
+      });
+      if (this.watchLifetime === lifetime) unsubscribe.push(detachInvalidation);
+      else detachInvalidation();
+    }
+    return stop;
   }
 
   /**
