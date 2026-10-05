@@ -780,7 +780,7 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
         expect(saved).toBe(129);
         expect((await storage.get())!.atomic!.sequence).toBe(start.atomic!.sequence + saved);
       } finally { await native.close(); }
-    });
+    }, 60_000); // ~400 locked native round trips; the default 5s is a load budget, not a behavior bound
 
     it("D1: ineligible unknown account-free records refuse in both without writing", async () => {
       const seed = await unknownSeed();
