@@ -21,6 +21,7 @@ import {
 } from "../lib/session-messages.js";
 import { createIndexedDbKeyValue, QUIET_FLUSH_ALARM, requestQuietFlush } from "@still/core/analytics";
 import { createBackgroundAnalytics, storageKeyValue } from "../lib/analytics.js";
+import { runtimePlatformFor } from "../lib/runtime-platform.js";
 import { modernSettingsRuntime } from "../lib/modern-settings-runtime.js";
 import { FIRST_RUN_PAGE, shouldOpenFirstRun } from "../../core/src/ui/v3/first-run-host.js";
 import seed from "@still/core/seed";
@@ -138,6 +139,8 @@ export default defineBackground(() => {
   const analytics = createBackgroundAnalytics(
     {
       isFirefox: Boolean(import.meta.env.FIREFOX),
+      // Firefox for Android reports its own existing surface; asked here, never awaited here.
+      platform: runtimePlatformFor(Boolean(import.meta.env.FIREFOX), browser.runtime),
       config: {
         key: import.meta.env.VITE_POSTHOG_KEY as string | undefined,
         host: import.meta.env.VITE_POSTHOG_HOST as string | undefined,

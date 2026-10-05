@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { CONSENT_KEY, QUEUE_KEY, type AnalyticsKeyValue, type ExtensionAnalyticsHostDeps } from "@still/core/analytics";
 import { TEST_PERMISSION, TEST_PRIVACY_POLICY } from "../../../core/src/analytics/__tests__/privacy-fixture.js";
 import { ANALYTICS_MESSAGE_KIND, createBackgroundAnalytics, createPageAnalytics } from "../analytics.js";
+import type { RuntimePlatform } from "../runtime-platform.js";
 
 const HOST_TEST = vi.hoisted(() => ({ inject: true }));
 
@@ -15,7 +16,15 @@ vi.mock("@still/core/analytics", async (importOriginal) => {
       !HOST_TEST.inject
         ? real.createExtensionAnalyticsHost(deps)
         : real.createExtensionAnalyticsHost({
-            ...deps,
+            // Keep accessors live (surface/device follow the platform answer); a plain spread would
+            // freeze them at their pre-answer values.
+            ...(Object.defineProperties({}, Object.getOwnPropertyDescriptors(deps)) as ExtensionAnalyticsHostDeps),
+            get surface() {
+              return deps.surface;
+            },
+            get device() {
+              return deps.device;
+            },
             privacyPolicy: TEST_PRIVACY_POLICY,
             envelope: { build_channel: "test" },
             permission: async () => real.readAnalyticsPermission(await deps.local.get(CONSENT_KEY)),
@@ -44,6 +53,7 @@ function memory(initial: Record<string, unknown> = {}): AnalyticsKeyValue & { da
 function setup(
   over: {
     isFirefox?: boolean;
+    platform?: Promise<RuntimePlatform>;
     granted?: boolean;
     shared?: AnalyticsKeyValue;
     identifyOnServer?: () => Promise<void>;
@@ -55,6 +65,7 @@ function setup(
   const bg = createBackgroundAnalytics(
     {
       isFirefox: over.isFirefox ?? false,
+      platform: over.platform,
       config: { key: "phc_test", host: "https://us.i.posthog.com" },
       appVersion: "2.1.0",
       local,
@@ -170,6 +181,70 @@ describe("background analytics (Firefox)", () => {
     const { send, queue } = setup({ isFirefox: true, granted: true });
     await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "signed_in", props: {} }, PAGE);
     expect(queue()[0]).toMatchObject({ event: "signed_in", properties: { surface: "firefox", store: "firefox" } });
+  });
+});
+
+describe("background analytics (Firefox for Android)", () => {
+  const TRACK = { kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "signed_in", props: {} };
+
+  it("reports the existing firefox-android surface, the same firefox store, and no guessed device", async () => {
+    const { send, queue } = setup({ isFirefox: true, granted: true, platform: Promise.resolve("android") });
+    await send(TRACK, PAGE);
+    const event = queue().find((e) => e.event === "signed_in");
+    expect(event?.properties).toMatchObject({ surface: "firefox-android", store: "firefox" });
+    expect(event?.properties).not.toHaveProperty("device");
+  });
+
+  it("desktop Firefox keeps the firefox surface and the desktop device", async () => {
+    const { send, queue } = setup({ isFirefox: true, granted: true, platform: Promise.resolve("desktop") });
+    await send(TRACK, PAGE);
+    expect(queue().find((e) => e.event === "signed_in")?.properties).toMatchObject({
+      surface: "firefox",
+      store: "firefox",
+      device: "desktop",
+    });
+  });
+
+  it("the Chromium build never reports Android, whatever it is told", async () => {
+    const { send, queue } = setup({ isFirefox: false, platform: Promise.resolve("android") });
+    await send(TRACK, PAGE);
+    expect(queue().find((e) => e.event === "signed_in")?.properties).toMatchObject({
+      surface: "chrome",
+      device: "desktop",
+    });
+  });
+
+  it("builds nothing until the platform is known, so no event is ever built for the wrong surface", async () => {
+    let answer!: (platform: RuntimePlatform) => void;
+    const platform = new Promise<RuntimePlatform>((resolve) => (answer = resolve));
+    const { send, queue, settle } = setup({ isFirefox: true, granted: true, platform });
+    const sent = send(TRACK, PAGE);
+    await settle();
+    expect(queue()).toEqual([]);
+    answer("android");
+    await sent;
+    const surfaces = queue().map((e) => e.properties.surface);
+    expect(surfaces.length).toBeGreaterThan(0);
+    expect(new Set(surfaces)).toEqual(new Set(["firefox-android"]));
+  });
+
+  it("a failed platform answer falls back to desktop Firefox, as before", async () => {
+    const { send, queue } = setup({ isFirefox: true, granted: true, platform: Promise.reject(new Error("no")) });
+    await send(TRACK, PAGE);
+    expect(queue().find((e) => e.event === "signed_in")?.properties).toMatchObject({ surface: "firefox" });
+  });
+
+  it("a fresh Android install reports the same install events desktop Firefox does, and no new one", async () => {
+    const android = setup({ isFirefox: true, granted: true, platform: Promise.resolve("android") });
+    android.bg.onInstalled({ reason: "install" });
+    await android.settle();
+    await android.bg.client.trackDaily("x", "active", {});
+    const desktop = setup({ isFirefox: true, granted: true, platform: Promise.resolve("desktop") });
+    desktop.bg.onInstalled({ reason: "install" });
+    await desktop.settle();
+    await desktop.bg.client.trackDaily("x", "active", {});
+    expect(android.queue().map((e) => e.event)).toEqual(desktop.queue().map((e) => e.event));
+    expect(android.queue().map((e) => e.event)).toEqual(expect.arrayContaining(["installed", "setup_completed"]));
   });
 });
 

@@ -11,6 +11,7 @@ import {
 } from "@still/core/analytics";
 import type { UiAnalytics } from "@still/core/ui";
 import { isExtensionPageSender } from "./session-messages.js";
+import { isFirefoxAndroid, type RuntimePlatform } from "./runtime-platform.js";
 
 // Product analytics for the Chrome and Firefox builds, over core's shared extension host
 // (@still/core/analytics extension-host.ts). What is specific to these two browsers lives here:
@@ -50,6 +51,9 @@ export function storageKeyValue(area: chrome.storage.StorageArea): AnalyticsKeyV
 
 export interface BackgroundAnalyticsDeps {
   readonly isFirefox: boolean;
+  /** The browser's own platform answer (lib/runtime-platform.ts). Absent means desktop. In Firefox
+   * for Android it reports the existing closed surface "firefox-android"; nothing else changes. */
+  readonly platform?: Promise<RuntimePlatform>;
   readonly config: AnalyticsConfig;
   readonly appVersion: string;
   readonly local: AnalyticsKeyValue;
@@ -82,23 +86,49 @@ export function createBackgroundAnalytics(
   const granted =
     deps.firefoxPermissionGranted ?? (() => dataPermissions().contains(FIREFOX_DATA).catch(() => false));
   let identity: ReturnType<typeof resolveAnalyticsIdentity> | null = null;
+  // Surface and device come from the browser's own platform answer. Firefox for Android is the
+  // existing closed surface "firefox-android" (same "firefox" store) and reports no device class:
+  // the platform cannot tell a phone from a tablet, and Still never guesses from the screen.
+  // Desktop Firefox and every Chromium browser keep exactly what they reported before.
+  let surface: "chrome" | "firefox" | "firefox-android" = deps.isFirefox ? "firefox" : "chrome";
+  let device: "desktop" | undefined = "desktop";
+  // Every event waits for consent and identity before it is built, and every send re-checks
+  // consent, so gating both on this answer means no event is ever built or checked against a
+  // surface that is about to change.
+  const platformKnown = (deps.platform ?? Promise.resolve<RuntimePlatform>("desktop"))
+    .catch((): RuntimePlatform => "desktop")
+    .then((platform) => {
+      if (isFirefoxAndroid(deps.isFirefox, platform)) {
+        surface = "firefox-android";
+        device = undefined;
+      }
+    });
+  const firefoxConsent = granted;
+  const storedConsent = () => stored.get();
   return createExtensionAnalyticsHost({
-    surface: deps.isFirefox ? "firefox" : "chrome",
-    device: "desktop", // Still's Chrome and Firefox builds are desktop-only
+    get surface() {
+      return surface;
+    },
+    get device() {
+      return device;
+    },
     config: deps.config,
     appVersion: deps.appVersion,
     local: deps.local,
     queueStore: deps.queue ?? undefined,
     // Wait briefly on a fresh install for Chrome/Firefox sync to bring this account's anchor.
     identity: () =>
-      (identity ??= resolveAnalyticsIdentity({
-        local: deps.local,
-        shared: deps.shared,
-        uuid,
-        sharedGraceMs: deps.sharedGraceMs ?? 4_000,
-        sleep: deps.sleep,
-      })),
-    consent: deps.isFirefox ? granted : () => stored.get(),
+      platformKnown.then(
+        () =>
+          (identity ??= resolveAnalyticsIdentity({
+            local: deps.local,
+            shared: deps.shared,
+            uuid,
+            sharedGraceMs: deps.sharedGraceMs ?? 4_000,
+            sleep: deps.sleep,
+          })),
+      ),
+    consent: () => platformKnown.then(deps.isFirefox ? firefoxConsent : storedConsent),
     storeConsent: deps.isFirefox ? undefined : (enabled) => stored.set(enabled),
     noticeApplies: !deps.isFirefox,
     isTrustedPage: (sender) => isExtensionPageSender(sender, runtimeId, extensionOrigin),

@@ -302,7 +302,9 @@ export function createExtensionAnalyticsHost(
   const identify = (userId: string, options?: TrackOptions) =>
     accounts.identify(userId, options);
   const blocksAtInstall =
-    deps.surface === "chrome" || deps.surface === "firefox";
+    deps.surface === "chrome" ||
+    deps.surface === "firefox" ||
+    deps.surface === "firefox-android";
   const isSafari =
     deps.surface === "safari-ios" || deps.surface === "safari-macos";
   // One bounded startup result that activity waits on. Only a start that actually established the
