@@ -6,6 +6,7 @@ import type { Component } from "svelte";
  * - "popup": D01's `.p-frame` (380 wide, 10px radius) from desktop-popup.html.
  * - "device": review.babel's `Device` (`.r-device.r-<kind>`), with its sheet, tab bar or title bar.
  * - "gallery": the gallery's `.g-frame.still-ui` pane.
+ * - "card": D03's single-card `Card` panel.
  */
 export type FrameSpec =
   | { kind: "popup"; cls?: string; innerTextScale?: number }
@@ -28,7 +29,9 @@ export type FrameSpec =
       title?: string;
       cls?: string;
     }
-  | { kind: "gallery"; width: number; height?: number };
+  | { kind: "gallery"; width: number; height?: number }
+  /** SettingsPage.babel `Card`: an auto-height `.r-device.r-tab.still-ui` panel, no tab bar. */
+  | { kind: "card"; w?: number };
 
 // Each case renders a different component; its props are checked where the case builds them.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

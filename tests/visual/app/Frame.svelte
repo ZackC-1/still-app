@@ -103,6 +103,17 @@
           ></div>{/if}
       </div>
     </div>
+  {:else if spec.kind === "card"}
+    <div class="r-pane" style={`width:${spec.w ?? 432}px`}>
+      <div
+        class="r-device r-tab still-ui"
+        data-theme={theme}
+        style="padding:12px;gap:12px"
+        data-visual-frame
+      >
+        <Screen {...props} />
+      </div>
+    </div>
   {:else if spec.kind === "gallery"}
     <div class="g-pane" style={`width:${spec.width}px`}>
       <div

@@ -54,7 +54,10 @@ async function chromeStyles(page: string) {
     const href = link[1]!;
     if (href.includes("styles.css")) continue; // tokens: the component ships its own copy
     const url = new URL(href, new URL(`${root}/${page}`, location.origin));
-    css.push(await (await fetch(url)).text());
+    // Without the text/css accept header Vite serves the stylesheet as a JS HMR module.
+    css.push(
+      await (await fetch(url, { headers: { accept: "text/css" } })).text(),
+    );
   }
   const source = new CSSStyleSheet();
   source.replaceSync(css.join("\n"));
