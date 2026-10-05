@@ -83,17 +83,23 @@ Deno.test({
       const inventory = (await sql.unsafe(await source("inventory")))[0]
         .still_security_inventory;
       assertEquals(inventory.server_version.length > 0, true);
-      assertEquals(inventory.migration_history.length, 13);
       assertEquals(
         JSON.stringify(inventory).includes("u1-a@example.invalid"),
         false,
       );
-      // The CLI clean path has already applied actual checked-in migrations, including 0012/0013.
+      // The CLI clean path has already applied actual checked-in migrations, including 0012-0014.
+      // Later migrations may follow; the inventory must report the complete applied history.
+      const applied =
+        (await sql`select version from supabase_migrations.schema_migrations order by version`)
+          .map((r) => r.version);
+      for (const required of ["0012", "0013", "0014"]) {
+        assert(applied.includes(required), `migration ${required} applied`);
+      }
       assertEquals(
-        (await sql`select count(*)::int as n from supabase_migrations.schema_migrations`)[
-          0
-        ].n,
-        13,
+        inventory.migration_history.map((m: { version: string }) => m.version)
+          .sort(),
+        applied,
+        "inventory reports the complete applied migration history",
       );
       await sql`insert into auth.users(id,email) values (${A}, 'u1-a@example.invalid'), (${B}, 'u1-b@example.invalid'), (${C}, 'u1-c@example.invalid')`;
       await sql`select public.set_entitlement(${B}::uuid,true,'historical','synthetic-sub')`;
@@ -170,7 +176,28 @@ Deno.test({
         "characterize unsafe baseline before changing grants",
         async () => {
           const issues = await sql`select issue from still_security.audit()`;
-          assert(issues.some((r) => r.issue === "unpinned_definer"));
+          // Migration 0014 already pinned every application definer and closed client RPC and
+          // table reach. What remains unsafe is the supabase_admin default-privilege residual
+          // (and the synthetic creators), which only the privileged candidate can remove.
+          assertEquals(
+            issues.some((r) => r.issue === "unpinned_definer"),
+            false,
+            "0014 pins every application SECURITY DEFINER search_path",
+          );
+          for (
+            const closed of [
+              "client_server_rpc",
+              "client_table_write",
+              "private_entitlement_column",
+              "client_schema_create",
+            ]
+          ) {
+            assertEquals(
+              issues.some((r) => r.issue === closed),
+              false,
+              `0014 already closes ${closed}`,
+            );
+          }
           assert(issues.some((r) => r.issue === "global_default_execute"));
           assert(
             issues.some((r) => r.issue === "schema_default_client_privilege"),

@@ -117,13 +117,18 @@
         (!features || features.includes(row.id)),
     ).map((row) => row.id),
   );
-  let accessHeld = $derived(
+  let accessChecking = $derived(
     FEATURE_REGISTRY.some(
-      (row) =>
-        row.tier === "pro" &&
-        ["checking", "verification_required"].includes(access.states[row.id]),
+      (row) => row.tier === "pro" && access.states[row.id] === "checking",
     ),
   );
+  let accessVerify = $derived(
+    FEATURE_REGISTRY.some(
+      (row) =>
+        row.tier === "pro" && access.states[row.id] === "verification_required",
+    ),
+  );
+  let accessHeld = $derived(accessChecking || accessVerify);
   let knownMissing = $derived(
     FEATURE_REGISTRY.some(
       (row) => row.tier === "pro" && access.states[row.id] === "locked",
@@ -150,7 +155,8 @@
       pro.ownership === "none" &&
       !restoreHeld &&
       pro.channel === "ready" &&
-      Boolean(pro.offer?.price) &&
+      // Same trimmed-price rule as the native card: a blank price is no offer.
+      Boolean(pro.offer?.price.trim()) &&
       Boolean(pro.onBuy) &&
       (!pro.state || pro.state === "idle"),
   );
@@ -181,8 +187,11 @@
 </script>
 
 {#snippet syncCaption()}
+  <!-- Owner decision 7: name Still Pro only while a paid producer actually offers it. -->
   {#if !sync.account}<p class="caption">
-      Optional. Blocking and Still Pro work without an account.
+      {pro
+        ? "Optional. Blocking and Still Pro work without an account."
+        : "Optional. Blocking works without an account."}
     </p>{/if}
 {/snippet}
 
@@ -271,9 +280,13 @@
   {/if}
   {#if link}<AccountLinkCard {...link} />{/if}
   {#if pro && pro.ownership !== "owned" && (pro.ownership !== "verify" || (!restore && pro.onRestore))}
+    <!-- Checking and verify stay separate so the card shows the matching presentation;
+      accessHeld covers only rights not known missing for any other reason. -->
     <NativeProOfferCard
       {...pro}
-      accessHeld={accessHeld || (pro.ownership === "none" && !knownMissing)}
+      {accessChecking}
+      {accessVerify}
+      accessHeld={pro.ownership === "none" && !knownMissing && !accessHeld}
       {restoreHeld}
     />
   {/if}

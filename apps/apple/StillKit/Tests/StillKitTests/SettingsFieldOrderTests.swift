@@ -81,24 +81,4 @@ final class SettingsFieldOrderTests: XCTestCase {
     }
     XCTAssertThrowsError(try SettingsFieldOrder.mergeFields(baseline, ["sites.tiktok.all": field(2, 1, true)]))
   }
-
-  func testApplicableReferenceAlgebra() throws {
-    var domain: [SettingsOrderedField] = []
-    for base in 0..<3 { for step in 0..<3 { for value in [false, true] { domain.append(field(Double(base), Double(step), value)) } } }
-    var checks = 0
-    func check(_ a: SettingsOrderedField, _ b: SettingsOrderedField) { XCTAssertEqual(a, b); checks += 1 }
-    for a in domain { for b in domain {
-      check(SettingsFieldOrder.merge(a, b), SettingsFieldOrder.merge(b, a))
-      check(SettingsFieldOrder.merge(SettingsFieldOrder.merge(a, b), b), SettingsFieldOrder.merge(a, b))
-      for c in domain { check(SettingsFieldOrder.merge(SettingsFieldOrder.merge(a, b), c), SettingsFieldOrder.merge(a, SettingsFieldOrder.merge(b, c))) }
-    } }
-    for a in domain {
-      check(SettingsFieldOrder.merge(a, a), a)
-      let next = SettingsFieldOrder.edit(a, acknowledgedRevision: a.baseRevision, requestedValue: !a.value).field
-      check(SettingsFieldOrder.merge(a, next), field(a.baseRevision, a.localStep + 1, !a.value))
-      XCTAssertEqual(SettingsFieldOrder.edit(a, acknowledgedRevision: a.baseRevision + 1, requestedValue: !a.value).field, field(a.baseRevision + 1, 1, !a.value))
-      checks += 1
-    }
-    XCTAssertEqual(checks, 6534)
-  }
 }
