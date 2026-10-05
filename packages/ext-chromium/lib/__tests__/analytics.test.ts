@@ -54,12 +54,13 @@ function setup(
   over: {
     isFirefox?: boolean;
     platform?: Promise<RuntimePlatform>;
+    local?: ReturnType<typeof memory>;
     granted?: boolean;
     shared?: AnalyticsKeyValue;
     identifyOnServer?: () => Promise<void>;
   } = {},
 ) {
-  const local = memory({ [CONSENT_KEY]: TEST_PERMISSION });
+  const local = over.local ?? memory({ [CONSENT_KEY]: TEST_PERMISSION });
   let n = 0;
   const fetch = vi.fn(async () => new Response("{}", { status: 200 }));
   const bg = createBackgroundAnalytics(
@@ -226,6 +227,24 @@ describe("background analytics (Firefox for Android)", () => {
     const surfaces = queue().map((e) => e.properties.surface);
     expect(surfaces.length).toBeGreaterThan(0);
     expect(new Set(surfaces)).toEqual(new Set(["firefox-android"]));
+  });
+
+  it("a queued Android event from an earlier start is sent, not dropped, while the next start waits for the platform", async () => {
+    const first = setup({ isFirefox: true, granted: true, platform: Promise.resolve("android") });
+    await first.send(TRACK, PAGE);
+    expect(first.queue().some((e) => e.properties.surface === "firefox-android")).toBe(true);
+    // The next background start shares the storage; its platform answer is still on the way.
+    let answer!: (platform: RuntimePlatform) => void;
+    const platform = new Promise<RuntimePlatform>((resolve) => (answer = resolve));
+    const next = setup({ isFirefox: true, granted: true, platform, local: first.local });
+    const early = next.bg.client.flush();
+    await next.settle();
+    answer("android");
+    await early;
+    await next.bg.client.flush();
+    const sent = next.fetch.mock.calls.map((call) => String((call as unknown[])[1] && ((call as unknown[])[1] as RequestInit).body));
+    expect(sent.join("\n")).toContain('"signed_in"');
+    expect(sent.join("\n")).toContain("firefox-android");
   });
 
   it("a failed platform answer falls back to desktop Firefox, as before", async () => {

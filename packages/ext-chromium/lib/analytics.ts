@@ -92,9 +92,9 @@ export function createBackgroundAnalytics(
   // Desktop Firefox and every Chromium browser keep exactly what they reported before.
   let surface: "chrome" | "firefox" | "firefox-android" = deps.isFirefox ? "firefox" : "chrome";
   let device: "desktop" | undefined = "desktop";
-  // Every event waits for consent and identity before it is built, and every send re-checks
-  // consent, so gating both on this answer means no event is ever built or checked against a
-  // surface that is about to change.
+  // Every event is built only after consent is read, and every send re-reads consent before it
+  // checks queued events, so gating consent on this answer means no event is ever built or checked
+  // against a surface that is about to change.
   const platformKnown = (deps.platform ?? Promise.resolve<RuntimePlatform>("desktop"))
     .catch((): RuntimePlatform => "desktop")
     .then((platform) => {
@@ -118,16 +118,13 @@ export function createBackgroundAnalytics(
     queueStore: deps.queue ?? undefined,
     // Wait briefly on a fresh install for Chrome/Firefox sync to bring this account's anchor.
     identity: () =>
-      platformKnown.then(
-        () =>
-          (identity ??= resolveAnalyticsIdentity({
-            local: deps.local,
-            shared: deps.shared,
-            uuid,
-            sharedGraceMs: deps.sharedGraceMs ?? 4_000,
-            sleep: deps.sleep,
-          })),
-      ),
+      (identity ??= resolveAnalyticsIdentity({
+        local: deps.local,
+        shared: deps.shared,
+        uuid,
+        sharedGraceMs: deps.sharedGraceMs ?? 4_000,
+        sleep: deps.sleep,
+      })),
     consent: () => platformKnown.then(deps.isFirefox ? firefoxConsent : storedConsent),
     storeConsent: deps.isFirefox ? undefined : (enabled) => stored.set(enabled),
     noticeApplies: !deps.isFirefox,
