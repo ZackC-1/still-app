@@ -18,7 +18,9 @@ export interface PostHogPort {
   /** Put the email on the account's person; with `accountCreated`, also record the one
    * `account_created` event for that account (the server decides, once per account). */
   setPersonEmail(userId: string, email: string, options?: AccountCreatedOptions): Promise<void>;
-  /** Delete the person and queue deletion of their events. Resolves when PostHog accepted it. */
+  /** Delete the person and queue deletion of their events. Resolves when PostHog accepted it, or
+   * when PostHog matched no person (nothing to delete). Rejects with a PostHogDeletionError whose
+   * `reason` is the only thing safe to log. */
   deletePerson(userId: string): Promise<void>;
 }
 
@@ -99,24 +101,27 @@ export class HttpPostHog implements PostHogPort {
     const first = await this.bulkDelete(userId, true);
     if (first.ok) {
       // A 202 can still carry failures: PostHog reports them in deletion_errors, and a match that
-      // queued nothing is not a deletion either. Retry once, then report.
-      if (deletionAccepted(first.body)) return;
+      // queued nothing is not a deletion either. Retry once, then report. A 202 that matched no
+      // person at all (someone who never shared usage, or whose person is already gone) is done:
+      // there is nothing to delete (see nothingToDelete).
+      if (deletionAccepted(first.body) || nothingToDelete(first.body)) return;
       const retry = await this.bulkDelete(userId, true);
-      if (retry.ok && deletionAccepted(retry.body)) return;
-      throw new Error("PostHog accepted the request but did not queue the deletion");
+      if (retry.ok && (deletionAccepted(retry.body) || nothingToDelete(retry.body))) return;
+      throw new PostHogDeletionError(retry.ok ? notQueuedReason(retry.body) : statusReason(retry.status));
     }
-    if (first.status !== 400) throw new Error(`PostHog deletion failed: ${first.status}`);
-    // With delete_events, PostHog refuses ids that match no person. Ask again without event
-    // deletion, which instead reports the unmatched ids: only an explicit "no such person" (someone
-    // who never shared usage) counts as done. Anything else is a real failure to log.
+    if (first.status !== 400) throw new PostHogDeletionError(statusReason(first.status));
+    // Older PostHog behaviour: with delete_events, ids that match no person were refused with a
+    // 400. Ask again without event deletion, which reported the unmatched ids. Only an explicit
+    // "no such person" counts as done; anything else is a real failure to log.
     const check = await this.bulkDelete(userId, false);
     if (check.ok) {
+      if (nothingToDelete(check.body)) return;
       const unmatched = (check.body as { unmatched_distinct_ids?: unknown } | null)?.unmatched_distinct_ids;
       if (Array.isArray(unmatched) && unmatched.includes(userId)) return;
       // It matched after all (and is now deleted), but its events were not queued for deletion.
-      throw new Error("PostHog deleted the person but refused to delete its events");
+      throw new PostHogDeletionError("events_not_queued");
     }
-    throw new Error(`PostHog deletion failed: ${first.status}/${check.status}`);
+    throw new PostHogDeletionError(statusReason(check.status));
   }
 
   private async bulkDelete(
@@ -124,15 +129,21 @@ export class HttpPostHog implements PostHogPort {
     deleteEvents: boolean,
   ): Promise<{ ok: boolean; status: number; body: unknown }> {
     const url = `${trimSlash(this.config.apiHost!)}/api/projects/${this.config.projectId}/persons/bulk_delete/`;
-    const res = await this.fetchImpl(url, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.config.personalApiKey!.trim()}`,
-      },
-      body: JSON.stringify({ distinct_ids: [userId], delete_events: deleteEvents }),
-    });
-    const text = await res.text();
+    let res: Response;
+    try {
+      res = await this.fetchImpl(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.config.personalApiKey!.trim()}`,
+        },
+        body: JSON.stringify({ distinct_ids: [userId], delete_events: deleteEvents }),
+      });
+    } catch {
+      // The raw error can carry the request URL; only the category leaves this function.
+      throw new PostHogDeletionError("network");
+    }
+    const text = await res.text().catch(() => "");
     let body: unknown = null;
     try {
       body = JSON.parse(text);
@@ -156,4 +167,71 @@ export function deletionAccepted(body: unknown): boolean {
   if (queued < 1) return false;
   if (b.events_queued_for_deletion === false) return false;
   return true;
+}
+
+/**
+ * Whether an accepted bulk_delete matched no person, so there is nothing to delete: the account
+ * never shared usage (no events, so no person), or its person was already deleted.
+ *
+ * PostHog's current answer for such ids is a 202 with `persons_found: 0`, nothing queued or deleted,
+ * and an empty `deletion_errors`; it no longer answers 400. Evidence (read 2026-10-05):
+ *   - Docs, posthog.com `contents/docs/privacy/data-storage.mdx`, "Bulk delete response": the
+ *     endpoint "returns a 202 once the request is accepted"; `persons_found` is the "Number of
+ *     persons matched by the provided IDs or distinct IDs"; failures are reported "in
+ *     deletion_errors rather than with an error status".
+ *   - Source, PostHog/posthog `posthog/api/person.py` `_queue_bulk_delete_persons` (and the
+ *     synchronous `_bulk_delete_persons`): returns `persons_found: len(persons)`,
+ *     `persons_queued_for_deletion` / `persons_deleted` counted over those persons,
+ *     `events_queued_for_deletion: delete_events and len(persons) > 0`, `deletion_errors: []`, with
+ *     status 202. `posthog/models/person/bulk_delete.py` `resolve_persons_for_deletion` returns an
+ *     empty list for ids with no person rather than raising.
+ *
+ * Strict on purpose: `persons_found` must be present and exactly 0, and nothing may report a
+ * failure or a deletion. A body that proves nothing (`{}`) stays a failure.
+ */
+export function nothingToDelete(body: unknown): boolean {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return false;
+  const b = body as Record<string, unknown>;
+  if (b.persons_found !== 0) return false;
+  if (b.deletion_errors !== undefined && !(Array.isArray(b.deletion_errors) && b.deletion_errors.length === 0)) {
+    return false;
+  }
+  const none = (value: unknown) => value === undefined || value === 0;
+  return none(b.persons_queued_for_deletion) && none(b.persons_deleted);
+}
+
+/** Why an account's analytics deletion did not complete. A fixed vocabulary that is safe to log:
+ * never an account id, email, URL, key or raw provider text. */
+export type DeletionFailureReason =
+  | "network"
+  | "http_4xx"
+  | "http_5xx"
+  | "http_other"
+  | "deletion_errors"
+  | "not_queued"
+  | "events_not_queued";
+
+export class PostHogDeletionError extends Error {
+  constructor(readonly reason: DeletionFailureReason) {
+    super(`PostHog deletion failed: ${reason}`);
+    this.name = "PostHogDeletionError";
+  }
+}
+
+function statusReason(status: number): DeletionFailureReason {
+  if (status >= 500 && status <= 599) return "http_5xx";
+  if (status >= 400 && status <= 499) return "http_4xx";
+  return "http_other";
+}
+
+function notQueuedReason(body: unknown): DeletionFailureReason {
+  const b = (typeof body === "object" && body !== null ? body : {}) as Record<string, unknown>;
+  if (Array.isArray(b.deletion_errors) && b.deletion_errors.length > 0) return "deletion_errors";
+  if (b.events_queued_for_deletion === false) return "events_not_queued";
+  return "not_queued";
+}
+
+/** The loggable reason for a failed deletion: the fixed code, or "unknown" for anything else. */
+export function deletionFailureReason(error: unknown): DeletionFailureReason | "unknown" {
+  return error instanceof PostHogDeletionError ? error.reason : "unknown";
 }

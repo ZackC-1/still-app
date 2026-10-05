@@ -48,8 +48,33 @@ export async function withAuthenticatedUser(
     // An uncaught body throw (Postgres/RevenueCat down) would otherwise become the platform's
     // default 500 WITHOUT the CORS headers — a browser caller can't even read the status then, so
     // backend-error looks identical to offline. Catch here so every gated function inherits a
-    // CORS-carrying, non-leaking 500; details stay in the server log.
-    console.error("authenticated handler failed:", error);
+    // CORS-carrying, non-leaking 500. The log gets a coarse category only: a raw driver or GoTrue
+    // error can echo the account id (a Postgres key detail, for example) or an email.
+    console.error("authenticated handler failed", { reason: failureCategory(error) });
     return jsonResponse(500, { error: "internal" });
   }
+}
+
+/** An error class name: letters only (AuthApiError, PostgresError). */
+const SAFE_NAME = /^[A-Z][A-Za-z]{0,39}$/;
+/** A SQLSTATE (23503) or a snake_case word code (user_not_found, http_5xx). */
+const SAFE_CODE = /^(?:[0-9A-Z]{5}|[a-z]+(?:_[a-z0-9]{1,8}){0,5})$/;
+
+/**
+ * A loggable category for a thrown value, built only from fields with a fixed vocabulary: the
+ * error class name, an HTTP status and a provider/SQLSTATE code, each kept only when it matches a
+ * narrow pattern (no `-`, `@`, `.`, spaces or long digit runs, so no UUID, email, URL, hex id or
+ * free text can pass). Never the message.
+ */
+export function failureCategory(error: unknown): string {
+  if (typeof error !== "object" || error === null) return "unknown";
+  const e = error as { name?: unknown; status?: unknown; code?: unknown; reason?: unknown };
+  const parts: string[] = [];
+  if (typeof e.name === "string" && SAFE_NAME.test(e.name)) parts.push(e.name);
+  if (typeof e.reason === "string" && e.reason.length <= 40 && SAFE_CODE.test(e.reason)) parts.push(e.reason);
+  if (typeof e.status === "number" && Number.isInteger(e.status) && e.status >= 100 && e.status <= 599) {
+    parts.push(`status_${e.status}`);
+  }
+  if (typeof e.code === "string" && e.code.length <= 40 && SAFE_CODE.test(e.code)) parts.push(`code_${e.code}`);
+  return parts.length > 0 ? parts.join(":") : "unknown";
 }
