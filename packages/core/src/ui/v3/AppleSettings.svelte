@@ -181,8 +181,11 @@
 </script>
 
 {#snippet syncCaption()}
+  <!-- Owner decision 7: name Still Pro only while a paid producer actually offers it. -->
   {#if !sync.account}<p class="caption">
-      Optional. Blocking and Still Pro work without an account.
+      {pro
+        ? "Optional. Blocking and Still Pro work without an account."
+        : "Optional. Blocking works without an account."}
     </p>{/if}
 {/snippet}
 

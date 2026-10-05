@@ -1386,3 +1386,37 @@ describe("D04 optional paid and combined-consent producers", () => {
     view.unmount();
   });
 });
+
+describe("D04 optional-account caption follows the paid producer (owner decision 7)", () => {
+  const SHORT = "Optional. Blocking works without an account.";
+  const DESIGN = "Optional. Blocking and Still Pro work without an account.";
+
+  it.each(["locked", "free", "purchased"] as const)(
+    "reads the blocking-only line while Still Pro is not offered and the design line once it is (%s access)",
+    async (state) => {
+      const { props } = await fixture(state);
+      const view = render(AppleSettings, {
+        props: { ...props, pro: undefined },
+      });
+      expect(screen.getByText(SHORT)).toBeVisible();
+      expect(screen.getByText(SHORT).textContent?.trim()).toBe(SHORT);
+      expect(screen.queryByText(DESIGN)).toBeNull();
+      expect(document.body.textContent).not.toContain("Still Pro work");
+      await view.rerender(props);
+      expect(screen.getByText(DESIGN)).toBeVisible();
+      expect(screen.getByText(DESIGN).textContent?.trim()).toBe(DESIGN);
+      expect(screen.queryByText(SHORT)).toBeNull();
+      await view.rerender({
+        ...props,
+        pro: undefined,
+        sync: {
+          ...props.sync,
+          account: { address: "actual-supplied@still.test", confirmed: true },
+        },
+      });
+      expect(screen.queryByText(SHORT)).toBeNull();
+      expect(screen.queryByText(DESIGN)).toBeNull();
+      view.unmount();
+    },
+  );
+});
