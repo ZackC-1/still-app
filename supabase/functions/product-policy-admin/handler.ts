@@ -15,9 +15,9 @@
 // revision. Every response is `Cache-Control: no-store`.
 //
 // Paid. A sales body is only the remote second key; packaged builds AND it with their compiled
-// switch. The first sales activation needs the cutoff snapshot (cutoff.ts), which is null today, so
-// the database answers "cutoff_required" and writes nothing.
-import { verifyJwt } from "../_shared/jwt.ts";
+// switch. Migration 0016 refuses any cutoff snapshot, so an activating sales body with no cutoff on
+// record answers "cutoff_required" and writes nothing, whatever cutoff.ts holds.
+import { authenticatedClaims, verifyJwt } from "../_shared/jwt.ts";
 import type { AuthDeps } from "../_shared/auth.ts";
 import { jsonResponse, optionsResponse } from "../_shared/store.ts";
 import { isUuid } from "../_shared/types.ts";
@@ -44,9 +44,26 @@ import type {
   ProductPolicyNamespace,
 } from "../../../packages/shared-types/src/product-policy.ts";
 
+/** The production auth wiring: HS256 secret (local) or the project JWKS (hosted), and the expected
+ * authenticated-user claims (project issuer, aud and role "authenticated"). A validly signed anon,
+ * service_role or foreign-issuer token is refused before the store is reached. */
+export function ownerAuthDeps(
+  supabaseUrl: string,
+  jwtSecret: string,
+): AuthDeps {
+  return {
+    jwtSecret,
+    jwksUrl: supabaseUrl
+      ? `${supabaseUrl}/auth/v1/.well-known/jwks.json`
+      : undefined,
+    expected: authenticatedClaims(supabaseUrl || undefined),
+  };
+}
+
 export interface ProductPolicyAdminDeps extends AuthDeps {
   readonly store: PolicyAdminStore;
-  /** The packaged first-activation snapshot (cutoff.ts). Null refuses any sales activation. */
+  /** The packaged first-activation snapshot (cutoff.ts). Migration 0016 refuses any non-null
+   * snapshot, so today only null reaches a successful apply. */
   readonly cutoffSnapshot: PaidCutoffSnapshot | null;
 }
 

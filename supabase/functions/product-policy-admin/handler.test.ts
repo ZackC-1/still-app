@@ -1,7 +1,9 @@
 import { assert, assertEquals } from "@std/assert";
 import { signHs256 } from "../_shared/jwt.ts";
+import { mintHs256, TEST_PROJECT_URL } from "../_shared/test-helpers.ts";
 import {
   handleProductPolicyAdmin,
+  ownerAuthDeps,
   type ProductPolicyAdminDeps,
 } from "./handler.ts";
 import { PAID_CUTOFF_SNAPSHOT, type PaidCutoffSnapshot } from "./cutoff.ts";
@@ -580,4 +582,49 @@ Deno.test("read reports the authoritative state and the remote effect, Off when 
     [on.json.revision, on.json.body, on.json.remote.chrome_desktop],
     [1, body(1), true],
   );
+});
+
+Deno.test("production wiring: a validly signed token that is not an authenticated user of this project is refused", async () => {
+  const wired = (calls: unknown[]): ProductPolicyAdminDeps => ({
+    ...ownerAuthDeps(TEST_PROJECT_URL, SECRET),
+    store: {
+      state: () => {
+        calls.push("state");
+        return Promise.resolve({
+          revision: 0,
+          body: null,
+          operationId: null,
+          cutoff: false,
+        });
+      },
+      preview: () => Promise.reject(new Error("unexpected")),
+      apply: () => Promise.reject(new Error("unexpected")),
+    },
+    cutoffSnapshot: null,
+  });
+  const read = { action: "read", namespace: "rating", environment: "sandbox" };
+  const good: unknown[] = [];
+  assertEquals(
+    (await send(
+      read,
+      wired(good),
+      mintHs256({ sub: OWNER, exp: exp() }, SECRET),
+    )).status,
+    200,
+  );
+  assertEquals(good, ["state"], "the control token reaches the store");
+  const cases: [string, Record<string, unknown>][] = [
+    ["anon role", { role: "anon" }],
+    ["service_role", { role: "service_role" }],
+    ["foreign issuer", { iss: "https://other-project.supabase.co/auth/v1" }],
+    ["foreign audience", { aud: "anon" }],
+    ["no issuer", { iss: undefined }],
+  ];
+  for (const [name, claims] of cases) {
+    const calls: unknown[] = [];
+    const token = mintHs256({ sub: OWNER, exp: exp(), ...claims }, SECRET);
+    const response = await send(read, wired(calls), token);
+    assertEquals(response.status, 401, name);
+    assertEquals(calls, [], name);
+  }
 });

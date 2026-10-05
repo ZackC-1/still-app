@@ -367,12 +367,20 @@ authoritative readback matches; otherwise it answers `checking` and the owner re
 apply. `preview-rollback` republishes an earlier revision's values at the next revision; revisions
 never decrease and published revisions cannot be changed or deleted.
 
-The first sales apply that would let an allowlisted build start a purchase must carry the frozen
-cutoff snapshot and writes it in the same transaction, once per environment; pause, resume, retry
-and later stores never create or change it, and triggers refuse any update, delete or truncate.
-`product-policy-admin/cutoff.ts` holds that snapshot and is `null` until the owner answers which
-features were released free and which protected product id to record; while it is null the
-database answers `cutoff_required` and writes nothing, so no paid activation is possible.
+No paid activation is possible from 0016, and that does not depend on function code: the database
+refuses every non-null cutoff argument (`product policy cutoff not enabled`), and a sales body that
+would let an allowlisted build start a purchase, with no cutoff on record, answers
+`cutoff_required` and writes nothing. A future, separately reviewed migration enables the one
+write-once cutoff per environment. Before it does, the snapshot must appear in the owner preview and
+be bound into the preview hash; today it is in neither (moot while every snapshot is refused).
+`product-policy-admin/cutoff.ts` stays `null` until the owner answers which features were released
+free and which protected product id to record.
+
+The write-once triggers on `product_policy_revisions` and `paid_cutoff` are `ENABLE ALWAYS`, so a
+session with `session_replication_role = replica` still cannot update, delete or truncate them. The
+table owner (`postgres`, the migration role) can still drop or alter the tables or triggers; that is
+an accepted, documented risk, and the post-apply check proves the triggers are present, always
+enabled and unconditional.
 
 ### Deploy order
 
@@ -389,9 +397,16 @@ Re-running 0015's check after 0016 reports the new private objects; that is expe
 1. Give `still_policy_reader` and `still_policy_admin` logins exactly as for the settings writer
    (`\password` in psql or an offline SCRAM verifier; never a cleartext password in SQL text).
 2. Store `PRODUCT_POLICY_READER_DB_URL` (reader) and `PRODUCT_POLICY_ADMIN_DB_URL` (admin) as Edge
-   Function secrets for the matching function only, through the pooler user
-   `<role>.<project-ref>`.
+   Function secrets, through the pooler user `<role>.<project-ref>`. Supabase Edge Function secrets
+   are project-wide: every deployed function can read every secret, so a code-execution flaw in any
+   function exposes both URLs. The separate database roles limit what each credential can do in SQL
+   (the reader can only read the current body; the admin can only act through the owner routes,
+   which check the allowlist); they do not protect a leaked environment.
 3. Deploy `product-policy` and `product-policy-admin` (each its own approved function deploy).
+   `supabase/config.toml` pins their gateway settings: `product-policy` has `verify_jwt = false`
+   (a public, identity-free read; clients never send a session token), and `product-policy-admin`
+   has `verify_jwt = true` (owner-only; the function also verifies the token's expiry, role and
+   project issuer, and the database checks the allowlist).
 4. Add the owner's own account to the allowlist with one reviewed statement,
    `insert into private.product_policy_owners (user_id) values ('<owner uuid>');`, as its own
    approved operation. Removing an owner is the matching single-row delete.
