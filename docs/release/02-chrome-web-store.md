@@ -20,6 +20,9 @@ pnpm --filter @still/ext-chromium build
 pnpm --filter @still/ext-chromium zip
 ```
 
+For a hashed, byte-reproducible package use `node scripts/release/package.mjs` instead of `wxt zip`; see
+[versioning and packages](versioning-and-packages.md).
+
 Use the frozen candidate's toolchain and explicit public Supabase configuration. An unconfigured
 bundle still blocks all four services for free but cannot offer its configured cloud sign-in/sync.
 Never replace an already submitted ZIP to align it with a later documentation commit.

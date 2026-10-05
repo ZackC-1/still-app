@@ -58,6 +58,11 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
+      # One version source (version.json) and reproducible, hashed packages. Builds the Chrome and
+      # Firefox bundles twice and requires byte-identical zips. No secrets, no store access.
+      - name: Release versioning and reproducible packages
+        run: pnpm test:release
+
       - name: Build (produces both extension dist/ folders)
         run: pnpm build
 
