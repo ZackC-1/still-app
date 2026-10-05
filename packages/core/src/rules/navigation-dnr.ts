@@ -18,9 +18,9 @@ import { etldPlusOne } from "./match.js";
 //
 // What is compiled, and why it is exact:
 // - YouTube Shorts (`youtube.shorts`): /shorts/<id> goes to the same host's /watch?v=<id>. The
-//   classifier rewrites the query with URLSearchParams.set, so only queries that serialization
-//   leaves byte-for-byte unchanged are copied (plain name=value pairs of unreserved characters,
-//   with no existing `v`); any other query stays with the content script.
+//   classifier rewrites the query with URLSearchParams.set, so only a query that serialization
+//   leaves byte-for-byte unchanged is copied (one plain name=value pair of unreserved characters,
+//   not `v`); any other query stays with the content script.
 // - Instagram Reels (`instagram.reels`): the bare /reels feed goes home; the plural viewer
 //   /reels/<code>/ opens that one Reel at /reel/<code>/ (query kept), except the audio hub
 //   /reels/audio/, which a higher-priority allow rule keeps reachable.
@@ -62,13 +62,17 @@ interface Template {
 const ID = "([A-Za-z0-9_-]+)";
 /** Any query, as long as no fragment follows (the classifier drops it for home redirects). */
 const ANY_QUERY = "(?:\\?[^#]*)?";
-/** One name=value pair URLSearchParams serializes unchanged, whose name is not `v`. */
+/**
+ * One name=value pair URLSearchParams serializes unchanged (unreserved characters only), whose
+ * name is not exactly `v`. A single pair is all Chrome's 2KB compiled-regex budget allows here
+ * (two pairs exceed it), and it covers YouTube's own share links (?feature=share, ?si=...).
+ */
 const UNRESERVED = "[A-Za-z0-9*._-]";
-const PAIR = `(?:${UNRESERVED}{2,}|[A-Za-uw-z0-9*._-])=${UNRESERVED}*`;
+const PAIR = `(?:[A-Za-uw-z0-9*._-]|v${UNRESERVED})${UNRESERVED}*=${UNRESERVED}*`;
 
 const TEMPLATES: readonly Template[] = Object.freeze([
   { id: 1, feature: "youtube.shorts", path: `/shorts/${ID}/?`, to: "\\1/watch?v=\\2" },
-  { id: 2, feature: "youtube.shorts", path: `/shorts/${ID}/?\\?(${PAIR}(?:&${PAIR})*)`, to: "\\1/watch?\\3&v=\\2" },
+  { id: 2, feature: "youtube.shorts", path: `/shorts/${ID}/?\\?(${PAIR})`, to: "\\1/watch?\\3&v=\\2" },
   { id: 11, feature: "instagram.reels", path: `/reels/?${ANY_QUERY}`, to: "\\1/" },
   { id: 12, feature: "instagram.reels", path: `/reels/${ID}/?(\\?[^#]*)?`, to: "\\1/reel/\\2/\\3" },
   { id: 13, feature: "instagram.reels", path: `/reels/audio/?${ANY_QUERY}` },
