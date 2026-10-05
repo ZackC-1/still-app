@@ -142,7 +142,7 @@ async function installBrowser(atomic = true) {
     },
     runtime: {
       id: "synthetic",
-      getURL: () => origin,
+      getURL: (path = "") => origin + path.replace(/^\//, ""),
       sendMessage,
       openOptionsPage,
     },
@@ -290,7 +290,8 @@ describe("real options help and local disclosure memory", () => {
       );
       const config = await import("../../../../core/src/ui/config.js");
       expect(open.mock.calls).toEqual([
-        [config.SETUP_GUIDE_URL, "_blank", "noopener,noreferrer"],
+        // Setup guide reopens the extension's own first-run page, not the website.
+        ["chrome-extension://synthetic/first-run.html", "_blank", "noopener,noreferrer"],
         [config.PRIVACY_POLICY_URL, "_blank", "noopener,noreferrer"],
       ]);
       expect(
