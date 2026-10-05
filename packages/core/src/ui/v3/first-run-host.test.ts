@@ -131,6 +131,19 @@ describe("first-run host mapping", () => {
     });
   });
 
+  it("leaves the pin step out only where the browser reports no toolbar (Firefox for Android)", () => {
+    expect(firstRunHostProps(host({ browser: "firefox", pinned: null, toolbar: false }))).not.toHaveProperty("pin");
+    // Absent or true keeps today's step on every desktop browser.
+    for (const toolbar of [undefined, true]) {
+      expect(firstRunHostProps(host({ browser: "firefox", pinned: null, toolbar })).pin).toEqual({
+        pinned: false,
+        verified: false,
+        guidance: { verified: true, text: FIRST_RUN_PIN_GUIDANCE.firefox },
+      });
+      expect(firstRunHostProps(host({ toolbar })).pin).toMatchObject({ pinned: false, verified: true });
+    }
+  });
+
   it("shows an account only when the background reports one with an address", () => {
     const onSignIn = vi.fn();
     expect(firstRunHostProps(host({ onSignIn })).sync).toEqual({ onSignIn });
@@ -172,6 +185,31 @@ describe("first-run host mapping rendered by the approved component", () => {
     expect(screen.getByText(FIRST_RUN_PIN_GUIDANCE.firefox)).toBeInTheDocument();
     screen.getByRole("button", { name: "Allow" }).click();
     expect(requestSiteAccess).toHaveBeenCalledOnce();
+  });
+
+  it("Firefox for Android: no pin step and no new words; sign-in becomes step 2", () => {
+    const { container } = render(FirstRun, {
+      props: firstRunHostProps(
+        host({ browser: "firefox", siteAccess: "needed", pinned: null, toolbar: false, requestSiteAccess: vi.fn() }),
+      ),
+    });
+    expect(screen.queryByText("Pin Still to your toolbar")).toBeNull();
+    expect(screen.queryByText(FIRST_RUN_PIN_GUIDANCE.firefox)).toBeNull();
+    const steps = [...container.querySelectorAll("ol.steps > li.step")];
+    expect(steps).toHaveLength(2);
+    expect(steps.map((step) => step.querySelector(".num")?.textContent?.trim())).toEqual(["1", "2"]);
+    expect(steps[0]).toHaveTextContent("Allow Still on supported sites");
+    expect(steps[1]).toHaveTextContent("Settings sync");
+    expect(screen.getByRole("button", { name: "Allow" })).toBeEnabled();
+  });
+
+  it("desktop Firefox keeps the three numbered steps", () => {
+    const { container } = render(FirstRun, {
+      props: firstRunHostProps(host({ browser: "firefox", siteAccess: "needed", pinned: null })),
+    });
+    const steps = [...container.querySelectorAll("ol.steps > li.step")];
+    expect(steps.map((step) => step.querySelector(".num")?.textContent?.trim())).toEqual(["1", "2", "3"]);
+    expect(steps[1]).toHaveTextContent("Pin Still to your toolbar");
   });
 
   it("access granted but Still switched off never claims Still is on", () => {

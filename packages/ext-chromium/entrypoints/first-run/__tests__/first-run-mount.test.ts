@@ -170,6 +170,29 @@ describe("first-run host mount", () => {
     await waitFor(() => expect((screen.getByRole("button", { name: "Allow" }) as HTMLButtonElement).disabled).toBe(false));
   });
 
+  it("Firefox for Android: no pin step, the same Allow request, and the sign-in step renumbered", async () => {
+    installBrowser();
+    const page = pageAnalytics(false, false);
+    const controller = createExtensionUiController(undefined, { analytics: firstRunAnalytics(page) });
+    const permissions = permissionsApi(false);
+    render(FirstRunApp, {
+      props: { controller, browser: "firefox", permissions, origins: ORIGINS, toolbar: false },
+    });
+    const allow = await screen.findByRole("button", { name: "Allow" });
+    await waitFor(() => expect((allow as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.queryByText("Pin Still to your toolbar")).toBeNull();
+    expect(
+      screen.queryByText("Click the puzzle piece in the toolbar, then the gear next to Still, then Pin to toolbar."),
+    ).toBeNull();
+    expect([...document.querySelectorAll("ol.steps > li.step .num")].map((n) => n.textContent?.trim())).toEqual([
+      "1",
+      "2",
+    ]);
+    await fireEvent.click(allow);
+    expect(permissions.request).toHaveBeenCalledWith({ origins: ORIGINS });
+    expect(page.track).not.toHaveBeenCalled();
+  });
+
   it("modern settings: Still switched off never reads as working", async () => {
     const authority = installBrowser({
       "still:settings": { settings: structuredClone(DEFAULT_SETTINGS), syncMetadata: null },
