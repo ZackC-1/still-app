@@ -1011,7 +1011,9 @@ describe("account, restore, help and telemetry mapping", () => {
 
 describe("free-period Restore purchase (owner decision 17)", () => {
   const RESTORED = "Still Pro is restored on this device.";
-  const NOTHING = "No Still Pro purchase was found for this account.";
+  // Owner decision 26: the Apple app's "nothing found" names the Apple Account.
+  const NOTHING = "No Still Pro purchase was found for this Apple Account.";
+  const NOTHING_DETAIL = "Bought it with another Apple Account? Sign in with that one and try again.";
   const FAILED = "We couldn't finish checking. Nothing changed.";
   type Replies = Record<string, () => Promise<unknown>>;
   const json =
@@ -1081,6 +1083,10 @@ describe("free-period Restore purchase (owner decision 17)", () => {
     });
     await fireEvent.click(screen.getByRole("button", { name: "Restore purchase" }));
     expect(await screen.findByText(NOTHING)).toBeInTheDocument();
+    expect(screen.getByText(NOTHING_DETAIL)).toBeInTheDocument();
+    // The browser wording never appears in the Apple app.
+    expect(screen.queryByText("No Still Pro purchase was found for this account.")).toBeNull();
+    expect(screen.queryByText(/another account or Apple ID/)).toBeNull();
     expect(screen.queryByText(FAILED)).toBeNull();
     expect(h.sentAfter()).toEqual(["restore"]);
     await expectUnchanged(h);

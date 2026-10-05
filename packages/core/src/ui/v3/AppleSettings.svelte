@@ -33,6 +33,12 @@
     setup,
     help,
   }: AppleSettingsProps = $props();
+  // Owner decision 26: the App Store check is against the person's Apple Account.
+  const appleNothingCopy = {
+    text: "No Still Pro purchase was found for this Apple Account.",
+    detail:
+      "Bought it with another Apple Account? Sign in with that one and try again.",
+  };
   let confirming = $state(false);
   type DeleteTarget = Pick<
     NonNullable<AppleSettingsProps["sync"]["account"]>,
@@ -319,6 +325,7 @@
   {/if}
   {#if restore}<RestoreStatusCard
       {...restore}
+      nothingCopy={appleNothingCopy}
       onAction={pro?.state !== "pending" && restore?.onAction
         ? requestRestoreAction
         : undefined}
