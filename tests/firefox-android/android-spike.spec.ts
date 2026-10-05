@@ -73,18 +73,47 @@ function writeReport(): void {
     appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join("\n"));
 }
 
-async function connect(timeoutMs = 120_000): Promise<Bidi> {
+/** Reject after `ms` with a label, so a silent hang ends as a recorded step instead of a timeout. */
+function bounded<T>(work: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    work,
+    new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label}: no answer within ${ms / 1000}s`)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+/** Does the forwarded port accept a WebSocket at all? Recorded separately from the session. */
+async function socketOpens(timeoutMs = 120_000): Promise<string> {
   const deadline = Date.now() + timeoutMs;
-  let last: unknown;
+  let last = "";
   while (Date.now() < deadline) {
     try {
-      return await Bidi.connect(ENDPOINT);
+      await bounded(
+        new Promise<void>((resolve, reject) => {
+          const socket = new WebSocket(`${ENDPOINT}/session`);
+          socket.addEventListener("open", () => {
+            socket.close();
+            resolve();
+          });
+          socket.addEventListener("error", () => reject(new Error("socket error")));
+        }),
+        15_000,
+        "WebSocket open",
+      );
+      return "open";
     } catch (error) {
-      last = error;
+      last = String(error);
       await sleep(2_000);
     }
   }
-  throw new Error(`no WebDriver BiDi endpoint at ${ENDPOINT}: ${String(last)}`);
+  throw new Error(`no WebSocket at ${ENDPOINT}/session: ${last}`);
+}
+
+/** The BiDi session itself (session.new inside Bidi.connect), bounded. */
+async function connect(): Promise<Bidi> {
+  return await bounded(Bidi.connect(ENDPOINT), 90_000, "session.new");
 }
 
 async function topContexts(bidi: Bidi): Promise<Json[]> {
@@ -192,10 +221,18 @@ test("Firefox for Android spike", async () => {
   const tapped = await dismissOnboarding();
   record("dismiss Firefox onboarding (native UI)", "info", tapped.length ? tapped : "nothing to dismiss");
 
+  try {
+    record("WebSocket opens on the forwarded port", "pass", await socketOpens());
+  } catch (error) {
+    record("WebSocket opens on the forwarded port", "stopped", String(error));
+    screencap("stopped-no-socket");
+    throw error;
+  }
   let bidi: Bidi;
   try {
     bidi = await connect();
-    const status = await bidi.send("session.status");
+    const status = await bounded(bidi.send("session.status"), 30_000, "session.status");
+    record("browsing contexts at start", "info", (await bounded(topContexts(bidi), 30_000, "getTree")).map((c) => c.url));
     record("connect WebDriver BiDi over adb", "pass", status);
   } catch (error) {
     record(
@@ -212,10 +249,10 @@ test("Firefox for Android spike", async () => {
   // 1. Install, then the feasibility question: site access from the first-run page.
   let firefox: StillFirefox;
   try {
-    firefox = await StillFirefox.attach(
+    firefox = await bounded(StillFirefox.attach(
       { bidi, version: process.env.FENIX_VERSION ?? "unknown", stop: async () => bidi.close() },
       { type: "base64", value: readFileSync(PACKAGE).toString("base64") },
-    );
+    ), 120_000, "webExtension.install and network intercept");
     record("install Still as a temporary add-on (webExtension.install)", "pass");
   } catch (error) {
     record("install Still as a temporary add-on (webExtension.install)", "fail", String(error));

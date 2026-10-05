@@ -16,7 +16,7 @@ log() { echo "[spike] $*" | tee -a "$ART/steps.log"; }
 
 collect() {
   # Always leave evidence: logcat (Gecko lines first), sockets, the final screen.
-  adb logcat -d -v time 2>/dev/null | grep -iE "gecko|remote|bidi|webdriver|webextension|still" | tail -n 4000 > "$ART/logcat-gecko.txt" || true
+  adb logcat -d -v time -s Gecko:V GeckoConsole:V GeckoView:V GeckoRuntime:V 2>/dev/null | tail -n 4000 > "$ART/logcat-gecko.txt" || true
   adb logcat -d -v time 2>/dev/null | tail -n 4000 > "$ART/logcat.txt" || true
   adb shell "cat /proc/net/tcp /proc/net/tcp6 2>/dev/null" > "$ART/remote-sockets.txt" 2>&1 || true
   adb shell "cat /proc/net/unix 2>/dev/null | grep -i firefox" >> "$ART/remote-sockets.txt" 2>&1 || true
@@ -55,13 +55,19 @@ prefs:
   datareporting.healthreport.uploadEnabled: false
   toolkit.telemetry.enabled: false
   app.update.enabled: false
+  remote.log.level: Debug
+  browser.dom.window.dump.enabled: true
 YAML
 adb push "$CONFIG" "/data/local/tmp/$PACKAGE-geckoview-config.yaml" > /dev/null || stop "could not push the GeckoView config file"
 adb shell chmod 644 "/data/local/tmp/$PACKAGE-geckoview-config.yaml" || true
 
 log "launch Firefox"
 adb shell am force-stop "$PACKAGE" || true
-adb shell monkey -p "$PACKAGE" -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1 || stop "could not launch Firefox"
+# Open with a blank tab, as geckodriver does: the BiDi session needs a browsing context, and a
+# first launch without one sits on Firefox's welcome screen with no tab at all.
+adb shell am start -W -a android.intent.action.VIEW -d about:blank "$PACKAGE" > "$ART/am-start.txt" 2>&1 \
+  || adb shell monkey -p "$PACKAGE" -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1 \
+  || stop "could not launch Firefox"
 
 log "wait for Firefox to report its BiDi port"
 listening=""
