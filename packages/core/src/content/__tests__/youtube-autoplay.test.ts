@@ -180,6 +180,28 @@ describe("the Autoplay guard", () => {
     expect(counts.cancel).toBe(2);
   });
 
+  it("a deliberate click that stays on the current video (a timestamp or chapter) keeps the chosen playlist", async () => {
+    const counts = counters();
+    const g = guard(PLAYLIST);
+    g.reconcile(true, new URL(PLAYLIST));
+    for (const link of [
+      "https://www.youtube.com/watch?v=inv300003&t=90s",
+      "https://www.youtube.com/watch?v=inv300003&t=1m30s&index=2",
+    ]) g.navigated(new URL(link), "deliberate");
+    nextLink().href = "/watch?v=inv300004&list=PLinvented03&index=3";
+    end();
+    await settle();
+    expect(counts.cancel, "the next item of the chosen playlist continues").toBe(0);
+    // A deliberate click on a DIFFERENT video with no list still ends the chosen playlist.
+    const other = new URL("https://www.youtube.com/watch?v=inv300030");
+    g.navigated(other, "deliberate");
+    g.reconcile(true, other);
+    nextLink().href = "/watch?v=inv300004&list=PLinvented03&index=3";
+    end();
+    await settle();
+    expect(counts.cancel).toBe(1);
+  });
+
   it("stop removes every listener and observer", async () => {
     const counts = counters();
     overlay().style.display = "none";

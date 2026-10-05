@@ -132,8 +132,13 @@ export function createYouTubeAutoplayGuard(doc: Document, initialUrl: URL): YouT
 
   return {
     navigated(target, intent) {
-      if (stopped) return;
-      if (intent === "deliberate") chosenList = target.pathname === "/watch" ? listOf(target) : null;
+      if (stopped || intent !== "deliberate") return;
+      // A click that stays on the current video (a timestamp or chapter link: same /watch and
+      // same v, no list=) only seeks; it is not a new choice and keeps the chosen playlist.
+      const current = new URL(currentHref);
+      if (target.pathname === "/watch" && current.pathname === "/watch" && listOf(target) === null
+        && target.origin === current.origin && target.searchParams.get("v") === current.searchParams.get("v")) return;
+      chosenList = target.pathname === "/watch" ? listOf(target) : null;
     },
     reconcile(next, url) {
       if (stopped) return;
