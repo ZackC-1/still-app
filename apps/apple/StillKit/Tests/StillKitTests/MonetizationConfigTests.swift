@@ -156,32 +156,81 @@ final class MonetizationConfigTests: XCTestCase {
   }
 
   /// One identifier the helpers reached from the free-period Restore must not use. It matches the
-  /// whole identifier (never a longer name that merely contains it, so `logInfo` is not `logIn`),
-  /// and, for a call, only when it is actually called.
+  /// whole identifier (never a longer name that merely contains it, so `logInfo` is not `logIn`).
+  /// A `call` name is a verb that can also be a plain word, so it matches only when it is called
+  /// (with parentheses or a trailing closure) or taken as a member reference (`x.name`, as in
+  /// `Task(operation: x.attachPurchases)`); every other name matches wherever it appears.
   private struct ForbiddenName {
     let name: String
     let call: Bool
 
     func found(in code: String) -> Bool {
-      let pattern = #"(?<![\w])"# + NSRegularExpression.escapedPattern(for: name) + (call ? #"\s*\("# : #"(?![\w])"#)
+      let escaped = NSRegularExpression.escapedPattern(for: name)
+      let pattern = call
+        ? #"(?<![\w])"# + escaped + #"\s*[({]|\."# + escaped + #"(?![\w])"#
+        : #"(?<![\w])"# + escaped + #"(?![\w])"#
       return code.range(of: pattern, options: .regularExpression) != nil
     }
   }
 
   private static let forbiddenForFreePeriodHelpers: [ForbiddenName] = [
     ForbiddenName(name: "Purchases", call: false), ForbiddenName(name: "RevenueCat", call: false),
-    ForbiddenName(name: "purchase", call: true), ForbiddenName(name: "restorePurchases", call: true),
-    ForbiddenName(name: "syncPurchases", call: true), ForbiddenName(name: "purchaseStillPro", call: true),
-    ForbiddenName(name: "hasStillPro", call: false), ForbiddenName(name: "attachPurchases", call: true),
-    ForbiddenName(name: "priceString", call: false), ForbiddenName(name: "logIn", call: true),
-    ForbiddenName(name: "logOut", call: true),
+    ForbiddenName(name: "purchase", call: true), ForbiddenName(name: "restorePurchases", call: false),
+    ForbiddenName(name: "syncPurchases", call: false), ForbiddenName(name: "purchaseStillPro", call: false),
+    ForbiddenName(name: "hasStillPro", call: false), ForbiddenName(name: "attachPurchases", call: false),
+    ForbiddenName(name: "priceString", call: false), ForbiddenName(name: "logIn", call: false),
+    ForbiddenName(name: "logOut", call: false),
   ]
 
-  /// `source` without `//` line comments and `/* */` blocks. A `//` right after a colon is a URL.
+  /// `source` without `//` line comments and `/* */` blocks (which nest in Swift). Comment markers
+  /// inside `"..."` and `"""..."""` string literals are text, not comments, and stay.
   private static func withoutComments(_ source: String) -> String {
-    source
-      .replacingOccurrences(of: #"/\*[\s\S]*?\*/"#, with: "", options: .regularExpression)
-      .replacingOccurrences(of: #"(?<!:)//[^\n]*"#, with: "", options: .regularExpression)
+    let chars = Array(source)
+    var out = ""
+    var i = 0
+    var blockDepth = 0
+    func at(_ offset: Int, _ text: String) -> Bool {
+      let end = offset + text.count
+      return end <= chars.count && String(chars[offset..<end]) == text
+    }
+    while i < chars.count {
+      if blockDepth > 0 {
+        if at(i, "/*") { blockDepth += 1; i += 2 }
+        else if at(i, "*/") { blockDepth -= 1; i += 2 }
+        else { i += 1 }
+        continue
+      }
+      if at(i, "//") {
+        while i < chars.count && chars[i] != "\n" { i += 1 }
+        continue
+      }
+      if at(i, "/*") { blockDepth = 1; i += 2; continue }
+      if at(i, "\"\"\"") {
+        out += "\"\"\""
+        i += 3
+        while i < chars.count && !at(i, "\"\"\"") {
+          if chars[i] == "\\" && i + 1 < chars.count { out.append(chars[i]); i += 1 }
+          out.append(chars[i])
+          i += 1
+        }
+        if i < chars.count { out += "\"\"\""; i += 3 }
+        continue
+      }
+      if chars[i] == "\"" {
+        out.append(chars[i])
+        i += 1
+        while i < chars.count && chars[i] != "\"" && chars[i] != "\n" {
+          if chars[i] == "\\" && i + 1 < chars.count { out.append(chars[i]); i += 1 }
+          out.append(chars[i])
+          i += 1
+        }
+        if i < chars.count && chars[i] == "\"" { out.append(chars[i]); i += 1 }
+        continue
+      }
+      out.append(chars[i])
+      i += 1
+    }
+    return out
   }
 
   /// The walk follows `self?.helper(` and `Self.helper(`, and the forbidden-name match is exact:
@@ -221,6 +270,26 @@ final class MonetizationConfigTests: XCTestCase {
     XCTAssertTrue(logIn.found(in: "try await Purchases.shared.logIn(id)"), "a real call is found")
     XCTAssertTrue(logIn.found(in: "self.logIn (id)"), "a call with a space is found")
     XCTAssertTrue(logIn.found(in: Self.withoutComments("let u = \"https://x\"; logIn(id)")), "a URL is not a comment")
+    // Trailing-closure calls and function references are the same reach as a call with parentheses.
+    let logOut = ForbiddenName(name: "logOut", call: false)
+    XCTAssertTrue(logOut.found(in: "x.logOut { _ in }"), "a trailing-closure call is found")
+    XCTAssertTrue(logOut.found(in: "logOut { _ in }"))
+    let attach = ForbiddenName(name: "attachPurchases", call: false)
+    XCTAssertTrue(attach.found(in: "Task(operation: x.attachPurchases)"), "a function reference is found")
+    XCTAssertFalse(attach.found(in: "attachPurchasesLater()"))
+    let purchase = ForbiddenName(name: "purchase", call: true)
+    XCTAssertTrue(purchase.found(in: "try await manager.purchase { _ in }"))
+    XCTAssertTrue(purchase.found(in: "Task(operation: manager.purchase)"))
+    XCTAssertTrue(purchase.found(in: "purchase(product)"))
+    XCTAssertFalse(purchase.found(in: "let purchase = 1"), "a plain word is not a purchase call")
+    XCTAssertFalse(purchase.found(in: "purchased(product)"))
+    // A comment marker inside a string literal is text: the code after it is still read.
+    let masked = Self.withoutComments("let p = \"a//b\"; Purchases.shared.logIn(id)")
+    XCTAssertTrue(logIn.found(in: masked), "// inside a string must not hide the call after it")
+    XCTAssertTrue(logIn.found(in: Self.withoutComments("let p = \"\"\"\nsee http://x\n\"\"\"; logIn(id)")), "multi-line string")
+    XCTAssertTrue(logIn.found(in: Self.withoutComments("let p = \"say \\\"//\\\" now\"; logIn(id)")), "escaped quote")
+    XCTAssertFalse(logIn.found(in: Self.withoutComments("/* a /* nested */ logIn(id) */ let a = 1")), "nested block comment")
+    XCTAssertFalse(logIn.found(in: Self.withoutComments("let a = 1 // logIn(id)\nlet b = 2")))
     let revenueCat = ForbiddenName(name: "RevenueCat", call: false)
     XCTAssertTrue(revenueCat.found(in: "import RevenueCat"))
     XCTAssertFalse(revenueCat.found(in: "RevenueCatNote"))
