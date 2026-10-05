@@ -117,7 +117,12 @@ export class ChromeStorageAdapter implements StorageAdapter {
       return record;
     }
     if (this.writer) return this.writer.commit(intent);
-    const reply: unknown = await chrome.runtime.sendMessage(settingsIntentMessage(intent));
+    let reply: unknown;
+    // A worker terminated after its durable write but before replying closes the channel. The
+    // intent's outcome is then unknown, exactly like an "unavailable" reply: hold and re-read the
+    // stored record; never resend the intent.
+    try { reply = await chrome.runtime.sendMessage(settingsIntentMessage(intent)); }
+    catch { throw new SettingsStorageRecovery("authority-unavailable"); }
     if (!reply || typeof reply !== "object" || (reply as { status?: unknown }).status !== "committed")
       throw new SettingsStorageRecovery("authority-unavailable");
     const record = parseStoredSettingsRecord((reply as { record?: unknown }).record);
