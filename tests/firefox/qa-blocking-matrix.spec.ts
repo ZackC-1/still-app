@@ -319,7 +319,7 @@ test("J2.FD a Shorts address ends up on the watch page, on both hosts, and Off l
   }
 });
 
-test("J2.FD a Shorts address reached by in-page navigation redirects without a reload", async () => {
+test("J2.FD a Shorts address reached by in-page navigation still ends up on the watch page", async () => {
   current = () => fixture("youtube.html");
   firefox.serve((url) =>
     url.pathname.startsWith("/watch")
@@ -339,6 +339,10 @@ test("J2.FD a Shorts address reached by in-page navigation redirects without a r
     (u) => u.includes("/watch"),
   );
   expect(url).toMatch(/\/watch\?v=spa123/);
+  // The redirect is a real navigation, not an in-place change: the page's own marker is gone.
+  expect(
+    await tab.evaluate<string | null>("window.__stillMarker ?? null"),
+  ).toBeNull();
   await tab.close();
 });
 

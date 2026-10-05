@@ -16,7 +16,9 @@ import { fixture, type StillFirefox, type Tab } from "./_session.js";
 // off, so no screen Still shows may offer a purchase (owner decision 6), locked Pro rows offer
 // nothing when tapped (decision 24), no rating card appears, and pages make no checkout or sales
 // request. BiDi cannot see the background's own requests; the lane's unconfigured-build check shows
-// the background has no server address to call.
+// the background has no server address to call. The request assertions below (recordRequests) are
+// SUPPORTING evidence only: BiDi sees page requests, not the background's or the extension pages' own.
+// The proof that nothing offers a purchase is the page-text, control and link checks.
 
 const SALES_REQUEST =
   /revenuecat|rc-?billing|stripe|checkout|paddle|purchase|product-policy|entitlement|storekit/i;

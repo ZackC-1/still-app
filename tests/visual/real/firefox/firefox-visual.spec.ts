@@ -53,6 +53,7 @@ type Row = {
   differing?: number;
   size?: string;
   reference?: string;
+  impl?: string;
 };
 const record = (row: Row) =>
   writeFileSync(join(OUT, "rows", `${row.id}.json`), JSON.stringify(row));
@@ -268,7 +269,8 @@ for (const c of cases) {
       percent: outcome.percent,
       differing: outcome.differing,
       size,
-      reference: relative(REPO, impl),
+      reference: c.reference,
+      impl: relative(REPO, impl),
       reason: status === "FAIL" ? (c as { causes?: string }).causes : undefined,
     });
     if (c.mode === "gated")

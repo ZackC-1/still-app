@@ -31,8 +31,9 @@ type Original = { firstRecordedAt: number; firstRecordedAppVersion: string };
 test("J8.FD removing and re-adding Still in the same profile is a fresh install", async ({}, testInfo) => {
   test.setTimeout(120_000);
   const ev = new FirefoxEvidence("J8.FD", testInfo, firefox);
+  const firstInstall = await firstRunTab(firefox);
   await ev.shot("first-run", "first-install-first-run");
-  await (await firstRunTab(firefox)).close();
+  await firstInstall.close();
 
   // The person changes a choice.
   const popup = await firefox.openExtensionPage("popup.html");
@@ -76,7 +77,12 @@ test("J8.FD removing and re-adding Still in the same profile is a fresh install"
   const again = (await readStore<Original>(firefox, "still:originalInstall"))!;
   expect(again.firstRecordedAt).toBeGreaterThan(original.firstRecordedAt);
   expect(again.firstRecordedAppVersion).toBe(original.firstRecordedAppVersion);
-  ev.log("original-install-records", { before: original, after: again });
+  // Only the comparison is logged: the records themselves carry install identifiers.
+  ev.log("original-install-comparison", {
+    laterThanFirst: again.firstRecordedAt > original.firstRecordedAt,
+    sameBuildVersion:
+      again.firstRecordedAppVersion === original.firstRecordedAppVersion,
+  });
   expect(Object.keys(await storeDump(firefox)).sort()).toEqual([
     "still:originalInstall",
     "still:settings",

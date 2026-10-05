@@ -71,6 +71,22 @@ export class FirefoxChrome {
       await new Promise((r) => setTimeout(r, 700));
       return true;
     })()`);
+    // The page itself must see exactly this viewport, or the picture is of a different layout.
+    const tree = await this.bidi.send("browsingContext.getTree", {});
+    const page = (tree.contexts as Json[]).find((c) =>
+      String(c.url).includes(urlPart),
+    );
+    if (!page) throw new Error(`no page with ${urlPart} to measure`);
+    const reply = await this.bidi.send("script.evaluate", {
+      expression: "window.innerWidth + 'x' + window.innerHeight",
+      target: { context: page.context as string },
+      awaitPromise: true,
+    });
+    const seen = (reply.result as Json | undefined)?.value;
+    if (seen !== `${size.width}x${size.height}`)
+      throw new Error(
+        `framed ${urlPart} at ${size.width}x${size.height} but the page sees ${seen}`,
+      );
   }
 
   /** Put the tab back as Firefox laid it out. */

@@ -61,7 +61,7 @@ export async function tabsWith(
     .map((c) => new Tab(firefox.bidi, c.context));
 }
 
-/** The first-run page the install opened (waits for it). */
+/** The first-run page the install opened, once it has loaded and drawn its heading (waits for both). */
 export async function firstRunTab(
   firefox: StillFirefox,
   timeoutMs = 15_000,
@@ -69,9 +69,18 @@ export async function firstRunTab(
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const [tab] = await tabsWith(firefox, FIRST_RUN_URL);
-    if (tab) return tab;
+    if (tab) {
+      // The tab exists as soon as its URL matches, before the document has loaded, so wait for the
+      // document to be complete with a heading. A sample taken mid-navigation counts as "not yet".
+      const ready = await tab
+        .evaluate<boolean>(
+          `document.readyState === "complete" && !!document.querySelector("h1")`,
+        )
+        .catch(() => false);
+      if (ready) return tab;
+    }
     if (Date.now() > deadline)
-      throw new Error("the first-run page never opened");
+      throw new Error("the first-run page never opened and finished loading");
     await new Promise((done) => setTimeout(done, 100));
   }
 }
@@ -185,6 +194,18 @@ export async function reinstall(firefox: StillFirefox): Promise<void> {
   await firefox.bidi.send("webExtension.install", {
     extensionData: { type: "path", path: FIREFOX_EXTENSION },
   });
+  // The mapping must have survived the install, or pages could no longer be opened by address.
+  const mapping = JSON.parse(
+    await (
+      await FirefoxChrome.attach(firefox.bidi)
+    ).eval<string>(
+      `Services.prefs.getStringPref("extensions.webextensions.uuids")`,
+    ),
+  ) as Record<string, string>;
+  if (mapping[EXTENSION_ID] !== EXTENSION_UUID)
+    throw new Error(
+      `after reinstall the add-on's address is ${mapping[EXTENSION_ID]}, not the pinned ${EXTENSION_UUID}`,
+    );
 }
 
 export const NEEDS_BACKEND =
