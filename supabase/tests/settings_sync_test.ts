@@ -442,7 +442,7 @@ Deno.test({
                   0
                 ].source as string;
               const mutant = definition.replace(
-                /if exists \(select 1 from private\.settings_anchors a[\s\S]*?raise exception 'settings client upgrade required' using errcode = '40001';\n {2}end if;/,
+                /if \(p_settings \? 'schemaVersion'[\s\S]*?raise exception 'settings client upgrade required' using errcode = '40001';\n {2}end if;/,
                 "",
               );
               assert(mutant !== definition);

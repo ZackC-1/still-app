@@ -15,7 +15,8 @@
 --      automatic non-inheriting, non-SET admin grant to postgres; not reachable from a client role;
 --  (3) schema private: owned by postgres; only the writer holds anything (USAGE);
 --  (4) relations in private: exactly settings_anchors and settings_writes, owned by postgres, RLS
---      on, no table or column grant to anyone, both cascading from auth.users on delete;
+--      on, no table or column grant to anyone, both cascading from auth.users on delete, every
+--      required column present with its exact type and NOT NULL, and the primary/unique keys;
 --  (5) functions in private: exactly the seven, owned by postgres, search_path pg_temp-last, SECURITY
 --      DEFINER exactly for lock/claim/commit/cleanup, EXECUTE only for the owner plus (lock, claim,
 --      commit) the writer, bodies byte-identical to the migration;
@@ -95,7 +96,7 @@ private_relations as (
 -- The two public routines 0015 replaces, with their expected grantees besides the owner.
 public_routines(sig, kind, body_md5) as (
   values
-    ('public.write_profile_settings(jsonb,uuid)', 'free_sync', '0073385ba03c3b87b823d3ed5b2f34e0'),
+    ('public.write_profile_settings(jsonb,uuid)', 'free_sync', 'a77f3d44e9cd733e57d24aedcdebddfd'),
     ('public.consume_rate_limit(text,integer,integer)', 'limiter', 'e9f68d6d07c3497e53eed3495a01200e')
 ),
 public_state as (
@@ -182,6 +183,37 @@ issues(issue) as (
   where not exists (select 1 from pg_catalog.pg_constraint k
                     where k.conrelid = r.oid and k.contype = 'f'
                       and k.confrelid = pg_catalog.to_regclass('auth.users')::oid and k.confdeltype = 'c')
+  union all
+  select 'private_column:' || x.relname || '.' || x.attname
+  from (values
+    ('settings_anchors', 'user_id', 'pg_catalog.uuid'::pg_catalog.regtype),
+    ('settings_anchors', 'lineage', 'pg_catalog.uuid'::pg_catalog.regtype),
+    ('settings_anchors', 'secret', 'pg_catalog.bytea'::pg_catalog.regtype),
+    ('settings_anchors', 'modern_used', 'pg_catalog.bool'::pg_catalog.regtype),
+    ('settings_writes', 'user_id', 'pg_catalog.uuid'::pg_catalog.regtype),
+    ('settings_writes', 'write_id', 'pg_catalog.uuid'::pg_catalog.regtype),
+    ('settings_writes', 'body', 'pg_catalog.jsonb'::pg_catalog.regtype),
+    ('settings_writes', 'created_at', 'pg_catalog.timestamptz'::pg_catalog.regtype)
+  ) x(relname, attname, typ)
+  join private_relations r on r.relname = x.relname
+  where not exists (select 1 from pg_catalog.pg_attribute a
+                    where a.attrelid = r.oid and a.attname = x.attname and not a.attisdropped
+                      and a.attnotnull and a.atttypid = x.typ::pg_catalog.oid)
+  union all
+  select 'private_key:' || x.relname || '.' || x.kind || ':' || pg_catalog.array_to_string(x.cols, ',')
+  from (values
+    ('settings_anchors', 'primary', array['user_id']),
+    ('settings_anchors', 'unique', array['lineage']),
+    ('settings_writes', 'primary', array['user_id', 'write_id'])
+  ) x(relname, kind, cols)
+  join private_relations r on r.relname = x.relname
+  where not exists (
+    select 1 from pg_catalog.pg_index i
+    where i.indrelid = r.oid and i.indisunique and (x.kind = 'unique' or i.indisprimary)
+      and i.indpred is null and i.indexprs is null
+      and (select pg_catalog.array_agg(a.attname::text order by k.ord)
+           from pg_catalog.unnest(i.indkey) with ordinality k(attnum, ord)
+           join pg_catalog.pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum) = x.cols)
   union all
   -- (5) functions in private.
   select 'private_function_missing:' || r.sig from routines r where r.oid is null

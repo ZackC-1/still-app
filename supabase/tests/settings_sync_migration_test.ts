@@ -94,6 +94,22 @@ async function migrationSource(): Promise<string> {
     new URL(`../migrations/${MIGRATION}`, import.meta.url),
   );
 }
+async function verificationSource(): Promise<string> {
+  return await Deno.readTextFile(
+    new URL(
+      "../../scripts/backend/deploy/verify/0015_settings_sync_per_field.sql",
+      import.meta.url,
+    ),
+  );
+}
+/** The deploy runner's read-only post-apply check: its JSON array of open issue codes. */
+async function verify(sql: Sql): Promise<string[]> {
+  return await sql.begin(async (tx) => {
+    await tx`set transaction read only`;
+    const rows = await tx.unsafe(await verificationSource());
+    return JSON.parse(String(Object.values(rows[0])[0]));
+  });
+}
 async function seedSource(): Promise<string> {
   return await Deno.readTextFile(
     new URL("./settings_sync_migration_seed.sql", import.meta.url),
@@ -188,8 +204,60 @@ async function snapshot(sql: Sql, subject: string) {
 
 Deno.test({
   name:
+    "U3-W1: before 0015, its post-apply check reports exactly the missing end state",
+  ignore: !databaseUrl || mode !== "pre-upgrade",
+  async fn() {
+    assert(new URL(databaseUrl!).hostname === "127.0.0.1");
+    const admin = postgres(databaseUrl!, options);
+    try {
+      const versions =
+        (await admin`select version from supabase_migrations.schema_migrations order by version`)
+          .map((r) => r.version);
+      assertEquals(versions.at(-1), "0014", "the database is exactly at 0014");
+      assertEquals(await verify(admin), [
+        "free_sync_body_changed",
+        "free_sync_definition",
+        "limiter_body_changed",
+        "limiter_definition",
+        "limiter_grantees",
+        "migration_missing:0015",
+        ...[
+          "claim_settings_write(uuid,uuid,jsonb)",
+          "cleanup_settings_writes()",
+          "commit_settings(uuid,uuid,bigint,jsonb,jsonb,uuid,bigint,jsonb)",
+          "lock_settings(uuid,uuid,text)",
+          "settings_canonical_valid(jsonb,bigint)",
+          "settings_fields()",
+          "settings_json_bounded(jsonb)",
+        ].map((routine) => `private_function_missing:private.${routine}`),
+        "private_relation_missing:settings_anchors",
+        "private_relation_missing:settings_writes",
+        "private_schema_missing",
+        "retention_job",
+        ...[
+          "claim_revenuecat_event(text,text,jsonb)",
+          "cleanup_rate_limit_counters()",
+          "complete_revenuecat_event(text,uuid)",
+          "consume_rate_limit(text,integer,integer)",
+          "get_current_rule_set()",
+          "record_revenuecat_event(text,text,jsonb)",
+          "release_revenuecat_event(text,uuid)",
+          "set_entitlement(uuid,boolean,text,text)",
+          "sync_rate_limit_account()",
+          "write_profile_settings(jsonb,uuid)",
+        ].map((routine) => `unsafe_search_path:${routine}`),
+        "writer_missing",
+      ]);
+    } finally {
+      await admin.end();
+    }
+  },
+});
+
+Deno.test({
+  name:
     "U3-W1: 0015 adds the private per-field path and keeps free sync for released apps",
-  ignore: !databaseUrl || !mode,
+  ignore: !databaseUrl || (mode !== "upgrade" && mode !== "clean"),
   async fn(t) {
     assert(mode === "upgrade" || mode === "clean", "mode is upgrade or clean");
     const target = new URL(databaseUrl!);
@@ -251,6 +319,11 @@ Deno.test({
         },
       );
       if (!preconditions) return;
+
+      await t.step(
+        "the deploy runner's post-apply check reports no open issue after the apply",
+        async () => assertEquals(await verify(admin), []),
+      );
 
       await t.step(
         "seeded released-app rows survive byte-for-byte",
@@ -862,7 +935,7 @@ Deno.test({
                   0
                 ].source as string;
               const mutant = definition.replace(
-                /if exists \(select 1 from private\.settings_anchors a[\s\S]*?raise exception 'settings client upgrade required' using errcode = '40001';\n {2}end if;/,
+                /if \(p_settings \? 'schemaVersion'[\s\S]*?raise exception 'settings client upgrade required' using errcode = '40001';\n {2}end if;/,
                 "",
               );
               assert(mutant !== definition, "guard located");
@@ -906,6 +979,38 @@ Deno.test({
             } else {
               const error = await rejection(run);
               assertEquals(error.code, "40001");
+              assertEquals(await snapshot(admin, MINIMAL), before);
+            }
+          }
+          // The same holds for the incoming document: only a newer client sends a schemaVersion
+          // other than 1. Released apps send none (or 1) and are still accepted.
+          for (
+            const [body, accepted] of [
+              [{ schemaVersion: 2, globalOn: true }, false],
+              [{ schemaVersion: 3, globalOn: true }, false],
+              [{ schemaVersion: "1", globalOn: true }, false],
+              [{ schemaVersion: 1, globalOn: true }, true],
+              [{
+                globalOn: true,
+                services: {
+                  youtube: true,
+                  instagram: true,
+                  tiktok: true,
+                  facebook: true,
+                },
+                pauses: [],
+                updatedAt: 1791000000002,
+              }, true],
+            ] as const
+          ) {
+            const before = await snapshot(admin, MINIMAL);
+            const run = () => legacyWrite(MINIMAL, body, crypto.randomUUID());
+            if (accepted) {
+              assertEquals((await run()).settings, body);
+            } else {
+              const error = await rejection(run);
+              assertEquals(error.code, "40001", JSON.stringify(body));
+              assertEquals(error.message, "settings client upgrade required");
               assertEquals(await snapshot(admin, MINIMAL), before);
             }
           }
@@ -1092,6 +1197,7 @@ Deno.test({
         });
         // The writer's LOGIN (set above, outside the migration) is untouched too.
         assertEquals(await catalogState(admin), before);
+        assertEquals(await verify(admin), []);
         assertEquals({
           anchors: [
             ...await admin`select user_id::text, lineage::text, modern_used from private.settings_anchors order by user_id`,
@@ -1225,6 +1331,19 @@ Deno.test({
             [
               "create table private.u3m_extra (x int)",
               "private_relation_unexpected:u3m_extra",
+            ],
+            // `create table if not exists` keeps a pre-existing table: its shape must be proved.
+            [
+              "alter table private.settings_anchors drop column modern_used",
+              "private_column:settings_anchors.modern_used",
+            ],
+            [
+              "alter table private.settings_writes alter column body type text",
+              "private_column:settings_writes.body",
+            ],
+            [
+              "alter table private.settings_writes drop constraint settings_writes_pkey",
+              "private_key:settings_writes.primary:user_id,write_id",
             ],
             [
               "alter default privileges for role postgres in schema private grant select on tables to anon",

@@ -246,6 +246,16 @@ definer could plant a `pg_temp.text` (or `jsonb`, `uuid`, ...) domain whose CHEC
 owner's rights. 0015 re-pins the 0013/0014 definers it does not replace and its self-check refuses
 any definer whose path does not end in `pg_temp`. Later migrations must use the same form.
 
+### Deploy order
+
+0014 must be deployed and verified on its own before 0015. 0014's post-apply check pins the
+free-sync body, the limiter's grantees and the empty search_path, all of which 0015 deliberately
+changes, so a single run listing both would fail 0014's check after applying. The deploy planner
+(`deploy/deploy.mjs`) refuses any plan in which a later listed migration changes a routine that an
+earlier listed migration's post-apply check names (category `verification-overlap`). Deploy 0014
+from its own commit, confirm it verified, then deploy 0015 alone. Re-running 0014's check after 0015
+reports those changes; that is expected and not a regression.
+
 ### Owner steps after 0015 is applied (separate approval, never in Git)
 
 1. Give the writer a login without putting a cleartext password in SQL text. Either connect with

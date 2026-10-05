@@ -63,28 +63,45 @@ grants_test() {
   STILL_GRANTS_TEST_DATABASE_URL="$STILL_SECURITY_TEST_DATABASE_URL" STILL_GRANTS_TEST_MODE="$1" \
     deno test --config supabase/functions/deno.json "$db_test_env" --allow-read=supabase/migrations,supabase/tests --allow-net=127.0.0.1:54322 supabase/tests/server_rpc_grants_test.ts
 }
+# Apply pending migrations only up to and including version $1, still through the CLI as the
+# ordinary postgres role, from a temporary copy of the project that holds no later migration.
+migrate_up_to() {
+  local upto
+  upto=$(mktemp -d)
+  mkdir -p "$upto/supabase/migrations"
+  cp supabase/config.toml "$upto/supabase/"
+  for migration in supabase/migrations/*.sql; do
+    local name=${migration##*/}
+    if (( 10#${name%%_*} <= 10#$1 )); then cp "$migration" "$upto/supabase/migrations/"; fi
+  done
+  supabase migration up --local --workdir "$upto" >/dev/null
+  rm -rf "$upto"
+}
+# 0014 as the newest migration (the state production holds between the two deploys): upgrade
+# from 0013 with realistic rows, then a clean database at exactly 0014. Its re-apply and
+# self-check steps run here; at the 0015 head they are skipped.
 supabase db reset --local --no-seed --version 0013 >/dev/null
 psql "$STILL_SECURITY_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --file=supabase/tests/server_rpc_grants_seed.sql
-supabase migration up --local >/dev/null
+migrate_up_to 0014
 grants_test upgrade
-supabase db reset --local --no-seed >/dev/null
-grants_test clean
-# 0014 as the newest migration, so its re-apply and self-check steps run: at the head they are
-# skipped because 0015 re-pins search_path in the stricter pg_temp-last form.
 supabase db reset --local --no-seed --version 0014 >/dev/null
 grants_test clean
-supabase db reset --local --no-seed >/dev/null
 # The existing pgTAP suite against migrations alone (no candidate). On 0013 it fails the
 # set_entitlement, entitlement-write and anon free-sync checks; 0014 must make it pass.
 supabase test db supabase/tests/rls_test.sql
-# Migration 0015 on its own: upgrade from 0014 with realistic released-app rows (the CLI applies
-# 0015 as the ordinary postgres role), then a clean head. Client probes use `authenticator`.
+# Separately, 0014's end state still holds at the 0015 head (stricter search_path form).
+supabase db reset --local --no-seed >/dev/null
+grants_test clean
+# Migration 0015 on its own: upgrade from 0014 with realistic released-app rows (its verification
+# first reports the missing objects, then the CLI applies 0015 as the ordinary postgres role),
+# then a clean head. Client probes use `authenticator`.
 u3_migration_test() {
   STILL_U3_MIGRATION_TEST_DATABASE_URL="$STILL_SECURITY_TEST_DATABASE_URL" STILL_U3_MIGRATION_TEST_MODE="$1" \
-    deno test --config supabase/functions/deno.json "$db_test_env" --allow-read=supabase/migrations,supabase/tests --allow-net=127.0.0.1:54322 supabase/tests/settings_sync_migration_test.ts
+    deno test --config supabase/functions/deno.json "$db_test_env" --allow-read=supabase/migrations,supabase/tests,scripts/backend/deploy/verify --allow-net=127.0.0.1:54322 supabase/tests/settings_sync_migration_test.ts
 }
 supabase db reset --local --no-seed --version 0014 >/dev/null
 psql "$STILL_SECURITY_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --file=supabase/tests/settings_sync_migration_seed.sql
+u3_migration_test pre-upgrade
 supabase migration up --local >/dev/null
 u3_migration_test upgrade
 supabase db reset --local --no-seed >/dev/null

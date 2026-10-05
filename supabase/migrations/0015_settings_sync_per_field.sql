@@ -15,9 +15,15 @@
 -- addition takes the same per-account lock the new path takes and then refuses, with
 -- `settings client upgrade required` (SQLSTATE 40001) and no change to the row, an account that has
 -- already saved settings through the new per-field path or whose stored document was written by a
--- newer client (`schemaVersion` present and not 1). Replacing that document wholesale would erase
--- per-field history that other devices rely on. Accounts that have only ever used released apps
--- never reach that branch.
+-- newer client (`schemaVersion` present and not 1), and any incoming document that itself carries a
+-- `schemaVersion` other than 1 (released apps send none, or 1). Replacing a per-field document
+-- wholesale would erase history that other devices rely on. Accounts that have only ever used
+-- released apps never reach that branch.
+--
+-- Deploy order. 0014 must be deployed and verified on its own before 0015. 0014's post-apply check
+-- pins the free-sync body, the limiter's grantees and the empty search_path that 0015 deliberately
+-- changes, so a single deploy listing both would fail 0014's check after applying; the deploy
+-- planner refuses such a plan.
 --
 -- Authority. Applied by the hosted migration role `postgres` (non-superuser) and nothing else; the
 -- first block refuses any other executing role. Every object below is created and owned by
@@ -444,7 +450,8 @@ begin
   -- Take the per-account lock the per-field writer path holds for its whole transaction, then
   -- decide. A per-field commit in flight therefore finishes first and this check sees it.
   perform 1 from auth.users u where u.id = v_user_id for no key update;
-  if exists (select 1 from private.settings_anchors a
+  if (p_settings ? 'schemaVersion' and p_settings -> 'schemaVersion' <> '1'::jsonb)
+     or exists (select 1 from private.settings_anchors a
              where a.user_id = v_user_id and a.modern_used)
      or exists (select 1 from public.profiles p
                 where p.id = v_user_id and p.settings ? 'schemaVersion'
@@ -640,6 +647,45 @@ begin
     if pg_catalog.to_regclass('private.' || setting) is null then
       issues := issues || ('private_relation_missing:' || setting);
     end if;
+  end loop;
+  -- `create table if not exists` keeps a table that already existed: prove its shape. Every column
+  -- the helpers and the free-sync guard use, with its exact type and NOT NULL, and the keys.
+  for item in
+    select x.relname, x.attname from (values
+      ('settings_anchors', 'user_id', 'pg_catalog.uuid'::pg_catalog.regtype),
+      ('settings_anchors', 'lineage', 'pg_catalog.uuid'::pg_catalog.regtype),
+      ('settings_anchors', 'secret', 'pg_catalog.bytea'::pg_catalog.regtype),
+      ('settings_anchors', 'modern_used', 'pg_catalog.bool'::pg_catalog.regtype),
+      ('settings_writes', 'user_id', 'pg_catalog.uuid'::pg_catalog.regtype),
+      ('settings_writes', 'write_id', 'pg_catalog.uuid'::pg_catalog.regtype),
+      ('settings_writes', 'body', 'pg_catalog.jsonb'::pg_catalog.regtype),
+      ('settings_writes', 'created_at', 'pg_catalog.timestamptz'::pg_catalog.regtype)
+    ) x(relname, attname, typ)
+    where pg_catalog.to_regclass('private.' || x.relname) is not null
+      and not exists (select 1 from pg_catalog.pg_attribute a
+                      where a.attrelid = pg_catalog.to_regclass('private.' || x.relname)
+                        and a.attname = x.attname and not a.attisdropped and a.attnotnull
+                        and a.atttypid = x.typ::pg_catalog.oid)
+  loop
+    issues := issues || ('private_column:' || item.relname || '.' || item.attname);
+  end loop;
+  for item in
+    select x.relname, x.kind, x.cols from (values
+      ('settings_anchors', 'primary', array['user_id']),
+      ('settings_anchors', 'unique', array['lineage']),
+      ('settings_writes', 'primary', array['user_id', 'write_id'])
+    ) x(relname, kind, cols)
+    where pg_catalog.to_regclass('private.' || x.relname) is not null
+      and not exists (
+        select 1 from pg_catalog.pg_index i
+        where i.indrelid = pg_catalog.to_regclass('private.' || x.relname)
+          and i.indisunique and (x.kind = 'unique' or i.indisprimary)
+          and i.indpred is null and i.indexprs is null
+          and (select pg_catalog.array_agg(a.attname::text order by k.ord)
+               from pg_catalog.unnest(i.indkey) with ordinality k(attnum, ord)
+               join pg_catalog.pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum) = x.cols)
+  loop
+    issues := issues || ('private_key:' || item.relname || '.' || item.kind || ':' || pg_catalog.array_to_string(item.cols, ','));
   end loop;
 
   -- Functions in private: exactly the expected set, owned by postgres, pg_temp-last search_path, and
