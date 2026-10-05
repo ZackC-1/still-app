@@ -1,5 +1,10 @@
 import seed from "../../rules/seed.json";
-import type { SignedRuleSet, SignedRuleSetV2 } from "@still/shared-types";
+import {
+  SERVICE_IDS,
+  type ServiceId,
+  type SignedRuleSet,
+  type SignedRuleSetV2,
+} from "@still/shared-types";
 import {
   EntitlementCache,
   ChromeEntitlementAdapter,
@@ -10,7 +15,12 @@ import {
   validateRuleSetV2,
   type ReadableArea,
 } from "../rules/index.js";
-import { SettingsCache, ChromeStorageAdapter } from "../storage/index.js";
+import { PACKAGED_RULE_SET_V2, admitPackagedRuleSetV2 } from "../rules/packaged.js";
+import {
+  SettingsCache,
+  ChromeStorageAdapter,
+  parseStoredSettingsRecord,
+} from "../storage/index.js";
 import {
   createContentScript,
   earlyShortsRedirect,
@@ -135,5 +145,119 @@ export function createExtensionContentEntry(
       .then(() => nudge?.request())
       .catch(() => script.stop());
     deps.requestReconcile?.();
+  };
+}
+
+/**
+ * Services whose pages run the packaged format-2 lane in shipping builds. Held empty: every
+ * shipping page keeps the legacy seed engine until each service's built-extension contract
+ * (hide-not-remove, no route placeholders, root classes, YouTube's Shorts-filter recovery) is
+ * accepted. Adding a service here is the whole activation; the lane rules below stay the same.
+ */
+export const FORMAT2_SHIPPING_SERVICES: ReadonlySet<ServiceId> = new Set<ServiceId>();
+
+/** The settings key the content script's ChromeStorageAdapter reads (its local projection). */
+const SETTINGS_KEY = "still:settings";
+
+/** Which engine a shipping page runs, and why the legacy seed engine was kept. */
+export type ShippingContentLane =
+  | { readonly kind: "format2" }
+  | {
+      readonly kind: "legacy";
+      readonly reason:
+        | "no-service"
+        | "service-held"
+        | "tiktok-port-absent"
+        | "packaged-invalid"
+        | "settings-absent"
+        | "settings-not-schema2"
+        | "settings-unreadable";
+    };
+
+export interface ShippingContentEntryDeps
+  extends Omit<ExtensionContentEntryDeps, "bundledRuleSetV2"> {
+  /** Test seam; production admits the generated packaged format2.json. */
+  readonly packagedRuleSetV2?: unknown;
+  /** Test seam; production uses FORMAT2_SHIPPING_SERVICES. */
+  readonly format2Services?: ReadonlySet<ServiceId>;
+  /** Test-only observation of the lane chosen for this page. */
+  readonly onLane?: (lane: ShippingContentLane) => void;
+}
+
+/** The service whose manifest host pattern (`*://*.<service>.com/*`) admitted this page. */
+function pageService(href: string): ServiceId | null {
+  let host: string;
+  try {
+    host = new URL(href).hostname;
+  } catch {
+    return null;
+  }
+  return SERVICE_IDS.find((id) => host === `${id}.com` || host.endsWith(`.${id}.com`)) ?? null;
+}
+
+/**
+ * The shipping content entry. One page runs exactly one engine, chosen once per document:
+ *
+ * - format-2 only when the page's service is activated, the packaged set is admitted, and the
+ *   committed local settings are already schema 2 (the format-2 engine deliberately does
+ *   nothing for a legacy projection, so a legacy-settings user must keep the legacy engine);
+ * - TikTok additionally needs the trusted blocked-screen port, otherwise its existing
+ *   account-free legacy site block stays in force;
+ * - everything else, including invalid packaged data and absent or unreadable settings, falls
+ *   back to the legacy seed engine exactly as before.
+ *
+ * Pages that cannot run format-2 decide synchronously, with no extra storage read, so the legacy
+ * early Shorts redirect keeps its document_start timing.
+ */
+export function createShippingContentEntry(
+  deps: ShippingContentEntryDeps,
+): (context?: ExtensionContentContext) => Promise<void> {
+  const services = deps.format2Services ?? FORMAT2_SHIPPING_SERVICES;
+  const legacy = createExtensionContentEntry(deps);
+  let modern: ReturnType<typeof createExtensionContentEntry> | null | undefined;
+  const modernEntry = () => {
+    if (modern === undefined) {
+      const admitted = admitPackagedRuleSetV2(
+        "packagedRuleSetV2" in deps ? deps.packagedRuleSetV2 : PACKAGED_RULE_SET_V2,
+      );
+      modern = admitted
+        ? createExtensionContentEntry({ ...deps, bundledRuleSetV2: admitted })
+        : null;
+    }
+    return modern;
+  };
+  // Synchronous part: pages that cannot run format-2 never wait for a storage read.
+  const held = (href: string): ShippingContentLane | null => {
+    const service = pageService(href);
+    if (!service) return { kind: "legacy", reason: "no-service" };
+    if (!services.has(service)) return { kind: "legacy", reason: "service-held" };
+    if (service === "tiktok" && !deps.handleBlockedNavigation)
+      return { kind: "legacy", reason: "tiktok-port-absent" };
+    if (!modernEntry()) return { kind: "legacy", reason: "packaged-invalid" };
+    return null;
+  };
+  const committedSchema = async (): Promise<ShippingContentLane> => {
+    try {
+      const raw = await deps.storage.get(SETTINGS_KEY);
+      if (!Object.hasOwn(raw, SETTINGS_KEY)) return { kind: "legacy", reason: "settings-absent" };
+      const settings = parseStoredSettingsRecord(raw[SETTINGS_KEY])?.settings;
+      return settings && "schemaVersion" in settings && settings.schemaVersion === 2
+        ? { kind: "format2" }
+        : { kind: "legacy", reason: "settings-not-schema2" };
+    } catch {
+      return { kind: "legacy", reason: "settings-unreadable" };
+    }
+  };
+  return (context = {}): Promise<void> => {
+    const win = deps.win ?? (window as unknown as StillWindow);
+    const decided = held(win.location.href);
+    if (decided) {
+      deps.onLane?.(decided);
+      return legacy(context);
+    }
+    return committedSchema().then((lane) => {
+      deps.onLane?.(lane);
+      return (lane.kind === "format2" ? modern! : legacy)(context);
+    });
   };
 }

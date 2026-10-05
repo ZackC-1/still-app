@@ -20,6 +20,7 @@ import {
 } from "../../entitlement/access-policy.js";
 import AppleSettings from "./AppleSettings.svelte";
 import SyncCard from "./SyncCard.svelte";
+import ProOfferCard from "./ProOfferCard.svelte";
 import type { AppleSettingsProps } from "./apple-settings-presentation.js";
 
 /** Existing paid/consent fixtures supply both producers; absence is tested separately. */
@@ -1383,6 +1384,214 @@ describe("D04 optional paid and combined-consent producers", () => {
       screen.queryByRole("button", { name: "Keep legacy usage sharing off" }),
     ).toBeNull();
     expect(props.sharing.onChange).not.toHaveBeenCalled();
+    view.unmount();
+  });
+});
+
+describe("D04 optional-account caption follows the paid producer (owner decision 7)", () => {
+  const SHORT = "Optional. Blocking works without an account.";
+  const DESIGN = "Optional. Blocking and Still Pro work without an account.";
+
+  it.each(["locked", "free", "purchased"] as const)(
+    "reads the blocking-only line while Still Pro is not offered and the design line once it is (%s access)",
+    async (state) => {
+      const { props } = await fixture(state);
+      const view = render(AppleSettings, {
+        props: { ...props, pro: undefined },
+      });
+      expect(screen.getByText(SHORT)).toBeVisible();
+      expect(screen.getByText(SHORT).textContent?.trim()).toBe(SHORT);
+      expect(screen.queryByText(DESIGN)).toBeNull();
+      expect(document.body.textContent).not.toContain("Still Pro work");
+      await view.rerender(props);
+      expect(screen.getByText(DESIGN)).toBeVisible();
+      expect(screen.getByText(DESIGN).textContent?.trim()).toBe(DESIGN);
+      expect(screen.queryByText(SHORT)).toBeNull();
+      await view.rerender({
+        ...props,
+        pro: undefined,
+        sync: {
+          ...props.sync,
+          account: { address: "actual-supplied@still.test", confirmed: true },
+        },
+      });
+      expect(screen.queryByText(SHORT)).toBeNull();
+      expect(screen.queryByText(DESIGN)).toBeNull();
+      view.unmount();
+    },
+  );
+});
+
+describe("D04 native offer card follows the supplied Pro access states", () => {
+  const offer = (buy = vi.fn()) => ({
+    ownership: "none" as const,
+    channel: "ready" as const,
+    offer: { price: "fixture native offer" },
+    onBuy: buy,
+    onRestore: vi.fn(),
+  });
+  const card = () => screen.getByRole("region", { name: "Still Pro" });
+  const statusText = (region: HTMLElement) =>
+    region.querySelector(".status-line")?.textContent?.replace(/\s+/g, " ");
+
+  it("shows the shared verify presentation, never Buy, when a Pro row needs verification and ownership is none", async () => {
+    const shared = render(ProOfferCard, {
+      props: {
+        ownership: "verify",
+        channel: "ready",
+        confirmedAccount: false,
+        knownMissing: false,
+      },
+    });
+    const sharedVerify = statusText(card());
+    shared.unmount();
+    expect(sharedVerify).toContain("Still Pro needs to be verified again.");
+    const { props } = await fixture("locked");
+    const buy = vi.fn();
+    props.pro = offer(buy);
+    props.access = {
+      ...props.access,
+      states: {
+        ...props.access.states,
+        "youtube.comments": "verification_required",
+      },
+    };
+    const view = render(AppleSettings, { props });
+    expect(statusText(card())).toBe(sharedVerify);
+    expect(within(card()).getByRole("status")).toHaveAttribute(
+      "data-tone",
+      "caution",
+    );
+    expect(screen.queryByText("Checking your Still Pro access…")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Get Still Pro" })).toBeNull();
+    expect(
+      screen.queryByText("No account needed. Payment is handled by Apple."),
+    ).toBeNull();
+    await fireEvent.click(
+      screen.getByRole("button", { name: "YouTube Blocker" }),
+    );
+    expect(rowControl("switch", "Comments")).toBe("disabled");
+    const lock = screen.getByRole("button", {
+      name: "Related videos. Included in Still Pro. See Still Pro",
+    });
+    expect(lock).toHaveAttribute("aria-disabled", "true");
+    await fireEvent.click(lock);
+    expect(buy).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it.each([
+    { label: "checking", states: ["checking"] },
+    {
+      label: "checking and verification",
+      states: ["checking", "verification_required"],
+    },
+  ] as const)(
+    "shows the checking spinner, never Buy or verify, while a Pro row is $label",
+    async ({ states }) => {
+      const { props } = await fixture("locked");
+      const buy = vi.fn();
+      props.pro = offer(buy);
+      const rows = ["youtube.comments", "youtube.related"] as const;
+      props.access = {
+        ...props.access,
+        states: {
+          ...props.access.states,
+          ...Object.fromEntries(states.map((state, i) => [rows[i], state])),
+        },
+      };
+      const view = render(AppleSettings, { props });
+      expect(
+        within(card()).getByText("Checking your Still Pro access…"),
+      ).toBeVisible();
+      expect(within(card()).getByRole("status")).toHaveAttribute(
+        "data-tone",
+        "pending",
+      );
+      expect(
+        screen.queryByText("Still Pro needs to be verified again."),
+      ).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: "Get Still Pro" }),
+      ).toBeNull();
+      expect(
+        screen.queryByText("No account needed. Payment is handled by Apple."),
+      ).toBeNull();
+      expect(buy).not.toHaveBeenCalled();
+      view.unmount();
+    },
+  );
+
+  it("derives the held flags from access states instead of accepting them from the paid producer", () => {
+    const pro: NonNullable<AppleSettingsProps["pro"]> = {
+      ownership: "none",
+      channel: "ready",
+      // @ts-expect-error Checking is derived from the supplied Pro access states.
+      accessChecking: false,
+    };
+    const verify: NonNullable<AppleSettingsProps["pro"]> = {
+      ownership: "none",
+      channel: "ready",
+      // @ts-expect-error Verification is derived from the supplied Pro access states.
+      accessVerify: false,
+    };
+    expect([pro.ownership, verify.ownership]).toEqual(["none", "none"]);
+  });
+});
+
+describe("D04 native purchase entry requires a non-blank offer price", () => {
+  it.each(["", " ", "   ", "\t\n "])(
+    "offers no Buy, lock action or Apple caption for a blank price %j",
+    async (price) => {
+      const { props } = await fixture("locked");
+      const buy = vi.fn();
+      props.pro = {
+        ownership: "none",
+        channel: "ready",
+        offer: { price },
+        onBuy: buy,
+        onRestore: vi.fn(),
+      };
+      const view = render(AppleSettings, { props });
+      expect(
+        screen.queryByRole("button", { name: "Get Still Pro" }),
+      ).toBeNull();
+      expect(
+        screen.queryByText("No account needed. Payment is handled by Apple."),
+      ).toBeNull();
+      await fireEvent.click(
+        screen.getByRole("button", { name: "YouTube Blocker" }),
+      );
+      const lock = screen.getByRole("button", { name: PRO_LOCK });
+      expect(lock).toHaveAttribute("aria-disabled", "true");
+      await fireEvent.click(lock);
+      expect(buy).not.toHaveBeenCalled();
+      view.unmount();
+    },
+  );
+
+  it("still offers Buy, the lock action and the Apple caption for a padded real price", async () => {
+    const { props } = await fixture("locked");
+    const buy = vi.fn();
+    props.pro = {
+      ownership: "none",
+      channel: "ready",
+      offer: { price: "  fixture native offer  " },
+      onBuy: buy,
+      onRestore: vi.fn(),
+    };
+    const view = render(AppleSettings, { props });
+    expect(
+      screen.getByText("No account needed. Payment is handled by Apple."),
+    ).toBeVisible();
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Get Still Pro" }),
+    );
+    await fireEvent.click(
+      screen.getByRole("button", { name: "YouTube Blocker" }),
+    );
+    await fireEvent.click(screen.getByRole("button", { name: PRO_LOCK }));
+    expect(buy).toHaveBeenCalledTimes(2);
     view.unmount();
   });
 });
