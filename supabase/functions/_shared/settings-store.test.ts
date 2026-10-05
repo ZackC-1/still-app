@@ -21,9 +21,13 @@ Deno.test("settings limiter changes only the retained surface allowlist", async 
   const original = body(historical);
   assertEquals(
     body(migration),
+    // One new bucket, and pg_temp searched last (an empty path searches it first for types).
     original.replace(
       "('checkout', 'reconcile', 'review-signin:request', 'review-signin:verify')",
       "('checkout', 'reconcile', 'review-signin:request', 'review-signin:verify', 'settings-sync')",
+    ).replace(
+      "security definer set search_path = ''\n",
+      "security definer set search_path = pg_catalog, pg_temp\n",
     ),
   );
 });
