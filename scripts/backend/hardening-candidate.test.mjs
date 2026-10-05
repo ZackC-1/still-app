@@ -9,10 +9,11 @@ const source = await readFile(new URL("./sql/hardening-candidate.sql", import.me
 const code = source.replace(/^\s*--.*$/gm, "");
 
 test("the hardening candidate pins every search_path to pg_catalog, pg_temp", () => {
-  const pins = [...code.matchAll(/set search_path = ([^;\n]*?)(?:;|\s+stable|\n|'\s*,)/g)].map((m) => m[1].trim());
+  // Any case, with or without `=`: `SET search_path TO ...` is the same setting.
+  const pins = [...code.matchAll(/set\s+search_path\s*(?:=|to)\s*([^;\n]*?)(?:;|\s+stable|\n|'\s*,)/gi)].map((m) =>
+    m[1].trim().toLowerCase().replace(/\s+/g, " "),
+  );
   assert.ok(pins.length >= 3, "the candidate pins the loop, write_profile_settings and get_current_rule_set");
   for (const pin of pins) assert.equal(pin, "pg_catalog, pg_temp");
-  assert.doesNotMatch(code, /search_path = ''/);
-  assert.doesNotMatch(code, /search_path = %L/);
-  assert.doesNotMatch(code, /search_path = ""/);
+  assert.doesNotMatch(code, /search_path\s*(?:=|to)\s*(?:''|%L|"")/i);
 });

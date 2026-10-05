@@ -150,7 +150,7 @@ Local Node tests do not pass these SQL or cleanup gates.
 Run the meaningful local contract controls with:
 
 ```bash
-node --test scripts/backend/plan.test.mjs scripts/backend/approved-operation.test.mjs scripts/backend/entrypoints.test.mjs
+node --test scripts/backend/plan.test.mjs scripts/backend/approved-operation.test.mjs scripts/backend/entrypoints.test.mjs scripts/backend/hardening-candidate.test.mjs
 ```
 
 The helper refuses `cloud-synthetic` on the owner Mac before invoking Docker or Supabase. Real
