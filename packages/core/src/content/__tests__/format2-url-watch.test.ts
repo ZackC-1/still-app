@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_SETTINGS, type BenefitId, type SignedRuleSet, type SignedRuleSetV2 } from "@still/shared-types";
+import { DEFAULT_SETTINGS, FEATURE_REGISTRY, type SettingsField, type BenefitId, type SignedRuleSet, type SignedRuleSetV2 } from "@still/shared-types";
 import { AtomicSettingsWriter } from "../../storage/atomic-settings.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
 import { SettingsCache } from "../../storage/cache.js";
@@ -57,7 +57,24 @@ function paidOnDeps() {
   return { ruleSetV2: admitPackagedRuleSetV2(PACKAGED_RULE_SET_V2)!, capabilities: accessCapabilities({ paidMode: true, host: "firefox" }), entitlement };
 }
 
-async function host(href: string, intents: NavigationIntentTracker | null = createNavigationIntentTracker(), paid?: ReturnType<typeof paidOnDeps>) {
+/**
+ * The SHIPPED defaults: the real packaged set, NO capabilities (so the engine's packaged paid-off
+ * capabilities apply), and an access snapshot that nevertheless claims every Still Pro benefit is
+ * purchased. Only the dormancy gate stands between these settings and an effective extra.
+ */
+function shippedDefaultsAllPurchased() {
+  const base = initialAccessSnapshot({ paidMode: true, supported: new Set(ACCESS_BENEFITS) });
+  const pro = FEATURE_REGISTRY.filter((feature) => feature.tier === "pro").map((feature) => [feature.id, "purchased"]);
+  const snapshot = { ...base, states: { ...base.states, ...Object.fromEntries(pro) } } as typeof base;
+  const entitlement = {
+    current: () => true, currentAccessSnapshot: () => snapshot, subscribeAccess: () => () => {}, subscribe: () => () => {},
+    watch: () => () => {}, refreshAccess: async () => {}, hydrate: async () => {},
+  } as unknown as EntitlementCache;
+  return { ruleSetV2: admitPackagedRuleSetV2(PACKAGED_RULE_SET_V2)!, capabilities: undefined, entitlement };
+}
+
+async function host(href: string, intents: NavigationIntentTracker | null = createNavigationIntentTracker(),
+  paid?: { ruleSetV2: SignedRuleSetV2; capabilities: ReadonlySet<BenefitId> | undefined; entitlement: EntitlementCache }) {
   const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 1 });
   const writer = new AtomicSettingsWriter(storage);
   await writer.initialize("never-linked");
@@ -85,8 +102,8 @@ async function host(href: string, intents: NavigationIntentTracker | null = crea
     win,
     doc: document,
     ruleSet: seed as unknown as SignedRuleSet,
-    ruleSetV2: paid?.ruleSetV2 ?? allCores,
-    capabilities: paid?.capabilities ?? cores,
+    ruleSetV2: paid ? paid.ruleSetV2 : allCores,
+    capabilities: paid ? paid.capabilities : cores,
     entitlement: paid?.entitlement,
     cache,
     navigationIntents: intents ?? undefined,
@@ -349,6 +366,58 @@ describe("format-2 URL watch fallback (no Navigation API)", () => {
     h.script.stop();
     expect(marked(), "stop removes the mark").toBe(false);
     window.history.replaceState(null, "", "/");
+  });
+
+  describe("paid-off pin: shipped defaults never let an extra drive the URL watch, mark or routes", () => {
+    const IG_EXTRAS = ["instagram.explore", "instagram.stories", "instagram.suggested", "instagram.threads"];
+    const FB_EXTRAS = ["facebook.stories", "facebook.videos", "facebook.sponsored"];
+    const pages = [
+      ["instagram", "https://www.instagram.com/"],
+      ["instagram", "https://www.instagram.com/explore/search/"],
+      ["instagram", "https://www.instagram.com/explore/?hl=fr"],
+      ["facebook", "https://www.facebook.com/"],
+    ] as const;
+    const bools = [true, false];
+    const combos = bools.flatMap((globalOn) => bools.flatMap((service) => bools.flatMap((reels) =>
+      bools.flatMap((igExtras) => bools.map((fbExtras) => ({ globalOn, service, reels, igExtras, fbExtras }))))));
+
+    it.each(pages)("%s %s: listener attached exactly when Reels is effective; no mark; never redirected", async (service, href) => {
+      expect(combos).toHaveLength(32);
+      fake();
+      const mark = () => document.documentElement.hasAttribute("data-still-instagram-search-entry");
+      for (const combo of combos) {
+        const label = `${href} ${JSON.stringify(combo)}`;
+        window.history.replaceState(null, "", new URL(href).pathname + new URL(href).search);
+        const h = await host(href, createNavigationIntentTracker(), shippedDefaultsAllPurchased());
+        let at = 2;
+        const commit = (path: string, value: boolean) => h.writer.commit({ path: path as SettingsField, value, updatedAt: at++ });
+        await commit("globalOn", combo.globalOn);
+        await commit(`services.${service}`, combo.service);
+        await commit(`sites.${service}.reels`, combo.reels);
+        for (const id of IG_EXTRAS) await commit(`sites.${id}`, combo.igExtras);
+        for (const id of FB_EXTRAS) await commit(`sites.${id}`, combo.fbExtras);
+        await h.cache.rereadAuthority?.();
+        h.script.reapply();
+        const reelsEffective = combo.globalOn && combo.service && combo.reels;
+        expect(h.listeners.get("hashchange")?.size ?? 0, `${label}: hashchange listener`).toBe(reelsEffective ? 1 : 0);
+        expect(vi.getTimerCount() > 0, `${label}: poll timer`).toBe(reelsEffective);
+        expect(mark(), `${label}: no search-entry mark`).toBe(false);
+        if (service === "instagram") {
+          // An in-page move to the Explore hub (only seen by the poll when it runs) is never routed.
+          h.pagePush("/explore/?hl=fr");
+          window.history.replaceState(null, "", "/explore/?hl=fr");
+          h.fire("hashchange");
+          await tickWatch();
+          expect(mark(), `${label}: no mark after a move`).toBe(false);
+        }
+        expect(h.replace, `${label}: never redirected`).not.toHaveBeenCalled();
+        expect(h.assign, label).not.toHaveBeenCalled();
+        h.script.stop();
+        scripts.splice(scripts.indexOf(h.script), 1);
+        expect(vi.getTimerCount(), `${label}: stop clears the poll`).toBe(0);
+      }
+      window.history.replaceState(null, "", "/");
+    });
   });
 
   it("hashchange reports the move at once while the tab is visible", async () => {

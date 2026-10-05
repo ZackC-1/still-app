@@ -17,6 +17,12 @@ import type { ExtrasRoute, ServiceExtras } from "./extras.js";
  * must confirm these shapes (and decide what to do for other interface languages, which these
  * labels do not match); until then these surfaces are candidates only.
  *
+ * Known gap for E0: on browsers without the Navigation API (Firefox; Safari before 26.2) the
+ * content script only sees Instagram's own in-page moves through a URL poll, so after Instagram
+ * moves from the empty search page to a results page the search-entry mark (and with it the
+ * Explore recommendation hide) can linger for up to one poll interval (250 ms) before it is
+ * cleared. Check on those browsers whether results flash hidden during that window.
+ *
  * Every route is silent (no notice, no sub-line) and the predicates never overlap, because
  * resolveExtrasRoute stops at the first matching entry. Like every per-service extras module this
  * file has only type imports (sign-format2.mjs loads it directly in Node), so its path checks are
