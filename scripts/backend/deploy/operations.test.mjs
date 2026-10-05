@@ -903,6 +903,98 @@ test("a failed operation stops, prints only the SQLSTATE and reads the state bac
     assert.ok(!text.includes(leak), leak);
 });
 
+test("records that stop early still carry an End state line: stopped, refused, interrupted", async (t) => {
+  const isWrite = (args) =>
+    /-settings-sync\.sql$/.test(args.at(-1)) &&
+    !args.at(-1).endsWith(".verify.sql");
+  const failed = {
+    applyOutcome: "failure",
+    jobStatus: "failure",
+  };
+  // Stopped, and the read-back still shows open items: the end state was NOT reached.
+  {
+    const fx = await opFixture(t);
+    const db = fakeDb({ sqlFailure: "ERROR:  42501\n" });
+    const receipt = await run(fx, db);
+    assert.deepEqual(
+      [receipt.status, receipt.endState],
+      ["stopped", "not-reached"],
+    );
+    assert.match(renderOperationReceipt(receipt), /- End state: NOT reached/);
+    assert.match(
+      renderOperationFinal(receipt, failed),
+      /- End state: NOT reached/,
+    );
+  }
+  // Stopped, but the read-back is clean or unreadable: never claimed either way.
+  for (const readBack of ["clean", "unreadable"]) {
+    const fx = await opFixture(t);
+    const db = fakeDb({ sqlFailure: "ERROR:  57014\n" });
+    let wrote = false;
+    const exec = async (cmd, args, opts) => {
+      if (cmd === "psql" && isWrite(args)) wrote = true;
+      else if (wrote && cmd === "psql") {
+        if (readBack === "unreadable")
+          return { code: 2, stdout: "", stderr: "connection lost" };
+        db.state.roles[SETTINGS_WRITER_ROLE].login = false;
+        db.state.connections = 0;
+      }
+      return db.exec(cmd, args, opts);
+    };
+    const receipt = await run(fx, { ...db, exec });
+    assert.deepEqual(
+      [receipt.status, receipt.endState],
+      ["stopped", "unknown"],
+      readBack,
+    );
+    assert.match(renderOperationReceipt(receipt), /- End state: UNKNOWN/);
+    assert.match(renderOperationFinal(receipt, failed), /- End state: UNKNOWN/);
+  }
+  // Refused before any write: NOT reached.
+  {
+    const fx = await opFixture(t);
+    const receipt = await run(fx, fakeDb({ writerMissing: true }));
+    assert.deepEqual(
+      [receipt.status, receipt.endState, receipt.writeAttempted],
+      ["refused", "not-reached", false],
+    );
+    assert.match(renderOperationReceipt(receipt), /- End state: NOT reached/);
+    assert.match(
+      renderOperationFinal(receipt, failed),
+      /- End state: NOT reached/,
+    );
+  }
+  // Interrupted at any point: UNKNOWN. A completed run keeps its verified end state.
+  {
+    const fx = await opFixture(t);
+    const snapshots = [];
+    await run(fx, fakeDb(), {
+      settleMs: 0,
+      onProgress: async (r) => snapshots.push(structuredClone(r)),
+    });
+    const interrupted = snapshots.filter((r) => r.status === "in-progress");
+    assert.ok(interrupted.some((r) => !r.writeAttempted));
+    assert.ok(interrupted.some((r) => r.applied));
+    for (const r of interrupted)
+      assert.match(
+        renderOperationFinal(r, {
+          applyOutcome: "cancelled",
+          jobStatus: "cancelled",
+        }),
+        /- End state: UNKNOWN/,
+      );
+    const done = snapshots.at(-1);
+    assert.deepEqual([done.status, done.endState], ["verified", "reached"]);
+    assert.match(
+      renderOperationFinal(done, {
+        applyOutcome: "success",
+        jobStatus: "success",
+      }),
+      /- End state: reached \(verified\)/,
+    );
+  }
+});
+
 // ── Rehearsal on the runner's throwaway database ─────────────────────────────────────────────
 
 const replay = (fx, db, extra = {}) =>
@@ -1426,4 +1518,82 @@ test("the deploy CLI writes an operation closing record as a subprocess without 
   );
   assert.match(await readFile(summary, "utf8"), /## Operation closing record/);
   for (const leak of [SECRET, REF]) assert.ok(!result.stdout.includes(leak));
+});
+
+test("the deploy CLI writes an operation closing record as a subprocess when the operation left no receipt", async (t) => {
+  const fx = await opFixture(t);
+  const absent = join(fx.root, "absent-receipt.json");
+  const context = { APPLY_OUTCOME: "failure", JOB_STATUS: "failure" };
+  // An operation run that failed before its first receipt (e.g. a malformed database URL).
+  for (const operation of [PAUSE, RESUME]) {
+    const summary = join(fx.root, `.summary-${operation}.md`);
+    const result = cli(
+      ["final-summary", "--receipt", absent],
+      {
+        ...context,
+        DEPLOY_OPERATION: operation,
+        GITHUB_STEP_SUMMARY: summary,
+      },
+      fx.root,
+    );
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(
+      result.stdout,
+      new RegExp(
+        `## Operation closing record[\\s\\S]*Operation: \`${operation}\``,
+      ),
+    );
+    assert.match(result.stdout, /- Write attempted: no/);
+    assert.match(result.stdout, /- End state: NOT reached/);
+    assert.match(
+      result.stdout,
+      /no database write was recorded; it is safe to plan and approve again/,
+    );
+    assert.doesNotMatch(
+      result.stdout,
+      /migration history|Deploy closing record/i,
+    );
+    assert.equal(await readFile(summary, "utf8"), result.stdout);
+  }
+  // No operation (or the migrations mode, or an unknown name): the migration fallback, unchanged.
+  const migrationFallback =
+    "## Deploy closing record\n\n" +
+    "- The apply step did not leave a record (step outcome: failure, job: failure).\n" +
+    "- Nothing reached the database unless the step started; treat migration history as UNKNOWN and do not re-run the apply until history is checked privately.\n";
+  for (const operation of [undefined, "", "migrations", "pause-everything"]) {
+    const result = cli(
+      ["final-summary", "--receipt", absent],
+      {
+        ...context,
+        ...(operation === undefined ? {} : { DEPLOY_OPERATION: operation }),
+      },
+      fx.root,
+    );
+    assert.equal(result.status, 0, `${operation}: ${result.stderr}`);
+    assert.ok(
+      result.stdout.startsWith(migrationFallback),
+      `${operation}: ${result.stdout}`,
+    );
+  }
+});
+
+test("the deploy CLI shows the End state of a stopped operation in its closing record as a subprocess", async (t) => {
+  const fx = await opFixture(t);
+  const receipt = await run(fx, fakeDb({ sqlFailure: "ERROR:  42501\n" }));
+  const receiptFile = join(fx.root, ".receipt.json");
+  await writeFile(receiptFile, JSON.stringify(receipt));
+  const result = cli(
+    ["final-summary", "--receipt", receiptFile],
+    {
+      APPLY_OUTCOME: "failure",
+      JOB_STATUS: "failure",
+      DEPLOY_OPERATION: PAUSE,
+    },
+    fx.root,
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(
+    result.stdout,
+    /## Operation closing record[\s\S]*Outcome: stopped[\s\S]*- End state: NOT reached/,
+  );
 });

@@ -544,6 +544,8 @@ export async function runOperation({
     );
   } catch (error) {
     receipt.status = "refused";
+    // Every refusal happens before the write, so this run did not establish the end state.
+    receipt.endState = "not-reached";
     receipt.issues.push(
       error instanceof Refusal ? error.category : "unexpected-error",
     );
@@ -568,9 +570,13 @@ export async function runOperation({
   if (ran.code !== 0) {
     receipt.status = "stopped";
     receipt.issues.push("operation-failed");
+    // The SQL failed part-way, so the end state is claimed as missed only when the read-back
+    // shows open items; a clean or unreadable read-back after a failed write stays unknown.
+    receipt.endState = "unknown";
     await step(plan.operation, "failed", ran.error);
     try {
       const now = await check();
+      if (now.length) receipt.endState = "not-reached";
       await step(
         "state after failure",
         now.length ? "failed" : "ok",
@@ -1047,6 +1053,17 @@ export function renderOperationPlan(plan) {
   ].join("\n");
 }
 
+const END_STATE_TEXT = Object.freeze({
+  reached: "reached (verified)",
+  "not-reached": "NOT reached",
+  unknown: "UNKNOWN",
+});
+
+/** The "End state" line the runbook tells the owner to read first; absent only for no-change. */
+function renderEndState(endState) {
+  return endState ? [`- End state: ${END_STATE_TEXT[endState]}`] : [];
+}
+
 export function renderOperationReceipt(receipt) {
   const icon = ["verified", "no-change"].includes(receipt.status) ? "✅" : "❌";
   return [
@@ -1057,11 +1074,7 @@ export function renderOperationReceipt(receipt) {
       ? [`- SQL \`${receipt.sql.path}\` SHA-256 \`${receipt.sql.sha256}\``]
       : []),
     `- Write attempted: ${receipt.writeAttempted ? "yes" : "no"}`,
-    ...(receipt.endState
-      ? [
-          `- End state: ${receipt.endState === "reached" ? "reached (verified)" : "NOT reached"}`,
-        ]
-      : []),
+    ...renderEndState(receipt.endState),
     ...(receipt.issues.length
       ? [`- Issues: ${receipt.issues.join(", ")}`]
       : []),
@@ -1106,7 +1119,10 @@ export function renderOperationFinal(receipt, { applyOutcome, jobStatus }) {
       ? `${receipt.outcome} (no change)`
       : receipt.status;
   let recovery = receipt.recovery;
+  let endState = receipt.endState;
   if (receipt.status === "in-progress") {
+    // The run ended before it could judge the end state, wherever it was interrupted.
+    endState = "unknown";
     const again =
       receipt.operation === "resume-settings-sync"
         ? "resume-settings-sync"
@@ -1128,11 +1144,7 @@ export function renderOperationFinal(receipt, { applyOutcome, jobStatus }) {
     `- Operation: \`${receipt.operation}\``,
     `- Outcome: ${outcome}; apply step ${applyOutcome || "unknown"}, job ${jobStatus || "unknown"}`,
     `- Write attempted: ${receipt.writeAttempted ? "yes" : "no"}`,
-    ...(receipt.endState
-      ? [
-          `- End state: ${receipt.endState === "reached" ? "reached (verified)" : "NOT reached"}`,
-        ]
-      : []),
+    ...renderEndState(endState),
     ...(receipt.sql
       ? [`- SQL \`${receipt.sql.path}\` SHA-256 \`${receipt.sql.sha256}\``]
       : []),
@@ -1144,3 +1156,28 @@ export function renderOperationFinal(receipt, { applyOutcome, jobStatus }) {
     "",
   ].join("\n");
 }
+
+/**
+ * Closing record when the apply step left no receipt for a known operation (it stopped before the
+ * operation began, e.g. a malformed or loopback database URL). The operation writes its receipt
+ * before any database write, so no receipt means no write: safe to plan and approve again.
+ */
+export function renderOperationFinalWithoutReceipt(
+  operation,
+  { applyOutcome, jobStatus },
+) {
+  return [
+    "## Operation closing record",
+    "",
+    `- Operation: \`${operation}\``,
+    `- Outcome: stopped before the operation began (no record was written); apply step ${applyOutcome || "not run"}, job ${jobStatus || "unknown"}`,
+    "- Write attempted: no (no database write was recorded)",
+    ...renderEndState("not-reached"),
+    "- Recovery: no database write was recorded; it is safe to plan and approve again.",
+    "",
+  ].join("\n");
+}
+
+/** True when `name` is one of the registered operations (not the migrations mode). */
+export const isKnownOperation = (name, registry = OPERATIONS) =>
+  Object.hasOwn(registry, name);

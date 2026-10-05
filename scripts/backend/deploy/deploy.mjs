@@ -1883,10 +1883,19 @@ export async function main(
       applyOutcome: env.APPLY_OUTCOME,
       jobStatus: env.JOB_STATUS,
     };
+    // With no receipt, an operation run still gets an operation record (never the migration
+    // fallback, which would wrongly hold back an urgent pause until history is checked).
+    const operation = String(env.DEPLOY_OPERATION ?? "").trim();
+    const ops =
+      receipt?.kind === "operation" || (!receipt && operation)
+        ? await operations()
+        : null;
     const text =
       receipt?.kind === "operation"
-        ? (await operations()).renderOperationFinal(receipt, context)
-        : renderFinal(receipt, context);
+        ? ops.renderOperationFinal(receipt, context)
+        : !receipt && ops?.isKnownOperation(operation)
+          ? ops.renderOperationFinalWithoutReceipt(operation, context)
+          : renderFinal(receipt, context);
     await writeSummary(text, env);
     say(text);
     return 0;
