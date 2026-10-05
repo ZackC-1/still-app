@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ServiceId } from "@still/shared-types";
+import { DEFAULT_SETTINGS, type ServiceId } from "@still/shared-types";
 import { createShippingContentEntry, type ShippingContentLane } from "../extension-entry.js";
 import type { ContentScriptHandle } from "../index.js";
 import { createFormat2EntryHost } from "./format2-entry-host.js";
 import { PACKAGED_RULE_SET_V2 } from "../../rules/packaged.js";
 
 // Firefox and Safari have no DNR redirect, so a direct /shorts/<id> load is redirected by the
-// content script. These cases pin the format-2 lane's timing against the legacy lane: both
-// redirect before the rule-set read and before the content script hydrates; format-2 waits for
-// exactly one more local read (the lane's own settings read) first.
+// content script. Every storage read below is held and released in rounds: a round resolves all
+// reads pending at that moment. The legacy entry redirects after one round; the shipping entry
+// must too, whichever lane it picks, so the Shorts player window never widens.
 
 const scripts: ContentScriptHandle[] = [];
 const SHORTS = "https://www.youtube.com/shorts/abc123";
@@ -28,134 +28,122 @@ afterEach(() => {
 type Area = { get(key: string): Promise<Record<string, unknown>> };
 const local = () => (globalThis as unknown as { chrome: { storage: { local: Area } } }).chrome.storage.local;
 
-/** Rule-set reads (the format-2 or legacy cache key) are held until released. */
-function heldRuleReads(order: string[]) {
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => { release = resolve; });
-  const area: Area = {
-    get: async (key) => {
-      order.push(`entry:${key}`);
-      if (key.startsWith("still:ruleset")) await gate;
-      return local().get(key);
-    },
-  };
-  return { area, release };
-}
-
-async function run(format2: boolean, earlyRedirect = true) {
+async function rounds(options: { services: ReadonlySet<ServiceId>; legacySettings?: boolean; earlyRedirect?: boolean; offPath?: string }) {
   const h = await createFormat2EntryHost(PACKAGED_RULE_SET_V2 as never, "youtube.html", SHORTS, scripts);
-  const order: string[] = [];
+  if (options.offPath)
+    await h.authority.commitIntent({ path: options.offPath as "globalOn", value: false, updatedAt: Date.now() });
+  if (options.legacySettings)
+    h.values["still:settings"] = { settings: { ...DEFAULT_SETTINGS, updatedAt: 5 }, syncMetadata: null };
   const area = local();
   const original = area.get.bind(area);
-  vi.spyOn(area, "get").mockImplementation(async (key: string) => {
-    order.push(`cache:${key}`);
-    return original(key);
+  let queue: Array<() => void> = [];
+  const reads: string[] = [];
+  vi.spyOn(area, "get").mockImplementation((key: string) => {
+    reads.push(key);
+    return new Promise((resolve) => queue.push(() => resolve(original(key))));
   });
-  h.replace.mockImplementation(() => { order.push("replace"); });
-  const { area: storage, release } = heldRuleReads(order);
   const lanes: ShippingContentLane[] = [];
   const created = vi.fn();
   const loading = createShippingContentEntry({
-    storage,
+    storage: area,
     prod: false,
-    earlyRedirect,
-    format2Services: format2 ? ACTIVE : new Set(),
+    earlyRedirect: options.earlyRedirect ?? true,
+    format2Services: options.services,
     win: h.win,
     doc: document,
     onLane: (lane) => lanes.push(lane),
     onScriptCreated: (script) => { created(); scripts.push(script); },
   })();
-  return { h, order, release, loading, lanes, created };
+  const readsAtCall = [...reads];
+  const releaseRound = async () => {
+    await tick();
+    const round = queue;
+    queue = [];
+    for (const resolve of round) resolve();
+    await tick();
+    await tick();
+  };
+  /** Release rounds until the redirect happens; returns how many rounds it took. */
+  const roundsUntilRedirect = async (max = 6) => {
+    for (let round = 1; round <= max; round++) {
+      await releaseRound();
+      if (h.replace.mock.calls.length) return round;
+    }
+    return Infinity;
+  };
+  const finish = async () => {
+    for (let round = 0; round < 8; round++) await releaseRound();
+    await loading;
+  };
+  return { h, lanes, created, readsAtCall, roundsUntilRedirect, finish };
 }
 
 describe("early Shorts redirect timing (Firefox/Safari)", () => {
-  it.each([
-    ["legacy", false],
-    ["format-2", true],
-  ] as const)("%s lane redirects before the rule-set read and before the content script exists", async (_lane, format2) => {
-    const r = await run(format2);
-    await tick();
-    await tick();
-    expect(r.lanes[0]!.kind).toBe(format2 ? "format2" : "legacy");
+  it("held page: the legacy early redirect starts synchronously, before any extra await", async () => {
+    const r = await rounds({ services: new Set() });
+    expect(r.readsAtCall).toContain("still:settings"); // started inside the synchronous call
+    expect(r.lanes).toEqual([{ kind: "legacy", reason: "service-held" }]);
+    expect(await r.roundsUntilRedirect()).toBe(1);
     expect(r.h.replace).toHaveBeenCalledWith(WATCH);
-    expect(r.created).not.toHaveBeenCalled(); // still held on the rule-set read
-    r.release();
-    await r.loading;
-    await tick();
+    await r.finish();
+    expect(r.h.replace).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ["format-2 lane (schema-2 settings)", false, "format2"],
+    ["legacy fallback (schema-1 settings)", true, "legacy"],
+  ] as const)("activated page, %s: redirect after one storage round, like legacy", async (_name, legacySettings, kind) => {
+    const r = await rounds({ services: ACTIVE, legacySettings });
+    expect(await r.roundsUntilRedirect()).toBe(1);
+    expect(r.h.replace).toHaveBeenCalledWith(WATCH);
+    await r.finish();
+    expect(r.lanes[0]!.kind).toBe(kind);
     expect(r.created).toHaveBeenCalled();
     expect(r.h.replace).toHaveBeenCalledTimes(1); // the hydrated script never replaces again
   });
 
-  it("format-2 waits for exactly one extra local settings read compared with legacy", async () => {
-    const legacy = await run(false);
-    await tick();
-    await tick();
-    const legacyBefore = legacy.order.slice(0, legacy.order.indexOf("replace"));
-    legacy.release();
-    await legacy.loading;
-    for (const script of scripts.splice(0)) script.stop();
-    vi.restoreAllMocks();
-    vi.unstubAllGlobals();
-
-    const modern = await run(true);
-    await tick();
-    await tick();
-    const modernBefore = modern.order.slice(0, modern.order.indexOf("replace"));
-    modern.release();
-    await modern.loading;
-
-    // "cache:" marks every underlying storage-area read; "entry:" marks which of them came
-    // through the entry's own area (the lane read). Legacy: one settings read, by its cache.
-    // Format-2: the lane read first, then one cache hydrate for the early decision.
-    const areaReads = (order: string[]) => order.filter((step) => step === "cache:still:settings");
-    expect(areaReads(legacyBefore)).toHaveLength(1);
-    expect(areaReads(modernBefore)).toHaveLength(2);
-    expect(modernBefore.filter((step) => step.endsWith("still:settings"))).toEqual([
-      "entry:still:settings", "cache:still:settings", "cache:still:settings",
-    ]);
-    expect(legacyBefore.some((step) => step.startsWith("entry:still:settings"))).toBe(false);
+  it("activated page: lane and rule-set reads share one round before the content script starts", async () => {
+    const r = await rounds({ services: ACTIVE, earlyRedirect: false });
+    expect(r.created).not.toHaveBeenCalled();
+    await r.roundsUntilRedirect(1); // releases exactly one round
+    // Legacy: the rule-set read (one round), then the script exists. The shipping entry's lane
+    // read and the prefetched rule-set read resolve in that same round.
+    expect(r.created).toHaveBeenCalledTimes(1);
+    expect(r.lanes).toEqual([{ kind: "format2" }]);
+    await r.finish();
   });
 
-  it.each(["sites.youtube.shorts", "services.youtube", "globalOn"] as const)(
+  it("the Chromium content script itself redirects only after its own hydration round", async () => {
+    const r = await rounds({ services: ACTIVE, earlyRedirect: false });
+    expect(await r.roundsUntilRedirect()).toBe(2);
+    await r.finish();
+    expect(r.h.replace).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["sites.youtube.shorts", "services.youtube", "globalOn"])(
     "format-2 lane: saved Off at %s never redirects, early or late",
-    async (path) => {
-      const h = await createFormat2EntryHost(PACKAGED_RULE_SET_V2 as never, "youtube.html", SHORTS, scripts);
-      await h.authority.commitIntent({ path, value: false, updatedAt: Date.now() });
-      await createShippingContentEntry({
-        storage: local(),
-        prod: false,
-        earlyRedirect: true,
-        format2Services: ACTIVE,
-        win: h.win,
-        doc: document,
-        onScriptCreated: (script) => scripts.push(script),
-      })();
-      await tick();
-      await tick();
-      expect(h.replace).not.toHaveBeenCalled();
-      expect(h.win.location.href).toBe(SHORTS);
+    async (offPath) => {
+      const r = await rounds({ services: ACTIVE, offPath });
+      expect(await r.roundsUntilRedirect()).toBe(Infinity);
+      await r.finish();
+      expect(r.lanes).toEqual([{ kind: "format2" }]);
+      expect(r.h.replace).not.toHaveBeenCalled();
+      expect(r.h.win.location.href).toBe(SHORTS);
     },
   );
 
-  it("format-2 lane: an SPA navigation away during the settings read cancels the early redirect", async () => {
-    const r = await run(true, true);
+  it("format-2 lane: an SPA navigation away during the read cancels the early redirect", async () => {
+    const r = await rounds({ services: ACTIVE });
     r.h.setHref("https://www.youtube.com/watch?v=chosen");
-    await tick();
-    await tick();
-    r.release();
-    await r.loading;
-    await tick();
+    await r.finish();
     expect(r.h.replace).not.toHaveBeenCalled();
   });
 
   it("Chromium (no content early redirect) leaves the hard navigation to DNR until hydration", async () => {
-    const r = await run(true, false);
-    await tick();
-    await tick();
+    const r = await rounds({ services: ACTIVE, earlyRedirect: false });
+    await r.roundsUntilRedirect(1);
     expect(r.h.replace).not.toHaveBeenCalled();
-    r.release();
-    await r.loading;
-    await tick();
+    await r.finish();
     expect(r.h.replace).toHaveBeenCalledTimes(1);
   });
 });
