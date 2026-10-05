@@ -26,4 +26,31 @@ function init(): void {
   mount(PopupApp, { target: document.getElementById("app")!, props: { controller } });
 }
 
-init();
+// V3 popup (U12-W4) is an explicit developer opt-in that mirrors the Apple app's D04 gate exactly:
+// VITE_APPLE_ATOMIC_SETTINGS=true and no Supabase configuration. Vite inlines these values, so every
+// default build (configured or not) folds this to `init()` and drops the V3 module, its components
+// and their global stylesheet. Inside, the tested rule (lib/safari-v3) decides again, and the V3
+// screen mounts only over the app's atomic record; anything else runs `init()` unchanged.
+if (
+  import.meta.env.VITE_APPLE_ATOMIC_SETTINGS === "true" &&
+  !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
+)
+  void import("./v3.js")
+    .then(({ startSafariV3Popup }) =>
+      startSafariV3Popup({
+        env: {
+          atomicSettingsFlag: import.meta.env.VITE_APPLE_ATOMIC_SETTINGS,
+          supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
+          supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        },
+      }),
+    )
+    // Exactly one legacy start for every outcome that is not a mounted V3 popup, including a
+    // failed module load or an unexpected rejection.
+    .then(
+      (mode) => {
+        if (mode !== "v3") init();
+      },
+      () => init(),
+    );
+else init();

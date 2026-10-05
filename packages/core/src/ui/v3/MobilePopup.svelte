@@ -24,6 +24,8 @@
     onSignIn,
     onSettings,
     privacyUrl,
+    commandsDisabled = false,
+    accountActions,
     onPurchase,
     account,
     sectionMemory,
@@ -117,7 +119,10 @@
     </div>
     <Toggle
       checked={settings.globalOn}
-      onChange={onGlobalChange}
+      disabled={commandsDisabled}
+      onChange={(next) => {
+        if (!commandsDisabled) onGlobalChange(next);
+      }}
       label="Still"
       onBlue={settings.globalOn}
     />
@@ -186,8 +191,11 @@
             </div>{/if}
           <Toggle
             checked={settings.services[service]}
-            onChange={(next) => onServiceChange(service, next)}
-            disabled={!settings.globalOn}
+            onChange={(next) => {
+              if (!commandsDisabled && settings.globalOn)
+                onServiceChange(service, next);
+            }}
+            disabled={commandsDisabled || !settings.globalOn}
             label={serviceLabels[service]}
           />
         </div>
@@ -207,9 +215,18 @@
                     label={labels[row.id] ?? row.label}
                     state={access.states[row.id]}
                     checked={settings.sites[row.id]}
-                    inactive={!settings.globalOn || !settings.services[service]}
+                    inactive={commandsDisabled ||
+                      !settings.globalOn ||
+                      !settings.services[service]}
                     unsupportedText={`Not available in ${host === "safari" ? "Safari" : "this browser"}. Your choice is saved.`}
-                    onChange={(next) => onFeatureChange(row.id, next)}
+                    onChange={(next) => {
+                      if (
+                        !commandsDisabled &&
+                        settings.globalOn &&
+                        settings.services[service]
+                      )
+                        onFeatureChange(row.id, next);
+                    }}
                     onLock={appActionReady || offer ? openPro : undefined}
                     lockLabel={`${labels[row.id] ?? row.label}. Included in Still Pro. ${host === "safari" ? "Open the Still app" : "See Still Pro"}`}
                   />
@@ -268,6 +285,7 @@
         </div>
       </div>
     {/if}
+    {#if accountActions}{@render accountActions()}{/if}
   </section>
   <footer class="popup-footer">
     <button

@@ -1,5 +1,5 @@
 import { mount, unmount } from "svelte";
-import type { NativeBridge } from "@still/core/native";
+import { openNativeDestination, type NativeBridge } from "@still/core/native";
 import { runAppleOnboardingFirst } from "../node_modules/@still/core/src/ui/v3/apple-onboarding-host.js";
 import AppleOnboardingHost from "./AppleOnboardingHost.svelte";
 
@@ -11,26 +11,37 @@ import AppleOnboardingHost from "./AppleOnboardingHost.svelte";
 // complete. Every other answer (the SwiftUI presenter, a completed gate, no host, a timeout) mounts
 // settings straight away, so the two presenters can never both show.
 //
-// What this build deliberately does not wire:
-//   • Consent: no committer and no approved purposes are passed, so the D12 consent question is
-//     skipped (three steps) until a real permission producer exists. Nothing is ever shared from
-//     here.
-//   • Native "open" actions: the bridge has no message that opens the Safari enable location or
-//     Safari itself, so "Open Settings" / "Open Safari Settings" and "Open Safari" render disabled.
-//     The person continues with "I've turned it on" (iOS) or "Do this later" (macOS), and finishes
-//     with "Go to Settings".
+// Native "open" actions go through the fixed-destination `openDestination` message, from a tap:
+//   • "Open Settings" (iOS) opens Still's page in the Settings app; "Open Safari Settings" (macOS)
+//     opens Safari's Extensions settings.
+//   • "Open Safari" opens Safari on macOS, after the gate confirmed completion. iOS has no public
+//     way to open Safari itself, so the button stays disabled there and the person finishes with
+//     "Go to Settings".
+//
+// What this build deliberately does not wire: consent. No committer and no approved purposes are
+// passed, so the D12 consent question is skipped (three steps) until a real permission producer
+// exists. Nothing is ever shared from here.
+
+/** Present in a web bundle only when this module is. The native presenter switch hands onboarding
+ * to the web view only when the bundled web UI contains it (OnboardingGate.webD12Marker), so an
+ * app with a legacy web build keeps its SwiftUI onboarding. */
+export const D12_WEB_ONBOARDING_MARKER = "still-onboarding-presenter:web-d12";
 
 export interface AppleOnboardingWiring {
   readonly bridge: Pick<NativeBridge, "onboardingState" | "completeOnboarding" | "observeSafariSetup">;
   readonly target: HTMLElement;
   /** Mounts the settings screen into the same target. Called at most once. */
   readonly showSettings: () => void;
+  /** Opens a fixed native destination (default: the real `openDestination` message). */
+  readonly open?: typeof openNativeDestination;
 }
 
 export function showAppleOnboardingFirst(
   wiring: AppleOnboardingWiring,
 ): Promise<"onboarding" | "settings"> {
   const { bridge } = wiring;
+  const open = wiring.open ?? openNativeDestination;
+  wiring.target.setAttribute("data-still-onboarding", D12_WEB_ONBOARDING_MARKER);
   return runAppleOnboardingFirst(
     {
       bridge: {
@@ -39,7 +50,9 @@ export function showAppleOnboardingFirst(
         observeSafariSetup: () => bridge.observeSafariSetup(),
       },
       consent: { purposesVerified: false },
-      destinations: ["settings"],
+      openSetup: (location) => void open(location).then((ok) => warnIfNotOpened(location, ok)),
+      openSafari: () => void open("safari").then((ok) => warnIfNotOpened("safari", ok)),
+      destinations: (platform) => (platform === "mac" ? ["safari", "settings"] : ["settings"]),
     },
     {
       showOnboarding(host, watch) {
@@ -52,4 +65,11 @@ export function showAppleOnboardingFirst(
       showSettings: wiring.showSettings,
     },
   );
+}
+
+/** A refused or failed open changes nothing on screen (settings still mount after "Open Safari";
+ * the setup step stays usable), so leave a developer-console trace instead of losing it. No
+ * user-facing copy, and only the fixed destination name is logged. */
+function warnIfNotOpened(destination: string, opened: boolean): void {
+  if (!opened) console.warn(`still: could not open ${destination}`);
 }

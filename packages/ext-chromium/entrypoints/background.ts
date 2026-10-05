@@ -23,6 +23,15 @@ import { createIndexedDbKeyValue, QUIET_FLUSH_ALARM, requestQuietFlush } from "@
 import { createBackgroundAnalytics, storageKeyValue } from "../lib/analytics.js";
 import { modernSettingsRuntime } from "../lib/modern-settings-runtime.js";
 import { FIRST_RUN_PAGE, shouldOpenFirstRun } from "../../core/src/ui/v3/first-run-host.js";
+import seed from "@still/core/seed";
+import { PAID_TIER_ENABLED, type SignedRuleSet, type SignedRuleSetV2 } from "@still/shared-types";
+import {
+  createTiktokBlockedRoute,
+  withTimeout,
+  TIKTOK_WAIT_MS,
+} from "../../core/src/content/tiktok-blocked-route.js";
+import { createChromeTiktokTabAuthority, type TiktokTabBrowser } from "../lib/tiktok-tab-authority.js";
+import { tiktokBlockedPageEnabled } from "./tiktok-blocked/gate.js";
 
 // Chromium/Firefox background (Chrome MV3 service worker / Firefox MV3 event page). Three
 // independent jobs:
@@ -49,6 +58,8 @@ import { FIRST_RUN_PAGE, shouldOpenFirstRun } from "../../core/src/ui/v3/first-r
 // first ran Still and on which version (lib/original-install.ts). It is local, never transmitted,
 // and it is how the people who installed while everything was included can be recognised later.
 const RULESET_ID = "youtube-shorts-redirect";
+// The unlisted page built from entrypoints/tiktok-blocked/ (no manifest entry, no new permission).
+const TIKTOK_BLOCKED_PAGE = "tiktok-blocked.html";
 
 export default defineBackground(() => {
   const settingsRuntime = modernSettingsRuntime(
@@ -250,6 +261,21 @@ export default defineBackground(() => {
   const extensionOrigin = chrome.runtime.getURL("");
   chrome.runtime.onMessage.addListener(createSessionMessageRouter(session, chrome.runtime.id, extensionOrigin));
 
+  // ── TikTok blocked page (D29) ───────────────────────────────────────────────────────────────────
+  // Same release gate as the other V3 screens: builds that show the V3 popup/settings send blocked
+  // TikTok tabs to the extension's own page; configured 2.x builds keep the in-page block. The
+  // content script reads this same gate (tiktok-blocked/gate.ts), pinned to `atomicLocal` by test.
+  // Constructed in this first synchronous pass so the tab owner's onRemoved/onReplaced listeners
+  // are top-level.
+  const tiktokEnabled = tiktokBlockedPageEnabled({
+    // Name each input (never import.meta.env whole, which inlines every VITE_* value), reduced
+    // exactly as the content script reduces them so the two entrypoints cannot decide differently.
+    VITE_SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL?.trim() ? "set" : "",
+    VITE_SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ? "set" : "",
+    VITE_MODERN_SETTINGS_SYNC_ENABLED: import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED,
+  });
+  if (tiktokEnabled) wireTiktokBlockedPage(settingsAuthority, entitlements);
+
   // Resume on EVERY background start (R2 hard rule): restart the sync write-through from the
   // CACHED entitlement, with no purchase-service query. A worker that wakes on a settings edit
   // must not drop paid sync, and must not burn a live RevenueCat query per wake; live reconcile
@@ -280,6 +306,82 @@ export default defineBackground(() => {
   cache.subscribe(() => void syncRuleset().catch(heldInitialization));
   void hydrated.then(syncRuleset).catch(heldInitialization);
 });
+
+/**
+ * The one-tab TikTok allowance owner plus its message route. Every browser wait handed to the
+ * owner is bounded here, so a stalled storage, tab or settings answer ends as "not allowed" and
+ * can never hold a tab's queue or stop(). Saved/synced settings are only ever read.
+ */
+function wireTiktokBlockedPage(
+  settingsAuthority: ChromeStorageAdapter,
+  entitlements: ChromeEntitlementAdapter,
+): void {
+  // The packaged seed is the rule set every Chromium/Firefox content script evaluates for TikTok
+  // today (TikTok is held on the legacy lane), so the background decides "blocked" with the same
+  // rules. The owner's type names the format-2 set it is planned to receive; its engine session
+  // already dispatches on the set's own format. Follow-up: once format-2 ships for TikTok with
+  // schema-2 settings, switch this "is this blocked" check to the packaged format-2 set
+  // (PACKAGED_RULE_SET_V2) and drop the cast below.
+  const ruleSet = seed as unknown as SignedRuleSet;
+  const bound = <T>(operation: () => Promise<T>): Promise<T> =>
+    withTimeout(Promise.resolve().then(operation), TIKTOK_WAIT_MS);
+  const getContexts = chrome.runtime.getContexts?.bind(chrome.runtime);
+  // A host without tab or session APIs gets an unwired route: TikTok keeps the in-page block.
+  const api = chrome.tabs;
+  const tabs = api && {
+    get: (id: number) => bound(() => api.get(id)),
+    onRemoved: api.onRemoved,
+    onReplaced: api.onReplaced,
+  };
+  const route = createTiktokBlockedRoute({
+    runtimeId: chrome.runtime.id,
+    extensionOrigin: chrome.runtime.getURL(""),
+    pageUrl: chrome.runtime.getURL(TIKTOK_BLOCKED_PAGE),
+    // The route bounds every session call and the settings read it hands to the owner below.
+    session: chrome.storage?.session,
+    tabs: tabs && {
+      ...tabs,
+      // Firefox can replace the blocked TikTok entry so Back leaves TikTok; Chromium cannot.
+      update: (id, properties) =>
+        bound(() => api.update(id, properties as chrome.tabs.UpdateProperties)),
+    },
+    ruleSet,
+    readCommitted: async () => {
+      const record = await settingsAuthority.get();
+      if (!record) return null;
+      // Same tier gate as the content script's legacy lane (dormant while paid flags are off).
+      const pro = !PAID_TIER_ENABLED || (await entitlements.get()) === true;
+      return { settings: record.settings, options: { pro } };
+    },
+    canVerifyDocuments: typeof getContexts === "function",
+    replaceHistory: Boolean(import.meta.env.FIREFOX),
+    createAuthority: (hooks) =>
+      createChromeTiktokTabAuthority({
+        browser: {
+          runtime: {
+            id: chrome.runtime.id,
+            getURL: (path) => chrome.runtime.getURL(path),
+            ...(getContexts
+              ? {
+                  getContexts: (filter) =>
+                    bound(() => getContexts(filter as chrome.runtime.ContextFilter)).then((contexts) =>
+                      contexts.map((context) => ({ ...context, contextType: String(context.contextType) }))),
+                }
+              : {}),
+          },
+          storage: { session: hooks.session },
+          tabs,
+        } satisfies TiktokTabBrowser,
+        ruleSet: ruleSet as unknown as SignedRuleSetV2,
+        readCommitted: hooks.readCommitted,
+        blockedPagePath: TIKTOK_BLOCKED_PAGE,
+        resolveOriginalTarget: hooks.resolveOriginalTarget,
+        confirm: hooks.confirm,
+      }),
+    randomId: () => crypto.randomUUID(),
+  });
+  chrome.runtime.onMessage.addListener(route.listener);
+}
 
 /**
  * Build the background-owned session (plan U5 deps ← U6 wiring), or null when the build carries no

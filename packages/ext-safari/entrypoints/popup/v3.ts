@@ -1,0 +1,69 @@
+import type { StoredSettingsRecord } from "@still/core/storage";
+import {
+  composeSafariV3,
+  decideSafariV3,
+  type SafariV3Composition,
+} from "../../lib/safari-v3-runtime.js";
+import {
+  safariPopupSurface,
+  type SafariPopupSurface,
+  type SafariV3BuildInput,
+} from "../../lib/safari-v3.js";
+
+// The V3 popup gate. This module deliberately imports no component and no stylesheet: the V3
+// components and their global CSS live in ./v3-mount, which is loaded only after the record gate
+// has chosen V3, so the legacy fallback in an opted-in build never loads V3 styles.
+
+export interface SafariV3PopupView {
+  mountSafariV3Popup(
+    target: HTMLElement,
+    composition: SafariV3Composition,
+    surface: SafariPopupSurface,
+  ): void;
+}
+
+export interface SafariV3PopupDeps {
+  readonly env: SafariV3BuildInput;
+  readonly probe?: () => Promise<StoredSettingsRecord | null>;
+  readonly platform?: () => Promise<string | undefined>;
+  /** The component module; injectable so a test can make mounting fail. */
+  readonly load?: () => Promise<SafariV3PopupView>;
+}
+
+/**
+ * "v3" once the V3 popup has mounted; "legacy" when the caller must run the unchanged legacy
+ * popup: the build did not opt in, the saved record is not atomic, the components could not load,
+ * or mounting failed. A failed mount first stops everything the composition started and clears the
+ * page, so the legacy popup starts alone. The choice is made once per opening.
+ */
+export async function startSafariV3Popup(deps: SafariV3PopupDeps): Promise<"v3" | "legacy"> {
+  if (!(await decideSafariV3(deps.env, deps.probe).catch(() => false))) return "legacy";
+  let view: SafariV3PopupView;
+  try {
+    view = await (deps.load ?? (() => import("./v3-mount.js")))();
+  } catch {
+    return "legacy";
+  }
+  const os = await (deps.platform ?? (async () => (await browser.runtime.getPlatformInfo()).os))()
+    .catch(() => undefined);
+  const target = document.getElementById("app")!;
+  let composition: SafariV3Composition;
+  try {
+    composition = composeSafariV3("popup");
+  } catch {
+    return "legacy";
+  }
+  try {
+    view.mountSafariV3Popup(target, composition, safariPopupSurface(os));
+  } catch {
+    composition.stop();
+    target.replaceChildren();
+    return "legacy";
+  }
+  try {
+    composition.opened();
+  } catch {
+    /* Telemetry never decides which screen shows. */
+  }
+  return "v3";
+}
