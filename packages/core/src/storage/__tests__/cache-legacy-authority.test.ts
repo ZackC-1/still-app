@@ -702,3 +702,337 @@ describe("request-specific legacy commit outcomes", () => {
     expect(write).toHaveBeenCalledTimes(1); // unchanged old setter contract
   });
 });
+
+describe("reviewed legacy receipt boundaries", () => {
+  it.each(["globalOn", "services.youtube"] as const)(
+    "an actual absent matching-default %s no-op remains unsaved",
+    async (path) => {
+      const h = browser(undefined, false);
+      await h.cache.hydrate();
+      const outcome = await h.cache.commitLegacyIntent(path, true);
+      expect(outcome.intentCommitted).toBe(false);
+      expect(h.cache.legacyReadState()).toEqual({
+        status: "absent",
+        settings: null,
+      });
+      expect(h.local.set).not.toHaveBeenCalled();
+      expect(h.raw()).toBeUndefined();
+    },
+  );
+
+  it("a no-op on an existing saved default-valued record remains saved ready", async () => {
+    const record = {
+      settings: structuredClone(DEFAULT_SETTINGS),
+      syncMetadata: null,
+      syncEpoch: 0,
+    };
+    const h = browser(record);
+    await h.cache.hydrate();
+    expect(
+      (await h.cache.commitLegacyIntent("globalOn", true)).intentCommitted,
+    ).toBe(false);
+    expect(h.cache.legacyReadState()).toEqual({
+      status: "ready",
+      settings: record.settings,
+    });
+    expect(h.cache.current()).toEqual(record.settings);
+    expect(h.local.set).not.toHaveBeenCalled();
+    expect(h.raw()).toEqual(record);
+  });
+
+  it.each(["timestamp", "epoch", "server-version"] as const)(
+    "adopts a current post-absence recreation after a vanished greater %s record",
+    async (kind) => {
+      const previous = {
+        ...saved(false, 9000),
+        syncEpoch: kind === "epoch" ? 7 : 0,
+        syncMetadata:
+          kind === "server-version"
+            ? {
+                version: 99,
+                serverUpdatedAt: "2026-10-04T00:00:00Z",
+                lastWriteId: null,
+              }
+            : null,
+      };
+      const h = browser(previous);
+      await h.cache.hydrate();
+      h.put(undefined, false);
+      expect(await h.cache.rereadLegacyAuthority()).toEqual({
+        status: "absent",
+      });
+      expect(h.cache.current().updatedAt).toBe(9000);
+      expect(h.local.set).not.toHaveBeenCalled();
+      const outcome = await h.cache.commitLegacyIntent("globalOn", false);
+      expect(outcome.intentCommitted).toBe(true);
+      expect(outcome.settings.globalOn).toBe(false);
+      expect(outcome.settings.updatedAt).toBe(200);
+      const persisted = await h.consumer.get();
+      expect(persisted).not.toBeNull();
+      expect(h.cache.current()).toEqual(persisted!.settings);
+      expect(h.cache.currentSyncMetadata()).toEqual(persisted!.syncMetadata);
+      expect(h.cache.legacyReadState()).toEqual({
+        status: "ready",
+        settings: persisted!.settings,
+      });
+      expect(h.local.set).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("later accepted authority supersedes a delayed post-absence recreation receipt", async () => {
+    const h = browser(saved(false, 9000));
+    await h.cache.hydrate();
+    const stop = h.cache.watch();
+    h.put(undefined, false);
+    expect(await h.cache.rereadLegacyAuthority()).toEqual({ status: "absent" });
+    const gate = deferred<void>();
+    const send = h.sendMessage.getMockImplementation()!;
+    h.sendMessage.mockImplementationOnce(async (message) => {
+      const reply = await send(message);
+      await gate.promise;
+      return reply;
+    });
+    const pending = h.cache.commitLegacyIntent("globalOn", false);
+    void pending.catch(() => undefined);
+    try {
+      await vi.waitFor(() => expect(h.local.set).toHaveBeenCalledTimes(1));
+      const newer = {
+        ...saved(true, 20000),
+        syncEpoch: 8,
+        syncMetadata: {
+          version: 100,
+          serverUpdatedAt: "2026-10-04T01:00:00Z",
+          lastWriteId: null,
+        },
+      };
+      h.emit(newer);
+      const accepted = h.cache.currentRecord();
+      gate.resolve();
+      const outcome = await pending;
+      expect(outcome.intentCommitted).toBe(true);
+      expect(outcome.settings).toEqual(accepted.settings);
+      expect(h.cache.currentRecord()).toEqual(accepted);
+      expect(h.cache.legacyReadState()).toEqual({
+        status: "ready",
+        settings: accepted.settings,
+      });
+      expect(h.local.set).toHaveBeenCalledTimes(1);
+    } finally {
+      gate.resolve();
+      await pending.catch(() => undefined);
+      stop();
+    }
+  });
+
+  it.each(["timestamp", "server-version"] as const)(
+    "rejected stale %s notification does not strand a current pure read loading",
+    async (kind) => {
+      const record = {
+        ...saved(),
+        syncMetadata:
+          kind === "server-version"
+            ? {
+                version: 8,
+                serverUpdatedAt: "2026-10-04T00:00:00Z",
+                lastWriteId: null,
+              }
+            : null,
+      };
+      const h = browser(record);
+      await h.cache.hydrate();
+      const stop = h.cache.watch();
+      const gate = deferred<Record<string, unknown>>();
+      h.local.get.mockImplementationOnce(() => gate.promise);
+      const pending = h.cache.rereadLegacyAuthority();
+      await vi.waitFor(() =>
+        expect(h.cache.legacyReadState().status).toBe("loading"),
+      );
+      try {
+        const stale = {
+          ...saved(true, 50),
+          syncMetadata: record.syncMetadata
+            ? { ...record.syncMetadata, version: 7 }
+            : null,
+        };
+        h.emit(stale);
+        gate.resolve({ [KEY]: record });
+        expect(await pending).toEqual({ status: "ready" });
+        expect(h.cache.current()).toEqual(record.settings);
+        expect(h.cache.legacyReadState()).toEqual({
+          status: "ready",
+          settings: record.settings,
+        });
+        expect(h.local.set).not.toHaveBeenCalled();
+      } finally {
+        gate.resolve({ [KEY]: record });
+        await pending;
+        stop();
+      }
+    },
+  );
+
+  it("a rejected stale notification cannot clear a current unavailable hold", async () => {
+    const h = browser(saved());
+    await h.cache.hydrate();
+    const stop = h.cache.watch();
+    try {
+      h.local.get.mockRejectedValueOnce(
+        new Error("Current storage unavailable"),
+      );
+      expect(await h.cache.rereadLegacyAuthority()).toEqual({
+        status: "unavailable",
+        reason: "read-failed",
+      });
+      h.emit(saved(true, 50));
+      expect(h.cache.legacyReadState()).toEqual({
+        status: "unavailable",
+        reason: "read-failed",
+        settings: saved().settings,
+      });
+      await expect(h.cache.whenHydrated()).rejects.toThrow("read-failed");
+      expect(h.local.set).not.toHaveBeenCalled();
+    } finally {
+      stop();
+    }
+  });
+
+  it("initial saved zero-clock Off choices are accepted before ready is published", async () => {
+    const h = browser(saved(false, 0));
+    const ready = vi.fn();
+    h.cache.subscribeLegacyRead(() => {
+      if (h.cache.legacyReadState().status === "ready")
+        ready(h.cache.currentRecord());
+    });
+    await h.cache.hydrate();
+    expect(h.cache.current()).toEqual(saved(false, 0).settings);
+    expect(h.cache.currentRecord().settings).toEqual(saved(false, 0).settings);
+    expect(h.cache.legacyReadState()).toEqual({
+      status: "ready",
+      settings: saved(false, 0).settings,
+    });
+    expect(ready).toHaveBeenCalledTimes(1);
+    expect(ready.mock.calls[0]?.[0]?.settings).toEqual(
+      saved(false, 0).settings,
+    );
+    expect(h.local.set).not.toHaveBeenCalled();
+  });
+
+  it("an initial saved zero-clock reply cannot replace a newer accepted command", async () => {
+    const h = browser(saved(false, 0));
+    const gate = deferred<Record<string, unknown>>();
+    h.local.get.mockImplementationOnce(() => gate.promise);
+    const initial = h.cache.hydrate();
+    await h.cache.setGlobalOn(true);
+    gate.resolve({ [KEY]: saved(false, 0) });
+    await initial;
+    expect(h.cache.current().globalOn).toBe(true);
+    expect(h.cache.current().updatedAt).toBe(200);
+    expect(h.cache.legacyReadState()).toMatchObject({
+      status: "ready",
+      settings: { globalOn: true, updatedAt: 200 },
+    });
+    expect(h.local.set).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("reviewed legacy-to-atomic transition replies", () => {
+  it.each([false, true])(
+    "adopts an admitted legacy command's atomic reply with stale watch=%s",
+    async (withWatch) => {
+      const h = browser(saved());
+      await h.cache.hydrate();
+      const stop = withWatch ? h.cache.watch() : () => {};
+      const send = h.sendMessage.getMockImplementation()!;
+      h.sendMessage.mockImplementationOnce(async (message) => {
+        await h.authority.initializeAtomic("never-linked");
+        return send(message);
+      });
+      try {
+        const outcome = await h.cache.commitLegacyIntent("globalOn", true);
+        const durable = await h.consumer.get();
+        expect(durable?.atomic).toBeDefined();
+        expect(outcome.intentCommitted).toBe(true);
+        expect(outcome.settings.globalOn).toBe(true);
+        const projection = {
+          settings: durable!.settings,
+          syncMetadata: durable!.syncMetadata,
+          syncEpoch: durable!.syncEpoch ?? 0,
+          atomic: durable!.atomic,
+        };
+        expect(h.cache.currentRecord()).toEqual(projection);
+        expect(h.cache.legacyReadState()).toEqual({
+          status: "unavailable",
+          settings: null,
+          reason: "legacy-command-unavailable",
+        });
+        if (withWatch) {
+          h.emit(saved(false, 50));
+          expect(h.cache.currentRecord()).toEqual(projection);
+        }
+        await expect(
+          h.cache.commitLegacyIntent("globalOn", false),
+        ).rejects.toThrow("legacy-command-unavailable");
+      } finally {
+        stop();
+      }
+    },
+  );
+
+  it("a delayed older atomic reply cannot replace a newer accepted sequence", async () => {
+    const h = browser(saved());
+    await h.cache.hydrate();
+    const stop = h.cache.watch();
+    const gate = deferred<void>();
+    const send = h.sendMessage.getMockImplementation()!;
+    h.sendMessage.mockImplementationOnce(async (message) => {
+      await h.authority.initializeAtomic("never-linked");
+      const reply = await send(message);
+      await gate.promise;
+      return reply;
+    });
+    const pending = h.cache.commitLegacyIntent("globalOn", true);
+    void pending.catch(() => undefined);
+    try {
+      await vi.waitFor(() => expect(h.local.set).toHaveBeenCalledTimes(2));
+      const newer = await h.authority.commitIntent({
+        path: "globalOn",
+        value: false,
+        updatedAt: 300,
+      });
+      h.emit(newer);
+      const current = h.cache.currentRecord();
+      gate.resolve();
+      const outcome = await pending;
+      expect(outcome.intentCommitted).toBe(true);
+      expect(outcome.settings.globalOn).toBe(false);
+      expect(h.cache.currentRecord()).toEqual(current);
+      expect(current.atomic?.sequence).toBe(2);
+      expect(h.cache.legacyReadState()).toMatchObject({
+        status: "unavailable",
+        settings: null,
+      });
+    } finally {
+      gate.resolve();
+      await pending.catch(() => undefined);
+      stop();
+    }
+  });
+
+  it("an ignored equal-clock conflicting watch never becomes the saved projection", async () => {
+    const h = browser(saved());
+    await h.cache.hydrate();
+    const stop = h.cache.watch();
+    const before = h.cache.current();
+    try {
+      h.emit(saved(true));
+      expect(h.cache.current()).toBe(before);
+      expect(h.cache.legacyReadState()).toEqual({
+        status: "ready",
+        settings: before,
+      });
+      expect(h.local.set).not.toHaveBeenCalled();
+    } finally {
+      stop();
+    }
+  });
+});

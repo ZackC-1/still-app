@@ -261,8 +261,15 @@ export class SettingsCache {
           stored.syncMetadata !== null && this.syncMetadata !== null &&
           stored.syncMetadata.version > this.syncMetadata.version);
       if (stored && legacyReadTicket === this.legacyReadTicket && (committedGeneration === this.committedGeneration || newerLegacyAuthority) &&
-        ((!stored.atomic && !this.atomic) || authorityTicket === this.authorityTicket))
-        void this.applyStoredRecord(stored, "external");
+        ((!stored.atomic && !this.atomic) || authorityTicket === this.authorityTicket)) {
+        // An actual first saved zero-clock read is authority, not an echo of startup defaults.
+        if (authorityTicket === this.authorityTicket && committedGeneration === this.committedGeneration &&
+          this.committedGeneration === 0 && this.legacyRead.settings === null &&
+          this.syncEpoch === 0 && this.syncMetadata === null &&
+          this.snapshot.updatedAt === 0 && stored.settings.updatedAt === 0 && this.isLegacyAuthority(stored))
+          this.acceptCommitted(stored, "external");
+        else void this.applyStoredRecord(stored, "external");
+      }
       if (authorityTicket === this.authorityTicket && committedGeneration === this.committedGeneration) {
         if (stored === null && !this.atomic && this.atomicOwnership === undefined)
           this.publishLegacyRead({ status: "absent", settings: null });
@@ -294,12 +301,13 @@ export class SettingsCache {
   watch(): () => void {
     this.unwatch ??= this.adapter.subscribe((record) => {
       // Safari subscriptions supply a successful authority reread, never the auxiliary signal.
-      if (!record.atomic && !this.atomic && (record.syncEpoch ?? this.syncEpoch) >= this.syncEpoch) {
+      this.applyStoredRecord(record, "external");
+      // Rejected older/conflicting notifications are not successful current-authority reads.
+      if (this.isCurrentLegacyRecord(record) && sameSettings(record.settings, this.snapshot)) {
         this.authorityTicket += 1;
         this.hydrationRecovery = null;
+        this.publishLegacyRead({ status: "ready", settings: this.snapshot });
       }
-      this.applyStoredRecord(record, "external");
-      if (this.isCurrentLegacyRecord(record)) this.publishLegacyRead({ status: "ready", settings: record.settings });
       else if (!this.atomic && !this.isLegacyAuthority(record))
         this.publishLegacyRead({ status: "unavailable", settings: null, reason: "legacy-command-unavailable" });
       // Atomic acceptance already publishes; legacy same-choice rereads can clear recovery here.
@@ -440,11 +448,19 @@ export class SettingsCache {
   private async executeIntent(path: SettingsField, value: boolean, legacyCommand = false): Promise<AtomicSettingsIntentOutcome> {
     const previous = this.snapshot;
     const authorityTicket = this.authorityTicket;
+    const absent = legacyCommand && this.legacyRead.status === "absent";
+    const legacyReadTicket = this.legacyReadTicket;
     this.intentsInFlight += 1;
     let committed = false;
     try {
       const record = await this.adapter.commitIntent!({ path, value, updatedAt: this.now() });
-      if (!legacyCommand || this.isCurrentLegacyRecord(record)) this.acceptCommitted(record, "external");
+      const currentAbsence = absent && this.legacyRead.status === "absent" &&
+        authorityTicket === this.authorityTicket && legacyReadTicket === this.legacyReadTicket;
+      // A no-op after an actual absent read is not a saved defaults record. A real recreation
+      // belongs to this current absence boundary, rather than the vanished record's ordering.
+      if (!legacyCommand || record.atomic ||
+        (currentAbsence ? record.intentCommitted === true && this.isLegacyAuthority(record) : this.isCurrentLegacyRecord(record)))
+        this.acceptCommitted(record, "external");
       else if (authorityTicket === this.authorityTicket && !this.isLegacyAuthority(record))
         this.publishLegacyRead({ status: "unavailable", settings: null, reason: "legacy-command-unavailable" });
       committed = record.intentCommitted === true;
