@@ -4,15 +4,11 @@ import { PgRateLimiter } from "../functions/_shared/pg-store.ts";
 import { handleSyncSettings } from "../functions/sync-settings/handler.ts";
 import { syncSettings } from "../functions/_shared/settings-store.ts";
 import {
-  inspectCatalogPreconditions,
-  verifySyntheticHardeningAuthority,
-} from "./catalog_preconditions.ts";
-import {
   A,
   B,
   C,
   connection,
-  source,
+  migrationSource,
   SYNTHETIC_PASSWORD,
   token,
   write,
@@ -39,7 +35,7 @@ function parsed(request: unknown) {
 }
 Deno.test({
   name:
-    "U3 SQL lifecycle: maintained managed-owner denial, narrow authenticated atomic settings",
+    "U3 SQL lifecycle: migration 0015 as applied by postgres, narrow authenticated atomic settings",
   ignore: !cloud || !url,
   async fn(t) {
     const ordinary = connection(url!);
@@ -58,17 +54,21 @@ Deno.test({
     let historicalRights: unknown;
     try {
       await t.step(
-        "real non-superuser authority failure rolls back; explicit synthetic admin applies",
+        "0015 was applied by the ordinary non-superuser migration role; synthetic login only",
         async () => {
-          await inspectCatalogPreconditions(ordinary);
-          await verifySyntheticHardeningAuthority(ordinary, fixture, source);
-          await fixture.begin(async (tx) => {
-            await tx.unsafe(await source("hardening-candidate"));
-            await tx.unsafe(await source("assert-security"));
-            await tx.unsafe(await source("settings-sync-candidate"));
-            await tx.unsafe(await source("assert-security"));
-          });
-          await fixture.unsafe(
+          assertEquals(
+            (await ordinary`select current_user::text as role, rolsuper from pg_catalog.pg_roles where rolname = current_user`)[
+              0
+            ],
+            { role: "postgres", rolsuper: false },
+          );
+          const versions =
+            (await ordinary`select version from supabase_migrations.schema_migrations`)
+              .map((row) => row.version);
+          assert(versions.includes("0015"), "migration 0015 applied");
+          // The ordinary role holds the admin option the migration's CREATEROLE grant records,
+          // so it can add the disposable login exactly as the production secret step would.
+          await ordinary.unsafe(
             `alter role still_settings_writer login password '${SYNTHETIC_PASSWORD}'`,
           );
           await fixture`insert into auth.users(id,email) values (${A},'u3-a@example.invalid'),(${B},'u3-b@example.invalid'),(${C},'u3-c@example.invalid')`;
@@ -132,7 +132,10 @@ Deno.test({
           for (const path of paths) {
             assert(path.proconfig.includes('search_path=""'));
           }
-          await fixture.begin(async (tx) => {
+          // Later functions are created by the same ordinary migration role. In private nobody
+          // but the owner may execute them. In public, clients and the writer may not either;
+          // service_role keeps the hosted public-schema default that 0014 deliberately retained.
+          await ordinary.begin(async (tx) => {
             for (const schema of ["private", "public"]) {
               await tx.unsafe(
                 `create function ${schema}.u3_default_execute_probe() returns boolean language sql as 'select true'`,
@@ -149,7 +152,8 @@ Deno.test({
                   (await tx`select has_function_privilege(${role},${
                     schema + ".u3_default_execute_probe()"
                   },'execute') as allowed`)[0].allowed,
-                  false,
+                  schema === "public" && role === "service_role",
+                  `${role} ${schema}`,
                 );
               }
               await tx.unsafe(
@@ -171,19 +175,26 @@ Deno.test({
             audit === null || audit === "off",
             "separate audit parameter logging must be disabled in the pinned fixture",
           );
+          // The writer is a member of nothing. The only membership in it is the automatic,
+          // non-inheriting, non-SET admin grant PostgreSQL records for its CREATEROLE creator.
           assertEquals(
-            (await fixture`select count(*)::int as n from pg_catalog.pg_auth_members where roleid=(select oid from pg_catalog.pg_roles where rolname='still_settings_writer') or member=(select oid from pg_catalog.pg_roles where rolname='still_settings_writer')`)[
-              0
-            ].n,
-            0,
+            [
+              ...await fixture`select m.member::regrole::text as member,m.admin_option,m.inherit_option,m.set_option from pg_catalog.pg_auth_members m where m.roleid=(select oid from pg_catalog.pg_roles where rolname='still_settings_writer') or m.member=(select oid from pg_catalog.pg_roles where rolname='still_settings_writer')`,
+            ],
+            [{
+              member: "postgres",
+              admin_option: true,
+              inherit_option: false,
+              set_option: false,
+            }],
           );
         },
       );
       await t.step(
-        "legacy trusted owner helper grants reject client access and owner drift",
+        "legacy trusted owner helper grants reject client access, owner drift and other executors",
         () =>
-          source("settings-sync-candidate").then((candidate) =>
-            verifySettingsLegacyOwnerGrants(fixture, candidate)
+          migrationSource().then((migration) =>
+            verifySettingsLegacyOwnerGrants(fixture, migration)
           ),
       );
       await t.step(
@@ -346,84 +357,81 @@ Deno.test({
         assertEquals(await snapshot(subject), before);
       };
       await t.step(
-        "strict free legacy before/deny after modern; absent extras and future fields preserved",
+        "free legacy keeps 0012 behaviour before per-field use; refused after with future fields kept",
         async () => {
           const id = crypto.randomUUID();
-          await legacyWrite(B, legacy, id);
-          await legacyWrite(B, legacy, id);
+          const first = (await legacyWrite(B, legacy, id))[0];
+          assertEquals(first.settings, legacy);
+          assertEquals(Number(first.settings_version), 1);
+          // 0012 has no write-id deduplication and no timestamp arbitration: an exact retry and
+          // past, future or fractional timestamps are all applied, each replacing the document.
+          assertEquals(
+            Number((await legacyWrite(B, legacy, id))[0].settings_version),
+            2,
+          );
           for (
             const updatedAt of [-1, Date.now() + 60000, legacy.updatedAt, 1.2]
-          ) await assertRejects(() => legacyWrite(B, { ...legacy, updatedAt }));
+          ) {
+            assertEquals(
+              (await legacyWrite(B, { ...legacy, updatedAt }))[0].settings,
+              { ...legacy, updatedAt },
+            );
+          }
+          await legacyWrite(B, legacy);
+          assertEquals(
+            (await fixture`select count(*)::int as n from private.settings_writes where user_id=${B}`)[
+              0
+            ].n,
+            0,
+            "free sync records no per-field identity",
+          );
           const existing = await read(B);
-          assertEquals(existing.settings.clocks.globalOn.baseRevision, 1);
+          assertEquals(existing.settingsVersion, 7);
+          assertEquals(existing.settings.clocks.globalOn.baseRevision, 7);
           assertEquals(
             existing.settings.clocks["sites.youtube.related"].baseRevision,
             0,
           );
-          const supplied = [
-            "globalOn",
-            "services.youtube",
-            "services.instagram",
-            "services.facebook",
-            "services.tiktok",
-          ];
-          const expanded = JSON.parse(JSON.stringify(existing.settings));
+          // A per-field read creates only the private anchor; released apps still write.
+          await legacyWrite(B, { ...legacy, globalOn: true });
+          const beforeModern = await read(B);
+          assertEquals(beforeModern.settingsVersion, 8);
+          assertEquals(
+            (await syncSettings(
+              store,
+              B,
+              parsed(
+                write(
+                  beforeModern,
+                  [["sites.youtube.related", true]],
+                  beforeModern.settingsVersion,
+                ),
+              ),
+            )).status,
+            "ready",
+          );
+          const current = await read(B);
+          assertEquals(current.settingsVersion, 9);
+          // Members only newer clients understand survive every refused released-app write.
+          const expanded = JSON.parse(JSON.stringify(current.settings));
           expanded.future = { keep: true };
-          for (const field of [...supplied, "sites.youtube.related"]) {
-            expanded.clocks[field].futureStamp = { keep: true, label: "é/é" };
+          for (const field of ["globalOn", "sites.youtube.related"]) {
+            expanded.clocks[field].futureStamp = { keep: true, label: "é/é" };
           }
           await fixture`update public.profiles set settings=${
             JSON.stringify(expanded)
-          }::text::jsonb,settings_server_updated_at=pg_catalog.clock_timestamp()-interval '1 second' where id=${B}`;
-          const beforeLegacy = await read(B);
-          const serverNow =
-            (await fixture`select pg_catalog.floor(extract(epoch from pg_catalog.clock_timestamp())*1000)::bigint as ms`)[
-              0
-            ].ms;
-          await legacyWrite(B, {
-            ...legacy,
-            globalOn: true,
-            updatedAt: Number(serverNow),
-          });
-          const preserved = await read(B);
-          assertEquals(
-            preserved.settingsVersion,
-            beforeLegacy.settingsVersion + 1,
-          );
-          for (const field of supplied) {
-            assertEquals(preserved.settings.clocks[field], {
-              ...expanded.clocks[field],
-              baseRevision: preserved.settingsVersion,
-              localStep: 0,
-            });
-          }
-          assertEquals(
-            preserved.settings.clocks["sites.youtube.related"],
-            expanded.clocks["sites.youtube.related"],
-          );
-          assertEquals(preserved.settings.future, { keep: true });
-          await syncSettings(
-            store,
-            B,
-            parsed(
-              write(
-                preserved,
-                [["sites.youtube.related", true]],
-                preserved.settingsVersion,
-              ),
-            ),
-          );
-          const current = await read(B);
-          await fixture`select pg_catalog.pg_sleep(0.005)`;
-          const admissibleTime = await databaseTime();
-          assert(admissibleTime > current.settings.updatedAt);
+          }::text::jsonb where id=${B}`;
           await rejectedLegacy(
             B,
-            { ...legacy, updatedAt: admissibleTime },
+            { ...legacy, updatedAt: await databaseTime() },
             "settings client upgrade required",
             "40001",
           );
           const protectedState = await snapshot(B);
+          // The exact identity that 0012 would have applied again is refused too.
+          const retry = await assertRejects(() => legacyWrite(B, legacy, id));
+          assertEquals((retry as Error & { code: string }).code, "40001");
+          assertEquals(await snapshot(B), protectedState);
           let mutantAccepted = false;
           const rollback = await assertRejects(() =>
             fixture.begin(async (tx) => {
@@ -432,8 +440,8 @@ Deno.test({
                   0
                 ].source as string;
               const mutant = definition.replace(
-                /if exists\(select 1 from private\.settings_anchors[\s\S]*?raise exception 'settings client upgrade required' using errcode='40001'; end if;/,
-                "if false then raise exception 'settings client upgrade required' using errcode='40001'; end if;",
+                /if exists \(select 1 from private\.settings_anchors a[\s\S]*?raise exception 'settings client upgrade required' using errcode = '40001';\n {2}end if;/,
+                "",
               );
               assert(mutant !== definition);
               await tx.unsafe(mutant);
@@ -441,17 +449,17 @@ Deno.test({
               await tx`select pg_catalog.set_config('request.jwt.claim.sub',${B},true)`;
               const rows =
                 await tx`select * from public.write_profile_settings(${
-                  JSON.stringify({ ...legacy, updatedAt: admissibleTime })
+                  JSON.stringify(legacy)
                 }::text::jsonb,${crypto.randomUUID()}::uuid)`;
               assertEquals(rows.length, 1);
-              assertEquals(rows[0].settings.globalOn, false);
+              assertEquals(rows[0].settings, legacy);
               mutantAccepted = true;
               throw new Error("synthetic upgrade mutant rollback");
             })
           );
           assert(
             mutantAccepted,
-            "disabled modern guard must admit the proved timestamp",
+            "without the guard a released app overwrites the per-field document",
           );
           assertEquals(
             (rollback as Error).message,
@@ -459,46 +467,39 @@ Deno.test({
           );
           assertEquals(await snapshot(B), protectedState);
           assertEquals((await read(B)).settings.future, { keep: true });
-          await legacyWrite(B, legacy, id); // exact old identity only returns current canonical
         },
       );
       await t.step(
-        "legacy raw grammar, complete canonical holds and safe maximum roll back every identity",
+        "released-app documents of any shape replace the row; per-field reads hold on unreadable rows",
         async () => {
           const now = await databaseTime();
-          const acceptedId = crypto.randomUUID();
-          const acceptedBody = { ...legacy, updatedAt: now };
-          await legacyWrite(C, acceptedBody, acceptedId);
+          // Free sync stores each body exactly, as 0012 does; the per-field path then holds.
           for (
-            const [body, message] of [
-              [
-                { ...legacy, updatedAt: now, unknown: true },
-                "unrecognized legacy settings",
-              ],
-              [
-                { ...legacy, updatedAt: now, schemaVersion: 2 },
-                "unrecognized legacy settings",
-              ],
-              [
-                { ...legacy, updatedAt: now, services: { youtube: true } },
-                "invalid legacy services",
-              ],
-              [{
+            const body of [
+              { ...legacy, updatedAt: now, unknown: true },
+              { ...legacy, updatedAt: now, services: { youtube: true } },
+              {
                 ...legacy,
                 updatedAt: now,
                 services: { ...legacy.services, youtube: 1 },
-              }, "invalid legacy services"],
-              [{ ...legacy, updatedAt: now, pauses: [1] }, "invalid pauses"],
-              [
-                { ...legacy, updatedAt: now, pauses: ["x".repeat(8193)] },
-                "invalid legacy settings",
-              ],
-              [
-                { ...legacy, updatedAt: now, pauses: Array(129).fill("") },
-                "invalid legacy settings",
-              ],
-            ] as const
-          ) await rejectedLegacy(C, body, message, "22023");
+              },
+              { ...legacy, updatedAt: now, pauses: [1] },
+              { ...legacy, updatedAt: now, pauses: ["x".repeat(8193)] },
+              { ...legacy, updatedAt: now, pauses: Array(129).fill("") },
+            ]
+          ) {
+            const row = (await legacyWrite(C, body))[0];
+            assertEquals(row.settings, body);
+            // The per-field path agrees with the shared migrator about each stored document.
+            const oracle = migrateSettingsV2(body, {
+              kind: "acknowledged-account",
+              revision: Number(row.settings_version),
+            });
+            assertEquals(
+              (await syncSettings(store, C, null)).status,
+              oracle.status === "ready" ? "ready" : "hold",
+            );
+          }
           const fresh = migrateSettingsV2(null, { kind: "proven-fresh" });
           if (fresh.status !== "ready") throw new Error("fresh");
           const missing = JSON.parse(JSON.stringify(fresh.settings));
@@ -512,30 +513,34 @@ Deno.test({
             updatedAt: 1,
             sites: { "youtube.related": "broken" },
           };
+          // A released-app document is replaced by the next released-app write; a document a
+          // newer client wrote is never overwritten by one, readable or not.
           for (
-            const [raw, revision] of [[badSite, 1], [missing, 1], [future, 1], [
-              { ...legacy, updatedAt: 1 },
-              9007199254740991,
-            ]] as const
+            const [raw, revision, perField, released] of [
+              [badSite, 1, "hold", "replaced"],
+              [missing, 1, "hold", "refused"],
+              [future, 1, "hold", "refused"],
+              [{ ...legacy, updatedAt: 1 }, 9007199254740991, "ready", "replaced"],
+            ] as const
           ) {
             await fixture`insert into public.profiles(id,settings,settings_version,settings_server_updated_at) values(${C},${
               JSON.stringify(raw)
             }::text::jsonb,${revision},'1970-01-01T00:00:00Z') on conflict(id) do update set settings=excluded.settings,settings_version=excluded.settings_version,settings_server_updated_at=excluded.settings_server_updated_at`;
-            await rejectedLegacy(
-              C,
-              { ...legacy, updatedAt: await databaseTime() },
-              "settings recovery required",
-              "40001",
-            );
-            const oracle = await syncSettings(store, C, null);
-            assertEquals(
-              oracle.status,
-              revision === 9007199254740991 ? "ready" : "hold",
-            );
+            assertEquals((await syncSettings(store, C, null)).status, perField);
+            const body = { ...legacy, updatedAt: await databaseTime() };
+            if (released === "refused") {
+              await rejectedLegacy(
+                C,
+                body,
+                "settings client upgrade required",
+                "40001",
+              );
+            } else {
+              const row = (await legacyWrite(C, body))[0];
+              assertEquals(row.settings, body);
+              assertEquals(BigInt(row.settings_version), BigInt(revision) + 1n);
+            }
           }
-          const maximumBefore = await snapshot(C);
-          await legacyWrite(C, acceptedBody, acceptedId);
-          assertEquals(await snapshot(C), maximumBefore);
           // Admission must check the migrated/merged document, not only raw input.
           for (const modern of [false, true]) {
             const nearLimit: Record<string, unknown> = modern
@@ -575,12 +580,21 @@ Deno.test({
             await fixture`insert into public.profiles(id,settings,settings_version,settings_server_updated_at) values(${C},${
               JSON.stringify(nearLimit)
             }::text::jsonb,1,'1970-01-01T00:00:00Z') on conflict(id) do update set settings=excluded.settings,settings_version=excluded.settings_version,settings_server_updated_at=excluded.settings_server_updated_at`;
-            await rejectedLegacy(
-              C,
-              { ...legacy, updatedAt: await databaseTime() },
-              "settings recovery required",
-              "40001",
+            assertEquals(
+              (await syncSettings(store, C, null)).status,
+              modern ? "ready" : "hold",
             );
+            const body = { ...legacy, updatedAt: await databaseTime() };
+            if (modern) {
+              await rejectedLegacy(
+                C,
+                body,
+                "settings client upgrade required",
+                "40001",
+              );
+            } else {
+              assertEquals((await legacyWrite(C, body))[0].settings, body);
+            }
           }
           await fixture`delete from private.settings_writes where user_id=${C}`;
           await fixture`delete from public.profiles where id=${C}`;
@@ -738,11 +752,23 @@ Deno.test({
       await t.step(
         "database new-write rate and retained count/byte admission preserve exact retries",
         async () => {
-          const id = crypto.randomUUID();
-          const body = { ...legacy, updatedAt: await databaseTime() };
-          await legacyWrite(C, body, id);
+          const initial = await read(C);
+          const request = parsed(
+            write(initial, [["sites.youtube.related", true]], initial.settingsVersion),
+          );
+          const accepted = await syncSettings(store, C, request);
+          assertEquals(accepted.status, "ready");
+          if (accepted.status !== "ready") throw new Error("accepted");
           const retained = await snapshot(C);
-          // Synthetic prefill is explicit fixture authority; all admission calls remain authenticated.
+          // The database bound itself, exactly as the writer reaches it inside its transaction.
+          const claim = (writeId: string) =>
+            writer.begin(async (tx) => {
+              await tx`select pg_catalog.set_config('request.jwt.claim.sub',${C},true)`;
+              return (await tx`select private.claim_settings_write(${C}::uuid,${writeId}::uuid,'{"probe":true}'::jsonb) as status`)[
+                0
+              ].status;
+            });
+          // Synthetic prefill is explicit fixture authority; all admission calls remain the writer's.
           for (
             const [count, bytes, message] of [
               [120, 0, "settings new write rate limited"],
@@ -750,24 +776,36 @@ Deno.test({
               [512, 8192, "settings identity storage full"],
             ] as const
           ) {
-            await fixture`delete from private.settings_writes where user_id=${C} and write_id<>${id}::uuid`;
+            await fixture`delete from private.settings_writes where user_id=${C} and write_id<>${request.writeId}::uuid`;
             await fixture`insert into private.settings_writes(user_id,write_id,body,created_at) select ${C}::uuid,gen_random_uuid(),pg_catalog.jsonb_build_object('padding',pg_catalog.repeat('x',${bytes})),case when ${count}=120 then pg_catalog.clock_timestamp() else pg_catalog.clock_timestamp()-interval '2 minutes' end from pg_catalog.generate_series(1,${count})`;
-            await rejectedLegacy(
-              C,
-              { ...body, updatedAt: await databaseTime() },
-              message,
-              "P0001",
+            const before = await snapshot(C);
+            const failure = await assertRejects(() => claim(crypto.randomUUID()));
+            assertEquals((failure as Error & { code: string }).code, "P0001");
+            assertEquals((failure as Error).message, message);
+            const current = await read(C);
+            const next = parsed(
+              write(current, [["globalOn", !current.settings.globalOn]], current.settingsVersion),
             );
-            const beforeRetry = await snapshot(C);
-            await legacyWrite(C, body, id);
-            assertEquals(await snapshot(C), beforeRetry);
+            // The endpoint path rolls back and exposes no database detail.
+            const rejected = await assertRejects(() => syncSettings(store, C, next));
+            assertEquals((rejected as Error).message, "Settings storage unavailable");
+            assertEquals(await snapshot(C), before);
+            // The exact accepted retry is still answered from its retained identity.
+            assertEquals(await syncSettings(store, C, request), current);
+            assertEquals(await snapshot(C), before);
           }
-          await fixture`delete from private.settings_writes where user_id=${C} and write_id<>${id}::uuid`;
+          await fixture`delete from private.settings_writes where user_id=${C} and write_id<>${request.writeId}::uuid`;
           assertEquals((await snapshot(C)).row, retained.row);
           await fixture`update private.settings_writes set created_at=pg_catalog.clock_timestamp()-interval '31 days' where user_id=${C}`;
           await fixture`select private.cleanup_settings_writes()`;
           assertEquals((await snapshot(C)).identities.length, 0);
-          await rejectedLegacy(C, body, "legacy timestamp conflict", "40001");
+          // After retention the same immutable intent cannot gain a new rank.
+          const expired = await syncSettings(store, C, request);
+          assertEquals(expired.status, "ready");
+          if (expired.status !== "ready") throw new Error("expired");
+          assertEquals(expired.settingsVersion, accepted.settingsVersion);
+          assertEquals((await snapshot(C)).row, retained.row);
+          await fixture`delete from private.settings_writes where user_id=${C}`;
           await fixture`delete from public.profiles where id=${C}`;
         },
       );
