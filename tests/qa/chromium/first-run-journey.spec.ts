@@ -1,7 +1,7 @@
 import { test, expect } from "../shared/fixtures.js";
 import { NEEDS_BACKEND, V3_ONLY, syncConfigured } from "../shared/lane.js";
 import { FIRST_RUN, serveFixture } from "../shared/serve.js";
-import { openExtensionPage, waitForCommittedSettings } from "../shared/launch.mjs";
+import { openExtensionPage, readStore, waitForCommittedSettings } from "../shared/launch.mjs";
 import type { BrowserContext, Page } from "@playwright/test";
 
 // J1.CH: a brand-new install, as a person sees it. The first-run page opens once, nothing asks them
@@ -38,6 +38,8 @@ test("J1.CH a new install opens the first-run page once and saves the defaults",
 
   const dump = await ev.storage(context, "after-install");
   expect(Object.keys(dump).sort()).toEqual(["still:originalInstall", "still:settings"]);
+  for (const key of ["still:entitlement", "still:checkout-pending"])
+    expect(await readStore(context, key), `${key} is absent after install`).toBeNull();
   // Once: a quiet moment later there is still exactly one first-run page.
   await new Promise((done) => setTimeout(done, 1500));
   expect(context.pages().filter((p) => FIRST_RUN.test(p.url()))).toHaveLength(1);
@@ -54,7 +56,7 @@ test("J1.CH there is no account wall: sign-in is optional and the pin step is sh
   await expect(sync).toBeVisible();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.locator("input:not([type=hidden])")).toHaveCount(0);
-  // The combined email-and-usage consent question of earlier drafts is not part of this build.
+  // The combined email-and-usage consent question of a variant that was dropped is not part of this build.
   await expect(page.getByText("Share your email and usage data with Still?")).toHaveCount(0);
   await ev.shot(page, "first-run-no-account-wall");
 });
@@ -105,3 +107,8 @@ test.fixme(
     expect(NEEDS_BACKEND).toBeTruthy();
   },
 );
+
+test.fixme("J1.CH the privacy consent question (owner decision 21) answered both ways", async () => {
+  // This build shows no consent question on first run. When it ships, answer Share and Don't share
+  // in separate installs and assert the saved choice and that nothing is sent before an answer.
+});

@@ -11,10 +11,15 @@ import { serviceWorker } from "./launch.mjs";
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const EVIDENCE_ROOT = resolve(process.env.STILL_QA_EVIDENCE ?? join(HERE, "../.output/evidence"));
 
-const SENSITIVE = /token|secret|key|session|email|code|password|jwt|auth|identity|user/i;
+const SENSITIVE =
+  /token|secret|key|session|email|code|password|jwt|auth|identity|user|id$|Id$|_id$|account|install|anchor|lineage|distinct|otp/i;
+// A UUID, or a JWT (three dot-separated base64url parts, the first two starting "ey"), under any key.
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const JWT = /^ey[A-Za-z0-9_-]+\.ey[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*$/;
 
 /** Copy a storage value, replacing anything that could hold a credential or an identifier. */
 export function redact(value: unknown, key = ""): unknown {
+  if (typeof value === "string" && (UUID.test(value) || JWT.test(value))) return "[redacted]";
   if (SENSITIVE.test(key) && value !== null && typeof value !== "boolean" && typeof value !== "number")
     return "[redacted]";
   if (Array.isArray(value)) return value.map((item) => redact(item, key));

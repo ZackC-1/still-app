@@ -52,7 +52,9 @@ test("J12.CH no popup, options, first-run or TikTok page state offers a purchase
     await expect(page.getByRole("switch").first()).toBeVisible();
     await expectNoOffer(page, `${name} (collapsed)`);
     await ev.shot(page, `${name}-collapsed`);
-    await expandEvery(page, name, (step) => ev.shot(page, step));
+    // The legacy (configured) popup has different expanders; there the collapsed page and the
+    // network checks are what this crawl keeps.
+    if (!syncConfigured) await expandEvery(page, name, (step) => ev.shot(page, step));
     await page.close();
   }
 
@@ -76,6 +78,10 @@ test("J12.CH no popup, options, first-run or TikTok page state offers a purchase
     await expectNoOffer(tiktok, "tiktok confirmation");
     await ev.shot(tiktok, "tiktok-confirmation");
   }
+
+  // Startup check that does not depend on catching a request: nothing paid was ever written.
+  for (const key of ["still:entitlement", "still:checkout-pending"])
+    expect(await readStore(context, key), `${key} is absent`).toBeNull();
 
   const sales = network.entries.filter((entry) => SALES_REQUEST.test(`${entry.origin}${entry.path}`));
   ev.log("network-log", network.entries);

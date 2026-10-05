@@ -15,10 +15,15 @@ type QaFixtures = {
   evidence: (cell: string) => Evidence;
 };
 
+// The recorder is attached inside the context fixture, immediately after launch and before the
+// service worker is awaited, so requests made during startup are in the log.
+const recorders = new WeakMap<BrowserContext, ReturnType<typeof recordNetwork>>();
+
 export const test = base.extend<QaFixtures>({
   colorScheme: ["light", { option: true }],
   context: async ({ colorScheme }, use) => {
     const context = await launchExtension({ colorScheme });
+    recorders.set(context, recordNetwork(context));
     await use(context);
     await context.close();
   },
@@ -26,7 +31,7 @@ export const test = base.extend<QaFixtures>({
     await use(await extensionIdOf(context));
   },
   network: async ({ context }, use) => {
-    await use(recordNetwork(context));
+    await use(recorders.get(context)!);
   },
   evidence: async ({}, use, testInfo) => { // eslint-disable-line no-empty-pattern
     await use((cell: string) => new Evidence(cell, testInfo));
