@@ -7,6 +7,12 @@
 //  SafariExtensionBridge and dismisses on completion — landing the user on Settings. The host is the
 //  shared ViewController, which calls presentIfNeeded(from:) from viewDidAppear.
 //
+//  One gate, one presenter: `selected` is read once per launch from the Info.plist key
+//  `StillOnboardingPresenter` (OnboardingGate.presenterInfoKey). No key (every shipped build) keeps
+//  this SwiftUI flow; the exact string "web" hands the same OnboardingGate to the V3 D12 screens in
+//  the web view (WebBridgeRouter `onboardingState` / `completeOnboarding`) and this presenter never
+//  presents, not even through the DEBUG screenshot hook.
+//
 
 import SwiftUI
 import StillKit
@@ -18,22 +24,28 @@ import AppKit
 #endif
 
 enum OnboardingPresenter {
+  /// Who presents onboarding on this launch. Read once (a static let is initialised lazily and
+  /// exactly once), so the router and this presenter can never disagree within a launch.
+  static let selected: OnboardingPresenterChoice = OnboardingGate.presenter(
+    fromInfoValue: Bundle.main.object(forInfoDictionaryKey: OnboardingGate.presenterInfoKey))
+
   @MainActor
   static func presentIfNeeded(from host: PlatformViewController) {
     let defaults = OnboardingGate.appGroupDefaults()
 
     // DEBUG verification hook: STILL_ONBOARDING_STEP=<0-3> forces the flow to present at a given
     // screen (bypassing the gate) so each screen can be screenshotted. Never set in a Release build.
-    var initialStep = 0
+    // It only applies while SwiftUI is the presenter (OnboardingGate.nativeInitialStep).
+    var debugForcedStep: Int?
     #if DEBUG
     if let raw = ProcessInfo.processInfo.environment["STILL_ONBOARDING_STEP"], let step = Int(raw) {
-      initialStep = step
-      present(from: host, defaults: defaults, initialStep: initialStep)
-      return
+      debugForcedStep = step
     }
     #endif
 
-    guard OnboardingGate.shouldShow(defaults) else { return }
+    guard let initialStep = OnboardingGate.nativeInitialStep(
+      presenter: selected, defaults: defaults, debugForcedStep: debugForcedStep)
+    else { return }
     present(from: host, defaults: defaults, initialStep: initialStep)
   }
 

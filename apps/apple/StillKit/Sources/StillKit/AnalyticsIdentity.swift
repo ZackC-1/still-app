@@ -181,6 +181,19 @@ public final class AnalyticsIdentityStore {
     group.set(enabled, forKey: Self.consentKey)
   }
 
+  /// True once a choice was written, either way. Before that `consent` reads the default (on),
+  /// which is not an answer, so nothing may present it as a saved choice.
+  public var consentAnswered: Bool {
+    (group.object(forKey: Self.consentKey) as? Bool) != nil
+  }
+
+  /// The `setAnalyticsConsent` bridge reply: write the person's explicit choice, then report the
+  /// stored value read back and whether it is an explicit answer.
+  public func commitConsent(_ enabled: Bool) -> [String: Any] {
+    setConsent(enabled)
+    return ["ok": true, "enabled": consent, "answered": consentAnswered]
+  }
+
   public func acknowledgeNotice() {
     group.set(true, forKey: Self.noticeKey)
   }
@@ -223,5 +236,25 @@ public final class AnalyticsIdentityStore {
 
   static func isId(_ value: String) -> Bool {
     value.count == 36 && UUID(uuidString: value) != nil
+  }
+}
+
+/// One value per launch, computed once and shared by every caller, including callers that arrive
+/// while the first computation is still running. The app's `analyticsContext` read uses it: on a
+/// first launch that read can wait several seconds for iCloud, and a second caller in that window
+/// must wait for the same result rather than run `appContext` again (which records the launch and
+/// would report a different, already-recorded context).
+@available(iOS 13.0, macOS 10.15, *)
+@MainActor
+public final class LaunchValue<Value: Sendable> {
+  private var task: Task<Value, Never>?
+
+  public init() {}
+
+  public func get(_ make: @escaping @MainActor () async -> Value) async -> Value {
+    if let task { return await task.value }
+    let task = Task { @MainActor in await make() }
+    self.task = task
+    return await task.value
   }
 }

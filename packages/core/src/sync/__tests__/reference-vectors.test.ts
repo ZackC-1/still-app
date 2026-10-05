@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   allocateSettingsFieldEdit,
@@ -198,5 +201,20 @@ describe("shared reference vectors (TypeScript field order)", () => {
     ).toBe(true);
     expect(executed).toBe(6534 + tsCases.length);
     expect(executed).toBe(6548);
+  });
+});
+
+// The fixture is generated from scripts/sync-vectors/reference.py and pins that model's hash.
+// A hand-edited model or a model changed without regenerating fails here.
+describe("shared reference vectors provenance", () => {
+  it("pins the committed reference model", () => {
+    // Core tests run from packages/core.
+    const model = readFileSync(
+      resolve(process.cwd(), "../../scripts/sync-vectors/reference.py"),
+    );
+    expect(createHash("sha256").update(model).digest("hex")).toBe(
+      (reference as unknown as { referenceModelSha256: string })
+        .referenceModelSha256,
+    );
   });
 });
