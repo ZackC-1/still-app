@@ -22,7 +22,7 @@ import { bytesToHex, hexToBytes, utf8ToBytes } from "@noble/hashes/utils.js";
 
 const DEV_PRIVATE_KEY_HEX = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff";
 const KID = "still-dev-1";
-const VERSION = "3.0.3";
+const VERSION = "3.0.4";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const outPath = join(here, "..", "rules", "format2.json");
