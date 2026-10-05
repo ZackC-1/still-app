@@ -31,6 +31,7 @@ import {
   type RedirectDedupe,
   type StillWindow,
 } from "./index.js";
+import type { TikTokBlockedNavigation } from "./tiktok-blocked-navigation.js";
 
 /** The WXT lifecycle bit the shared entry needs without importing WXT into core. */
 export interface ExtensionContentContext {
@@ -50,6 +51,11 @@ export interface ExtensionContentEntryDeps {
   readonly bundledRuleSetV2?: SignedRuleSetV2;
   /** Optional trusted host adapter; omitted by current production entrypoints. */
   readonly handleBlockedNavigation?: ContentScriptDeps["handleBlockedNavigation"];
+  /**
+   * Optional TikTok blocked-page host. It serves the legacy lane directly and, when no explicit
+   * handleBlockedNavigation is given, is also the format-2 lane's blocked-navigation port.
+   */
+  readonly tiktokBlockedPage?: TikTokBlockedNavigation;
   /** The target extension's local storage namespace (Safari `browser`, Chromium `chrome`). */
   readonly storage: ReadableArea;
   readonly prod: boolean;
@@ -129,13 +135,17 @@ export function createExtensionContentEntry(
           ruleSetTrust(deps.prod),
         );
     if (context.isInvalid || deps.isInvalid?.()) return;
+    const tiktok = deps.tiktokBlockedPage;
 
     const script = createContentScript({
       win,
       doc,
       ruleSet: legacy?.ruleSet ?? (seed as unknown as SignedRuleSet),
       ruleSetV2: modern?.ruleSet,
-      handleBlockedNavigation: deps.handleBlockedNavigation,
+      handleBlockedNavigation:
+        deps.handleBlockedNavigation ??
+        (tiktok ? (target: URL) => tiktok.consume(target) : undefined),
+      tiktokBlockedPage: tiktok,
       cache,
       entitlement,
       redirectDedupe,
@@ -148,6 +158,7 @@ export function createExtensionContentEntry(
     script.stop = () => {
       stopAccess();
       stop();
+      tiktok?.stop();
     };
     void entitlement.refreshAccess(); // current free mode resolves synchronously, no account wait
     deps.onScriptCreated?.(script);
