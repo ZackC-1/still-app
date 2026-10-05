@@ -11,7 +11,8 @@
 //
 // Lost token: confirm no other lane is using the QA stack, then
 //   node tests/qa/backend/qa-backend.mjs stop "$(cat /private/tmp/still-qa-backend/.qa-owner)"
-// Never run `supabase stop` by hand.
+// Never run `supabase stop` by hand. A leftover empty /private/tmp/still-qa-backend.lock directory
+// (a run killed while building its mirror; no stack exists then) may be removed with rmdir.
 import { adminCode } from "./auth.mjs";
 import { assertLocalOnly } from "./guard.mjs";
 import { REPO, start, status, stop } from "./local-stack.mjs";

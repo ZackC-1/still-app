@@ -7,7 +7,7 @@ import { join } from "node:path";
 import {
   LocalOnlyRefusal, assertAllowedCli, assertLocalEnv, assertLocalOnly, assertLocalUrl, assertNotLinked, isLocalUrl,
 } from "./guard.mjs";
-import { DEFAULT_MIRROR, EXCLUDE, OWNER_FILE, QA_PROJECT_ID, assertMirrorPath, buildMirror, claimMirror, cliEnv, writeOwnerToken, parseStatus, qaConfig, runCli, start, status, stop, trackedFiles } from "./local-stack.mjs";
+import { DEFAULT_MIRROR, EXCLUDE, OWNER_FILE, projectIdFor, assertMirrorPath, buildMirror, claimMirror, cliEnv, writeOwnerToken, parseStatus, qaConfig, runCli, start, status, stop, trackedFiles } from "./local-stack.mjs";
 
 const refused = fn => assert.throws(fn, LocalOnlyRefusal);
 
@@ -33,8 +33,9 @@ function fakeRepo({ linked = null } = {}) {
 const testMirror = label => `/private/tmp/still-qa-test-${label}-${process.pid}-${Date.now()}`;
 
 /** A mirror as start() leaves it: QA config plus an owner token. */
-function fakeMirror({ projectId = QA_PROJECT_ID, token = "owner-token-1" } = {}) {
+function fakeMirror({ projectId, token = "owner-token-1" } = {}) {
   const mirror = testMirror("m");
+  projectId ??= projectIdFor(mirror);
   mkdirSync(join(mirror, "supabase"), { recursive: true });
   writeFileSync(join(mirror, "supabase/config.toml"), `project_id = "${projectId}"\n`);
   if (token) writeFileSync(join(mirror, OWNER_FILE), token);
@@ -118,14 +119,46 @@ test("the CLI may run only start, status -o json and stop --no-backup on the mir
   }
 });
 
-test("the mirror config gets the QA project id and the QA-only code template, never twice", () => {
-  const out = qaConfig('project_id = "still-app"\n[api]\nport = 54321\n');
-  assert.match(out, new RegExp(`^project_id = "${QA_PROJECT_ID}"$`, "m"));
+test("the mirror config gets the mirror's project id and the QA-only code template", () => {
+  const out = qaConfig('project_id = "still-app"\n[api]\nport = 54321\n', "still-qa-backend");
+  assert.match(out, /^project_id = "still-qa-backend"$/m);
   assert.doesNotMatch(out, /still-app/);
   assert.match(out, /\[auth\.email\.template\.magic_link\][\s\S]*qa-code\.html/);
-  refused(() => qaConfig('[api]\nport = 1\n'));
-  refused(() => qaConfig('project_id = "a"\nproject_id = "b"\n'));
-  refused(() => qaConfig('project_id = "a"\n[auth.email.template.magic_link]\nsubject = "x"\n'));
+  refused(() => qaConfig('[api]\nport = 1\n', "still-qa-backend"));
+  refused(() => qaConfig('project_id = "a"\nproject_id = "b"\n', "still-qa-backend"));
+  refused(() => qaConfig('project_id = "a"\n', "still-app"));
+});
+
+const tables = text => text.split("\n").filter(line => /^\s*\[/.test(line)).map(line => line.trim());
+
+test("the actual repository config becomes a QA config with one code template and no SMTP", () => {
+  const real = readFileSync(new URL("../../../supabase/config.toml", import.meta.url), "utf8");
+  const out = qaConfig(real, "still-qa-backend");
+  assert.equal(tables(out).filter(t => t === "[auth.email.template.magic_link]").length, 1);
+  assert.equal(tables(out).filter(t => t === "[auth.email.template.confirmation]").length, 1);
+  assert.equal(tables(out).some(t => /smtp/.test(t)), false);
+  assert.match(out, /^project_id = "still-qa-backend"$/m);
+  // Every other table of the real config survives unchanged in order.
+  assert.deepEqual(tables(out).filter(t => !/template\.(magic_link|confirmation)/.test(t)), tables(real).filter(t => !/^\[auth\.email\.(smtp|template\.(magic_link|confirmation))\]$/.test(t)));
+});
+
+test("a config that already sets a sign-in template or SMTP is rewritten: ours replaces it, SMTP is removed", () => {
+  const shape = [
+    'project_id = "still-app"', "[auth.email]", "enable_signup = true", "otp_length = 6",
+    "[auth.email.smtp]", "enabled = true", 'host = "smtp.sendgrid.net"', "port = 587", 'pass = "env(SENDGRID_API_KEY)"',
+    "[auth.email.template.magic_link]", 'subject = "Your link"', 'content_path = "./supabase/templates/magic.html"',
+    "[auth.email.template.invite]", 'subject = "Invite"', "[auth.sms]", "enable_signup = false",
+  ].join("\n");
+  const out = qaConfig(shape, "still-qa-backend");
+  assert.doesNotMatch(out, /sendgrid|SENDGRID|magic\.html|\[auth\.email\.smtp\]/);
+  assert.deepEqual(tables(out), ["[auth.email]", "[auth.email.template.invite]", "[auth.sms]", "[auth.email.template.magic_link]", "[auth.email.template.confirmation]"]);
+  assert.match(out, /\[auth\.sms\]\nenable_signup = false/);
+  for (const unsafe of [
+    'project_id = "a"\n[auth.email]\nsmtp.host = "x"\n',
+    'project_id = "a"\n[auth.email]\nsmtp = { host = "x" }\n',
+    'project_id = "a"\n[auth.email.smtp.extra]\nx = 1\n',
+    'project_id = "a"\n[auth.email]\ntemplate.magic_link.subject = "x"\n',
+  ]) refused(() => qaConfig(unsafe, "still-qa-backend"));
 });
 
 test("the repository's own config never carries the QA template", () => {
@@ -150,7 +183,7 @@ test("buildMirror copies outside the checkout and leaves no link marker or secre
     assert.ok(existsSync(join(mirror, "supabase/templates/qa-code.html")));
     assert.equal(existsSync(join(mirror, "supabase/functions/.env")), false);
     assert.equal(existsSync(join(mirror, "supabase/functions/.temp")), false);
-    assert.match(readFileSync(join(mirror, "supabase/config.toml"), "utf8"), /project_id = "still-qa"/);
+    assert.match(readFileSync(join(mirror, "supabase/config.toml"), "utf8"), new RegExp(`project_id = "${projectIdFor(mirror)}"`));
     assert.match(readFileSync(join(root, "supabase/config.toml"), "utf8"), /project_id = "still-app"/);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -194,11 +227,12 @@ test("stop needs the owner token, runs --no-backup and fails when QA containers 
       refused(() => stop({ root, mirror, env: {}, spawn: r.spawn, token }));
       assert.deepEqual(r.calls, [], "nothing is spawned without the owner token");
     }
-    const incomplete = leftover(["supabase_db_still-qa"]);
+    const incomplete = leftover([`supabase_db_${projectIdFor(mirror)}`]);
     assert.throws(() => stop({ root, mirror, env: {}, spawn: incomplete.spawn, token: "owner-token-1" }), /teardown incomplete/);
     assert.deepEqual([incomplete.calls[0].cmd, ...incomplete.calls[0].args], ["supabase", "stop", "--workdir", mirror, "--no-backup"]);
     assert.ok(existsSync(mirror), "the mirror is kept when teardown is incomplete");
-    stop({ root, mirror, env: {}, spawn: leftover(["supabase_db_still-app"]).spawn, token: "owner-token-1" });
+    // Another mirror's or lane's project is not this mirror's leftover.
+    stop({ root, mirror, env: {}, spawn: leftover(["supabase_db_still-app", "supabase_db_still-qa-other", `supabase_db_${projectIdFor(mirror)}x`]).spawn, token: "owner-token-1" });
     assert.equal(existsSync(mirror), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -208,7 +242,8 @@ test("stop needs the owner token, runs --no-backup and fails when QA containers 
 
 test("status, stop and runCli refuse a mirror whose config is not the QA project, before spawning", () => {
   const root = fakeRepo();
-  const cases = [fakeMirror({ projectId: "still-app" }), fakeMirror({ projectId: "still-qa\"\nproject_id = \"still-app" })];
+  const cases = [fakeMirror({ projectId: "still-app" }), fakeMirror({ projectId: "still-qa-backend" }),
+    fakeMirror({ projectId: "still-qa\"\nproject_id = \"still-app" })];
   try {
     for (const mirror of cases) {
       const r = recorder();
@@ -343,7 +378,7 @@ test("if that teardown fails too, the owner token is surfaced on the error", () 
   const mirror = testMirror("lost2");
   const r = recorder({
     supabase: args => args[0] === "status" ? "not json" : "",
-    docker: args => args[0] === "volume" ? "supabase_db_still-qa" : "",
+    docker: args => args[0] === "volume" ? `supabase_db_${projectIdFor(mirror)}` : "",
   });
   try {
     let caught;
@@ -368,5 +403,59 @@ test("DOCKER_HOST must be a unix socket or loopback", () => {
   assertLocalEnv({ DOCKER_HOST: "tcp://127.0.0.1:2375" });
   for (const bad of ["tcp://docker.example.com:2376", "ssh://user@host", "tcp://10.0.0.5:2375", "unix://relative.sock"]) {
     refused(() => assertLocalEnv({ DOCKER_HOST: bad }));
+  }
+});
+
+test("each mirror is its own Supabase project, named after the mirror", () => {
+  assert.equal(projectIdFor(DEFAULT_MIRROR), "still-qa-backend");
+  assert.equal(projectIdFor("/private/tmp/still-qa-run-7"), "still-qa-run-7");
+  for (const bad of ["/private/tmp/still-app", "/private/tmp/still-qa-", "/private/tmp/still-qa-UPPER", "/private/tmp/still-qa-a_b"]) refused(() => projectIdFor(bad));
+});
+
+test("a config the QA copy cannot use fails before claiming: no mirror, lock or token is left", () => {
+  const root = fakeRepo();
+  writeFileSync(join(root, "supabase/config.toml"), 'project_id = "still-app"\n[auth.email]\nsmtp.host = "smtp.example.com"\n');
+  const mirror = testMirror("cfg");
+  try {
+    refused(() => buildMirror({ root, mirror }));
+    assert.equal(existsSync(mirror), false);
+    assert.equal(existsSync(`${mirror}.lock`), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(mirror, { recursive: true, force: true });
+  }
+});
+
+test("a failure after the claim releases the mirror, so the next start is not wedged", () => {
+  const root = fakeRepo();
+  rmSync(join(root, "supabase/functions/handler.ts"));  // tracked but missing: the copy fails after the claim
+  const mirror = testMirror("wedge");
+  try {
+    assert.throws(() => buildMirror({ root, mirror }), /ENOENT/);
+    assert.equal(existsSync(mirror), false, "the claimed mirror was removed");
+    assert.equal(existsSync(`${mirror}.lock`), false);
+    writeFileSync(join(root, "supabase/functions/handler.ts"), "export {};\n");
+    const token = buildMirror({ root, mirror });
+    assert.equal(readFileSync(join(mirror, OWNER_FILE), "utf8"), token);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(mirror, { recursive: true, force: true });
+  }
+});
+
+test("while another run holds the build lock, buildMirror refuses without touching the mirror", () => {
+  const root = fakeRepo();
+  const mirror = testMirror("locked");
+  mkdirSync(mirror);
+  writeFileSync(join(mirror, "stale.txt"), "x");
+  mkdirSync(`${mirror}.lock`);
+  try {
+    refused(() => buildMirror({ root, mirror }));
+    assert.ok(existsSync(join(mirror, "stale.txt")), "the mirror was not replaced");
+    assert.ok(existsSync(`${mirror}.lock`), "another run's lock is left alone");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(mirror, { recursive: true, force: true });
+    rmSync(`${mirror}.lock`, { recursive: true, force: true });
   }
 });
