@@ -78,6 +78,11 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
         self.webView.configuration.userContentController.addScriptMessageHandler(
             self, contentWorld: .page, name: "still")
 
+#if DEBUG
+        // Simulator QA lane only (QA/QAHooks.swift); inert unless a STILL_QA_* launch key is set.
+        QAHooks.prepare(webView: self.webView)
+#endif
+
         if let indexURL = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "WebUI") {
             self.bundledIndexURL = indexURL
             self.webView.loadFileURL(indexURL, allowingReadAccessTo: indexURL.deletingLastPathComponent())
