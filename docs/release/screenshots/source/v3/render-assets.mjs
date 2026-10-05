@@ -13,7 +13,8 @@ import {
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repository = resolve(here, "../../../../..");
@@ -121,11 +122,18 @@ overflow:hidden;border-radius:${radius}px;--text-scale:1}</style>
 <div id="root"></div><script type="module" src="/entry.js"></script></html>`;
   await writeFile(join(harness, "entry.js"), entry, { mode: 0o600 });
   await writeFile(join(harness, "index.html"), html, { mode: 0o600 });
-  const [{ createServer }, { svelte }, { chromium }] = await Promise.all([
-    import("vite"),
-    import("@sveltejs/vite-plugin-svelte"),
-    import("@playwright/test"),
-  ]);
+  // pnpm keeps vitest (which re-exports Vite's server) and the Svelte plugin under packages/core, not the repository root.
+  const coreRequire = createRequire(
+    join(repository, "packages/core/package.json"),
+  );
+  const importCore = (id) =>
+    import(pathToFileURL(coreRequire.resolve(id)).href);
+  const [{ createViteServer: createServer }, { svelte }, { chromium }] =
+    await Promise.all([
+      importCore("vitest/node"),
+      importCore("@sveltejs/vite-plugin-svelte"),
+      import("@playwright/test"),
+    ]);
   let server;
   let browser;
   const errors = [];

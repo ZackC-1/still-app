@@ -14,7 +14,8 @@
     "test:firefox": "playwright test -c tests/firefox/playwright.config.ts",
     "lint": "eslint .",
     "format": "prettier --write .",
-    "visual": "node tests/visual/run.mjs"
+    "visual": "node tests/visual/run.mjs",
+    "visual:store": "node tests/visual/store.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
