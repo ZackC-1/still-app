@@ -68,15 +68,27 @@ public struct SettingsBridge {
   /// The app host's launch fact for its first saved record (owner decision 28). Nil in the Safari
   /// extension, which never saves a first record.
   public var firstRecord: AtomicSettingsRecord.FirstRecord?
+  /// False for the Safari extension: initialize, scope and acknowledge belong to the app, the only
+  /// cloud client and the only converter (U3-W4 design, authority split). The extension's pages
+  /// commit single-field intents only; this refuses the rest natively instead of relying on the
+  /// extension's scripts never sending them.
+  public let admitsAtomicCommands: Bool
 
   /// `notifyChanged` fires after a `set` that actually changed the store — the Darwin broadcast in
   /// production. Injectable so tests can assert the applied-only gating without posting real
   /// system-wide notifications (which would reach any concurrently running app/Simulator).
   public init(store: SharedSettingsStore, notifyChanged: @escaping () -> Void = SettingsBridge.postSettingsChanged,
-              firstRecord: AtomicSettingsRecord.FirstRecord? = nil) {
+              firstRecord: AtomicSettingsRecord.FirstRecord? = nil, admitsAtomicCommands: Bool = true) {
     self.store = store
     self.notifyChanged = notifyChanged
     self.firstRecord = firstRecord
+    self.admitsAtomicCommands = admitsAtomicCommands
+  }
+
+  /// The Safari extension handler's bridge: no first record and no atomic commands.
+  public static func safariExtension(store: SharedSettingsStore,
+                                     notifyChanged: @escaping () -> Void = SettingsBridge.postSettingsChanged) -> SettingsBridge {
+    SettingsBridge(store: store, notifyChanged: notifyChanged, firstRecord: nil, admitsAtomicCommands: false)
   }
 
   /// Return bytes captured in the same transaction as the mutation, before notifying peers.
@@ -95,6 +107,8 @@ public struct SettingsBridge {
     case .setPreserved(let incoming):
       return apply(incoming)
     case .atomic(let command):
+      // Refused before any read or lock: the same reply as an unavailable command.
+      guard admitsAtomicCommands else { return "{\"status\":\"unavailable\"}" }
       guard let committed = try? store.atomicCommand(command, firstRecord: firstRecord) else { return "{\"status\":\"unavailable\"}" }
       if committed.changed { notifyChanged() }
       return String(data: committed.data, encoding: .utf8) ?? ""
