@@ -38,9 +38,18 @@ begin
 end
 $$;
 
--- Live 600-second windows so the counters outlive the test run.
-select public.consume_rate_limit('reconcile:user:a1a1a1a1-0000-4000-8000-000000000001', 10, 600);
-select public.consume_rate_limit('checkout:ip:203.0.113.7', 20, 600);
+-- Rate-limit state with the exact shape consume_rate_limit writes (per-window key, HMAC-derived
+-- bucket, optional account link), inserted directly by the owner in a window that ends in 2099.
+-- The pg_cron cleanup from 0013 deletes only expired windows, so these rows cannot vanish between
+-- seeding and the fingerprint comparison regardless of wall-clock timing.
+insert into public.rate_limit_window_keys (window_start, window_seconds, secret, expires_at) values
+  ('2099-01-01 00:00:00+00', 600, decode(repeat('5a', 32), 'hex'), '2099-01-01 00:10:00+00');
+insert into public.rate_limit_counters
+  (bucket_key, window_start, window_seconds, expires_at, account_id, count) values
+  ('reconcile:user:' || repeat('a1', 32), '2099-01-01 00:00:00+00', 600, '2099-01-01 00:10:00+00',
+   'a1a1a1a1-0000-4000-8000-000000000001', 3),
+  ('checkout:ip:' || repeat('c7', 32), '2099-01-01 00:00:00+00', 600, '2099-01-01 00:10:00+00',
+   null, 11);
 
 insert into public.canary_state (key, num, flag) values ('svc:youtube', 2, false), ('surf:yt:shelf', 0, true);
 
@@ -61,15 +70,20 @@ create view u1a_fixture.fingerprints as
     from public.rule_sets s
   union all select 'canary_state', md5(coalesce(jsonb_agg(to_jsonb(c) order by c.key)::text, ''))
     from public.canary_state c
-  -- Counters expire by design; compare the windows that are still live at both moments.
+  -- Only the fixed 2099 window: live windows created by other calls expire on their own clock.
   union all select 'rate_limit_counters', md5(coalesce(jsonb_agg(to_jsonb(k) order by k.bucket_key,
-    k.window_start)::text, '')) from public.rate_limit_counters k where k.window_seconds = 600;
+    k.window_start)::text, '')) from public.rate_limit_counters k
+    where k.window_start = '2099-01-01 00:00:00+00'
+  union all select 'rate_limit_window_keys', md5(coalesce(jsonb_agg(to_jsonb(w) order by w.window_start,
+    w.window_seconds)::text, '')) from public.rate_limit_window_keys w
+    where w.window_start = '2099-01-01 00:00:00+00';
 create table u1a_fixture.baseline as select name, digest from u1a_fixture.fingerprints;
 create table u1a_fixture.row_counts as
   select (select count(*)::int from public.entitlements) as entitlements,
          (select count(*)::int from public.profiles) as profiles,
          (select count(*)::int from public.revenuecat_events) as revenuecat_events,
-         (select count(*)::int from public.rate_limit_counters) as rate_limit_counters,
+         (select count(*)::int from public.rate_limit_counters
+           where window_start = '2099-01-01 00:00:00+00') as rate_limit_counters,
          (select count(*)::int from public.canary_state) as canary_state;
 -- Privileges as they stand when the seed runs. On the upgrade path that is the 0013 state, which
 -- lets the test show the hole existed and is closed by the migration on the same database.

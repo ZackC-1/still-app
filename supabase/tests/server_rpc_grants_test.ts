@@ -210,7 +210,7 @@ Deno.test({
         async () => {
           const rows =
             await admin`select f.name, f.digest = b.digest as same from u1a_fixture.fingerprints f full join u1a_fixture.baseline b using (name) order by 1`;
-          assertEquals(rows.length, 7);
+          assertEquals(rows.length, 8);
           for (const row of rows) assertEquals(row.same, true, row.name);
           assertEquals(
             (await admin`select * from u1a_fixture.row_counts`)[0],
