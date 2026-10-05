@@ -234,12 +234,36 @@ been deleted." only after a check at least 8 days after PostHog last queued a de
 finds no one. Until then it shows "Confirming deletion with our providers…". Checks continue for 35 days
 in case late events arrive.
 
-**Watching the queue.** Each worker run claims up to 50 due jobs and deletes them in combined
-PostHog requests of up to 1,000 ids, and reports how many jobs and requests it handled. It logs the
-line `analytics erasure overdue jobs: N` when any job has failed five times in a row; jobs keep
-retrying, at most once a day. A deletion request is never refused for volume. Jobs that delete
-signed-in history are worked first; past 200 new device jobs in any 10 minutes, a job with no
-signed-in history is still recorded but worked after everything else. Requests are limited per
-address (per /64 for IPv6), and each account can add at most five new devices a day, so signed-in
-priority cannot be manufactured at scale. If the number of due jobs keeps growing, check the PostHog
-key and project settings first, then whether the worker runs often enough.
+**Watching the queue.** Each worker run claims up to 50 due jobs: 10 of them are always the oldest
+jobs recorded past the limit below, and the rest go in priority order, signed-in history first. New
+deletions are combined into PostHog requests of up to 1,000 ids; every follow-up check is its own
+request. A run reports how many jobs and requests it handled, and logs the line
+`analytics erasure overdue jobs: N` when any job has failed five times in a row (jobs keep retrying,
+at most once a day). A deletion request is never refused for volume: past 200 new device jobs in
+any 10 minutes, a job with no signed-in history is still recorded but worked after everything
+else, except for its reserved share. Requests are limited per address (per /64 for IPv6), and each
+account can add at most five new devices a day, so signed-in priority cannot be manufactured at
+scale.
+
+The daily device limit also counts sharing being switched back on: every Share starts a new device
+identity, so one account can stop and restart sharing five times a day. After that, that day's
+signed-in use on the device waits on the device unattributed and is sent the next day (anything
+older than 30 days is dropped).
+
+**How often to run the worker.** At normal volume, a run every 15 minutes is plenty. Each job is
+claimed about four times in its life (the first deletion, then checks after 1 day, 8 days and 35
+days). At the most the limit allows (200 new jobs every 10 minutes, kept up for weeks) that is
+about 80 claims a minute, so keeping up needs a run every 30 seconds; a slower schedule only falls
+behind while such a burst lasts, and catches up afterwards.
+
+**Alert on the oldest due job.** Run this read-only query on a schedule and alert when the answer
+is more than one hour (it means the worker is not running, or not keeping up):
+
+```sql
+select coalesce(max(now() - next_attempt_at), interval '0') as oldest_due
+from private.analytics_erasure_jobs
+where next_attempt_at <= now() and (lease_until is null or lease_until < now());
+```
+
+If the number of due jobs keeps growing, check the PostHog key and project settings first, then
+the worker's schedule.
