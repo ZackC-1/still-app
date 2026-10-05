@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Synthetic Facebook Stories tray</title>
+  </head>
+  <body>
+    <!--
+      Synthetic structural model for facebook.stories (CP-081): tray children only, inside a
+      verified boundary, keeping the virtualiser wrapper geometry. UNVERIFIED CANDIDATE: story
+      cards (anchors to /stories/<id>/) inside the tray region, in both the header-layout and
+      feed-layout variants. "People you may know", posts and messages stay. Invented text only.
+    -->
+    <div role="main">
+      <div id="keep-tray-wrapper" data-virtualized="false">
+        <div id="target-story-card-1"><a href="/stories/900000000001/">Invented story one</a></div>
+        <div id="target-story-card-2"><a href="/stories/900000000002/">Invented story two</a></div>
+      </div>
+      <div id="keep-pymk" role="region" aria-label="People you may know"><a href="/inventedperson/">Invented person</a></div>
+      <div role="feed" id="keep-feed">
+        <div role="article" id="keep-post"><a href="/inventedpage/posts/900000000003">An invented post</a></div>
+      </div>
+    </div>
+    <div id="keep-messages"><a href="/messages/t/900000000004/">Invented conversation</a></div>
+  </body>
+</html>

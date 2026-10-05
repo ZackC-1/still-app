@@ -2,6 +2,7 @@ import type { StoredSettingsRecord } from "@still/core/storage";
 import {
   composeSafariV3,
   decideSafariV3,
+  trackAddedStylesheets,
   type SafariV3Composition,
 } from "../../lib/safari-v3-runtime.js";
 import {
@@ -38,10 +39,13 @@ export interface SafariV3PopupDeps {
  */
 export async function startSafariV3Popup(deps: SafariV3PopupDeps): Promise<"v3" | "legacy"> {
   if (!(await decideSafariV3(deps.env, deps.probe).catch(() => false))) return "legacy";
+  // Loading the components adds their stylesheets to the page; every hand-over to legacy removes them.
+  const dropV3Styles = trackAddedStylesheets();
   let view: SafariV3PopupView;
   try {
     view = await (deps.load ?? (() => import("./v3-mount.js")))();
   } catch {
+    dropV3Styles();
     return "legacy";
   }
   const os = await (deps.platform ?? (async () => (await browser.runtime.getPlatformInfo()).os))()
@@ -51,6 +55,7 @@ export async function startSafariV3Popup(deps: SafariV3PopupDeps): Promise<"v3" 
   try {
     composition = composeSafariV3("popup");
   } catch {
+    dropV3Styles();
     return "legacy";
   }
   try {
@@ -58,6 +63,7 @@ export async function startSafariV3Popup(deps: SafariV3PopupDeps): Promise<"v3" 
   } catch {
     composition.stop();
     target.replaceChildren();
+    dropV3Styles();
     return "legacy";
   }
   try {

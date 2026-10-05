@@ -283,14 +283,30 @@ describe("controlled D02 mobile presentation", () => {
   it("uses packaged real capability states without making optional rows usable, while free TikTok remains controlled", async () => {
     const { props, storage, settled } = await fixture();
     props.access = initialAccessSnapshot();
+    // Every purchase and app hand-off port is supplied; decision 24 must still offer none of them.
+    props.onSeePro = vi.fn();
     const view = render(MobilePopup, { props });
     await fireEvent.click(
       screen.getByRole("button", { name: "YouTube Blocker" }),
     );
     expect(screen.queryByRole("switch", { name: "Comments" })).toBeNull();
-    expect(
-      screen.getAllByText("Not available in Safari. Your choice is saved."),
-    ).toHaveLength(11);
+    // Owner decision 24: the 11 mobile Pro rows show the existing locked design, inert.
+    expect(screen.queryByText(/Not available/)).toBeNull();
+    const locks = screen.getAllByRole("button", {
+      name: /\. Included in Still Pro\. Open the Still app$/,
+    });
+    expect(locks).toHaveLength(11);
+    for (const lock of locks) {
+      expect(lock).toHaveAttribute("aria-disabled", "true");
+      expect(lock.closest(".option-row")).toHaveAttribute(
+        "data-access",
+        "locked",
+      );
+      await fireEvent.click(lock);
+    }
+    expect(props.onSeePro).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /See Still Pro/ })).toBeNull();
+    expect(screen.queryByText("Purchase Still Pro")).toBeNull();
     expect(screen.queryByText("Desktop sidebar ads")).toBeNull();
     await fireEvent.click(
       screen.getByRole("switch", { name: "TikTok website" }),
