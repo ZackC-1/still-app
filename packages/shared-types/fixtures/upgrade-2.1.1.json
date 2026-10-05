@@ -327,9 +327,9 @@
       "name": "app-group-defaults-synced",
       "surface": "app-group",
       "origin": "written-by-2.1.0",
-      "writer": "SharedSettingsStore.applyRecord(defaults, version 1, epoch 0) from the bridge",
+      "writer": "SettingsBridge set of the 2.1.1 web record: defaults, version 1, epoch 0",
       "present": true,
-      "rawJSON": "{\"settings\":{\"services\":{\"facebook\":true,\"tiktok\":true,\"instagram\":true,\"youtube\":true},\"pauses\":[],\"globalOn\":true,\"updatedAt\":0},\"syncMetadata\":{\"lastWriteId\":\"00000000-0000-4000-8000-0000000000b2\",\"version\":1,\"serverUpdatedAt\":\"2025-09-16T05:25:00.000Z\"},\"syncEpoch\":0}",
+      "rawJSON": "{\"settings\":{\"services\":{\"facebook\":true,\"youtube\":true,\"instagram\":true,\"tiktok\":true},\"globalOn\":true,\"pauses\":[],\"updatedAt\":0},\"syncMetadata\":{\"lastWriteId\":\"00000000-0000-4000-8000-0000000000b2\",\"serverUpdatedAt\":\"2025-09-16T05:25:00.000Z\",\"version\":1},\"syncEpoch\":0}",
       "expected": {
         "globalOn": true,
         "services": {
@@ -351,9 +351,9 @@
       "name": "app-group-all-off",
       "surface": "app-group",
       "origin": "written-by-2.1.0",
-      "writer": "SharedSettingsStore.save(all off)",
+      "writer": "SettingsBridge set of each 2.1.1 web record (5 writes): {settings, syncEpoch: 0}, no syncMetadata key",
       "present": true,
-      "rawJSON": "{\"settings\":{\"updatedAt\":1758000300000,\"pauses\":[],\"services\":{\"facebook\":false,\"instagram\":false,\"youtube\":false,\"tiktok\":false},\"globalOn\":false}}",
+      "rawJSON": "{\"settings\":{\"services\":{\"facebook\":false,\"youtube\":false,\"instagram\":false,\"tiktok\":false},\"globalOn\":false,\"pauses\":[],\"updatedAt\":1758000300000},\"syncEpoch\":0}",
       "expected": {
         "globalOn": false,
         "services": {
@@ -364,16 +364,16 @@
         },
         "updatedAt": 1758000300000,
         "syncMetadata": null,
-        "syncEpoch": null
+        "syncEpoch": 0
       }
     },
     {
       "name": "app-group-mixed",
       "surface": "app-group",
       "origin": "written-by-2.1.0",
-      "writer": "SharedSettingsStore.save(youtube off, tiktok off)",
+      "writer": "SettingsBridge set of each 2.1.1 web record (2 writes): {settings, syncEpoch: 0}, no syncMetadata key",
       "present": true,
-      "rawJSON": "{\"settings\":{\"updatedAt\":1758000120000,\"services\":{\"instagram\":true,\"facebook\":true,\"tiktok\":false,\"youtube\":false},\"pauses\":[],\"globalOn\":true}}",
+      "rawJSON": "{\"settings\":{\"services\":{\"facebook\":true,\"youtube\":false,\"instagram\":true,\"tiktok\":false},\"globalOn\":true,\"pauses\":[],\"updatedAt\":1758000120000},\"syncEpoch\":0}",
       "expected": {
         "globalOn": true,
         "services": {
@@ -384,16 +384,16 @@
         },
         "updatedAt": 1758000120000,
         "syncMetadata": null,
-        "syncEpoch": null
+        "syncEpoch": 0
       }
     },
     {
       "name": "app-group-signed-in-synced",
       "surface": "app-group",
       "origin": "written-by-2.1.0",
-      "writer": "SharedSettingsStore.applyRecord(version 7, epoch 1), then save(instagram off)",
+      "writer": "SettingsBridge set of the 2.1.1 web records: adopted version 7 (epoch 1), then instagram off",
       "present": true,
-      "rawJSON": "{\"settings\":{\"updatedAt\":1758002460000,\"globalOn\":true,\"services\":{\"instagram\":false,\"youtube\":false,\"tiktok\":false,\"facebook\":true},\"pauses\":[]},\"syncMetadata\":{\"version\":7,\"lastWriteId\":\"00000000-0000-4000-8000-0000000000a1\",\"serverUpdatedAt\":\"2025-09-16T06:00:00.000Z\"},\"syncEpoch\":1}",
+      "rawJSON": "{\"settings\":{\"services\":{\"facebook\":true,\"youtube\":false,\"instagram\":false,\"tiktok\":false},\"globalOn\":true,\"pauses\":[],\"updatedAt\":1758000060000},\"syncMetadata\":{\"lastWriteId\":\"00000000-0000-4000-8000-0000000000a1\",\"serverUpdatedAt\":\"2025-09-16T06:00:00.000Z\",\"version\":7},\"syncEpoch\":1}",
       "expected": {
         "globalOn": true,
         "services": {
@@ -402,7 +402,7 @@
           "tiktok": false,
           "facebook": true
         },
-        "updatedAt": 1758002460000,
+        "updatedAt": 1758000060000,
         "syncMetadata": {
           "version": 7,
           "serverUpdatedAt": "2025-09-16T06:00:00.000Z",
@@ -414,10 +414,10 @@
     {
       "name": "app-group-legacy-pauses",
       "surface": "app-group",
-      "origin": "written-by-2.1.0",
-      "writer": "SharedSettingsStore.save with non-empty pauses (2.1.0 Swift keeps them verbatim)",
+      "origin": "carried-from-pre-release",
+      "writer": "pre-release record with non-empty pauses, in the 2.1.0 record encoding; 2.1.0 could not write it (2.1.1 parseSettings empties pauses before every bridge set) but decodes and keeps it",
       "present": true,
-      "rawJSON": "{\"settings\":{\"updatedAt\":1757827200000,\"services\":{\"instagram\":true,\"youtube\":false,\"tiktok\":true,\"facebook\":true},\"pauses\":[\"youtube.com\",\"instagram.com\"],\"globalOn\":true}}",
+      "rawJSON": "{\"settings\":{\"services\":{\"facebook\":true,\"youtube\":false,\"instagram\":true,\"tiktok\":true},\"globalOn\":true,\"pauses\":[\"youtube.com\",\"instagram.com\"],\"updatedAt\":1757827200000}}",
       "expected": {
         "globalOn": true,
         "services": {

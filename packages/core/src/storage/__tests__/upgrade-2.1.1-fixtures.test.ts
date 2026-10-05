@@ -1,7 +1,14 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { execFile, spawn } from "node:child_process";
+import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { createInterface } from "node:readline";
+import { promisify } from "node:util";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FEATURE_REGISTRY, SERVICE_IDS, SETTINGS_FIELDS } from "@still/shared-types";
 import { ChromeStorageAdapter } from "../chrome-adapter.js";
 import { SettingsCache } from "../cache.js";
+import { WKWebViewStorageAdapter } from "../wkwebview-adapter.js";
 import { migrateSettingsV2 } from "../settings-v2.js";
 import { parseStoredSettingsRecord } from "../settings-validation.js";
 import upgrade from "../../../../shared-types/fixtures/upgrade-2.1.1.json";
@@ -41,6 +48,12 @@ const cases = upgrade.cases as unknown as UpgradeCase[];
 const present = cases.filter((c): c is UpgradeCase & { expected: Expected } => c.present);
 const absent = cases.filter((c) => !c.present);
 const browserPresent = present.filter((c) => c.surface === "browser-storage");
+const appGroup = cases.filter((c) => c.surface === "app-group");
+// Current StillKit AtomicSettingsRecord.initialize accepts a zero clock only for "never-linked", so
+// it holds these synced never-edited records under "unknown" while TypeScript migrates them.
+// Recorded divergence; another change is aligning Swift with TypeScript. Keyed by case name on
+// purpose: when that lands, these names move out of the set and the tests below must be updated.
+const SWIFT_HOLDS_UNKNOWN = new Set(["browser-defaults-synced", "app-group-defaults-synced"]);
 
 /** The stored record as the reader receives it: browser storage hands over an object, the native
  * bridge hands the Safari extension and WKWebView the App Group bytes as a JSON string. */
@@ -105,6 +118,15 @@ describe("2.1.1 upgrade fixtures", () => {
       expect(Array.isArray(settings.pauses), c.name).toBe(true);
       expect(storedObject(c).atomic, c.name).toBeUndefined();
     }
+    // 2.1.0 wrote App Group settings only through SettingsBridge set, with the 2.1.1 web record:
+    // pauses already emptied, the epoch always stamped, and no syncMetadata key while signed out.
+    for (const c of appGroup.filter((g) => (g as { origin?: string }).origin === "written-by-2.1.0" && g.present)) {
+      expect(storedSettings(c).pauses, c.name).toEqual([]);
+      expect(Object.hasOwn(storedObject(c), "syncEpoch"), c.name).toBe(true);
+    }
+    const common = appGroup.filter((c) => c.present && !Object.hasOwn(storedObject(c), "syncMetadata") && storedObject(c).syncEpoch === 0);
+    expect(common.map((c) => c.name)).toEqual(["app-group-all-off", "app-group-mixed"]);
+    expect((cases.find((c) => c.name === "app-group-legacy-pauses") as { origin?: string }).origin).toBe("carried-from-pre-release");
   });
 });
 
@@ -165,8 +187,8 @@ describe.each(browserPresent.map((c) => [c.name, c] as const))("Chrome/Firefox s
   it("atomic local builds migrate in place, keeping choices, sync state and unknown members", async () => {
     const h = browser(c);
     const authority = new ChromeStorageAdapter({ authority: true });
-    // Includes the synced never-edited record (updatedAt 0). StillKit's initialize holds that one
-    // for "unknown" ownership instead; see Upgrade211FixtureTests for the recorded divergence.
+    // Includes the synced never-edited record (updatedAt 0), which StillKit holds instead; see
+    // SWIFT_HOLDS_UNKNOWN.
     await authority.initializeAtomic("unknown");
     const saved = h.area()[KEY] as Record<string, any>;
     expectLegacyChoices(saved.settings, e);
@@ -210,5 +232,136 @@ describe.each(absent.map((c) => [c.name, c] as const))("upgrading %s", (_name, c
     await cache.hydrate();
     expect(h.local.set).not.toHaveBeenCalled();
     expect(h.hasKey()).toBe(false);
+  });
+});
+
+/** A synthetic WKWebView message port answering `get` with the exact App Group bytes. */
+function appleWindow(c: UpgradeCase) {
+  const posted: unknown[] = [];
+  const postMessage = vi.fn(async (message: unknown) => {
+    posted.push(message);
+    if ((message as { kind?: unknown }).kind === "get") return c.rawJSON ?? "";
+    throw new Error(`unexpected native message ${JSON.stringify(message)}`);
+  });
+  return { posted, adapter: new WKWebViewStorageAdapter({ webkit: { messageHandlers: { still: { postMessage } } } }) };
+}
+
+describe.each(appGroup.map((c) => [c.name, c] as const))("Apple app startup (legacy bridge) over %s", (_name, c) => {
+  it("hydrates the saved choices and posts nothing back", async () => {
+    const h = appleWindow(c);
+    const cache = new SettingsCache(h.adapter);
+    await cache.hydrate();
+    expect(h.posted).toEqual([{ kind: "get" }]);
+    if (!c.present) {
+      expect(cache.legacyReadState().status).toBe("absent");
+      return;
+    }
+    const e = c.expected!;
+    expectLegacyChoices(cache.current(), e);
+    expect(cache.current().pauses).toEqual([]);
+    expect(cache.currentSyncMetadata()).toEqual(e.syncMetadata);
+    // An absent counter is "never repointed", which the live cache holds as 0; a stored 0 or 1 is
+    // taken as written.
+    expect(cache.currentRecord().syncEpoch).toBe(e.syncEpoch ?? 0);
+    expect(cache.legacyReadState().status).toBe("ready");
+  });
+});
+
+describe.skipIf(process.platform !== "darwin")("Apple atomic startup through the compiled StillKit host", () => {
+  let temporary: string;
+  let binary: string;
+  beforeAll(async () => {
+    temporary = await mkdtemp(join(tmpdir(), "still-upgrade-211-native-"));
+    binary = join(temporary, "writer");
+    const root = resolve(import.meta.dirname, "../../../../..");
+    await copyFile(join(import.meta.dirname, "support/atomic-settings-main.swift"), join(temporary, "main.swift"));
+    const sources = ["StillSettings", "SharedSettingsStore", "SettingsBridge", "SettingsV2", "SettingsFieldOrder",
+      "PackagedFeatureRegistry", "AtomicSettingsBacking", "AtomicSettingsRecord"];
+    await promisify(execFile)("swiftc", [
+      ...sources.map((name) => join(root, "apps/apple/StillKit/Sources/StillKit", `${name}.swift`)),
+      join(temporary, "main.swift"), "-module-cache-path", join(temporary, "modules"), "-o", binary,
+    ]);
+  }, 120_000);
+  afterAll(async () => {
+    if (temporary) await rm(temporary, { recursive: true, force: true });
+  });
+
+  /** Same line protocol as atomic-settings.test.ts: bridge JSON in, one reply line out. */
+  function host(directory: string) {
+    const child = spawn(binary, [directory], { stdio: ["pipe", "pipe", "pipe"] });
+    const queue: { resolve: (value: string) => void; reject: (e: Error) => void }[] = [];
+    const lines = createInterface({ input: child.stdout });
+    lines.on("line", (value) => queue.shift()?.resolve(value));
+    child.on("exit", () => queue.splice(0).forEach((p) => p.reject(new Error("native exited"))));
+    const post = (message: unknown) =>
+      new Promise<string>((resolveReply, reject) => {
+        queue.push({ resolve: resolveReply, reject });
+        child.stdin.write((typeof message === "string" ? message : JSON.stringify(message)) + "\n");
+      });
+    return {
+      post,
+      adapter: new WKWebViewStorageAdapter({ webkit: { messageHandlers: { still: { postMessage: post } } } }),
+      async close() {
+        lines.close();
+        if (child.exitCode === null && child.signalCode === null) {
+          child.kill("SIGKILL");
+          await new Promise((r) => child.once("exit", r));
+        }
+      },
+    };
+  }
+
+  it.each(appGroup.map((c) => [c.name, c] as const))("%s keeps every choice through hydrate and initialize", async (name, c) => {
+    const native = host(join(temporary, name));
+    try {
+      if (c.present) expect(await native.post(`replace:${c.rawJSON}`)).toBe("replaced");
+      const shipped = c.rawJSON ?? "";
+      expect(await native.post({ kind: "get" })).toBe(shipped);
+
+      // Legacy bridge startup reads the shipped bytes and writes nothing.
+      const cache = new SettingsCache(native.adapter);
+      await cache.hydrate();
+      expect(await native.post({ kind: "get" })).toBe(shipped);
+
+      if (!c.present) {
+        // Absence is not a fresh install: initialize refuses and nothing is fabricated.
+        await expect(native.adapter.initializeAtomic("unknown")).rejects.toThrow("native-atomic-unavailable");
+        expect(await native.post({ kind: "get" })).toBe("");
+        return;
+      }
+      const e = c.expected!;
+      expectLegacyChoices(cache.current(), e);
+
+      if (SWIFT_HOLDS_UNKNOWN.has(name)) {
+        // Current behavior, asserted deliberately: Swift holds rather than migrates, and the
+        // shipped bytes stay exactly as 2.1.0 left them.
+        await expect(native.adapter.initializeAtomic("unknown")).rejects.toThrow("native-atomic-unavailable");
+        expect(await native.post({ kind: "get" })).toBe(shipped);
+        return;
+      }
+      const migrated = await native.adapter.initializeAtomic("unknown");
+      const saved = JSON.parse(await native.post({ kind: "get" })) as Record<string, any>;
+      for (const record of [migrated as unknown as Record<string, any>, saved]) {
+        expectLegacyChoices(record.settings, e);
+        expect(record.settings.schemaVersion).toBe(2);
+        expect(record.settings.sites).toEqual(expectedSites(e.services));
+        expect(record.atomic).toMatchObject({ ownership: "unknown", scope: { accountId: null }, anchor: null, pending: [], held: {}, paused: null });
+      }
+      expect(migrated.syncMetadata).toEqual(e.syncMetadata);
+      expect(migrated.syncEpoch).toBe(e.syncEpoch ?? undefined);
+      // Absent stays absent and a stored 0 stays 0 in the native bytes.
+      expect(Object.hasOwn(saved, "syncEpoch")).toBe(e.syncEpoch !== null);
+      if (e.syncEpoch !== null) expect(saved.syncEpoch).toBe(e.syncEpoch);
+      for (const [key, value] of Object.entries(e.retained?.root ?? {})) expect(saved[key], key).toEqual(value);
+      for (const [key, value] of Object.entries(e.retained?.settings ?? {})) expect(saved.settings[key], key).toEqual(value);
+      for (const [key, value] of Object.entries(e.retained?.services ?? {})) expect(saved.settings.services[key], key).toEqual(value);
+
+      // A later wake leaves the migrated record alone.
+      const bytes = await native.post({ kind: "get" });
+      await native.adapter.initializeAtomic("unknown");
+      expect(await native.post({ kind: "get" })).toBe(bytes);
+    } finally {
+      await native.close();
+    }
   });
 });

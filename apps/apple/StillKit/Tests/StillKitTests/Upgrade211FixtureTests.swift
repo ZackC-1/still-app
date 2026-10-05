@@ -34,6 +34,9 @@ final class Upgrade211FixtureTests: XCTestCase {
     let services: [String: SettingsJSONValue]
   }
 
+  /// Same set as SWIFT_HOLDS_UNKNOWN in packages/core upgrade-2.1.1-fixtures.test.ts.
+  private static let swiftHoldsUnknown: Set<String> = ["browser-defaults-synced", "app-group-defaults-synced"]
+
   private func fixture() throws -> Fixture {
     var root = URL(fileURLWithPath: #filePath)
     for _ in 0..<6 { root.deleteLastPathComponent() }
@@ -170,7 +173,9 @@ final class Upgrade211FixtureTests: XCTestCase {
       // updatedAt 0. TypeScript AtomicSettingsWriter.initialize accepts it for any ownership; Swift
       // initialize accepts zero only for "never-linked", so an "unknown" upgrade holds instead.
       // Holding is safe: the shipped bytes stay exactly as they were and still read back unchanged.
-      if e.updatedAt == 0 {
+      // Keyed by case name: when Swift is aligned with TypeScript, empty the set and this test
+      // must then migrate these cases like every other one.
+      if Self.swiftHoldsUnknown.contains(c.name) {
         XCTAssertThrowsError(try store.initializeAtomic(ownership: "unknown"), c.name)
         XCTAssertEqual(backing.read(), bytes, c.name)
         assertChoices(try XCTUnwrap(store.peekRecord(), c.name).settings, e, c.name)

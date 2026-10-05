@@ -6,10 +6,12 @@
 //     ec1e68b (8a67977 only adds a release document).
 //
 // The script never imports current code to produce a stored shape. It extracts the 2.1.1 storage
-// sources with `git archive ec1e68b`, runs the 2.1.1 TypeScript SettingsCache against an in-memory
-// chrome.storage stand-in, and compiles the 2.1.1 Swift StillSettings/SharedSettingsStore to write
-// App Group bytes exactly as the 2.1.0 app did. Every value is synthetic: no real account, write id,
-// timestamp or choice from any person is used.
+// sources with `git archive ec1e68b` and runs the 2.1.1 TypeScript SettingsCache against an
+// in-memory chrome.storage stand-in, recording every record the cache persists. It then compiles the
+// 2.1.0 Swift StillSettings/SharedSettingsStore/SettingsBridge and sends those same records through
+// SettingsBridge.handle(rawBody: ["kind": "set", ...]), the only production settings writer at
+// 8a67977, exactly as the 2.1.1 WKWebViewStorageAdapter posts them (JSON.stringify of the record).
+// Every value is synthetic: no real account, write id, timestamp or choice from any person is used.
 //
 // Needs the ec1e68b objects (a full clone), Node 24 (--experimental-transform-types) and swiftc.
 // It is a maintenance tool, not a CI step. Usage, from the repository root:
@@ -66,22 +68,24 @@ import { parseStoredSettingsRecord } from "./packages/core/src/storage/settings-
 const KEY = "still:settings";
 let area: Record<string, unknown> = {};
 let writes = 0;
+let sets: unknown[] = [];
 (globalThis as any).chrome = { storage: {
   local: {
     get: async (key: string) => (Object.hasOwn(area, key) ? { [key]: structuredClone(area[key]) } : {}),
-    set: async (values: Record<string, unknown>) => { writes += 1; area = { ...area, ...structuredClone(values) }; },
+    set: async (values: Record<string, unknown>) => { writes += 1; sets.push(structuredClone(values[KEY])); area = { ...area, ...structuredClone(values) }; },
   },
   onChanged: { addListener() {}, removeListener() {} },
 } };
 async function run(prior: unknown, body: (cache: SettingsCache) => Promise<void> | void) {
   area = prior === undefined ? {} : { [KEY]: structuredClone(prior) };
   writes = 0;
+  sets = [];
   let tick = ${CLOCK};
   const cache = new SettingsCache(new ChromeStorageAdapter(), { now: () => (tick += 60_000) });
   await cache.hydrate();
   await body(cache);
   await new Promise((r) => setTimeout(r, 0));
-  return { present: Object.hasOwn(area, KEY), stored: area[KEY] ?? null, writes };
+  return { present: Object.hasOwn(area, KEY), stored: area[KEY] ?? null, writes, sets };
 }
 const meta = (version: number, minute: number, lastWriteId: string | null) => ({
   version, serverUpdatedAt: new Date(${CLOCK} + minute * 60_000).toISOString(), lastWriteId,
@@ -116,10 +120,12 @@ console.log(JSON.stringify(out));
   }
 }
 
-/** Run the 2.1.0 App Group writer (Swift) and capture the exact bytes it stores. */
-function appleCases() {
+/** Replay the 2.1.1 web cache's persisted records through the 2.1.0 SettingsBridge `set`, the path
+ * every App Group settings write took on 2.1.0, and capture the exact bytes the store kept. */
+function appleCases(browser) {
   const sources = "apps/apple/StillKit/Sources/StillKit";
-  const dir = extract(APPLE_COMMIT, [`${sources}/StillSettings.swift`, `${sources}/SharedSettingsStore.swift`]);
+  const files = ["StillSettings.swift", "SharedSettingsStore.swift", "SettingsBridge.swift"];
+  const dir = extract(APPLE_COMMIT, files.map((f) => `${sources}/${f}`));
   try {
     const main = join(dir, "main.swift");
     writeFileSync(main, `
@@ -130,21 +136,18 @@ func bytes(_ body: (SharedSettingsStore) -> Void) -> String {
   body(SharedSettingsStore(backing: backing))
   return backing.read().map { String(decoding: $0, as: UTF8.self) } ?? ""
 }
-func meta(_ version: Int, _ minute: Int, _ id: String?) -> SettingsSyncMetadata {
-  let f = ISO8601DateFormatter(); f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-  return SettingsSyncMetadata(version: version, serverUpdatedAt: f.string(from: Date(timeIntervalSince1970: Double(clock + minute * 60_000) / 1000)), lastWriteId: id)
-}
-let mixed = StillSettings(globalOn: true, services: StillServices(youtube: false, instagram: true, tiktok: false, facebook: true), pauses: [], updatedAt: clock + 30 * 60_000)
+let input = try JSONDecoder().decode([String: [String]].self, from: FileHandle.standardInput.readDataToEndOfFile())
 var out: [String: String] = [:]
-out["untouched"] = bytes { _ in }
-out["syncedDefaults"] = bytes { $0.applyRecord(StoredSettingsRecord(settings: .default, syncMetadata: meta(1, 5, "${DEVICE_WRITE}"), syncEpoch: 0)) }
-out["allOff"] = bytes { $0.save(StillSettings(globalOn: false, services: StillServices(youtube: false, instagram: false, tiktok: false, facebook: false), pauses: [], updatedAt: clock + 5 * 60_000)) }
-out["mixed"] = bytes { $0.save(StillSettings(globalOn: true, services: StillServices(youtube: false, instagram: true, tiktok: false, facebook: true), pauses: [], updatedAt: clock + 2 * 60_000)) }
-out["signedIn"] = bytes { store in
-  store.applyRecord(StoredSettingsRecord(settings: mixed, syncMetadata: meta(7, 40, "${ACCOUNT_WRITE}"), syncEpoch: 1))
-  var edited = mixed; edited.services.instagram = false; edited.updatedAt = clock + 41 * 60_000
-  store.save(edited)
+for (name, records) in input {
+  out[name] = bytes { store in
+    let bridge = SettingsBridge(store: store, notifyChanged: {})
+    for record in records {
+      guard bridge.handle(rawBody: ["kind": "set", "settings": record]) != nil else { fatalError("bridge refused \\(name)") }
+    }
+  }
 }
+// Pre-release record with pauses: 2.1.0 never received one over the bridge (2.1.1 parseSettings
+// empties pauses first), so it is encoded with the 2.1.0 record encoder to show the carried bytes.
 out["legacyPauses"] = bytes { $0.save(StillSettings(globalOn: true, services: StillServices(youtube: false, instagram: true, tiktok: true, facebook: true), pauses: ["youtube.com", "instagram.com"], updatedAt: clock - 2 * 86_400_000)) }
 let unknown = #"{"settings":{"globalOn":true,"services":{"youtube":false,"instagram":true,"tiktok":false,"facebook":true,"futureService":"synthetic unknown service member"},"pauses":[],"updatedAt":\\#(clock + 30 * 60_000),"futureSetting":{"level":2,"labels":["synthetic"]}},"syncMetadata":{"version":7,"serverUpdatedAt":"2025-09-16T06:00:00.000Z","lastWriteId":"${ACCOUNT_WRITE}"},"syncEpoch":1,"futureRoot":{"note":"synthetic unknown root member"}}"#
 let accepted = (try? JSONDecoder().decode(StoredSettingsRecord.self, from: Data(unknown.utf8))) != nil
@@ -152,15 +155,18 @@ out["unknown"] = accepted ? unknown : "REJECTED-BY-2.1.0"
 print(String(decoding: try JSONSerialization.data(withJSONObject: out, options: [.sortedKeys]), as: UTF8.self))
 `);
     const binary = join(dir, "writer");
-    execFileSync("swiftc", ["-o", binary, join(dir, sources, "StillSettings.swift"), join(dir, sources, "SharedSettingsStore.swift"), main]);
-    return JSON.parse(execFileSync(binary, { encoding: "utf8" }));
+    execFileSync("swiftc", ["-o", binary, ...files.map((f) => join(dir, sources, f)), main]);
+    const replay = Object.fromEntries(
+      ["untouched", "syncedDefaults", "allOff", "mixed", "signedIn"].map((name) => [name, browser[name].sets.map((r) => JSON.stringify(r))]),
+    );
+    return JSON.parse(execFileSync(binary, { input: JSON.stringify(replay), encoding: "utf8" }));
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 }
 
 const browser = browserCases();
-const apple = appleCases();
+const apple = appleCases(browser);
 for (const name of ["legacy10", "legacyPauses", "unknown"]) {
   if (!browser[name].acceptedBy211 || browser[name].writes !== 0) throw new Error(`2.1.1 did not carry ${name} untouched`);
 }
@@ -228,15 +234,15 @@ const fixture = {
     browserCase("browser-unknown-extra-fields", "carried-by-2.1.1", "unknown", "signed-in record plus unknown root, settings and services members; 2.1.1 accepts it unchanged",
       chose(ON, [OFF, OFF, OFF, ON], CLOCK + minute, syncedAt(7, 40, ACCOUNT_WRITE), 1, RETAINED)),
     appleCase("app-group-defaults-never-touched", "written-by-2.1.0", "untouched", "SharedSettingsStore with no writes: nothing stored", null),
-    appleCase("app-group-defaults-synced", "written-by-2.1.0", "syncedDefaults", "SharedSettingsStore.applyRecord(defaults, version 1, epoch 0) from the bridge",
+    appleCase("app-group-defaults-synced", "written-by-2.1.0", "syncedDefaults", "SettingsBridge set of the 2.1.1 web record: defaults, version 1, epoch 0",
       chose(ON, [ON, ON, ON, ON], 0, syncedAt(1, 5, DEVICE_WRITE), 0)),
-    appleCase("app-group-all-off", "written-by-2.1.0", "allOff", "SharedSettingsStore.save(all off)",
-      chose(OFF, [OFF, OFF, OFF, OFF], CLOCK + 5 * minute, null, null)),
-    appleCase("app-group-mixed", "written-by-2.1.0", "mixed", "SharedSettingsStore.save(youtube off, tiktok off)",
-      chose(ON, [OFF, ON, OFF, ON], CLOCK + 2 * minute, null, null)),
-    appleCase("app-group-signed-in-synced", "written-by-2.1.0", "signedIn", "SharedSettingsStore.applyRecord(version 7, epoch 1), then save(instagram off)",
-      chose(ON, [OFF, OFF, OFF, ON], CLOCK + 41 * minute, syncedAt(7, 40, ACCOUNT_WRITE), 1)),
-    appleCase("app-group-legacy-pauses", "written-by-2.1.0", "legacyPauses", "SharedSettingsStore.save with non-empty pauses (2.1.0 Swift keeps them verbatim)",
+    appleCase("app-group-all-off", "written-by-2.1.0", "allOff", "SettingsBridge set of each 2.1.1 web record (5 writes): {settings, syncEpoch: 0}, no syncMetadata key",
+      chose(OFF, [OFF, OFF, OFF, OFF], CLOCK + 5 * minute, null, 0)),
+    appleCase("app-group-mixed", "written-by-2.1.0", "mixed", "SettingsBridge set of each 2.1.1 web record (2 writes): {settings, syncEpoch: 0}, no syncMetadata key",
+      chose(ON, [OFF, ON, OFF, ON], CLOCK + 2 * minute, null, 0)),
+    appleCase("app-group-signed-in-synced", "written-by-2.1.0", "signedIn", "SettingsBridge set of the 2.1.1 web records: adopted version 7 (epoch 1), then instagram off",
+      chose(ON, [OFF, OFF, OFF, ON], CLOCK + minute, syncedAt(7, 40, ACCOUNT_WRITE), 1)),
+    appleCase("app-group-legacy-pauses", "carried-from-pre-release", "legacyPauses", "pre-release record with non-empty pauses, in the 2.1.0 record encoding; 2.1.0 could not write it (2.1.1 parseSettings empties pauses before every bridge set) but decodes and keeps it",
       chose(ON, [OFF, ON, ON, ON], CLOCK - 2 * day, null, null)),
     appleCase("app-group-unknown-extra-fields", "carried-by-2.1.0", "unknown", "signed-in bytes plus unknown members; 2.1.0 StoredSettingsRecord decodes it",
       chose(ON, [OFF, ON, OFF, ON], CLOCK + 30 * minute, syncedAt(7, 40, ACCOUNT_WRITE), 1, RETAINED)),
