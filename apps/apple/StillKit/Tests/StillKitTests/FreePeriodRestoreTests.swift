@@ -157,6 +157,21 @@ final class FreePeriodRestoreTests: XCTestCase {
     XCTAssertEqual(store.syncCount, 1, "a retry while the first sync is pending must not start another")
   }
 
+  /// Unlike a sync still pending past its deadline, a sync that has SETTLED as failed or cancelled
+  /// must not be remembered: Try again asks Apple again and can succeed.
+  func testTryAgainAfterAFailedOrCancelledSyncStartsANewSync() async {
+    for kind in [FakeAppStore.Sync.fails, .cancelled] {
+      let store = FakeAppStore(reads: [.absent, .absent, .absent], sync: kind)
+      let restore = FreePeriodRestoreCheck(
+        store: store, readDeadlineNanoseconds: 2_000_000_000, syncDeadlineNanoseconds: 2_000_000_000)
+      let first = await restore.run()
+      XCTAssertEqual(first, .failed)
+      let second = await restore.run()
+      XCTAssertEqual(second, .failed)
+      XCTAssertEqual(store.syncCount, 2, "\(kind): a settled failure is retried, not replayed")
+    }
+  }
+
   func testOnlyAnUnverifiedPurchaseAfterTheSyncIsFailedNeitherRestoredNorNone() async {
     let result = await check(FakeAppStore(reads: [.absent, .unverified]))
     XCTAssertEqual(result, .failed)

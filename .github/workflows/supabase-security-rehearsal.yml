@@ -35,7 +35,7 @@ jobs:
         with:
           version: '2.119.0'
       - name: Test immutable plan boundary
-        run: node --test scripts/backend/plan.test.mjs scripts/backend/entrypoints.test.mjs
+        run: node --test scripts/backend/plan.test.mjs scripts/backend/entrypoints.test.mjs scripts/backend/hardening-candidate.test.mjs
       - name: Focused audit and alert boundaries
         run: |
           deno test --config supabase/functions/deno.json scripts/backend/audit.test.ts

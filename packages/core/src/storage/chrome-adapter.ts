@@ -142,6 +142,12 @@ export class ChromeStorageAdapter implements StorageAdapter {
       return FRESH_HISTORY_KEYS.every(key => !Object.hasOwn(raw, key));
     });
   }
+  /** Called only by the maintained background's actual browser update-event closure. */
+  initializeUntouchedUpgradeAtomic(): Promise<StoredSettingsRecord> {
+    if (!this.writer || this.options.nativeMirror || this.options.nativeIntent || this.isSafari())
+      return Promise.reject(new SettingsStorageRecovery("authority-unavailable"));
+    return this.writer.initializeUntouchedUpgrade();
+  }
   serializeLocalMutation<T>(body: () => Promise<T>): Promise<T> {
     if (!this.writer || this.options.nativeMirror || this.options.nativeIntent || this.isSafari())
       return Promise.reject(new SettingsStorageRecovery("authority-unavailable"));
