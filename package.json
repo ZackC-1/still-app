@@ -9,6 +9,7 @@
   "packageManager": "pnpm@11.9.0",
   "scripts": {
     "build": "pnpm -r --if-present build && pnpm --filter @still/ext-chromium build:firefox",
+    "perf:sustained": "node tests/sustained/run.mjs",
     "test": "pnpm -r --if-present test",
     "typecheck": "pnpm -r --if-present typecheck",
     "test:firefox": "playwright test -c tests/firefox/playwright.config.ts",
