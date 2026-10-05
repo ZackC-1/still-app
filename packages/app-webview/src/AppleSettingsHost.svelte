@@ -13,7 +13,10 @@
     createPopupViewBinding,
     createAppleSettingsSync,
     appleSettingsRestore,
+    createAppleSettingsRestore,
     watchAppleSetup,
+    type AppleRestoreBridge,
+    type AppleSetupOpener,
     type AppleSettingsAuthority,
     type AppleSettingsProps,
     type CommittedPopupToggle,
@@ -28,6 +31,10 @@
     /** Native setup observation (NativeBridge.observeSafariSetup), bounded in core. */
     observeSetup: NativeBridge["observeSafariSetup"];
     help: AppleSettingsProps["help"];
+    /** Native restore and receipt reads for the free-period Restore link; absent, no link. */
+    restoreBridge?: AppleRestoreBridge;
+    /** Opens the setup card's fixed destination from a tap; absent, its button stays disabled. */
+    openDestination?: AppleSetupOpener;
     onCommittedToggle?: (toggle: CommittedPopupToggle) => void;
   }
   let {
@@ -35,6 +42,8 @@
     authority,
     observeSetup,
     help,
+    restoreBridge,
+    openDestination,
     onCommittedToggle,
   }: Props = $props();
 
@@ -48,15 +57,36 @@
   });
   const syncFor = createAppleSettingsSync();
   let sync = $derived(syncFor(c));
-  let restore = $derived(appleSettingsRestore(c));
+  // Free-period Restore (owner decision 17): its own status, or a controller-driven one.
+  let restoreStatus = $state.raw<AppleSettingsProps["restore"]>(undefined);
+  function nativeRestore(): AppleRestoreBridge {
+    if (!restoreBridge) throw new Error("No native restore");
+    return restoreBridge;
+  }
+  const freeRestore = createAppleSettingsRestore({
+    bridge: {
+      restoreCheck: () => nativeRestore().restoreCheck(),
+      receiptStatus: () => nativeRestore().receiptStatus(),
+    },
+    refreshAccess: () => authority.entitlement.refreshAccess(),
+    publish: (next) => (restoreStatus = next),
+  });
+  $effect(() => () => freeRestore.stop());
+  let restore = $derived(restoreStatus ?? appleSettingsRestore(c));
   // Platform starts as the narrower iOS inventory and follows any later successful observation.
   let platform = $state<AppleSettingsProps["platform"]>("ios");
   let setup = $state.raw<AppleSettingsProps["setup"]>(undefined);
   $effect(() =>
-    watchAppleSetup(observeSetup, (next) => {
-      setup = next.setup;
-      if (next.platform) platform = next.platform;
-    }),
+    watchAppleSetup(
+      observeSetup,
+      (next) => {
+        setup = next.setup;
+        if (next.platform) platform = next.platform;
+      },
+      undefined,
+      undefined,
+      openDestination,
+    ),
   );
   // Until the first native read settles, a hold is "checking", not "unavailable".
   let reading = $state(true);
@@ -146,6 +176,7 @@
     onFeatureChange={view.commands.feature}
     {sync}
     {restore}
+    onRestore={restoreBridge ? freeRestore.start : undefined}
     {setup}
     privacyActions={usageActions}
     {help}

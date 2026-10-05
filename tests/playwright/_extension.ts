@@ -8,7 +8,11 @@ import { readFileSync } from "node:fs";
 // background service worker's URL.
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const CHROMIUM_EXTENSION = resolve(HERE, "../../packages/ext-chromium/dist/chrome-mv3");
+// STILL_CHROMIUM_EXTENSION points the Chromium fixtures at another built artifact, e.g. a
+// configured (store-like) build made into a temporary directory. Default: the CI build.
+const CHROMIUM_EXTENSION = process.env.STILL_CHROMIUM_EXTENSION
+  ? resolve(process.env.STILL_CHROMIUM_EXTENSION)
+  : resolve(HERE, "../../packages/ext-chromium/dist/chrome-mv3");
 const SAFARI_EXTENSION = resolve(HERE, "../../packages/ext-safari/dist/safari-mv3");
 const FIXTURE_DIR = resolve(HERE, "../fixtures");
 
@@ -29,15 +33,77 @@ async function extensionIdOf(context: BrowserContext): Promise<string> {
   return new URL(worker.url()).host;
 }
 
+/**
+ * The saved-settings shape the Chromium profile holds before any test page loads. The content
+ * script picks its engine from it once per page, so a test that cares must not race the
+ * background's install-time initialization:
+ * - "fresh": no setup (the page may load before or after the background initializes settings);
+ * - "modern": wait until the background has committed schema-2 settings (the format-2 lane on
+ *   an unconfigured build, as a fresh atomic-local install has);
+ * - "legacy": a schema-1 settings document, as configured store builds keep until the modern
+ *   settings rollout (the legacy seed engine).
+ */
+export type SettingsProfile = "fresh" | "modern" | "legacy";
+
+type StorageWorker = {
+  chrome: { storage: { local: {
+    get(key: string): Promise<Record<string, unknown>>;
+    set(items: Record<string, unknown>): Promise<void>;
+  } } };
+};
+
+async function storedSchema(worker: Worker): Promise<number | null> {
+  return worker.evaluate(async () => {
+    const raw = await (globalThis as unknown as StorageWorker).chrome.storage.local.get("still:settings");
+    const record = raw["still:settings"] as { settings?: { schemaVersion?: number } } | undefined;
+    return record?.settings ? (record.settings.schemaVersion ?? 1) : null;
+  });
+}
+
+async function applyProfile(context: BrowserContext, profile: SettingsProfile): Promise<void> {
+  if (profile === "fresh") return;
+  let [worker] = context.serviceWorkers();
+  if (!worker) worker = (await context.waitForEvent("serviceworker")) as Worker;
+  if (profile === "modern") {
+    const deadline = Date.now() + 15_000;
+    while ((await storedSchema(worker)) !== 2) {
+      if (Date.now() > deadline) throw new Error("Background never committed schema-2 settings");
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+    return;
+  }
+  // Legacy: let an install-time initialization land first (unconfigured builds write one at
+  // install; configured builds never do), then replace it with the schema-1 document once.
+  const settle = Date.now() + 3_000;
+  while ((await storedSchema(worker)) === null && Date.now() < settle)
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  await worker.evaluate(async () => {
+    await (globalThis as unknown as StorageWorker).chrome.storage.local.set({
+      "still:settings": {
+        settings: {
+          globalOn: true,
+          services: { youtube: true, instagram: true, tiktok: true, facebook: true },
+          pauses: [],
+          updatedAt: 5,
+        },
+        syncMetadata: null,
+      },
+    });
+  });
+  if ((await storedSchema(worker)) !== 1) throw new Error("Could not hold a legacy settings profile");
+}
+
 export const test = base.extend<{
   context: BrowserContext;
   extensionId: string;
   safariContext: BrowserContext;
   safariExtensionId: string;
+  settingsProfile: SettingsProfile;
 }>({
-  // eslint-disable-next-line no-empty-pattern -- Playwright fixtures require this destructure form
-  context: async ({}, use) => {
+  settingsProfile: ["fresh", { option: true }],
+  context: async ({ settingsProfile }, use) => {
     const context = await loadExtension(CHROMIUM_EXTENSION);
+    await applyProfile(context, settingsProfile);
     await use(context);
     await context.close();
   },

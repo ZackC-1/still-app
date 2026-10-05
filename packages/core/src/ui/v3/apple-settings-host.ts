@@ -6,7 +6,9 @@ import {
   type NativeBenefitSource,
 } from "../../entitlement/wk-benefit-adapter.js";
 import type { UiAnalytics, DeleteFlow, PurchaseFlow } from "../controller.svelte.js";
-import type { SafariSetupObservation } from "../../native/bridge.js";
+import type { ReceiptStatusValue, SafariSetupObservation } from "../../native/bridge.js";
+import type { StillBridgeWindow } from "../../storage/wkwebview-adapter.js";
+import { safeParse } from "../../storage/settings-validation.js";
 import { STRINGS } from "../strings.js";
 import { PRIVACY_POLICY_URL, SETUP_GUIDE_URL } from "../config.js";
 import { createDesktopPopupBinding } from "./desktop-popup-binding.js";
@@ -149,11 +151,21 @@ export function observeAppleSetup(
 }
 
 /**
- * The setup card appears only when native observes the Mac extension turned off. iOS cannot
- * observe it, and an unknown, missing or late observation never nags. No native message opens
- * Safari's settings, so the card's action stays unsupplied.
+ * Opens one fixed native destination from a tap (the `openDestination` message, through
+ * `openNativeDestination`). The setup card only ever asks for Safari's extension settings.
  */
-export function appleSettingsSetup(observation: SafariSetupObservation | null): AppleSettingsProps["setup"] {
+export type AppleSetupOpener = (destination: "safariExtensionSettings") => void;
+
+/**
+ * The setup card appears only when native observes the Mac extension turned off. iOS cannot
+ * observe it, and an unknown, missing or late observation never nags. Its "Open Safari Settings"
+ * action opens the fixed Safari extension settings destination when an opener is supplied, and
+ * stays unsupplied (disabled) otherwise.
+ */
+export function appleSettingsSetup(
+  observation: SafariSetupObservation | null,
+  open?: AppleSetupOpener,
+): AppleSettingsProps["setup"] {
   if (observation?.platform !== "macos" || observation.extensionStatus !== "disabled") return undefined;
   return {
     title: "Turn on Still in Safari",
@@ -165,6 +177,7 @@ export function appleSettingsSetup(observation: SafariSetupObservation | null): 
       "Allow it on every website.",
     ],
     actionLabel: "Open Safari Settings",
+    onAction: open ? () => open("safariExtensionSettings") : undefined,
   };
 }
 
@@ -185,6 +198,7 @@ export function watchAppleSetup(
   publish: (view: AppleSetupView) => void,
   doc: Document = document,
   deadlineMs: number = APPLE_SETUP_OBSERVATION_DEADLINE_MS,
+  open?: AppleSetupOpener,
 ): () => void {
   let ticket = 0;
   let stopped = false;
@@ -193,7 +207,7 @@ export function watchAppleSetup(
     void observeAppleSetup(read, deadlineMs).then((observation) => {
       if (stopped || current !== ticket) return;
       publish({
-        setup: appleSettingsSetup(observation),
+        setup: appleSettingsSetup(observation, open),
         platform: observation ? appleSettingsPlatform(observation) : null,
       });
     });
@@ -306,7 +320,7 @@ function accountStatus(source: AppleSettingsAccountSource, retry: (() => void) |
   return { tone: "pending", text: STRINGS.sync.checking };
 }
 
-/** Restore appears only while an actual Restore runs; there is no idle Restore entry. */
+/** A controller-driven Restore shows its status only while it actually runs. */
 export function appleSettingsRestore(source: {
   readonly purchaseFlow: PurchaseFlow;
 }): RestoreStatusCardProps | undefined {
@@ -314,11 +328,133 @@ export function appleSettingsRestore(source: {
 }
 
 /**
- * Open an https page the way the legacy Apple screen does: a user-activated `target=_blank`
- * anchor, which the native navigation policy cancels in the web view and hands to the system.
+ * The native Restore check's answer (FreePeriodRestore.swift): `none` only after the App Store
+ * answered with no Still purchase, `failed` when there was no conclusive answer.
+ */
+export type AppleRestoreCheck = "restored" | "none" | "failed";
+
+/** The native calls the free-period Restore uses; tests supply a fake. */
+export interface AppleRestoreBridge {
+  /** The restore reply's conclusive answer, or null when the reply carries none. */
+  restoreCheck(): Promise<AppleRestoreCheck | null>;
+  receiptStatus(): Promise<ReceiptStatusValue>;
+}
+
+/**
+ * Read a native restore reply. The conclusive `restore` field wins; a bare `entitled: true` (the
+ * paid-tier reply) is restored; anything else, including a malformed reply, is no answer, so it can
+ * never become "nothing found".
+ */
+export function appleRestoreCheck(reply: unknown): AppleRestoreCheck | null {
+  const obj: unknown = typeof reply === "string" ? safeParse(reply) : reply;
+  if (!obj || typeof obj !== "object") return null;
+  const { restore, entitled } = obj as Record<string, unknown>;
+  if (restore === "restored" || restore === "none" || restore === "failed") return restore;
+  return entitled === true ? "restored" : null;
+}
+
+/**
+ * The Restore bridge over the one native port: the restore message read through
+ * `appleRestoreCheck`, and the device receipt read through the existing NativeBridge. It lives here
+ * rather than on NativeBridge so the default Apple bundle, which never shows this screen, is
+ * unchanged.
+ */
+export function appleRestoreBridge(
+  native: Pick<AppleRestoreBridge, "receiptStatus">,
+  win: StillBridgeWindow = globalThis as unknown as StillBridgeWindow,
+): AppleRestoreBridge {
+  return {
+    async restoreCheck() {
+      const port = win.webkit?.messageHandlers?.still;
+      return port ? appleRestoreCheck(await port.postMessage({ kind: "restore" })) : null;
+    },
+    receiptStatus: () => native.receiptStatus(),
+  };
+}
+
+export interface AppleSettingsRestoreDeps {
+  readonly bridge: AppleRestoreBridge;
+  /**
+   * The existing entitlement path (the authority's EntitlementCache.refreshAccess). While the paid
+   * tier is off it returns the packaged free snapshot without asking native, so a restore never
+   * reveals paid UI there.
+   */
+  readonly refreshAccess: () => Promise<unknown>;
+  /** Receives the RestoreStatusCard state to show; undefined before the first tap. */
+  readonly publish: (restore: RestoreStatusCardProps) => void;
+}
+
+/**
+ * The plain "Restore purchase" link shown while the paid flags are off (owner decision 17). It
+ * asks native to restore and then re-reads access through the existing entitlement path. It never
+ * touches settings: no cache, binding or settings message is involved.
+ *
+ * Outcomes use only the existing RestoreStatusCard states. While the paid tier is off, native runs
+ * a read-only App Store check and answers conclusively: restored, none ("nothing found") or failed
+ * ("couldn't finish" with Try again). A reply with no conclusive answer falls back to the device
+ * receipt read, as AppleSession.onRestore does: entitled is restored, verified not entitled is
+ * nothing found, and no signal or any rejection is couldn't finish. One restore at a time. After `stop` (the screen unmounted) a late reply is ignored:
+ * no further native read, no access re-read and nothing published.
+ */
+export function createAppleSettingsRestore(deps: AppleSettingsRestoreDeps) {
+  let flight: Promise<void> | null = null;
+  let stopped = false;
+  async function outcome(): Promise<"restored" | "nothing" | "failed" | null> {
+    try {
+      const check = await deps.bridge.restoreCheck();
+      if (check === "restored") return "restored";
+      if (check === "none") return "nothing";
+      if (check === "failed") return "failed";
+      if (stopped) return null;
+      const receipt = await deps.bridge.receiptStatus();
+      if (receipt === "entitled") return "restored";
+      return receipt === "verifiedNotEntitled" ? "nothing" : "failed";
+    } catch {
+      return "failed";
+    }
+  }
+  async function run(): Promise<void> {
+    deps.publish({ state: "checking" });
+    const state = await outcome();
+    if (stopped || state === null) return;
+    try {
+      await deps.refreshAccess();
+    } catch {
+      /* The entitlement cache keeps its own held state. */
+    }
+    if (stopped) return;
+    deps.publish(state === "failed" ? { state, onAction: start } : { state });
+  }
+  function start(): void {
+    if (stopped || flight) return;
+    flight = run().finally(() => {
+      flight = null;
+    });
+  }
+  return {
+    start,
+    stop(): void {
+      stopped = true;
+    },
+  };
+}
+
+/**
+ * The approved support destination: exactly `mailto:${SUPPORT_EMAIL}` (config.ts), with no query
+ * or other recipient; a test pins the two together. It is a literal because any top-level
+ * expression over SUPPORT_EMAIL survives tree-shaking (string coercion is not provably pure) and
+ * would change the default Apple bundle, which must stay byte-identical.
+ */
+export const SUPPORT_MAILTO = "mailto:support@stillapp.fit";
+
+/**
+ * Open an https page, or the support email, the way the legacy Apple screen opens links: a
+ * user-activated `target=_blank` anchor, which the native navigation policy cancels in the web view
+ * and hands to the system. Assigning `location.href` would reach native as a non-link navigation
+ * and be cancelled, so the anchor click is required. The only mailto accepted is SUPPORT_MAILTO.
  */
 export function openExternalLink(url: string, doc: Document = document): void {
-  if (!/^https:\/\//.test(url)) return;
+  if (!/^https:\/\//.test(url) && url !== SUPPORT_MAILTO) return;
   const anchor = doc.createElement("a");
   anchor.href = url;
   anchor.target = "_blank";
@@ -333,14 +469,14 @@ export function openExternalLink(url: string, doc: Document = document): void {
 }
 
 /**
- * Help destinations (owner decision 2026-10-05): the live setup guide and the shipped privacy
- * policy open externally. Contact support stays unsupplied: the approved destination is the
- * support email, and the native navigation policy opens only http(s) links externally (a mailto
- * link would be cancelled), so a button here would do nothing.
+ * Help destinations (owner decision 11): the live setup guide, the shipped support email and the
+ * shipped privacy policy, all opened externally. The native navigation policy hands a user-tapped
+ * link to exactly `mailto:support@stillapp.fit` to the system mail app.
  */
 export function appleSettingsHelp(open: (url: string) => void): AppleSettingsProps["help"] {
   return {
     onGuide: () => open(SETUP_GUIDE_URL),
+    onSupport: () => open(SUPPORT_MAILTO),
     onPrivacy: () => open(PRIVACY_POLICY_URL),
   };
 }

@@ -76,6 +76,7 @@ function harness(
     purposes?: AppleOnboardingHostDeps["consent"]["purposes"];
     openSetup?: boolean;
     consentDeadlineMs?: number;
+    destinations?: AppleOnboardingHostDeps["destinations"];
   } = {},
 ) {
   const bridge = {
@@ -94,6 +95,7 @@ function harness(
     options.sharing === null ? undefined : (options.sharing ?? nativeConsent());
   const onDone = vi.fn();
   const openSetup = vi.fn();
+  const openSafari = vi.fn();
   const views: AppleOnboardingHostView[] = [];
   const consent: AppleOnboardingHostDeps["consent"] = {
     purposes: options.purposes ?? purposes,
@@ -103,6 +105,8 @@ function harness(
   const host = createAppleOnboardingHost({
     bridge,
     openSetup: options.openSetup === false ? undefined : openSetup,
+    openSafari,
+    destinations: options.destinations,
     consent,
     onDone,
     onChange: (view) => views.push(view),
@@ -114,7 +118,7 @@ function harness(
     if (!view.visible) throw new Error("onboarding is hidden");
     return view.props;
   };
-  return { bridge, sharing, onDone, openSetup, views, host, props };
+  return { bridge, sharing, onDone, openSetup, openSafari, views, host, props };
 }
 
 async function toStep(
@@ -258,7 +262,7 @@ describe("step 2", () => {
     h.props().onContinue?.();
     expect(h.props().step).toBe(2);
     h.props().setup?.onOpen?.();
-    expect(h.openSetup).toHaveBeenCalledOnce();
+    expect(h.openSetup).toHaveBeenCalledExactlyOnceWith("settingsAppStillPage");
     h.props().onAssertEnabled?.();
     expect(h.props().step).toBe(3);
   });
@@ -646,5 +650,125 @@ describe("completion", () => {
     pending.resolve(true);
     await flush();
     expect(h.onDone).not.toHaveBeenCalled();
+  });
+});
+
+describe("leaving the app (fixed native destinations)", () => {
+  it("the setup button opens each platform's own enable location, from the tap", async () => {
+    const m = harness({ state: macState, observation: mac("disabled") });
+    await toStep(m, 2);
+    m.props().setup?.onOpen?.();
+    expect(m.openSetup).toHaveBeenCalledExactlyOnceWith("safariExtensionSettings");
+    const i = harness();
+    await toStep(i, 2);
+    i.props().setup?.onOpen?.();
+    expect(i.openSetup).toHaveBeenCalledExactlyOnceWith("settingsAppStillPage");
+  });
+
+  it("Open Safari opens Safari only after the native gate confirmed, then reports done", async () => {
+    const pending = deferred<boolean>();
+    const h = harness({ state: macState, observation: mac("disabled") });
+    const order: string[] = [];
+    h.openSafari.mockImplementation(() => order.push("open safari"));
+    h.onDone.mockImplementation(() => order.push("done"));
+    h.bridge.completeOnboarding.mockReturnValueOnce(pending.promise);
+    await toStep(h, 4);
+    h.props().onOpenSafari?.();
+    await Promise.resolve();
+    expect(h.openSafari).not.toHaveBeenCalled();
+    pending.resolve(true);
+    await flush();
+    expect(order).toEqual(["open safari", "done"]);
+  });
+
+  it("a refused or late completion never opens Safari", async () => {
+    const h = harness({ state: macState, observation: mac("disabled"), complete: false });
+    await toStep(h, 4);
+    h.props().onOpenSafari?.();
+    await flush();
+    expect(h.openSafari).not.toHaveBeenCalled();
+  });
+
+  it("Go to Settings never opens Safari", async () => {
+    const h = harness({ state: macState, observation: mac("disabled") });
+    await toStep(h, 4);
+    h.props().onGoToSettings?.();
+    await flush();
+    expect(h.onDone).toHaveBeenCalledExactlyOnceWith("settings");
+    expect(h.openSafari).not.toHaveBeenCalled();
+  });
+
+  it("per-platform destinations: Safari is reachable on macOS and disabled on iOS", async () => {
+    const destinations = (platform: "ios" | "mac") =>
+      platform === "mac" ? (["safari", "settings"] as const) : (["settings"] as const);
+    const m = harness({ state: macState, observation: mac("disabled"), destinations });
+    await toStep(m, 4);
+    expect(m.props().onOpenSafari).toBeTypeOf("function");
+    const i = harness({ destinations });
+    await toStep(i, 4);
+    expect(i.props().onOpenSafari).toBeUndefined();
+    expect(i.props().onGoToSettings).toBeTypeOf("function");
+  });
+
+  // #282 review P3-3: the complete() destination guard. Every port step 4 exposes, including the
+  // failure line's Try again, is driven; a destination left out must never reach the native gate.
+  it.each([
+    ["a fixed list", ["settings"] as const],
+    ["a per-platform rule", () => ["settings"] as const],
+  ])("a destination left out (%s) never completes through any port", async (_name, destinations) => {
+    const h = harness({ destinations, complete: false });
+    await toStep(h, 4);
+    const portsOf = (props: AppleOnboardingProps) =>
+      [props.onOpenSafari, props.completion?.onAction, props.onContinue].filter(
+        (port): port is () => void => typeof port === "function",
+      );
+    for (const port of portsOf(h.props())) port();
+    await flush();
+    expect(h.bridge.completeOnboarding).not.toHaveBeenCalled();
+    expect(h.props().onOpenSafari).toBeUndefined();
+    // A reachable destination's failure retries itself, never the left-out one.
+    h.props().onGoToSettings?.();
+    await flush();
+    expect(h.props().completion?.text).toBe("We couldn't finish setup.");
+    h.bridge.completeOnboarding.mockResolvedValue(true);
+    for (const port of portsOf(h.props())) port();
+    await flush();
+    expect(h.bridge.completeOnboarding).toHaveBeenCalledTimes(2);
+    expect(h.onDone).toHaveBeenCalledExactlyOnceWith("settings");
+    expect(h.openSafari).not.toHaveBeenCalled();
+  });
+
+  // #282 review P3-4: a native reply that arrives after the deadline.
+  it("a completion confirmed after the deadline stays failed, opens nothing, and retry still works", async () => {
+    vi.useFakeTimers();
+    const h = harness({ state: macState, observation: mac("disabled") });
+    await h.host.start();
+    h.props().onContinue?.();
+    await vi.advanceTimersByTimeAsync(0);
+    h.props().onDoLater?.();
+    h.props().consent.onDecline?.();
+    await vi.advanceTimersByTimeAsync(0);
+    h.props().onContinue?.();
+    expect(h.props().step).toBe(4);
+    let confirm!: (ok: boolean) => void;
+    h.bridge.completeOnboarding.mockReturnValueOnce(
+      new Promise<boolean>((resolve) => {
+        confirm = resolve;
+      }),
+    );
+    h.props().onOpenSafari?.();
+    await vi.advanceTimersByTimeAsync(50); // the harness deadline
+    const failed = h.host.view;
+    expect(failed.visible && failed.completion).toBe("failed");
+    confirm(true);
+    await vi.advanceTimersByTimeAsync(0);
+    const still = h.host.view;
+    expect(still.visible && still.completion).toBe("failed");
+    expect(h.onDone).not.toHaveBeenCalled();
+    expect(h.openSafari).not.toHaveBeenCalled();
+    h.props().completion?.onAction?.();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.onDone).toHaveBeenCalledExactlyOnceWith("safari");
+    expect(h.openSafari).toHaveBeenCalledOnce();
   });
 });

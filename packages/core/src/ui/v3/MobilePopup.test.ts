@@ -62,6 +62,66 @@ async function fixture(state: AccessState = "purchased") {
 }
 
 describe("controlled D02 mobile presentation", () => {
+  it("holds already rendered controls while the committed authority is unavailable, keeping saved choices", async () => {
+    const { props, storage } = await fixture();
+    const saved = await storage.get();
+    const view = render(MobilePopup, { props });
+    await fireEvent.click(
+      screen.getByRole("button", { name: "YouTube Blocker" }),
+    );
+    const global = screen.getByRole("switch", { name: "Still" });
+    const service = screen.getByRole("switch", { name: "Still on YouTube" });
+    const shorts = screen.getByRole("switch", { name: "Shorts" });
+    const delivered = [global, service, shorts].map(
+      (element) => () =>
+        element.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+    props.commandsDisabled = true;
+    await view.rerender(props);
+    for (const element of [global, service, shorts]) {
+      expect(element).toHaveAttribute("aria-disabled", "true");
+      expect(element).toHaveAttribute("aria-checked", "true");
+    }
+    for (const click of delivered) click();
+    expect(props.onGlobalChange).not.toHaveBeenCalled();
+    expect(props.onServiceChange).not.toHaveBeenCalled();
+    expect(props.onFeatureChange).not.toHaveBeenCalled();
+    expect(await storage.get()).toEqual(saved);
+    // Expanders and Settings stay usable.
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Instagram Blocker" }),
+    );
+    expect(
+      screen.getByRole("button", { name: "Instagram Blocker" }),
+    ).toHaveAttribute("aria-expanded", "true");
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Settings. Opens Still settings." }),
+    );
+    expect(props.onSettings).toHaveBeenCalledOnce();
+    props.commandsDisabled = false;
+    await view.rerender(props);
+    await fireEvent.click(service);
+    expect(props.onServiceChange).toHaveBeenCalledWith("youtube", false);
+  });
+
+  it("renders a host-supplied action slot inside the sync card", async () => {
+    const { createRawSnippet } = await import("svelte");
+    const retry = vi.fn();
+    const accountActions = createRawSnippet(() => ({
+      render: () => '<button type="button">Try again</button>',
+      setup: (node) => {
+        node.addEventListener("click", retry);
+        return () => node.removeEventListener("click", retry);
+      },
+    }));
+    const { props } = await fixture();
+    render(MobilePopup, { props: { ...props, accountActions } });
+    const button = screen.getByRole("button", { name: "Try again" });
+    expect(button.closest("section")).toHaveTextContent("Settings sync");
+    await fireEvent.click(button);
+    expect(retry).toHaveBeenCalledOnce();
+  });
+
   it("describes optional free sync on supported surfaces", async () => {
     const { props } = await fixture();
     const view = render(MobilePopup, { props });

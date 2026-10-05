@@ -187,7 +187,6 @@ describe("captured Instagram through the maintained format2 compiler", () => {
     const s = session();
     for (const href of [
       "/reel/shared/?igsh=chosen#part",
-      "/reels/shared/?igsh=chosen#part",
       "/p/ordinary/?img_index=2",
       "/direct/inbox/",
       "/explore/?q=chosen",
@@ -202,5 +201,13 @@ describe("captured Instagram through the maintained format2 compiler", () => {
         href,
       ).toBe("apply");
     }
+    // The plural /reels/<code>/ viewer opens the same Reel at its singular shared address
+    // ("shared" is a code by the viewer pattern), keeping the share query and fragment.
+    expect(
+      s.evaluate(
+        DEFAULT_SETTINGS_V2,
+        new URL("/reels/shared/?igsh=chosen#part", "https://www.instagram.com"),
+      ),
+    ).toEqual({ kind: "redirect", url: "https://www.instagram.com/reel/shared/?igsh=chosen#part" });
   });
 });

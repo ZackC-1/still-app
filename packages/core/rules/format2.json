@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "3.0.0",
+  "version": "3.0.1",
   "services": {
     "youtube": {
       "matches": [
@@ -32,6 +32,7 @@
             "yt-tab-shape[tab-title=\"Shorts\"]",
             "tp-yt-paper-tab:has([href$=\"/shorts\"])",
             "yt-chip-cloud-chip-renderer:has([title=\"Shorts\"])",
+            "yt-chip-cloud-chip-renderer[data-still-shorts-chip]",
             "ytm-app ytm-rich-section-renderer:has(ytm-shorts-lockup-view-model)",
             "ytm-app ytm-rich-section-renderer:has(ytm-reel-shelf-renderer)",
             "ytm-app ytm-reel-shelf-renderer",
@@ -101,6 +102,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "a58af50bb386a1e0b6cb8e81a7851ace7621ca6be6e375ddc64299a54a54b40610a649244db22bba030577b4d5b629e78f9d068c0a35c9b10965432548af200b"
+    "value": "49371aebbffc95c366eaba351e819dd7bb3943b86f86e5fae803c1073a05fc5e4b0f9116d7ba7ec92fcd62f06b16c6326d8864b6b49295c8f6690aae0eb28203"
   }
 }

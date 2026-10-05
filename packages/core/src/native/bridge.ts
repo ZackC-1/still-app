@@ -21,6 +21,8 @@ import { parseAccessCacheRecord, type AccessCacheRecord } from "../entitlement/a
 //   safariSetupState   → SafariSetupObservation (read-only; see observeSafariSetup)
 //   onboardingState    → { ok: true, shouldShow, platform, osMajorVersion }
 //   completeOnboarding → { ok: true } | rejected when the web view is not the onboarding presenter
+//   openDestination    → { ok: true, destination } | rejected (see openNativeDestination; not a
+//                        NativeBridge method, so builds that never open anything stay unchanged)
 //   setAnalyticsConsent → { ok: true, enabled, answered }
 //   analyticsContext   → { …, consent, consentAnswered, … } (see AnalyticsContextReply)
 
@@ -105,8 +107,71 @@ export function boundedNativeRead<T>(
   });
 }
 
+/** The fixed places native may open for the web view (NativeOpenDestination.swift). The names
+ * match `SafariSetupObservation.enableLocation`. macOS opens Safari's Extensions settings and
+ * Safari; iOS opens only Still's page in the Settings app. */
+export type NativeOpenDestination =
+  | "safariExtensionSettings"
+  | "settingsAppStillPage"
+  | "safari";
+
+const NATIVE_OPEN_DESTINATIONS: readonly NativeOpenDestination[] = [
+  "safariExtensionSettings",
+  "settingsAppStillPage",
+  "safari",
+];
+
+export interface OpenNativeDestinationOptions {
+  /** The host window (default: globalThis). */
+  readonly win?: StillBridgeWindow;
+  /** The page's user activation (default: navigator.userActivation, where WebKit has it). */
+  readonly userActivation?: { readonly isActive?: boolean } | null;
+  readonly deadlineMs?: number;
+}
+
+/**
+ * Ask native to open one fixed destination, from a tap. Posts exactly
+ * `{ kind: "openDestination", destination }`: nothing else, and never a URL. Resolves true only
+ * for `{ ok: true, destination: <the same one> }` within the deadline; no host, an unknown
+ * destination, a page without user activation (where WebKit reports it), a refusal, a malformed
+ * reply or a late one are all false, and nothing is posted for the first three.
+ *
+ * Native re-checks everything that matters (bundled main frame, platform support, app active);
+ * WebKit gives native no gesture flag, so the activation check lives here.
+ *
+ * A standalone function, not a NativeBridge method: the class is in every Apple web bundle and a
+ * method is never tree-shaken, while this is reachable only from the D12 onboarding wiring.
+ */
+export function openNativeDestination(
+  destination: NativeOpenDestination,
+  options: OpenNativeDestinationOptions = {},
+): Promise<boolean> {
+  if (!NATIVE_OPEN_DESTINATIONS.includes(destination)) return Promise.resolve(false);
+  const activation =
+    options.userActivation !== undefined
+      ? options.userActivation
+      : (globalThis.navigator as { userActivation?: { isActive?: boolean } } | undefined)
+          ?.userActivation;
+  if (activation && activation.isActive !== true) return Promise.resolve(false);
+  const win = options.win ?? (globalThis as unknown as StillBridgeWindow);
+  const port = win.webkit?.messageHandlers?.still ?? null;
+  if (!port) return Promise.resolve(false);
+  const message: NativeMessage = { kind: "openDestination", destination };
+  return boundedNativeRead(
+    async () => {
+      const obj = asObject(await port.postMessage(message));
+      return (
+        !!obj && !Array.isArray(obj) && obj.ok === true && obj.destination === destination
+      );
+    },
+    false,
+    options.deadlineMs ?? NATIVE_READ_DEADLINE_MS,
+  );
+}
+
 export type NativeMessage =
   | { readonly kind: "safariSetupState" }
+  | { readonly kind: "openDestination"; readonly destination: NativeOpenDestination }
   | { readonly kind: "onboardingState" }
   | { readonly kind: "completeOnboarding" }
   | { readonly kind: "signInWithApple" }

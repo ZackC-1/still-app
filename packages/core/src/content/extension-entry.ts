@@ -9,6 +9,7 @@ import {
   EntitlementCache,
   ChromeEntitlementAdapter,
 } from "../entitlement/index.js";
+import { initialAccessSnapshot } from "../entitlement/access-policy.js";
 import {
   resolveRuleSetForLoad,
   ruleSetTrust,
@@ -24,6 +25,7 @@ import {
 import {
   createContentScript,
   earlyShortsRedirect,
+  earlyFormat2ShortsRedirect,
   type ContentScriptDeps,
   type ContentScriptHandle,
   type RedirectDedupe,
@@ -57,7 +59,8 @@ export interface ExtensionContentEntryDeps {
   /** The target extension's local storage namespace (Safari `browser`, Chromium `chrome`). */
   readonly storage: ReadableArea;
   readonly prod: boolean;
-  /** Safari and Firefox own the early hard-navigation redirect; Chromium owns it with DNR. */
+  /** Safari and Firefox own the early hard-navigation redirect (legacy or format-2 lane);
+   * Chromium owns it with DNR. */
   readonly earlyRedirect: boolean;
   /** Safari's App-Group nudge lifecycle. Omitted by Chromium/Firefox by construction. */
   readonly nudge?: ExtensionContentNudge;
@@ -65,6 +68,8 @@ export interface ExtensionContentEntryDeps {
   readonly requestReconcile?: () => void;
   /** Optional WXT invalidation check; Safari supplies `ctx.isInvalid` after the async rule-set read. */
   readonly isInvalid?: () => boolean;
+  /** Redirect-dedupe cell shared with a caller that already owns this page's early redirect. */
+  readonly redirectDedupe?: RedirectDedupe;
   /** Test seam: the production factory otherwise uses the live document. */
   readonly win?: StillWindow;
   /** Test seam: the production factory otherwise uses the live document. */
@@ -96,13 +101,21 @@ export function createExtensionContentEntry(
     const doc = deps.doc ?? document;
     const cache = new SettingsCache(new ChromeStorageAdapter());
     const entitlement = new EntitlementCache(new ChromeEntitlementAdapter());
-    const redirectDedupe: RedirectDedupe = { lastRedirect: null };
+    const redirectDedupe: RedirectDedupe = deps.redirectDedupe ?? { lastRedirect: null };
 
     if (deps.earlyRedirect && !bundledV2) {
       void earlyShortsRedirect({
         win,
         ruleSet: seed as unknown as SignedRuleSet,
         cache,
+        redirectDedupe,
+      }).catch(() => {});
+    } else if (deps.earlyRedirect && bundledV2) {
+      void earlyFormat2ShortsRedirect({
+        win,
+        ruleSet: bundledV2,
+        cache: new SettingsCache(new ChromeStorageAdapter()),
+        access: () => entitlement.currentAccessSnapshot(),
         redirectDedupe,
       }).catch(() => {});
     }
@@ -160,15 +173,33 @@ export function createExtensionContentEntry(
 }
 
 /**
- * Services whose pages run the packaged format-2 lane in shipping builds. Held empty: every
- * shipping page keeps the legacy seed engine until each service's built-extension contract
- * (hide-not-remove, no route placeholders, root classes, YouTube's Shorts-filter recovery) is
- * accepted. Adding a service here is the whole activation; the lane rules below stay the same.
+ * Services whose pages run the packaged format-2 lane in shipping builds. A page still uses it
+ * only when its committed settings are schema 2, so builds that keep the legacy settings
+ * document (configured store builds until the modern settings rollout) run the legacy seed
+ * engine unchanged. TikTok stays on its legacy site block until the trusted blocked-screen port
+ * exists; the lane rules below also enforce that.
  */
-export const FORMAT2_SHIPPING_SERVICES: ReadonlySet<ServiceId> = new Set<ServiceId>();
+export const FORMAT2_SHIPPING_SERVICES: ReadonlySet<ServiceId> = new Set<ServiceId>([
+  "youtube",
+  "instagram",
+  "facebook",
+]);
 
 /** The settings key the content script's ChromeStorageAdapter reads (its local projection). */
 const SETTINGS_KEY = "still:settings";
+/** The loader's rule-set cache keys (format 1, format 2), prefetched with the lane read. */
+const LEGACY_RULES_KEY = "still:ruleset";
+const FORMAT2_RULES_KEY = "still:ruleset:format2";
+
+/** A direct YouTube Shorts load: the only case the content script's early redirect acts on. */
+function isShortsHref(href: string): boolean {
+  try {
+    const url = new URL(href);
+    return pageService(href) === "youtube" && url.pathname.startsWith("/shorts/");
+  } catch {
+    return false;
+  }
+}
 
 /** Which engine a shipping page runs, and why the legacy seed engine was kept. */
 export type ShippingContentLane =
@@ -217,25 +248,22 @@ function pageService(href: string): ServiceId | null {
  * - everything else, including invalid packaged data and absent or unreadable settings, falls
  *   back to the legacy seed engine exactly as before.
  *
- * Pages that cannot run format-2 decide synchronously, with no extra storage read, so the legacy
- * early Shorts redirect keeps its document_start timing.
+ * Timing: pages that cannot use format-2 decide synchronously and run the legacy entry as is.
+ * On an activated page, the lane's settings read, both rule-set cache reads and (for a direct
+ * Shorts URL on Firefox/Safari) the early redirect's settings hydrate all start together, so
+ * neither lane waits for more sequential storage round trips than the legacy entry did.
  */
 export function createShippingContentEntry(
   deps: ShippingContentEntryDeps,
 ): (context?: ExtensionContentContext) => Promise<void> {
   const services = deps.format2Services ?? FORMAT2_SHIPPING_SERVICES;
   const legacy = createExtensionContentEntry(deps);
-  let modern: ReturnType<typeof createExtensionContentEntry> | null | undefined;
-  const modernEntry = () => {
-    if (modern === undefined) {
-      const admitted = admitPackagedRuleSetV2(
-        "packagedRuleSetV2" in deps ? deps.packagedRuleSetV2 : PACKAGED_RULE_SET_V2,
-      );
-      modern = admitted
-        ? createExtensionContentEntry({ ...deps, bundledRuleSetV2: admitted })
-        : null;
-    }
-    return modern;
+  let admitted: SignedRuleSetV2 | null | undefined;
+  const packaged = () => {
+    admitted ??= admitPackagedRuleSetV2(
+      "packagedRuleSetV2" in deps ? deps.packagedRuleSetV2 : PACKAGED_RULE_SET_V2,
+    );
+    return admitted;
   };
   // Synchronous part: pages that cannot run format-2 never wait for a storage read.
   const held = (href: string): ShippingContentLane | null => {
@@ -244,12 +272,14 @@ export function createShippingContentEntry(
     if (!services.has(service)) return { kind: "legacy", reason: "service-held" };
     if (service === "tiktok" && !deps.handleBlockedNavigation)
       return { kind: "legacy", reason: "tiktok-port-absent" };
-    if (!modernEntry()) return { kind: "legacy", reason: "packaged-invalid" };
+    if (!packaged()) return { kind: "legacy", reason: "packaged-invalid" };
     return null;
   };
-  const committedSchema = async (): Promise<ShippingContentLane> => {
+  const committedSchema = async (
+    read: ReadableArea["get"],
+  ): Promise<ShippingContentLane> => {
     try {
-      const raw = await deps.storage.get(SETTINGS_KEY);
+      const raw = await read(SETTINGS_KEY);
       if (!Object.hasOwn(raw, SETTINGS_KEY)) return { kind: "legacy", reason: "settings-absent" };
       const settings = parseStoredSettingsRecord(raw[SETTINGS_KEY])?.settings;
       return settings && "schemaVersion" in settings && settings.schemaVersion === 2
@@ -261,14 +291,64 @@ export function createShippingContentEntry(
   };
   return (context = {}): Promise<void> => {
     const win = deps.win ?? (window as unknown as StillWindow);
-    const decided = held(win.location.href);
+    const href = win.location.href;
+    const decided = held(href);
     if (decided) {
       deps.onLane?.(decided);
       return legacy(context);
     }
-    return committedSchema().then((lane) => {
-      deps.onLane?.(lane);
-      return (lane.kind === "format2" ? modern! : legacy)(context);
+    // One round of parallel reads. Each key is read once; the chosen inner entry consumes the
+    // already in-flight rule-set read instead of starting another round trip after the lane.
+    const prefetched = new Map<string, Promise<Record<string, unknown>>>();
+    const prefetch = (key: string) => {
+      const pending = Promise.resolve().then(() => deps.storage.get(key));
+      pending.catch(() => {}); // an unused read must not surface as an unhandled rejection
+      prefetched.set(key, pending);
+    };
+    for (const key of [SETTINGS_KEY, LEGACY_RULES_KEY, FORMAT2_RULES_KEY]) prefetch(key);
+    const storage: ReadableArea = {
+      get: (key) => {
+        const pending = prefetched.get(key);
+        prefetched.delete(key);
+        return pending ?? deps.storage.get(key);
+      },
+    };
+    const lane = committedSchema(storage.get);
+    const redirectDedupe: RedirectDedupe = { lastRedirect: null };
+    const ownsEarly = deps.earlyRedirect && isShortsHref(href);
+    if (ownsEarly) {
+      // The redirect's own settings hydrate runs alongside the lane read: same single round
+      // trip as the legacy early redirect, decided with the engine the lane selects.
+      const cache = new SettingsCache(new ChromeStorageAdapter());
+      void Promise.all([lane, cache.hydrate()])
+        .then(([chosen]) =>
+          chosen.kind === "format2"
+            ? earlyFormat2ShortsRedirect({
+                win,
+                ruleSet: packaged()!,
+                cache,
+                access: () => initialAccessSnapshot(),
+                redirectDedupe,
+              })
+            : earlyShortsRedirect({
+                win,
+                ruleSet: seed as unknown as SignedRuleSet,
+                cache,
+                redirectDedupe,
+              }),
+        )
+        .catch(() => {});
+    }
+    return lane.then((chosen) => {
+      deps.onLane?.(chosen);
+      const inner = createExtensionContentEntry({
+        ...deps,
+        storage,
+        earlyRedirect: deps.earlyRedirect && !ownsEarly,
+        redirectDedupe,
+        ...(chosen.kind === "format2" ? { bundledRuleSetV2: packaged()! } : {}),
+      });
+      return inner(context);
     });
   };
 }

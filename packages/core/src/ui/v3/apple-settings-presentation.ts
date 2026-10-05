@@ -62,6 +62,13 @@ export interface AppleSettingsProps extends Pick<
     "accessHeld" | "accessChecking" | "accessVerify" | "restoreHeld"
   >;
   restore?: RestoreStatusCardProps;
+  /**
+   * Free-period Restore (owner decision 17): a plain "Restore purchase" link for past purchasers,
+   * shown only while the compiled paid flag (PAID_TIER_ENABLED) is off and no paid producer
+   * (`pro`) is supplied; the Still Pro card carries its own Restore otherwise. Never a Buy, a
+   * price or an offer.
+   */
+  onRestore?: () => void;
   link?: AccountLinkCardProps;
   /** Eligibility is supplied only for a later ordinary visit, never inferred from buying. */
   linkInvitation?: {

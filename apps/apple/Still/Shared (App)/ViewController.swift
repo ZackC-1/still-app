@@ -226,16 +226,20 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
         }
         // Trust boundary (P0 #1): only the bundled main frame may drive native actions. An iframe or
         // an injected/remote origin posting `still` messages is refused before the router sees it.
-        guard let bundled = bundledIndexURL,
-              BridgeTrust.isTrusted(
-                  isMainFrame: message.frameInfo.isMainFrame,
-                  url: message.frameInfo.request.url,
-                  bundledURL: bundled
-              )
-        else {
+        guard let bundled = bundledIndexURL else {
             replyHandler(nil, "still: untrusted frame")
             return
         }
-        router.handle(message.body, reply: replyHandler)
+        let frame = BridgeFrame(
+            isMainFrame: message.frameInfo.isMainFrame,
+            url: message.frameInfo.request.url,
+            bundledURL: bundled
+        )
+        guard frame.isTrusted else {
+            replyHandler(nil, "still: untrusted frame")
+            return
+        }
+        // The frame travels on so actions that leave the app (openDestination) re-check it too.
+        router.handle(message.body, frame: frame, reply: replyHandler)
     }
 }
