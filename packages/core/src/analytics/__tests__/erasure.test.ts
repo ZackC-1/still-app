@@ -281,6 +281,72 @@ describe("per-device subjects through the host", () => {
     extension.stop();
   });
 
+  it("NEGATIVE CONTROL: retrying the same account while unconfirmed never drops its work in progress", async () => {
+    let fail = true;
+    const { h, host: extension } = host(() => {
+      if (fail) {
+        fail = false;
+        throw new Error("offline");
+      }
+      return { state: "active", subject: SUBJECT };
+    });
+    await extension.identify(ACCOUNT); // fails: unconfirmed, still this account
+    const identifying = extension.identify(ACCOUNT);
+    const tracking = extension.client.track("opened", { where: "popup" }); // concurrent with the retry
+    await Promise.all([identifying, tracking]);
+    await extension.client.flush();
+    expect(h.sent().map((e) => [e.event, e.properties.distinct_id])).toEqual([["opened", SUBJECT]]);
+    extension.stop();
+  });
+
+  it("a confirmation pending for one account is withdrawn when another account is asked for", async () => {
+    const replies: Record<string, unknown> = {};
+    const { h, host: extension } = host(() => replies.next);
+    replies.next = { state: "active", subject: SUBJECT };
+    await extension.identify(ACCOUNT);
+    expect(extension.client.accountConfirmed).toBe(true);
+    replies.next = null; // the next account's subject cannot be issued
+    await extension.identify("cccccccc-cccc-4ccc-8ccc-cccccccccccc");
+    expect(extension.client.accountConfirmed).toBe(false);
+    await extension.client.track("opened", { where: "popup" });
+    await extension.client.flush();
+    expect(JSON.stringify(h.bodies)).not.toContain(SUBJECT);
+    extension.stop();
+  });
+
+  it("NEGATIVE CONTROL: a confirmation still pending for one account never lands after another is asked for", async () => {
+    let next: unknown = { state: "active", subject: SUBJECT };
+    let failStateReads = 0;
+    const h = harness();
+    const get = h.store.get;
+    h.store.get = async (key: string) => {
+      if (key === STATE_KEY && failStateReads > 0) {
+        failStateReads -= 1;
+        throw new Error("state unreadable once");
+      }
+      return get(key);
+    };
+    const extension = createExtensionAnalyticsHost({
+      ...h.deps,
+      permission: async () => readAnalyticsPermission(await h.deps.permission?.()),
+      local: h.store,
+      noticeApplies: false,
+      isTrustedPage: () => true,
+      subjects: { issue: async () => next, onStopped: async () => {} },
+    });
+    failStateReads = 1;
+    await extension.identify(ACCOUNT); // the subject arrives, but its confirmation stays pending
+    expect(extension.client.accountConfirmed).toBe(false);
+    next = null;
+    await extension.identify("cccccccc-cccc-4ccc-8ccc-cccccccccccc"); // B: no subject yet
+    await extension.client.flush(); // would retry a pending confirmation
+    await extension.client.track("opened", { where: "popup" });
+    await extension.client.flush();
+    expect(extension.client.accountConfirmed).toBe(false);
+    expect(JSON.stringify(h.bodies)).not.toContain(SUBJECT);
+    extension.stop();
+  });
+
   it("a background start never asks the server; events wait unattributed", async () => {
     const { host: extension, requests } = host(() => ({ state: "active", subject: SUBJECT }));
     await extension.identify(ACCOUNT, { quiet: true });

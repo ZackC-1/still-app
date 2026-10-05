@@ -369,14 +369,15 @@ export function createAccountIdentifier(deps: {
   const identifySubject = async (asked: string, options: TrackOptions): Promise<void> => {
     if (!isAnalyticsId(asked) || !client.enabled) return;
     const account = asked.toLowerCase();
-    // Unless the client already reports as this account's own subject, stop attributing to whatever
-    // it reports as now (another account's subject, or nobody), and cancel any confirmation still
-    // pending for someone else, even if this account's subject cannot be confirmed yet.
+    // When the client reports as someone else (another account's subject, or nobody), stop that at
+    // once, even if this account's subject cannot be confirmed yet; likewise a confirmation still
+    // pending for another account. Not when it is unconfirmed for this same account: there is
+    // nothing to stop, and withdrawing would drop this account's own work in progress.
     const before = await client.captureObservation();
     const known = before ? await cachedSubject(account, before.permission.origin) : null;
-    if (!(client.accountConfirmed && known !== null && (await client.signedInAs()) === known)) {
-      await client.withdrawConfirmation();
-    }
+    const confirmedElse = client.accountConfirmed && !(known !== null && (await client.signedInAs()) === known);
+    const pendingElse = !client.accountConfirmed && wanted !== null && wanted.account !== account;
+    if (confirmedElse || pendingElse) await client.withdrawConfirmation();
     wanted = { account, stamp: client.stamp() };
     // Who reports here is decided under the permission in force; without one nothing is attributed.
     const observation = await client.captureObservation();
