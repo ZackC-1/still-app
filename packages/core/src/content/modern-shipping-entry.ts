@@ -107,6 +107,34 @@ export function createCoreRouteClassifier(ruleSet: SignedRuleSetV2): (url: URL) 
   };
 }
 
+/**
+ * The home a Reel viewer item would be sent to when its viewer advances on its own (the core Reels
+ * continuation stop), or null when `url` is not a Reel viewer item. It asks the same packaged
+ * engine, under fresh-install settings, whether moving from a different viewer item to `url` is
+ * a continuation, so the Reel viewer patterns are never copied here.
+ */
+export function createReelContinuationProbe(ruleSet: SignedRuleSetV2): (url: URL) => string | null {
+  const fresh = migrateSettingsV2(null, { kind: "proven-fresh" });
+  if (fresh.status !== "ready") throw new Error("Fresh settings are unavailable");
+  const access = initialAccessSnapshot();
+  const session = createEnginePageSession(ruleSet);
+  return (url) => {
+    // A different global viewer item on the same site: Instagram's viewer, Facebook's numeric Reel.
+    const from = new URL(url.hostname.endsWith("facebook.com") ? "/reel/0" : "/reels/still-probe/", url.origin);
+    if (from.pathname === url.pathname) return null;
+    session.evaluate(fresh.settings, url, { access });
+    return session.reelContinuation?.(from, url) ?? null;
+  };
+}
+
+/** The two core short-form checks the redirect cover is limited to (V3-D-052: never extras). */
+export interface CoreRedirectRoutes {
+  /** The core destination of a core short-form route, or null. */
+  readonly destination: (url: URL) => string | null;
+  /** The home a Reel viewer item is sent to when its viewer advances on its own, or null. */
+  readonly continuationHome: (url: URL) => string | null;
+}
+
 /** Whether the early decision sent the page away, declined, or its navigation call threw. */
 export type EarlyCoreOutcome = "redirected" | "declined" | "failed";
 
@@ -152,21 +180,26 @@ export async function earlyFormat2CoreRedirect(deps: EarlyFormat2CoreRedirectDep
 
 /**
  * The page window as the format-2 content script sees it, with one difference: when Still replaces
- * the current document (a hard load decided after hydration, the URL watch on Safari without the
- * Navigation API, a correction after an App Group reconcile), the cover goes up first and stays
- * through that navigation. Pre-commit navigations (a consumed link or `navigate` event) leave an
- * ordinary page on screen and are never covered: those use `assign`, or happen while the current
- * URL is not a core route.
+ * the current document because it is a core short-form page (a hard load decided after
+ * hydration, the URL watch on Safari without the Navigation API, a correction after an App Group
+ * reconcile, a Reel viewer advancing on its own), the cover goes up first and stays through that
+ * navigation. Everything else is never covered (V3-D-052): optional-feature redirects such as
+ * Explore to search or Stories to Home, and pre-commit navigations, which leave an ordinary page on
+ * screen and use `assign`, or happen while the current URL is not a core route.
  */
-function coveredWindow(
+export function createCoveredWindow(
   win: StillWindow,
   cover: PendingCover,
-  classify: (url: URL) => string | null,
+  routes: CoreRedirectRoutes,
 ): StillWindow {
-  const covering = (): boolean => {
-    if (!win.navigation) return true;
+  const covering = (target: string): boolean => {
     try {
-      return classify(new URL(win.location.href)) !== null;
+      const current = new URL(win.location.href);
+      const core = routes.destination(current);
+      if (core !== null) return core === target;
+      // Only without the Navigation API does a page-driven Reel advance reach this as a
+      // replacement of the committed page; with it, the move is stopped before it commits.
+      return !win.navigation && routes.continuationHome(current) === target;
     } catch {
       return false;
     }
@@ -176,7 +209,7 @@ function coveredWindow(
       return win.location.href;
     },
     replace(url: string) {
-      const token = covering() ? cover.show("redirecting") : 0;
+      const token = covering(url) ? cover.show("redirecting") : 0;
       cover.commit(token);
       try {
         win.location.replace(url);
@@ -220,6 +253,11 @@ export function createModernShippingContentEntry(
   };
   let classifier: ((url: URL) => string | null) | undefined;
   const classify = (url: URL): string | null => (classifier ??= createCoreRouteClassifier(packaged()!))(url);
+  let continuation: ((url: URL) => string | null) | undefined;
+  const routes: CoreRedirectRoutes = {
+    destination: classify,
+    continuationHome: (url) => (continuation ??= createReelContinuationProbe(packaged()!))(url),
+  };
   const coreDestinationOf = (href: string): string | null => {
     try {
       return classify(new URL(href));
@@ -325,7 +363,7 @@ export function createModernShippingContentEntry(
       const format2 = chosen.kind === "format2";
       const inner = createExtensionContentEntry({
         ...deps,
-        win: format2 && cover ? coveredWindow(win, cover, classify) : deps.win,
+        win: format2 && cover ? createCoveredWindow(win, cover, routes) : deps.win,
         storage,
         earlyRedirect: deps.earlyRedirect && !ownsEarly,
         redirectDedupe,

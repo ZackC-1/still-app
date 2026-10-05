@@ -5,10 +5,18 @@ import type { ContentScriptHandle } from "../index.js";
 import type { NavigationEventLike } from "../redirect.js";
 import {
   createCoreRouteClassifier,
+  createCoveredWindow,
   createModernShippingContentEntry,
+  createReelContinuationProbe,
   type ModernContentContext,
 } from "../modern-shipping-entry.js";
-import { PENDING_COVER_CLASS, type PendingCoverPhase, type PendingCoverRelease } from "../pending-cover.js";
+import {
+  createPendingCover,
+  PENDING_COVER_CLASS,
+  type PendingCoverPhase,
+  type PendingCoverRelease,
+} from "../pending-cover.js";
+import type { StillWindow } from "../redirect.js";
 import { createFormat2EntryHost } from "./format2-entry-host.js";
 import { PACKAGED_RULE_SET_V2, admitPackagedRuleSetV2 } from "../../rules/packaged.js";
 
@@ -365,5 +373,66 @@ describe("early redirect for every core route (Firefox and Safari)", () => {
     expect(r.h.replace).not.toHaveBeenCalled();
     await r.finish();
     expect(r.h.replace).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the redirect cover is for core short-form routes only (V3-D-052)", () => {
+  const ruleSet = admitPackagedRuleSetV2(PACKAGED_RULE_SET_V2)!;
+  const routes = {
+    destination: createCoreRouteClassifier(ruleSet),
+    continuationHome: createReelContinuationProbe(ruleSet),
+  };
+  /** Still replacing the page at `from` with `to`, through the covered window. */
+  function redirect(from: string, to: string, navigation = false): boolean {
+    let href = from;
+    const page: StillWindow = {
+      location: { get href() { return href; }, replace: (url) => { href = url; } },
+      history: { pushState: () => {}, replaceState: () => {} },
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      MutationObserver: window.MutationObserver,
+      ...(navigation ? { navigation: { addEventListener: () => {}, removeEventListener: () => {} } } : {}),
+    };
+    const cover = createPendingCover({ doc: document, win: window, setTimer: () => 0, clearTimer: () => {} });
+    let seen = false;
+    const observed: StillWindow = { ...page, location: { get href() { return href; }, replace: (url) => { seen = covered(); href = url; } } };
+    createCoveredWindow(observed, cover, routes).location.replace(to);
+    cover.stop();
+    return seen;
+  }
+
+  it.each([
+    ["Instagram Explore to search", "https://www.instagram.com/explore/", "https://www.instagram.com/explore/search/"],
+    ["Instagram Stories to Home", "https://www.instagram.com/stories/someone/123/", "https://www.instagram.com/"],
+    ["Facebook Stories to Home", "https://www.facebook.com/stories/123/", "https://www.facebook.com/"],
+    ["Facebook Watch to Home", "https://www.facebook.com/watch/", "https://www.facebook.com/"],
+    ["YouTube live chat to Home", "https://www.youtube.com/live_chat?v=abc123", "https://www.youtube.com/"],
+    ["a core route sent somewhere other than its core destination", "https://www.instagram.com/reels/", "https://www.instagram.com/explore/search/"],
+  ])("without the Navigation API, %s is never covered", (_name, from, to) => {
+    expect(redirect(from, to)).toBe(false);
+  });
+
+  it.each([
+    ["the Instagram Reels feed", "https://www.instagram.com/reels/", "https://www.instagram.com/"],
+    ["a Shorts page", "https://www.youtube.com/shorts/abc123", "https://www.youtube.com/watch?v=abc123"],
+    ["an Instagram Reel the viewer advanced to", "https://www.instagram.com/reel/BBB/", "https://www.instagram.com/"],
+    ["a Facebook Reel the viewer advanced to", "https://www.facebook.com/reel/456", "https://www.facebook.com/"],
+  ])("without the Navigation API, %s is covered", (_name, from, to) => {
+    expect(redirect(from, to)).toBe(true);
+  });
+
+  it("with the Navigation API, a Reel advance is stopped before it commits and is not covered", () => {
+    expect(redirect("https://www.instagram.com/reel/BBB/", "https://www.instagram.com/", true)).toBe(false);
+    expect(redirect("https://www.instagram.com/reels/", "https://www.instagram.com/", true)).toBe(true);
+  });
+
+  it("end to end: a page-driven Reel advance without the Navigation API is covered before Still sends it home", async () => {
+    const r = await open("https://www.instagram.com/reel/AAA/");
+    await r.finish();
+    expect(covered()).toBe(false);
+    r.h.setHref("https://www.instagram.com/reel/BBB/");
+    await new Promise((resolve) => setTimeout(resolve, 400)); // the 250 ms URL watch
+    expect(r.h.replace).toHaveBeenCalledWith("https://www.instagram.com/");
+    expect(r.coveredAtReplace).toEqual([true]);
   });
 });
