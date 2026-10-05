@@ -37,7 +37,7 @@ export async function captureConsole(fn: () => Promise<unknown>): Promise<string
   const lines: string[] = [];
   for (const m of methods) {
     console[m] = (...args: unknown[]) => {
-      lines.push(args.map((a) => (a instanceof Error ? `${a.name}: ${a.message}\n${a.stack ?? ""}` : typeof a === "string" ? a : JSON.stringify(a))).join(" "));
+      lines.push(args.map(formatLogArg).join(" "));
     };
   }
   try {
@@ -46,4 +46,14 @@ export async function captureConsole(fn: () => Promise<unknown>): Promise<string
     methods.forEach((m, i) => (console[m] = originals[i] as never));
   }
   return lines.join("\n");
+}
+
+/** Never throws: a BigInt or circular value under test must not break the code being observed. */
+function formatLogArg(a: unknown): string {
+  try {
+    if (a instanceof Error) return `${a.name}: ${a.message}\n${a.stack ?? ""}`;
+    return typeof a === "string" ? a : JSON.stringify(a);
+  } catch {
+    return String(a);
+  }
 }
