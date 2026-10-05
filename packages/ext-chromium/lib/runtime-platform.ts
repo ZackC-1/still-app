@@ -79,3 +79,27 @@ export function popupPresentationLoader<T>(
       ? loaders.firefoxAndroid()
       : loaders.desktop();
 }
+
+/** Whether this platform may offer the one-tab TikTok allowance. Owner ruling: Firefox for Android
+ * reports it unavailable (no re-implementation there). Closed until the browser has answered, so
+ * nothing is offered on a platform that turns out to be Android; Chromium is open at once. */
+export function tabAllowancePlatformGate(
+  isFirefox: boolean,
+  platform: Promise<RuntimePlatform>,
+): { readonly open: boolean } {
+  let open = !isFirefox;
+  if (isFirefox)
+    void platform.then(
+      (answer) => {
+        open = !isFirefoxAndroid(isFirefox, answer);
+      },
+      () => {
+        open = true; // detectRuntimePlatform never rejects; a rejection here means desktop.
+      },
+    );
+  return {
+    get open() {
+      return open;
+    },
+  };
+}

@@ -53,7 +53,7 @@ describe("TikTok blocked page release gate", () => {
       for (const input of inputs) expect(source, `${name}: ${input}`).toContain(input);
     }
     expect(content).toContain("const tiktokBlockedPage = tiktokEnabled && window.top === window");
-    expect(background).toContain("if (tiktokEnabled) wireTiktokBlockedPage(settingsAuthority, entitlements);");
+    expect(background).toContain("if (tiktokEnabled) wireTiktokBlockedPage(settingsAuthority, entitlements, platform);");
     expect(background.match(/wireTiktokBlockedPage\(/g)).toHaveLength(2); // the call and the definition
   });
 });

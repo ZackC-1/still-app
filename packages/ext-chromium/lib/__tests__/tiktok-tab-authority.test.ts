@@ -348,8 +348,9 @@ describe("dormant Chromium browser-session TikTok adapter", () => {
     }
     expect(h.session.size).toBe(0);
   });
-  it("Firefox, desktop and Android, has no tabs.onReplaced, so the one-tab allowance reports unavailable", async () => {
-    // Owner ruling: the allowance is not re-implemented for Firefox for Android; it stays unavailable.
+  it("a browser without tabs.onReplaced reports the one-tab allowance unavailable, never a substitute", async () => {
+    // Nothing is re-implemented where the browser lacks the replacement event. (Firefox for Android
+    // is held unavailable by the platform gate in lib/runtime-platform.ts, whatever it supports.)
     const h = host();
     const firefoxTabs = { get: h.browser.tabs.get, onRemoved: h.browser.tabs.onRemoved };
     const owner = h.create(true, { ...h.browser, tabs: firefoxTabs } as unknown as TiktokTabBrowser);

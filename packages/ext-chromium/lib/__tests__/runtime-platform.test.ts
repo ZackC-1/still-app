@@ -4,6 +4,7 @@ import {
   isFirefoxAndroid,
   popupPresentationLoader,
   runtimePlatformFor,
+  tabAllowancePlatformGate,
   type RuntimePlatform,
 } from "../runtime-platform.js";
 
@@ -113,5 +114,25 @@ describe("popup presentation choice", () => {
     answer("android");
     expect(await loading).toBe("phone popup");
     expect(l.desktop).not.toHaveBeenCalled();
+  });
+});
+
+describe("TikTok one-tab allowance platform gate", () => {
+  it("Firefox for Android never offers it; desktop Firefox does once the browser has answered", async () => {
+    const android = tabAllowancePlatformGate(true, Promise.resolve("android"));
+    const desktop = tabAllowancePlatformGate(true, Promise.resolve("desktop"));
+    await Promise.resolve();
+    expect(android.open).toBe(false);
+    expect(desktop.open).toBe(true);
+  });
+
+  it("stays closed while the Firefox answer is pending, and Chromium is open at once", async () => {
+    let answer!: (platform: RuntimePlatform) => void;
+    const pending = tabAllowancePlatformGate(true, new Promise<RuntimePlatform>((r) => (answer = r)));
+    expect(pending.open).toBe(false);
+    answer("android");
+    await Promise.resolve();
+    expect(pending.open).toBe(false);
+    expect(tabAllowancePlatformGate(false, Promise.resolve("android")).open).toBe(true);
   });
 });

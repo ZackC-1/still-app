@@ -21,7 +21,7 @@ import {
 } from "../lib/session-messages.js";
 import { createIndexedDbKeyValue, QUIET_FLUSH_ALARM, requestQuietFlush } from "@still/core/analytics";
 import { createBackgroundAnalytics, storageKeyValue } from "../lib/analytics.js";
-import { runtimePlatformFor } from "../lib/runtime-platform.js";
+import { runtimePlatformFor, tabAllowancePlatformGate, type RuntimePlatform } from "../lib/runtime-platform.js";
 import { modernSettingsRuntime } from "../lib/modern-settings-runtime.js";
 import { FIRST_RUN_PAGE, shouldOpenFirstRun } from "../../core/src/ui/v3/first-run-host.js";
 import seed from "@still/core/seed";
@@ -63,6 +63,9 @@ const RULESET_ID = "youtube-shorts-redirect";
 const TIKTOK_BLOCKED_PAGE = "tiktok-blocked.html";
 
 export default defineBackground(() => {
+  // The browser's own platform answer (Firefox for Android vs desktop); asked once, never awaited
+  // here. The Chromium build never asks.
+  const platform = runtimePlatformFor(Boolean(import.meta.env.FIREFOX), browser.runtime);
   const settingsRuntime = modernSettingsRuntime(
     import.meta.env.VITE_SUPABASE_URL as string | undefined,
     import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined,
@@ -140,7 +143,7 @@ export default defineBackground(() => {
     {
       isFirefox: Boolean(import.meta.env.FIREFOX),
       // Firefox for Android reports its own existing surface; asked here, never awaited here.
-      platform: runtimePlatformFor(Boolean(import.meta.env.FIREFOX), browser.runtime),
+      platform,
       config: {
         key: import.meta.env.VITE_POSTHOG_KEY as string | undefined,
         host: import.meta.env.VITE_POSTHOG_HOST as string | undefined,
@@ -277,7 +280,7 @@ export default defineBackground(() => {
     VITE_SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ? "set" : "",
     VITE_MODERN_SETTINGS_SYNC_ENABLED: import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED,
   });
-  if (tiktokEnabled) wireTiktokBlockedPage(settingsAuthority, entitlements);
+  if (tiktokEnabled) wireTiktokBlockedPage(settingsAuthority, entitlements, platform);
 
   // Resume on EVERY background start (R2 hard rule): restart the sync write-through from the
   // CACHED entitlement, with no purchase-service query. A worker that wakes on a settings edit
@@ -318,7 +321,11 @@ export default defineBackground(() => {
 function wireTiktokBlockedPage(
   settingsAuthority: ChromeStorageAdapter,
   entitlements: ChromeEntitlementAdapter,
+  platform: Promise<RuntimePlatform>,
 ): void {
+  // Firefox for Android never offers the one-tab allowance (owner ruling); the route then reports
+  // it unavailable, exactly as on a browser that cannot re-prove the blocked page document.
+  const platformGate = tabAllowancePlatformGate(Boolean(import.meta.env.FIREFOX), platform);
   // The packaged seed is the rule set every Chromium/Firefox content script evaluates for TikTok
   // today (TikTok is held on the legacy lane), so the background decides "blocked" with the same
   // rules. The owner's type names the format-2 set it is planned to receive; its engine session
@@ -356,7 +363,9 @@ function wireTiktokBlockedPage(
       const pro = !PAID_TIER_ENABLED || (await entitlements.get()) === true;
       return { settings: record.settings, options: { pro } };
     },
-    canVerifyDocuments: typeof getContexts === "function",
+    get canVerifyDocuments() {
+      return typeof getContexts === "function" && platformGate.open;
+    },
     replaceHistory: Boolean(import.meta.env.FIREFOX),
     createAuthority: (hooks) =>
       createChromeTiktokTabAuthority({
