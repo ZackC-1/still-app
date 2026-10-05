@@ -155,8 +155,10 @@ async function dismissOnboarding(): Promise<string[]> {
   for (let round = 0; round < 6; round++) {
     let node: ReturnType<typeof tapNative> = null;
     try {
+      // Firefox's Compose screens put the label on a non-clickable text node inside the button,
+      // so match the label itself; a tap at its centre lands on the button.
       node = tapNative(`onboarding-${round}`, (n) =>
-        n.packageName.startsWith("org.mozilla.") && n.clickable && labels.test(n.text.trim()),
+        n.packageName.startsWith("org.mozilla.") && labels.test(n.text.trim()),
       );
     } catch (error) {
       tapped.push(`could not read the native screen: ${String(error)}`);
@@ -279,11 +281,12 @@ test("Firefox for Android spike", async () => {
     const promptTexts = nodes
       .filter((n) => n.packageName.startsWith("org.mozilla.") && n.text.trim())
       .map((n) => n.text.trim());
+    // Exactly "Allow" (never "Don't allow"), by label or by an allow-button id; clickable or not,
+    // since Compose labels sit inside their buttons.
     const allowNode = nodes.find(
       (n) =>
         n.packageName.startsWith("org.mozilla.") &&
-        n.clickable &&
-        (/allow/i.test(n.resourceId) || /^allow$/i.test(n.text.trim())),
+        (/^allow$/i.test(n.text.trim()) || /[:/_]allow(_button)?$/i.test(n.resourceId)),
     );
     record("Firefox shows a native permission prompt", allowNode ? "pass" : "fail", promptTexts.slice(0, 20));
     expect.soft(allowNode, "Firefox for Android shows a prompt with an Allow button").toBeTruthy();
