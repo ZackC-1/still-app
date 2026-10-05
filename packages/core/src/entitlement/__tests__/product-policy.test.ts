@@ -235,7 +235,12 @@ describe("dormancy", () => {
       // Deno's `_test.ts` naming is excluded only for server tests, never for client code.
       .filter(path => !/^supabase\/.*_test\.ts$/.test(path))
       .filter(path => !SERVER_IMPORTERS.test(path));
-    expect(importers).toEqual(["packages/core/src/entitlement/product-policy.ts"]);
+    // The one client importer is the dormant Chrome/Firefox runtime (U6-P3), which its own test
+    // proves nothing imports: no background wiring, content script, page or Restore path.
+    expect(importers).toEqual([
+      "packages/core/src/entitlement/product-policy.ts",
+      "packages/ext-chromium/lib/product-policy-runtime.ts",
+    ]);
   });
 
   it("is not re-exported from either package index", () => {
