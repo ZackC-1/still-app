@@ -32,7 +32,9 @@ async function artifactHash(path: string): Promise<string> {
 
 // Only a disposable copy opts into format2. Shipping entrypoints, manifests, permissions and
 // output remain byte-identical. Bundle current maintained source, not a substitute classifier.
-async function prepareCopy(dir: string) {
+// `contentSource` returns the copy's content-script body; it imports maintained source via `source`.
+type ContentSource = (source: (path: string) => string) => string;
+async function prepareCopy(dir: string, contentSource: ContentSource) {
   const copy = join(dir, "extension");
   await cp(BUILT, copy, { recursive: true });
   const manifest = JSON.parse(
@@ -60,15 +62,7 @@ async function prepareCopy(dir: string) {
       // Isolate the content guard from shipping DNR; the copied manifest/rules stay unchanged.
       await chrome.declarativeNetRequest.updateEnabledRulesets({disableRulesetIds:["youtube-shorts-redirect"]});
     })();`;
-  const content = `
-    import { createExtensionContentEntry } from ${source("packages/core/src/content/extension-entry.ts")};
-    import { ruleSet } from ${source("packages/core/src/rules/__tests__/format2-fixtures.ts")};
-    let script;
-    chrome.runtime.onMessage.addListener((message, sender, reply) => {
-      if(message.kind === "fixture.stop") { script?.stop(); reply(true); }
-    });
-    void createExtensionContentEntry({storage:chrome.storage.local, bundledRuleSetV2:ruleSet,
-      prod:false, earlyRedirect:false, onScriptCreated:s=>script=s})();`;
+  const content = contentSource(source);
   for (const [name, contents, target] of [
     ["worker", worker, manifest.background.service_worker],
     ["content", content, manifest.content_scripts[0].js[0]],
@@ -97,39 +91,59 @@ async function prepareCopy(dir: string) {
   return copy;
 }
 
-export const test = base.extend<{ authority: Worker }>({
-  // eslint-disable-next-line no-empty-pattern -- Playwright fixture signature
-  context: async ({}, use) => {
-    const original = await artifactHash(BUILT);
-    const dir = await mkdtemp(join(tmpdir(), "still-format2-navigation-"));
-    let context;
-    try {
-      const copy = await prepareCopy(dir);
-      context = await chromium.launchPersistentContext(join(dir, "profile"), {
-        channel: "chromium",
-        args: [
-          `--disable-extensions-except=${copy}`,
-          `--load-extension=${copy}`,
-        ],
-      });
-      let [worker] = context.serviceWorkers();
-      worker ??= await context.waitForEvent("serviceworker");
-      await worker.evaluate(async () => {
-        await (globalThis as unknown as { fixtureReady: Promise<void> })
-          .fixtureReady;
-      });
-      await use(context);
-    } finally {
+/** A Playwright test whose extension is a disposable copy running `content` at document_start. */
+export function createFormat2Test(contentSource: ContentSource) {
+  return base.extend<{ authority: Worker }>({
+    // eslint-disable-next-line no-empty-pattern -- Playwright fixture signature
+    context: async ({}, use) => {
+      const original = await artifactHash(BUILT);
+      const dir = await mkdtemp(join(tmpdir(), "still-format2-navigation-"));
+      let context;
       try {
-        await context?.close();
+        const copy = await prepareCopy(dir, contentSource);
+        context = await chromium.launchPersistentContext(join(dir, "profile"), {
+          channel: "chromium",
+          args: [
+            `--disable-extensions-except=${copy}`,
+            `--load-extension=${copy}`,
+          ],
+        });
+        let [worker] = context.serviceWorkers();
+        worker ??= await context.waitForEvent("serviceworker");
+        await worker.evaluate(async () => {
+          await (globalThis as unknown as { fixtureReady: Promise<void> })
+            .fixtureReady;
+        });
+        await use(context);
       } finally {
-        await rm(dir, { recursive: true, force: true });
-        base.expect(await artifactHash(BUILT), "Shipping artifact stays unchanged").toBe(original);
+        try {
+          await context?.close();
+        } finally {
+          await rm(dir, { recursive: true, force: true });
+          base
+            .expect(
+              await artifactHash(BUILT),
+              "Shipping artifact stays unchanged",
+            )
+            .toBe(original);
+        }
       }
-    }
-  },
-  authority: async ({ context }, use) => {
-    await use(context.serviceWorkers()[0]!);
-  },
-});
+    },
+    authority: async ({ context }, use) => {
+      await use(context.serviceWorkers()[0]!);
+    },
+  });
+}
+
+export const test = createFormat2Test(
+  (source) => `
+    import { createExtensionContentEntry } from ${source("packages/core/src/content/extension-entry.ts")};
+    import { ruleSet } from ${source("packages/core/src/rules/__tests__/format2-fixtures.ts")};
+    let script;
+    chrome.runtime.onMessage.addListener((message, sender, reply) => {
+      if(message.kind === "fixture.stop") { script?.stop(); reply(true); }
+    });
+    void createExtensionContentEntry({storage:chrome.storage.local, bundledRuleSetV2:ruleSet,
+      prod:false, earlyRedirect:false, onScriptCreated:s=>script=s})();`,
+);
 export const expect = test.expect;

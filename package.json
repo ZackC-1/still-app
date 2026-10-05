@@ -12,7 +12,8 @@
     "test": "pnpm -r --if-present test",
     "typecheck": "pnpm -r --if-present typecheck",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "visual": "node tests/visual/run.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
