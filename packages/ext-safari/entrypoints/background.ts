@@ -3,7 +3,15 @@ import { ChromeEntitlementAdapter, createEntitlementMessageRouter, parseBenefitA
 import { createRuleSetRefresher } from "@still/core/rules";
 import { createAppGroupReconciler } from "../lib/app-group-reconcile.js";
 import { BrowserInstallGenerationStore, createEntitlementPull } from "../lib/entitlement-pull.js";
-import { adoptIntoApp, NATIVE_APP, pushSettingsToApp } from "../lib/native-settings.js";
+import {
+  BrowserProjectionInstallStore,
+  SeedingInstallGenerationStore,
+  adoptIntoApp,
+  appInstallId,
+  createReinstallAwareReconciler,
+  replaceProjection,
+} from "../lib/reinstall-reconcile.js";
+import { NATIVE_APP, pushSettingsToApp } from "../lib/native-settings.js";
 import { createIndexedDbKeyValue, QUIET_FLUSH_ALARM, requestQuietFlush } from "@still/core/analytics";
 import { createSafariBackgroundAnalytics } from "../lib/analytics.js";
 
@@ -90,7 +98,23 @@ export default defineBackground(() => {
   // The reconcile + value-based echo guard live in a tested module (lib/app-group-reconcile); it owns
   // the storage subscription that mirrors in-extension edits out to the App Group, suppressing the
   // echo of its own app→local writes by `updatedAt`.
-  const reconciler = createAppGroupReconciler({ pullFromApp, pushToApp: pushSettingsToApp, adoptIntoApp, local: adapter });
+  //
+  // Builds in which the Apple app saves committed (atomic) settings get the reinstall-aware reconcile
+  // instead (owner decisions 28 and 30, lib/reinstall-reconcile), selected by the same build-time
+  // opt-ins as the app's own mode rule. Vite inlines these values, so every default build folds to
+  // the ordinary reconciler and entitlement store, byte-for-byte as before.
+  const reinstallAware =
+    (import.meta.env.VITE_APPLE_ATOMIC_SETTINGS === "true" &&
+      !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)) ||
+    (import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true" &&
+      import.meta.env.VITE_SUPABASE_URL &&
+      import.meta.env.VITE_SUPABASE_ANON_KEY);
+  const reconciler = reinstallAware
+    ? createReinstallAwareReconciler({
+        pullFromApp, pushToApp: pushSettingsToApp, local: adapter, adoptIntoApp,
+        replaceLocal: replaceProjection, appInstallId, projectionInstall: new BrowserProjectionInstallStore(),
+      })
+    : createAppGroupReconciler({ pullFromApp, pushToApp: pushSettingsToApp, local: adapter });
 
   // Entitlement pull: the app mirrors its server-reconciled entitlement into the App Group; we copy
   // it into browser.storage so the content scripts' EntitlementCache gates Pro blocking on it. A
@@ -100,7 +124,9 @@ export default defineBackground(() => {
   const pullEntitlementFromApp = createEntitlementPull({
     send: () => browser.runtime.sendNativeMessage(NATIVE_APP, { kind: "getEntitlement" }),
     sink: entitlements,
-    generations: new BrowserInstallGenerationStore(),
+    // The reinstall-aware build seeds the projection's install id before this lane moves its own
+    // id on after a reinstall (lib/reinstall-reconcile).
+    generations: reinstallAware ? new SeedingInstallGenerationStore() : new BrowserInstallGenerationStore(),
   });
 
   // Reconcile on a content-script nudge (fired at document_start when a page loads).
