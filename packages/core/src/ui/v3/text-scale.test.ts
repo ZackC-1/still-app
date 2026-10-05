@@ -86,10 +86,9 @@ describe("textScaleRules", () => {
     expect(css).not.toContain("sync-row-title");
   });
 
-  it("grows only the desktop popup's own Settings sync heading, from 17px", () => {
-    const css = textScaleRules({ desktopPopupHeading: true });
-    expect(css).toContain(":not(.d28-invitation)>.card>.sync-row>.sync-row-text>.sync-row-title");
-    expect(css).toContain("font-size:calc(17px * var(--text-scale, 1))");
+  it("never resizes the desktop popup's Settings sync heading, which the design keeps at 17px", () => {
+    for (const options of [{}, { compactPopup: true }])
+      expect(textScaleRules(options)).not.toContain("sync-row-title");
   });
 });
 
@@ -275,7 +274,7 @@ describe("bindTextScale", () => {
 
   it("removes everything it added on dispose", () => {
     sizes = { measured: 32, reference: 16 };
-    const dispose = bind(document, "browser", { compactPopup: true, desktopPopupHeading: true });
+    const dispose = bind(document, "browser", { compactPopup: true });
     dispose();
     expect(scaleVar()).toBe("");
     expect(attr()).toBeNull();

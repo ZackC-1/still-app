@@ -62,10 +62,7 @@ function init(): void {
     !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
     import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true"
   )
-    bindTextScale(document, "browser", {
-      compactPopup: true,
-      desktopPopupHeading: true,
-    });
+    bindTextScale(document, "browser", { compactPopup: true });
   mount(PopupApp, {
     target: document.getElementById("app")!,
     props: {

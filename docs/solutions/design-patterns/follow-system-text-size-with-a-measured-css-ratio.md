@@ -93,8 +93,11 @@ Why it works:
 - **Keep shipped builds byte-identical with inline build-time conditions.** Configured Chrome and
   Firefox builds still contain the V3 chunks, so any edit to a V3 component or shared V3 stylesheet
   changes them.
-  - The binder and its presentation rules (whole-popup scroll above 1.5×, a growing desktop sync
-    heading, breaking over-long words above 1.5×) live in `text-scale.ts` as an injected `<style>`.
+  - The binder and its presentation rules (whole-popup scroll above 1.5×, breaking over-long words
+    above 1.5×) live in `text-scale.ts` as an injected `<style>`.
+- **Not every fixed size is a bug.** The desktop popup's "Settings sync" heading is drawn at a fixed
+  17px at every text size in the approved design, so it deliberately ignores `--text-scale`. A
+  Playwright case checks it stays 17px at 2× while the line under it grows.
   - Every Chromium entry calls it behind the inline `atomicLocal` condition over
     `import.meta.env`, which Vite folds away in configured builds.
   - Verify with `node scripts/bundles/identity.mjs`.

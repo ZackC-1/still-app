@@ -51,8 +51,6 @@ export type TextScaleSource = "browser" | "apple";
 export interface TextScaleOptions {
   /** A compact popup (D01/D02): above 1.5× the whole popup scrolls so nothing is clipped. */
   readonly compactPopup?: boolean;
-  /** The desktop popup (D01): its "Settings sync" heading grows with the text. */
-  readonly desktopPopupHeading?: boolean;
 }
 
 /** The design scale for a measured size over its reference size: clamped to [1, 2], 2 decimals.
@@ -110,14 +108,8 @@ export function textScaleRules(options: TextScaleOptions): string {
       `html[${TEXT_SCALE_ATTRIBUTE}="large"] .app[data-density="compact"] .site-scroll{min-block-size:calc(var(--tap-target, 44px) * var(--text-scale, 1) + 2 * var(--service-card-padding-block, var(--space-3, 12px)))}`,
     );
   }
-  if (options.desktopPopupHeading) {
-    // The desktop popup's own "Settings sync" heading is a fixed 17px in the approved
-    // D01 cascade; it grows with the text like every other heading. 17px at the normal size, so
-    // the approved frames are unchanged. The D28 invitation variant already scales its heading.
-    rules.push(
-      `html[${TEXT_SCALE_ATTRIBUTE}] .app[data-density="compact"]:not(.d28-invitation)>.card>.sync-row>.sync-row-text>.sync-row-title{font-size:calc(17px * var(--text-scale, 1))}`,
-    );
-  }
+  // No rule touches the desktop popup's own "Settings sync" heading: the approved design draws it
+  // at a fixed 17px at every text size, including the 150% frame, and it stays that way.
   return rules.join("\n");
 }
 

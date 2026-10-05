@@ -148,17 +148,28 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
     }
   });
 
-  test("the popup's Settings sync heading grows from 17px", async () => {
-    for (const [fontSize, expected] of [
-      [16, 17],
-      [24, 25.5],
+  test("the popup's Settings sync heading stays at its design size of 17px, even at 2×", async () => {
+    // The approved design draws this heading at a fixed 17px at every text size. The line under it
+    // does follow the text size (13px × scale), which shows the scale really applied.
+    for (const [fontSize, scale] of [
+      [16, "1"],
+      [24, "1.5"],
+      [32, "2"],
     ] as const) {
       const browser = await launchWithFontSize(fontSize);
       try {
         const page = await openPage(browser, "popup.html", 380, 600);
-        const heading = page.locator(".sync-row .sync-row-title", { hasText: "Settings sync" });
+        await expect.poll(() => textScale(page)).toBe(scale);
+        const row = page.locator(".card .sync-row", { hasText: "Settings sync" });
+        const heading = row.locator(".sync-row-title");
         await expect(heading).toBeVisible();
-        expect(await heading.evaluate((element) => parseFloat(getComputedStyle(element).fontSize))).toBeCloseTo(expected, 1);
+        const size = (locator: typeof heading) =>
+          locator.evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
+        expect(await size(heading), `heading at ${scale}×`).toBeCloseTo(17, 1);
+        expect(await size(row.locator(".sync-row-sub")), `line under it at ${scale}×`).toBeCloseTo(
+          13 * Number(scale),
+          1,
+        );
       } finally {
         await browser.close();
       }

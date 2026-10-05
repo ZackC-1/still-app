@@ -41,9 +41,9 @@ describe("text size binding sites", () => {
     expect(runtime).toContain('modernCloud = supabase !== null && modernSyncOptIn === "true"');
   });
 
-  it("only the Chrome/Firefox popup asks for the compact-popup and heading rules", () => {
-    expect(read("ext-chromium/entrypoints/popup/main.ts")).toMatch(
-      /compactPopup: true,\s*desktopPopupHeading: true/,
+  it("only the Chrome/Firefox popup asks for the compact-popup rules", () => {
+    expect(read("ext-chromium/entrypoints/popup/main.ts")).toContain(
+      'bindTextScale(document, "browser", { compactPopup: true });',
     );
     for (const path of CHROMIUM_ENTRIES.slice(1)) expect(read(path)).not.toContain("compactPopup");
   });
@@ -83,8 +83,8 @@ describe("text size binding sites", () => {
 });
 
 describe("every V3 font size follows --text-scale", () => {
-  // The single fixed size is the desktop popup's "Settings sync" heading, which the approved D01
-  // cascade draws at 17px; text-scale.ts grows it from 17px while text size is bound.
+  // The single fixed size is the desktop popup's "Settings sync" heading, which the approved design
+  // draws at 17px at every text size; it deliberately does not follow --text-scale.
   const ALLOWED = new Set(["DesktopPopup.svelte: font-size: 17px"]);
 
   it("declares no fixed pixel font size outside the allowlist", () => {
