@@ -370,7 +370,7 @@ describe("maintained background settings bootstrap", () => {
     }
   });
 
-  it.each(["chrome_update", "shared_module_update"] as const)(
+  it.each(["chrome_update", "shared_module_update", "browser_update"] as const)(
     "%s and ordinary wakes never seed absent settings",
     async (reason) => {
       const h = await start();
