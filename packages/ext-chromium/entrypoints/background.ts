@@ -21,7 +21,13 @@ import {
 } from "../lib/session-messages.js";
 import { createIndexedDbKeyValue, QUIET_FLUSH_ALARM, requestQuietFlush } from "@still/core/analytics";
 import { createBackgroundAnalytics, storageKeyValue } from "../lib/analytics.js";
-import { runtimePlatformFor, tabAllowancePlatformGate, type RuntimePlatform } from "../lib/runtime-platform.js";
+import {
+  afterPlatformAnswer,
+  gatedDocumentVerification,
+  runtimePlatformFor,
+  tabAllowancePlatformGate,
+  type RuntimePlatform,
+} from "../lib/runtime-platform.js";
 import { modernSettingsRuntime } from "../lib/modern-settings-runtime.js";
 import { FIRST_RUN_PAGE, shouldOpenFirstRun } from "../../core/src/ui/v3/first-run-host.js";
 import seed from "@still/core/seed";
@@ -31,7 +37,11 @@ import {
   withTimeout,
   TIKTOK_WAIT_MS,
 } from "../../core/src/content/tiktok-blocked-route.js";
-import { createChromeTiktokTabAuthority, type TiktokTabBrowser } from "../lib/tiktok-tab-authority.js";
+import {
+  createChromeTiktokTabAuthority,
+  isTiktokRouteMessage,
+  type TiktokTabBrowser,
+} from "../lib/tiktok-tab-authority.js";
 import { tiktokBlockedPageEnabled } from "./tiktok-blocked/gate.js";
 
 // Chromium/Firefox background (Chrome MV3 service worker / Firefox MV3 event page). Three
@@ -364,7 +374,7 @@ function wireTiktokBlockedPage(
       return { settings: record.settings, options: { pro } };
     },
     get canVerifyDocuments() {
-      return typeof getContexts === "function" && platformGate.open;
+      return gatedDocumentVerification(typeof getContexts === "function", platformGate);
     },
     replaceHistory: Boolean(import.meta.env.FIREFOX),
     createAuthority: (hooks) =>
@@ -392,7 +402,11 @@ function wireTiktokBlockedPage(
       }),
     randomId: () => crypto.randomUUID(),
   });
-  chrome.runtime.onMessage.addListener(route.listener);
+  // TikTok route messages wait for the platform answer (bounded to one second), so a desktop
+  // Firefox page asking during that window is never told "unavailable" for good.
+  chrome.runtime.onMessage.addListener(
+    afterPlatformAnswer(route.listener, platformGate, isTiktokRouteMessage),
+  );
 }
 
 /**
