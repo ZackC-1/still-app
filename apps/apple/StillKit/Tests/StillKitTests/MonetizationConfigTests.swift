@@ -119,15 +119,11 @@ final class MonetizationConfigTests: XCTestCase {
       helpers.keys.contains("refreshReceiptStamp") && helpers.keys.contains("captureOriginalInstall"),
       "this walk no longer reaches the stamp refresh and the cohort capture: it is reading nothing"
     )
-    for (name, body) in helpers {
-      for forbidden in [
-        "Purchases.", "RevenueCat", "purchase(", "restorePurchases", "syncPurchases",
-        "purchaseStillPro", "hasStillPro", "attachPurchases", "priceString", "logIn", "logOut",
-      ] {
-        XCTAssertFalse(
-          body.contains(forbidden),
-          "\(name)(), reached from the free-period Restore, must not reach \(forbidden)"
-        )
+    for (name, executable) in helpers {
+      // Comments are not code: a helper may mention a forbidden name without reaching it.
+      let body = Self.withoutComments(executable)
+      for forbidden in Self.forbiddenForFreePeriodHelpers where forbidden.found(in: body) {
+        XCTFail("\(name)(), reached from the free-period Restore, must not reach \(forbidden.name)")
       }
       // The one PurchaseManager call allowed is the read-only receipt read.
       let calls = body.components(separatedBy: "purchases.").dropFirst()
@@ -159,13 +155,155 @@ final class MonetizationConfigTests: XCTestCase {
     }
   }
 
+  /// One identifier the helpers reached from the free-period Restore must not use. It matches the
+  /// whole identifier (never a longer name that merely contains it, so `logInfo` is not `logIn`).
+  /// A `call` name is a verb that can also be a plain word, so it matches only when it is called
+  /// (with parentheses or a trailing closure) or taken as a member reference (`x.name`, as in
+  /// `Task(operation: x.attachPurchases)`); every other name matches wherever it appears.
+  private struct ForbiddenName {
+    let name: String
+    let call: Bool
+
+    func found(in code: String) -> Bool {
+      let escaped = NSRegularExpression.escapedPattern(for: name)
+      let pattern = call
+        ? #"(?<![\w])"# + escaped + #"\s*[({]|\."# + escaped + #"(?![\w])"#
+        : #"(?<![\w])"# + escaped + #"(?![\w])"#
+      return code.range(of: pattern, options: .regularExpression) != nil
+    }
+  }
+
+  private static let forbiddenForFreePeriodHelpers: [ForbiddenName] = [
+    ForbiddenName(name: "Purchases", call: false), ForbiddenName(name: "RevenueCat", call: false),
+    ForbiddenName(name: "purchase", call: true), ForbiddenName(name: "restorePurchases", call: false),
+    ForbiddenName(name: "syncPurchases", call: false), ForbiddenName(name: "purchaseStillPro", call: false),
+    ForbiddenName(name: "hasStillPro", call: false), ForbiddenName(name: "attachPurchases", call: false),
+    ForbiddenName(name: "priceString", call: false), ForbiddenName(name: "logIn", call: false),
+    ForbiddenName(name: "logOut", call: false),
+  ]
+
+  /// `source` without `//` line comments and `/* */` blocks (which nest in Swift). Comment markers
+  /// inside `"..."` and `"""..."""` string literals are text, not comments, and stay.
+  private static func withoutComments(_ source: String) -> String {
+    let chars = Array(source)
+    var out = ""
+    var i = 0
+    var blockDepth = 0
+    func at(_ offset: Int, _ text: String) -> Bool {
+      let end = offset + text.count
+      return end <= chars.count && String(chars[offset..<end]) == text
+    }
+    while i < chars.count {
+      if blockDepth > 0 {
+        if at(i, "/*") { blockDepth += 1; i += 2 }
+        else if at(i, "*/") { blockDepth -= 1; i += 2 }
+        else { i += 1 }
+        continue
+      }
+      if at(i, "//") {
+        while i < chars.count && chars[i] != "\n" { i += 1 }
+        continue
+      }
+      if at(i, "/*") { blockDepth = 1; i += 2; continue }
+      if at(i, "\"\"\"") {
+        out += "\"\"\""
+        i += 3
+        while i < chars.count && !at(i, "\"\"\"") {
+          if chars[i] == "\\" && i + 1 < chars.count { out.append(chars[i]); i += 1 }
+          out.append(chars[i])
+          i += 1
+        }
+        if i < chars.count { out += "\"\"\""; i += 3 }
+        continue
+      }
+      if chars[i] == "\"" {
+        out.append(chars[i])
+        i += 1
+        while i < chars.count && chars[i] != "\"" && chars[i] != "\n" {
+          if chars[i] == "\\" && i + 1 < chars.count { out.append(chars[i]); i += 1 }
+          out.append(chars[i])
+          i += 1
+        }
+        if i < chars.count && chars[i] == "\"" { out.append(chars[i]); i += 1 }
+        continue
+      }
+      out.append(chars[i])
+      i += 1
+    }
+    return out
+  }
+
+  /// The walk follows `self?.helper(` and `Self.helper(`, and the forbidden-name match is exact:
+  /// without these, a weakly captured or static call hides a forbidden helper from the scan, and a
+  /// comment or a longer name (`logInfo`) would trip it for no reason.
+  func testTheHelperScanFollowsWeakAndStaticCallsAndMatchesWholeCallsOnly() throws {
+    let router = """
+    final class Router {
+      func start() {
+      }
+      func viaWeak() {
+        Task { await self?.viaWeakTarget() }
+      }
+      func viaWeakTarget() {
+      }
+      func viaStatic() {
+      }
+      static func viaStaticTarget() {
+      }
+      func other() {
+      }
+    }
+    """
+    let reached = try routerHelpersReached(
+      from: "await self?.viaWeakTarget(); Self.viaStaticTarget(); other.viaStatic(); self.viaStatic()",
+      in: router)
+    XCTAssertTrue(reached.keys.contains("viaWeakTarget"), "self?.helper( must be followed")
+    XCTAssertTrue(reached.keys.contains("viaStaticTarget"), "Self.helper( must be followed")
+    XCTAssertTrue(reached.keys.contains("viaStatic"), "self.helper( is still followed")
+    XCTAssertFalse(reached.keys.contains("viaWeak"), "a method nothing calls is not walked")
+
+    let logIn = ForbiddenName(name: "logIn", call: true)
+    XCTAssertFalse(logIn.found(in: "logInfo(\"x\")"), "a longer name is not logIn")
+    XCTAssertFalse(logIn.found(in: "let logInState = 1"))
+    XCTAssertFalse(logIn.found(in: Self.withoutComments("// never call logIn(user) here\nlet a = 1")))
+    XCTAssertFalse(logIn.found(in: Self.withoutComments("/* logIn(user) */ let a = 1")))
+    XCTAssertTrue(logIn.found(in: "try await Purchases.shared.logIn(id)"), "a real call is found")
+    XCTAssertTrue(logIn.found(in: "self.logIn (id)"), "a call with a space is found")
+    XCTAssertTrue(logIn.found(in: Self.withoutComments("let u = \"https://x\"; logIn(id)")), "a URL is not a comment")
+    // Trailing-closure calls and function references are the same reach as a call with parentheses.
+    let logOut = ForbiddenName(name: "logOut", call: false)
+    XCTAssertTrue(logOut.found(in: "x.logOut { _ in }"), "a trailing-closure call is found")
+    XCTAssertTrue(logOut.found(in: "logOut { _ in }"))
+    let attach = ForbiddenName(name: "attachPurchases", call: false)
+    XCTAssertTrue(attach.found(in: "Task(operation: x.attachPurchases)"), "a function reference is found")
+    XCTAssertFalse(attach.found(in: "attachPurchasesLater()"))
+    let purchase = ForbiddenName(name: "purchase", call: true)
+    XCTAssertTrue(purchase.found(in: "try await manager.purchase { _ in }"))
+    XCTAssertTrue(purchase.found(in: "Task(operation: manager.purchase)"))
+    XCTAssertTrue(purchase.found(in: "purchase(product)"))
+    XCTAssertFalse(purchase.found(in: "let purchase = 1"), "a plain word is not a purchase call")
+    XCTAssertFalse(purchase.found(in: "purchased(product)"))
+    // A comment marker inside a string literal is text: the code after it is still read.
+    let masked = Self.withoutComments("let p = \"a//b\"; Purchases.shared.logIn(id)")
+    XCTAssertTrue(logIn.found(in: masked), "// inside a string must not hide the call after it")
+    XCTAssertTrue(logIn.found(in: Self.withoutComments("let p = \"\"\"\nsee http://x\n\"\"\"; logIn(id)")), "multi-line string")
+    XCTAssertTrue(logIn.found(in: Self.withoutComments("let p = \"say \\\"//\\\" now\"; logIn(id)")), "escaped quote")
+    XCTAssertFalse(logIn.found(in: Self.withoutComments("/* a /* nested */ logIn(id) */ let a = 1")), "nested block comment")
+    XCTAssertFalse(logIn.found(in: Self.withoutComments("let a = 1 // logIn(id)\nlet b = 2")))
+    let revenueCat = ForbiddenName(name: "RevenueCat", call: false)
+    XCTAssertTrue(revenueCat.found(in: "import RevenueCat"))
+    XCTAssertFalse(revenueCat.found(in: "RevenueCatNote"))
+  }
+
   /// The bodies of the router methods `code` calls (with or without `self.`), and of the methods
   /// those call, by name. A name that matches no method in the router is not followed.
   private func routerHelpersReached(from code: String, in source: String) throws -> [String: String] {
     let declarations = try NSRegularExpression(pattern: #"\bfunc (\w+)\("#)
     let names = Set(declarations.matches(in: source, range: NSRange(source.startIndex..., in: source))
       .compactMap { Range($0.range(at: 1), in: source).map { String(source[$0]) } })
-    let calls = try NSRegularExpression(pattern: #"(?<![\w.])(?:self\.)?(\w+)\("#)
+    // A call on the router itself: bare, `self.name(`, `self?.name(` (a weak capture) or
+    // `Self.name(` (a static helper). A call on any other receiver is not the router's method.
+    let calls = try NSRegularExpression(pattern: #"(?<![\w.])(?:self\??\.|Self\.)?(\w+)\("#)
     var reached: [String: String] = [:]
     var pending = [code]
     while let next = pending.popLast() {
