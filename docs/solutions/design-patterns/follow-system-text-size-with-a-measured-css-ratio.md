@@ -32,10 +32,10 @@ writes the ratio of their computed font sizes to `--text-scale` on `<html>`:
 
 Why it works:
 
-- **A ratio, not a single value over a constant.** A browser's own text zoom (Firefox "zoom text
-  only", `font.size.systemFontScale`, Firefox for Android's font size) and minimum font size scale
-  both probes equally and cancel out. The browser already applies those to pixel text, so counting
-  them would enlarge text twice.
+- **A ratio, not a single value over a constant.** A browser text zoom that scales computed sizes
+  (Firefox for Android's font size) grows both probes equally and cancels out. The browser already
+  applies that zoom to pixel text, so counting it would enlarge text twice. A minimum font size is
+  applied after computed values, so both probes read their normal size and it is never counted.
 - **Page zoom is never read.** It shows up as a larger device pixel ratio, not a different CSS font
   size.
 - **Live changes need no native code.** WebKit and Chromium restyle open pages when the setting
@@ -59,9 +59,14 @@ Why it works:
 - **Chromium:** `tests/playwright/text-scale.spec.ts` seeds `Default/Preferences`
   `{"webkit":{"webprefs":{"default_font_size":N}}}` into the profile before launch. N = 12/16/20/24/32/72
   maps to 1/1/1.25/1.5/2/2.
-- **Firefox** (`tests/firefox/text-scale.spec.ts`):
-  - `font.size.variable.x-western` 24/32 maps to 1.5/2;
-  - `font.size.systemFontScale` 150 leaves 1, which is the double-scaling guard.
+- **Firefox** (`tests/firefox/text-scale.spec.ts`): `font.size.variable.x-western` 24/32 maps to
+  1.5/2.
+- **Desktop Firefox cannot reproduce double scaling.** `font.size.systemFontScale` = 150 left page
+  text at 16px, and `font.minimum-size.x-western` = 24 grew the rendered glyphs while
+  `getComputedStyle` still read 16px for both probes. A Firefox test of it was vacuous: a negative
+  control that measured over a fixed 16px still passed it. The guard is the binder unit test where
+  both probes read 24px and the scale must stay 1; that same mutation fails it. Firefox for Android
+  needs the emulator.
 
 ## Gotchas
 

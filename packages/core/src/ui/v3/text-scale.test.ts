@@ -150,6 +150,18 @@ describe("bindTextScale", () => {
     dispose();
   });
 
+  it("measures against the reference probe, so a text zoom that grows both is not counted twice", () => {
+    // Firefox for Android's font size (and any browser text zoom) enlarges both probes; the browser
+    // already enlarges Still's text by the same amount.
+    sizes = { measured: 24, reference: 24 };
+    const dispose = bindTextScale(document, "browser");
+    expect(scaleVar()).toBe("1");
+    sizes = { measured: 36, reference: 24 };
+    for (const callback of observerCallbacks) callback();
+    expect(scaleVar()).toBe("1.5");
+    dispose();
+  });
+
   it("marks the page large only above 1.5×", () => {
     sizes = { measured: 25, reference: 16 };
     const dispose = bindTextScale(document, "browser");

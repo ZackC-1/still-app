@@ -5,10 +5,13 @@ import { findFirefox } from "./_bidi.js";
 import { FIREFOX_EXTENSION, StillFirefox } from "./_session.js";
 
 // Text size (owner decision 51) in a real Firefox: the V3 settings page follows Firefox's own font
-// size (Settings → Fonts → Size, the `font.size.variable.x-western` preference). Firefox's text
-// scaling (`font.size.systemFontScale`, the same mechanism as Firefox for Android's font size)
-// already enlarges Still's text by itself, so it must NOT also raise --text-scale: that would
-// enlarge text twice.
+// size (Settings → Fonts → Size, the `font.size.variable.x-western` preference).
+//
+// Not covered here: a browser text zoom that grows both of the binder's probes (Firefox for
+// Android's font size). Desktop Firefox has no setting that does this: `font.size.systemFontScale`
+// leaves page text unchanged on desktop, and the minimum font size is applied after computed
+// values, so both probes still read 16px. The binder's unit tests cover that case, and Firefox for
+// Android is checked on the Android emulator.
 
 const firefoxBinary = findFirefox();
 const built = existsSync(resolve(FIREFOX_EXTENSION, "manifest.json"));
@@ -47,9 +50,4 @@ test("Firefox font size 24 gives 1.5×", async () => {
 
 test("Firefox font size 32 gives 2×", async () => {
   expect((await settingsPage({ "font.size.variable.x-western": 32 })).scale).toBe("2");
-});
-
-test("Firefox's own text scaling is not counted a second time", async () => {
-  const { scale } = await settingsPage({ "font.size.systemFontScale": 150 });
-  expect(scale).toBe("1");
 });
