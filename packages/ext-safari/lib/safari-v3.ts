@@ -11,20 +11,24 @@ import type { StoredSettingsRecord } from "@still/core/storage";
 export interface SafariV3BuildInput {
   /** VITE_APPLE_ATOMIC_SETTINGS: the same explicit developer opt-in the Apple app uses. */
   readonly atomicSettingsFlag: string | undefined;
+  /** VITE_MODERN_SETTINGS_SYNC_ENABLED: the modern sync flag the Apple app and Chromium share. */
+  readonly modernSyncFlag: string | undefined;
   readonly supabaseUrl: string | undefined;
   readonly supabaseAnonKey: string | undefined;
 }
 
 /**
  * The V3 screens are compiled in only when a build opts in exactly as the Apple app's D04 screen
- * does (selectAppleSettingsMode): the flag is the string "true" and there is no Supabase
- * configuration (both values non-empty means configured). Anything else keeps the legacy screens.
- * The app's native-port condition has no equivalent here; the runtime record check below is the
- * extension's equivalent of "the Apple app is in atomic mode on this device".
+ * does (selectAppleSettingsMode; both values non-empty means configured):
+ *  - configured with the modern sync flag exactly "true" (the app's atomic-cloud mode), or
+ *  - not configured with VITE_APPLE_ATOMIC_SETTINGS exactly "true" (the app's atomic-local mode).
+ * Anything else keeps the legacy screens. The app's native-port condition has no equivalent here;
+ * the runtime record check below is the extension's equivalent of "the Apple app is in atomic mode
+ * on this device". The Apple app owns the account in both modes (see appManagedPopupAccount).
  */
 export function selectSafariV3Build(input: SafariV3BuildInput): boolean {
   const configured = Boolean(input.supabaseUrl && input.supabaseAnonKey);
-  return input.atomicSettingsFlag === "true" && !configured;
+  return configured ? input.modernSyncFlag === "true" : input.atomicSettingsFlag === "true";
 }
 
 /**

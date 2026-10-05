@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // when it mounted, otherwise the legacy popup once (never twice, never none).
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-async function run(options: { flag: string | undefined; v3: "legacy" | "v3" | "rejects" | "import-fails" }) {
+async function run(options: { flag: string | undefined; modern?: string; configured?: boolean; v3: "legacy" | "v3" | "rejects" | "import-fails" }) {
   vi.resetModules();
   const mount = vi.fn();
   const createController = vi.fn(() => ({}));
@@ -26,8 +26,9 @@ async function run(options: { flag: string | undefined; v3: "legacy" | "v3" | "r
     vi.doMock("../v3.js", () => ({ startSafariV3Popup: start }));
   }
   vi.stubEnv("VITE_APPLE_ATOMIC_SETTINGS", options.flag as string);
-  vi.stubEnv("VITE_SUPABASE_URL", "");
-  vi.stubEnv("VITE_SUPABASE_ANON_KEY", "");
+  vi.stubEnv("VITE_MODERN_SETTINGS_SYNC_ENABLED", options.modern as string);
+  vi.stubEnv("VITE_SUPABASE_URL", options.configured ? "https://still-audit.invalid" : "");
+  vi.stubEnv("VITE_SUPABASE_ANON_KEY", options.configured ? "public-audit-placeholder" : "");
   document.body.innerHTML = '<div id="app"></div>';
   await import("../main.js");
   for (let i = 0; i < 10; i++) await flush();
@@ -69,5 +70,20 @@ describe("popup main: the V3 attempt hands over to the legacy popup exactly once
     expect(start).not.toHaveBeenCalled();
     expect(createController).toHaveBeenCalledTimes(1);
     expect(mount).toHaveBeenCalledTimes(1);
+  });
+
+  it("a configured build with the modern sync flag asks V3, with the flag passed to the rule", async () => {
+    const { createController, start } = await run({ flag: undefined, modern: "true", configured: true, v3: "v3" });
+    expect(start).toHaveBeenCalledWith({ env: expect.objectContaining({ modernSyncFlag: "true", atomicSettingsFlag: undefined }) });
+    expect(createController).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, "TRUE", "1", "false"])("a configured build with the modern flag %s starts the legacy popup and never asks V3", async (modern) => {
+    for (const flag of [undefined, "true"]) {
+      const { mount, createController, start } = await run({ flag, modern, configured: true, v3: "v3" });
+      expect(start).not.toHaveBeenCalled();
+      expect(createController).toHaveBeenCalledTimes(1);
+      expect(mount).toHaveBeenCalledTimes(1);
+    }
   });
 });
