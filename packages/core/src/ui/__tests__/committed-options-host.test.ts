@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
   fireEvent,
   render,
@@ -22,6 +22,14 @@ import {
   gate,
   purchase,
 } from "./committed-popup-host.fixtures.js";
+
+// The settings page is loaded lazily. In a fresh worker that first import pays Vite's on-demand Svelte
+// transform (0.3-0.6s, far more under CPU contention) inside the first test's 1s `waitFor` window.
+// Resolve the same module once so every `waitFor` measures only the app; each test still loads it
+// through its own `loadSettings` port, now from the module cache.
+beforeAll(async () => {
+  await import("../v3/ExtensionSettings.svelte");
+});
 
 const presentation = () => ({
   browser: "Chrome" as const,
