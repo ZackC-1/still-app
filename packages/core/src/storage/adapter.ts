@@ -55,6 +55,8 @@ export interface StorageAdapter {
   set(record: StoredSettingsRecord): Promise<void>;
   /** Observe changes from any context (other tabs, the options page, the cloud mirror). */
   subscribe(listener: (record: StoredSettingsRecord) => void): () => void;
+  /** Observe an invalid raw settings slot; reread get() to distinguish absence from unreadable data. */
+  subscribeInvalidation?(listener: () => void): () => void;
 }
 
 /**

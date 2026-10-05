@@ -173,6 +173,47 @@ export class ChromeStorageAdapter implements StorageAdapter {
         .catch(() => undefined).finally(() => { this.projectionRetry = null; });
     }
   }
+  subscribeInvalidation(listener: () => void): () => void {
+    if (this.options.nativeMirror || this.options.nativeIntent) return () => {};
+    const isBrowser = (): boolean => {
+      try {
+        const url = new URL(chrome.runtime?.getURL?.(""));
+        return (
+          !!url.hostname &&
+          (url.protocol === "chrome-extension:" ||
+            url.protocol === "moz-extension:")
+        );
+      } catch {
+        return false;
+      }
+    };
+    if (!isBrowser()) return () => {};
+    let active = true;
+    const handler = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      areaName: string,
+    ): void => {
+      if (
+        !active ||
+        areaName !== "local" ||
+        !Object.hasOwn(changes, STORAGE_KEY) ||
+        !isBrowser()
+      )
+        return;
+      if (parseStoredSettingsRecord(changes[STORAGE_KEY]?.newValue)) return;
+      // Only an observation: the caller must reread the actual slot to decide its current state.
+      try {
+        listener();
+      } catch {
+        /* one consumer cannot interrupt storage event dispatch */
+      }
+    };
+    chrome.storage.onChanged.addListener(handler);
+    return () => {
+      active = false;
+      chrome.storage.onChanged.removeListener(handler);
+    };
+  }
   subscribe(listener: (record: StoredSettingsRecord) => void): () => void {
     let active = true;
     const reads = new AbortController();
