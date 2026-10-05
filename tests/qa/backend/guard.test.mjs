@@ -7,7 +7,7 @@ import { join } from "node:path";
 import {
   LocalOnlyRefusal, assertAllowedCli, assertLocalEnv, assertLocalOnly, assertLocalUrl, assertNotLinked, isLocalUrl,
 } from "./guard.mjs";
-import { DEFAULT_MIRROR, EXCLUDE, OWNER_FILE, QA_PROJECT_ID, assertMirrorPath, buildMirror, parseStatus, qaConfig, runCli, start, status, stop } from "./local-stack.mjs";
+import { DEFAULT_MIRROR, EXCLUDE, OWNER_FILE, QA_PROJECT_ID, assertMirrorPath, buildMirror, claimMirror, cliEnv, writeOwnerToken, parseStatus, qaConfig, runCli, start, status, stop, trackedFiles } from "./local-stack.mjs";
 
 const refused = fn => assert.throws(fn, LocalOnlyRefusal);
 
@@ -237,15 +237,130 @@ test("mirrors may only be the default or /private/tmp/still-qa-<name>, never the
   assert.deepEqual(r.calls, []);
 });
 
-test("runCli strips every SUPABASE_* variable from the spawned environment", () => {
+test("runCli refuses a SUPABASE_* environment before spawning, and its scrub removes them anyway", () => {
   const mirror = fakeMirror();
   try {
     const r = recorder({ supabase: () => "{}" });
-    runCli(["status", "--workdir", mirror, "-o", "json"], { mirror, spawn: r.spawn,
-      env: { SUPABASE_ACCESS_TOKEN: "sbp_x", supabase_db_password: "p", PATH: "/usr/bin", HOME: "/Users/x" } });
-    assert.equal(r.calls.length, 1);
+    refused(() => runCli(["status", "--workdir", mirror, "-o", "json"], { mirror, spawn: r.spawn,
+      env: { SUPABASE_ACCESS_TOKEN: "sbp_x", PATH: "/usr/bin" } }));
+    assert.deepEqual(r.calls, []);
+    assert.deepEqual(Object.keys(cliEnv({ SUPABASE_ACCESS_TOKEN: "sbp_x", supabase_db_password: "p", PATH: "/usr/bin", HOME: "/Users/x" })).sort(), ["HOME", "PATH"]);
+    runCli(["status", "--workdir", mirror, "-o", "json"], { mirror, spawn: r.spawn, env: { PATH: "/usr/bin", HOME: "/Users/x" } });
     assert.deepEqual(Object.keys(r.calls[0].env).sort(), ["HOME", "PATH"]);
   } finally { rmSync(mirror, { recursive: true, force: true }); }
+});
+
+test("runCli refuses a mirror outside the allowed paths and a non-local environment before spawning", () => {
+  const r = recorder();
+  const outside = mkdtempSync(join(tmpdir(), "qa-outside-"));
+  mkdirSync(join(outside, "supabase"), { recursive: true });
+  writeFileSync(join(outside, "supabase/config.toml"), 'project_id = "still-qa"\n');
+  const mirror = fakeMirror();
+  try {
+    refused(() => runCli(["status", "--workdir", outside, "-o", "json"], { mirror: outside, env: {}, spawn: r.spawn }));
+    refused(() => runCli(["status", "--workdir", mirror, "-o", "json"], { mirror, env: { DATABASE_URL: "postgres://db.example.com/x" }, spawn: r.spawn }));
+    refused(() => runCli(["status", "--workdir", mirror, "-o", "json"], { mirror, env: { DOCKER_HOST: "tcp://docker.example.com:2376" }, spawn: r.spawn }));
+    assert.deepEqual(r.calls, []);
+  } finally {
+    rmSync(outside, { recursive: true, force: true });
+    rmSync(mirror, { recursive: true, force: true });
+  }
+});
+
+test("git ls-files runs without any GIT_* variable", () => {
+  let seen;
+  const files = trackedFiles("/x", (cmd, args, options) => { seen = { cmd, args, env: options.env }; return { status: 0, stdout: "a\0b\0" }; },
+    { GIT_DIR: "/elsewhere/.git", GIT_WORK_TREE: "/elsewhere", git_index_file: "/i", PATH: "/usr/bin" });
+  assert.deepEqual(files, ["a", "b"]);
+  assert.equal(seen.cmd, "git");
+  assert.deepEqual(Object.keys(seen.env), ["PATH"]);
+});
+
+test("an owned mirror is never wiped: a second build refuses and leaves the token unchanged", () => {
+  const root = fakeRepo();
+  const mirror = testMirror("lock");
+  try {
+    const token = buildMirror({ root, mirror });
+    refused(() => buildMirror({ root, mirror }));
+    assert.equal(readFileSync(join(mirror, OWNER_FILE), "utf8"), token);
+    assert.ok(existsSync(join(mirror, "supabase/config.toml")), "the owned mirror's files are intact");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(mirror, { recursive: true, force: true });
+  }
+});
+
+test("a claim fails if another run created the mirror or wrote a token first", () => {
+  const raced = testMirror("raced");
+  const tokened = testMirror("tokened");
+  mkdirSync(raced);
+  try {
+    refused(() => claimMirror(raced));
+    assert.equal(existsSync(join(raced, OWNER_FILE)), false);
+    const first = claimMirror(tokened);
+    refused(() => claimMirror(tokened));
+    refused(() => writeOwnerToken(tokened));
+    assert.equal(readFileSync(join(tokened, OWNER_FILE), "utf8"), first);
+  } finally {
+    rmSync(raced, { recursive: true, force: true });
+    rmSync(tokened, { recursive: true, force: true });
+  }
+});
+
+test("a stale unowned mirror is replaced, and the new claim gets a fresh token", () => {
+  const root = fakeRepo();
+  const mirror = testMirror("stale");
+  mkdirSync(join(mirror, "supabase"), { recursive: true });
+  writeFileSync(join(mirror, "leftover.txt"), "x");
+  try {
+    const token = buildMirror({ root, mirror });
+    assert.equal(existsSync(join(mirror, "leftover.txt")), false);
+    assert.equal(readFileSync(join(mirror, OWNER_FILE), "utf8"), token);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(mirror, { recursive: true, force: true });
+  }
+});
+
+test("if status fails after a successful start, start tears down with its own token", () => {
+  const root = fakeRepo();
+  const mirror = testMirror("lost");
+  const r = recorder({ supabase: args => args[0] === "status" ? "not json" : "" });
+  try {
+    assert.throws(() => start({ root, mirror, env: {}, spawn: r.spawn, free: () => 99e9 }), /did not return JSON/);
+    const supabase = r.calls.filter(c => c.cmd === "supabase").map(c => c.args[0]);
+    assert.deepEqual(supabase, ["start", "status", "stop"]);
+    assert.deepEqual(r.calls.find(c => c.cmd === "supabase" && c.args[0] === "stop").args, ["stop", "--workdir", mirror, "--no-backup"]);
+    assert.equal(existsSync(mirror), false, "teardown removed the mirror");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(mirror, { recursive: true, force: true });
+  }
+});
+
+test("if that teardown fails too, the owner token is surfaced on the error", () => {
+  const root = fakeRepo();
+  const mirror = testMirror("lost2");
+  const r = recorder({
+    supabase: args => args[0] === "status" ? "not json" : "",
+    docker: args => args[0] === "volume" ? "supabase_db_still-qa" : "",
+  });
+  try {
+    let caught;
+    try { start({ root, mirror, env: {}, spawn: r.spawn, free: () => 99e9 }); } catch (error) { caught = error; }
+    assert.ok(caught, "start threw");
+    const token = readFileSync(join(mirror, OWNER_FILE), "utf8");
+    assert.equal(caught.qaToken, token);
+    assert.match(caught.message, new RegExp(`owner token ${token}`));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(mirror, { recursive: true, force: true });
+  }
+});
+
+test("DOCKER_CONTEXT must be unset, default or orbstack", () => {
+  for (const ok of ["", "default", "orbstack"]) assertLocalEnv({ DOCKER_CONTEXT: ok });
+  for (const bad of ["remote-prod", "desktop-linux-ssh", "colima"]) refused(() => assertLocalEnv({ DOCKER_CONTEXT: bad }));
 });
 
 test("DOCKER_HOST must be a unix socket or loopback", () => {

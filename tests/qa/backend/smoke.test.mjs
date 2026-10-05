@@ -59,3 +59,11 @@ test("a start that throws after nothing was started does not call stop", async (
   assert.equal(stopped, 0);
   assert.equal(report.stopped, false);
 });
+
+test("when start could not tear itself down, smoke reports the owner token and does not call stop", async () => {
+  let stopped = 0;
+  const error = Object.assign(new Error("status failed; teardown also failed; owner token tok-9"), { qaToken: "tok-9" });
+  const report = await smoke({}, { log: quiet, start: () => { throw error; }, stop: () => { stopped++; } });
+  assert.equal(report.ownerToken, "tok-9");
+  assert.equal(stopped, 0);
+});

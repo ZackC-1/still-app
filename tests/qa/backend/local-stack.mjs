@@ -23,10 +23,10 @@
 //   supabase stop   --workdir <mirror> --no-backup
 import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statfsSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statfsSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { assertAllowedCli, assertLocalOnly, assertLocalUrl, assertNotLinked, LocalOnlyRefusal } from "./guard.mjs";
+import { assertAllowedCli, assertLocalEnv, assertLocalOnly, assertLocalUrl, assertNotLinked, LocalOnlyRefusal } from "./guard.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO = resolve(HERE, "../../..");
@@ -88,18 +88,55 @@ export function assertQaMirrorConfig(mirror) {
 }
 
 /** Git-tracked files under the mirrored paths (relative to root). Refuses outside a git checkout. */
-export function trackedFiles(root, spawn = spawnSync) {
-  const result = spawn("git", ["-C", root, "ls-files", "-z", "--", ...MIRRORED_PATHS], { encoding: "utf8" });
+export function trackedFiles(root, spawn = spawnSync, env = process.env) {
+  // GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE and friends could point git at another repository.
+  const clean = Object.fromEntries(Object.entries(env).filter(([name]) => !/^GIT_/i.test(name)));
+  const result = spawn("git", ["-C", root, "ls-files", "-z", "--", ...MIRRORED_PATHS], { encoding: "utf8", env: clean });
   if (result.error || result.status !== 0) throw new LocalOnlyRefusal("the checkout is not a git repository; the mirror copies tracked files only");
   return String(result.stdout).split("\0").filter(Boolean);
 }
 
-/** Build (or rebuild) the mirror from `root`. Returns the owner token stop() will require. */
-export function buildMirror({ root = REPO, mirror = DEFAULT_MIRROR, git = spawnSync } = {}) {
+/** Atomically claim an absent mirror: a non-recursive mkdir (fails if any other run created it) and
+ * the owner token written with flag "wx" (fails if a token already exists). Returns the token. */
+export function claimMirror(mirror) {
+  try {
+    mkdirSync(mirror);
+  } catch (error) {
+    if (error?.code === "EEXIST") throw new LocalOnlyRefusal(`another QA run claimed ${mirror} first`);
+    throw error;
+  }
+  return writeOwnerToken(mirror);
+}
+
+/** Write a fresh owner token with flag "wx": refuses, keeping the existing one, if any token exists. */
+export function writeOwnerToken(mirror) {
+  const token = randomUUID();
+  try {
+    writeFileSync(join(mirror, OWNER_FILE), token, { flag: "wx" });
+  } catch {
+    throw new LocalOnlyRefusal(`another QA run claimed ${mirror} first`);
+  }
+  return token;
+}
+
+/** Build the mirror from `root` and claim it. The mirror is the lock: an owned mirror (one with a
+ * .qa-owner token) is never wiped, the directory is created with a non-recursive mkdir and the token
+ * with flag "wx", so of two concurrent starts only one can win. A stale mirror without a token (a
+ * run that died before claiming it) is moved aside atomically before removal. Returns the owner
+ * token stop() will require. */
+export function buildMirror({ root = REPO, mirror = DEFAULT_MIRROR, git = spawnSync, env = process.env } = {}) {
   assertNotLinked(root);
   mirror = assertMirrorPath(mirror, root);
-  const files = trackedFiles(root, git);
-  rmSync(mirror, { recursive: true, force: true });
+  const files = trackedFiles(root, git, env);
+  if (existsSync(join(mirror, OWNER_FILE))) {
+    throw new LocalOnlyRefusal(`${mirror} is owned by another QA run (${OWNER_FILE} exists): stop it with its token, or see "lost token" in qa-backend.mjs`);
+  }
+  if (existsSync(mirror)) {
+    const stale = `${mirror}.stale-${process.pid}-${Date.now()}`;
+    renameSync(mirror, stale);
+    rmSync(stale, { recursive: true, force: true });
+  }
+  const token = claimMirror(mirror);
   for (const file of files) {
     mkdirSync(dirname(join(mirror, file)), { recursive: true });
     cpSync(join(root, file), join(mirror, file));
@@ -107,20 +144,25 @@ export function buildMirror({ root = REPO, mirror = DEFAULT_MIRROR, git = spawnS
   mkdirSync(join(mirror, "supabase/templates"), { recursive: true });
   cpSync(TEMPLATE, join(mirror, "supabase/templates/qa-code.html"));
   writeFileSync(join(mirror, "supabase/config.toml"), qaConfig(readFileSync(join(root, "supabase/config.toml"), "utf8")));
-  const token = randomUUID();
-  writeFileSync(join(mirror, OWNER_FILE), token);
   assertNotLinked(mirror);
   assertQaMirrorConfig(mirror);
   return token;
 }
 
+/** The environment handed to the Supabase CLI: every SUPABASE_* variable removed (defence in depth;
+ * runCli already refuses such an environment). */
+export function cliEnv(env) {
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !/^SUPABASE_/i.test(name)));
+}
+
 /** Run one allowed Supabase CLI command with a scrubbed environment. */
 export function runCli(args, { mirror = DEFAULT_MIRROR, env = process.env, spawn = spawnSync } = {}) {
+  assertMirrorPath(mirror);
+  assertLocalEnv(env);
   assertAllowedCli(args, mirror, EXCLUDE);
   assertNotLinked(mirror);
   assertQaMirrorConfig(mirror);
-  const clean = Object.fromEntries(Object.entries(env).filter(([name]) => !/^SUPABASE_/i.test(name)));
-  const result = spawn("supabase", args, { cwd: mirror, env: clean, encoding: "utf8" });
+  const result = spawn("supabase", args, { cwd: mirror, env: cliEnv(env), encoding: "utf8" });
   if (result.error) throw result.error;
   if (result.status !== 0) {
     throw new Error(`supabase ${args[0]} failed (${result.status}): ${String(result.stderr ?? "").trim().slice(-800)}`);
@@ -189,9 +231,24 @@ export function start({ root = REPO, mirror = DEFAULT_MIRROR, env = process.env,
   if (others.length) throw new LocalOnlyRefusal(`another Supabase stack is running (${others.slice(0, 3).join(", ")}); not starting a second one`);
   const bytes = free(dirname(resolve(mirror)));
   if (bytes < MIN_FREE_BYTES) throw new LocalOnlyRefusal(`only ${(bytes / 1024 ** 3).toFixed(1)} GB free; the floor is 10 GB`);
-  const token = buildMirror({ root, mirror });
-  runCli(["start", "--workdir", mirror, "--exclude", EXCLUDE], { mirror, env, spawn });
-  return { ...status({ root, mirror, env, spawn }), token };
+  const token = buildMirror({ root, mirror, env });
+  try {
+    runCli(["start", "--workdir", mirror, "--exclude", EXCLUDE], { mirror, env, spawn });
+    return { ...status({ root, mirror, env, spawn }), token };
+  } catch (error) {
+    // The docker check above proved no other stack was running, so anything running now is ours:
+    // tear it down with the token just created. If that fails too, surface the token so the caller
+    // (smoke, the CLI or a person) can stop it; it is also in <mirror>/.qa-owner.
+    try {
+      stop({ root, mirror, env, spawn, token });
+    } catch (teardown) {
+      const wrapped = new Error(`${error?.message ?? error}; teardown also failed (${teardown?.message ?? teardown}); owner token ${token}`);
+      wrapped.qaToken = token;
+      wrapped.cause = error;
+      throw wrapped;
+    }
+    throw error;
+  }
 }
 
 export function status({ root = REPO, mirror = DEFAULT_MIRROR, env = process.env, spawn = spawnSync } = {}) {

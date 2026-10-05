@@ -6,7 +6,8 @@
 //   * any SUPABASE_* variable is set (the CLI reads SUPABASE_ACCESS_TOKEN, SUPABASE_DB_PASSWORD,
 //     SUPABASE_PROJECT_ID and config overrides from them);
 //   * any environment value names a hosted Supabase address, or a database/API URL variable points
-//     anywhere but this machine, or DOCKER_HOST is not a unix socket or loopback address;
+//     anywhere but this machine, DOCKER_HOST is not a unix socket or loopback address, or
+//     DOCKER_CONTEXT is anything but unset, "default" or "orbstack";
 //   * a Supabase CLI command is anything other than the three exact local shapes below.
 //
 // Background: STANDING-AGENT-RULES §3 and the 2026-10-05 incident, where a CLI command ran in the
@@ -83,6 +84,9 @@ export function assertLocalEnv(env = process.env) {
     }
     if (HOSTED.test(value)) {
       throw new LocalOnlyRefusal(`environment variable ${name} names a hosted Supabase address`);
+    }
+    if (name === "DOCKER_CONTEXT" && !["", "default", "orbstack"].includes(value.trim())) {
+      throw new LocalOnlyRefusal(`DOCKER_CONTEXT "${value}" is not the local default or orbstack context`);
     }
     if (name === "DOCKER_HOST" && value.trim() !== "" && !isLocalDockerHost(value)) {
       throw new LocalOnlyRefusal("DOCKER_HOST is not a unix socket or loopback address");

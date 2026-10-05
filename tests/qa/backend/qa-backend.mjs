@@ -8,6 +8,10 @@
 //   node tests/qa/backend/qa-backend.mjs admin-code <email>   the same without email (admin generate link)
 //   node tests/qa/backend/qa-backend.mjs smoke            start -> seed -> Mailpit code -> verify -> admin code -> stop
 //   node tests/qa/backend/qa-backend.mjs stop <token>     stop with --no-backup and verify nothing is left
+//
+// Lost token: confirm no other lane is using the QA stack, then
+//   node tests/qa/backend/qa-backend.mjs stop "$(cat /private/tmp/still-qa-backend/.qa-owner)"
+// Never run `supabase stop` by hand.
 import { adminCode } from "./auth.mjs";
 import { assertLocalOnly } from "./guard.mjs";
 import { REPO, start, status, stop } from "./local-stack.mjs";

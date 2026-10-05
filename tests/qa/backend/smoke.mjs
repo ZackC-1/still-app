@@ -37,6 +37,8 @@ export async function smoke(options = {}, deps = {}) {
     report.adminVerified = typeof await verify({ apiUrl: s.apiUrl, anonKey: s.anonKey, email, code: fallback }) === "string";
   } catch (error) {
     report.error = String(error?.message ?? error);
+    // start() could not tear its own stack down: surface the token so a person can stop it.
+    if (error?.qaToken) report.ownerToken = error.qaToken;
   } finally {
     if (owned) {
       try {
