@@ -44,6 +44,36 @@ describe("fresh initialization in the existing writer transaction", () => {
   });
 });
 
+describe("untouched 2.x upgrade first record (owner decision 28)", () => {
+  const legacyDefaults = (): StoredSettingsRecord => ({ settings: DEFAULT_SETTINGS, syncMetadata: null, syncEpoch: 0 });
+  it("saves the existing unknown conversion of the 2.x defaults exactly once, even when called concurrently", async () => {
+    const storage = new InMemoryStorageAdapter(); const set = vi.spyOn(storage, "set");
+    const writer = new AtomicSettingsWriter(storage);
+    const [first, second] = await Promise.all([writer.initializeUntouchedUpgrade(), writer.initializeUntouchedUpgrade()]);
+    expect(await writer.initializeUntouchedUpgrade()).toEqual(first);
+    expect(second).toEqual(first); expect(set).toHaveBeenCalledTimes(1);
+    const converted = await new AtomicSettingsWriter(new InMemoryStorageAdapter(legacyDefaults())).initialize("unknown");
+    expect(await storage.get()).toEqual(converted);
+    expect(first.atomic).toEqual({ format: 1, sequence: 0, ownership: "unknown", scope: { accountId: null, generation: 0 },
+      anchor: null, pending: [], held: {}, paused: null });
+    expect(permitsUnknownLocalEdit(first)).toBe(true);
+  });
+  it.each([
+    ["legacy Off", { settings: { ...DEFAULT_SETTINGS, globalOn: false, updatedAt: 7 }, syncMetadata: null }],
+    ["atomic", null],
+  ] as const)("never replaces a retained %s record", async (_name, legacy) => {
+    const retained = legacy ?? await new AtomicSettingsWriter(new InMemoryStorageAdapter(legacyDefaults())).initialize("never-linked");
+    const storage = new InMemoryStorageAdapter(structuredClone(retained) as StoredSettingsRecord); const set = vi.spyOn(storage, "set");
+    expect(await new AtomicSettingsWriter(storage).initializeUntouchedUpgrade()).toEqual(retained);
+    expect(set).not.toHaveBeenCalled(); expect(await storage.get()).toEqual(retained);
+  });
+  it("holds an unreadable record without writing", async () => {
+    const set = vi.fn(async (_record: StoredSettingsRecord) => undefined);
+    const writer = new AtomicSettingsWriter({ get: async () => { throw new Error("unreadable"); }, set, subscribe: () => () => {} });
+    await expect(writer.initializeUntouchedUpgrade()).rejects.toThrow("unreadable"); expect(set).not.toHaveBeenCalled();
+  });
+});
+
 describe("existing cache and serialized complete-record authority", () => {
   it.each(["mirror", "replace"] as const)("%s orders legacy records by epoch, metadata version, then timestamp", async operation => {
     const current = { settings: { ...DEFAULT_SETTINGS, globalOn: false, updatedAt: 11 }, syncEpoch: 2,
