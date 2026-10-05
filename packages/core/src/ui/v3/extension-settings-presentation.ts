@@ -49,6 +49,12 @@ export interface RestoreStatusCardProps {
   /** "nothing" requires a conclusive caller result. Uncertainty is checking/failed. */
   state: "checking" | "restored" | "nothing" | "failed" | "verify";
   onAction?: () => void;
+  /**
+   * Replaces the "nothing" wording for a host whose check is against something other than a Still
+   * account: the Apple app passes its Apple Account wording (owner decision 26). Browser hosts
+   * leave it unset and keep the card's own wording.
+   */
+  nothingCopy?: { readonly text: string; readonly detail: string };
 }
 
 export interface AccountLinkCardProps {

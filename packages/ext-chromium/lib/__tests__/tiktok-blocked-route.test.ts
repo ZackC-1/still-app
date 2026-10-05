@@ -410,6 +410,22 @@ describe("TikTok blocked page route over the real one-tab authority", () => {
     await route.stop();
   });
 
+  it("an older request that fails never removes a newer request's stored address for the same tab", async () => {
+    const h = host();
+    const route = h.create();
+    h.open(7, TIKTOK);
+    const newer = { request: "newer-request-fixture", target: TIKTOK };
+    h.update.mockImplementationOnce(async () => {
+      // A newer redirect of the same tab records its own address while this older one is still
+      // in flight, then this older redirect fails.
+      h.session.set("still:tiktok-origin:7", structuredClone(newer));
+      throw new Error("Tab navigation refused");
+    });
+    expect(await send(route, { kind: TIKTOK_ROUTE.blocked }, h.content(7))).toEqual({ status: "held" });
+    expect(h.session.get("still:tiktok-origin:7")).toEqual(newer);
+    await route.stop();
+  });
+
   it("a successful reopen clears the stored address at once; the tab keeps its allowance", async () => {
     const h = host();
     const route = h.create();

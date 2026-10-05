@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import type { ServiceId } from "@still/shared-types";
-  import { rowsFor } from "./presentation.js";
+  import { proRowsDormant, rowsFor } from "./presentation.js";
   import type { SettingsSiteListProps } from "./extension-settings-presentation.js";
   import { serviceIconSrc } from "./service-icons.js";
   import Toggle from "./Toggle.svelte";
@@ -34,6 +34,7 @@
     facebook: "Still on Facebook",
     tiktok: "TikTok website",
   };
+  let dormant = $derived(proRowsDormant(access));
   function toggleSection(service: ServiceId) {
     open = open === service ? null : service;
     sectionMemory?.write(open);
@@ -109,6 +110,7 @@
                   id={row.id}
                   {label}
                   {state}
+                  dormant={dormant && row.tier === "pro"}
                   checked={settings.sites[row.id]}
                   {inactive}
                   unsupportedText="Not available in this browser. Your choice is saved."

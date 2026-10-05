@@ -2,6 +2,10 @@ import { types } from "node:util";
 import { canonical, hash } from "./plan.mjs";
 
 // Dormant U6/D317/C4 preview model only. No caller, endpoint, database or publisher registers it.
+// Superseded for the wire format and the server: the policy grammar is
+// packages/shared-types/src/product-policy.ts, the store and owner operation are migration 0016 with
+// supabase/functions/product-policy{,-admin}. This model's draft shape (paidTierEnabled, product,
+// channel list) is NOT that grammar; it is kept only as the reviewed synthetic admission model.
 // These are the fixed C4 groups, not evidence of a reviewed release on each surface.
 const SURFACES = Object.freeze([
   "chrome_desktop", "edge_desktop", "firefox_desktop", "firefox_android",

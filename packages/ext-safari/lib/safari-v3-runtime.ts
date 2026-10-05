@@ -35,6 +35,21 @@ export interface SafariV3Composition {
 }
 
 /**
+ * Remembers the stylesheets the page has now; the returned function removes every stylesheet link
+ * added since. Loading the V3 components makes Vite add their `<link rel="stylesheet">` tags
+ * before anything mounts, so a V3 attempt that hands over to the legacy screen calls it first:
+ * the legacy screen then runs with exactly the styles it was built with.
+ */
+export function trackAddedStylesheets(doc: Document = document): () => void {
+  const before = new Set(doc.querySelectorAll('link[rel="stylesheet"]'));
+  return () => {
+    for (const link of doc.querySelectorAll('link[rel="stylesheet"]')) {
+      if (!before.has(link)) link.remove();
+    }
+  };
+}
+
+/**
  * One read-only look at the saved record: a native `get` (or, with the app unreachable, the copy
  * already in browser storage). It never initializes, converts or writes anything, and it never
  * starts watching, so there is nothing to tear down.
@@ -60,6 +75,24 @@ export async function decideSafariV3(
 
 /** Build the V3 composition. Call only after decideSafariV3 said yes. */
 export function composeSafariV3(where: "popup" | "options"): SafariV3Composition {
+  // Everything started so far, newest first. A throw partway through stops each of them, so a
+  // failed composition leaves nothing running for the legacy screen to run beside.
+  const started: Array<() => void> = [];
+  try {
+    return startComposition(where, started);
+  } catch (error) {
+    for (const stop of started.reverse()) {
+      try {
+        stop();
+      } catch {
+        /* Keep stopping the rest. */
+      }
+    }
+    throw error;
+  }
+}
+
+function startComposition(where: "popup" | "options", started: Array<() => void>): SafariV3Composition {
   // Same nudge as the legacy page: the background pulls the app's record and access into storage.
   void browser.runtime.sendMessage({ kind: "reconcile" }).catch(() => {});
   const analytics = createSafariPageAnalytics();
@@ -70,6 +103,7 @@ export function composeSafariV3(where: "popup" | "options"): SafariV3Composition
     () => {},
   );
   const unwatchSettings = cache.watch();
+  started.push(unwatchSettings);
   const controller = new UiController({
     cache,
     host: { canPurchase: false },
@@ -82,12 +116,16 @@ export function composeSafariV3(where: "popup" | "options"): SafariV3Composition
   const unsubscribeEntitlement = entitlement.subscribe((entitled) => {
     controller.entitled = entitled;
   });
+  started.push(unsubscribeEntitlement);
   void entitlement.hydrate().then((entitled) => {
     if (live) controller.entitled = entitled;
   });
   const unwatchEntitlement = entitlement.watch();
+  started.push(unwatchEntitlement);
   const stopAccount = watchAccountStatus(controller, () => readAccountStatus(cache.currentRecord()));
+  started.push(stopAccount);
   const binding = createDesktopPopupBinding(cache, entitlement);
+  started.push(() => binding.stop());
   return {
     controller,
     binding,

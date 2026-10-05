@@ -385,9 +385,11 @@ export async function verifySettingsLegacyOwnerGrants(
     owner,
   );
   // Every helper is owned by the ordinary migration role. A superuser (or any other role)
-  // re-running the migration is refused before DDL, so ownership can never drift to it.
+  // re-running the migration is refused before DDL, so ownership can never drift to it. Scoped to
+  // 0015's seven settings routines (every name contains "settings"): 0016 adds product policy
+  // routines to the same schema, whose ownership product_policy_migration_test.ts proves.
   const creator = [
-    ...await fixture`select p.oid::regprocedure::text as routine,pg_catalog.pg_get_userbyid(p.proowner) as owner,p.proacl::text as acl from pg_catalog.pg_proc p where p.pronamespace='private'::regnamespace order by 1`,
+    ...await fixture`select p.oid::regprocedure::text as routine,pg_catalog.pg_get_userbyid(p.proowner) as owner,p.proacl::text as acl from pg_catalog.pg_proc p where p.pronamespace='private'::regnamespace and p.proname like '%settings%' order by 1`,
   ];
   assertEquals(creator.length, 7);
   for (const row of creator) assertEquals(row.owner, "postgres", row.routine);
@@ -403,7 +405,7 @@ export async function verifySettingsLegacyOwnerGrants(
   );
   assertEquals(
     [
-      ...await fixture`select p.oid::regprocedure::text as routine,pg_catalog.pg_get_userbyid(p.proowner) as owner,p.proacl::text as acl from pg_catalog.pg_proc p where p.pronamespace='private'::regnamespace order by 1`,
+      ...await fixture`select p.oid::regprocedure::text as routine,pg_catalog.pg_get_userbyid(p.proowner) as owner,p.proacl::text as acl from pg_catalog.pg_proc p where p.pronamespace='private'::regnamespace and p.proname like '%settings%' order by 1`,
     ],
     creator,
   );

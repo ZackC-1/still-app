@@ -5,6 +5,7 @@ import {
   App,
   SAFARI_SURFACE_GUIDANCE,
   UiController,
+  appleRestoreBridge,
   appleSettingsCacheOptions,
   appleSettingsHelp,
   appleSettingsToggleReporter,
@@ -15,7 +16,7 @@ import {
   type AuthPersistence,
 } from "@still/core/ui";
 import { SettingsCache, WKWebViewStorageAdapter } from "@still/core/storage";
-import { NativeBridge } from "@still/core/native";
+import { NativeBridge, openNativeDestination } from "@still/core/native";
 import { createAppAnalytics, type AnalyticsKeyValue } from "@still/core/analytics";
 import {
   SupabaseAuthPort,
@@ -308,7 +309,9 @@ async function mountAppleSettings(adapter: WKWebViewStorageAdapter): Promise<voi
         authority,
         observeSetup: () => bridge.observeSafariSetup(),
         help: appleSettingsHelp((url) => openExternalLink(url)),
-        restoreBridge: bridge,
+        restoreBridge: appleRestoreBridge(bridge),
+        // "Open Safari Settings" on the setup card: one fixed destination, from the tap.
+        openDestination: (destination) => void openNativeDestination(destination),
         onCommittedToggle: appleSettingsToggleReporter(analytics.ui),
       },
     });

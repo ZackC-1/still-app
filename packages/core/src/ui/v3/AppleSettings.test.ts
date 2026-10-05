@@ -1357,7 +1357,7 @@ describe("D04 optional paid and combined-consent producers", () => {
       screen.queryByRole("switch", { name: "Share email and usage data" }),
     ).toBeNull();
     const restoreCard = screen
-      .getByText("No Still Pro purchase was found for this account.")
+      .getByText("No Still Pro purchase was found for this Apple Account.")
       .closest("section");
     expect(helpSection()?.previousElementSibling).toBe(restoreCard);
     await view.rerender({
@@ -1628,6 +1628,24 @@ describe("D04 free-period Restore link (owner decision 17)", () => {
     view.unmount();
   });
 
+  it("nothing found names the Apple Account (owner decision 26), never the browser wording", async () => {
+    const { props } = await fixture("locked");
+    const view = render(AppleSettings, {
+      props: { ...props, pro: undefined, restore: { state: "nothing" } },
+    });
+    const text = screen.getByText(
+      "No Still Pro purchase was found for this Apple Account.",
+    );
+    expect(text.closest("section")?.textContent).toContain(
+      "Bought it with another Apple Account? Sign in with that one and try again.",
+    );
+    expect(
+      screen.queryByText("No Still Pro purchase was found for this account."),
+    ).toBeNull();
+    expect(screen.queryByText(/another account or Apple ID/)).toBeNull();
+    view.unmount();
+  });
+
   it("sits in the Still Pro card's slot: after sync, before the Restore status, sharing and Help", async () => {
     const { props } = await fixture("locked");
     const view = render(AppleSettings, {
@@ -1641,7 +1659,7 @@ describe("D04 free-period Restore link (owner decision 17)", () => {
     const order = [
       screen.getByRole("heading", { name: "Settings sync" }),
       screen.getByRole("button", { name: "Restore purchase" }),
-      screen.getByText("No Still Pro purchase was found for this account."),
+      screen.getByText("No Still Pro purchase was found for this Apple Account."),
       screen.getByRole("heading", { name: "Help" }),
     ];
     for (let i = 1; i < order.length; i++)
