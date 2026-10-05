@@ -220,6 +220,32 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     );
   };
 
+  // Bounded chip re-checks after each YouTube lifecycle trigger. This lane has no document
+  // observer, and a chip bar can render after the trigger; a few timed passes catch it without
+  // per-frame scanning. Each pass re-marks every chip from its current label, so a recycled chip
+  // loses a stale marker. Cancelled on stop, committed Off and the next navigation.
+  const CHIP_RECHECK_MS = [250, 1_000, 3_000] as const;
+  let chipTimers: Array<ReturnType<typeof setTimeout>> = [];
+  const cancelChipRechecks = (): void => {
+    for (const timer of chipTimers) clearTimeout(timer);
+    chipTimers = [];
+  };
+  const modernChipsActive = (): boolean => modernShortsChips && !stopped
+    && pageSession.activeServiceId() === "youtube"
+    && pageSession.effectiveFeatures?.().includes("youtube.shorts") === true;
+  const chipTrigger = (): void => {
+    cancelChipRechecks();
+    reapply();
+    if (!hydrated || !modernChipsActive()) return;
+    chipTimers = CHIP_RECHECK_MS.map((ms) => setTimeout(() => {
+      if (!stopped) reapply();
+    }, ms));
+  };
+  const navigationReapply = (): void => {
+    cancelChipRechecks();
+    reapply();
+  };
+
   const reapply = (): void => {
     // Never act on optimistic defaults: until hydration we don't know the user's real toggles, so
     // we add nothing (off/paused users must not see content hidden-then-revealed).
@@ -230,9 +256,11 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       // service-wide CSS grant occurs on this path; CSS handles recycled nodes itself.
       pageSession.applyDom(cache.current(), url, doc, modernOptions());
       // Same Shorts-filter recovery as the legacy lane, under the committed youtube.shorts gate.
-      if (modernShortsChips && pageSession.activeServiceId() === "youtube"
-        && pageSession.effectiveFeatures?.().includes("youtube.shorts")) prepareYouTubeChips(url);
-      else resetShortsFilterRequested = false;
+      if (modernChipsActive()) prepareYouTubeChips(url);
+      else {
+        resetShortsFilterRequested = false;
+        cancelChipRechecks(); // Off, another service or held access: no pending chip passes
+      }
       mediaQuieting?.reconcile();
       consumeModernNavigation(url);
       return;
@@ -283,21 +311,26 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       started = true;
       // Install hooks synchronously at document_start; their reapply calls are no-ops until hydrated.
       teardowns.push(installNavigationHooks(
-        win, reapply, modern ? consumeModernNavigation : undefined, modern ? doc : undefined,
+        win, modern ? navigationReapply : reapply, modern ? consumeModernNavigation : undefined,
+        modern ? doc : undefined,
       ));
       if (!modern) {
         const observer = createReapplyObserver(win, doc, reapply, deps.schedule);
         observer.start();
         teardowns.push(() => observer.stop());
       } else {
-        doc.addEventListener("DOMContentLoaded", reapply, { once: true });
-        teardowns.push(() => doc.removeEventListener("DOMContentLoaded", reapply));
+        const loaded = modernShortsChips ? chipTrigger : reapply;
+        doc.addEventListener("DOMContentLoaded", loaded, { once: true });
+        teardowns.push(() => doc.removeEventListener("DOMContentLoaded", loaded));
         if (modernShortsChips) {
-          // YouTube's own "page rendered" event: its search chips render after the URL commits,
-          // and this lane has no document observer. An event listener, not a DOM scan per frame.
-          doc.addEventListener("yt-navigate-finish", reapply);
+          // YouTube's own "page rendered" events: its search chips render after the URL commits.
+          // Event listeners plus the bounded re-checks above, never a DOM scan per frame.
+          for (const event of ["yt-navigate-finish", "yt-page-data-updated"])
+            doc.addEventListener(event, chipTrigger);
           teardowns.push(() => {
-            doc.removeEventListener("yt-navigate-finish", reapply);
+            cancelChipRechecks();
+            for (const event of ["yt-navigate-finish", "yt-page-data-updated"])
+              doc.removeEventListener(event, chipTrigger);
             for (const chip of doc.querySelectorAll("[data-still-shorts-chip]"))
               chip.removeAttribute("data-still-shorts-chip");
           });
@@ -316,7 +349,9 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       if (!modern) teardowns.push(cache.watch());
       if (deps.entitlement) teardowns.push(deps.entitlement.watch());
       hydrated = true;
-      reapply();
+      // Hydration is itself a chip trigger: DOMContentLoaded may have fired before it.
+      if (modern && modernShortsChips) chipTrigger();
+      else reapply();
       if (modern && deps.entitlement) void deps.entitlement.refreshAccess();
     },
     stop(): void {

@@ -108,4 +108,77 @@ describe("format-2 YouTube Shorts-filter recovery", () => {
     expect(document.querySelector("[data-still-shorts-chip]")).toBeNull();
     expect(h.allClicks).not.toHaveBeenCalled();
   });
+
+  describe("bounded re-checks after a lifecycle trigger (no document observer)", () => {
+    afterEach(() => vi.useRealTimers());
+    async function started() {
+      const h = await host();
+      const bar = document.querySelector("yt-chip-cloud-renderer")!;
+      bar.remove();
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const starting = h.start();
+      await vi.advanceTimersByTimeAsync(5);
+      const script = await starting;
+      await vi.advanceTimersByTimeAsync(4_000); // let the hydration trigger's passes expire
+      return { ...h, bar, script };
+    }
+    const marked = () => document.querySelector("[data-still-shorts-chip]") !== null;
+
+    it.each(["yt-navigate-finish", "yt-page-data-updated"])(
+      "a chip bar rendered after %s is recovered within the window",
+      async (event) => {
+        const h = await started();
+        document.dispatchEvent(new Event(event));
+        await vi.advanceTimersByTimeAsync(600);
+        document.body.prepend(h.bar); // renders between the 250 ms and 1 s passes
+        expect(hidden("shorts")).toBe(false);
+        await vi.advanceTimersByTimeAsync(500);
+        expect(hidden("shorts")).toBe(true);
+        expect(h.allClicks).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it("the passes are capped: a bar rendered after the last one waits for the next trigger", async () => {
+      const h = await started();
+      document.dispatchEvent(new Event("yt-navigate-finish"));
+      await vi.advanceTimersByTimeAsync(3_500);
+      document.body.prepend(h.bar);
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(marked()).toBe(false);
+      document.dispatchEvent(new Event("yt-navigate-finish"));
+      expect(hidden("shorts")).toBe(true);
+    });
+
+    it("a recycled chip loses its stale marker on the next pass", async () => {
+      const h = await started();
+      document.body.prepend(h.bar);
+      document.dispatchEvent(new Event("yt-navigate-finish"));
+      expect(hidden("shorts")).toBe(true);
+      // The renderer reuses the Shorts chip element for another topic.
+      document.querySelector("#shorts span")!.textContent = "Music";
+      await vi.advanceTimersByTimeAsync(300);
+      expect(document.getElementById("shorts")!.hasAttribute("data-still-shorts-chip")).toBe(false);
+      expect(hidden("shorts")).toBe(false);
+    });
+
+    it.each([
+      ["stop", async (h: Awaited<ReturnType<typeof started>>) => { h.script.stop(); }],
+      ["committed Off", async (h: Awaited<ReturnType<typeof started>>) => {
+        await h.authority.commitIntent({ path: "sites.youtube.shorts", value: false, updatedAt: Date.now() });
+      }],
+      ["the next navigation", async (h: Awaited<ReturnType<typeof started>>) => {
+        h.win.history.pushState(null, "", "/results?search_query=other");
+      }],
+    ] as const)("%s cancels pending passes", async (_name, cancel) => {
+      const h = await started();
+      document.dispatchEvent(new Event("yt-navigate-finish"));
+      const pending = vi.getTimerCount();
+      await cancel(h);
+      expect(vi.getTimerCount()).toBeLessThanOrEqual(pending - 3);
+      document.body.prepend(h.bar);
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(marked()).toBe(false);
+      expect(h.allClicks).not.toHaveBeenCalled();
+    });
+  });
 });
