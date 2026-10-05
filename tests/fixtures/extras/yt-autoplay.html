@@ -25,12 +25,16 @@
       <a href="/watch?v=inv300003&amp;list=PLinvented03&amp;index=2" id="keep-playlist-next">Invented playlist item two</a>
     </ytd-playlist-panel-renderer>
     <script>
-      // Records whether anything navigated, clicked the native toggle or cancelled the overlay in response
-      // to a scripted video "ended". A dormant build must leave all three untouched.
-      window.__autoplayProbe = { toggleClicks: 0, cancelClicks: 0, navigations: 0 };
+      // Records what a dormant build must leave alone. "loads" counts document loads in this tab
+      // through sessionStorage, so a reload or a back-and-forward bounce to the same URL still
+      // shows up; "token" is unique to this document's lifetime. "ended" counts the scripted
+      // video "ended" event at its target, which proves the event really fired.
+      const loads = Number(sessionStorage.getItem("autoplayProbeLoads") || "0") + 1;
+      sessionStorage.setItem("autoplayProbeLoads", String(loads));
+      window.__autoplayProbe = { toggleClicks: 0, cancelClicks: 0, ended: 0, loads, token: Math.random().toString(36).slice(2) };
       document.getElementById("keep-autoplay-toggle").addEventListener("click", () => window.__autoplayProbe.toggleClicks++);
       document.getElementById("keep-autonav-cancel").addEventListener("click", () => window.__autoplayProbe.cancelClicks++);
-      window.addEventListener("beforeunload", () => window.__autoplayProbe.navigations++);
+      document.getElementById("player-video").addEventListener("ended", () => window.__autoplayProbe.ended++);
       window.fireEnded = () => document.getElementById("player-video").dispatchEvent(new Event("ended"));
     </script>
   </body>
