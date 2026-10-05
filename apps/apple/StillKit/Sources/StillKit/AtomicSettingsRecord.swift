@@ -504,3 +504,104 @@ public enum AtomicSettingsRecord {
     return (result, true)
   }
 }
+
+// MARK: First saved record and reinstall adoption (owner decisions 28 and 30)
+
+extension AtomicSettingsRecord {
+  /// The record the Apple app saves when its launch finds no settings saved at all (decision 28).
+  /// The kind is a native launch fact the app captures before it publishes its install marker; the
+  /// web view never claims it.
+  public enum FirstRecord: String, Sendable {
+    /// No install marker at launch: a brand-new install (or an iPhone reinstall, which iOS wipes).
+    /// Byte-identical to the browsers' install-time record: Still's defaults, never linked.
+    case newInstall
+    /// An install marker but no saved settings: a 2.x install that never changed a setting. The
+    /// defaults it was already using, with unknown ownership so an account still wins (as X1).
+    case untouchedUpgrade
+  }
+
+  /// The exact first record for `kind`, encoded the way every native write is encoded.
+  public static func firstRecord(_ kind: FirstRecord) throws -> Data {
+    switch kind {
+    case .newInstall:
+      guard case .ready(let fresh, _) = SettingsV2Migration.read(nil, provenance: .init(kind: "proven-fresh")) else { throw Failure.unreadable }
+      var document = fresh.document
+      document["pauses"] = .array([]) // The TypeScript writer's legacy projection.
+      let root: [String: SettingsJSONValue] = [
+        "settings": .object(document), "syncMetadata": .null, "syncEpoch": .number(0),
+        "atomic": .object([
+          "format": .number(1), "sequence": .number(0), "ownership": .string("never-linked"),
+          "scope": .object(["accountId": .null, "generation": .number(0)]),
+          "anchor": .null, "pending": .array([]), "held": .object([:]), "paused": .null
+        ])
+      ]
+      return try encoder.encode(root)
+    case .untouchedUpgrade:
+      // What every 2.x reader already assumed for absence: the defaults, no edit stamp, no sync
+      // metadata, never repointed. Then the ordinary unknown conversion, exactly as X1 does.
+      let defaults = try JSONDecoder().decode(SettingsJSONValue.self, from: encoder.encode(StillSettings.default))
+      let legacy: [String: SettingsJSONValue] = ["settings": defaults, "syncMetadata": .null, "syncEpoch": .number(0)]
+      return try initialize(encoder.encode(legacy), ownership: "unknown")
+    }
+  }
+
+  /// True only for a record that is still exactly one of the two first records: nothing has been
+  /// chosen, linked, held or repointed since it was saved.
+  public static func isUntouchedFirstRecord(_ raw: Data) -> Bool {
+    guard let root = try? decode(raw), let canonical = try? encoder.encode(root) else { return false }
+    return [FirstRecord.newInstall, .untouchedUpgrade].contains { (try? firstRecord($0)) == canonical }
+  }
+
+  /// The initialize command alone may stand in a first record for an absent one.
+  static func isInitializeCommand(_ command: Data) -> Bool {
+    (try? decode(command))?["action"] == .string("initialize")
+  }
+
+  public enum Adoption: Equatable, Sendable {
+    /// Safari's copy replaced the untouched first record. The bytes to save.
+    case adopted(Data)
+    /// Nothing to adopt: the saved record is no longer an untouched first record (or there is
+    /// none), or Safari's copy is itself an untouched first record.
+    case kept
+    /// Safari's copy is unreadable or unsupported here. Nothing is written.
+    case refused
+  }
+
+  /// Owner decision 30: after an iPhone reinstall, Safari's leftover copy wins. iOS wipes the App
+  /// Group, so the reinstalled app saves a first record before Safari has run; the extension then
+  /// offers its retained copy, and it replaces that first record only while the first record is
+  /// still untouched. A legacy copy gets the same unknown conversion the app gives any saved legacy
+  /// record; a modern copy is kept as saved. Its commit order moves one step past the copy's own,
+  /// so every ordered reader (the app's web view, the Safari projection) takes it over the first
+  /// record. Saved values and unknown members are never rewritten.
+  public static func adopt(_ current: Data?, incoming: Data) -> Adoption {
+    guard let current, isUntouchedFirstRecord(current) else { return .kept }
+    guard var root = try? decode(incoming) else { return .refused }
+    root.removeValue(forKey: "intentCommitted") // A per-reply flag, never stored.
+    var adopted: [String: SettingsJSONValue]
+    if let state = root["atomic"]?.object {
+      guard validState(state), let settings = root["settings"]?.object, settings["schemaVersion"] == .number(2),
+        let bytes = try? encoder.encode(settings),
+        case .ready = SettingsV2Migration.read(bytes, provenance: .init(kind: "readable-local", provenInitialization: settings["updatedAt"] == .number(0)))
+      else { return .refused }
+      adopted = root
+    } else {
+      // An absent counter ranks as zero and absent metadata is none, everywhere these are read.
+      if root["settings"] != nil {
+        root["syncMetadata"] = root["syncMetadata"] ?? .null
+        root["syncEpoch"] = root["syncEpoch"] ?? .number(0)
+      }
+      guard let bytes = try? encoder.encode(root), let converted = try? initialize(bytes, ownership: "unknown"),
+        let value = try? decode(converted) else { return .refused }
+      adopted = value
+    }
+    guard let normalized = try? encoder.encode(adopted) else { return .refused }
+    if isUntouchedFirstRecord(normalized) { return .kept }
+    guard var state = adopted["atomic"]?.object, case .number(let sequence) = state["sequence"],
+      sequence < SettingsV2Migration.maxRevision else { return .refused }
+    state["sequence"] = .number(sequence + 1)
+    adopted["atomic"] = .object(state)
+    guard let result = try? encoder.encode(adopted), result.count <= 131_072 else { return .refused }
+    return .adopted(result)
+  }
+}
