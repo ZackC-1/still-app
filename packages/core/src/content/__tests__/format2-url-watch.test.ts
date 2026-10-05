@@ -79,7 +79,9 @@ async function host(href: string, intents: NavigationIntentTracker | null = crea
   scripts.push(script);
   await script.start();
   return {
-    win, writer, cache, script, replace, assign, entries, intents: intents!, isolatedPush,
+    win, writer, cache, script, replace, assign, entries, intents: intents!, isolatedPush, listeners,
+    /** Fires a window event the way the browser would (hashchange is not a traversal). */
+    fire: (name: string) => { for (const listener of [...(listeners.get(name) ?? [])]) listener(); },
     /** The page's own main-world pushState: invisible to the content script's wrapper. */
     pagePush: (path: string) => {
       current = new URL(path, current).href;
@@ -305,5 +307,50 @@ describe("format-2 URL watch fallback (no Navigation API)", () => {
     h.script.reapply();
     await tickWatch();
     expect(h.replace).not.toHaveBeenCalled();
+  });
+
+  it("hashchange reports the move at once while the tab is visible", async () => {
+    fake();
+    const h = await host("https://www.facebook.com/reel/111");
+    h.pagePush("/reel/222#next");
+    h.fire("hashchange"); // no timer tick: the event alone reports it
+    expect(h.replace).toHaveBeenCalledWith("https://www.facebook.com/");
+  });
+
+  it("hashchange still reports while the tab is hidden (only the timer pauses)", async () => {
+    fake();
+    const h = await host("https://www.facebook.com/reel/111");
+    setVisibility("hidden");
+    expect(vi.getTimerCount()).toBe(0);
+    h.pagePush("/reel/222#next");
+    h.fire("hashchange");
+    expect(h.replace).toHaveBeenCalledWith("https://www.facebook.com/");
+  });
+
+  it("popstate and hashchange listeners are removed after Off and again after stop", async () => {
+    fake();
+    const count = (h: Awaited<ReturnType<typeof host>>) => [h.listeners.get("popstate")?.size ?? 0, h.listeners.get("hashchange")?.size ?? 0];
+    const h = await host("https://www.instagram.com/reel/A1/");
+    expect(h.listeners.get("hashchange")?.size).toBe(1);
+    expect(h.listeners.get("popstate")?.size).toBeGreaterThan(0);
+    await h.writer.commit({ path: "services.instagram", value: false, updatedAt: 2 });
+    await h.cache.rereadAuthority?.();
+    h.script.reapply();
+    expect(h.listeners.get("hashchange")?.size ?? 0).toBe(0);
+    // A later hashchange can no longer move anything.
+    h.pagePush("/reel/B2/#x");
+    h.fire("hashchange");
+    expect(h.replace).not.toHaveBeenCalled();
+    h.script.stop();
+    expect(count(h)).toEqual([0, 0]);
+  });
+
+  it("stop removes every history listener the watch added", async () => {
+    fake();
+    const h = await host("https://www.facebook.com/reel/111");
+    expect(h.listeners.get("hashchange")?.size).toBe(1);
+    h.script.stop();
+    expect(h.listeners.get("popstate")?.size ?? 0).toBe(0);
+    expect(h.listeners.get("hashchange")?.size ?? 0).toBe(0);
   });
 });
