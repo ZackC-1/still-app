@@ -13,7 +13,8 @@ portal are intentional; merge them rather than overwrite them. Use
 screenshots, privacy declarations and pricing checks. Never put review credentials in this file.
 
 Accuracy rules: Still removes Shorts and Reels and never claims to hide feeds, Stories, Explore or
-comments; the whole TikTok website is blocked; on phones Still works in Safari only; sync needs a free
+comments; the whole TikTok website is blocked; on phones Still works in Safari on iPhone and iPad, and
+in Firefox on Android (never mobile Chrome or native apps); sync needs a free
 sign-in on each device; say "free", never "free forever"; never "everywhere"; never "no tracking"
 (say "no timers, no screen-time stats").
 
