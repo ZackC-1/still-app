@@ -70,4 +70,6 @@ export interface ScreenCases {
   cases: VisualCase[];
   /** Reference outputs this screen cannot map yet, with the reason. */
   unmapped?: Record<string, string>;
+  /** Reason reported for any other reference output on this page without a case. */
+  defaultUnmappedReason?: string;
 }

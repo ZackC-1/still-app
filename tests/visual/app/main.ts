@@ -27,6 +27,11 @@ window.__visualRegistry = {
       ]),
     ),
   ),
+  defaultUnmapped: Object.fromEntries(
+    SCREENS.flatMap((s) =>
+      s.defaultUnmappedReason ? [[s.screen, s.defaultUnmappedReason]] : [],
+    ),
+  ),
   outOfScope: OUT_OF_SCOPE,
 };
 

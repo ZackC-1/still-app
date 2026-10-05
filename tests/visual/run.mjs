@@ -260,6 +260,7 @@ const unmapped = referenceFrames
     caption: f.caption,
     reason:
       registry.unmapped[`${f.screen}/${f.output}`] ??
+      registry.defaultUnmapped[f.screen] ??
       "no fixture case written for this frame yet",
   }));
 const outOfScope = inventory.inventory
