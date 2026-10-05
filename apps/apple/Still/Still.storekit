@@ -18,6 +18,21 @@
       "productID" : "still_sync",
       "referenceName" : "Still Pro",
       "type" : "NonConsumable"
+    },
+    {
+      "displayPrice" : "9.99",
+      "familyShareable" : false,
+      "internalID" : "6F2B1C4E-3A5D-4E8F-9B7A-2C1D0E3F4A5B",
+      "localizations" : [
+        {
+          "description" : "Local StoreKit test product. Customer wording comes from App Store Connect.",
+          "displayName" : "Still Pro",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "still_pro_v3",
+      "referenceName" : "Still Pro V3",
+      "type" : "NonConsumable"
     }
   ],
   "settings" : {

@@ -26,12 +26,33 @@ public enum BridgeTrust {
     return isBundledOrigin(url, bundledURL: bundledURL)
   }
 
-  /// Whether a cancelled navigation should instead be opened in the external system browser — a
-  /// user-initiated `http(s)` link (e.g. the in-app privacy-policy link). The caller cancels the
-  /// in-web-view navigation and hands these to the OS.
+  /// The shipped support address. Mirrors `SUPPORT_EMAIL` in packages/core/src/ui/config.ts; a
+  /// StillKit test reads that source so the two cannot drift apart.
+  public static let supportEmailAddress = "support@stillapp.fit"
+
+  /// Whether a cancelled navigation should instead be handed to the system — a user-initiated
+  /// `http(s)` link (e.g. the in-app privacy-policy link) opens in the browser, and a `mailto:` link
+  /// opens in the mail app only when it is exactly `mailto:<supportEmailAddress>` (no other
+  /// recipient, no query, no fragment, no encoded variant). Every other scheme stays cancelled. The
+  /// caller cancels the in-web-view navigation and hands the allowed ones to the OS.
   public static func opensExternally(_ url: URL?) -> Bool {
-    guard let scheme = url?.scheme?.lowercased() else { return false }
-    return scheme == "http" || scheme == "https"
+    guard let url, let scheme = url.scheme?.lowercased() else { return false }
+    switch scheme {
+    case "http", "https":
+      return true
+    case "mailto":
+      return isSupportMailto(url)
+    default:
+      return false
+    }
+  }
+
+  /// Exact match on everything after `mailto:`, so `?subject=`/`?cc=`/`?body=`, extra recipients,
+  /// fragments, authority forms (`mailto://`) and percent-encoded spellings are all refused.
+  private static func isSupportMailto(_ url: URL) -> Bool {
+    let raw = url.absoluteString
+    guard let colon = raw.firstIndex(of: ":") else { return false }
+    return raw[raw.index(after: colon)...] == supportEmailAddress
   }
 
   /// A URL is the bundled origin when it is a `file://` URL at, or under, the bundle index's
