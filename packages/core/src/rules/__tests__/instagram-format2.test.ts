@@ -201,13 +201,13 @@ describe("captured Instagram through the maintained format2 compiler", () => {
         href,
       ).toBe("apply");
     }
-    // The plural /reels/<code>/ viewer keeps pushing the next Reel, so it is category browsing
-    // and goes home (no post-view destination is proven yet); the singular shared Reel stays.
+    // The plural /reels/<code>/ viewer opens the same Reel at its singular shared address
+    // ("shared" is a code by the viewer pattern), keeping the share query and fragment.
     expect(
       s.evaluate(
         DEFAULT_SETTINGS_V2,
         new URL("/reels/shared/?igsh=chosen#part", "https://www.instagram.com"),
       ),
-    ).toEqual({ kind: "redirect", url: "https://www.instagram.com/" });
+    ).toEqual({ kind: "redirect", url: "https://www.instagram.com/reel/shared/?igsh=chosen#part" });
   });
 });

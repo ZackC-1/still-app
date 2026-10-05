@@ -430,10 +430,17 @@ describe("Reel viewers: plural feed viewer goes home, a shared Reel opens but do
     return decision;
   };
   it.each([
-    "https://www.instagram.com/reels/C0de_1/",
-    "https://www.instagram.com/reels/C0de_1",
-    "https://www.instagram.com/reels/C0de_1/?igsh=share#part",
-  ])("Instagram plural viewer %s goes home", (href) => {
+    ["https://www.instagram.com/reels/C0de_1/", "https://www.instagram.com/reel/C0de_1/"],
+    ["https://www.instagram.com/reels/C0de_1", "https://www.instagram.com/reel/C0de_1/"],
+    ["https://www.instagram.com/reels/C0de_1/?igsh=share#part", "https://www.instagram.com/reel/C0de_1/?igsh=share#part"],
+  ])("Instagram plural viewer %s opens the same Reel at %s", (href, url) => {
+    expect(evaluate(href)).toEqual({ kind: "redirect", url });
+  });
+  it.each([
+    "https://www.instagram.com/reels/",
+    "https://www.instagram.com/reels",
+    "https://www.instagram.com/reels/?ref=nav",
+  ])("bare Instagram Reels feed %s still goes home", (href) => {
     expect(evaluate(href)).toEqual({ kind: "redirect", url: "https://www.instagram.com/" });
   });
   it.each([
@@ -449,6 +456,11 @@ describe("Reel viewers: plural feed viewer goes home, a shared Reel opens but do
     ["https://www.instagram.com/reel/A1/", "https://www.instagram.com/reel/B2/", "https://www.instagram.com/"],
     ["https://www.instagram.com/some.user/reel/A1/", "https://www.instagram.com/reel/B2/", "https://www.instagram.com/"],
     ["https://www.facebook.com/reel/111", "https://www.facebook.com/reel/222", "https://www.facebook.com/"],
+    ["https://www.instagram.com/reels/A1/", "https://www.instagram.com/reels/B2/", "https://www.instagram.com/"],
+    ["https://www.instagram.com/reel/A1/", "https://www.instagram.com/some.user/reel/B2/", "https://www.instagram.com/"],
+    ["https://www.instagram.com/one.user/reel/A1/", "https://www.instagram.com/other_user/reel/B2/", "https://www.instagram.com/"],
+    // One profile's own Reels modal: profile browsing, allowed.
+    ["https://www.instagram.com/some.user/reel/A1/", "https://www.instagram.com/some.user/reel/B2/", null],
     ["https://www.instagram.com/reel/A1/", "https://www.instagram.com/reel/A1/?igsh=x", null],
     ["https://www.facebook.com/reel/111", "https://www.facebook.com/reel/111/", null],
     ["https://www.instagram.com/p/post/", "https://www.instagram.com/reel/B2/", null],

@@ -125,21 +125,33 @@ export interface EnginePageSession {
   /**
    * Format-2 only, after evaluate(settings, to): the same-origin home when moving from one Reel
    * viewer item to a DIFFERENT one while that service's Reels core is effective (the viewer
-   * continuing into the next Reel), else null. Callers apply it only to page-driven moves,
-   * never to a deliberate link activation or Back/forward.
+   * continuing into the next Reel), else null. Moving between Reels inside one Instagram
+   * profile's own modal (/<user>/reel/X to /<user>/reel/Y) is profile browsing and allowed.
+   * Callers apply it only to page-driven moves, never to a deliberate link activation or
+   * Back/forward.
    */
   reelContinuation?(from: URL, to: URL): string | null;
 }
 
 /** Instagram's plural Reels feed viewer: /reels/<code>/ (the audio hub /reels/audio/<id>/ is not). */
-const INSTAGRAM_REELS_VIEWER = /^\/reels\/(?!audio\/?$)[\w-]+\/?$/;
+const INSTAGRAM_REELS_VIEWER = /^\/reels\/((?!audio\/?$)[\w-]+)\/?$/;
 
-/** The item a Reel viewer shows: Instagram /reel(s)/<code>/ or /<user>/reel/<code>/; Facebook /reel/<digits>. */
-function reelViewerId(serviceId: "instagram" | "facebook", url: URL): string | null {
-  const match = serviceId === "instagram"
-    ? /^\/(?:reels?|[\w.-]+\/reel)\/([\w-]+)\/?$/.exec(url.pathname)
-    : /^\/reel\/(\d+)\/?$/.exec(url.pathname);
-  return match?.[1] && match[1] !== "audio" ? match[1] : null;
+/**
+ * The item a Reel viewer shows, and the profile whose modal shows it (null for the global
+ * viewer): Instagram /reel(s)/<code>/ or /<user>/reel/<code>/; Facebook /reel/<digits>.
+ */
+function reelViewerItem(
+  serviceId: "instagram" | "facebook",
+  url: URL,
+): { readonly owner: string | null; readonly id: string } | null {
+  if (serviceId === "facebook") {
+    const id = /^\/reel\/(\d+)\/?$/.exec(url.pathname)?.[1];
+    return id ? { owner: null, id } : null;
+  }
+  const global = /^\/reels?\/([\w-]+)\/?$/.exec(url.pathname);
+  if (global?.[1] && global[1] !== "audio") return { owner: null, id: global[1] };
+  const profile = /^\/([\w.-]+)\/reel\/([\w-]+)\/?$/.exec(url.pathname);
+  return profile?.[1] && profile[2] && profile[1] !== "reels" ? { owner: profile[1], id: profile[2] } : null;
 }
 
 /**
@@ -574,15 +586,18 @@ function createFormat2PageSession(input: unknown): EnginePageSession {
           destination.searchParams.set("v", id);
         }
       } else if (((serviceId === "instagram" || serviceId === "facebook") && /^\/reels\/?$/.test(url.pathname))
-        || (serviceId === "facebook" && /^\/watch\/reels\/?$/.test(url.pathname))
-        || (serviceId === "instagram" && INSTAGRAM_REELS_VIEWER.test(url.pathname))) {
-        // Category browsing only: the bare Reels feeds, Facebook's own Reels feed under Watch,
-        // and Instagram's plural /reels/<code>/ feed viewer (it keeps pushing the next Reel).
-        // The plural viewer goes home rather than to a post view: no post-view destination has
-        // been proven on the live site yet. Direct/shared singular /reel/<id>, a Page's or
-        // profile's own Reels tab, normal/live videos, people/groups/search/messages and their
-        // query-bearing routes stay usable.
+        || (serviceId === "facebook" && /^\/watch\/reels\/?$/.test(url.pathname))) {
+        // Category browsing only: the bare Reels feeds and Facebook's own Reels feed under
+        // Watch. Direct/shared singular /reel/<id>, a Page's or profile's own Reels tab,
+        // normal/live videos, people/groups/search/messages and their query-bearing routes stay
+        // usable.
         destination = new URL("/", url.origin);
+      } else if (serviceId === "instagram" && INSTAGRAM_REELS_VIEWER.test(url.pathname)) {
+        // Instagram's plural /reels/<code>/ feed viewer opens that same Reel at Instagram's own
+        // shared-Reel address, /reel/<code>/ (query and fragment kept); the continuation guard
+        // then stops it advancing into another Reel.
+        destination = new URL(url.href);
+        destination.pathname = `/reel/${INSTAGRAM_REELS_VIEWER.exec(url.pathname)![1]}/`;
       }
       if (destination && destination.href !== url.href) decision = { kind: "redirect", url: destination.href };
     }
@@ -618,9 +633,12 @@ function createFormat2PageSession(input: unknown): EnginePageSession {
       // Valid only for the inputs just prepared for `to`, while that service's Reels core is on.
       if (stopped || !coreEffective || previousHref !== to.href || from.origin !== to.origin) return null;
       if (serviceId !== "instagram" && serviceId !== "facebook") return null;
-      const current = reelViewerId(serviceId, from);
-      const next = reelViewerId(serviceId, to);
-      return current && next && current !== next ? new URL("/", to.origin).href : null;
+      const current = reelViewerItem(serviceId, from);
+      const next = reelViewerItem(serviceId, to);
+      if (!current || !next || current.id === next.id) return null;
+      // One profile's own Reels modal: profile browsing, not the global viewer advancing.
+      if (current.owner !== null && current.owner === next.owner) return null;
+      return new URL("/", to.origin).href;
     },
     activeMediaKey: () => !stopped && decision.kind === "apply" && ownedStyle?.isConnected && ownedStyle.sheet && !ownedStyle.sheet.disabled && serviceId
       ? `${serviceId}:${effective.filter(benefit => (plans.get(serviceId!)?.get(benefit)?.length ?? 0) > 0).join("|")}` : "",

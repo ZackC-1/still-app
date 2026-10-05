@@ -342,10 +342,12 @@ async function commitIntent(context: BrowserContext, extensionId: string, path: 
   await options.close();
 }
 
-test("format-2 instagram: the plural /reels/<code>/ viewer goes home; a shared /reel/<code>/ opens", async ({ context }) => {
+test("format-2 instagram: the plural /reels/<code>/ viewer opens that Reel at /reel/<code>/; a shared /reel/<code>/ opens", async ({ context }) => {
   const page = await context.newPage();
   await serveViewer(page, "**://*.instagram.com/**", "/reel/B2/");
-  await page.goto("https://www.instagram.com/reels/C0de1/").catch(() => {}); // replaced while loading
+  await page.goto("https://www.instagram.com/reels/C0de1/?igsh=share").catch(() => {}); // replaced while loading
+  await expect(page).toHaveURL("https://www.instagram.com/reel/C0de1/?igsh=share");
+  await page.goto("https://www.instagram.com/reels/").catch(() => {});
   await expect(page).toHaveURL("https://www.instagram.com/");
   for (const shared of ["/reel/A1/", "/some.user/reel/A1/"]) {
     await page.goto(`https://www.instagram.com${shared}`);
@@ -412,3 +414,16 @@ for (const [service, origin, swipe] of [
       await page.evaluate((to) => (window as unknown as { swipe(to: string): void }).swipe(to), swipe);
       await expect(page).toHaveURL(new URL("/", origin).href); // On again: continuation stopped
     });
+
+test("format-2 instagram: moving between Reels inside one profile's modal is allowed", async ({ context }) => {
+  const page = await context.newPage();
+  await serveViewer(page, "**://*.instagram.com/**", "/some.user/reel/B2/");
+  await page.goto("https://www.instagram.com/some.user/reel/A1/");
+  await expect(page.locator("html")).toHaveClass(/still-feature-\d+-instagram-reels/);
+  await page.evaluate(() => (window as unknown as { swipe(to: string): void }).swipe("/some.user/reel/B2/"));
+  await page.waitForTimeout(500);
+  await expect(page).toHaveURL("https://www.instagram.com/some.user/reel/B2/");
+  // ...but the global viewer advancing on its own is still stopped.
+  await page.evaluate(() => (window as unknown as { swipe(to: string): void }).swipe("/reel/C3/"));
+  await expect(page).toHaveURL("https://www.instagram.com/");
+});
