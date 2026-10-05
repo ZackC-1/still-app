@@ -37,7 +37,7 @@ SQL
 bootstrap_fixture
 export STILL_SECURITY_TEST_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
 # One environment permission for every database test: driver PG* defaults plus each test's inputs.
-db_test_env=--allow-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,STILL_SECURITY_TEST_DATABASE_URL,STILL_GRANTS_TEST_DATABASE_URL,STILL_GRANTS_TEST_MODE,STILL_GRANTS_GATEWAY_PASSWORD,STILL_U3_MIGRATION_TEST_DATABASE_URL,STILL_U3_MIGRATION_TEST_MODE,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME
+db_test_env=--allow-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,STILL_SECURITY_TEST_DATABASE_URL,STILL_GRANTS_TEST_DATABASE_URL,STILL_GRANTS_TEST_MODE,STILL_GRANTS_GATEWAY_PASSWORD,STILL_U3_MIGRATION_TEST_DATABASE_URL,STILL_U3_MIGRATION_TEST_MODE,STILL_U6_POLICY_TEST_DATABASE_URL,STILL_U6_POLICY_TEST_MODE,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME
 deno test --config supabase/functions/deno.json "$db_test_env" --allow-read=scripts/backend/sql --allow-net=127.0.0.1:54322 supabase/tests/security_foundation_test.ts
 supabase db reset --local --no-seed >/dev/null
 # The reset removed the first test's candidates. Reinstall them atomically so pgTAP proves
@@ -89,12 +89,14 @@ grants_test clean
 # The existing pgTAP suite against migrations alone (no candidate). On 0013 it fails the
 # set_entitlement, entitlement-write and anon free-sync checks; 0014 must make it pass.
 supabase test db supabase/tests/rls_test.sql
-# Separately, 0014's end state still holds at the 0015 head (stricter search_path form).
+# Separately, 0014's end state still holds at the head (stricter search_path form).
 supabase db reset --local --no-seed >/dev/null
 grants_test clean
-# Migration 0015 on its own: upgrade from 0014 with realistic released-app rows (its verification
-# first reports the missing objects, then the CLI applies 0015 as the ordinary postgres role),
-# then a clean head. Client probes use `authenticator`.
+# Migration 0015 on its own, as the newest migration (the state production holds between the 0015
+# and 0016 deploys; 0015's check enumerates the private schema, which 0016 extends): upgrade from
+# 0014 with realistic released-app rows (its verification first reports the missing objects, then
+# the CLI applies 0015 as the ordinary postgres role), then a clean database at exactly 0015.
+# Client probes use `authenticator`.
 u3_migration_test() {
   STILL_U3_MIGRATION_TEST_DATABASE_URL="$STILL_SECURITY_TEST_DATABASE_URL" STILL_U3_MIGRATION_TEST_MODE="$1" \
     deno test --config supabase/functions/deno.json "$db_test_env" --allow-read=supabase/migrations,supabase/tests,scripts/backend/deploy/verify --allow-net=127.0.0.1:54322 supabase/tests/settings_sync_migration_test.ts
@@ -102,10 +104,26 @@ u3_migration_test() {
 supabase db reset --local --no-seed --version 0014 >/dev/null
 psql "$STILL_SECURITY_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --file=supabase/tests/settings_sync_migration_seed.sql
 u3_migration_test pre-upgrade
-supabase migration up --local >/dev/null
+migrate_up_to 0015
 u3_migration_test upgrade
-supabase db reset --local --no-seed >/dev/null
+supabase db reset --local --no-seed --version 0015 >/dev/null
 u3_migration_test clean
-# The pgTAP suite again at the 0015 head, after the per-field path has been exercised.
+# The pgTAP suite again at 0015, after the per-field path has been exercised.
+supabase test db supabase/tests/rls_test.sql
+# Migration 0016 on its own: upgrade from 0015 with realistic rows (its verification first reports
+# the missing objects, then the CLI applies 0016 as the ordinary postgres role), then a clean head.
+# The owner and public routes run through the real handlers as the two narrow roles.
+u6_policy_test() {
+  STILL_U6_POLICY_TEST_DATABASE_URL="$STILL_SECURITY_TEST_DATABASE_URL" STILL_U6_POLICY_TEST_MODE="$1" \
+    deno test --config supabase/functions/deno.json "$db_test_env" --allow-read=supabase/migrations,supabase/tests,scripts/backend/deploy/verify --allow-net=127.0.0.1:54322 supabase/tests/product_policy_migration_test.ts
+}
+supabase db reset --local --no-seed --version 0015 >/dev/null
+psql "$STILL_SECURITY_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --file=supabase/tests/product_policy_migration_seed.sql
+u6_policy_test pre-upgrade
+supabase migration up --local >/dev/null
+u6_policy_test upgrade
+supabase db reset --local --no-seed >/dev/null
+u6_policy_test clean
+# The pgTAP suite again at the head, after the policy routes have been exercised.
 supabase test db supabase/tests/rls_test.sql
 node scripts/backend/plan.mjs verify "$1" synthetic-github-runner "$RUNNER_TEMP/u1-plan.json" "$2"

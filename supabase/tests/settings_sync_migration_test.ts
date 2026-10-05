@@ -6,9 +6,11 @@
 //
 // Modes (STILL_U3_MIGRATION_TEST_MODE):
 //   upgrade  `supabase db reset --version 0014`, settings_sync_migration_seed.sql, then
-//            `supabase migration up`: proves 0015 preserves rows and that released apps keep
+//            `supabase migration up` to 0015: proves 0015 preserves rows and that released apps keep
 //            syncing the accounts they already use.
-//   clean    `supabase db reset` to head; the test seeds the same rows itself.
+//   clean    `supabase db reset --version 0015`; the test seeds the same rows itself. 0015 is the
+//            newest migration in every mode: its check enumerates the private schema, which 0016
+//            extends.
 //
 // Client calls go through a real `authenticator` login that switches role as PostgREST does. The
 // per-field path logs in as still_settings_writer. The ordinary postgres role (which holds the admin

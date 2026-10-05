@@ -338,3 +338,63 @@ This migration does not complete U2/U3/U4: browser/native atomic writers, sessio
 fences, pending acknowledgement integration, same-account raw CAS repair, compiled native
 vectors and the effective access/proof resolver remain separate required integrations. Expanded
 client persistence stays unexposed until server compatibility protections and full reviews pass.
+
+## Product policy store (0016)
+
+`supabase/migrations/0016_product_policy.sql` adds the server side of the remote `sales` and
+`rating` switches (U6): four owner-only tables in `private` (the owner allowlist, the operation
+ledger, the append-only published revisions and the write-once paid cutoff), two narrow roles and
+four SECURITY DEFINER routes. `still_policy_reader` may only read the current published body
+(`supabase/functions/product-policy`); `still_policy_admin` may only preview, apply and read back as
+an allowlisted owner (`supabase/functions/product-policy-admin`). Neither role holds any table
+privilege, and no client role or `service_role` reaches any of it. The migration writes no row: a
+missing policy is Off on every client, and the post-apply check proves the allowlist is empty and no
+policy or cutoff exists.
+
+Stored bodies use exactly the shared grammar in `packages/shared-types/src/product-policy.ts`, in one
+canonical key order with no whitespace. The database re-checks the grammar and requires a body to
+equal its own canonical rendering, so a duplicate key, escape, unknown key, free string or URL is
+refused there too. A sales body is only the remote second key; packaged builds AND it with their
+compiled `PAID_TIER_ENABLED`, which stays false.
+
+Owner flow: `preview` (verified, unexpired owner JWT; subject on `private.product_policy_owners`;
+exact draft; actual expected revision) returns an operation id, a preview hash and a five-minute
+expiry. `apply` submits that exact operation; the database compares-and-sets the revision under a
+per-namespace/environment lock (one of two parallel applies answers `stale`), is idempotent per
+operation id (a retry after a lost reply returns the committed result, even after expiry) and never
+reuses an operation for a changed hash or body. The function reports success only after an
+authoritative readback matches; otherwise it answers `checking` and the owner retries the same
+apply. `preview-rollback` republishes an earlier revision's values at the next revision; revisions
+never decrease and published revisions cannot be changed or deleted.
+
+The first sales apply that would let an allowlisted build start a purchase must carry the frozen
+cutoff snapshot and writes it in the same transaction, once per environment; pause, resume, retry
+and later stores never create or change it, and triggers refuse any update, delete or truncate.
+`product-policy-admin/cutoff.ts` holds that snapshot and is `null` until the owner answers which
+features were released free and which protected product id to record; while it is null the
+database answers `cutoff_required` and writes nothing, so no paid activation is possible.
+
+### Deploy order
+
+0015 must be deployed and verified on its own before 0016. 0015's post-apply check enumerates the
+`private` schema exactly, so it reports 0016's objects; a single run listing both would fail 0015's
+check after applying. 0016 revokes execution on every function in schema `private` from the client
+roles; the planner reads that schema-wide statement as changing every private routine that 0015's
+check names, so its `verification-overlap` rule refuses any plan listing 0015 and 0016 together
+(proved against the real files in `deploy/deploy.test.mjs`). Deploy 0016 alone after 0015 verified.
+Re-running 0015's check after 0016 reports the new private objects; that is expected.
+
+### Owner steps after 0016 is applied (separate approvals, never in Git)
+
+1. Give `still_policy_reader` and `still_policy_admin` logins exactly as for the settings writer
+   (`\password` in psql or an offline SCRAM verifier; never a cleartext password in SQL text).
+2. Store `PRODUCT_POLICY_READER_DB_URL` (reader) and `PRODUCT_POLICY_ADMIN_DB_URL` (admin) as Edge
+   Function secrets for the matching function only, through the pooler user
+   `<role>.<project-ref>`.
+3. Deploy `product-policy` and `product-policy-admin` (each its own approved function deploy).
+4. Add the owner's own account to the allowlist with one reviewed statement,
+   `insert into private.product_policy_owners (user_id) values ('<owner uuid>');`, as its own
+   approved operation. Removing an owner is the matching single-row delete.
+
+Nothing here publishes a policy. The first owner apply is itself a separate, explicitly approved
+operation; until then every client reads Off.
