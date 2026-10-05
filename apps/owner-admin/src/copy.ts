@@ -79,5 +79,7 @@ export const PENDING_OWNER_COPY = Object.freeze({
   loadFailed: "Couldn't load the current state. Try again.",
   /** Q6: undo the last applied change (rollback publishes the previous values at a new revision). */
   rollback: "Undo last change",
+  /** Q8: the policy lists no approved app builds, so no surface can act on it yet. */
+  noBuilds: "No approved app builds are listed yet, so switching this on has no effect until they are.",
 });
 // Q7: the page heading and the tab title are the word "Still" (App.svelte, index.html).

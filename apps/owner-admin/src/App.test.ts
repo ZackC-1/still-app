@@ -195,6 +195,22 @@ describe("owner page", () => {
     expect(switchFor(region, PENDING_OWNER_COPY.salesSwitch)).toHaveAttribute("aria-checked", "false");
   });
 
+  it("says plainly that switching on does nothing while no approved builds are listed", async () => {
+    await signIn(); // nothing on record: no builds in either policy
+    const rating = await screen.findByRole("region", { name: A.title });
+    expect(within(rating).getByText(PENDING_OWNER_COPY.noBuilds)).toBeInTheDocument();
+    expect(within(sales()).getByText(PENDING_OWNER_COPY.noBuilds)).toBeInTheDocument();
+  });
+
+  it("drops that line in a section once its policy lists approved builds", async () => {
+    const server = new FakeAdminFunction();
+    server.seed("rating", "sandbox", { master: false, surfaces: allSurfaces(false), builds: BUILDS });
+    await signIn(OWNER_TOKEN, server);
+    const rating = await screen.findByRole("region", { name: A.title });
+    expect(within(rating).queryByText(PENDING_OWNER_COPY.noBuilds)).toBeNull();
+    expect(within(sales()).getByText(PENDING_OWNER_COPY.noBuilds)).toBeInTheDocument();
+  });
+
   it("losing owner access mid-session (403 on apply) switches to the neutral state", async () => {
     const server = new FakeAdminFunction();
     await signIn(OWNER_TOKEN, server);

@@ -77,6 +77,7 @@
     <h2 class="card-title">{copy.title}</h2>
     <p class="card-body small">{copy.body}</p>
   </div>
+  {#if current.builds.length === 0}<p class="caption" role="note">{PENDING_OWNER_COPY.noBuilds}</p>{/if}
   <div class="allow-list">
     {#each rows as row (row.id)}
       <div class="allow-row" data-inactive={row.inactive || undefined}>

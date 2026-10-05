@@ -25,9 +25,16 @@ publish (see "Publishing" below). Nothing here touches `docs/`.
 - No analytics, no third-party scripts, no tracking, no storage. Strict CSP meta, `noindex, nofollow`,
   `no-referrer`.
 
-The packaged-build allowlist inside each policy is carried through unchanged; this page never edits
-it. "After Apply, prompts are allowed on …" uses the same rule as the server and clients, so a surface
-with no packaged build on the allowlist is not listed.
+### Approved builds (known gap)
+
+Each policy also holds a list of approved app builds, and the server and every client treat a
+surface as switched on only when one of its builds is on that list. This page cannot add builds: it
+carries the list through unchanged, and nothing else fills it yet. So today, with no builds listed,
+turning rating prompts or sales on and pressing Apply succeeds and reads back, but has no effect in
+any app. Each section says so in a line of its own while its list is empty, and "After Apply,
+prompts are allowed on …" follows the same rule, so it lists no surface without an approved build.
+Who fills the list, and how, is an open owner question; until it is answered this page is a way to
+switch things off, or to record a decision, not to turn anything on in the apps.
 
 ## Commands
 
@@ -117,3 +124,5 @@ the shipped sign-in wording are used everywhere else.
 5. Loading failed: "Couldn't load the current state. Try again."
 6. Rollback action: "Undo last change".
 7. The page heading is the word "Still" and the browser tab title is "Still".
+8. While no approved builds are listed, each section says: "No approved app builds are listed yet, so
+   switching this on has no effect until they are."

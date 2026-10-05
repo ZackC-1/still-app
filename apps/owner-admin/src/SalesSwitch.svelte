@@ -57,6 +57,7 @@
     <h2 class="card-title">{pending.salesTitle}</h2>
     <p class="card-body small">{pending.salesBody}</p>
   </div>
+  {#if current.builds.length === 0}<p class="caption" role="note">{pending.noBuilds}</p>{/if}
   <div class="allow-list">
     <div class="allow-row">
       <div class="row-main">
