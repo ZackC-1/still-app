@@ -26,6 +26,7 @@ import {
 } from "./redirect.js";
 import { createReapplyObserver, type Scheduler } from "./observer.js";
 import { admittedMarkers, applyMarker, createMarkerHook, SHORTS_CHIP_MARKER } from "./markers.js";
+import { createYouTubeAutoplayGuard } from "./youtube-autoplay.js";
 import type { TikTokBlockedNavigation } from "./tiktok-blocked-navigation.js";
 
 // The document_start orchestrator. It wires the engine to a live page: reads settings from the
@@ -111,6 +112,10 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   const markers = deps.ruleSetV2 ? admittedMarkers(deps.ruleSetV2) : [];
   const markerHook = modern ? createMarkerHook(doc, markers) : null;
   const modernShortsChips = markers.includes(SHORTS_CHIP_MARKER);
+  // Still Pro Autoplay prevention (format-2 lane only). Inert until reapply reports the feature
+  // effective on a YouTube page; it then listens for the main player's end (youtube-autoplay.ts).
+  const autoplayGuard = modern ? createYouTubeAutoplayGuard(doc, new URL(win.location.href)) : null;
+  if (autoplayGuard) teardowns.push(() => autoplayGuard.stop());
   let resetShortsFilterRequested = false;
   let shortsFilterSearch: string | null = null;
 
@@ -293,6 +298,8 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       // service-wide CSS grant occurs on this path; CSS handles recycled nodes itself.
       pageSession.applyDom(cache.current(), url, doc, modernOptions());
       markerHook?.reconcile(pageSession.effectiveFeatures?.() ?? []);
+      autoplayGuard?.reconcile(pageSession.activeServiceId() === "youtube"
+        && pageSession.effectiveFeatures?.().includes("youtube.autoplay") === true, url);
       // Same Shorts-filter recovery as the legacy lane, under the committed youtube.shorts gate.
       if (modernChipsActive()) prepareYouTubeChips(url);
       else {
@@ -357,8 +364,14 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       if (stopped || started) return;
       started = true;
       // Install hooks synchronously at document_start; their reapply calls are no-ops until hydrated.
+      // The navigations the hooks see also tell the Autoplay guard which playlist the person
+      // chose; recorded before the (possibly consuming) navigation decision.
+      const modernNavigate = (target: URL, mode: "push" | "replace", intent: NavigationIntent): boolean => {
+        autoplayGuard?.navigated(target, intent);
+        return consumeModernNavigation(target, mode, intent);
+      };
       teardowns.push(installNavigationHooks(
-        win, modern ? navigationReapply : reapply, modern ? consumeModernNavigation : undefined,
+        win, modern ? navigationReapply : reapply, modern ? modernNavigate : undefined,
         modern ? doc : undefined, intents,
       ));
       if (!modern) {

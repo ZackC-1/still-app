@@ -284,8 +284,9 @@ describe("youtube.livechat top-level route", () => {
 
 describe("YouTube extras capability table and selector boundaries", () => {
   it("the four are implemented on the Chromium and Firefox hosts only, and count only with paid on and a known host", () => {
+    // The four hide controls plus Autoplay prevention (a content handler, youtube-autoplay.ts).
     for (const host of ["chromium", "firefox"] as const)
-      expect([...IMPLEMENTED_PRO_FEATURES[host]].filter((id) => id.startsWith("youtube.")).sort()).toEqual([...YT_PRO].sort());
+      expect([...IMPLEMENTED_PRO_FEATURES[host]].filter((id) => id.startsWith("youtube.")).sort()).toEqual([...YT_PRO, "youtube.autoplay"].sort());
     expect(IMPLEMENTED_PRO_FEATURES.safari.filter((id) => id.startsWith("youtube."))).toEqual([]);
     for (const host of [undefined, ...ACCESS_HOSTS]) {
       const off = accessCapabilities({ paidMode: PAID_TIER_ENABLED, host });
@@ -298,8 +299,11 @@ describe("YouTube extras capability table and selector boundaries", () => {
       expect(on("safari").has(id)).toBe(false);
       expect(on().has(id), "an unknown host needs every host, Safari included").toBe(false);
     }
-    const unchanged: readonly BenefitId[] = ["youtube.autoplay"];
-    for (const id of unchanged) expect(on("chromium").has(id)).toBe(false);
+    const autoplay: BenefitId = "youtube.autoplay";
+    expect(on("chromium").has(autoplay)).toBe(true);
+    expect(on("firefox").has(autoplay)).toBe(true);
+    expect(on("safari").has(autoplay)).toBe(false);
+    for (const host of [undefined, ...ACCESS_HOSTS]) expect(accessCapabilities({ paidMode: PAID_TIER_ENABLED, host }).has(autoplay)).toBe(false);
   });
 
   it("naming the Safari host changes nothing today: same context, snapshot and paid-on capabilities as no host", () => {

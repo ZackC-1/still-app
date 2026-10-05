@@ -89,6 +89,7 @@ describe("free-protection invariants for the Still Pro extras", () => {
         expect(surface.action).toBe("hide");
       }
       for (const route of extras.routes) expect(proOf(service)).toContain(route.feature);
+      for (const feature of extras.handlers ?? []) expect(proOf(service), `handler ${feature}`).toContain(feature);
       for (const marker of extras.markers) {
         expect(proOf(service)).toContain(marker.feature);
         expect(marker.attribute).not.toBe(SHORTS_CHIP_MARKER.attribute);
