@@ -20,22 +20,11 @@ export interface LocalSettingsStore {
   subscribe(listener: (record: StoredSettingsRecord) => void): () => void;
 }
 
-/**
- * What the app's native handler did with Safari's retained copy (owner decision 30), with the record
- * it holds afterwards. `null` from the dep means the app could not be reached.
- */
-export interface LeftoverAdoption {
-  readonly status: "adopted" | "kept" | "refused";
-  readonly record: StoredSettingsRecord | null;
-}
-
 export interface AppGroupReconcilerDeps {
   /** Read the App-Group value (native `get`). */
   pullFromApp(): Promise<StoredSettingsRecord | null>;
   /** Write a value to the App Group (native `set`). */
   pushToApp(record: StoredSettingsRecord): Promise<void>;
-  /** Offer this extension's retained copy to replace the app's untouched first record (native `settingsAdopt`). */
-  adoptIntoApp(record: StoredSettingsRecord): Promise<LeftoverAdoption | null>;
   /** The local browser.storage-backed store. */
   local: LocalSettingsStore;
 }
@@ -59,19 +48,8 @@ export function createAppGroupReconciler(deps: AppGroupReconcilerDeps): AppGroup
   });
 
   async function reconcile(): Promise<void> {
-    let app = await deps.pullFromApp();
+    const app = await deps.pullFromApp();
     const local = await deps.local.get();
-    // Owner decision 30: after an iPhone reinstall, iOS has wiped the App Group but this extension
-    // still holds the previous install's settings, and the reinstalled app has saved its untouched
-    // first record. That record must never overwrite the retained copy here; the copy is offered to
-    // the app instead, which takes it only while its record is still untouched (decided natively,
-    // under the App Group lock). Whatever the app then holds is reconciled as usual.
-    if (app && local && isUntouchedFirstRecord(app) && !sameRecord(app, local)) {
-      const adoption = await deps.adoptIntoApp(local);
-      // App unreachable, or the copy unreadable there: keep the copy; a later reconcile retries.
-      if (!adoption || adoption.status === "refused" || !adoption.record) return;
-      app = adoption.record;
-    }
     if (app && shouldAppWin(app, local)) {
       lastAppliedKey = recordKey(app); // mark BEFORE set so the resulting onChanged echo is suppressed
       await deps.local.set(app); // app edited more recently → the content script must see it
@@ -81,30 +59,6 @@ export function createAppGroupReconciler(deps: AppGroupReconcilerDeps): AppGroup
   }
 
   return { reconcile, stop: unsubscribe };
-}
-
-/**
- * A first record the app saved on a launch that found nothing saved (owner decision 28), still
- * untouched: commit order zero, never linked or repointed, nothing held, queued or paused. The app's
- * native handler makes the exact check; this only decides whether to ask it.
- */
-export function isUntouchedFirstRecord(record: StoredSettingsRecord): boolean {
-  const state = record.atomic;
-  return Boolean(state) && state!.sequence === 0 && state!.scope.generation === 0 && state!.scope.accountId === null &&
-    state!.scope.sessionId === undefined && state!.anchor === null && state!.pending.length === 0 &&
-    Object.keys(state!.held).length === 0 && state!.paused === null && (record.syncEpoch ?? 0) === 0 &&
-    record.syncMetadata === null && (state!.ownership === "never-linked" || state!.ownership === "unknown");
-}
-
-function sameRecord(a: StoredSettingsRecord, b: StoredSettingsRecord): boolean {
-  return canonical(a) === canonical(b);
-}
-
-function canonical(value: unknown): string {
-  const sorted = (v: unknown): unknown => Array.isArray(v) ? v.map(sorted)
-    : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).filter(k => k !== "intentCommitted").sort()
-      .map(k => [k, sorted((v as Record<string, unknown>)[k])])) : v;
-  return JSON.stringify(sorted(value));
 }
 
 function shouldAppWin(candidate: StoredSettingsRecord, current: StoredSettingsRecord | null): boolean {
