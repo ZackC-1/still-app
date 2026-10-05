@@ -260,6 +260,62 @@ describe("controlled D12 Apple onboarding", () => {
     ).toBeDisabled();
     view.unmount();
   });
+
+  it("announces the host's step count and defaults to four designed steps", async () => {
+    const props = fixture(2);
+    const view = render(AppleOnboarding, { props });
+    expect(screen.getByText("Step 2 of 4")).toBeTruthy();
+    props.progress = { current: 2, total: 3 };
+    await view.rerender(props);
+    expect(screen.getByText("Step 2 of 3")).toBeTruthy();
+    expect(screen.queryByText("Step 2 of 4")).toBeNull();
+    props.step = 4;
+    props.progress = { current: 3, total: 3 };
+    await view.rerender(props);
+    expect(screen.getByText("Step 3 of 3")).toBeTruthy();
+    expect(screen.getByText("Step 3 of 3").parentElement).toHaveClass("ob-top");
+    expect(screen.queryByText(/of 4/)).toBeNull();
+    view.unmount();
+  });
+
+  it("shows a supplied step-4 completion failure as an alert whose Try again forwards once per tap", async () => {
+    const props = fixture(4);
+    const view = render(AppleOnboarding, { props });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    const retry = vi.fn();
+    props.completion = {
+      tone: "failed",
+      text: "We couldn't finish setup.",
+      actionLabel: "Try again",
+      onAction: retry,
+    };
+    await view.rerender(props);
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveClass("status-line");
+    expect(alert).toHaveAttribute("data-tone", "failed");
+    expect(alert).toHaveTextContent("We couldn't finish setup.");
+    const button = screen.getByRole("button", { name: "Try again" });
+    expect(button).toHaveClass("link", "status-action");
+    await fireEvent.click(button);
+    expect(retry).toHaveBeenCalledOnce();
+    await fireEvent.click(button);
+    expect(retry).toHaveBeenCalledTimes(2);
+    expect(props.onOpenSafari).not.toHaveBeenCalled();
+    expect(props.onGoToSettings).not.toHaveBeenCalled();
+    // The completion line belongs to step 4 only.
+    props.step = 3;
+    await view.rerender(props);
+    expect(screen.queryByText("We couldn't finish setup.")).toBeNull();
+    props.step = 4;
+    props.completion = { ...props.completion, onAction: undefined };
+    await view.rerender(props);
+    expect(screen.getByRole("button", { name: "Try again" })).toBeDisabled();
+    props.completion = undefined;
+    await view.rerender(props);
+    expect(screen.queryByRole("alert")).toBeNull();
+    view.unmount();
+  });
 });
 
 // Retain the actual Svelte-installed listeners, including after their DOM nodes leave.
