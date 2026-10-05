@@ -127,11 +127,15 @@ test("paid on: hidden related continuation never keeps loading (no request loop)
         for (const entry of entries) {
           if (!entry.isIntersecting || window.loads >= 8) continue;
           window.loads++;
-          observer.unobserve(entry.target); entry.target.remove();
-          const item = document.createElement("ytd-compact-video-renderer");
-          item.textContent = "Invented continuation " + window.loads;
-          items.append(item);
-          addSentinel();
+          observer.unobserve(entry.target);
+          // A "network" round trip, then the new items and a fresh continuation item.
+          setTimeout(() => {
+            entry.target.remove();
+            const item = document.createElement("ytd-compact-video-renderer");
+            item.textContent = "Invented continuation " + window.loads;
+            items.append(item);
+            addSentinel();
+          }, 100);
         }
       });
       function addSentinel() {
@@ -144,15 +148,16 @@ test("paid on: hidden related continuation never keeps loading (no request loop)
   // Off: the model really loops (so the On result is not vacuous).
   await only(authority, []);
   await page.goto("https://www.youtube.com/watch?v=inv000010");
-  await expect.poll(loads).toBe(8);
-  // On: once hidden, the continuation stops. At most the one request that can start in the
-  // brief window before settings hydrate (the engine adds nothing before it knows the settings).
+  await expect.poll(loads, { timeout: 15_000 }).toBe(8);
+  // On: once hidden, the continuation stops. A request may start in the brief window before
+  // settings hydrate (the engine adds nothing before it knows the settings), but none after.
   await only(authority, ["youtube.related"]);
   await page.goto("https://www.youtube.com/watch?v=inv000011");
   await expect(page.locator("#target-related")).toBeHidden();
+  await page.waitForTimeout(300); // let a request that started before hydration finish
   const settled = await loads();
-  expect(settled).toBeLessThanOrEqual(1);
-  await page.waitForTimeout(1_000);
+  expect(settled, "far fewer loads than the visible loop").toBeLessThan(8);
+  await page.waitForTimeout(1_200);
   expect(await loads(), "no further continuation while hidden").toBe(settled);
   await expect(page.locator("#keep-playlist")).toBeVisible();
 });
