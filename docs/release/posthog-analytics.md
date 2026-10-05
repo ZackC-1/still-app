@@ -204,3 +204,38 @@ RevenueCat never holds money. App Store purchases are paid by Apple (App Store C
 and Financial Reports). Web purchases, if any were ever live, would be in the connected Stripe
 account. The App Manager API key cannot read sales or finance reports; reading them through the API
 needs a key with the Sales and Finance roles.
+
+## Per-device identities and device deletion (V3, not switched on)
+
+Migration 0017 and the `analytics-erasure` function add per-device analytics identities and
+"delete what this device shared". None of it is switched on, and nothing in this section applies
+until the owner approves each step.
+
+**Hard gate.** The per-device path in `analytics-identify` stays off until its own setting,
+`ANALYTICS_SUBJECTS_ENABLED`, is set to exactly `true`. Setting the database login for it does not
+switch it on. Do not set it until both of these are deployed and checked:
+
+1. The account-deletion change that records the analytics deletion before the account is deleted.
+2. Migration 0017's step that, when an account is deleted, keeps a record of that account's
+   per-device identities so they are still deleted from PostHog afterwards.
+
+Until then no per-device identity is ever created, so an account deletion cannot leave one behind.
+
+**Deploy order.** Deploy and verify 0016 on its own first, then 0017 on its own. The deploy planner
+refuses to list them together. Then the owner sets the database login and the function secrets
+(`ANALYTICS_ERASER_DB_URL` and `ANALYTICS_ERASURE_WORKER_TOKEN`), and deploys `analytics-erasure`
+and `analytics-identify`. Each is a separate approved step. Nothing runs the deletion worker on a
+schedule yet.
+
+**When a device shows "deleted".** PostHog deletes a person quickly but deletes that person's events
+later, in a batch (on weekends for PostHog Cloud). A device is therefore shown "Your shared data has
+been deleted." only after a check at least 8 days after PostHog accepted the deletion still finds
+no one. Until then it shows "Confirming deletion with our providers…". Checks continue for 35 days
+in case late events arrive.
+
+**Watching the queue.** Each worker run reports how many jobs it handled. It also logs the line
+`analytics erasure overdue jobs: N` when any job has failed five times in a row; jobs keep retrying,
+at most once a day. A sudden rise in new device jobs is limited: the server accepts at most 200 new
+device deletion jobs in any 10 minutes and asks devices to try again later beyond that. Jobs that
+delete signed-in history are worked first. If the queue of due jobs keeps growing, check the PostHog
+key and project settings before anything else.
