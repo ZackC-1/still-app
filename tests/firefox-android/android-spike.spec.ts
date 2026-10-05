@@ -314,6 +314,22 @@ test("Firefox for Android spike", async () => {
     fixtureDone = true;
     let page: Tab | null = null;
     try {
+      // Pages pick their engine from the saved settings, so wait for the install-time settings first
+      // (the desktop Firefox lane does the same).
+      try {
+        const schema = await firstRun!.waitFor(
+          "the background to commit schema-2 settings",
+          () =>
+            firstRun!.evaluate<number | null>(
+              `browser.storage.local.get("still:settings").then((raw) => raw["still:settings"]?.settings?.schemaVersion ?? null)`,
+            ),
+          (value) => value === 2,
+          20_000,
+        );
+        record("install-time settings committed before the fixture", "pass", { schema });
+      } catch (error) {
+        record("install-time settings committed before the fixture", "fail", String(error));
+      }
       const tab = await anyTab(bidi);
       page = tab;
       // The content script replaces this navigation at document_start, which Firefox reports as an
@@ -337,6 +353,22 @@ test("Firefox for Android spike", async () => {
     } catch (error) {
       record("fixture: m.youtube.com Shorts address ends on the watch page", "fail", String(error));
       expect.soft(String(error)).toBe("");
+      // Evidence for a failure: is Still on the page at all, and does a reload change anything?
+      if (page) {
+        const probe = page;
+        const root = () =>
+          probe
+            .evaluate<string>(`JSON.stringify({ url: location.href, root: document.documentElement.className, navigation: "navigation" in window })`)
+            .catch((reason: unknown) => String(reason));
+        record("fixture evidence: page state after the wait", "info", await root());
+        try {
+          await bidi.send("browsingContext.reload", { context: probe.context, wait: "none" });
+          await sleep(5_000);
+        } catch (reason) {
+          record("fixture evidence: reload", "info", String(reason));
+        }
+        record("fixture evidence: page state after one reload", "info", await root());
+      }
     }
     return page;
   };
