@@ -85,35 +85,45 @@ enum SafariExtensionBridge {
 
   /// Open one fixed destination for the web view's `openDestination` message, after
   /// `NativeOpenRequest.authorize` accepted it. The enable locations use the same calls as
-  /// `openEnableLocation()` above; `safari` launches Safari by its bundle id. `completion` reports
-  /// whether the system accepted the open and is always called once, on the main actor.
-  @MainActor static func open(
-    _ destination: NativeOpenDestination, completion: @escaping @MainActor (Bool) -> Void
-  ) {
-    let finish: (Bool) -> Void = { ok in Task { @MainActor in completion(ok) } }
+  /// `openEnableLocation()` above; `safari` launches Safari by its bundle id. Returns whether the
+  /// system accepted the open.
+  ///
+  /// The system completion handlers run on background queues. This target defaults to main-actor
+  /// isolation, so each handler is an explicitly `@Sendable` (nonisolated) closure that only
+  /// resumes a continuation; the caller's `await` is what returns to the main actor. A handler that
+  /// inherited main-actor isolation would fail Swift 6's runtime isolation check.
+  @MainActor static func open(_ destination: NativeOpenDestination) async -> Bool {
     #if os(macOS)
     switch destination {
     case .safariExtensionSettings:
-      SFSafariApplication.showPreferencesForExtension(withIdentifier: extensionBundleID) { error in
-        finish(error == nil)
+      return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+        SFSafariApplication.showPreferencesForExtension(withIdentifier: extensionBundleID) {
+          @Sendable error in
+          continuation.resume(returning: error == nil)
+        }
       }
     case .safari:
       guard let safari = NSWorkspace.shared.urlForApplication(
         withBundleIdentifier: NativeOpenDestination.safariBundleIdentifier)
-      else { return finish(false) }
-      NSWorkspace.shared.openApplication(
-        at: safari, configuration: NSWorkspace.OpenConfiguration()
-      ) { _, error in finish(error == nil) }
+      else { return false }
+      return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+        NSWorkspace.shared.openApplication(
+          at: safari, configuration: NSWorkspace.OpenConfiguration()
+        ) { @Sendable _, error in
+          continuation.resume(returning: error == nil)
+        }
+      }
     case .settingsAppStillPage:
-      finish(false)
+      return false
     }
     #elseif os(iOS)
     switch destination {
     case .settingsAppStillPage:
-      guard let url = URL(string: UIApplication.openSettingsURLString) else { return finish(false) }
-      UIApplication.shared.open(url, options: [:]) { ok in finish(ok) }
+      guard let url = URL(string: UIApplication.openSettingsURLString) else { return false }
+      // The async form: UIKit resumes this main-actor caller itself, so no handler closure exists.
+      return await UIApplication.shared.open(url, options: [:])
     case .safariExtensionSettings, .safari:
-      finish(false)
+      return false
     }
     #endif
   }

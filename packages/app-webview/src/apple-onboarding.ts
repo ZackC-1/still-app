@@ -50,8 +50,8 @@ export function showAppleOnboardingFirst(
         observeSafariSetup: () => bridge.observeSafariSetup(),
       },
       consent: { purposesVerified: false },
-      openSetup: (location) => void open(location),
-      openSafari: () => void open("safari"),
+      openSetup: (location) => void open(location).then((ok) => warnIfNotOpened(location, ok)),
+      openSafari: () => void open("safari").then((ok) => warnIfNotOpened("safari", ok)),
       destinations: (platform) => (platform === "mac" ? ["safari", "settings"] : ["settings"]),
     },
     {
@@ -65,4 +65,11 @@ export function showAppleOnboardingFirst(
       showSettings: wiring.showSettings,
     },
   );
+}
+
+/** A refused or failed open changes nothing on screen (settings still mount after "Open Safari";
+ * the setup step stays usable), so leave a developer-console trace instead of losing it. No
+ * user-facing copy, and only the fixed destination name is logged. */
+function warnIfNotOpened(destination: string, opened: boolean): void {
+  if (!opened) console.warn(`still: could not open ${destination}`);
 }

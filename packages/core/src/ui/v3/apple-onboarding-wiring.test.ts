@@ -377,11 +377,38 @@ describe("fixed native destinations", () => {
   it("an open that native refuses or that fails leaves onboarding usable", async () => {
     const app = fakeAppleHost({ presenter: "web", platform: "ios" });
     const refused = vi.fn(async () => false);
-    const { view } = await launch(app.bridge, refused);
-    await fireEvent.click(view.getByRole("button", { name: "Continue" }));
-    await fireEvent.click(await view.findByRole("button", { name: "Open Settings" }));
-    expect(refused).toHaveBeenCalledExactlyOnceWith("settingsAppStillPage");
-    expect(view.getByRole("button", { name: "I've turned it on" })).toBeEnabled();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { view } = await launch(app.bridge, refused);
+      await fireEvent.click(view.getByRole("button", { name: "Continue" }));
+      await fireEvent.click(await view.findByRole("button", { name: "Open Settings" }));
+      expect(refused).toHaveBeenCalledExactlyOnceWith("settingsAppStillPage");
+      expect(view.getByRole("button", { name: "I've turned it on" })).toBeEnabled();
+      // Not silently lost: a developer-console trace, no user-facing copy.
+      await waitFor(() =>
+        expect(warn).toHaveBeenCalledExactlyOnceWith("still: could not open settingsAppStillPage"),
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("macOS: an Open Safari that native refuses still mounts settings and leaves a console trace", async () => {
+    const app = fakeAppleHost({ presenter: "web", platform: "macos", osMajorVersion: 15, extensionStatus: "enabled" });
+    const refused = vi.fn(async () => false);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { view, showSettings } = await launch(app.bridge, refused);
+      await fireEvent.click(view.getByRole("button", { name: "Continue" }));
+      await view.findByText("Still is on in Safari.");
+      await fireEvent.click(view.getByRole("button", { name: "Continue" }));
+      await fireEvent.click(await view.findByRole("button", { name: "Open Safari" }));
+      await waitFor(() => expect(showSettings).toHaveBeenCalledOnce());
+      expect(refused).toHaveBeenCalledExactlyOnceWith("safari");
+      await waitFor(() => expect(warn).toHaveBeenCalledExactlyOnceWith("still: could not open safari"));
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("the real opener is used by default and posts nothing outside the app", async () => {

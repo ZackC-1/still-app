@@ -183,8 +183,8 @@ final class WebBridgeRouter {
       case .failure(let refusal):
         reply(nil, "still: open refused (\(refusal.rawValue))")
       case .success(let destination):
-        SafariExtensionBridge.open(destination) { opened in
-          if opened {
+        Task {
+          if await SafariExtensionBridge.open(destination) {
             reply(Self.json(NativeOpenRequest.reply(destination)), nil)
           } else {
             reply(nil, "still: open failed")
