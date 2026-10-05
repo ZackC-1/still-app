@@ -1,8 +1,8 @@
 # Backend security rehearsal
 
 This is the credential-free U1 inventory/assertion/rehearsal slice. Production apply is unavailable.
-No numbered migration is assigned from the local 0001–0013 inventory. The unnumbered SQL candidates
-change privilege reachability in synthetic CI; they do not add a settings schema or change rights.
+The unnumbered U1 SQL candidates change privilege reachability in synthetic CI; they do not change
+rights. The settings schema is numbered migration 0015 (see "Settings server migration" below).
 
 Run `node --test scripts/backend/plan.test.mjs` for immutable source/target/scope checks. The actual
 SQL test requires the new `Supabase security rehearsal` GitHub job. `rehearse.sh` refuses the owner
@@ -215,29 +215,76 @@ Resume only the reviewed remaining steps and verify final authorized/denied beha
 state or safe repair cannot be proven, leave apply unavailable and recover through the reviewed
 incident process. This contract makes no universally lossless rollback promise.
 
-## Settings server candidate
+## Settings server migration (0015)
 
-`sql/settings-sync-candidate.sql` is unnumbered source for the authenticated `sync-settings`
-consumer. It keeps canonical profiles and private per-account HMAC identity locked in the same
-PostgreSQL transaction while the maintained WebCrypto verifier and shared preserving migrator
-and field ordering execute. `still_settings_writer` has helper/rate-limit EXECUTE only, no
-settings/entitlement table access or client membership. Production login/password configuration,
-migration numbering and deployment require the protected exact-operation workflow.
+`supabase/migrations/0015_settings_sync_per_field.sql` is the numbered server side of the
+authenticated `sync-settings` consumer, promoted from the reviewed unnumbered candidate and applied
+by the ordinary `postgres` migration role (it refuses any other executing role). It keeps canonical
+profiles and private per-account HMAC identity locked in the same PostgreSQL transaction while the
+maintained WebCrypto verifier and shared preserving migrator and field ordering execute.
+`still_settings_writer` has helper/rate-limit EXECUTE only, no settings/entitlement table access or
+client membership; the only membership in it is the automatic non-inheriting admin grant PostgreSQL
+records for its CREATEROLE creator. The migration ends with a fail-closed self-check in the style
+of 0014 and is idempotent. Production login/password configuration and the function deployment are
+separate owner-approved steps; `deploy/verify/0015_settings_sync_per_field.sql` is its read-only
+post-apply check.
 
-The candidate retains the free authenticated legacy RPC return shape. Recognized coarse writes
-require an integer timestamp no later than server UTC and strictly newer than the previous
-projection. After accepted modern field intent, coarse writes require an upgraded client. Exact
-retained retries return current canonical state. Settings write identities retain their original
-JSON for 30 days within the settings domain. Both write paths share database admission of at most
-120 new identities in a rolling minute, 4,096 retained identities and 4 MiB of retained request
-JSON per account. Exact retained retries bypass new-identity admission; full budgets reject new
-writes atomically without evicting unexpired identities. The trusted minute schedule physically
-deletes up to 4,096 expired identities per sweep, including inactive accounts. Expired retries
-use their original stamps and cannot
+Free sync for released apps keeps its 0012 behaviour: any signed-in account may write any JSON
+object, the row is replaced, the version increments and database time is stamped; there is no
+write-id deduplication or timestamp arbitration on that path. 0015 adds one guard: the legacy RPC
+takes the same per-account lock as the writer path and then refuses, with
+`settings client upgrade required` (40001) and no change, an account that has saved through the
+per-field path, whose stored document carries a `schemaVersion` other than 1, or whose incoming
+document carries a `schemaVersion` other than 1. The stricter
+coarse-write grammar and timestamp arbitration in the earlier candidate were not adopted, because
+they would have refused writes that released apps make today (for example from a device whose
+clock runs ahead of the server).
+
+Every SECURITY DEFINER function in `public` and `private`, and every function in `private`, uses
+`set search_path = pg_catalog, pg_temp`. An empty search_path is not enough: PostgreSQL still
+searches the caller's own temporary schema first for type names, so any session that can call a
+definer could plant a `pg_temp.text` (or `jsonb`, `uuid`, ...) domain whose CHECK would run with the
+owner's rights. 0015 re-pins the 0013/0014 definers it does not replace and its self-check refuses
+any definer whose path does not end in `pg_temp`. Later migrations must use the same form.
+
+### Deploy order
+
+0014 must be deployed and verified on its own before 0015. 0014's post-apply check pins the
+free-sync body, the limiter's grantees and the empty search_path, all of which 0015 deliberately
+changes, so a single run listing both would fail 0014's check after applying. The deploy planner
+(`deploy/deploy.mjs`) refuses any plan in which a later listed migration changes a routine that an
+earlier listed migration's post-apply check names (category `verification-overlap`). The check reads
+the SQL text, so it is best-effort: quoted identifiers, `ALTER ROUTINE`, dynamic SQL and similar forms are
+not recognised, and the earlier migration's post-apply check is still the final safeguard. Deploy 0014
+from its own commit, confirm it verified, then deploy 0015 alone. Re-running 0014's check after 0015
+reports those changes; that is expected and not a regression.
+
+### Owner steps after 0015 is applied (separate approval, never in Git)
+
+1. Give the writer a login without putting a cleartext password in SQL text. Either connect with
+   `psql` as `postgres`, run `alter role still_settings_writer login;` and then
+   `\password still_settings_writer` (psql hashes the password client-side before sending it), or
+   generate a SCRAM verifier offline and run `alter role still_settings_writer login password
+   'SCRAM-SHA-256$4096:<salt>$<stored key>:<server key>';`. Never paste a real password or verifier
+   into a document, commit, ticket or chat.
+2. Build `SETTINGS_WRITER_DB_URL` for the project's connection pooler (Supavisor), whose user name
+   is `still_settings_writer.<project-ref>`, and store it only as an Edge Function secret. It never
+   goes into a repository file, a workflow log or another function.
+3. Before deploying `sync-settings`, connect once as the writer through that pooler URL and run
+   `show log_parameter_max_length;` and `show log_parameter_max_length_on_error;`. Both must return
+   `0` (and `show statement_timeout;` returns `2s`). If either differs, stop: the private anchor key
+   could reach database logs.
+
+Per-field write identities retain their original JSON for 30 days within the settings domain.
+Database admission allows at most 120 new identities in a rolling minute, 4,096 retained
+identities and 4 MiB of retained request JSON per account. Exact retained retries bypass
+new-identity admission; full budgets reject new writes atomically without evicting unexpired
+identities. The trusted minute schedule physically deletes up to 4,096 expired identities per
+sweep, including inactive accounts. Expired retries use their original stamps and cannot
 receive a new rank. Account deletion cascades anchors and identities. Unsupported/malformed
 canonical data produces a typed hold and is never treated as empty.
 
-Legacy canonical validation covers every maintained field and stamp, shared structural bounds,
+Canonical validation covers every maintained field and stamp, shared structural bounds,
 future known bases and safe revision saturation. Source-equality checks and raw-input SQL probes
 guard this compatibility boundary. Modern SQL applies known values/stamp coordinates onto the
 original database JSON; opaque numeric and stamp members are not rewritten through JavaScript's
@@ -256,8 +303,10 @@ checks that separate audit parameter logging is disabled. Production logging/pro
 still requires target verification and approval.
 
 The read-only `supabase-settings-rehearsal.yml` job starts Supabase only on an ephemeral hosted
-runner. A successful run must establish actual managed-owner ordinary-role denial and rollback, explicit synthetic
-administrator apply, private/narrow grants, authenticated SQL adapter operations and actual
+runner. A successful run must establish 0015 applied by the ordinary migration role both as an
+upgrade from 0014 with realistic released-app rows (`settings_sync_migration_seed.sql`) and on a
+clean head (`settings_sync_migration_test.ts`), private/narrow grants, authenticated SQL adapter
+operations and actual
 Supabase CLI function serve with function-specific import aliases. Runtime source outside
 `supabase/functions` is included in the immutable plan digest and checked against Deno's actual
 resolved graph, including dropped/added dependency controls and the pinned CLI's raw-specifier
@@ -285,7 +334,7 @@ PL/pgSQL bodies with maintained `pglast` before publishing. Hosted checks use
 `bash scripts/backend/rehearse-settings.sh <exact revision> <source digest>` with a
 `$RUNNER_TEMP/u3-plan.json` created by `plan.mjs`. Never run Docker or a database on the owner's Mac.
 
-This candidate does not complete U2/U3/U4: browser/native atomic writers, session-generation
+This migration does not complete U2/U3/U4: browser/native atomic writers, session-generation
 fences, pending acknowledgement integration, same-account raw CAS repair, compiled native
 vectors and the effective access/proof resolver remain separate required integrations. Expanded
 client persistence stays unexposed until server compatibility protections and full reviews pass.

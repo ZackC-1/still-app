@@ -129,7 +129,9 @@ with recursive clients as (
     select 1 from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid = p.pronamespace
     where n.nspname in ('public', 'still_security') and p.prosecdef
       and p.oid not in (select oid from approved_providers)
-      and not coalesce(p.proconfig @> array['search_path=""']::text[], false))
+      -- Empty (0014) or pg_temp-last (0015 and later, the documented SECURITY DEFINER form).
+      and not coalesce(p.proconfig @> array['search_path=""']::text[]
+        or p.proconfig @> array['search_path=pg_catalog, pg_temp']::text[], false))
   union all select 'global_default_execute' where exists (
     select 1 from creators c
     left join pg_catalog.pg_default_acl d on d.defaclrole = c.oid and d.defaclnamespace = 0 and d.defaclobjtype = 'f'

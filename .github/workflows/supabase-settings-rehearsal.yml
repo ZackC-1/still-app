@@ -32,7 +32,7 @@ jobs:
       - uses: supabase/setup-cli@v1
         with:
           version: "2.119.0"
-      - name: Parse candidate SQL and all PLpgSQL bodies
+      - name: Parse migration 0015 SQL and all PLpgSQL bodies
         run: |
           python3 -m venv "$RUNNER_TEMP/u3-parser"
           "$RUNNER_TEMP/u3-parser/bin/python" -m pip install --disable-pip-version-check pglast==7.20
@@ -40,7 +40,7 @@ jobs:
           from pathlib import Path
           import re
           from pglast import parse_sql, parse_plpgsql
-          source = Path('scripts/backend/sql/settings-sync-candidate.sql').read_text()
+          source = Path('supabase/migrations/0015_settings_sync_per_field.sql').read_text()
           print('statements', len(parse_sql(source)), 'PLpgSQL', len(parse_plpgsql(source)))
           for body in re.findall(r'\$\$(.*?)\$\$', source, re.S):
               if body.lstrip().lower().startswith(('select ', 'with ', 'delete ', 'set ')):
@@ -51,7 +51,7 @@ jobs:
           node --test scripts/backend/plan.test.mjs scripts/backend/entrypoints.test.mjs
           cd supabase/functions
           deno check --frozen */index.ts
-          deno test --frozen --allow-read=../migrations/0013_counter_retention.sql,../../scripts/backend/sql/settings-sync-candidate.sql
+          deno test --frozen --allow-read=../migrations/0013_counter_retention.sql,../migrations/0015_settings_sync_per_field.sql
           git diff --exit-code -- deno.lock
       - name: Bind exact credential-free synthetic source
         id: plan
