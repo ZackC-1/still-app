@@ -12,7 +12,7 @@ import {
   type AnalyticsSurface,
 } from "./events.js";
 import { isAnalyticsId, type AnalyticsIdentity, type AnalyticsKeyValue } from "./identity.js";
-import { originProof } from "./derive.js";
+import { ANON_INDEX_LIMIT, originProof } from "./derive.js";
 import type { ErasureService } from "./erasure.js";
 import type {
   UiAnalytics,
@@ -165,8 +165,9 @@ export type SubjectReply = { readonly state: "active"; readonly subject: string 
  * origin; the origin itself never leaves the device.
  */
 export interface SubjectDeps {
-  /** POST {originProof} to analytics-identify as the signed-in account; resolve its JSON reply. */
-  readonly issue: (body: { readonly originProof: string }, signal: AbortSignal) => Promise<unknown>;
+  /** POST {originProof} to analytics-identify with `account`'s own session (a host must refuse if
+   * its session is for another account); resolve the JSON reply. */
+  readonly issue: (body: { readonly originProof: string }, signal: AbortSignal, account: string) => Promise<unknown>;
   /** The server stopped this device (it was erased): end the permission in force here. */
   readonly onStopped: () => Promise<void>;
 }
@@ -337,7 +338,7 @@ export function createAccountIdentifier(deps: {
         const proof = await originProof(origin);
         const reply = subjectReply(
           await Promise.race([
-            deps.subjects!.issue({ originProof: proof }, controller.signal),
+            deps.subjects!.issue({ originProof: proof }, controller.signal, account),
             new Promise<never>((_, reject) => {
               timer = setTimeout(() => {
                 controller.abort();
@@ -361,17 +362,31 @@ export function createAccountIdentifier(deps: {
     subjectRequests.set(key, attempt);
     return attempt;
   };
-  const identifySubject = async (account: string, options: TrackOptions): Promise<void> => {
-    if (!isAnalyticsId(account) || !client.enabled) return;
+  /** The last account a host asked for, and the client state it was asked under. A later Still
+   * screen retries a subject request that failed, only while nothing has changed since (a sign-out,
+   * a deletion or a permission change makes the stamp stale, so a stale account is never restored). */
+  let wanted: { readonly account: string; readonly stamp: ReturnType<AnalyticsClient["stamp"]> } | null = null;
+  /** The account whose subject the client was last confirmed under. */
+  let confirmedAccount: string | null = null;
+  const identifySubject = async (asked: string, options: TrackOptions): Promise<void> => {
+    if (!isAnalyticsId(asked) || !client.enabled) return;
+    const account = asked.toLowerCase();
+    // A different account than the one confirmed: stop attributing to the previous one now, even
+    // if this one's subject cannot be confirmed yet.
+    if (confirmedAccount !== null && confirmedAccount !== account) {
+      confirmedAccount = null;
+      await client.withdrawConfirmation();
+    }
+    wanted = { account, stamp: client.stamp() };
     // Who reports here is decided under the permission in force; without one nothing is attributed.
     const observation = await client.captureObservation();
     if (!observation) return;
-    let subject = await cachedSubject(account.toLowerCase(), observation.permission.origin);
+    let subject = await cachedSubject(account, observation.permission.origin);
     if (!subject) {
       // A background start never calls the server (its timing would mark a site visit): events
       // wait unattributed until an ordinary Still screen obtains the subject.
       if (options.quiet) return;
-      const issued = await requestSubject(account.toLowerCase(), observation);
+      const issued = await requestSubject(account, observation);
       if (issued === "stopped") {
         if (await client.observationCurrent(observation)) await deps.subjects!.onStopped();
         return;
@@ -380,17 +395,27 @@ export function createAccountIdentifier(deps: {
       subject = issued;
     }
     if (!(await client.observationCurrent(observation))) return;
-    await client.confirm(subject, { quiet: options.quiet, accountId: account.toLowerCase() });
+    await client.confirm(subject, { quiet: options.quiet, accountId: account });
+    confirmedAccount = account;
   };
 
   return {
     async identify(userId, options = {}) {
       if (deps.subjects) return identifySubject(userId, options);
-      await client.identify(userId, options);
-      if (!options.quiet) await attach();
+      // Without per-device subjects there is no identity to report under: never fall back to the
+      // account id (owner decision 50). Signed-in events wait unattributed.
+      void userId;
+      void options;
     },
-    // With per-device subjects the email is set when the subject is issued: no separate attach.
-    attach: deps.subjects ? async () => undefined : attach,
+    // With per-device subjects the email is set when the subject is issued, so there is no separate
+    // attach: an ordinary screen instead retries a subject request that has not succeeded yet.
+    attach: deps.subjects
+      ? async () => {
+          const asked = wanted;
+          if (!asked || client.accountConfirmed || !client.isCurrent(asked.stamp)) return;
+          await identifySubject(asked.account, {});
+        }
+      : attach,
   };
 }
 
@@ -530,8 +555,10 @@ export function createExtensionAnalyticsHost(
         if (!request.enabled) await client.clearQueue();
         // Only after the local stop: record the durable erasure obligation, then try to send it.
         if (ending?.state === "granted" && deps.erasure) {
+          // An index that cannot be read is never taken as 0: erase every index the origin could
+          // have used (ids it never used match no person, which is harmless).
           const index = await client.erasureIndex(ending.origin);
-          if (await deps.erasure.record(ending, index ?? 0)) void deps.erasure.kick();
+          if (await deps.erasure.record(ending, index ?? ANON_INDEX_LIMIT)) void deps.erasure.kick();
         }
         if (request.enabled && (await client.canReport())) {
           await client.track("analytics_choice_made", { choice: "share" });

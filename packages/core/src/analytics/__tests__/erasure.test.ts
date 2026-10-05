@@ -1,5 +1,4 @@
 // Per-device identities and device-slice erasure on the client (U5-W2 part 1, owner decision 50).
-import { createHash, createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import {
   AnalyticsClient,
@@ -12,18 +11,18 @@ import { CONSENT_KEY, createStoredConsent, readAnalyticsPermission, type Analyti
 import {
   ANON_INDEX_LIMIT,
   deriveAnonymousId,
-  deriveAnonymousIds,
   deriveDeviceId,
+  erasureKey,
   originProof,
+  toHex,
 } from "../derive.js";
-import { createErasureService, ERASURE_LEDGER_KEY, type ErasureRequest } from "../erasure.js";
+import { createErasureService, ERASURE_LEDGER_KEY, ERASURE_LEDGER_LIMIT, type ErasureRequest } from "../erasure.js";
 import {
   ANALYTICS_MESSAGE_KIND,
   createExtensionAnalyticsHost,
   SUBJECTS_KEY,
   type SubjectDeps,
 } from "../extension-host.js";
-import { isAnalyticsId } from "../identity.js";
 import { TEST_PERMISSION, TEST_PRIVACY } from "./privacy-fixture.js";
 
 const ID = {
@@ -77,45 +76,6 @@ function harness(over: Partial<AnalyticsClientDeps> = {}) {
     sent: () => bodies.flatMap((b) => b.batch),
   };
 }
-
-const node = {
-  uuid(digest: Buffer) {
-    const b = Buffer.from(digest.subarray(0, 16));
-    b[6] = (b[6]! & 0x0f) | 0x40;
-    b[8] = (b[8]! & 0x3f) | 0x80;
-    const h = b.toString("hex");
-    return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
-  },
-  hmac(origin: string, label: string) {
-    return node.uuid(createHmac("sha256", Buffer.from(origin, "utf8")).update(label).digest());
-  },
-};
-
-describe("derived provider ids (derive.ts)", () => {
-  it("matches the fixed reference vectors and an independent implementation", async () => {
-    // Fixed vectors: any change to a label, the key encoding or the UUID layout changes them.
-    expect(await deriveAnonymousId(ORIGIN, 0)).toBe("2203068f-638e-4300-bb1b-eafb535e893f");
-    expect(await deriveAnonymousId(ORIGIN, 1)).toBe("6df45121-48d4-40e7-bf93-2912f19bad16");
-    expect(await deriveAnonymousId(ORIGIN, 255)).toBe("a110e5b2-cfc0-44df-a97e-2bfddcc6f13f");
-    expect(await deriveDeviceId(ORIGIN)).toBe("04051239-75c6-428e-9dda-af277e430dfe");
-    expect(await originProof(ORIGIN)).toBe("3183e11dc4a0bc3fd8e30bccffb90a695b56e5453e9429440d32c88f976b6b7a");
-    for (const k of [0, 7, 42]) {
-      expect(await deriveAnonymousId(ORIGIN, k)).toBe(node.hmac(ORIGIN, `still:analytics:anon:0:${k}`));
-    }
-    expect(await originProof(ORIGIN)).toBe(createHash("sha256").update(ORIGIN).digest("hex"));
-  });
-
-  it("derives distinct valid ids per index, never equal to the device id or the origin", async () => {
-    const ids = await deriveAnonymousIds(ORIGIN, 9);
-    expect(new Set(ids).size).toBe(10);
-    expect(ids.every(isAnalyticsId)).toBe(true);
-    expect(ids).not.toContain(await deriveDeviceId(ORIGIN));
-    expect(ids).not.toContain(ORIGIN);
-    expect(await originProof(ORIGIN)).not.toContain(ORIGIN.replaceAll("-", ""));
-    await expect(deriveAnonymousId(ORIGIN, ANON_INDEX_LIMIT + 1)).rejects.toThrow();
-    await expect(deriveAnonymousId(ORIGIN.toUpperCase(), 0)).rejects.toThrow();
-  });
-});
 
 describe("consent grant", () => {
   it("derives both provider ids from the new private origin", async () => {
@@ -260,6 +220,23 @@ describe("per-device subjects through the host", () => {
     extension.stop();
   });
 
+  it("without per-device subjects the host never confirms the account id", async () => {
+    const h = harness();
+    const extension = createExtensionAnalyticsHost({
+      ...h.deps,
+      permission: async () => readAnalyticsPermission(await h.deps.permission?.()),
+      local: h.store,
+      noticeApplies: false,
+      isTrustedPage: () => true,
+    });
+    await extension.identify(ACCOUNT);
+    await extension.client.track("opened", { where: "popup" });
+    await extension.client.flush();
+    expect(JSON.stringify(h.bodies)).not.toContain(ACCOUNT);
+    expect(JSON.stringify(h.store.data[STATE_KEY] ?? {})).not.toContain(ACCOUNT);
+    extension.stop();
+  });
+
   it("a background start never asks the server; events wait unattributed", async () => {
     const { host: extension, requests } = host(() => ({ state: "active", subject: SUBJECT }));
     await extension.identify(ACCOUNT, { quiet: true });
@@ -286,9 +263,12 @@ describe("per-device subjects through the host", () => {
 });
 
 describe("device erasure (erasure.ts)", () => {
-  const permission: AnalyticsPermission = { ...TEST_PERMISSION, origin: ORIGIN };
-  function service(reply: (body: ErasureRequest) => unknown) {
-    const store = memory();
+  const derivedPermission = async (origin: string): Promise<AnalyticsPermission> => ({
+    ...TEST_PERMISSION,
+    origin,
+    provider: { anonymousId: await deriveAnonymousId(origin, 0), deviceId: await deriveDeviceId(origin) },
+  });
+  function service(reply: (body: ErasureRequest) => unknown, store = memory()) {
     const sent: ErasureRequest[] = [];
     const erasure = createErasureService({
       store,
@@ -298,28 +278,29 @@ describe("device erasure (erasure.ts)", () => {
     return { store, sent, erasure };
   }
 
-  it("records a durable obligation and submits only the proof and this device's anonymous ids", async () => {
+  it("records a durable obligation and sends only the erasure key and the last index: no ids", async () => {
+    const permission = await derivedPermission(ORIGIN);
     const { sent, erasure, store } = service(() => ({ state: "requested" }));
     expect(await erasure.withdrawal()).toBe("none");
     expect(await erasure.record(permission, 2)).toBe(true);
     expect(await erasure.owns(ORIGIN)).toBe(true);
     expect(await erasure.owns(TEST_PERMISSION.origin)).toBe(false);
     await erasure.kick();
-    expect(sent).toEqual([
-      {
-        action: "device",
-        originProof: await originProof(ORIGIN),
-        anonymousIds: [
-          TEST_PERMISSION.provider.anonymousId,
-          await deriveAnonymousId(ORIGIN, 1),
-          await deriveAnonymousId(ORIGIN, 2),
-        ],
-      },
-    ]);
-    // NEGATIVE CONTROL (consent handle): the request never carries the origin.
-    expect(JSON.stringify(sent)).not.toContain(ORIGIN);
+    expect(sent).toEqual([{ action: "device", erasureKey: toHex(await erasureKey(ORIGIN)), anonIndex: 2 }]);
+    // NEGATIVE CONTROL (consent handle): the request never carries the origin, nor any id.
+    const wire = JSON.stringify(sent);
+    expect(wire).not.toContain(ORIGIN);
+    for (const k of [0, 1, 2]) expect(wire).not.toContain(await deriveAnonymousId(ORIGIN, k));
     expect(await erasure.withdrawal()).toBe("requested");
     expect((store.data[ERASURE_LEDGER_KEY] as unknown[]).length).toBe(1);
+    // The erasure key is not the identify proof: the proof alone gives no erase power.
+    expect(toHex(await erasureKey(ORIGIN))).not.toBe(await originProof(ORIGIN));
+  });
+
+  it("refuses a permission whose ids were not derived from its origin (nothing could erase them)", async () => {
+    const { erasure } = service(() => ({ state: "requested" }));
+    expect(await erasure.record({ ...TEST_PERMISSION, origin: ORIGIN }, 0)).toBe(false);
+    expect(await erasure.owns(ORIGIN)).toBe(false);
   });
 
   it("a failed send reads as failed with retry; status then follows the server to deleted", async () => {
@@ -329,7 +310,7 @@ describe("device erasure (erasure.ts)", () => {
       if (offline) throw new Error("offline");
       return { state: body.action === "device" ? "requested" : stage };
     });
-    await erasure.record(permission, 0);
+    await erasure.record(await derivedPermission(ORIGIN), 0);
     await erasure.kick();
     expect(await erasure.withdrawal()).toBe("failed");
     offline = false;
@@ -343,7 +324,6 @@ describe("device erasure (erasure.ts)", () => {
     expect(await erasure.withdrawal()).toBe("deleted");
     await erasure.acknowledge();
     expect(await erasure.withdrawal()).toBe("none");
-    // Deleted is final: no more requests, and the cleanup stays owned.
     const before = sent.length;
     await erasure.kick();
     expect(sent.length).toBe(before);
@@ -354,25 +334,59 @@ describe("device erasure (erasure.ts)", () => {
   it("a server with no record gets the request again; an unreadable reply is never success", async () => {
     let reply: unknown = { state: "none" };
     const { sent, erasure } = service(() => reply);
-    await erasure.record(permission, 0);
-    await erasure.kick(); // submit → "none" keeps it unsent
+    await erasure.record(await derivedPermission(ORIGIN), 0);
+    await erasure.kick();
     await erasure.kick();
     expect(sent.map((b) => b.action)).toEqual(["device", "device"]);
     reply = { state: "done" };
     await erasure.kick();
     expect(await erasure.withdrawal()).toBe("failed");
     const unconfigured = createErasureService({ store: memory() });
-    await unconfigured.record(permission, 0);
+    await unconfigured.record(await derivedPermission(ORIGIN), 0);
     await unconfigured.kick();
     expect(await unconfigured.withdrawal()).toBe("failed");
   });
 
   it("refuses to record what storage does not keep", async () => {
-    const erasure = createErasureService({
-      store: { get: async () => undefined, set: async () => {} },
-    });
-    expect(await erasure.record(permission, 0)).toBe(false);
+    const erasure = createErasureService({ store: { get: async () => undefined, set: async () => {} } });
+    expect(await erasure.record(await derivedPermission(ORIGIN), 0)).toBe(false);
     expect(await erasure.owns(ORIGIN)).toBe(false);
+  });
+
+  it("NEGATIVE CONTROL: nine stops while the server is down never evict a pending obligation", async () => {
+    const ledger = memory();
+    const authority = memory();
+    const { erasure } = service(() => {
+      throw new Error("server down");
+    }, ledger);
+    const consent = createStoredConsent(authority, false, { cleanupOwned: (origin) => erasure.owns(origin) });
+    const origins: string[] = [];
+    for (let cycle = 1; cycle <= 9; cycle++) {
+      await consent.grant(TEST_PERMISSION.version);
+      const granted = (await consent.read())!;
+      origins.push(granted.origin);
+      await consent.set(false);
+      expect(await erasure.record(granted, 0)).toBe(cycle <= ERASURE_LEDGER_LIMIT);
+      await erasure.kick();
+    }
+    // Every pending obligation is still there; the ninth was refused, so its tombstone holds.
+    for (const origin of origins.slice(0, ERASURE_LEDGER_LIMIT)) expect(await erasure.owns(origin)).toBe(true);
+    expect(await erasure.owns(origins[8]!)).toBe(false);
+    await expect(consent.grant(TEST_PERMISSION.version)).rejects.toThrow("Previous permission cleanup is pending");
+    expect((ledger.data[ERASURE_LEDGER_KEY] as unknown[]).length).toBe(ERASURE_LEDGER_LIMIT);
+  });
+
+  it("a deleted entry makes room for a new obligation; a pending one never does", async () => {
+    let state = "requested";
+    const ledger = memory();
+    const { erasure } = service(() => ({ state }), ledger);
+    const origins = Array.from({ length: 9 }, (_, i) => `5f1c2a3e-8b7d-4c6a-9e0f-${String(i).padStart(12, "0")}`);
+    for (const origin of origins.slice(0, 8)) expect(await erasure.record(await derivedPermission(origin), 0)).toBe(true);
+    expect(await erasure.record(await derivedPermission(origins[8]!), 0)).toBe(false);
+    state = "deleted";
+    await erasure.kick(); // every entry is sent, then reported deleted by the server
+    expect(await erasure.record(await derivedPermission(origins[8]!), 0)).toBe(true);
+    expect(await erasure.owns(origins[8]!)).toBe(true);
   });
 });
 
@@ -468,5 +482,33 @@ describe("per-device subjects through the Apple app", () => {
     expect(queued.length).toBeGreaterThan(0);
     expect(queued.every((e) => e.properties.distinct_id === SUBJECT)).toBe(true);
     expect(JSON.stringify([queued, requests, bodies])).not.toContain(ACCOUNT);
+  });
+});
+
+describe("an unreadable anonymous index", () => {
+  it("is never taken as 0: the erasure covers every index the origin could have used", async () => {
+    const authority = memory();
+    const erasure = createErasureService({ store: memory(), transport: async () => ({ state: "requested" }) });
+    const record = vi.spyOn(erasure, "record");
+    const consent = createStoredConsent(authority, false, { cleanupOwned: (origin) => erasure.owns(origin) });
+    await consent.grant(TEST_PERMISSION.version);
+    const h = harness({ permission: () => consent.read(), consent: () => consent.get() });
+    const extension = createExtensionAnalyticsHost({
+      ...h.deps,
+      permission: async () => readAnalyticsPermission(await consent.read()),
+      local: h.store,
+      noticeApplies: false,
+      isTrustedPage: () => true,
+      erasure,
+      commitPermission: async (enabled) => (enabled ? consent.grant(TEST_PERMISSION.version) : consent.set(false)),
+    });
+    // This client never recorded anything under the origin, so it cannot say which index it used.
+    const response = new Promise((resolve) =>
+      extension.listener({ kind: ANALYTICS_MESSAGE_KIND, action: "setSharing", enabled: false }, {}, resolve),
+    );
+    await response;
+    expect(record).toHaveBeenCalledTimes(1);
+    expect(record.mock.calls[0]![1]).toBe(ANON_INDEX_LIMIT);
+    extension.stop();
   });
 });

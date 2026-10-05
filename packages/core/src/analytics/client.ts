@@ -469,6 +469,23 @@ export class AnalyticsClient {
     if (!retrying && !options.quiet && (await this.readQueue()).length > 0) this.scheduleFlush();
   }
 
+  /**
+   * The host knows who is signed in has changed but cannot name the provider identity yet (a
+   * per-device subject not issued yet): stop attributing to the previous identity at once. Work
+   * asked before now is fenced, nothing is sent, and waiting events stay unattributed until a
+   * later `confirm`.
+   */
+  withdrawConfirmation(): Promise<void> {
+    this.cancel();
+    this.generation += 1;
+    this.lastAsked = undefined;
+    this.confirmed = false;
+    return this.run(async () => {
+      this.confirmed = false;
+      this.pending = null;
+    });
+  }
+
   /** A sign-in: shorthand for `confirm(userId)`. */
   identify(userId: string, options: TrackOptions = {}): Promise<void> {
     return this.confirm(userId, { quiet: options.quiet });

@@ -1,5 +1,5 @@
 import type { AnalyticsPermission } from "./consent.js";
-import { ANON_INDEX_LIMIT, deriveAnonymousId, originProof } from "./derive.js";
+import { ANON_INDEX_LIMIT, deriveAnonymousId, erasureKey, toHex } from "./derive.js";
 import { isAnalyticsId, type AnalyticsKeyValue } from "./identity.js";
 
 // Device-slice erasure on the device (U5-W2, D144). Turning "Share email and usage data" off on one
@@ -8,13 +8,14 @@ import { isAnalyticsId, type AnalyticsKeyValue } from "./identity.js";
 // Order (the local stop always comes first and needs no network):
 //   1. The host stops sharing locally (permission stopped, queue discarded and verified empty).
 //   2. `record` writes a durable obligation to the erasure ledger, in the same store as the
-//      permission: the stopped origin, its first anonymous id and the last anonymous index used.
+//      permission: the stopped origin and the last anonymous index used under it.
 //   3. `kick`, at an ordinary Still screen only (never a background start), sends
-//      {action: "device", originProof, anonymousIds} to analytics-erasure, retries an unsent entry
-//      at every later screen, and follows a sent one with status checks until it is deleted.
+//      {action: "device", erasureKey, anonIndex} to analytics-erasure, retries an unsent entry at
+//      every later screen, and follows a sent one with status checks until it is deleted.
 //
-// What leaves the device: the origin proof (a one-way hash of the private origin) and the anonymous
-// ids the device itself sent under. Never the origin, never an account id, never an email. No
+// What leaves the device: the erasure key E (a one-way HMAC of the private origin, derive.ts) and
+// the last index. The server derives the anonymous ids and finds the device's subjects from E
+// itself; the request names no id. Never the origin, never an account id, never an email. No
 // farewell event is sent. No account is needed.
 //
 // The states map onto the sharing card's approved withdrawal lines (v3.2 SharingSetting):
@@ -25,7 +26,9 @@ import { isAnalyticsId, type AnalyticsKeyValue } from "./identity.js";
 // Pending is never success: only the server's confirmed stage reads as deleted.
 
 export const ERASURE_LEDGER_KEY = "still:analytics:erasures";
-/** The newest entries are kept; an older entry is dropped only once it is deleted, or to make room. */
+/** At most this many entries. Only a deleted entry is ever dropped to make room: a pending one is an
+ * obligation, so a ledger full of pending entries refuses to record another (and the stopped
+ * permission then keeps refusing a new Share until one completes). */
 export const ERASURE_LEDGER_LIMIT = 8;
 /** Longest one erasure request may take. */
 export const ERASURE_REQUEST_LIMIT_MS = 15_000;
@@ -36,7 +39,6 @@ export type ErasureWithdrawal = "none" | "requested" | "verifying" | "deleted" |
 
 export interface ErasureEntry {
   readonly origin: string;
-  readonly firstAnonymousId: string;
   readonly anonIndex: number;
   readonly state: ErasureEntryState;
   /** An attempt to send it failed; cleared when the server accepts it. */
@@ -47,8 +49,8 @@ export interface ErasureEntry {
 }
 
 export type ErasureRequest =
-  | { readonly action: "device"; readonly originProof: string; readonly anonymousIds: readonly string[] }
-  | { readonly action: "status"; readonly originProof: string };
+  | { readonly action: "device"; readonly erasureKey: string; readonly anonIndex: number }
+  | { readonly action: "status"; readonly erasureKey: string };
 
 /** POST the body to analytics-erasure; resolve the parsed JSON of a 2xx reply, reject otherwise. */
 export type ErasureTransport = (body: ErasureRequest, signal: AbortSignal) => Promise<unknown>;
@@ -78,7 +80,6 @@ function readLedger(value: unknown): ErasureEntry[] {
     const e = v as Record<string, unknown>;
     return (
       isAnalyticsId(e.origin) &&
-      isAnalyticsId(e.firstAnonymousId) &&
       Number.isSafeInteger(e.anonIndex) &&
       (e.anonIndex as number) >= 0 &&
       (e.anonIndex as number) <= ANON_INDEX_LIMIT &&
@@ -90,12 +91,13 @@ function readLedger(value: unknown): ErasureEntry[] {
   });
 }
 
-/** Keep the newest entries; make room by dropping the oldest deleted ones first. */
-function bounded(entries: ErasureEntry[]): ErasureEntry[] {
+/** Make room by dropping the oldest deleted entries only; null when only pending ones would fit. */
+function bounded(entries: ErasureEntry[]): ErasureEntry[] | null {
   const kept = [...entries];
   while (kept.length > ERASURE_LEDGER_LIMIT) {
     const deleted = kept.findIndex((e) => e.state === "deleted");
-    kept.splice(deleted >= 0 && deleted < kept.length - 1 ? deleted : 0, 1);
+    if (deleted < 0) return null;
+    kept.splice(deleted, 1);
   }
   return kept;
 }
@@ -126,8 +128,10 @@ export function createErasureService(deps: {
     }
   };
   const save = async (entries: ErasureEntry[]): Promise<boolean> => {
+    const kept = bounded(entries);
+    if (!kept) return false;
     try {
-      await deps.store.set(ERASURE_LEDGER_KEY, bounded(entries));
+      await deps.store.set(ERASURE_LEDGER_KEY, kept);
       return true;
     } catch {
       return false;
@@ -156,21 +160,15 @@ export function createErasureService(deps: {
       if (timer !== undefined) clearTimeout(timer);
     }
   };
-  const anonymousIds = async (entry: ErasureEntry): Promise<string[]> => {
-    const later = await Promise.all(
-      Array.from({ length: entry.anonIndex }, (_, k) => deriveAnonymousId(entry.origin, k + 1)),
-    );
-    return [...new Set([entry.firstAnonymousId.toLowerCase(), ...later])];
-  };
   const advance = async (entry: ErasureEntry): Promise<void> => {
     if (entry.state === "deleted") return;
-    const proof = await originProof(entry.origin);
+    const key = toHex(await erasureKey(entry.origin));
     let state: ReturnType<typeof serverState>;
     try {
       state = serverState(
         entry.state === "unsent"
-          ? await send({ action: "device", originProof: proof, anonymousIds: await anonymousIds(entry) })
-          : await send({ action: "status", originProof: proof }),
+          ? await send({ action: "device", erasureKey: key, anonIndex: entry.anonIndex })
+          : await send({ action: "status", erasureKey: key }),
       );
     } catch {
       state = null;
@@ -196,12 +194,21 @@ export function createErasureService(deps: {
       return run(async () => {
         if (
           !isAnalyticsId(permission.origin) ||
-          !isAnalyticsId(permission.provider.anonymousId) ||
           !Number.isSafeInteger(anonIndex) ||
           anonIndex < 0 ||
           anonIndex > ANON_INDEX_LIMIT
         )
           return false;
+        // The server can erase only ids derived from this origin. A permission whose first id was
+        // not derived (made before derivation existed) cannot be erased this way: refuse, so its
+        // stopped tombstone keeps refusing a new Share instead of pretending.
+        try {
+          if (permission.provider.anonymousId.toLowerCase() !== (await deriveAnonymousId(permission.origin, 0))) {
+            return false;
+          }
+        } catch {
+          return false;
+        }
         const entries = await load();
         if (!entries) return false;
         const existing = entries.find((e) => e.origin === permission.origin);
@@ -209,7 +216,6 @@ export function createErasureService(deps: {
           ? { ...existing, anonIndex: Math.max(existing.anonIndex, anonIndex) }
           : {
               origin: permission.origin,
-              firstAnonymousId: permission.provider.anonymousId,
               anonIndex,
               state: "unsent",
               failed: false,
