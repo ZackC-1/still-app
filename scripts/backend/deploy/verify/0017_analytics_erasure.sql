@@ -18,7 +18,8 @@
 --      private and public and no CREATE on public;
 --  (4) the three erasure tables: owned by postgres, RLS on, no table or column grant to anyone,
 --      every column the routes use with its exact type and NOT NULL, the primary keys, one subject
---      per (account, device, epoch) for all time, at most one open job per device, subjects
+--      per (account, device, epoch) for all time, at most one open job per device, the claim
+--      index (priority desc, next_attempt_at, job_id) and the priority-0 backlog index, subjects
 --      cascading from auth.users, jobs referencing nothing, targets cascading from their job;
 --  (4b) the account-deletion snapshot trigger on analytics_subjects: present, ALWAYS enabled,
 --      unconditional, after delete for each row;
@@ -92,11 +93,11 @@ expected_routines(sig, definer, grantees, body_md5) as (
     ('private.analytics_anonymous_ids(bytea,integer)', false, null::text[], 'db8ad793735beaabfe460a9571f0d71b'),
     ('private.analytics_snapshot_deleted_subject()', true, null::text[], '5bbbec70399c1ac78f1eb39255c418c2'),
     ('private.analytics_origin_key(bytea)', false, null::text[], 'ac796e926ecfc284200f0cf1938a5590'),
-    ('private.analytics_issue_subject(uuid,bytea)', true, array['still_analytics_eraser'], 'd67f2ee4fb5d6a3e74d965359dec3e87'),
+    ('private.analytics_issue_subject(uuid,bytea)', true, array['still_analytics_eraser'], 'fb43fd91c51d5cf0af0e91f010d85cbb'),
     ('private.analytics_subject_active(uuid)', true, array['still_analytics_eraser'], '2c8ec961a28dca52ed1fac79154ed5d3'),
     ('private.analytics_begin_device_erasure(bytea,integer)', true, array['still_analytics_eraser'], 'eb08195f32c2a279e44cfd20063946af'),
     ('private.analytics_erasure_status(bytea)', true, array['still_analytics_eraser'], '326f30ea0193051673fedd681e647299'),
-    ('private.analytics_claim_erasure_work(integer,integer)', true, array['still_analytics_eraser'], 'e8709673e764dbc7605274c67221e9a0'),
+    ('private.analytics_claim_erasure_work(integer,integer)', true, array['still_analytics_eraser'], '962379ffd2faf7024f13b883ef2e9b1d'),
     ('private.analytics_record_erasure_outcome(uuid,uuid,text)', true, array['still_analytics_eraser'], '56e8c9ef75f290c5d2b3dbc234a11824'),
     ('public.consume_rate_limit(text,integer,integer)', true,
      array['still_analytics_eraser', 'still_entitlement_writer', 'still_settings_writer'], '45da64e1167f825c831bbdf05b7b09be')
@@ -247,6 +248,24 @@ issues(issue) as (
                     where i.indrelid = x.oid and i.indisunique and i.indexprs is null
                       and pg_catalog.pg_get_expr(i.indpred, i.indrelid) = '(completed_at IS NULL)'
                       and i.cols = array['scope', 'scope_key'])
+  union all
+  -- the claim indexes: the due index in claim order (priority descending), and the backlog index.
+  select 'erasure_claim_index'
+  from relations x
+  where x.relname = 'analytics_erasure_jobs' and x.oid is not null
+    and not exists (select 1 from index_columns i join pg_catalog.pg_index p on p.indexrelid = i.indexrelid
+                    where i.indrelid = x.oid and i.indexprs is null
+                      and pg_catalog.pg_get_expr(i.indpred, i.indrelid) = '(next_attempt_at IS NOT NULL)'
+                      and (p.indoption[0] & 1) = 1 and (p.indoption[1] & 1) = 0 and (p.indoption[2] & 1) = 0
+                      and i.cols = array['priority', 'next_attempt_at', 'job_id'])
+  union all
+  select 'erasure_backlog_index'
+  from relations x
+  where x.relname = 'analytics_erasure_jobs' and x.oid is not null
+    and not exists (select 1 from index_columns i
+                    where i.indrelid = x.oid and i.indexprs is null
+                      and pg_catalog.pg_get_expr(i.indpred, i.indrelid) = '(priority = 0)'
+                      and i.cols = array['next_attempt_at', 'job_id'])
   union all
   select 'subject_no_account_cascade'
   from relations x

@@ -315,6 +315,21 @@ Deno.test({
             "subject_snapshot_trigger",
           ],
           [
+            // The claim index must keep its order: priority descending.
+            "drop index private.analytics_erasure_jobs_due; create index analytics_erasure_jobs_due on private.analytics_erasure_jobs(priority, next_attempt_at, job_id) where next_attempt_at is not null",
+            [
+              "create index if not exists analytics_erasure_jobs_due\n  on private.analytics_erasure_jobs(priority desc, next_attempt_at, job_id) where next_attempt_at is not null;",
+            ],
+            "erasure_claim_index",
+          ],
+          [
+            "drop index private.analytics_erasure_jobs_backlog",
+            [
+              "create index if not exists analytics_erasure_jobs_backlog\n  on private.analytics_erasure_jobs(next_attempt_at, job_id) where priority = 0;",
+            ],
+            "erasure_backlog_index",
+          ],
+          [
             "drop index private.analytics_erasure_jobs_open",
             [
               "create unique index if not exists analytics_erasure_jobs_open\n  on private.analytics_erasure_jobs(scope, scope_key) where completed_at is null;",
@@ -721,7 +736,14 @@ Deno.test({
         const claimed = await store.claimWork(100, 60);
         const elapsed = performance.now() - started;
         assertEquals(claimed.length, 100);
-        assertEquals(claimed[0]!.job, top.job, "the subject job comes first");
+        // A fifth of the claim is reserved for the oldest past-the-cap jobs (second indexed scan);
+        // the rest starts with the subject job.
+        const priorities = new Map(
+          (await admin`select job_id::text as job, priority from private.analytics_erasure_jobs
+            where job_id = any(${`{${claimed.map((c) => c.job).join(",")}}`}::uuid[])`).map((r) => [r.job, r.priority]),
+        );
+        assertEquals(claimed.slice(0, 20).map((c) => priorities.get(c.job)), Array(20).fill(0));
+        assertEquals(claimed[20]!.job, top.job, "the subject job leads the main scan");
         assert(elapsed < 2000, `claim took ${elapsed} ms`);
         await admin`delete from private.analytics_erasure_jobs j where j.job_id <> ${job}::uuid`;
       });
@@ -733,6 +755,23 @@ Deno.test({
           assertEquals((await store.issueSubject(fresh, await proof(deviceKey(200 + n)))).state, "active");
         }
         assertEquals(await store.issueSubject(fresh, await proof(deviceKey(205))), { state: "limited" });
+        // Concurrent requests are serialized per account: together they still issue at most five.
+        const other = "b6b6b6b6-0000-4000-8000-000000000065";
+        await admin`insert into auth.users (id, email) values (${other}, 'u5w2-daily-race@example.invalid')`;
+        const second = connect("still_analytics_eraser", ERASER_PASSWORD);
+        try {
+          const stores = [store, new PgErasureStore(second)];
+          const results = await Promise.all(
+            Array.from({ length: 8 }, async (_, n) => (await stores[n % 2]!.issueSubject(other, await proof(deviceKey(300 + n)))).state),
+          );
+          assertEquals(results.filter((r) => r === "active").length, 5);
+          assertEquals(results.filter((r) => r === "limited").length, 3);
+        } finally {
+          await second.end();
+        }
+        await admin`delete from private.analytics_subjects where user_id = ${other}::uuid`;
+        await admin`delete from private.analytics_erasure_jobs where scope = 'account_deleted'`;
+        await admin`delete from auth.users where id = ${other}::uuid`;
         // An existing device is still answered.
         assertEquals((await store.issueSubject(fresh, await proof(deviceKey(200)))).state, "active");
         await admin`delete from private.analytics_subjects where user_id = ${fresh}::uuid`;

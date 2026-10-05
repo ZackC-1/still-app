@@ -38,7 +38,9 @@
 -- deleted afterwards and no erasure row can be matched back to the account.
 --
 -- Subject issuance is limited to 5 new devices per account per day (issued subjects raise a job's
--- claim priority, so they must not be mintable at scale).
+-- claim priority, so they must not be mintable at scale). Each Share starts a new device identity,
+-- so this also allows five Share-after-stop cycles per account per day; past that, that day's
+-- signed-in events on the device wait unattributed (and anything older than 30 days is dropped).
 --
 -- Routes (SECURITY DEFINER, EXECUTE only for still_analytics_eraser):
 --   analytics_issue_subject           issue or return the subject for (account, device); "stopped"
@@ -49,7 +51,8 @@
 --                                     (or reuse) its job; never refused for volume (past a global
 --                                     cap, anonymous-only jobs are recorded at the lowest priority);
 --   analytics_erasure_status          the stage of the device's latest job, from the erasure key;
---   analytics_claim_erasure_work      lease due jobs to the worker (per-claim token) in indexed
+--   analytics_claim_erasure_work      lease due jobs to the worker (per-claim token): a fifth of
+--                                     each claim for the oldest past-the-cap jobs, the rest in indexed
 --                                     priority order, jobs that delete issued subjects first;
 --   analytics_record_erasure_outcome  advance or back off a leased job by a fixed outcome word.
 -- The limiter learns three buckets, `analytics-erasure-submit`, `analytics-erasure-status` and
@@ -162,6 +165,9 @@ create unique index if not exists analytics_erasure_jobs_open
 -- The claim walks this index in claim order, so a large backlog stays within the role's 2 s limit.
 create index if not exists analytics_erasure_jobs_due
   on private.analytics_erasure_jobs(priority desc, next_attempt_at, job_id) where next_attempt_at is not null;
+-- The second scan: the oldest due priority-0 jobs, for the share of each claim reserved for them.
+create index if not exists analytics_erasure_jobs_backlog
+  on private.analytics_erasure_jobs(next_attempt_at, job_id) where priority = 0;
 create index if not exists analytics_erasure_jobs_created on private.analytics_erasure_jobs(created_at);
 create index if not exists analytics_erasure_jobs_key
   on private.analytics_erasure_jobs(scope_key, created_at);
@@ -251,7 +257,10 @@ begin
     return pg_catalog.jsonb_build_object('state', 'active', 'subject', subj.subject_id);
   end if;
   -- At most 5 new devices per account per day: issued subjects decide claim priority, so they must
-  -- not be mintable at scale.
+  -- not be mintable at scale. Serialized per account, so concurrent requests cannot pass together.
+  -- Every Share starts a new device identity, so this also allows five Share-after-stop cycles per
+  -- account per day; past that the device's signed-in events wait unattributed until the next day.
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(p_user::text, 170019));
   if (select pg_catalog.count(*) from private.analytics_subjects s
       where s.user_id = p_user and s.created_at > pg_catalog.now() - interval '1 day') >= 5 then
     return pg_catalog.jsonb_build_object('state', 'limited');
@@ -387,7 +396,9 @@ create or replace trigger analytics_subjects_snapshot
 alter table private.analytics_subjects enable always trigger analytics_subjects_snapshot;
 
 -- Lease up to p_limit due jobs. Each claim gets a fresh token; only its holder records the outcome.
--- Claim order is the indexed priority (issued subjects first, past-the-cap jobs last), then due time.
+-- A fifth of each claim (10 of 50) is reserved for the oldest due priority-0 jobs (second indexed
+-- scan), so jobs recorded past the cap always make progress; the rest follow the indexed priority
+-- (issued subjects first), then due time.
 create or replace function private.analytics_claim_erasure_work(p_limit integer, p_lease_seconds integer)
 returns jsonb language plpgsql volatile security definer set search_path = pg_catalog, pg_temp as $$
 declare
@@ -395,6 +406,7 @@ declare
   claimed jsonb := '[]'::jsonb;
   job private.analytics_erasure_jobs%rowtype;
   token uuid;
+  taken integer := 0;
 begin
   if p_limit is null or p_limit < 1 or p_limit > 100
      or p_lease_seconds is null or p_lease_seconds < 30 or p_lease_seconds > 600 then
@@ -402,10 +414,28 @@ begin
   end if;
   for job in
     select * from private.analytics_erasure_jobs j
+    where j.priority = 0 and j.next_attempt_at <= moment
+      and (j.lease_until is null or j.lease_until < moment)
+    order by j.next_attempt_at, j.job_id
+    limit p_limit / 5
+    for update skip locked
+  loop
+    token := pg_catalog.gen_random_uuid();
+    update private.analytics_erasure_jobs
+      set lease_token = token, lease_until = moment + p_lease_seconds * interval '1 second'
+      where job_id = job.job_id;
+    taken := taken + 1;
+    claimed := claimed || pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
+      'job', job.job_id, 'lease', token, 'stage', job.stage, 'sweeps', job.sweeps, 'attempts', job.attempts,
+      'targets', coalesce((select pg_catalog.jsonb_agg(t.distinct_id order by t.distinct_id)
+                  from private.analytics_erasure_targets t where t.job_id = job.job_id), '[]'::jsonb)));
+  end loop;
+  for job in
+    select * from private.analytics_erasure_jobs j
     where j.next_attempt_at is not null and j.next_attempt_at <= moment
       and (j.lease_until is null or j.lease_until < moment)
     order by j.priority desc, j.next_attempt_at, j.job_id
-    limit p_limit
+    limit p_limit - taken
     for update skip locked
   loop
     token := pg_catalog.gen_random_uuid();
@@ -759,6 +789,28 @@ begin
               join pg_catalog.pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum)
              = array['scope', 'scope_key']) then
     issues := issues || 'erasure_job_open_guard'::text;
+  end if;
+  -- The claim indexes: the due index in claim order, and the priority-0 backlog index.
+  if pg_catalog.to_regclass('private.analytics_erasure_jobs') is not null and not exists (
+       select 1 from pg_catalog.pg_index i
+       where i.indrelid = 'private.analytics_erasure_jobs'::pg_catalog.regclass and i.indexprs is null
+         and pg_catalog.pg_get_expr(i.indpred, i.indrelid) = '(next_attempt_at IS NOT NULL)'
+         and (i.indoption[0] & 1) = 1 and (i.indoption[1] & 1) = 0 and (i.indoption[2] & 1) = 0
+         and (select pg_catalog.array_agg(a.attname::text order by k.ord)
+              from pg_catalog.unnest(i.indkey) with ordinality k(attnum, ord)
+              join pg_catalog.pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum)
+             = array['priority', 'next_attempt_at', 'job_id']) then
+    issues := issues || 'erasure_claim_index'::text;
+  end if;
+  if pg_catalog.to_regclass('private.analytics_erasure_jobs') is not null and not exists (
+       select 1 from pg_catalog.pg_index i
+       where i.indrelid = 'private.analytics_erasure_jobs'::pg_catalog.regclass and i.indexprs is null
+         and pg_catalog.pg_get_expr(i.indpred, i.indrelid) = '(priority = 0)'
+         and (select pg_catalog.array_agg(a.attname::text order by k.ord)
+              from pg_catalog.unnest(i.indkey) with ordinality k(attnum, ord)
+              join pg_catalog.pg_attribute a on a.attrelid = i.indrelid and a.attnum = k.attnum)
+             = array['next_attempt_at', 'job_id']) then
+    issues := issues || 'erasure_backlog_index'::text;
   end if;
   -- Subjects cascade away with their account; jobs never reference an account (they must survive
   -- its deletion); targets cascade with their job.
