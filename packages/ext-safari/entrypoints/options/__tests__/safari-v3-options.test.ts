@@ -106,6 +106,7 @@ describe("Safari V3 settings page", () => {
     for (const word of ["$", "Purchase", "Restore"]) expect(text).not.toContain(word);
     // Owner decision 24: "Still Pro" appears only as the inert locked-row label beside a lock.
     const locks = [...document.querySelectorAll<HTMLElement>(".lock-pro")];
+    expect(locks.length).toBeGreaterThan(0);
     for (const lock of locks) {
       expect(lock.getAttribute("aria-disabled")).toBe("true");
       expect(lock.textContent).toBe("Still Pro");
