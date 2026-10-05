@@ -5,6 +5,7 @@ import { Bidi, EXTENSION_UUID, type Json } from "../firefox/_bidi.js";
 import { StillFirefox, Tab, fixture } from "../firefox/_session.js";
 import {
   ARTIFACTS,
+  type NativeNode,
   nativeNodes,
   resetDisplay,
   screencap,
@@ -36,7 +37,9 @@ const ORIGINS = [
   "*://*.facebook.com/*",
   "*://*.tiktok.com/*",
 ];
-const EXTENSION = `moz-extension://${EXTENSION_UUID}`;
+// The pinned id from the GeckoView prefs, used only until the real one is read from the first-run
+// page: Firefox for Android gives a temporary add-on its own random id, whatever the pref says.
+let EXTENSION = `moz-extension://${EXTENSION_UUID}`;
 
 type Outcome = "pass" | "fail" | "stopped" | "info";
 interface Step {
@@ -269,9 +272,14 @@ test("Firefox for Android spike", async () => {
   let firstRun: Tab | null = null;
   for (let i = 0; i < 30 && !firstRun; i++) {
     const found = (await topContexts(bidi)).find((c) => String(c.url).endsWith("/first-run.html"));
-    if (found) firstRun = new Tab(bidi, found.context as string);
-    else await sleep(1_000);
+    if (found) {
+      firstRun = new Tab(bidi, found.context as string);
+      // URL.origin is "null" for moz-extension:, so build it from the parts.
+      const page = new URL(String(found.url));
+      EXTENSION = `${page.protocol}//${page.host}`;
+    } else await sleep(1_000);
   }
+  record("extension origin", "info", EXTENSION);
   record("first-run page opens by itself on install", firstRun ? "pass" : "fail");
   expect.soft(firstRun, "the first-run page opens on a fresh install").not.toBeNull();
   if (!firstRun) {
@@ -299,19 +307,95 @@ test("Firefox for Android spike", async () => {
   const contains = `browser.permissions.contains({ origins: ${JSON.stringify(ORIGINS)} })`;
   const grantedAtInstall = await firstRun.evaluate<boolean>(contains);
   record("site access granted at install (no prompt needed)", "info", grantedAtInstall);
-  let granted = grantedAtInstall;
-  if (!grantedAtInstall) {
-    let clicked = false;
+  // 3. One synthetic fixture check, served from tests/fixtures (no real site). Run while access is
+  //    granted, so it does not depend on the prompt step below.
+  let fixtureDone = false;
+  const fixtureCheck = async (): Promise<Tab | null> => {
+    fixtureDone = true;
+    let page: Tab | null = null;
     try {
-      clicked = await tapElement(
-        bidi,
-        firstRun,
-        `() => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Allow" && !b.disabled)`,
+      const tab = await anyTab(bidi);
+      page = tab;
+      // The content script replaces this navigation at document_start, which Firefox reports as an
+      // aborted navigation; start it without waiting and follow the address instead.
+      await bidi.send("browsingContext.navigate", {
+        context: tab.context,
+        url: "https://m.youtube.com/shorts/abc123",
+        wait: "none",
+      });
+      const url = await tab.waitFor("the Shorts redirect", () => tab.url(), (u) => u.includes("/watch"), 20_000);
+      record("fixture: m.youtube.com Shorts address ends on the watch page", url.includes("/watch?v=abc123") ? "pass" : "fail", url);
+      expect.soft(url).toMatch(/\/watch\?v=abc123/);
+      await pageScreenshot(bidi, tab, "fixture-youtube-redirect");
+    } catch (error) {
+      record("fixture: m.youtube.com Shorts address ends on the watch page", "fail", String(error));
+      expect.soft(String(error)).toBe("");
+    }
+    return page;
+  };
+  if (grantedAtInstall) {
+    const front = await fixtureCheck();
+    // The fixture tab is the one on screen. Bring the first-run page into it, so a real touch on
+    // "Allow" below lands on that page (newer Firefox refuses BiDi activate for extension pages).
+    if (front) {
+      try {
+        await front.goto(`${EXTENSION}/first-run.html`);
+        await front.waitFor("the first-run page to render", () => front.count("ol.steps > li.step"), (n) => n > 0, 20_000);
+        firstRun = front;
+        record("first-run page brought on screen in the visible tab", "info", true);
+      } catch (error) {
+        record("first-run page brought on screen in the visible tab", "info", String(error));
+      }
+    }
+  }
+
+  // A temporary add-on is granted its host permissions at install, which hides the very prompt this
+  // spike exists to see. Withdraw them first (an extension page may), so "Allow" asks for real.
+  if (grantedAtInstall) {
+    try {
+      const removed = await firstRun.evaluate<boolean>(`browser.permissions.remove({ origins: ${JSON.stringify(ORIGINS)} })`);
+      const stillGranted = await firstRun.evaluate<boolean>(contains);
+      record("withdraw the install-time grant so Allow must ask", stillGranted ? "fail" : "pass", { removed, stillGranted });
+      await firstRun.waitFor(
+        "the first-run page to offer Allow again",
+        () => firstRun!.evaluate<boolean>(`[...document.querySelectorAll("button")].some((b) => b.textContent.trim() === "Allow")`),
+        Boolean,
+        15_000,
       );
     } catch (error) {
-      record("tap Allow with a trusted BiDi pointer action", "stopped", String(error));
+      record("withdraw the install-time grant so Allow must ask", "fail", String(error));
     }
-    record("tap Allow with a trusted BiDi pointer action", clicked ? "pass" : "fail");
+  }
+  let granted = await firstRun.evaluate<boolean>(contains);
+  if (!granted) {
+    const isAllow = (n: NativeNode) =>
+      n.packageName.startsWith("org.mozilla.") &&
+      (/^allow$/i.test(n.text.trim()) || /[:/_]allow(_button)?$/i.test(n.resourceId));
+    // A real tap, so the page sees a user gesture. BiDi input actions first; newer Firefox refuses
+    // them in extension pages ("privileged scope"), so then a real touch through adb on the page's
+    // own Allow button, which GeckoView exposes to Android accessibility.
+    let tapped: string | null = null;
+    try {
+      if (
+        await tapElement(
+          bidi,
+          firstRun,
+          `() => [...document.querySelectorAll("button")].find((b) => b.textContent.trim() === "Allow" && !b.disabled)`,
+        )
+      )
+        tapped = "BiDi pointer action";
+    } catch (error) {
+      record("tap Allow with a BiDi pointer action", "info", String(error));
+    }
+    let pageAllow: NativeNode | undefined;
+    if (!tapped) {
+      pageAllow = nativeNodes("first-run-before-tap").find(isAllow);
+      if (pageAllow) {
+        shell(`input tap ${pageAllow.center.x} ${pageAllow.center.y}`);
+        tapped = `adb touch on the page's Allow at ${pageAllow.center.x},${pageAllow.center.y}`;
+      }
+    }
+    record("tap the first-run Allow button with a real gesture", tapped ? "pass" : "stopped", tapped);
     await sleep(3_000);
     screencap("permission-prompt");
     const nodes = nativeNodes("permission-prompt");
@@ -319,11 +403,11 @@ test("Firefox for Android spike", async () => {
       .filter((n) => n.packageName.startsWith("org.mozilla.") && n.text.trim())
       .map((n) => n.text.trim());
     // Exactly "Allow" (never "Don't allow"), by label or by an allow-button id; clickable or not,
-    // since Compose labels sit inside their buttons.
+    // since Compose labels sit inside their buttons. Not the page's own Allow tapped above.
     const allowNode = nodes.find(
       (n) =>
-        n.packageName.startsWith("org.mozilla.") &&
-        (/^allow$/i.test(n.text.trim()) || /[:/_]allow(_button)?$/i.test(n.resourceId)),
+        isAllow(n) &&
+        !(pageAllow && n.center.x === pageAllow.center.x && n.center.y === pageAllow.center.y),
     );
     record("Firefox shows a native permission prompt", allowNode ? "pass" : "fail", promptTexts.slice(0, 20));
     expect.soft(allowNode, "Firefox for Android shows a prompt with an Allow button").toBeTruthy();
@@ -388,20 +472,9 @@ test("Firefox for Android spike", async () => {
   }
   resetDisplay();
 
-  // 3. One synthetic fixture check. Only meaningful once the four sites are granted.
-  if (!granted) {
-    record("fixture: m.youtube.com Shorts address ends on the watch page", "stopped", "site access not granted");
-    return;
-  }
-  try {
-    const page = await anyTab(bidi);
-    await page.goto("https://m.youtube.com/shorts/abc123");
-    const url = await page.waitFor("the Shorts redirect", () => page.url(), (u) => u.includes("/watch"), 20_000);
-    record("fixture: m.youtube.com Shorts address ends on the watch page", url.includes("/watch?v=abc123") ? "pass" : "fail", url);
-    expect.soft(url).toMatch(/\/watch\?v=abc123/);
-    await pageScreenshot(bidi, page, "fixture-youtube-redirect");
-  } catch (error) {
-    record("fixture: m.youtube.com Shorts address ends on the watch page", "fail", String(error));
-    expect.soft(String(error)).toBe("");
+  // 3. The fixture check, if it has not run yet: only meaningful once the four sites are granted.
+  if (!fixtureDone) {
+    if (granted) await fixtureCheck();
+    else record("fixture: m.youtube.com Shorts address ends on the watch page", "stopped", "site access not granted");
   }
 });
