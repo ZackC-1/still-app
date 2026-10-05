@@ -34,8 +34,23 @@ async function open(state: StateName, entry: AppEntry, viewport = { width: 393, 
 const kinds = (lane: Lane) => lane.model.messages("app").map((m) => (m as { kind?: string }).kind);
 
 test("J1.SI the shipped Apple web view shows the D12 onboarding on first launch", async () => {
-  test.fail(true, "Known defect: dist/index.html calls the unreplaced __VITE_PRELOAD__ and renders nothing");
+  // The known cause first, as ordinary assertions: any other reason for a blank page is a red test.
+  const shipped = readFileSync(join(APPLE_WEBVIEW, "index.html"), "utf8");
+  expect(shipped).toContain("__VITE_PRELOAD__");
   const { page } = await open("app-iphone-onboarding", "shipped");
+  // The page's own global scope cannot resolve the placeholder: loading a screen raises this.
+  const raised = await page.evaluate(() => {
+    try {
+      // The exact identifier the inlined module references, looked up in the page's global scope.
+      (0, eval)("__VITE_PRELOAD__");
+      return null;
+    } catch (error) {
+      return error instanceof Error ? error.name : String(error);
+    }
+  });
+  expect(raised).toBe("ReferenceError");
+  // Only now the expected failure (VD-9): when the build is fixed this passes and flags itself.
+  test.fail(true, "VD-9: dist/index.html references the unreplaced __VITE_PRELOAD__ and renders nothing");
   await expect(page.getByRole("heading", { name: "Welcome to Still" })).toBeVisible({ timeout: 8_000 });
 });
 
@@ -102,9 +117,43 @@ test("DIAGNOSTIC J4.SI a settings switch commits one native settings intent", as
 });
 
 test("DIAGNOSTIC D12 onboarding fills the web view (Continue sits at the bottom, as designed)", async () => {
-  test.fail(true, "Layout finding: .ob { min-height: 100% } resolves against #app/body, whose heights are auto");
   const { page } = await open("app-iphone-onboarding", "emitted-chunk");
+  // The step rendered (heading visible, .ob present), so a short .ob below is the layout cause.
   await expect(page.getByRole("heading", { name: "Welcome to Still" })).toBeVisible();
+  await expect(page.locator("main.ob")).toHaveCount(1);
+  test.fail(true, "VD-10: .ob { min-height: 100% } resolves against #app/body, whose heights are auto");
   const [height, viewport] = await page.evaluate(() => [document.querySelector(".ob")!.getBoundingClientRect().height, innerHeight]);
   expect(height).toBeGreaterThanOrEqual(viewport - 1);
+});
+
+test("the shim refuses what WebBridgeRouter refuses and answers in its JSON-string form", async () => {
+  const { page } = await open("app-iphone", "emitted-chunk");
+  await expect(page.getByRole("heading", { name: "Still is active" })).toBeVisible();
+  const post = (message: unknown) =>
+    page.evaluate(async (m) => {
+      try {
+        const port = (globalThis as unknown as { webkit: { messageHandlers: { still: { postMessage(x: unknown): Promise<unknown> } } } }).webkit.messageHandlers.still;
+        return { reply: await port.postMessage(m) };
+      } catch (error) {
+        return { rejected: error instanceof Error ? error.message : String(error) };
+      }
+    }, message);
+  const refusedSettings = "still: unrecognized settings message";
+  for (const malformed of [
+    { kind: "settingsIntent", path: "services.tiktok", value: false },
+    { kind: "settingsIntent", path: "services.tiktok", value: "false", updatedAt: 1 },
+    { kind: "settingsIntent", path: "services.nope", value: false, updatedAt: 1 },
+    { kind: "settingsIntent", path: "services.tiktok", value: false, updatedAt: 1, extra: true },
+    { kind: "settingsAtomic", command: { action: "initialize" } },
+    { kind: "settingsAtomic", command: "{}", extra: 1 },
+  ])
+    expect((await post(malformed)).rejected, JSON.stringify(malformed)).toContain(refusedSettings);
+  expect((await post({ kind: "openDestination", destination: "settingsAppStillPage", url: "https://x.invalid" })).rejected).toContain("open refused (malformed)");
+  expect((await post({ kind: "openDestination", destination: "safari" })).rejected).toContain("open refused (unsupported)");
+  expect(await post({ kind: "openDestination", destination: "settingsAppStillPage" })).toEqual({ reply: JSON.stringify({ ok: true, destination: "settingsAppStillPage" }) });
+  const entitlement = await post({ kind: "getEntitlement" });
+  expect(typeof entitlement.reply).toBe("string");
+  expect(Object.keys(JSON.parse(entitlement.reply as string)).sort()).toEqual(["entitled", "installId", "source", "updatedAt"]);
+  for (const kind of ["onboardingState", "safariSetupState", "receiptStatus", "analyticsContext", "acknowledgeAnalyticsNotice"])
+    expect(typeof (await post({ kind })).reply, kind).toBe("string");
 });

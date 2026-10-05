@@ -11,8 +11,11 @@
 //   Safari extension page, browser.runtime.sendMessage → the extension background's own routers
 //     (createSettingsIntentRouter, createEntitlementMessageRouter, the reconcile nudge).
 //   Apple app web view, webkit.messageHandlers.still.postMessage → WebBridgeRouter.swift
-//     get / settingsIntent / settingsAtomic → the same SettingsBridge strings, unwrapped;
-//     onboardingState, safariSetupState, restore, receiptStatus, analyticsContext, ... → objects.
+//     get / set / settingsIntent / settingsAtomic → the same SettingsBridge strings, unwrapped; a
+//     message BridgeRequest.parse refuses is rejected ("still: unrecognized settings message");
+//     every other reply is a JSON STRING, as the router's Self.json makes it (onboardingState,
+//     safariSetupState, restore, receiptStatus, analyticsContext, ...; the entitlement lane's
+//     EntitlementBridge strings likewise); refusals reject with the router's error text.
 //
 // The App Group record itself is held and changed by the reviewed TypeScript AtomicSettingsWriter,
 // the reference implementation StillKit's AtomicSettingsRecord is parity-tested against
@@ -20,10 +23,10 @@
 // real record, and a toggle commit gets the record the native writer would commit, not a guess.
 import {
   AtomicSettingsWriter,
-  SettingsStorageRecovery,
   type SettingsIntent,
 } from "../../../../packages/core/src/storage/atomic-settings.js";
 import type { StorageAdapter, StoredSettingsRecord } from "../../../../packages/core/src/storage/adapter.js";
+import { SETTINGS_FIELDS } from "../../../../packages/shared-types/src/index.js";
 import { initialAccessSnapshot, packagedAccessContext } from "../../../../packages/core/src/entitlement/access-policy.js";
 import { parseAccessCacheRecord } from "../../../../packages/core/src/entitlement/access-record.js";
 import type { QaState } from "./states.js";
@@ -68,6 +71,46 @@ function counterUuid(): () => string {
 const json = (value: unknown): string => JSON.stringify(value);
 const objectOf = (message: unknown): Record<string, unknown> =>
   message && typeof message === "object" && !Array.isArray(message) ? (message as Record<string, unknown>) : {};
+
+/** SettingsV2Migration.maxRevision. */
+const MAX_REVISION = 9_007_199_254_740_991;
+const SETTINGS_KINDS = new Set(["get", "set", "settingsIntent", "settingsAtomic"]);
+/** SettingsBridge.handle(rawBody:) returned nil: a settings message StillKit could not parse. */
+const REFUSED = Symbol("refused");
+
+/** BridgeRequest.parse (SettingsBridge.swift): true only for a message StillKit accepts. */
+function parsesAsSettingsRequest(m: Record<string, unknown>): boolean {
+  const keys = Object.keys(m).sort().join(",");
+  switch (m.kind) {
+    case "get":
+      return true;
+    case "set":
+      if (typeof m.settings !== "string") return false;
+      try {
+        return typeof JSON.parse(m.settings) === "object";
+      } catch {
+        return false;
+      }
+    case "settingsAtomic":
+      return keys === "command,kind" && typeof m.command === "string" && new TextEncoder().encode(m.command).length <= 131_072;
+    case "settingsIntent":
+      return (
+        keys === "kind,path,updatedAt,value" &&
+        typeof m.path === "string" &&
+        (SETTINGS_FIELDS as readonly string[]).includes(m.path) &&
+        typeof m.value === "boolean" &&
+        typeof m.updatedAt === "number" &&
+        Number.isInteger(m.updatedAt) &&
+        m.updatedAt > 0 &&
+        m.updatedAt <= MAX_REVISION
+      );
+    default:
+      return false;
+  }
+}
+
+/** NativeOpenDestination.supported(on:). */
+const OPEN_DESTINATIONS = { mac: ["safariExtensionSettings", "safari"], ios: ["settingsAppStillPage"] } as const;
 
 export class NativeModel {
   readonly log: LoggedMessage[] = [];
@@ -122,15 +165,17 @@ export class NativeModel {
   }
 
   // ---- SettingsBridge.handle (StillKit), shared by both hosts -------------------------------
-  private async settingsBridge(m: Record<string, unknown>): Promise<string | null> {
+  private async settingsBridge(m: Record<string, unknown>): Promise<string | null | typeof REFUSED> {
+    if (!SETTINGS_KINDS.has(String(m.kind))) return null;
+    // SettingsBridge.handle(rawBody:) answers nothing for a message it cannot parse; each host
+    // decides what that means (the extension handler sends "", the app router rejects).
+    if (!parsesAsSettingsRequest(m)) return REFUSED;
     switch (m.kind) {
       case "get": {
         const record = this.currentRecord();
         return record ? json(record) : "";
       }
       case "settingsIntent": {
-        const keys = Object.keys(m).sort().join(",");
-        if (keys !== "kind,path,updatedAt,value") return "";
         try {
           const intent: SettingsIntent = { path: m.path as SettingsIntent["path"], value: m.value as boolean, updatedAt: m.updatedAt as number };
           const committed = await this.writer.commit(intent);
@@ -147,8 +192,7 @@ export class NativeModel {
           // AtomicSettingsRecord.initialize: an absent record is unreadable, never fresh defaults.
           if (!this.group.record) return json({ status: "unavailable" });
           return json(await this.writer.initialize(command.ownership as "unknown"));
-        } catch (error) {
-          if (error instanceof SettingsStorageRecovery) return json({ status: "unavailable" });
+        } catch {
           return json({ status: "unavailable" });
         }
       }
@@ -169,7 +213,7 @@ export class NativeModel {
     if (m.kind === "getBenefitAccess")
       return { entitlement: json({ ok: true, snapshot: initialAccessSnapshot(packagedAccessContext()) }) };
     const settings = await this.settingsBridge(m);
-    return { settings: settings ?? "" };
+    return { settings: typeof settings === "string" ? settings : "" };
   }
 
   // ---- The extension background's page-facing routers ---------------------------------------
@@ -195,55 +239,73 @@ export class NativeModel {
 
   // ---- WebBridgeRouter.handle (Apple app web view) ------------------------------------------
   private async app(m: Record<string, unknown>): Promise<unknown> {
-    const settings = await this.settingsBridge(m);
-    if (settings !== null) return settings;
+    if (SETTINGS_KINDS.has(String(m.kind))) {
+      const settings = await this.settingsBridge(m);
+      if (typeof settings !== "string") throw new NativeRejection("still: unrecognized settings message");
+      return settings;
+    }
     const s = this.state;
     switch (m.kind) {
       case "onboardingState":
-        return {
+        return json({
           ok: true,
           shouldShow: s.onboarding.shouldShow && !this.onboardingComplete,
           platform: s.platform === "mac" ? "macos" : "ios",
           osMajorVersion: s.onboarding.osMajorVersion,
-        };
+        });
       case "completeOnboarding":
         if (!s.onboarding.shouldShow) throw new NativeRejection("still: onboarding not presented by the web view");
         this.onboardingComplete = true;
-        return { ok: true };
+        return json({ ok: true });
       case "safariSetupState":
-        return s.platform === "mac"
-          ? { ok: true, platform: "macos", extensionStatus: s.macExtension, enableLocation: "safariExtensionSettings" }
-          : { ok: true, platform: "ios", extensionStatus: "unknown", enableLocation: "settingsAppStillPage" };
-      case "openDestination":
-        return { ok: true, destination: m.destination };
+        return json(
+          s.platform === "mac"
+            ? { ok: true, platform: "macos", extensionStatus: s.macExtension, enableLocation: "safariExtensionSettings" }
+            : { ok: true, platform: "ios", extensionStatus: "unknown", enableLocation: "settingsAppStillPage" },
+        );
+      case "openDestination": {
+        // NativeOpenRequest.authorize: exactly { kind, destination }, one fixed destination this
+        // platform opens. (The bundled main frame and an active app are given here.)
+        const keys = Object.keys(m).sort().join(",");
+        const destination = m.destination;
+        if (keys !== "destination,kind" || typeof destination !== "string" || ![...OPEN_DESTINATIONS.mac, ...OPEN_DESTINATIONS.ios].includes(destination as never))
+          throw new NativeRejection("still: open refused (malformed)");
+        if (!(OPEN_DESTINATIONS[s.platform] as readonly string[]).includes(destination))
+          throw new NativeRejection("still: open refused (unsupported)");
+        return json({ ok: true, destination });
+      }
       case "restore":
         // FreePeriodRestoreCheck.reply while the paid tier is off. "pending" never answers, the way
         // the App Store check looks while it is still running.
         if (s.restore === "pending") return new Promise(() => {});
-        return { entitled: s.restore === "restored", restore: s.restore };
+        return json({ entitled: s.restore === "restored", restore: s.restore });
       case "receiptStatus":
-        return { receipt: "noSignal" };
+        return json({ receipt: "noSignal" });
       case "purchaseStatus":
       case "attachPurchases":
-        return { entitled: false };
+        return json({ entitled: false });
       case "purchase":
         // MonetizationConfig.paidTierEnabled is false: refused at the native boundary.
-        return { outcome: "unavailable", entitled: false };
+        return json({ outcome: "unavailable", entitled: false });
       case "price":
-        return {};
+        return json({});
       case "getBenefitAccess":
         return json({ ok: true, snapshot: initialAccessSnapshot(packagedAccessContext()) });
       case "getAccess":
         return json({ ok: true, record: parseAccessCacheRecord(undefined) });
       case "getEntitlement":
-        return json({ entitled: false });
+        // EntitlementReplyEnvelope: all four keys, explicit nulls for a device with no stamp.
+        return json({ installId: "00000000-0000-4000-8000-0000000000cc", entitled: null, updatedAt: null, source: null });
       case "setAccountSyncStatus":
+        if (!("status" in m)) throw new NativeRejection("still: malformed account sync status");
+        return json({ ok: true });
       case "acknowledgeAnalyticsNotice":
-        return { ok: true };
+        return json({ ok: true });
       case "setAnalyticsConsent":
-        return { ok: true, enabled: m.enabled === true, answered: true };
+        if (typeof m.enabled !== "boolean") throw new NativeRejection("still: setAnalyticsConsent missing enabled");
+        return json({ ok: true, enabled: m.enabled, answered: true });
       case "analyticsContext":
-        return {
+        return json({
           platform: s.platform === "mac" ? "macos" : "ios",
           appVersion: "2.2.0",
           installId: "00000000-0000-4000-8000-0000000000aa",
@@ -256,7 +318,7 @@ export class NativeModel {
           noticeSeen: true,
           extensionEnabled: s.platform === "mac" ? s.macExtension === "enabled" : null,
           device: s.device,
-        };
+        });
       default:
         throw new NativeRejection(`still: unrecognized message ${String(m.kind)}`);
     }

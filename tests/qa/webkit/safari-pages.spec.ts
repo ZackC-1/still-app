@@ -27,7 +27,7 @@ async function open(state: StateName | Parameters<typeof openLane>[1]["state"], 
   return { lane, page: p };
 }
 
-const WRITES = new Set(["settingsIntent", "settingsAtomic", "set", "still:settings-record", "setEntitlementRecord"]);
+const WRITES = new Set(["settingsIntent", "settingsAtomic", "set", "still:settings-intent", "still:settings-record", "setEntitlementRecord"]);
 const writes = (lane: Lane) => lane.model.log.filter((m) => WRITES.has(String((m.message as { kind?: unknown }).kind)));
 
 test("J4.SI the popup renders the app's saved choices and opening it writes nothing", async () => {

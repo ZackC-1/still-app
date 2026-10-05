@@ -11,9 +11,9 @@ import { BOUNDARY_SHIM_MARKER } from "./shim/boundary-shim.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "../../..");
-const PRODUCT_ROOTS = ["packages", "apps", "supabase", "scripts"].map((p) => join(REPO, p));
+const PRODUCT_ROOTS = ["packages", "apps", "supabase", "scripts", ".github"].map((p) => join(REPO, p));
 const SKIP_DIRS = new Set(["node_modules", "dist", ".output", ".wxt", "build", "DerivedData", ".git"]);
-const SOURCE = /\.(ts|tsx|js|mjs|cjs|svelte|swift|json|html)$/;
+const SOURCE = /\.(ts|tsx|js|mjs|cjs|svelte|swift|json|html|sh|plist|pbxproj|yml|yaml)$/;
 
 /** Anything that would let product code reach the shim or its native model. */
 const SHIM_REFERENCE = /tests\/qa\/webkit|qa\/webkit\/|boundary-shim|native-model|__stillQaBoundary|__STILL_QA_BOUNDARY_SHIM__/;
@@ -52,6 +52,10 @@ test.describe("QA shim stays out of product code", () => {
     expect(sources.some((f) => f.path.startsWith("packages/ext-safari/"))).toBe(true);
     expect(sources.some((f) => f.path.startsWith("packages/app-webview/src/"))).toBe(true);
     expect(sources.some((f) => f.path.startsWith("packages/core/src/storage/"))).toBe(true);
+    // ...and the build and release config that could pull a file into a product: CI workflows,
+    // Xcode project and plists, and shell scripts.
+    for (const kind of [/^\.github\/.*\.ya?ml$/, /\.pbxproj$/, /\.plist$/, /\.sh$/])
+      expect(sources.some((f) => kind.test(f.path)), String(kind)).toBe(true);
     expect(shimReferences(sources)).toEqual([]);
   });
 

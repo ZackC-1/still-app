@@ -39,6 +39,8 @@ Note: rebuilding the Safari extension with the flag replaces the default `dist/s
   background's routers). The App Group record is held and changed by the reviewed TypeScript
   `AtomicSettingsWriter`, which StillKit is parity-tested against, so recorded states and toggle
   commits are real records. Every message is logged for the specs.
+- The runner also tells framed pages which device they are on (`window.screen`, set by the shim,
+  because Playwright's screen emulation reaches only the top-level page).
 - `shim/states.ts` names the recorded states (fresh, Still off, macOS, app with onboarding, Restore
   answers, native host absent, a legacy record).
 - `guard.spec.ts` proves no product source, package config or built bundle references the shim.
@@ -63,7 +65,8 @@ native `get` (writes do use the native `settingsIntent`); the shim answers both 
 2. **D12 onboarding does not fill the web view.** `.ob { min-height: 100% }` resolves against
    `#app` and `body`, whose heights are auto (`min-block-size: 100%` on `html, body, #app` does not
    make them definite), so the content and the Continue button sit at the top instead of using the
-   whole screen as designed. Seen in the diagnostic captures; pinned as an expected failure.
+   whole screen as designed. Seen in the diagnostic captures; pinned as an expected failure until
+   its fix (VD-10) lands.
 3. **The iOS Safari popup is 380 px wide and centred on wider phones.** `.popup` clamps to
    `--popup-inline-size` (380), so on a 393-wide iPhone 15 sheet the design's edge-to-edge layout has
    6.5 px gutters each side.
