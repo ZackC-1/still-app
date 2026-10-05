@@ -84,13 +84,12 @@ export function setDisplayWidthDp(dp: number): void {
   const density = 320;
   const width = Math.round((dp * density) / 160);
   const height = Math.round((780 * density) / 160);
+  // The density is fixed before Firefox starts (run-spike.sh); only the width changes here.
   shell(`wm size ${width}x${height}`);
-  shell(`wm density ${density}`);
 }
 
 export function resetDisplay(): void {
   shell("wm size reset");
-  shell("wm density reset");
 }
 
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

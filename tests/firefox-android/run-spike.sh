@@ -61,6 +61,13 @@ YAML
 adb push "$CONFIG" "/data/local/tmp/$PACKAGE-geckoview-config.yaml" > /dev/null || stop "could not push the GeckoView config file"
 adb shell chmod 644 "/data/local/tmp/$PACKAGE-geckoview-config.yaml" || true
 
+# The google_apis image ships the YouTube app; Firefox then offers "Open this link in YouTube app?"
+# over the page, which covers the first-run page. Remove it for this throwaway emulator user.
+adb shell pm uninstall --user 0 com.google.android.youtube > /dev/null 2>&1 || true
+# Fix the density before Firefox starts: Firefox reads it once at launch, so the popup checks can
+# then change only the width and get exact dp widths.
+adb shell wm density 320 > /dev/null 2>&1 || true
+
 log "launch Firefox"
 adb shell am force-stop "$PACKAGE" || true
 adb shell monkey -p "$PACKAGE" -c android.intent.category.LAUNCHER 1 > /dev/null 2>&1 || stop "could not launch Firefox"

@@ -183,7 +183,7 @@ async function tapElement(bidi: Bidi, tab: Tab, finder: string): Promise<boolean
 /** Firefox's own first-launch screens sit on top of every tab; tap through the obvious ones. */
 async function dismissOnboarding(): Promise<string[]> {
   const tapped: string[] = [];
-  const labels = /^(not now|skip|maybe later|close|continue|get started|agree and continue|no thanks)$/i;
+  const labels = /^(not now|skip|maybe later|close|continue|get started|agree and continue|no thanks|stay in firefox)$/i;
   for (let round = 0; round < 6; round++) {
     let node: ReturnType<typeof tapNative> = null;
     try {
@@ -323,7 +323,14 @@ test("Firefox for Android spike", async () => {
         url: "https://m.youtube.com/shorts/abc123",
         wait: "none",
       });
-      const url = await tab.waitFor("the Shorts redirect", () => tab.url(), (u) => u.includes("/watch"), 20_000);
+      // Reading the address while the content script replaces the document can be refused
+      // (NS_ERROR_ABORT); such a sample just counts as "not there yet".
+      const url = await tab.waitFor(
+        "the Shorts redirect",
+        () => tab.url().catch(() => ""),
+        (u) => u.includes("/watch"),
+        20_000,
+      );
       record("fixture: m.youtube.com Shorts address ends on the watch page", url.includes("/watch?v=abc123") ? "pass" : "fail", url);
       expect.soft(url).toMatch(/\/watch\?v=abc123/);
       await pageScreenshot(bidi, tab, "fixture-youtube-redirect");
