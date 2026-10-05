@@ -235,17 +235,23 @@ Deno.test("over the per-IP limit → 429 keyed by the Cloudflare client IP", asy
   assertEquals(calls.length, 0);
 });
 
-Deno.test("billing failure logs a fixed reason, never the error text, account id, email, token or URL", async () => {
-  const SECRET_TEXT = `boom for ${A} person@example.com https://checkout.example/${A}?token=sk_live_secret`;
-  const billing: WebBillingClient = { createCheckout: () => Promise.reject(new Error(SECRET_TEXT)) };
-  const jwt = await mintHs256({ sub: A, email: "person@example.com" }, SECRET);
-  let status = 0;
-  const logged = await captureConsole(async () => {
-    status = (await handleCreateWebCheckout(req(jwt), { jwtSecret: SECRET, expected: EXPECTED, billing, rc: rcInactive, limiter: allowAll })).status;
+const CHECKOUT_LEAKS_TEXT = `boom for ${A} person@example.com https://checkout.example/${A}?token=sk_live_secret`;
+
+for (const [reason, rc, billing] of [
+  ["checkout_create_failed", rcInactive, { createCheckout: () => Promise.reject(new Error(CHECKOUT_LEAKS_TEXT)) } as WebBillingClient],
+  ["subscriber_lookup_failed", { getSubscriber: () => Promise.reject(new Error(CHECKOUT_LEAKS_TEXT)) } as RevenueCatClient, mockBilling().billing],
+] as const) {
+  Deno.test(`${reason} logs a fixed reason, never the error text, account id, email, token or URL`, async () => {
+    const jwt = await mintHs256({ sub: A, email: "person@example.com" }, SECRET);
+    let res: Response | undefined;
+    const logged = await captureConsole(async () => {
+      res = await handleCreateWebCheckout(req(jwt), { jwtSecret: SECRET, expected: EXPECTED, billing, rc, limiter: allowAll });
+    });
+    assertEquals(res?.status, 502);
+    assertEquals(await res?.json(), { error: "checkout_unavailable" }); // the response body is unchanged
+    assertEquals(logged, `create-web-checkout failed reason=${reason} status=502`);
+    for (const leak of [A, "person@example.com", "sk_live_secret", "checkout.example", jwt, "boom"]) {
+      assertEquals(logged.includes(leak), false, `log must not contain ${leak}`);
+    }
   });
-  assertEquals(status, 502);
-  assertEquals(logged, "create-web-checkout failed reason=checkout_unavailable status=502");
-  for (const leak of [A, "person@example.com", "sk_live_secret", "checkout.example", jwt, "boom"]) {
-    assertEquals(logged.includes(leak), false, `log must not contain ${leak}`);
-  }
-});
+}
