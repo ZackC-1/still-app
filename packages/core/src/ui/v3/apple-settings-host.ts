@@ -341,14 +341,16 @@ export interface AppleSettingsRestoreDeps {
  * answer: a restore reply of false is not one (native also answers false when it refuses or
  * cannot reach the store), so it is used only when the receipt is verified not entitled. A
  * receipt that is entitled is restored; no signal, or any rejection, is "couldn't finish" with
- * Try again. One restore at a time; after `stop` late replies are ignored.
+ * Try again. One restore at a time. After `stop` (the screen unmounted) a late reply is ignored:
+ * no further native read, no access re-read and nothing published.
  */
 export function createAppleSettingsRestore(deps: AppleSettingsRestoreDeps) {
   let flight: Promise<void> | null = null;
   let stopped = false;
-  async function outcome(): Promise<"restored" | "nothing" | "failed"> {
+  async function outcome(): Promise<"restored" | "nothing" | "failed" | null> {
     try {
       if (await deps.bridge.restore()) return "restored";
+      if (stopped) return null;
       const receipt = await deps.bridge.receiptStatus();
       if (receipt === "entitled") return "restored";
       return receipt === "verifiedNotEntitled" ? "nothing" : "failed";
@@ -359,6 +361,7 @@ export function createAppleSettingsRestore(deps: AppleSettingsRestoreDeps) {
   async function run(): Promise<void> {
     deps.publish({ state: "checking" });
     const state = await outcome();
+    if (stopped || state === null) return;
     try {
       await deps.refreshAccess();
     } catch {

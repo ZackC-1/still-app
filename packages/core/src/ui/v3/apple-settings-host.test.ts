@@ -1062,7 +1062,23 @@ describe("free-period Restore purchase (owner decision 17)", () => {
     h.f.authority.stop();
   });
 
-  it("nothing to restore: only after a receipt verified not entitled", async () => {
+  // Today's native contract while paid is off: restore is refused without asking StoreKit
+  // ({ entitled: false }) and a person who never bought has no transaction, so the receipt read is
+  // noSignal. That is not a conclusive answer, so it is "couldn't finish", never "nothing found".
+  it("never purchased (native refuses restore, receipt has no signal): couldn't finish, not nothing found", async () => {
+    const h = await restoreHost({
+      restore: json({ entitled: false }),
+      receiptStatus: json({ receipt: "noSignal" }),
+    });
+    await fireEvent.click(screen.getByRole("button", { name: "Restore purchase" }));
+    expect(await screen.findByText(FAILED)).toBeInTheDocument();
+    expect(screen.queryByText(NOTHING)).toBeNull();
+    expect(h.sentAfter()).toEqual(["restore", "receiptStatus"]);
+    await expectUnchanged(h);
+    h.f.authority.stop();
+  });
+
+  it("refunded or revoked purchase (receipt verified not entitled): nothing found", async () => {
     const h = await restoreHost({
       restore: json({ entitled: false }),
       receiptStatus: json({ receipt: "verifiedNotEntitled" }),
@@ -1074,9 +1090,33 @@ describe("free-period Restore purchase (owner decision 17)", () => {
     h.f.authority.stop();
   });
 
+  it("unmounting mid-restore: the late reply sends nothing further and publishes nothing", async () => {
+    let finish!: (value: unknown) => void;
+    const f = await composeAtomic(tsBackend, {
+      replies: {
+        restore: () => new Promise((r) => (finish = r)),
+        receiptStatus: json({ receipt: "verifiedNotEntitled" }),
+      },
+    });
+    await f.hydrated;
+    const errors = vi.spyOn(console, "error");
+    const { view } = await renderHost(f);
+    await fireEvent.click(await screen.findByRole("button", { name: "Restore purchase" }));
+    expect(await screen.findByText("Checking for Still Pro purchases…")).toBeInTheDocument();
+    const before = f.native.messages.length;
+    view.unmount();
+    finish(JSON.stringify({ entitled: false }));
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(f.native.messages.slice(before).map((m) => m.kind)).toEqual([]);
+    expect(document.body.textContent).not.toMatch(/Still Pro|couldn't finish|Restore purchase/);
+    expect(errors).not.toHaveBeenCalled();
+    f.authority.stop();
+  });
+
   const FAILURES: [string, Replies & { restore: () => Promise<unknown> }][] = [
     ["the native restore rejects", { restore: () => Promise.reject(new Error("store down")) }],
-    ["native refuses and the receipt has no signal", { restore: json({ entitled: false }), receiptStatus: json({ receipt: "noSignal" }) }],
+    ["the receipt read rejects", { restore: json({ entitled: false }), receiptStatus: () => Promise.reject(new Error("store down")) }],
     ["native gives no reply at all", { restore: async () => null, receiptStatus: async () => null }],
   ];
   it.each(FAILURES)("failure or unavailable (%s): couldn't finish, never nothing found; Try again restores", async (_name, replies) => {
@@ -1187,14 +1227,28 @@ describe("createAppleSettingsRestore", () => {
     }
   });
 
-  it("after stop, a late reply publishes nothing and start does nothing", async () => {
-    const pending = deferred<boolean>();
-    const e = entry({ restore: () => pending.promise });
+  it("stopping during the access re-read publishes nothing", async () => {
+    const refresh = deferred<void>();
+    const e = entry({ restore: async () => true }, vi.fn(() => refresh.promise));
     e.handle.start();
+    await e.settle();
+    expect(e.refreshAccess).toHaveBeenCalledOnce();
     e.handle.stop();
-    pending.resolve(true);
+    refresh.resolve();
     await e.settle();
     expect(e.published).toEqual([{ state: "checking" }]);
+  });
+
+  it.each([true, false])("after stop, a late reply (%s) publishes nothing, reads nothing more, and start does nothing", async (reply) => {
+    const pending = deferred<boolean>();
+    const e = entry({ restore: () => pending.promise, receiptStatus: async () => "verifiedNotEntitled" });
+    e.handle.start();
+    e.handle.stop();
+    pending.resolve(reply);
+    await e.settle();
+    expect(e.published).toEqual([{ state: "checking" }]);
+    expect(e.receiptStatus).not.toHaveBeenCalled();
+    expect(e.refreshAccess).not.toHaveBeenCalled();
     e.handle.start();
     expect(e.restore).toHaveBeenCalledOnce();
   });
