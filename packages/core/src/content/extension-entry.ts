@@ -10,13 +10,12 @@ import {
   ChromeEntitlementAdapter,
 } from "../entitlement/index.js";
 import {
-  PACKAGED_RULE_SET_V2,
-  admitPackagedRuleSetV2,
   resolveRuleSetForLoad,
   ruleSetTrust,
   validateRuleSetV2,
   type ReadableArea,
 } from "../rules/index.js";
+import { PACKAGED_RULE_SET_V2, admitPackagedRuleSetV2 } from "../rules/packaged.js";
 import {
   SettingsCache,
   ChromeStorageAdapter,
