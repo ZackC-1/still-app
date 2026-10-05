@@ -30,13 +30,14 @@ To use it for a local test run only: in Xcode choose **Product → Scheme → Ed
 Options → StoreKit Configuration → Still.storekit**, then run on a Simulator. Keep that choice in
 your personal (unshared) scheme. Turn it back to **None** afterwards.
 
-- Xcode applies a StoreKit configuration only to Run and Test from Xcode. Archives and Release
-  builds never use it, and the file belongs to no target, so it is never copied into an app.
+- Xcode applies a StoreKit configuration only to Run and Test from Xcode. Archived and
+  distributed builds never use it, and the file belongs to no target, so it is never copied into
+  an app.
   `ApplePurchaseCatalogTests` fails if the file joins a target or a build setting, if a shared
   scheme selects it outside a Debug Run/Test action, or if it drifts from the catalog.
 - Do not commit a shared scheme for the app targets: Xcode then stops auto-creating the
   `Still (iOS)`/`Still (macOS)` schemes that `scripts/build.sh` and `scripts/archive.sh` use.
 - Leave the RevenueCat key out of `Config/Secrets.local.xcconfig` for these runs, so no local
-  transaction is sent to RevenueCat. Purchase and Restore stay refused while the paid tier is off;
-  use Xcode's **Debug → StoreKit → Manage Transactions** to create, refund or delete test
-  transactions.
+  transaction is sent to RevenueCat. While paid features are off, the in-app Purchase and Restore
+  bridge actions are refused (the owner-approved Restore link is separate); use Xcode's
+  **Debug → StoreKit → Manage Transactions** to create, refund or delete test transactions.

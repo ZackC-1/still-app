@@ -97,6 +97,21 @@ final class ApplePurchaseCatalogTests: XCTestCase {
     XCTAssertEqual(offenders, [], "read product ids from ApplePurchaseCatalog instead")
   }
 
+  /// The app target is not built by `swift test`, so this reads its source: the existing purchase
+  /// code must keep reading the HISTORICAL still_sync entries. A one-word swap to `stillProV3`
+  /// would silently re-point past buyers' receipt reads and entitlement checks at the new product.
+  func testPurchaseManagerReadsTheHistoricalStillSyncEntries() throws {
+    let source = try text("apps/apple/Still/Shared (App)/Purchases/PurchaseManager.swift")
+    for name in ["productID", "entitlementID"] {
+      let pattern = "static let \(name) = ([A-Za-z0-9_.]+)"
+      let regex = try NSRegularExpression(pattern: pattern)
+      let matches = regex.matches(in: source, range: NSRange(source.startIndex..., in: source))
+      XCTAssertEqual(matches.count, 1, "PurchaseManager must declare \(name) exactly once")
+      let value = try XCTUnwrap(matches.first.flatMap { Range($0.range(at: 1), in: source) }.map { String(source[$0]) })
+      XCTAssertEqual(value, "ApplePurchaseCatalog.historicalStillSync.\(name)")
+    }
+  }
+
   // MARK: - Local StoreKit configuration mirrors the catalog
 
   private func storeKitConfiguration() throws -> [String: Any] {
@@ -127,19 +142,20 @@ final class ApplePurchaseCatalogTests: XCTestCase {
 
   // MARK: - Release builds cannot pick up the local StoreKit file
 
-  /// The `.storekit` file may appear in the project only as a navigator file reference so the
-  /// scheme's Run options can select it. It must never be a member of a target (which would copy
-  /// it into a shipped app) and no build setting may name it.
+  /// `Still.storekit` may appear in the project only as a navigator file reference so the scheme's
+  /// Run options can select it. It must never be a member of a target (which would copy it into a
+  /// shipped app) and no build setting may name it. Only lines naming a `.storekit` configuration
+  /// file are inspected, so linking StoreKit.framework or StoreKitTest cannot trip this guard.
   func testProjectNeverBuildsOrShipsAStoreKitFile() throws {
     let project = try String(
       contentsOf: projectDirectory.appendingPathComponent("Still.xcodeproj/project.pbxproj"),
       encoding: .utf8)
-    let fileReference = try NSRegularExpression(
-      pattern: #"^\t\t[0-9A-F]{24} /\* [^*/]+\.storekit \*/ = \{isa = PBXFileReference; [^{}]*\};$"#)
-    let groupChild = try NSRegularExpression(pattern: #"^\t{4}[0-9A-F]{24} /\* [^*/]+\.storekit \*/,$"#)
+    let fileReference = try NSRegularExpression(pattern:
+      #"^\t\t[0-9A-F]{24} /\* Still\.storekit \*/ = \{isa = PBXFileReference; [^{}]*path = Still\.storekit; [^{}]*\};$"#)
+    let groupChild = try NSRegularExpression(pattern: #"^\t{4}[0-9A-F]{24} /\* Still\.storekit \*/,$"#)
     var references = 0
     var offenders: [String] = []
-    for line in project.components(separatedBy: "\n") where line.lowercased().contains("storekit") {
+    for line in project.components(separatedBy: "\n") where Self.namesStoreKitConfigurationFile(line) {
       let range = NSRange(line.startIndex..., in: line)
       if fileReference.firstMatch(in: line, range: range) != nil {
         references += 1
@@ -147,13 +163,22 @@ final class ApplePurchaseCatalogTests: XCTestCase {
         offenders.append(line.trimmingCharacters(in: .whitespaces))
       }
     }
-    XCTAssertEqual(offenders, [], "a StoreKit file must never join a build phase or build setting")
+    XCTAssertEqual(offenders, [], "a StoreKit configuration file must never join a build phase or build setting")
     XCTAssertEqual(references, 1, "Still.storekit should be referenced exactly once, with no target")
+  }
+
+  /// True when the text names a `.storekit` configuration file (any case), not the StoreKit or
+  /// StoreKitTest frameworks.
+  private static func namesStoreKitConfigurationFile(_ text: String) -> Bool {
+    text.range(of: #"\.storekit\b"#, options: [.regularExpression, .caseInsensitive]) != nil
   }
 
   /// Xcode applies a StoreKit configuration only through a scheme's Run or Test options. Any
   /// shared scheme that selects one must do so only for a Debug Run/Test action, never Archive or
   /// Profile, and the archive scheme used by `archive.sh` must not select one at all.
+  ///
+  /// No shared scheme is committed today (Xcode auto-creates `Still (iOS)`/`Still (macOS)`), so
+  /// this passes vacuously now and only guards shared schemes someone commits later.
   func testSharedSchemesSelectStoreKitOnlyForDebugRunAndTest() throws {
     let schemeDirectories = [
       "Still.xcodeproj/xcshareddata/xcschemes",
@@ -178,7 +203,7 @@ final class ApplePurchaseCatalogTests: XCTestCase {
 
   func testArchiveScriptAndExportOptionsNeverNameAStoreKitFile() throws {
     for path in ["apps/apple/scripts/archive.sh", "apps/apple/scripts/ExportOptions.plist"] {
-      XCTAssertFalse(try text(path).lowercased().contains("storekit"), path)
+      XCTAssertFalse(Self.namesStoreKitConfigurationFile(try text(path)), path)
     }
   }
 }
