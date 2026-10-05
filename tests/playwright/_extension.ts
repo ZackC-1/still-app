@@ -24,7 +24,7 @@ function disposableCopy(source: string, label: string): { path: string; remove: 
   const dir = mkdtempSync(resolve(tmpdir(), `still-pw-${label}-`));
   const path = resolve(dir, "extension");
   cpSync(source, path, { recursive: true });
-  return { path, remove: () => rmSync(dir, { recursive: true, force: true }) };
+  return { path, remove: () => rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 }) };
 }
 
 export function fixture(name: string): string {
