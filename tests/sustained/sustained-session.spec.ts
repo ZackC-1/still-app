@@ -21,6 +21,7 @@ import {
   CP013,
   evaluate,
   OPEN_QUESTIONS,
+  RULINGS,
   TIMING_CHECKS,
   type ScenarioResult,
   type SessionReport,
@@ -147,7 +148,7 @@ test("sustained five-page session", async () => {
         }
         await settle(page, 300);
         const measured = await probe.end();
-        scenarios.push({ page: def.key, phase, nodesReached: reached, ...measured, domWrites: await takeWrites(page) });
+        scenarios.push({ page: def.key, phase, engine: def.engine, nodesReached: reached, ...measured, domWrites: await takeWrites(page) });
         await harness(page, (h) => h.trim());
       }
     };
@@ -303,6 +304,7 @@ test("sustained five-page session", async () => {
         timingAdvisory: TIMING_ADVISORY,
         failed: failed.map((v) => `${v.check} ${v.page}: ${v.measured} (budget ${v.budget})`),
       },
+      rulings: RULINGS,
       openQuestions: OPEN_QUESTIONS,
     };
     mkdirSync(dirname(REPORT), { recursive: true });

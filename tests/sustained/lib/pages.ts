@@ -4,7 +4,12 @@
 //
 // The plan names "five ordinary pages" without listing them. The first four are the four
 // supported services; the fifth is the YouTube watch page, the page the plan's own long
-// observation (five watch pages over a day) is about. That choice is a coordinator question.
+// observation (five watch pages over a day) is about (coordinator ruling, 2026-10-05).
+//
+// Off is zero work on format-2 pages (coordinator ruling, 2026-10-05): with Still or the site off
+// and the feed still growing, those pages must see no DOM writes and no content-script callbacks.
+// The allowed TikTok tab runs the legacy engine, whose observer keeps watching while off by
+// design, so it is exempt.
 export interface SessionPage {
   key: string;
   /** The options-page switch that turns this page's service off. */
@@ -17,12 +22,15 @@ export interface SessionPage {
   target: string | null;
   /** An ordinary element that must stay visible. */
   keep: string;
+  /** Which content engine runs here: format-2 hides with a stylesheet; legacy observes the DOM. */
+  engine: "format2" | "legacy";
   tiktok?: boolean;
 }
 
 export const SESSION_PAGES: readonly SessionPage[] = [
   {
     key: "youtube-home",
+    engine: "format2",
     serviceSwitch: "Still on YouTube",
     url: "https://www.youtube.com/feed/subscriptions",
     fixture: "youtube.html",
@@ -32,6 +40,7 @@ export const SESSION_PAGES: readonly SessionPage[] = [
   },
   {
     key: "youtube-watch",
+    engine: "format2",
     serviceSwitch: "Still on YouTube",
     url: "https://www.youtube.com/watch?v=long123",
     fixture: "youtube-watch.html",
@@ -41,6 +50,7 @@ export const SESSION_PAGES: readonly SessionPage[] = [
   },
   {
     key: "instagram-home",
+    engine: "format2",
     serviceSwitch: "Still on Instagram",
     url: "https://www.instagram.com/",
     fixture: "instagram-home.html",
@@ -50,6 +60,7 @@ export const SESSION_PAGES: readonly SessionPage[] = [
   },
   {
     key: "facebook-home",
+    engine: "format2",
     serviceSwitch: "Still on Facebook",
     url: "https://www.facebook.com/",
     fixture: "facebook.html",
@@ -59,6 +70,7 @@ export const SESSION_PAGES: readonly SessionPage[] = [
   },
   {
     key: "tiktok-allowed",
+    engine: "legacy",
     serviceSwitch: "TikTok website",
     url: "https://www.tiktok.com/foryou",
     fixture: "tiktok.html",
