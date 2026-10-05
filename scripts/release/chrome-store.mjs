@@ -25,6 +25,7 @@ export const PUBLISH_BODY = Object.freeze({ publishType: "DEFAULT_PUBLISH", skip
 const EXTENSION_ID = /^[a-p]{32}$/;
 const PUBLISHER_ID = /^[A-Za-z0-9-]{1,64}$/;
 const ITEM_STATES = new Set(["PENDING_REVIEW", "STAGED", "PUBLISHED", "PUBLISHED_TO_TESTERS", "REJECTED", "CANCELLED"]);
+const VERSIONED_STATES = new Set(["PENDING_REVIEW", "STAGED", "PUBLISHED", "PUBLISHED_TO_TESTERS"]);
 const UPLOAD_STATES = new Set(["SUCCEEDED", "IN_PROGRESS", "FAILED", "NOT_FOUND"]);
 
 export class StoreRefusal extends Error {
@@ -88,6 +89,10 @@ function revision(status, label) {
     parseChromeVersion(channel.crxVersion);
     if (version === null || compareChromeVersions(channel.crxVersion, version) > 0) version = channel.crxVersion;
   }
+  // A live, in-review or staged revision always has a version. Without one, "is ours higher?" cannot be
+  // answered, so refuse rather than treat it as absent. Rejected or cancelled ones may lack it harmlessly.
+  if (version === null && VERSIONED_STATES.has(status.state))
+    throw new StoreRefusal("store-response-unexpected", `The store reported a ${label} ${status.state} revision without a version`);
   return { state: status.state, version };
 }
 

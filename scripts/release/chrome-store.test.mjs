@@ -2,7 +2,7 @@
 // Chrome Web Store and GitHub APIs, and the global fetch is replaced with one that throws, so a
 // forgotten injection fails loudly instead of reaching Google.
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
@@ -112,6 +112,24 @@ test("an unknown store state or upload state is refused, never guessed", () => {
   assert.throws(() => summarizeStatus({ lastAsyncUploadState: "MAYBE" }), /Unknown upload state/);
   assert.equal(summarizeStatus({ lastAsyncUploadState: "UPLOAD_IN_PROGRESS" }).lastUploadState, "IN_PROGRESS");
   assert.throws(() => summarizeStatus(null), /no status/);
+});
+
+test("a live, in-review or staged revision without a version is refused instead of treated as absent", () => {
+  for (const field of ["publishedItemRevisionStatus", "submittedItemRevisionStatus"])
+    for (const state of ["PUBLISHED", "PUBLISHED_TO_TESTERS", "PENDING_REVIEW", "STAGED"])
+      for (const channels of [undefined, [], [{ deployPercentage: 100 }]])
+        assert.throws(() => summarizeStatus({ [field]: { state, distributionChannels: channels } }), (e) => e.code === "store-response-unexpected", `${field} ${state} ${JSON.stringify(channels)}`);
+  // Rejected or cancelled submissions may carry no version; nothing is compared against them.
+  for (const state of ["REJECTED", "CANCELLED"]) assert.equal(summarizeStatus({ submittedItemRevisionStatus: { state } }).submitted.version, null);
+});
+
+test("a versionless published revision stops the whole store check before any upload", async () => {
+  const { dir, digest } = stagedPackage();
+  const store = fakeStore({ [STATUS_PATH]: status({ publishedItemRevisionStatus: { state: "PUBLISHED" } }) });
+  const io = capture();
+  assert.equal(await main(["preflight", "--dir", dir], { env: storeEnv("upload", dir, digest), fetchImpl: store.fetchImpl, ...io.deps }), 1);
+  assert.match(io.err.join(""), /store-response-unexpected/);
+  assert.ok(!existsSync(join(dir, "github-output")), "no decision was handed to later steps");
 });
 
 test("preflight allows only a strictly higher version and stops on every risky store state", () => {
