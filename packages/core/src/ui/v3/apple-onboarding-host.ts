@@ -27,8 +27,8 @@ import {
 //   • Consent changes only from the user's Share / Don't share gesture; nothing here ever turns
 //     sharing on by itself. The choice goes through the shared Apple consent committer
 //     (analytics/apple-consent.ts), which is "Saved" only when native confirmed it as an explicit
-//     answer, never from the on-by-default value. A build that cannot record a choice skips the
-//     question (and counts three steps) instead of pretending it was saved.
+//     answer, never from the on-by-default value. Without a committer or verified purposes the
+//     question is skipped (three steps), so finishing never requires declining.
 
 export interface AppleOnboardingHostBridge {
   onboardingState(): Promise<OnboardingStateReply | null>;
@@ -155,8 +155,13 @@ export function createAppleOnboardingHost(
   let completion: AppleOnboardingCompletion = "idle";
   let lastDestination: AppleOnboardingDestination = "safari";
   const sharing = deps.consent.sharing;
-  /** Without a way to record a choice there is no consent step to show. */
-  const afterSetup: AppleOnboardingProps["step"] = sharing ? 3 : 4;
+  /** The consent step is shown only when Share can really be offered: a way to record the choice
+   * AND verified purposes. Otherwise it is skipped, so finishing never requires declining. */
+  const asksConsent =
+    !!sharing &&
+    deps.consent.purposesVerified === true &&
+    !!deps.consent.purposes?.length;
+  const afterSetup: AppleOnboardingProps["step"] = asksConsent ? 3 : 4;
   let view: AppleOnboardingHostView = { visible: false, done: false };
 
   const emit = (): void => {
@@ -197,7 +202,7 @@ export function createAppleOnboardingHost(
 
   function back(): void {
     if (!active() || busy() || step === 1) return;
-    goTo(step === 4 && !sharing ? 2 : ((step - 1) as AppleOnboardingProps["step"]));
+    goTo(step === 4 && !asksConsent ? 2 : ((step - 1) as AppleOnboardingProps["step"]));
   }
 
   function continueStep(): void {
@@ -219,7 +224,7 @@ export function createAppleOnboardingHost(
   }
 
   function choose(choice: "on" | "off"): void {
-    if (!active() || step !== 3 || !sharing) return;
+    if (!active() || step !== 3 || !sharing || !asksConsent) return;
     if (consent.status === "saving" || consent.status === "saved") return;
     if (choice === "on" && !shareOffered()) return;
     const generation = ++consentGeneration;
@@ -244,11 +249,7 @@ export function createAppleOnboardingHost(
   }
 
   function shareOffered(): boolean {
-    return (
-      !!sharing &&
-      deps.consent.purposesVerified === true &&
-      !!deps.consent.purposes?.length
-    );
+    return asksConsent;
   }
 
   function complete(destination: AppleOnboardingDestination): void {
@@ -280,7 +281,7 @@ export function createAppleOnboardingHost(
       purposes: deps.consent.purposes,
       purposesVerified: deps.consent.purposesVerified,
       onShare: shareOffered() ? () => choose("on") : undefined,
-      onDecline: sharing ? () => choose("off") : undefined,
+      onDecline: asksConsent ? () => choose("off") : undefined,
     };
     if (consent.status === "saved")
       return { ...base, status: "saved", choice: consent.choice };
@@ -305,7 +306,7 @@ export function createAppleOnboardingHost(
     const idle = !busy();
     return {
       step,
-      progress: sharing
+      progress: asksConsent
         ? { current: step, total: 4 }
         : { current: step === 4 ? 3 : step, total: 3 },
       platform,
@@ -356,7 +357,7 @@ export function createAppleOnboardingHost(
       visible = true;
       step = 1;
       emit();
-      sharing?.warm?.(); // a first launch's native context read can be slow; start it before step 3
+      if (asksConsent) sharing?.warm?.(); // a first launch's context read can be slow; start it early
     },
     refreshSetup: readSetup,
     dispose() {

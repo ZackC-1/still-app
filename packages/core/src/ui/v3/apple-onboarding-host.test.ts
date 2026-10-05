@@ -73,6 +73,7 @@ function harness(
     complete?: boolean;
     sharing?: ReturnType<typeof nativeConsent> | null;
     purposesVerified?: boolean;
+    purposes?: AppleOnboardingHostDeps["consent"]["purposes"];
     openSetup?: boolean;
     consentDeadlineMs?: number;
   } = {},
@@ -95,7 +96,7 @@ function harness(
   const openSetup = vi.fn();
   const views: AppleOnboardingHostView[] = [];
   const consent: AppleOnboardingHostDeps["consent"] = {
-    purposes,
+    purposes: options.purposes ?? purposes,
     purposesVerified: options.purposesVerified ?? true,
     sharing: sharing && { commit: sharing.commit, warm: sharing.warm },
   };
@@ -126,7 +127,7 @@ async function toStep(
   if (step === 2) return;
   if (h.props().platform === "ios") h.props().onAssertEnabled?.();
   else h.props().onDoLater?.();
-  if (step === 3 || !h.sharing) return;
+  if (step === 3 || h.props().step !== 3) return;
   h.props().consent.onDecline?.();
   for (let i = 0; i < 6; i++) await flush();
   h.props().onContinue?.();
@@ -455,11 +456,29 @@ describe("consent never shares on its own", () => {
     expect(h.props().consent.status).toBe("failed");
   });
 
-  it("Share is not offered without verified purposes", async () => {
-    const h = harness({ purposesVerified: false });
-    await toStep(h, 3);
-    expect(h.props().consent.onShare).toBeUndefined();
-  });
+  it.each([
+    ["purposes are not verified", { purposesVerified: false }],
+    ["there are no purposes", { purposes: [] }],
+  ] as const)(
+    "with a committer but %s, the question is skipped like a build without one",
+    async (_label, over) => {
+      const h = harness(over);
+      await toStep(h, 2);
+      h.props().onAssertEnabled?.();
+      expect(h.props().step).toBe(4);
+      expect(h.views.some((v) => v.visible && v.props.step === 3)).toBe(false);
+      const labels = h.views
+        .filter((v) => v.visible)
+        .map((v) => `${v.props.progress?.current} of ${v.props.progress?.total}`);
+      expect([...new Set(labels)]).toEqual(["1 of 3", "2 of 3", "3 of 3"]);
+      expect(h.props().consent.onShare).toBeUndefined();
+      expect(h.props().consent.onDecline).toBeUndefined();
+      expect(h.sharing?.warm).not.toHaveBeenCalled();
+      expect(h.sharing?.commit).not.toHaveBeenCalled();
+      h.props().onBack?.();
+      expect(h.props().step).toBe(2);
+    },
+  );
 
   it("a build that cannot record a choice skips the question and never shows Saved", async () => {
     const h = harness({ sharing: null });
