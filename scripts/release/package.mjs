@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Reproducible release packages and their hashes. Local only: this never contacts a store.
 //
-//   node scripts/release/package.mjs --out <dir> [--build] [--env VITE_X=value]... [--allow-dirty]
+//   node scripts/release/package.mjs --out <dir> [--env VITE_X=value]... [--allow-dirty]
 //
 // Writes into <dir>:
 //   still-chrome-<extension version>.zip       Chrome Web Store package
@@ -9,14 +9,15 @@
 //   still-source-<extension version>.zip       the complete source AMO requires, with build instructions
 //   SHA256SUMS.json / SHA256SUMS.txt           a hash for every file above
 //
-// --build   build the Chrome and Firefox bundles first (otherwise the existing dist/ folders are zipped)
-// --env     a public build value (VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, VITE_POSTHOG_KEY,
-//           VITE_POSTHOG_HOST). Every other VITE_* variable in your shell is removed first, and the
-//           values given are recorded in the AMO build instructions so a reviewer can rebuild the
-//           same bytes. Never pass a secret.
+// --env     a public build value (see PUBLIC_ENV_KEYS). Every other VITE_* variable in your shell is
+//           removed first, and the values given are recorded in the AMO build instructions so a
+//           reviewer can rebuild the same bytes. Never pass a secret.
 //
-// The packages must come from a committed tree: the source bundle is read from HEAD, so a dirty
-// tracked file would make the package and its source disagree. --allow-dirty overrides that for tests.
+// Packages are always built fresh from `git archive HEAD` exported into a temporary directory, never
+// from your working tree. An untracked file, a stray .env, a symlink or a stale dist/ in your checkout
+// therefore cannot reach a zip, and the Chrome/Firefox zips contain exactly what the source zip
+// can rebuild. Uncommitted edits to tracked files are refused (they would be silently ignored);
+// --allow-dirty overrides that refusal for tests.
 //
 // Reproducibility: archives have sorted entries, fixed timestamps, fixed permissions and no machine
 // paths (see zip.mjs). Building twice from the same commit in the same directory with the same
@@ -26,13 +27,23 @@
 
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readVersions, findMismatches, ROOT } from "./version.mjs";
 import { createZip } from "./zip.mjs";
 
-export const PUBLIC_ENV_KEYS = ["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY", "VITE_POSTHOG_KEY", "VITE_POSTHOG_HOST"];
+export const PUBLIC_ENV_KEYS = ["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY", "VITE_POSTHOG_KEY", "VITE_POSTHOG_HOST", "VITE_MODERN_SETTINGS_SYNC_ENABLED"];
+
+// VITE_* names the shipped web code mentions on purpose but that must never reach a store package.
+// Any other name found in the source that is not in PUBLIC_ENV_KEYS stops the build until someone
+// decides which list it belongs to.
+export const DELIBERATELY_UNPACKAGED = {
+  VITE_APPLE_ATOMIC_SETTINGS: "developer opt-in for the Apple settings screens; store packages leave it unset",
+  VITE_REVIEW_SIGNIN_EMAIL: "store-review sign-in helper; must not ship in a public package",
+};
+const ENV_SCAN_DIRS = ["packages/ext-chromium", "packages/core/src", "packages/shared-types/src"];
 
 export const WEB_TARGETS = {
   chrome: { script: "build", dist: "packages/ext-chromium/dist/chrome-mv3" },
@@ -53,7 +64,9 @@ export function treeEntries(dir) {
   const walk = (current) => {
     for (const name of readdirSync(current)) {
       const path = join(current, name);
-      if (statSync(path).isDirectory()) walk(path);
+      const info = lstatSync(path);
+      if (info.isSymbolicLink()) throw new Error(`${path} is a symlink; packages never contain symlinks`);
+      if (info.isDirectory()) walk(path);
       else entries.push({ name: relative(dir, path).split("\\").join("/"), data: readFileSync(path) });
     }
   };
@@ -73,8 +86,9 @@ export function sourceEntries(root = ROOT, { allowDirty = false } = {}) {
   const entries = [];
   for (const row of listing) {
     const [meta, path] = row.split("\t");
-    const [, type, sha] = meta.split(" ");
+    const [mode, type, sha] = meta.split(" ");
     if (type !== "blob") continue;
+    if (mode === "120000" && (SOURCE_ROOT_FILES.includes(path) || SOURCE_PREFIXES.some((p) => path.startsWith(p)))) throw new Error(`${path} is a tracked symlink; packages never contain symlinks`);
     if (NEVER_IN_SOURCE.test(path)) continue;
     if (!SOURCE_ROOT_FILES.includes(path) && !SOURCE_PREFIXES.some((p) => path.startsWith(p))) continue;
     entries.push({ name: path, data: git(["cat-file", "blob", sha], root, "buffer") });
@@ -124,58 +138,98 @@ function cleanEnv(extra) {
   return { ...base, ...extra };
 }
 
-function build(root, env) {
-  for (const name of readdirSync(join(root, "packages/ext-chromium")))
-    if (name.startsWith(".env") && name !== ".env.example") throw new Error(`packages/ext-chromium/${name} exists; move it aside so the build uses only the values given`);
+/** VITE_* names referenced by shipped source that are neither packaged nor deliberately excluded. */
+export function unlistedViteReferences(root = ROOT) {
+  const found = new Set();
+  const skip = new Set(["node_modules", "dist", ".wxt", ".output", "__tests__"]);
+  const walk = (dir) => {
+    for (const name of readdirSync(dir)) {
+      if (skip.has(name)) continue;
+      const path = join(dir, name);
+      const info = lstatSync(path);
+      if (info.isDirectory()) walk(path);
+      else if (info.isFile() && /\.(ts|js|mjs|svelte)$/.test(name) && !/\.test\.|\.spec\./.test(name))
+        for (const m of readFileSync(path, "utf8").matchAll(/VITE_[A-Z0-9_]*[A-Z0-9]/g)) found.add(m[0]);
+    }
+  };
+  for (const dir of ENV_SCAN_DIRS) if (existsSync(join(root, dir))) walk(join(root, dir));
+  return [...found].filter((name) => !PUBLIC_ENV_KEYS.includes(name) && !(name in DELIBERATELY_UNPACKAGED)).sort();
+}
+
+/** Export the committed tree (only what the web packages need) into `dir`. */
+function exportHead(root, dir) {
+  const archive = execFileSync("git", ["archive", "--format=tar", "HEAD", ...SOURCE_ROOT_FILES, "packages", "scripts/release"], { cwd: root, maxBuffer: 1 << 29 });
+  execFileSync("tar", ["-x", "-C", dir], { input: archive });
+}
+
+function installAndBuild(dir, env) {
+  for (const name of readdirSync(join(dir, "packages/ext-chromium")))
+    if (name.startsWith(".env") && name !== ".env.example") throw new Error(`packages/ext-chromium/${name} exists in the export; refusing to build`);
+  const run = (args) => {
+    const result = spawnSync("pnpm", args, { cwd: dir, env: cleanEnv(env), stdio: ["ignore", "ignore", "inherit"] });
+    if (result.status !== 0) throw new Error(`pnpm ${args.join(" ")} failed`);
+  };
+  process.stderr.write("installing the exported tree\n");
+  run(["install", "--frozen-lockfile"]);
   for (const { script } of Object.values(WEB_TARGETS)) {
     process.stderr.write(`building ${script}\n`);
-    const run = spawnSync("pnpm", ["--filter", "@still/ext-chromium", script], { cwd: root, env: cleanEnv(env), stdio: ["ignore", "ignore", "inherit"] });
-    if (run.status !== 0) throw new Error(`pnpm build step "${script}" failed`);
+    run(["--filter", "@still/ext-chromium", script]);
   }
 }
 
-export function buildPackages({ out, root = ROOT, env = {}, doBuild = false, allowDirty = false }) {
+export function buildPackages({ out, root = ROOT, env = {}, allowDirty = false }) {
   for (const key of Object.keys(env)) if (!PUBLIC_ENV_KEYS.includes(key)) throw new Error(`--env ${key} is not an allowed public build value (${PUBLIC_ENV_KEYS.join(", ")})`);
-  const problems = findMismatches(root);
-  if (problems.length) throw new Error(`version.json and its consumers disagree:\n${problems.join("\n")}`);
-  const versions = readVersions(root);
-  if (doBuild) build(root, env);
-
-  mkdirSync(out, { recursive: true });
-  const files = {};
-  const write = (name, bytes) => {
-    writeFileSync(join(out, name), bytes);
-    files[name] = { sha256: sha256(bytes), bytes: bytes.length };
-  };
-
-  for (const [target, { dist }] of Object.entries(WEB_TARGETS)) {
-    const dir = join(root, dist);
-    if (!existsSync(join(dir, "manifest.json"))) throw new Error(`${dist}/manifest.json is missing; build first (use --build)`);
-    const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
-    if (manifest.version !== versions.extension) throw new Error(`${target} manifest version ${manifest.version} does not match version.json extension ${versions.extension}`);
-    write(`still-${target}-${versions.extension}.zip`, createZip(treeEntries(dir)));
+  if (!allowDirty && git(["status", "--porcelain", "--untracked-files=no"], root).trim() !== "")
+    throw new Error("tracked files have uncommitted changes, which a HEAD build would ignore; commit first (or pass --allow-dirty for a throwaway package)");
+  if (!allowDirty) {
+    const full = findMismatches(root);
+    if (full.length) throw new Error(`version.json and its consumers disagree:\n${full.join("\n")}`);
   }
+  const work = mkdtempSync(join(tmpdir(), "still-package-"));
+  try {
+    exportHead(root, work);
+    const unlisted = unlistedViteReferences(work);
+    if (unlisted.length)
+      throw new Error(`shipped source reads ${unlisted.join(", ")}, which is neither a packaged public value nor deliberately excluded; add it to PUBLIC_ENV_KEYS or DELIBERATELY_UNPACKAGED in scripts/release/package.mjs`);
+    const problems = findMismatches(work, { skipApple: true });
+    if (problems.length) throw new Error(`version.json and its consumers disagree:\n${problems.join("\n")}`);
+    const versions = readVersions(work);
+    installAndBuild(work, env);
 
-  const rootPackage = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
-  const source = sourceEntries(root, { allowDirty });
-  source.push({ name: "AMO-BUILD-INSTRUCTIONS.md", data: Buffer.from(amoInstructions(versions, rootPackage, env)) });
-  write(`still-source-${versions.extension}.zip`, createZip(source));
+    mkdirSync(out, { recursive: true });
+    const files = {};
+    const write = (name, bytes) => {
+      writeFileSync(join(out, name), bytes);
+      files[name] = { sha256: sha256(bytes), bytes: bytes.length };
+    };
+    for (const [target, { dist }] of Object.entries(WEB_TARGETS)) {
+      const dir = join(work, dist);
+      const manifest = JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8"));
+      if (manifest.version !== versions.extension) throw new Error(`${target} manifest version ${manifest.version} does not match version.json extension ${versions.extension}`);
+      write(`still-${target}-${versions.extension}.zip`, createZip(treeEntries(dir)));
+    }
 
-  const sorted = Object.fromEntries(Object.entries(files).sort(([a], [b]) => (a < b ? -1 : 1)));
-  const manifest = { version: versions.extension, appleVersion: versions.apple, appleBuild: versions.appleBuild, files: sorted };
-  writeFileSync(join(out, "SHA256SUMS.json"), JSON.stringify(manifest, null, 2) + "\n");
-  writeFileSync(join(out, "SHA256SUMS.txt"), Object.entries(sorted).map(([name, f]) => `${f.sha256}  ${name}\n`).join(""));
-  return manifest;
+    const rootPackage = JSON.parse(readFileSync(join(work, "package.json"), "utf8"));
+    const source = sourceEntries(root, { allowDirty: true });
+    source.push({ name: "AMO-BUILD-INSTRUCTIONS.md", data: Buffer.from(amoInstructions(versions, rootPackage, env)) });
+    write(`still-source-${versions.extension}.zip`, createZip(source));
+
+    const sorted = Object.fromEntries(Object.entries(files).sort(([a], [b]) => (a < b ? -1 : 1)));
+    const manifest = { version: versions.extension, appleVersion: versions.apple, appleBuild: versions.appleBuild, files: sorted };
+    writeFileSync(join(out, "SHA256SUMS.json"), JSON.stringify(manifest, null, 2) + "\n");
+    writeFileSync(join(out, "SHA256SUMS.txt"), Object.entries(sorted).map(([name, f]) => `${f.sha256}  ${name}\n`).join(""));
+    return manifest;
+  } finally {
+    rmSync(work, { recursive: true, force: true });
+  }
 }
 
 function main(argv) {
   let out;
-  let doBuild = false;
   let allowDirty = false;
   const env = {};
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === "--out") out = resolve(argv[++i] ?? "");
-    else if (argv[i] === "--build") doBuild = true;
     else if (argv[i] === "--allow-dirty") allowDirty = true;
     else if (argv[i] === "--env") {
       const pair = argv[++i] ?? "";
@@ -185,11 +239,11 @@ function main(argv) {
     } else throw new Error(`unknown argument ${argv[i]}`);
   }
   if (!out) {
-    process.stderr.write("usage: package.mjs --out <dir> [--build] [--env VITE_X=v]... [--allow-dirty]\n");
+    process.stderr.write("usage: package.mjs --out <dir> [--env VITE_X=v]... [--allow-dirty]\n");
     process.exitCode = 2;
     return;
   }
-  const manifest = buildPackages({ out, env, doBuild, allowDirty });
+  const manifest = buildPackages({ out, env, allowDirty });
   for (const [name, f] of Object.entries(manifest.files)) process.stdout.write(`${f.sha256}  ${name}\n`);
 }
 

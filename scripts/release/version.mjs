@@ -11,6 +11,7 @@
 //
 // The consumers are package.json files and the Xcode project. Nothing here talks to a store.
 
+import { execFileSync } from "node:child_process";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,7 +52,7 @@ function pbxValues(text, key) {
 }
 
 /** Every disagreement between version.json and its consumers, as readable lines. Empty means consistent. */
-export function findMismatches(root = ROOT) {
+export function findMismatches(root = ROOT, { skipApple = false } = {}) {
   const v = readVersions(root);
   const problems = [];
   for (const [channel, files] of Object.entries(PACKAGE_CONSUMERS))
@@ -59,6 +60,7 @@ export function findMismatches(root = ROOT) {
       const actual = JSON.parse(readFileSync(join(root, file), "utf8")).version;
       if (actual !== v[channel]) problems.push(`${file}: version ${actual}, version.json ${channel} is ${v[channel]}`);
     }
+  if (skipApple) return problems;
   const pbx = readFileSync(join(root, PBXPROJ), "utf8");
   const marketing = pbxValues(pbx, "MARKETING_VERSION");
   const builds = pbxValues(pbx, "CURRENT_PROJECT_VERSION");
@@ -66,6 +68,39 @@ export function findMismatches(root = ROOT) {
   marketing.forEach((m) => m !== v.apple && problems.push(`${PBXPROJ}: MARKETING_VERSION ${m}, version.json apple is ${v.apple}`));
   builds.forEach((b) => b !== String(v.appleBuild) && problems.push(`${PBXPROJ}: CURRENT_PROJECT_VERSION ${b}, version.json appleBuild is ${v.appleBuild}`));
   return problems;
+}
+
+const gitText = (root, args) => execFileSync("git", args, { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+
+/** True when the checkout's history is truncated, which makes any history check meaningless. */
+export function isShallow(root = ROOT) {
+  return gitText(root, ["rev-parse", "--is-shallow-repository"]).trim() === "true";
+}
+
+/**
+ * The build counter must never fall: not between any two committed revisions of version.json, not
+ * below main when origin/main is known, not below the working copy's last commit. Throws when the
+ * history cannot be trusted (a shallow clone), so a truncated CI checkout fails loudly instead of
+ * passing on one revision.
+ */
+export function assertBuildHistory(root = ROOT) {
+  if (isShallow(root)) throw new Error("this is a shallow clone, so the build-counter history cannot be checked; fetch full history (git fetch --unshallow, or fetch-depth: 0 in CI)");
+  const read = (ref) => JSON.parse(gitText(root, ["show", `${ref}:version.json`])).appleBuild;
+  let previous = 0;
+  for (const hash of gitText(root, ["log", "--format=%H", "--reverse", "--", "version.json"]).split("\n").filter(Boolean)) {
+    const value = read(hash);
+    if (value < previous) throw new Error(`appleBuild fell from ${previous} to ${value} at ${hash}`);
+    previous = value;
+  }
+  const current = readVersions(root).appleBuild;
+  if (current < previous) throw new Error(`working copy appleBuild ${current} is below the last committed ${previous}`);
+  try {
+    const main = read("origin/main");
+    if (current < main) throw new Error(`appleBuild ${current} is below origin/main's ${main}`);
+  } catch (error) {
+    if (/is below origin\/main/.test(error.message)) throw error; // origin/main absent or has no version.json yet
+  }
+  return current;
 }
 
 export function sync(root = ROOT) {

@@ -1,11 +1,11 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { buildPackages, sourceEntries, treeEntries } from "./package.mjs";
-import { bumpBuild, compareSemver, findMismatches, parseVersions, readVersions, ROOT, setVersion, sync } from "./version.mjs";
+import { buildPackages, PUBLIC_ENV_KEYS, sourceEntries, treeEntries, unlistedViteReferences } from "./package.mjs";
+import { assertBuildHistory, bumpBuild, compareSemver, findMismatches, isShallow, parseVersions, readVersions, ROOT, setVersion, sync } from "./version.mjs";
 import { createZip } from "./zip.mjs";
 
 // The lowest appleBuild ever recorded on main when this guard was written. Raise it with every
@@ -104,20 +104,22 @@ test("bumping the build counter increases it in every Xcode target and survives 
   }
 });
 
-test("version.json's appleBuild never decreased anywhere in git history", (t) => {
-  let hashes;
+test("version.json's appleBuild never decreased anywhere in git history", () => {
+  // Fails (never skips) on a shallow clone: a truncated history would make this check pass vacuously.
+  assert.ok(assertBuildHistory() >= BUILD_FLOOR);
+});
+
+test("a shallow clone is detected and the history check refuses to pass", () => {
+  assert.equal(isShallow(ROOT), false, "run the release tests with full history (fetch-depth: 0 in CI)");
+  const base = mkdtempSync(join(tmpdir(), "still-shallow-"));
   try {
-    hashes = execFileSync("git", ["log", "--format=%H", "--reverse", "--", "version.json"], { cwd: ROOT, encoding: "utf8" }).split("\n").filter(Boolean);
-  } catch {
-    return t.skip("no git history available");
+    const clone = join(base, "clone");
+    execFileSync("git", ["clone", "--quiet", "--depth", "1", `file://${ROOT}`, clone]);
+    assert.equal(isShallow(clone), true);
+    assert.throws(() => assertBuildHistory(clone), /shallow clone/);
+  } finally {
+    rmSync(base, { recursive: true, force: true });
   }
-  let previous = 0;
-  for (const hash of hashes) {
-    const value = JSON.parse(execFileSync("git", ["show", `${hash}:version.json`], { cwd: ROOT, encoding: "utf8" })).appleBuild;
-    assert.ok(value >= previous, `appleBuild fell from ${previous} to ${value} at ${hash}`);
-    previous = value;
-  }
-  assert.ok(readVersions().appleBuild >= previous, "working copy is below the last committed build number");
 });
 
 // ---- deterministic archives ----
@@ -153,17 +155,69 @@ test("the AMO source bundle comes from tracked files only and carries build inst
 
 // ---- the real packages ----
 
-test("building twice gives byte-identical packages with consistent versions", { timeout: 600_000 }, () => {
+test("unlisted VITE_ variables read by shipped source stop the build, and the repo has none", () => {
+  assert.deepEqual(unlistedViteReferences(ROOT), []);
+  assert.ok(PUBLIC_ENV_KEYS.includes("VITE_MODERN_SETTINGS_SYNC_ENABLED"));
+  const root = mkdtempSync(join(tmpdir(), "still-env-"));
+  try {
+    mkdirSync(join(root, "packages/ext-chromium/entrypoints"), { recursive: true });
+    writeFileSync(join(root, "packages/ext-chromium/entrypoints/new.ts"), "const x = import.meta.env.VITE_BRAND_NEW_FLAG;\nconst y = import.meta.env.VITE_SUPABASE_URL;\n");
+    mkdirSync(join(root, "packages/ext-chromium/entrypoints/__tests__"), { recursive: true });
+    writeFileSync(join(root, "packages/ext-chromium/entrypoints/__tests__/t.test.ts"), "VITE_ONLY_IN_TESTS");
+    assert.deepEqual(unlistedViteReferences(root), ["VITE_BRAND_NEW_FLAG"]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a symlink is refused rather than followed when zipping", () => {
+  const dir = mkdtempSync(join(tmpdir(), "still-link-"));
+  try {
+    writeFileSync(join(dir, "real.txt"), "x");
+    symlinkSync("/etc/hosts", join(dir, "link.txt"));
+    assert.throws(() => treeEntries(dir), /symlink/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("building twice gives byte-identical packages, and nothing untracked, stale or ignored in the checkout reaches them", { timeout: 600_000 }, () => {
   const base = mkdtempSync(join(tmpdir(), "still-packages-"));
+  const ext = join(ROOT, "packages/ext-chromium");
+  const planted = {
+    untracked: join(ext, "public/PLANTED-untracked.txt"),
+    link: join(ext, "public/PLANTED-link"),
+    staleDist: join(ext, "dist/chrome-mv3/PLANTED-stale.txt"),
+    staleFirefox: join(ext, "dist/firefox-mv3/PLANTED-stale.txt"),
+    env: join(ext, ".env.local"),
+  };
+  const plant = () => {
+    mkdirSync(join(ext, "dist/chrome-mv3"), { recursive: true });
+    mkdirSync(join(ext, "dist/firefox-mv3"), { recursive: true });
+    writeFileSync(planted.untracked, "PLANTED-MARKER");
+    symlinkSync("/etc/hosts", planted.link);
+    writeFileSync(planted.staleDist, "PLANTED-MARKER");
+    writeFileSync(planted.staleFirefox, "PLANTED-MARKER");
+    writeFileSync(planted.env, "VITE_POSTHOG_KEY=PLANTED-MARKER\n");
+  };
+  const unplant = () => Object.values(planted).forEach((path) => rmSync(path, { force: true }));
   try {
     const env = { VITE_SUPABASE_URL: "https://still-audit.invalid", VITE_SUPABASE_ANON_KEY: "public-audit-placeholder" };
-    const a = buildPackages({ out: join(base, "a"), env, doBuild: true, allowDirty: true });
-    const b = buildPackages({ out: join(base, "b"), env, doBuild: true, allowDirty: true });
+    plant();
+    const a = buildPackages({ out: join(base, "a"), env, allowDirty: true });
+    unplant();
+    const b = buildPackages({ out: join(base, "b"), env, allowDirty: true });
     assert.deepEqual(a, b);
     const versions = readVersions();
     assert.deepEqual(Object.keys(a.files), [`still-chrome-${versions.extension}.zip`, `still-firefox-${versions.extension}.zip`, `still-source-${versions.extension}.zip`]);
     for (const name of Object.keys(a.files)) {
-      assert.ok(readFileSync(join(base, "a", name)).equals(readFileSync(join(base, "b", name))), `${name} differs between builds`);
+      assert.ok(readFileSync(join(base, "a", name)).equals(readFileSync(join(base, "b", name))), `${name} differs between builds (planted files must not matter)`);
+    }
+    for (const name of Object.keys(a.files)) {
+      const everything = spawnSync("unzip", ["-p", join(base, "a", name)], { encoding: "buffer", maxBuffer: 1 << 29 }).stdout;
+      assert.ok(!everything.includes("PLANTED-MARKER"), `${name} contains a planted file`);
+      const listing = spawnSync("unzip", ["-Z1", join(base, "a", name)], { encoding: "utf8" }).stdout;
+      assert.ok(!listing.includes("PLANTED"), `${name} lists a planted file`);
     }
     assert.equal(readFileSync(join(base, "a", "SHA256SUMS.json"), "utf8"), readFileSync(join(base, "b", "SHA256SUMS.json"), "utf8"));
 
@@ -174,11 +228,14 @@ test("building twice gives byte-identical packages with consistent versions", { 
     }
     const sourceZip = join(base, "a", `still-source-${versions.extension}.zip`);
     assert.equal(JSON.parse(unzipFile(sourceZip, "version.json")).extension, versions.extension);
-    assert.match(unzipFile(sourceZip, "AMO-BUILD-INSTRUCTIONS.md").toString(), new RegExp(`version ${versions.extension.replaceAll(".", "\\.")}`));
+    const instructions = unzipFile(sourceZip, "AMO-BUILD-INSTRUCTIONS.md").toString();
+    assert.match(instructions, new RegExp(`version ${versions.extension.replaceAll(".", "\\.")}`));
+    for (const key of PUBLIC_ENV_KEYS) assert.ok(instructions.includes(`${key}=`), `instructions list ${key}`);
     const sums = readFileSync(join(base, "a", "SHA256SUMS.txt"), "utf8");
     assert.equal(sums.trim().split("\n").length, 3);
     assert.ok(!sums.includes(base) && !readFileSync(join(base, "a", "SHA256SUMS.json"), "utf8").includes(base), "no machine path in the hash manifest");
   } finally {
+    unplant();
     rmSync(base, { recursive: true, force: true });
   }
 });

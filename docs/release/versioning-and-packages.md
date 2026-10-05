@@ -30,19 +30,27 @@ for a rebuild of the same marketing version.
 ## Building the packages
 
 ```bash
-node scripts/release/package.mjs --out /tmp/still-release --build \
+node scripts/release/package.mjs --out /tmp/still-release \
   --env VITE_SUPABASE_URL=... --env VITE_SUPABASE_ANON_KEY=... \
-  --env VITE_POSTHOG_KEY=... --env VITE_POSTHOG_HOST=...
+  --env VITE_POSTHOG_KEY=... --env VITE_POSTHOG_HOST=... \
+  --env VITE_MODERN_SETTINGS_SYNC_ENABLED=...   # only if the release sets it; copy the value from the submitted build
 ```
 
-This writes `still-chrome-<v>.zip`, `still-firefox-<v>.zip`, `still-source-<v>.zip` (the complete
-source AMO requires, read from the committed tree, with `AMO-BUILD-INSTRUCTIONS.md`) and
-`SHA256SUMS.json` / `SHA256SUMS.txt`. Only the four public build values are accepted; every other
-`VITE_*` variable in your shell is removed, and the script refuses to run with a `.env` file in
-`packages/ext-chromium`. Record the hashes with the submission. Use this instead of `wxt zip`, whose
-archives carry timestamps and change on every run.
+The script always builds fresh, from `git archive HEAD` exported into a temporary directory (it installs
+with the frozen lockfile there). It never zips your working tree or an existing `dist/`, so an untracked
+file, an ignored `.env`, a symlink or a stale `dist/` cannot reach a package. It refuses uncommitted edits to
+tracked files, because a HEAD build would silently ignore them.
 
-Archives have sorted entries, a fixed 1980-01-01 timestamp, fixed permissions and no machine paths, so
-the same commit built twice with the same Node version gives byte-identical files. A different Node
-version can compress differently while the files inside stay identical; compare extracted contents then.
-Run `pnpm test:release` to prove all of this (it builds twice).
+It writes `still-chrome-<v>.zip`, `still-firefox-<v>.zip`, `still-source-<v>.zip` (the complete source AMO
+requires, read from the committed tree, with `AMO-BUILD-INSTRUCTIONS.md`) and `SHA256SUMS.json` /
+`SHA256SUMS.txt`. Only the listed public build values are accepted; every other `VITE_*` variable in your
+shell is removed. If shipped source starts reading a `VITE_*` name that is on neither the public list nor
+the deliberately-unpackaged list (`PUBLIC_ENV_KEYS`, `DELIBERATELY_UNPACKAGED` in `package.mjs`), the build
+stops until someone decides which list it belongs on. Record the hashes with the submission. Use this
+instead of `wxt zip`, whose archives carry timestamps and change on every run.
+
+Archives have sorted entries, a fixed 1980-01-01 timestamp, fixed permissions, no symlinks and no machine
+paths, so the same commit built twice with the same Node version gives byte-identical files. A different
+Node version can compress differently while the files inside stay identical; compare extracted contents then.
+Run `pnpm test:release` to prove all of this (it builds twice, with files planted in the checkout). It needs
+full git history: it fails on a shallow clone, and CI checks out with `fetch-depth: 0`.

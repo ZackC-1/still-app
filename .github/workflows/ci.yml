@@ -29,6 +29,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The build-counter history test reads every revision of version.json and fails on a shallow clone.
+          fetch-depth: 0
 
       # pnpm version is read from package.json "packageManager" (pnpm@11.9.0).
       - uses: pnpm/action-setup@v6.1.0
