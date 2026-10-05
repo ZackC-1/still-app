@@ -361,7 +361,11 @@ export {
 export { createReapplyObserver, type ObserverHandle, type Scheduler } from "./observer.js";
 export {
   createExtensionContentEntry,
+  createShippingContentEntry,
+  FORMAT2_SHIPPING_SERVICES,
   type ExtensionContentContext,
   type ExtensionContentEntryDeps,
   type ExtensionContentNudge,
+  type ShippingContentEntryDeps,
+  type ShippingContentLane,
 } from "./extension-entry.js";

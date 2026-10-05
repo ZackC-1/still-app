@@ -11,12 +11,7 @@ import type {
 /** Supplied trusted native offer/ports; optional sync identity never authorizes purchase. */
 export interface NativeProOfferCardProps extends Omit<
   ProOfferCardProps,
-  | "confirmedAccount"
-  | "onSignIn"
-  | "offer"
-  // Browser-only D03 observations; native access is derived from supplied access states.
-  | "accessChecking"
-  | "accessVerify"
+  "confirmedAccount" | "onSignIn" | "offer"
 > {
   offer?: { price: string; priceNote?: string; refundNote?: string };
 }
@@ -56,8 +51,16 @@ export interface AppleSettingsProps extends Pick<
   sync: Omit<SyncCardProps, "account"> & {
     account?: AppleSettingsAccount;
   };
-  /** Absent while no trusted paid producer is supplied; never fabricate an offer. */
-  pro?: Omit<NativeProOfferCardProps, "accessHeld" | "restoreHeld">;
+  /**
+   * Absent while no trusted paid producer is supplied; never fabricate an offer. The held
+   * flags are not caller inputs: AppleSettings derives `accessChecking` (any Pro row
+   * "checking") and `accessVerify` (any Pro row "verification_required") separately from
+   * `access.states`, plus `accessHeld`/`restoreHeld` from rights not known missing and Restore.
+   */
+  pro?: Omit<
+    NativeProOfferCardProps,
+    "accessHeld" | "accessChecking" | "accessVerify" | "restoreHeld"
+  >;
   restore?: RestoreStatusCardProps;
   link?: AccountLinkCardProps;
   /** Eligibility is supplied only for a later ordinary visit, never inferred from buying. */

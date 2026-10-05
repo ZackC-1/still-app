@@ -47,6 +47,14 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # Both generated registries must match feature-registry.json, and the hand-written Swift
+      # service lists must match the TypeScript registry. StillKit imports Darwin and cannot build
+      # on this Linux runner, so Swift parity is checked from the Swift source text. No secrets.
+      - name: Registry drift and Swift/TypeScript parity
+        run: |
+          node scripts/registry/generate.mjs --check
+          pnpm --filter @still/core exec vitest run src/storage/__tests__/registry-swift-parity.test.ts
+
       - name: Unit tests
         run: pnpm test
 
