@@ -14,7 +14,9 @@ import type { NavigationIntent } from "./redirect.js";
 //
 // Deliberate playlists continue (D263): a playlist the person started on purpose (a full page
 // load, a link they activated, or Back/forward, landing on a `list=` URL) advances to its next
-// item. A recommendation taking over after the playlist ends is cancelled, and a playlist id the
+// item. Back/forward reaches the guard either as a cancelable traversal through the navigation
+// hooks or, when the browser reports it only after committing (Firefox ESR, Chromium's
+// non-cancelable traversals), as popstate (content/index.ts). A recommendation taking over after the playlist ends is cancelled, and a playlist id the
 // page added on its own (for example an automatic Mix) is never treated as chosen: a `list=`
 // value alone is not intent. Only the current chosen playlist id is held, in memory, for this
 // document; nothing is stored or sent.

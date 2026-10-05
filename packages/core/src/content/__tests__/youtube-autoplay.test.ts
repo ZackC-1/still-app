@@ -309,6 +309,27 @@ describe("Autoplay through the real content script and packaged rules", () => {
     expect(play).not.toHaveBeenCalled();
   });
 
+  it("paid on: Back/forward onto a playlist (a history move, with no cancelable navigate event) counts as the person's choice", async () => {
+    const counts = counters();
+    const { win } = await contentScript(ALL_ON, true);
+    // The person goes Back to a playlist page. Firefox ESR (no Navigation API) and Chromium's
+    // non-cancelable traversals report it only as popstate after the address changed.
+    win.location.href = PLAYLIST;
+    const popstate = win.addEventListener.mock.calls.filter(([type]) => type === "popstate").map(([, listener]) => listener as () => void);
+    expect(popstate.length).toBeGreaterThan(0);
+    for (const listener of popstate) listener();
+    nextLink().href = "/watch?v=inv300004&list=PLinvented03&index=3";
+    end();
+    await settle();
+    expect(counts.cancel, "the playlist reached by Back continues").toBe(0);
+    // Its end: a recommendation after the playlist is still cancelled.
+    video().dispatchEvent(new Event("play"));
+    nextLink().href = "/watch?v=inv300099";
+    end();
+    await settle();
+    expect(counts.cancel).toBe(1);
+  });
+
   it("paid on with the control saved Off: nothing is cancelled", async () => {
     const counts = counters();
     await contentScript({ ...ALL_ON, sites: { ...ALL_ON.sites, "youtube.autoplay": false } }, true);

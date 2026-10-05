@@ -115,7 +115,16 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   // Still Pro Autoplay prevention (format-2 lane only). Inert until reapply reports the feature
   // effective on a YouTube page; it then listens for the main player's end (youtube-autoplay.ts).
   const autoplayGuard = modern ? createYouTubeAutoplayGuard(doc, new URL(win.location.href)) : null;
-  if (autoplayGuard) teardowns.push(() => autoplayGuard.stop());
+  if (autoplayGuard) {
+    teardowns.push(() => autoplayGuard.stop());
+    // Back/forward is the person's own move. A cancelable traversal already reaches the guard as
+    // deliberate through the navigation hooks; a non-cancelable one (Chromium) and every one on
+    // Firefox ESR (no Navigation API) is seen only as popstate, after the address changed.
+    // Registered before the hooks' own popstate reapply, so the guard learns the choice first.
+    const onTraverse = (): void => autoplayGuard.navigated(new URL(win.location.href), "deliberate");
+    win.addEventListener("popstate", onTraverse);
+    teardowns.push(() => win.removeEventListener("popstate", onTraverse));
+  }
   let resetShortsFilterRequested = false;
   let shortsFilterSearch: string | null = null;
 
