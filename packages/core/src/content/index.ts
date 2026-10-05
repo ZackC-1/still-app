@@ -25,6 +25,7 @@ import {
   type StillWindow,
 } from "./redirect.js";
 import { createReapplyObserver, type Scheduler } from "./observer.js";
+import { admittedMarkers, applyMarker, createMarkerHook, SHORTS_CHIP_MARKER } from "./markers.js";
 import type { TikTokBlockedNavigation } from "./tiktok-blocked-navigation.js";
 
 // The document_start orchestrator. It wires the engine to a live page: reads settings from the
@@ -35,9 +36,6 @@ import type { TikTokBlockedNavigation } from "./tiktok-blocked-navigation.js";
 // the host unpaused, and ONLY after hydration — so an off/paused user never has the class added at
 // document_start, and never sees static chrome hidden-then-revealed. An on-user shares the same
 // brief pre-hydration window (symmetric and honest).
-
-/** The marker the content script sets on a plain-text Shorts search chip; rule data hides it. */
-const SHORTS_CHIP_MARKER = "yt-chip-cloud-chip-renderer[data-still-shorts-chip]";
 
 export interface ContentScriptDeps {
   readonly win: StillWindow;
@@ -108,25 +106,25 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   const shortsChipRule = ruleSet.services.youtube?.surfaces.find((s) => s.id === "yt-chips");
   // The helper runs only when the rule set in force hides its marker, preserving rule overrides.
   const legacyShortsChips = !!shortsChipRule?.enabledByDefault && shortsChipRule.action === "hide"
-    && !!shortsChipRule.selectors?.includes(SHORTS_CHIP_MARKER);
-  const modernShortsChips = deps.ruleSetV2?.services.youtube?.surfaces.some((surface) =>
-    surface.feature === "youtube.shorts" && surface.action === "hide"
-    && surface.selectors.includes(SHORTS_CHIP_MARKER)) === true;
+    && !!shortsChipRule.selectors?.includes(SHORTS_CHIP_MARKER.ruleSelector);
+  // Format-2 markers: set only while their feature is effective, removed on Off and teardown.
+  const markers = deps.ruleSetV2 ? admittedMarkers(deps.ruleSetV2) : [];
+  const markerHook = modern ? createMarkerHook(doc, markers) : null;
+  const modernShortsChips = markers.includes(SHORTS_CHIP_MARKER);
   let resetShortsFilterRequested = false;
   let shortsFilterSearch: string | null = null;
 
+  /** Leaves a Shorts-only search once. Reads the chip markers; callers mark first. */
   const prepareYouTubeChips = (url: URL): void => {
     const search = `${url.pathname}\n${url.searchParams.get("search_query") ?? ""}`;
     if (shortsFilterSearch !== search) resetShortsFilterRequested = false;
     shortsFilterSearch = search;
     let selectedShorts: Element | null = null;
     let selectedOtherChip = false;
-    for (const chip of doc.querySelectorAll("yt-chip-cloud-chip-renderer")) {
+    for (const chip of doc.querySelectorAll(SHORTS_CHIP_MARKER.candidates)) {
       const tab = chip.querySelector<HTMLElement>('[role="tab"]');
-      const isShorts = tab?.textContent?.trim() === "Shorts";
-      // Current YouTube chips expose a tab label, not the title attribute the older rule used.
-      // Keep hiding in the rule set so root-class changes restore the chip when blocking is off.
-      chip.toggleAttribute("data-still-shorts-chip", isShorts);
+      // Hiding stays in the rule set so root-class changes restore the chip when blocking is off.
+      const isShorts = chip.hasAttribute(SHORTS_CHIP_MARKER.attribute);
       if (chip.hasAttribute("selected") || tab?.getAttribute("aria-selected") === "true") {
         if (isShorts) selectedShorts = chip;
         else selectedOtherChip = true;
@@ -290,6 +288,7 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       // The existing cache is the committed authority. No account/storage read or legacy
       // service-wide CSS grant occurs on this path; CSS handles recycled nodes itself.
       pageSession.applyDom(cache.current(), url, doc, modernOptions());
+      markerHook?.reconcile(pageSession.effectiveFeatures?.() ?? []);
       // Same Shorts-filter recovery as the legacy lane, under the committed youtube.shorts gate.
       if (modernChipsActive()) prepareYouTubeChips(url);
       else {
@@ -334,7 +333,10 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
         setRootService(pageSession.activeServiceId());
         setRootActive(true);
         setRootProActive(pro);
-        if (legacyShortsChips && pageSession.activeServiceId() === "youtube") prepareYouTubeChips(url);
+        if (legacyShortsChips && pageSession.activeServiceId() === "youtube") {
+          applyMarker(doc, SHORTS_CHIP_MARKER);
+          prepareYouTubeChips(url);
+        }
         (deps.manifestCssOwnsHides ? pageSession.applyRemovals : pageSession.applyDom)(settings, url, doc, opts);
         return;
       case "noop":
@@ -372,10 +374,9 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
             cancelChipRechecks();
             for (const event of ["yt-navigate-finish", "yt-page-data-updated"])
               doc.removeEventListener(event, chipTrigger);
-            for (const chip of doc.querySelectorAll("[data-still-shorts-chip]"))
-              chip.removeAttribute("data-still-shorts-chip");
           });
         }
+        if (markerHook) teardowns.push(() => markerHook.stop());
       }
       teardowns.push(cache.subscribe(() => reapply()));
       if (deps.entitlement) teardowns.push(modern

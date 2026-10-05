@@ -169,7 +169,19 @@ describe("Safari V3 popup: what is never offered", () => {
   it.each(["ios", "mac"])("%s: no price, purchase, paywall or Open Still route", async (platform) => {
     await open("atomic", { platform });
     await screen.findByRole("switch", { name: "Still on Instagram" });
-    for (const word of ["$", "Purchase", "Still Pro", "Open the Still app", "Restore"]) expect(text()).not.toContain(word);
+    // Owner decision 24: a Pro row shows the locked design ("Still Pro" beside a lock) and is inert.
+    // That label is the only place "Still Pro" may appear; nothing names, sells or opens it.
+    if (platform === "mac") await fireEvent.click(screen.getByRole("button", { name: "YouTube Blocker" }));
+    const locks = [...document.querySelectorAll<HTMLElement>(".lock-pro")];
+    expect(locks.length).toBeGreaterThan(0);
+    for (const lock of locks) {
+      expect(lock.getAttribute("aria-disabled")).toBe("true");
+      expect(lock.textContent).toBe("Still Pro");
+    }
+    const outsideLocks = text().replaceAll("Still Pro", "").length;
+    expect(text().length - outsideLocks).toBe(locks.length * "Still Pro".length);
+    for (const word of ["$", "Purchase", "Open the Still app", "Restore"]) expect(text()).not.toContain(word);
+    expect(screen.queryByRole("button", { name: /See Still Pro in the Still app/ })).toBeNull();
   });
 });
 

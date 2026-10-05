@@ -6,7 +6,8 @@
   let {
     id,
     label,
-    state,
+    state: accessState,
+    dormant = false,
     checked,
     inactive,
     unsupportedText,
@@ -18,6 +19,8 @@
     id: FeatureId;
     label: string;
     state: AccessState;
+    /** Decision 24: a dormant Still Pro row (paid off) shows the locked design and offers nothing. */
+    dormant?: boolean;
     checked: boolean;
     inactive: boolean;
     unsupportedText: string;
@@ -26,6 +29,8 @@
     onLock?: () => void;
     lockLabel: string;
   } = $props();
+  let state = $derived<AccessState>(dormant ? "locked" : accessState);
+  let lockAction = $derived(dormant ? undefined : onLock);
   let usable = $derived(
     state === "free" || state === "purchased" || state === "protected",
   );
@@ -72,8 +77,8 @@
       type="button"
       class="lock-pro"
       aria-label={lockLabel}
-      aria-disabled={!onLock || undefined}
-      onclick={onLock}
+      aria-disabled={!lockAction || undefined}
+      onclick={lockAction}
       ><Glyph name="lock" size={14} /><span>Still Pro</span></button
     >
   {/if}

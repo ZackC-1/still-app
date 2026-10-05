@@ -14,6 +14,9 @@ import { createEnginePageSession, type EnginePageSession } from "../engine.js";
 import { YOUTUBE_SHORTS_RULES } from "../youtube.js";
 import { INSTAGRAM_REELS_RULES } from "../instagram.js";
 import { FACEBOOK_REELS_RULES } from "../facebook.js";
+import { YOUTUBE_EXTRAS } from "../youtube-extras.js";
+import { INSTAGRAM_EXTRAS } from "../instagram-extras.js";
+import { FACEBOOK_EXTRAS } from "../facebook-extras.js";
 import { DEFAULT_SETTINGS_V2 } from "./format2-fixtures.js";
 
 /** A mutable deep copy of the committed data, for negative controls. */
@@ -40,9 +43,12 @@ describe("packaged format-2 rule set", () => {
     const set = packaged();
     expect(set.format).toBe(2);
     expect(Object.keys(set.services).sort()).toEqual(["facebook", "instagram", "tiktok", "youtube"]);
-    expect(set.services.youtube).toEqual(JSON.parse(JSON.stringify(YOUTUBE_SHORTS_RULES)));
-    expect(set.services.instagram).toEqual(JSON.parse(JSON.stringify(INSTAGRAM_REELS_RULES)));
-    expect(set.services.facebook).toEqual(JSON.parse(JSON.stringify(FACEBOOK_REELS_RULES)));
+    // Free surfaces first, then each service's Still Pro extras surfaces (sign-format2.mjs).
+    const composed = (rules: typeof YOUTUBE_SHORTS_RULES, extras: typeof YOUTUBE_EXTRAS) =>
+      JSON.parse(JSON.stringify({ ...rules, surfaces: [...rules.surfaces, ...extras.surfaces] }));
+    expect(set.services.youtube).toEqual(composed(YOUTUBE_SHORTS_RULES, YOUTUBE_EXTRAS));
+    expect(set.services.instagram).toEqual(composed(INSTAGRAM_REELS_RULES, INSTAGRAM_EXTRAS));
+    expect(set.services.facebook).toEqual(composed(FACEBOOK_REELS_RULES, FACEBOOK_EXTRAS));
     expect(set.services.tiktok).toEqual({
       matches: ["*://*.tiktok.com/*"],
       surfaces: [{ id: "tiktok-site", feature: "tiktok.all", action: "blockSite" }],

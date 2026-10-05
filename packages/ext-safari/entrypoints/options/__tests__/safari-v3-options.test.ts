@@ -119,7 +119,16 @@ describe("Safari V3 settings page", () => {
     await fireEvent.click(screen.getByRole("button", { name: /Setup guide/ }));
     expect(opened).toHaveBeenCalledWith("https://stillapp.fit/setup/", "_blank", "noopener,noreferrer");
     const text = document.body.textContent ?? "";
-    for (const word of ["$", "Purchase", "Still Pro", "Restore"]) expect(text).not.toContain(word);
+    for (const word of ["$", "Purchase", "Restore"]) expect(text).not.toContain(word);
+    // Owner decision 24: "Still Pro" appears only as the inert locked-row label beside a lock.
+    const locks = [...document.querySelectorAll<HTMLElement>(".lock-pro")];
+    expect(locks.length).toBeGreaterThan(0);
+    for (const lock of locks) {
+      expect(lock.getAttribute("aria-disabled")).toBe("true");
+      expect(lock.textContent).toBe("Still Pro");
+    }
+    expect(text.length - text.replaceAll("Still Pro", "").length).toBe(locks.length * "Still Pro".length);
+    expect(screen.queryByRole("button", { name: /Get Still Pro/ })).toBeNull();
   });
 });
 
