@@ -115,9 +115,14 @@ public final class ProductPolicyRuntime: @unchecked Sendable {
     let verdict = evaluate(namespace, context, ProductPolicy.Response(body: body, requestStartedAt: startedAt), highestSeen, now)
     // Only accepted verdicts move the fence; "stale" and every failure leave it untouched.
     guard Self.accepted(verdict), let revision = verdict.revision else { return verdict }
+    // The fence is re-read inside the store's lock: a concurrent check may have accepted a newer
+    // revision while this one was in flight, and then this answer is stale, never returned.
+    switch store.raise(namespace, to: revision) {
+    case .current: return verdict
+    case .stale: return ProductPolicy.Verdict(.stale, revision: revision)
     // An On that cannot be fenced is not an On.
-    guard store.raise(namespace, to: revision) else { return ProductPolicy.Verdict(.context) }
-    return verdict
+    case .unreadable: return ProductPolicy.Verdict(.context)
+    }
   }
 }
 
@@ -129,10 +134,15 @@ public final class ProductPolicyRevisionStore: @unchecked Sendable {
 
   public init(defaults: UserDefaults) { self.defaults = defaults }
 
-  /// The shared App Group store, or nil when the App Group is not provisioned (then no check can
-  /// be fenced, so every check is Off).
-  public static func appGroup(_ identifier: String = StillAppGroup.identifier) -> ProductPolicyRevisionStore? {
-    UserDefaults(suiteName: identifier).map(ProductPolicyRevisionStore.init(defaults:))
+  /// The shared App Group store, or nil when this process has no container for the group (then no
+  /// check can be fenced, so every check is Off). `UserDefaults(suiteName:)` alone cannot tell: for a
+  /// group the process is not entitled to, it usually returns a private, non-shared domain rather
+  /// than nil, so the container is checked first.
+  public static func appGroup(_ identifier: String = StillAppGroup.identifier,
+                              container: (String) -> URL? = { FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: $0) })
+    -> ProductPolicyRevisionStore? {
+    guard container(identifier) != nil, let defaults = UserDefaults(suiteName: identifier) else { return nil }
+    return ProductPolicyRevisionStore(defaults: defaults)
   }
 
   static func key(_ namespace: ProductPolicy.Namespace) -> String {
@@ -144,12 +154,16 @@ public final class ProductPolicyRevisionStore: @unchecked Sendable {
     return read(namespace)
   }
 
-  /// Persist max(previous, revision). False when the stored value is unreadable.
-  func raise(_ namespace: ProductPolicy.Namespace, to revision: Int) -> Bool {
+  enum RaiseResult: Equatable { case current, stale, unreadable }
+
+  /// Persist max(previous, revision). `.stale` when a newer revision is already fenced (the caller's
+  /// answer must not be returned), `.unreadable` when the stored value or the revision is invalid.
+  func raise(_ namespace: ProductPolicy.Namespace, to revision: Int) -> RaiseResult {
     lock.lock(); defer { lock.unlock() }
-    guard let previous = read(namespace), revision >= 0, revision <= ProductPolicy.maxSafeInteger else { return false }
+    guard let previous = read(namespace), revision >= 0, revision <= ProductPolicy.maxSafeInteger else { return .unreadable }
+    if previous > revision { return .stale }
     if revision > previous { defaults.set(revision, forKey: Self.key(namespace)) }
-    return true
+    return .current
   }
 
   private func read(_ namespace: ProductPolicy.Namespace) -> Int? {
@@ -168,9 +182,21 @@ public protocol ProductPolicyTransport: Sendable {
 }
 
 /// The production transport: an ephemeral session with no cache, cookie or credential storage,
-/// a 5 second limit, and redirects refused.
-public final class URLSessionPolicyTransport: NSObject, ProductPolicyTransport, URLSessionTaskDelegate, @unchecked Sendable {
-  lazy var session: URLSession = {
+/// a 5 second limit, and redirects refused. The session is created once, in init, with a separate
+/// delegate (so it never retains the transport), and is invalidated when the transport goes away.
+public final class URLSessionPolicyTransport: ProductPolicyTransport, @unchecked Sendable {
+  let session: URLSession
+
+  public convenience init() { self.init(configuration: URLSessionPolicyTransport.configuration()) }
+
+  /// Internal so tests can add a stub `URLProtocol` to the production configuration.
+  init(configuration: URLSessionConfiguration) {
+    session = URLSession(configuration: configuration, delegate: RedirectRefusal(), delegateQueue: nil)
+  }
+
+  deinit { session.finishTasksAndInvalidate() }
+
+  static func configuration() -> URLSessionConfiguration {
     let configuration = URLSessionConfiguration.ephemeral
     configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
     configuration.urlCache = nil
@@ -179,10 +205,8 @@ public final class URLSessionPolicyTransport: NSObject, ProductPolicyTransport, 
     configuration.urlCredentialStorage = nil
     configuration.timeoutIntervalForRequest = ProductPolicyRuntime.timeoutSeconds
     configuration.timeoutIntervalForResource = ProductPolicyRuntime.timeoutSeconds
-    return URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
-  }()
-
-  public override init() { super.init() }
+    return configuration
+  }
 
   public func send(_ request: URLRequest, maxBytes: Int) async throws -> (status: Int, body: Data) {
     let (bytes, response) = try await session.bytes(for: request)
@@ -198,9 +222,12 @@ public final class URLSessionPolicyTransport: NSObject, ProductPolicyTransport, 
     }
     return (200, body)
   }
+}
 
-  public func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
-                         newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+/// Refuses every redirect: the 3xx itself becomes the final response, which is Off.
+final class RedirectRefusal: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+  func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                  newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
     completionHandler(nil)
   }
 }

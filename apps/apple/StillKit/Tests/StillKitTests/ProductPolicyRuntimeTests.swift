@@ -179,6 +179,34 @@ final class ProductPolicyRuntimeTests: XCTestCase {
     }
   }
 
+  func testInFlightOlderOnIsStaleOnceANewerRevisionWasFenced() async {
+    let store = ProductPolicyRevisionStore(defaults: defaults)
+    // While this request is in flight, a concurrent check accepts revision 6.
+    let transport = Transport { _ in
+      XCTAssertEqual(store.raise(.rating, to: 6), .current)
+      return (200, self.ratingBody(revision: 5))
+    }
+    let policy = ProductPolicyRuntime(supabaseURL: url, environment: "production", surface: "apple_mobile_host", build: build,
+                                      store: store, transport: transport, now: Clock().now)
+    do { let verdict = await policy.freshCheck(.rating); XCTAssertEqual(verdict, ProductPolicy.Verdict(.stale, revision: 5)) }
+    XCTAssertEqual(fence as? Int, 6)
+  }
+
+  func testRaiseReportsCurrentStaleAndUnreadable() {
+    let store = ProductPolicyRevisionStore(defaults: defaults)
+    XCTAssertEqual(store.raise(.rating, to: 4), .current)
+    XCTAssertEqual(store.raise(.rating, to: 4), .current)
+    XCTAssertEqual(store.raise(.rating, to: 3), .stale)
+    XCTAssertEqual(fence as? Int, 4)
+    defaults.set("4", forKey: ProductPolicyRevisionStore.key(.rating))
+    XCTAssertEqual(store.raise(.rating, to: 9), .unreadable)
+  }
+
+  func testAppGroupStoreNeedsAContainer() {
+    XCTAssertNil(ProductPolicyRevisionStore.appGroup(suiteName, container: { _ in nil }))
+    XCTAssertNotNil(ProductPolicyRevisionStore.appGroup(suiteName, container: { _ in URL(fileURLWithPath: NSTemporaryDirectory()) }))
+  }
+
   // MARK: Nothing from a response is stored, and no cache authorizes
 
   func testOnlyTheFenceIsStored() async {
