@@ -10,7 +10,7 @@
 //
 // Same rules as tests/visual/run.mjs: deviceScaleFactor 2, pass only when differing pixels * 200
 // <= total pixels (0.5%, unrounded), no masks, no reference edits. Store canvases are fixed-pixel
-// (per-frame size in assets.json), so the 2x render is compared against the 2560x1600 reference at its native size; the
+// (per-frame size in assets.json), so the 2x render is compared against its per-frame 2x reference at its native size; the
 // store export itself is the 1x render of the same canvas (renderer "export" mode).
 //
 // LOCAL ONLY, not CI: the pixels depend on the machine's font rasteriser and the local, gitignored
@@ -60,12 +60,29 @@ const MANIFEST = JSON.parse(
 );
 
 const args = process.argv.slice(2);
-const selfTest = args.includes("--self-test");
-const only = selfTest
-  ? ["cws-1"]
-  : args.flatMap((a, i) => (args[i - 1] === "--only" ? a.split(",") : []));
+let selfTest = false;
+let onlyGiven = false;
+let onlyIds = [];
+const badArgs = [];
+for (let i = 0; i < args.length; i++) {
+  const a = args[i];
+  if (a === "--self-test") selfTest = true;
+  else if (a === "--only" || a.startsWith("--only=")) {
+    onlyGiven = true;
+    const value =
+      a === "--only" ? (args[++i] ?? "") : a.slice("--only=".length);
+    onlyIds.push(...value.split(",").filter(Boolean));
+  } else badArgs.push(a);
+}
+if (badArgs.length) {
+  console.error(
+    `Usage error: unrecognized argument(s) ${badArgs.join(" ")}. Use --only <ids>, --only=<ids> or --self-test.`,
+  );
+  process.exit(2);
+}
+const only = selfTest ? ["cws-1"] : onlyIds;
 const unknown = only.filter((id) => !MANIFEST.frames.some((f) => f.id === id));
-if (unknown.length || (args.includes("--only") && !only.length)) {
+if (unknown.length || (onlyGiven && !selfTest && !only.length)) {
   console.error(
     `Usage error: unknown --only frame id(s) ${unknown.join(", ") || "(none given)"}. ` +
       `Known: ${MANIFEST.frames.map((f) => f.id).join(", ")}`,
