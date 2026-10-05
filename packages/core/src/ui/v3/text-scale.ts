@@ -13,15 +13,27 @@
 //     `font: -apple-system-body` (17px at the default size). On a Mac there is no public text-size
 //     setting a web page or app can read, so Mac stays at normal size.
 //
-// The scale is a ratio of two hidden probes, never a single measurement over a fixed number: a
-// browser's own text zoom (Firefox "zoom text only", Firefox for Android's font size) or minimum
-// font size changes both probes equally and cancels out. The browser already applies those to
-// Still's text itself, so reading them here would enlarge text twice. Page zoom is likewise left
-// to the browser.
+// The scale is a ratio of two hidden probes, never a single measurement over a fixed number.
+//   - Measured: an element at `4em` inside one set to the platform's size (`medium`, or
+//     `-apple-system-body`), so 64px at Chrome/Firefox's default 16px and 68px at Apple's 17px.
+//   - Reference: a fixed 64px (browser) or 68px (Apple) element.
+// Both probes sit at four times the normal size on purpose. Chromium includes its minimum font
+// size in computed sizes: with a minimum of 20px a 16px element reads 20px, which turned a default
+// of 24px into 1.2× instead of 1.5×. Chrome's minimum tops out at 24px, so 64px probes are never
+// raised. `4em` resolves from the parent's specified size, so a default below the minimum still
+// reads as smaller than normal (and stays at 1×). Firefox applies its minimum after computed values
+// and WebKit on iPhone and iPad has none; the same probes are correct there too.
+//
+// A browser text zoom (Firefox's View → Zoom → Zoom Text Only, Firefox for Android's font size)
+// already enlarges Still's text by itself and must not raise the scale. Whether or not it shows in
+// computed sizes, it treats both probes the same, so the ratio is unchanged. Page zoom is likewise
+// left to the browser: it changes the device pixel ratio, not CSS sizes.
 //
 // Live changes: WebKit and Chromium restyle open pages when the setting changes, which resizes the
-// probe; a ResizeObserver on it re-measures. A return to the page (visibilitychange, pageshow)
-// re-measures as well. Never `window.resize`: extension popups fire spurious resize events.
+// probes; a ResizeObserver re-measures. It watches the element set to the platform's size as well
+// as the `4em` one: on the iOS simulator WebKit notified only the former when Text Size changed. A
+// return to the page (visibilitychange, pageshow) re-measures as well. Never `window.resize`:
+// extension popups fire spurious resize events.
 //
 // Hosts call `bindTextScale` once, where they commit to a V3 screen and before it mounts. V3
 // components never call it, so the component harness (which sets `--text-scale` itself) stays
@@ -63,14 +75,17 @@ const PROBE_BASE =
   "position:absolute;inset-block-start:0;inset-inline-start:0;visibility:hidden;" +
   "pointer-events:none;white-space:nowrap;line-height:1;margin:0;padding:0;border:0;";
 
-const PROBES: Record<TextScaleSource, { readonly measured: string; readonly reference: string }> = {
+/** Both probes measure at this multiple of the normal size, above any minimum font size. */
+export const PROBE_MULTIPLE = 4;
+
+const PROBES: Record<TextScaleSource, { readonly base: string; readonly reference: string }> = {
   browser: {
-    measured: "font-family:sans-serif;font-size:medium;",
-    reference: "font-family:sans-serif;font-size:16px;",
+    base: "font-family:sans-serif;font-size:medium;",
+    reference: `font-family:sans-serif;font-size:${16 * PROBE_MULTIPLE}px;`,
   },
   apple: {
-    measured: "font:-apple-system-body;",
-    reference: "font-size:17px;",
+    base: "font:-apple-system-body;",
+    reference: `font-size:${17 * PROBE_MULTIPLE}px;`,
   },
 };
 
@@ -136,18 +151,24 @@ export function bindTextScale(
     // Mac: no public text-size signal exists; stay at the normal size.
     if (source === "apple" && isMacNavigator(win.navigator)) return dispose;
 
-    const probe = (role: "measured" | "reference", style: string): HTMLElement => {
+    const probe = (role: "base" | "reference", style: string): HTMLElement => {
       const element = doc.createElement("span");
       element.setAttribute("aria-hidden", "true");
       element.setAttribute("data-still-text-probe", role);
-      element.textContent = "M";
       element.style.cssText = PROBE_BASE + style;
       body.appendChild(element);
       added.push(element);
       return element;
     };
-    const measured = probe("measured", PROBES[source].measured);
+    // The platform's size, and inside it the same size at PROBE_MULTIPLE times (`4em`).
+    const base = probe("base", PROBES[source].base);
+    const measured = doc.createElement("span");
+    measured.setAttribute("data-still-text-probe", "measured");
+    measured.style.cssText = `font-size:${PROBE_MULTIPLE}em;`;
+    measured.textContent = "M";
+    base.appendChild(measured);
     const reference = probe("reference", PROBES[source].reference);
+    reference.textContent = "M";
     const sizeOf = (element: HTMLElement): number =>
       parseFloat(win.getComputedStyle(element).fontSize);
 
@@ -179,6 +200,7 @@ export function bindTextScale(
     const Observer = (win as Window & { ResizeObserver?: typeof ResizeObserver }).ResizeObserver;
     if (Observer) {
       const observer = new Observer(() => apply());
+      observer.observe(base);
       observer.observe(measured);
       cleanups.push(() => observer.disconnect());
     }

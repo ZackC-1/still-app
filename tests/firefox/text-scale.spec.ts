@@ -7,11 +7,16 @@ import { FIREFOX_EXTENSION, StillFirefox } from "./_session.js";
 // Text size (owner decision 51) in a real Firefox: the V3 settings page follows Firefox's own font
 // size (Settings → Fonts → Size, the `font.size.variable.x-western` preference).
 //
-// Not covered here: a browser text zoom that grows both of the binder's probes (Firefox for
-// Android's font size). Desktop Firefox has no setting that does this: `font.size.systemFontScale`
-// leaves page text unchanged on desktop, and the minimum font size is applied after computed
-// values, so both probes still read 16px. The binder's unit tests cover that case, and Firefox for
-// Android is checked on the Android emulator.
+// Not exercised here: text zoom. Desktop Firefox has it (View → Zoom → Zoom Text Only, then zoom
+// in), but it is a per-site zoom applied through the browser UI, which this BiDi session cannot
+// drive, and no preference sets it at startup (`font.size.systemFontScale` left page text unchanged
+// on desktop). Firefox for Android's font size works the same way and is checked on the Android
+// emulator. The ratio stays safe either way: text zoom treats the binder's two probes alike, so if
+// it shows in computed sizes both grow and the ratio holds, and if it does not, neither changes.
+// The binder's unit tests cover the case where both probes grow.
+//
+// Firefox applies its minimum font size after computed values, so a minimum never skews the scale
+// (Chromium's does; see tests/playwright/text-scale.spec.ts).
 
 const firefoxBinary = findFirefox();
 const built = existsSync(resolve(FIREFOX_EXTENSION, "manifest.json"));
@@ -46,6 +51,14 @@ test("Firefox font size 24 gives 1.5×", async () => {
   const { scale, rootFontSize } = await settingsPage({ "font.size.variable.x-western": 24 });
   expect(scale).toBe("1.5");
   expect(rootFontSize).toBeCloseTo(24, 1);
+});
+
+test("a minimum font size does not change it: font size 24 with a 20px minimum gives 1.5×", async () => {
+  const { scale } = await settingsPage({
+    "font.size.variable.x-western": 24,
+    "font.minimum-size.x-western": 20,
+  });
+  expect(scale).toBe("1.5");
 });
 
 test("Firefox font size 32 gives 2×", async () => {

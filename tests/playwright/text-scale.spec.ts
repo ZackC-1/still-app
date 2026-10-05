@@ -24,13 +24,29 @@ interface Browser {
   close(): Promise<void>;
 }
 
-async function launchWithFontSize(defaultFontSize: number): Promise<Browser> {
+interface ProfileExtras {
+  /** Settings → Appearance → Customize fonts → Minimum font size (Chromium's slider tops out at 24). */
+  readonly minimumFontSize?: number;
+  /** Settings → Appearance → Page zoom, as a factor (1.5 is 150%). */
+  readonly pageZoom?: number;
+}
+
+async function launchWithFontSize(
+  defaultFontSize: number,
+  extras: ProfileExtras = {},
+): Promise<Browser> {
   const profile = mkdtempSync(join(tmpdir(), "still-text-scale-"));
   mkdirSync(join(profile, "Default"));
-  writeFileSync(
-    join(profile, "Default", "Preferences"),
-    JSON.stringify({ webkit: { webprefs: { default_font_size: defaultFontSize } } }),
-  );
+  const webprefs: Record<string, number> = { default_font_size: defaultFontSize };
+  if (extras.minimumFontSize !== undefined) webprefs.minimum_font_size = extras.minimumFontSize;
+  const preferences: Record<string, unknown> = { webkit: { webprefs } };
+  // Chrome saves the default page zoom as a zoom level (factor = 1.2 ^ level) for the default
+  // storage partition, keyed "x".
+  if (extras.pageZoom !== undefined)
+    preferences.partition = {
+      default_zoom_level: { x: Math.log(extras.pageZoom) / Math.log(1.2) },
+    };
+  writeFileSync(join(profile, "Default", "Preferences"), JSON.stringify(preferences));
   const context = await chromium.launchPersistentContext(profile, {
     channel: "chromium",
     args: [`--disable-extensions-except=${EXTENSION}`, `--load-extension=${EXTENSION}`],
@@ -191,18 +207,41 @@ test.describe("Chrome Font size reaches the V3 screens", () => {
     });
   }
 
-  test("browser page zoom is left to the browser and never read as a text size", async () => {
-    const browser = await launchWithFontSize(16);
-    try {
-      const page = await openPage(browser, "options.html");
-      await expect.poll(() => textScale(page)).toBe("1");
-      // Page zoom shows up as a larger device pixel ratio, not as a different CSS font size.
-      const session = await browser.context.newCDPSession(page);
-      await session.send("Emulation.setPageScaleFactor", { pageScaleFactor: 1.5 });
-      await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
-      expect(await textScale(page)).toBe("1");
-    } finally {
-      await browser.close();
+  test("a minimum font size does not skew the scale", async () => {
+    // Chromium includes its minimum font size in computed sizes. With probes at the normal size,
+    // a 20px minimum raised the 16px reference to 20px and a 24px default read as 1.2×.
+    for (const [fontSize, minimumFontSize, scale] of [
+      [24, 20, "1.5"],
+      [24, 24, "1.5"],
+      [32, 24, "2"],
+      [12, 20, "1"],
+    ] as const) {
+      const browser = await launchWithFontSize(fontSize, { minimumFontSize });
+      try {
+        const page = await openPage(browser, "options.html");
+        await expect
+          .poll(() => textScale(page), { message: `default ${fontSize}px, minimum ${minimumFontSize}px` })
+          .toBe(scale);
+      } finally {
+        await browser.close();
+      }
+    }
+  });
+
+  test("Chrome's page zoom is left to the browser and never read as a text size", async () => {
+    for (const [fontSize, scale] of [
+      [16, "1"],
+      [24, "1.5"],
+    ] as const) {
+      const browser = await launchWithFontSize(fontSize, { pageZoom: 1.5 });
+      try {
+        const page = await openPage(browser, "options.html");
+        // The zoom really applies to the extension page: 1.5 device pixels per CSS pixel.
+        expect(await page.evaluate(() => window.devicePixelRatio)).toBeCloseTo(1.5, 2);
+        await expect.poll(() => textScale(page)).toBe(scale);
+      } finally {
+        await browser.close();
+      }
     }
   });
 });

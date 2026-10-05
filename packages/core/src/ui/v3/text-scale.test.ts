@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  PROBE_MULTIPLE,
   TEXT_SCALE_ATTRIBUTE,
   bindTextScale,
   isMacNavigator,
@@ -96,12 +97,22 @@ describe("textScaleRules", () => {
 // probe is supplied here, the way a browser would report it.
 let sizes: { measured: number; reference: number };
 let observerCallbacks: (() => void)[];
+let observed: Element[];
+// Every binding a test makes is disposed after it, even when an assertion fails part-way.
+let disposers: (() => void)[];
+const bind = (...args: Parameters<typeof bindTextScale>): (() => void) => {
+  const dispose = bindTextScale(...args);
+  disposers.push(dispose);
+  return dispose;
+};
 
 class FakeResizeObserver {
   constructor(private readonly callback: () => void) {
     observerCallbacks.push(callback);
   }
-  observe(): void {}
+  observe(element: Element): void {
+    observed.push(element);
+  }
   disconnect(): void {
     observerCallbacks = observerCallbacks.filter((cb) => cb !== this.callback);
   }
@@ -116,6 +127,8 @@ describe("bindTextScale", () => {
   beforeEach(() => {
     sizes = { measured: 16, reference: 16 };
     observerCallbacks = [];
+    observed = [];
+    disposers = [];
     vi.stubGlobal("ResizeObserver", FakeResizeObserver);
     const real = window.getComputedStyle.bind(window);
     vi.spyOn(window, "getComputedStyle").mockImplementation((element: Element) => {
@@ -128,6 +141,7 @@ describe("bindTextScale", () => {
   });
 
   afterEach(() => {
+    for (const dispose of disposers.splice(0)) dispose();
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     document.documentElement.removeAttribute("style");
@@ -138,40 +152,36 @@ describe("bindTextScale", () => {
 
   it("writes the scale on <html> before returning, so the screen mounts at the right size", () => {
     sizes = { measured: 24, reference: 16 };
-    const dispose = bindTextScale(document, "browser");
+    bind(document, "browser");
     expect(scaleVar()).toBe("1.5");
     expect(attr()).toBe("");
-    dispose();
   });
 
   it("writes the normal size as 1, which equals the design's default", () => {
-    const dispose = bindTextScale(document, "browser");
+    bind(document, "browser");
     expect(scaleVar()).toBe("1");
-    dispose();
   });
 
   it("measures against the reference probe, so a text zoom that grows both is not counted twice", () => {
     // Firefox for Android's font size (and any browser text zoom) enlarges both probes; the browser
     // already enlarges Still's text by the same amount.
     sizes = { measured: 24, reference: 24 };
-    const dispose = bindTextScale(document, "browser");
+    bind(document, "browser");
     expect(scaleVar()).toBe("1");
     sizes = { measured: 36, reference: 24 };
     for (const callback of observerCallbacks) callback();
     expect(scaleVar()).toBe("1.5");
-    dispose();
   });
 
   it("marks the page large only above 1.5×", () => {
     sizes = { measured: 25, reference: 16 };
-    const dispose = bindTextScale(document, "browser");
+    bind(document, "browser");
     expect(scaleVar()).toBe("1.56");
     expect(attr()).toBe("large");
-    dispose();
   });
 
   it("follows a live change through the probe's resize observer", () => {
-    const dispose = bindTextScale(document, "apple");
+    bind(document, "apple");
     sizes = { measured: 16, reference: 16 };
     expect(scaleVar()).toBe("1");
     sizes = { measured: 23, reference: 17 };
@@ -181,50 +191,77 @@ describe("bindTextScale", () => {
     for (const callback of observerCallbacks) callback();
     expect(scaleVar()).toBe("2");
     expect(attr()).toBe("large");
-    dispose();
   });
 
   it("re-measures when the page becomes visible again", () => {
-    const dispose = bindTextScale(document, "apple");
+    bind(document, "apple");
     sizes = { measured: 23, reference: 17 };
     document.dispatchEvent(new Event("visibilitychange"));
     expect(scaleVar()).toBe("1.35");
     sizes = { measured: 17, reference: 17 };
     window.dispatchEvent(new Event("pageshow"));
     expect(scaleVar()).toBe("1");
-    dispose();
   });
 
   it("writes only when the value changes", () => {
-    const dispose = bindTextScale(document, "browser");
+    bind(document, "browser");
     const setProperty = vi.spyOn(document.documentElement.style, "setProperty");
     for (const callback of observerCallbacks) callback();
     document.dispatchEvent(new Event("visibilitychange"));
     expect(setProperty).not.toHaveBeenCalled();
-    dispose();
   });
 
   it("keeps a Mac at the normal size and adds nothing to the page", () => {
     setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15", 0);
     sizes = { measured: 40, reference: 17 };
-    const dispose = bindTextScale(document, "apple", { compactPopup: true });
+    bind(document, "apple", { compactPopup: true });
     expect(scaleVar()).toBe("");
     expect(attr()).toBeNull();
     expect(document.querySelectorAll("[data-still-text-probe], style")).toHaveLength(0);
-    dispose();
   });
 
   it("follows an iPad, whose web view reports a desktop user agent", () => {
     setUserAgent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15", 5);
     sizes = { measured: 23, reference: 17 };
-    const dispose = bindTextScale(document, "apple");
+    bind(document, "apple");
     expect(scaleVar()).toBe("1.35");
-    dispose();
+  });
+
+  it.each([
+    ["browser", "medium", "64px"],
+    ["apple", null, "68px"],
+  ] as const)(
+    "%s: measures at four times the normal size, above any minimum font size",
+    (source, baseSize, referenceSize) => {
+      // Chromium raises computed sizes to its minimum font size (at most 24px); a 16px reference
+      // under a 20px minimum read 20px and turned a 24px default into 1.2× instead of 1.5×.
+      bind(document, source);
+      const base = document.querySelector<HTMLElement>('[data-still-text-probe="base"]')!;
+      const measured = document.querySelector<HTMLElement>('[data-still-text-probe="measured"]')!;
+      const reference = document.querySelector<HTMLElement>('[data-still-text-probe="reference"]')!;
+      expect(PROBE_MULTIPLE).toBe(4);
+      expect(measured.parentElement).toBe(base);
+      expect(measured.style.fontSize).toBe("4em");
+      // jsdom drops the WebKit-only `font: -apple-system-body` shorthand, so only the browser
+      // keyword is visible here.
+      if (baseSize) expect(base.style.fontSize).toBe(baseSize);
+      expect(reference.style.fontSize).toBe(referenceSize);
+      expect(reference.parentElement).toBe(document.body);
+    },
+  );
+
+  it("watches the element set to the platform's size as well as the 4em one", () => {
+    // On the iOS simulator WebKit notified only the -apple-system-body element when Text Size changed.
+    bind(document, "apple");
+    const base = document.querySelector('[data-still-text-probe="base"]');
+    const measured = document.querySelector('[data-still-text-probe="measured"]');
+    expect(observed).toContain(base);
+    expect(observed).toContain(measured);
   });
 
   it("adds hidden probes and only the rules the host asks for", () => {
-    const dispose = bindTextScale(document, "browser", { compactPopup: true });
-    const probes = document.querySelectorAll<HTMLElement>("[data-still-text-probe]");
+    bind(document, "browser", { compactPopup: true });
+    const probes = document.querySelectorAll<HTMLElement>("body > [data-still-text-probe]");
     expect(probes).toHaveLength(2);
     for (const probe of probes) {
       expect(probe.getAttribute("aria-hidden")).toBe("true");
@@ -234,12 +271,11 @@ describe("bindTextScale", () => {
     const rules = document.querySelectorAll("style[data-still-text-scale-rules]");
     expect(rules).toHaveLength(1);
     expect(rules[0]!.textContent).toBe(textScaleRules({ compactPopup: true }));
-    dispose();
   });
 
   it("removes everything it added on dispose", () => {
     sizes = { measured: 32, reference: 16 };
-    const dispose = bindTextScale(document, "browser", { compactPopup: true, desktopPopupHeading: true });
+    const dispose = bind(document, "browser", { compactPopup: true, desktopPopupHeading: true });
     dispose();
     expect(scaleVar()).toBe("");
     expect(attr()).toBeNull();
@@ -254,20 +290,15 @@ describe("bindTextScale", () => {
     vi.spyOn(window, "getComputedStyle").mockImplementation(() => {
       throw new Error("no styles");
     });
-    let dispose: (() => void) | undefined;
-    expect(() => {
-      dispose = bindTextScale(document, "browser");
-    }).not.toThrow();
+    expect(() => bind(document, "browser")).not.toThrow();
     expect(scaleVar()).toBe("");
-    dispose?.();
   });
 
   it("works without ResizeObserver, re-measuring on return to the page", () => {
     vi.stubGlobal("ResizeObserver", undefined);
-    const dispose = bindTextScale(document, "browser");
+    bind(document, "browser");
     sizes = { measured: 20, reference: 16 };
     document.dispatchEvent(new Event("visibilitychange"));
     expect(scaleVar()).toBe("1.25");
-    dispose();
   });
 });
