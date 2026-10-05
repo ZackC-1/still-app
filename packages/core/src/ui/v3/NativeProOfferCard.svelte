@@ -1,32 +1,39 @@
 <script lang="ts">
   import type { NativeProOfferCardProps } from "./apple-settings-presentation.js";
+  import type { ProOfferCardProps } from "./extension-settings-presentation.js";
   import Glyph from "./Glyph.svelte";
   let {
     ownership,
     channel,
     offer,
     accessHeld = false,
+    accessChecking = false,
+    accessVerify = false,
     restoreHeld = false,
     state = "idle",
     onBuy,
     onRestore,
     onRetry,
-  }: NativeProOfferCardProps = $props();
+  }: NativeProOfferCardProps &
+    // Optional held-access observations, as on the browser card. Without them a held access
+    // still shows as checking.
+    Pick<ProOfferCardProps, "accessChecking" | "accessVerify"> = $props();
+  let held = $derived(accessHeld || accessChecking || accessVerify);
   let ready = $derived(
     ownership === "none" &&
-      !accessHeld &&
+      !held &&
       !restoreHeld &&
       channel === "ready" &&
-      Boolean(offer?.price) &&
+      Boolean(offer?.price.trim()) &&
       Boolean(onBuy) &&
       (state === "idle" || state === "pending"),
   );
   let retryReady = $derived(
     ownership === "none" &&
-      !accessHeld &&
+      !held &&
       !restoreHeld &&
       channel === "ready" &&
-      Boolean(offer?.price) &&
+      Boolean(offer?.price.trim()) &&
       Boolean(onRetry) &&
       state === "failed",
   );
@@ -36,19 +43,7 @@
 </script>
 
 <section class="card card-stack" aria-label="Still Pro">
-  {#if ownership === "verify"}
-    <h2 class="card-title">Still Pro</h2>
-    <div class="status-line" data-tone="caution" role="status">
-      <span class="glyph"><Glyph name="clock" size={16} /></span>
-      <div class="status-body">
-        <span>Still Pro needs to be verified again.</span><span
-          class="muted"
-          style="font-size:calc(12.5px * var(--text-scale, 1));"
-          >Your free controls and saved choices are unaffected.</span
-        >
-      </div>
-    </div>
-  {:else if ownership === "checking" || accessHeld}
+  {#if ownership !== "verify" && (ownership === "checking" || accessChecking || (accessHeld && !accessVerify))}
     <h2 class="card-title">Still Pro</h2>
     <div class="status-line" data-tone="pending" role="status">
       <span class="glyph"><Glyph name="spinner" size={16} /></span>
@@ -79,6 +74,17 @@
         }}
         >{state === "pending" ? "Waiting for Apple…" : "Get Still Pro"}</button
       >
+    {:else if ownership === "verify" || (accessVerify && ownership !== "failed")}
+      <div class="status-line" data-tone="caution" role="status">
+        <span class="glyph"><Glyph name="clock" size={16} /></span>
+        <div class="status-body">
+          <span>Still Pro needs to be verified again.</span><span
+            class="muted"
+            style="font-size:calc(12.5px * var(--text-scale, 1));"
+            >Go online and sign in. Free controls and your saved choices stay.</span
+          >
+        </div>
+      </div>
     {:else if ownership === "failed"}
       <div class="status-line" data-tone="failed" role="alert">
         <span class="glyph"><Glyph name="alert" size={16} /></span>
