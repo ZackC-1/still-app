@@ -372,7 +372,7 @@ Deno.test("a failed claim logs a fixed reason only", async () => {
   noLeak(logged);
 });
 
-Deno.test("a failed reconcile and a failed release log fixed reasons only", async () => {
+Deno.test("a failed release logs its own fixed reason after the reconcile reason", async () => {
   const { store } = mockStore();
   const failing: EntitlementStore = { ...store, setEntitlement: () => Promise.reject(ERR()), releaseEvent: () => Promise.reject(ERR()) };
   let status = 0;
@@ -380,9 +380,27 @@ Deno.test("a failed reconcile and a failed release log fixed reasons only", asyn
     status = (await handleWebhook(req({ event: { id: "evt-log", type: "X", app_user_id: A } }), { token: TOKEN, store: failing, rc: mockRc({ [A]: activeSub }) })).status;
   });
   assertEquals(status, 500);
-  assertEquals(logged, "revenuecat-webhook failed reason=reconcile_failed status=500\nrevenuecat-webhook failed reason=release_failed");
+  assertEquals(logged, "revenuecat-webhook failed reason=reconcile_failed step=entitlement_write status=500\nrevenuecat-webhook failed reason=release_failed");
   noLeak(logged);
 });
+
+for (const [step, build] of [
+  ["rc_lookup", (store: EntitlementStore): { store: EntitlementStore; rc: RevenueCatClient } => ({ store, rc: { getSubscriber: () => Promise.reject(ERR()) } })],
+  ["entitlement_write", (store: EntitlementStore) => ({ store: { ...store, setEntitlement: () => Promise.reject(ERR()) }, rc: mockRc({ [A]: activeSub }) })],
+  ["complete", (store: EntitlementStore) => ({ store: { ...store, completeEvent: () => Promise.reject(ERR()) }, rc: mockRc({ [A]: activeSub }) })],
+] as const) {
+  Deno.test(`a reconcile that fails at ${step} logs exactly that step and no error text`, async () => {
+    const { store } = mockStore();
+    const { store: failing, rc } = build(store);
+    let status = 0;
+    const logged = await captureConsole(async () => {
+      status = (await handleWebhook(req({ event: { id: "evt-log", type: "X", app_user_id: A } }), { token: TOKEN, store: failing, rc })).status;
+    });
+    assertEquals(status, 500);
+    assertEquals(logged, `revenuecat-webhook failed reason=reconcile_failed step=${step} status=500`);
+    noLeak(logged);
+  });
+}
 
 Deno.test("skipping a deleted user logs a fixed reason, not the user or event id", async () => {
   const { store } = mockStore({ missingUsers: [A] });

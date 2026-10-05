@@ -53,6 +53,8 @@ export async function handleWebhook(req: Request, deps: WebhookDeps): Promise<Re
   const token = claim.token!; // status === "claimed" always carries an ownership token
 
   let reconciled = 0;
+  // Which step threw, so the log says where without ever carrying the error text.
+  let step: "rc_lookup" | "entitlement_write" | "complete" = "rc_lookup";
   try {
     // Reconcile every affected UUID from canonical subscriber state (collapses out-of-order races).
     // Each UUID reconciles independently: a subject deleted from auth.users (the losing side of a
@@ -60,7 +62,9 @@ export async function handleWebhook(req: Request, deps: WebhookDeps): Promise<Re
     // forever — ONLY that class (MissingUserError, R19/AE8) is skipped. Every other failure throws
     // into the fail-and-release path below, keeping the sender's retry meaningful.
     for (const uuid of uuids) {
+      step = "rc_lookup";
       const subscriber = await deps.rc.getSubscriber(uuid);
+      step = "entitlement_write";
       try {
         await deps.store.setEntitlement(
           uuid,
@@ -74,9 +78,10 @@ export async function handleWebhook(req: Request, deps: WebhookDeps): Promise<Re
         console.warn("revenuecat-webhook skipped reason=deleted_user");
       }
     }
+    step = "complete";
     await deps.store.completeEvent(event.id, token);
   } catch {
-    console.error("revenuecat-webhook failed reason=reconcile_failed status=500");
+    console.error(`revenuecat-webhook failed reason=reconcile_failed step=${step} status=500`);
     // Best-effort release (token-scoped) so the sender's retry can re-claim immediately; if this
     // also fails, the stale-claim takeover (15 min, migration 0011) unwedges the event.
     try {
