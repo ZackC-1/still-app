@@ -10,6 +10,7 @@ import { DEFAULT_SETTINGS_V2 } from "../../rules/__tests__/format2-fixtures.js";
 import { extrasFixture } from "../../rules/__tests__/extras-fixtures.js";
 import { createContentScript, type ContentScriptHandle } from "../index.js";
 import { createYouTubeAutoplayGuard, type YouTubeAutoplayGuard } from "../youtube-autoplay.js";
+import { createNavigationIntentTracker } from "../redirect.js";
 
 // YouTube Autoplay prevention (youtube.autoplay): the guard on its own, then through the real
 // content script and packaged rule set. Paid-on cases reach it only through the explicit test
@@ -200,6 +201,31 @@ describe("the Autoplay guard", () => {
     end();
     await settle();
     expect(counts.cancel).toBe(1);
+  });
+
+  it("through the intent tracker: a page move into an automatic Mix right after a click is not the person's choice", async () => {
+    let now = 1_000;
+    const tracker = createNavigationIntentTracker(() => now);
+    // The person clicks an ordinary video; within the deliberate window the page itself moves
+    // into an automatic Mix on /watch. Only the clicked video (v and list) is deliberate.
+    tracker.recordLink(new URL("https://www.youtube.com/watch?v=inv300040"));
+    now += 1_000;
+    const mix = new URL("https://www.youtube.com/watch?v=inv300041&list=RDinvented41");
+    expect(tracker.intentFor(mix)).toBe("page");
+    expect(tracker.intentFor(new URL("https://www.youtube.com/watch?v=inv300040&pp=invented")), "the clicked video, with tracking extras").toBe("deliberate");
+    expect(tracker.intentFor(new URL("https://www.youtube.com/watch?v=inv300040&list=RDinvented41")), "same video, a list the page added").toBe("page");
+    // Another site's routes keep the path-only rule.
+    tracker.recordLink(new URL("https://www.instagram.com/reel/inv1/"));
+    expect(tracker.intentFor(new URL("https://www.instagram.com/reel/inv1/?igsh=x"))).toBe("deliberate");
+    const counts = counters();
+    const g = guard();
+    g.reconcile(true, new URL(WATCH));
+    g.navigated(mix, tracker.intentFor(mix));
+    g.reconcile(true, mix);
+    nextLink().href = "/watch?v=inv300042&list=RDinvented41";
+    end();
+    await settle();
+    expect(counts.cancel, "the automatic Mix is not continued").toBe(1);
   });
 
   it("stop removes every listener and observer", async () => {
