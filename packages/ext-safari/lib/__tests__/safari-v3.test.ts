@@ -123,11 +123,21 @@ describe("the app-owned account reaches every V3 Safari screen (U12-W4 risk 6)",
       const source = readFileSync(resolve(import.meta.dirname, `../../entrypoints/${file}`), "utf8");
       const app = source.match(/<App\b[^>]*\/>/g) ?? [];
       expect(app, file).toHaveLength(1);
-      expect(app[0], file).not.toMatch(/committedPopupBinding|settingsHost|popupPresentation|loadDesktop/);
+      // The props that enable App.svelte's V3 branches, by their real names in App.svelte.
+      for (const prop of ["committedPopupBinding", "popupPresentation", "settingsPresentation"])
+        expect(app[0], `${file}: ${prop}`).not.toContain(prop);
     }
-    // Both legacy controllers are app-managed (the popup's is built in its entry).
-    for (const file of ["popup/main.ts", "options/OptionsApp.svelte"])
-      expect(readFileSync(resolve(import.meta.dirname, `../../entrypoints/${file}`), "utf8"), file).toContain("accountManagedByApp: true");
+    // Both legacy controllers are app-managed (the popup's is built in its entry), and neither asks
+    // the controller factory for the committed binding that would feed those branches.
+    for (const file of ["popup/main.ts", "options/OptionsApp.svelte"]) {
+      const source = readFileSync(resolve(import.meta.dirname, `../../entrypoints/${file}`), "utf8");
+      expect(source, file).toContain("accountManagedByApp: true");
+      expect(source, file).not.toContain("onCommittedPopupBinding");
+    }
+    // The pinned names are the real App.svelte props and factory option, so a rename breaks this.
+    const app = readFileSync(resolve(import.meta.dirname, "../../../core/src/ui/App.svelte"), "utf8");
+    for (const prop of ["committedPopupBinding", "popupPresentation", "settingsPresentation"]) expect(app).toMatch(new RegExp(`\\b${prop}\\?:`));
+    expect(readFileSync(resolve(import.meta.dirname, "../../../core/src/ui/extension-setup.ts"), "utf8")).toContain("readonly onCommittedPopupBinding?:");
     // The V3 composition marks the account app-owned, and the V3 hosts render it read-only.
     const runtime = readFileSync(resolve(import.meta.dirname, "../safari-v3-runtime.ts"), "utf8");
     expect(runtime).toContain("controller.accountManagedByApp = true;");
