@@ -22,6 +22,9 @@ public final class SettingsExecutor {
 
   /// Record this launch's first-record fact (owner decision 28) on the settings lane, ahead of any
   /// request submitted afterwards. It only matters to an initialize that finds nothing saved.
+  /// First write wins for the process: `appHost` is shared by every window, and a later window's
+  /// view controller (macOS) reads the marker after this launch already published it, so its
+  /// answer must never replace the launch's own.
   public func prepareFirstRecord(_ kind: AtomicSettingsRecord.FirstRecord) {
     worker.prepareFirstRecord(kind)
   }
@@ -49,6 +52,7 @@ public final class SettingsExecutor {
 
     func prepareFirstRecord(_ kind: AtomicSettingsRecord.FirstRecord) {
       queue.async { [self] in
+        guard firstRecord == nil else { return }
         firstRecord = kind
         bridge?.firstRecord = kind
       }
