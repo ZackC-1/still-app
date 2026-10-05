@@ -151,11 +151,21 @@ export function observeAppleSetup(
 }
 
 /**
- * The setup card appears only when native observes the Mac extension turned off. iOS cannot
- * observe it, and an unknown, missing or late observation never nags. No native message opens
- * Safari's settings, so the card's action stays unsupplied.
+ * Opens one fixed native destination from a tap (the `openDestination` message, through
+ * `openNativeDestination`). The setup card only ever asks for Safari's extension settings.
  */
-export function appleSettingsSetup(observation: SafariSetupObservation | null): AppleSettingsProps["setup"] {
+export type AppleSetupOpener = (destination: "safariExtensionSettings") => void;
+
+/**
+ * The setup card appears only when native observes the Mac extension turned off. iOS cannot
+ * observe it, and an unknown, missing or late observation never nags. Its "Open Safari Settings"
+ * action opens the fixed Safari extension settings destination when an opener is supplied, and
+ * stays unsupplied (disabled) otherwise.
+ */
+export function appleSettingsSetup(
+  observation: SafariSetupObservation | null,
+  open?: AppleSetupOpener,
+): AppleSettingsProps["setup"] {
   if (observation?.platform !== "macos" || observation.extensionStatus !== "disabled") return undefined;
   return {
     title: "Turn on Still in Safari",
@@ -167,6 +177,7 @@ export function appleSettingsSetup(observation: SafariSetupObservation | null): 
       "Allow it on every website.",
     ],
     actionLabel: "Open Safari Settings",
+    onAction: open ? () => open("safariExtensionSettings") : undefined,
   };
 }
 
@@ -187,6 +198,7 @@ export function watchAppleSetup(
   publish: (view: AppleSetupView) => void,
   doc: Document = document,
   deadlineMs: number = APPLE_SETUP_OBSERVATION_DEADLINE_MS,
+  open?: AppleSetupOpener,
 ): () => void {
   let ticket = 0;
   let stopped = false;
@@ -195,7 +207,7 @@ export function watchAppleSetup(
     void observeAppleSetup(read, deadlineMs).then((observation) => {
       if (stopped || current !== ticket) return;
       publish({
-        setup: appleSettingsSetup(observation),
+        setup: appleSettingsSetup(observation, open),
         platform: observation ? appleSettingsPlatform(observation) : null,
       });
     });

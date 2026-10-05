@@ -16,7 +16,7 @@ import { InMemoryStorageAdapter } from "../../storage/adapter.js";
 import { SettingsCache } from "../../storage/cache.js";
 import { parseStoredSettingsRecord } from "../../storage/settings-validation.js";
 import { WKWebViewStorageAdapter, type StillBridgeWindow } from "../../storage/wkwebview-adapter.js";
-import { NativeBridge } from "../../native/bridge.js";
+import { NativeBridge, openNativeDestination } from "../../native/bridge.js";
 import { UiController, type UiAnalytics } from "../controller.svelte.js";
 import { STRINGS } from "../strings.js";
 import { FIND_MY_PURCHASE_MAILTO, PRIVACY_POLICY_URL, SETUP_GUIDE_URL, SUPPORT_EMAIL } from "../config.js";
@@ -285,6 +285,8 @@ describe("Apple settings mode rule", () => {
     // D04 help opens through the anchor route; the free-period Restore uses the one native bridge.
     expect(main).toContain("help: appleSettingsHelp((url) => openExternalLink(url)),");
     expect(main).toContain("restoreBridge: appleRestoreBridge(bridge),");
+    // The setup card opens only the fixed destination it names, through the tap-only opener.
+    expect(main).toContain("openDestination: (destination) => void openNativeDestination(destination),");
     expect(main).not.toMatch(/location\.href/);
     const index = readFileSync(resolve(import.meta.dirname, "../index.ts"), "utf8");
     expect(index).not.toMatch(/AppleSettings\.svelte/);
@@ -765,6 +767,19 @@ describe("Safari setup card", () => {
     });
   });
 
+  it("with an opener, Open Safari Settings opens only the fixed Safari extension settings destination", () => {
+    const open = vi.fn();
+    const setup = appleSettingsSetup({ ...MAC, extensionStatus: "disabled" }, open);
+    expect(open).not.toHaveBeenCalled();
+    setup?.onAction?.();
+    expect(open).toHaveBeenCalledExactlyOnceWith("safariExtensionSettings");
+    // No opener: the action stays unsupplied, so the button renders disabled.
+    expect(appleSettingsSetup({ ...MAC, extensionStatus: "disabled" })?.onAction).toBeUndefined();
+    // Never a card (and so never an open) where native did not observe the Mac extension off.
+    expect(appleSettingsSetup(IOS, open)).toBeUndefined();
+    expect(appleSettingsSetup(null, open)).toBeUndefined();
+  });
+
   it.each([
     ["macOS enabled", { ...MAC, extensionStatus: "enabled" } as SafariSetupObservation],
     ["macOS unknown", { ...MAC, extensionStatus: "unknown" } as SafariSetupObservation],
@@ -847,6 +862,31 @@ describe("Safari setup card", () => {
     next = { ...MAC, extensionStatus: "enabled" };
     document.dispatchEvent(new Event("visibilitychange"));
     await waitFor(() => expect(screen.queryByRole("heading", { name: "Turn on Still in Safari" })).toBeNull());
+    f.authority.stop();
+  });
+
+  it("a tap on Open Safari Settings posts exactly one fixed openDestination message, and nothing without user activation", async () => {
+    const f = await composeAtomic(tsBackend, {
+      replies: { openDestination: async () => JSON.stringify({ ok: true, destination: "safariExtensionSettings" }) },
+    });
+    await f.hydrated;
+    let active = true;
+    await renderHost(f, {
+      observeSetup: async () => ({ ...MAC, extensionStatus: "disabled" }),
+      // The entry's opener (main.ts), with this test's port and activation in place of the page's.
+      openDestination: (destination: "safariExtensionSettings") =>
+        void openNativeDestination(destination, { win: f.native.win, userActivation: { isActive: active } }),
+    });
+    const button = await screen.findByRole("button", { name: "Open Safari Settings" });
+    expect(button).toBeEnabled();
+    const before = f.native.messages.length;
+    await fireEvent.click(button);
+    expect(f.native.messages.slice(before)).toEqual([
+      { kind: "openDestination", destination: "safariExtensionSettings" },
+    ]);
+    active = false;
+    await fireEvent.click(button);
+    expect(f.native.messages.slice(before)).toHaveLength(1);
     f.authority.stop();
   });
 });

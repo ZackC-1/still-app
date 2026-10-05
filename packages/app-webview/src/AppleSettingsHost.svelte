@@ -16,6 +16,7 @@
     createAppleSettingsRestore,
     watchAppleSetup,
     type AppleRestoreBridge,
+    type AppleSetupOpener,
     type AppleSettingsAuthority,
     type AppleSettingsProps,
     type CommittedPopupToggle,
@@ -32,6 +33,8 @@
     help: AppleSettingsProps["help"];
     /** Native restore and receipt reads for the free-period Restore link; absent, no link. */
     restoreBridge?: AppleRestoreBridge;
+    /** Opens the setup card's fixed destination from a tap; absent, its button stays disabled. */
+    openDestination?: AppleSetupOpener;
     onCommittedToggle?: (toggle: CommittedPopupToggle) => void;
   }
   let {
@@ -40,6 +43,7 @@
     observeSetup,
     help,
     restoreBridge,
+    openDestination,
     onCommittedToggle,
   }: Props = $props();
 
@@ -73,10 +77,16 @@
   let platform = $state<AppleSettingsProps["platform"]>("ios");
   let setup = $state.raw<AppleSettingsProps["setup"]>(undefined);
   $effect(() =>
-    watchAppleSetup(observeSetup, (next) => {
-      setup = next.setup;
-      if (next.platform) platform = next.platform;
-    }),
+    watchAppleSetup(
+      observeSetup,
+      (next) => {
+        setup = next.setup;
+        if (next.platform) platform = next.platform;
+      },
+      undefined,
+      undefined,
+      openDestination,
+    ),
   );
   // Until the first native read settles, a hold is "checking", not "unavailable".
   let reading = $state(true);
