@@ -7,8 +7,8 @@ not mistaken for an outage.
 ## Why it appears
 
 Still 2.1 (and 2.0) save settings by sending the whole settings document. New sync saves one setting
-at a time. Once a person's account has used new sync, the database refuses those old whole-document
-saves on purpose, so an old app can never overwrite newer per-setting changes. The refusal changes
+at a time. Once a person's account has used new sync (or its settings were written by a newer client), the
+database refuses those old whole-document saves on purpose, so an old app can never overwrite newer per-setting changes. The refusal changes
 nothing in the account.
 
 For the person using the old app, blocking is unaffected: it keeps using the settings on that device.
@@ -24,7 +24,7 @@ Their behavior must not change, so the lines are filtered when reading logs rath
 | Where | What you see |
 |---|---|
 | Postgres logs | `ERROR` with SQLSTATE `40001` and the message `settings client upgrade required`, from the `write_profile_settings` function |
-| API gateway (edge) logs | An HTTP `500` on `POST /rest/v1/rpc/write_profile_settings` (the API layer maps SQLSTATE `40001` to 500) |
+| API gateway (edge) logs | An HTTP `500` on `POST /rest/v1/rpc/write_profile_settings` (per the API layer's documentation, SQLSTATE `40001` maps to 500; confirm against the first real line you see) |
 
 No identifiers are involved in the message itself. If a line like this appears with any other message
 text, it is something else: do not filter it.
