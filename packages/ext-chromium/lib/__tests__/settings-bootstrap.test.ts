@@ -374,7 +374,8 @@ describe("maintained background settings bootstrap", () => {
     "%s and ordinary wakes never seed absent settings",
     async (reason) => {
       const h = await start();
-      h.installed[0]!({ reason });
+      // Firefox's own "browser_update" is not in Chrome's typed union; the runtime passes it through.
+      h.installed[0]!({ reason: reason as chrome.runtime.InstalledDetails["reason"] });
       await h.settle();
       expect(Object.hasOwn(h.store, KEY)).toBe(false);
       expect(settingsWrites(h)).toEqual([]);
