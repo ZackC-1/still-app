@@ -70,4 +70,64 @@ final class BridgeTrustTests: XCTestCase {
     XCTAssertFalse(BridgeTrust.opensExternally(URL(string: "about:blank")))
     XCTAssertFalse(BridgeTrust.opensExternally(nil))
   }
+
+  func testTheExactSupportMailtoOpensExternally() {
+    XCTAssertTrue(BridgeTrust.opensExternally(URL(string: "mailto:support@stillapp.fit")))
+    // Scheme names are case-insensitive; the address itself is matched exactly.
+    XCTAssertTrue(BridgeTrust.opensExternally(URL(string: "MAILTO:support@stillapp.fit")))
+  }
+
+  func testEveryOtherMailtoIsRefused() {
+    let refused = [
+      "mailto:",
+      "mailto:someone@example.com",
+      "mailto:privacy@stillapp.fit",
+      "mailto:Support@stillapp.fit",
+      "mailto:support@stillapp.fit.evil.example",
+      "mailto:xsupport@stillapp.fit",
+      "mailto:support@stillapp.fit,attacker@example.com",
+      "mailto:support@stillapp.fit?subject=Hello",
+      "mailto:support@stillapp.fit?cc=attacker@example.com",
+      "mailto:support@stillapp.fit?body=x",
+      "mailto:?to=support@stillapp.fit",
+      "mailto:support@stillapp.fit#x",
+      "mailto:support%40stillapp.fit",
+      "mailto://support@stillapp.fit",
+      "mailto: support@stillapp.fit",
+    ]
+    for raw in refused {
+      XCTAssertFalse(BridgeTrust.opensExternally(URL(string: raw)), raw)
+    }
+  }
+
+  func testDangerousAndCustomSchemesAreRefused() {
+    let refused = [
+      "javascript:alert(1)",
+      "javascript:location='mailto:support@stillapp.fit'",
+      "file:///etc/passwd",
+      "data:text/html,hi",
+      "blob:https://still.app/abc",
+      "tel:+15555550100",
+      "sms:+15555550100",
+      "still://open",
+      "x-apple.systempreferences:com.apple.preference",
+      "itms-apps://apps.apple.com",
+      "support@stillapp.fit",
+    ]
+    for raw in refused {
+      XCTAssertFalse(BridgeTrust.opensExternally(URL(string: raw)), raw)
+    }
+  }
+
+  /// The address is spelled in Swift and in TypeScript; nothing but a test can keep them together.
+  func testSupportAddressMatchesTheSharedCoreConstant() throws {
+    var root = URL(fileURLWithPath: #filePath)
+    for _ in 0..<6 { root.deleteLastPathComponent() }
+    let source = try String(
+      contentsOf: root.appendingPathComponent("packages/core/src/ui/config.ts"), encoding: .utf8)
+    XCTAssertTrue(
+      source.contains("export const SUPPORT_EMAIL = \"\(BridgeTrust.supportEmailAddress)\";"),
+      "BridgeTrust.supportEmailAddress must equal SUPPORT_EMAIL in packages/core/src/ui/config.ts"
+    )
+  }
 }

@@ -173,7 +173,9 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
     // Navigation lockdown (P0 #1): only the bundled web build may load in the web view. A remote
     // navigation (e.g. an injected/compromised page trying to reach an attacker origin) is cancelled;
     // a user-tapped external http(s) link (e.g. the in-app privacy policy) is handed to the system
-    // browser instead of loading in-app.
+    // browser instead of loading in-app, and a user-tapped mailto: link to exactly the shipped
+    // support address (Contact support) is handed to the system mail handler. Every other scheme,
+    // including any other mailto:, stays cancelled (BridgeTrust.opensExternally).
     func webView(
         _ webView: WKWebView,
         decidePolicyFor navigationAction: WKNavigationAction,
