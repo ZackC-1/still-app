@@ -15,13 +15,18 @@
 //   node scripts/bundles/identity.mjs diff /tmp/base.json /tmp/after.json
 //
 // Only public placeholder values belong on the command line. Every VITE_* variable already in the
-// environment is removed first, and the script refuses to run while a package-level .env file
-// exists, because Vite would silently read it and the result would no longer be what was asked.
+// environment is removed first, and the script refuses to run while any .env* file (other than
+// .env.example) sits in a built package's root: Vite and WXT read .env, .env.local, .env.[mode],
+// .env.[browser] and their .local variants, and the result would no longer be what was asked.
 // `--targets safari,chrome` limits the builds. `diff` exits 1 and lists every differing file.
+//
+// Compare snapshots taken in the SAME checkout directory. Svelte's scoped-CSS class hash depends on
+// the component's file path, so the same commit built in two different directories differs. Each
+// snapshot records its absolute root, and `diff` refuses (exit 2) when the roots differ.
 
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -34,7 +39,6 @@ export const TARGETS = {
   "app-webview": { filter: "@still/app-webview", script: "build", out: "packages/app-webview/dist" },
 };
 
-const ENV_FILES = [".env", ".env.local", ".env.production", ".env.production.local"];
 const PACKAGES = ["packages/ext-safari", "packages/ext-chromium", "packages/app-webview"];
 
 /** Every file under `dir`, sorted, as `{ "relative/path": "sha256" }`. */
@@ -90,11 +94,11 @@ function parseArgs(argv) {
 
 function snapshot(outFile, env, targets) {
   for (const pkg of PACKAGES)
-    for (const name of ENV_FILES)
-      if (existsSync(join(ROOT, pkg, name)))
-        throw new Error(`${pkg}/${name} exists; remove or move it so the build uses only the values given`);
+    for (const name of readdirSync(join(ROOT, pkg)))
+      if (name.startsWith(".env") && name !== ".env.example")
+        throw new Error(`${pkg}/${name} exists; move it aside so the build uses only the values given`);
   const clean = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("VITE_")));
-  const result = { env, targets: {} };
+  const result = { root: ROOT, env, targets: {} };
   for (const target of targets) {
     const { filter, script, out } = TARGETS[target];
     process.stderr.write(`building ${target}\n`);
@@ -113,6 +117,14 @@ function main(argv) {
   if (command === "snapshot" && paths.length === 1) return snapshot(resolve(paths[0]), env, targets);
   if (command === "diff" && paths.length === 2) {
     const [a, b] = paths.map((p) => JSON.parse(readFileSync(resolve(p), "utf8")));
+    if (!a.root || a.root !== b.root) {
+      process.stderr.write(
+        `refusing to compare: snapshots come from different checkout roots (${a.root ?? "unrecorded"} vs ${b.root ?? "unrecorded"}).\n` +
+          "Svelte's scoped-CSS hash depends on file paths, so take both snapshots in the same directory.\n",
+      );
+      process.exitCode = 2;
+      return;
+    }
     const lines = diffSnapshots(a, b);
     if (lines.length === 0) {
       process.stdout.write("byte-identical\n");
