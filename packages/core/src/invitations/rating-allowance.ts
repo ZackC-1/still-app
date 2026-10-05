@@ -21,7 +21,7 @@
 import { CHROME_WEB_STORE_REVIEW_URL, FIREFOX_ADDONS_REVIEW_URL } from "../ui/config.js";
 import { localDayOrdinal } from "./day-ordinal.js";
 import {
-  PROPOSED_INVITATION_PARAMETERS, validInvitationId, type InvitationOwnerParameters,
+  PROPOSED_INVITATION_PARAMETERS, validInvitationId, type InvitationOwnerParameters, type InvitationReservation,
 } from "./ledger.js";
 import type { InvitationSuppression } from "./arbiter.js";
 import { InvitationLedgerStore, type InvitationLedgerPort, type InvitationStoreStatus } from "./storage.js";
@@ -30,7 +30,7 @@ import { InvitationLedgerStore, type InvitationLedgerPort, type InvitationStoreS
  * Coordinator ruling (2026-10-05, U13 owner question 5): the 168 hour spacing applies between any
  * two invitations, sync or rating, in both directions. Every other parameter keeps the proposal.
  */
-export const RATING_INVITATION_PARAMETERS: InvitationOwnerParameters = Object.freeze({
+export const RATING_INVITATION_PARAMETERS: InvitationOwnerParameters = /* @__PURE__ */ Object.freeze({
   ...PROPOSED_INVITATION_PARAMETERS,
   spaceRatingFromInvitations: true,
 });
@@ -42,9 +42,9 @@ export const RATING_ALLOWANCE_TIMEOUT_MS = 5000;
 export type RatingCardSurface = "chrome" | "firefox";
 /** The U6 policy surface (shared-types/product-policy.ts) whose allowance a card surface needs. */
 export type RatingPolicySurface = "chrome_desktop" | "firefox_desktop";
-const CARD_SURFACES: Readonly<Record<RatingCardSurface, { policy: RatingPolicySurface; reviewUrl: string }>> = Object.freeze({
-  chrome: Object.freeze({ policy: "chrome_desktop", reviewUrl: CHROME_WEB_STORE_REVIEW_URL }),
-  firefox: Object.freeze({ policy: "firefox_desktop", reviewUrl: FIREFOX_ADDONS_REVIEW_URL }),
+const CARD_SURFACES: Readonly<Record<RatingCardSurface, { policy: RatingPolicySurface; reviewUrl: string }>> = /* @__PURE__ */ Object.freeze({
+  chrome: /* @__PURE__ */ Object.freeze({ policy: "chrome_desktop", reviewUrl: CHROME_WEB_STORE_REVIEW_URL }),
+  firefox: /* @__PURE__ */ Object.freeze({ policy: "firefox_desktop", reviewUrl: FIREFOX_ADDONS_REVIEW_URL }),
 });
 
 /** The card surface a value names, or null (Safari, Apple hosts and anything else). */
@@ -144,15 +144,20 @@ function boundedAllowance(check: () => Promise<RatingAllowance>, timeoutMs: numb
   });
 }
 
+/** A reserved, not yet committed, rating card for the captured opening. */
+export type RatingReservation =
+  | { readonly reserved: true; readonly surface: RatingCardSurface; readonly reservation: InvitationReservation }
+  | { readonly reserved: false; readonly reason: RatingRefusal };
+
 /**
- * Decide whether this opening shows the rating card, consuming the one attempt if it does. An
- * `admitted` result means the commit is already durable: render the card now, and never call this
- * again for the same opening. Never throws.
+ * Local eligibility, one fresh allowance, then reserve: everything before the commit. A host that
+ * commits from another context (the browser popup, through the background) calls this, then
+ * commits immediately before the card renders. Never throws.
  */
-export async function admitRatingCard(deps: RatingAdmissionDeps, request: RatingAdmissionRequest): Promise<RatingAdmission> {
+export async function reserveRatingCard(deps: RatingAdmissionDeps, request: RatingAdmissionRequest): Promise<RatingReservation> {
   const surface = ratingCardSurface(request.surface);
-  if (surface === null || deps.hostSurface === null || surface !== deps.hostSurface) return refuse("surface");
-  if (!validInvitationId(request.opening)) return refuse("invalid");
+  if (surface === null || deps.hostSurface === null || surface !== deps.hostSurface) return { reserved: false, reason: "surface" };
+  if (!validInvitationId(request.opening)) return { reserved: false, reason: "invalid" };
   const context = (nowMs: number) => ({
     opening: request.opening, nowMs, syncApplicable: request.syncApplicable,
     linkApplicable: request.linkApplicable, suppressed: request.suppressed,
@@ -160,25 +165,32 @@ export async function admitRatingCard(deps: RatingAdmissionDeps, request: Rating
   try {
     // 1. Local eligibility. Nothing is fetched unless the ledger would offer a rating card now.
     const local = await deps.store.arbitrate(context(deps.now()));
-    if (local.kind !== "rating") return refuse("local");
+    if (local.kind !== "rating") return { reserved: false, reason: "local" };
     // 2. One fresh owner allowance, for this opening only.
     const allowance = await boundedAllowance(deps.freshCheck, deps.timeoutMs ?? RATING_ALLOWANCE_TIMEOUT_MS);
-    if (allowance.allowed !== true || allowance.reason !== "on") return refuse("policy");
+    if (allowance.allowed !== true || allowance.reason !== "on") return { reserved: false, reason: "policy" };
     // 3. Reserve: re-arbitrates in the serialized transaction against the CAPTURED opening.
     const reservation = await deps.store.reserve("rating", context(deps.now()));
-    if (!reservation) return refuse("reserve");
-    // 4. Commit before the card can render. Rejected or failed: no card. A failed commit is not
-    //    released here: if it did persist, the attempt is spent; if it did not, the next ordinary
-    //    opening reclaims the uncommitted reservation (the ledger's crash rule).
-    let committed = false;
-    try {
-      committed = await deps.store.commit(reservation, deps.now());
-    } catch {
-      committed = false;
-    }
-    if (!committed) return refuse("commit");
-    return { admitted: true, surface, opening: request.opening, receipt: `rating-${reservation.generation}` };
+    if (!reservation) return { reserved: false, reason: "reserve" };
+    return { reserved: true, surface, reservation };
   } catch {
-    return refuse("local");
+    return { reserved: false, reason: "local" };
   }
+}
+
+/**
+ * Decide whether this opening shows the rating card, consuming the one attempt if it does. An
+ * `admitted` result means the commit is already durable: render the card now, and never call this
+ * again for the same opening. Never throws.
+ */
+export async function admitRatingCard(deps: RatingAdmissionDeps, request: RatingAdmissionRequest): Promise<RatingAdmission> {
+  const reserved = await reserveRatingCard(deps, request);
+  if (!reserved.reserved) return refuse(reserved.reason);
+  const { reservation } = reserved;
+  // 4. Commit before the card can render. Rejected or failed: no card. A failed commit is not
+  //    released here: if it did persist, the attempt is spent; if it did not, the next ordinary
+  //    opening reclaims the uncommitted reservation (the ledger's crash rule).
+  const committed = await deps.store.commit(reservation, deps.now()).catch(() => false);
+  if (!committed) return refuse("commit");
+  return { admitted: true, surface: reserved.surface, opening: request.opening, receipt: `rating-${reservation.generation}` };
 }

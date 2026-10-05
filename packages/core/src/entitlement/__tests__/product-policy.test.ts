@@ -249,8 +249,12 @@ describe("dormancy", () => {
       .filter(path => pattern.test(readFileSync(path, "utf8")))
       .map(path => relative(root, path));
 
-  it("the dormant browser client itself has no importer: no background, page, content script or Restore path", () => {
-    expect(nonTestImporters(/product-policy-runtime(\.js|\.ts)?["']/)).toEqual([]);
+  it("the browser client has exactly one importer: the rating allowance, never a page, content script or Restore path", () => {
+    // U13-P3: the rating card's allowance asks `freshCheck("rating")` for an opening the ledger
+    // would offer it; background.ts loads it on first use behind the inline V3 build gate.
+    expect(nonTestImporters(/product-policy-runtime(\.js|\.ts)?["']/)).toEqual([
+      "packages/ext-chromium/lib/rating-invitation.ts",
+    ]);
   });
 
   it("the paid-cutoff adapter has no importer until a configuration-signing verifier exists", () => {

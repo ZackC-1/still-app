@@ -14,7 +14,7 @@ import {
   type ExtensionSession,
 } from "@still/core/sync";
 import { AUTH_STORAGE_KEY, clearExtensionAuthStorage, createAuthStorage } from "../lib/auth-storage.js";
-import { createOriginalInstallStore, ensureOriginalInstall } from "../lib/original-install.js";
+import { createOriginalInstallStore, ensureOriginalInstall, parseOriginalInstall } from "../lib/original-install.js";
 import { createIdentityStore, createSessionStores } from "../lib/session-stores.js";
 import {
   createSessionMessageRouter,
@@ -141,6 +141,7 @@ export default defineBackground(() => {
     import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true"
   ) {
     const client = spine?.client;
+    let ratingAllowance: Promise<() => Promise<{ allowed: boolean; reason: string }>> | undefined;
     const invitations = createInvitationHost({
       port: chromeInvitationLedgerPort(order, chrome.storage.local),
       setupFinished: () => declaredHostsGranted(chrome.permissions, chrome.runtime.getManifest()),
@@ -148,6 +149,28 @@ export default defineBackground(() => {
       signInAvailable: spine !== null,
       now: Date.now,
       newInstallationId: () => crypto.randomUUID(),
+      // Read only: the startup call above is the one writer of the original-install record.
+      firstRunAt: async () => parseOriginalInstall(await createOriginalInstallStore().get())?.firstRecordedAt ?? null,
+      // The rating card (U13-P3), in builds that show the V3 popup. Its allowance module, the one
+      // user of the policy client, loads on first use; the remote rating policy is Off, so no card
+      // shows until the owner allows it after the V3 store release.
+      rating: settingsRuntime.atomicLocal
+        ? {
+            surface: import.meta.env.FIREFOX ? "firefox" : "chrome",
+            freshCheck: () => {
+              ratingAllowance ??= import("../lib/rating-invitation.js").then((rating) =>
+                rating.browserRatingAllowance({
+                  isFirefox: Boolean(import.meta.env.FIREFOX),
+                  supabaseUrl: settingsRuntime.supabase?.url,
+                  production: import.meta.env.PROD,
+                  build: browser.runtime.getManifest().version,
+                  runtime: chrome.runtime,
+                }),
+              );
+              return ratingAllowance.then((check) => check());
+            },
+          }
+        : undefined,
     });
     chrome.runtime.onMessage.addListener(invitations.listener(chrome.runtime.id, chrome.runtime.getURL("")));
   }

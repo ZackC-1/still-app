@@ -1,31 +1,50 @@
-// Background owner of the sync invitation ledger (U13-P2).
+// Background owner of the invitation ledger: the sync invitation (U13-P2) and the browser rating
+// card (U13-P3) share this one handler, one ledger and one opening record per popup opening.
 //
 // Every browser ledger transaction runs here, in the service worker's single serialized storage
 // queue (the settings authority's `serializeLocalMutation`). The popup and options page send
 // messages; they never open their own port over chrome.storage.local. Only extension pages may
 // ask: a content script never reaches this handler.
 //
-// Nothing here produces analytics. The closed catalogue's sync prompt events are left to U18.
+// Nothing here produces analytics. The closed catalogue's sync prompt events are left to U18, and
+// the rating card has no events at all.
+//
+// Rules shared by both cards:
+//   * One opening record. `present` records the popup opening once (its local day of use and the
+//     first-run anchor), then the arbiter picks at most one card for it: sync before rating.
+//   * At least 168 hours between ANY two invitations, sync or rating (BROWSER_INVITATION_PARAMETERS).
+//   * The rating card's seven days are measured from the original-install record's first-run time.
+//   * Reserve here, commit from the popup immediately before the card renders. A rejected commit
+//     shows nothing.
+//   * The rating card also needs one fresh owner allowance for this opening (`rating.freshCheck`),
+//     asked only when the ledger would offer it. A cached allowance never counts.
 
 import {
   InvitationLedgerStore,
   INVITATION_LEDGER_KEY,
-  localDayOrdinal,
   parseInvitationLedger,
   serializedInvitationLedgerPort,
   validInvitationId,
   type InvitationControl,
+  type InvitationKind,
   type InvitationLedgerPort,
   type InvitationOwnerParameters,
   type InvitationReservation,
 } from "../../core/src/invitations/index.js";
+import {
+  recordRatingOpening,
+  reserveRatingCard,
+  type RatingAllowance,
+  type RatingCardSurface,
+} from "../../core/src/invitations/rating-allowance.js";
 
 export const INVITATION_MESSAGE_KIND = "still:invitation";
 
-/** Owner rulings for U13-P2: the global pause counts, and rating is not spaced from sync cards. */
+/** Owner and coordinator rulings: the global pause counts (U13-P2), and the 168 hour spacing
+ * applies between any two invitations, sync or rating (U13-P3). */
 // The pure annotations let configured store-style builds drop this module entirely.
-export const SYNC_INVITATION_PARAMETERS: InvitationOwnerParameters = /* @__PURE__ */ Object.freeze({
-  spaceRatingFromInvitations: false,
+export const BROWSER_INVITATION_PARAMETERS: InvitationOwnerParameters = /* @__PURE__ */ Object.freeze({
+  spaceRatingFromInvitations: true,
   countedControls: /* @__PURE__ */ Object.freeze(["site", "feature", "global"] as const),
 });
 
@@ -46,6 +65,8 @@ export type InvitationReply =
   | { status: "control" };
 
 const CONTROLS: readonly InvitationControl[] = ["site", "feature", "global"];
+/** Cards a browser popup may commit. The link card is Apple-only. */
+const COMMITTABLE: readonly InvitationKind[] = ["sync", "rating"];
 
 const plain = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === "object" && !Array.isArray(v);
 const keysAre = (v: Record<string, unknown>, keys: readonly string[]) =>
@@ -63,9 +84,12 @@ export function readInvitationRequest(message: unknown): InvitationRequest | nul
     return { kind: INVITATION_MESSAGE_KIND, op: "control", control: message.control as InvitationControl };
   if (message.op === "commit" && keysAre(message, ["kind", "op", "reservation"]) && plain(message.reservation)) {
     const r = message.reservation;
-    if (keysAre(r, ["kind", "opening", "generation"]) && r.kind === "sync" && validInvitationId(r.opening) &&
-        Number.isSafeInteger(r.generation) && (r.generation as number) >= 0)
-      return { kind: INVITATION_MESSAGE_KIND, op: "commit", reservation: { kind: "sync", opening: r.opening, generation: r.generation as number } };
+    if (keysAre(r, ["kind", "opening", "generation"]) && COMMITTABLE.includes(r.kind as InvitationKind) &&
+        validInvitationId(r.opening) && Number.isSafeInteger(r.generation) && (r.generation as number) >= 0)
+      return {
+        kind: INVITATION_MESSAGE_KIND, op: "commit",
+        reservation: { kind: r.kind as InvitationKind, opening: r.opening, generation: r.generation as number },
+      };
   }
   return null;
 }
@@ -80,14 +104,32 @@ export interface InvitationBackgroundDeps {
   readonly signInAvailable: boolean;
   readonly now: () => number;
   readonly newInstallationId: () => string;
+  /** The original-install record's first-run time (UTC ms), or null while unknown (which pauses
+   * rating). Read only; never written here. */
+  readonly firstRunAt?: () => Promise<number | null>;
+  /** The rating card, where this build offers it. Absent: no rating card. */
+  readonly rating?: {
+    /** The popup surface this build is ("chrome" or "firefox"; never Safari). */
+    readonly surface: RatingCardSurface;
+    /** One fresh online allowance for this build's policy surface (Firefox for Android is
+     * firefox_android). Anything but a fresh On is Off. */
+    readonly freshCheck: () => Promise<RatingAllowance>;
+  };
 }
 
 export function createInvitationHost(deps: InvitationBackgroundDeps) {
-  const store = new InvitationLedgerStore(deps.port, SYNC_INVITATION_PARAMETERS);
+  const store = new InvitationLedgerStore(deps.port, BROWSER_INVITATION_PARAMETERS);
   const safe = <T>(read: () => Promise<T>, fallback: T): Promise<T> => read().catch(() => fallback);
+  const anchor = async (): Promise<number | null> => {
+    const at = deps.firstRunAt ? await safe(deps.firstRunAt, null) : null;
+    return typeof at === "number" && Number.isFinite(at) && at >= 0 && Number.isSafeInteger(Math.floor(at)) ? Math.floor(at) : null;
+  };
 
+  /** Create the ledger once, with the first-run anchor, and fill a newly known anchor later. */
   async function ensure(): Promise<boolean> {
-    return (await store.ensure(deps.newInstallationId(), null)) === "ready";
+    const at = await anchor();
+    if ((await store.ensure(deps.newInstallationId(), at)) !== "ready") return false;
+    return at === null || (await store.adoptAnchor(at)) === "ready";
   }
   const installation = () =>
     deps.port.transaction(raw => ({ write: null, result: parseInvitationLedger(raw)?.installation ?? null }));
@@ -95,18 +137,35 @@ export function createInvitationHost(deps: InvitationBackgroundDeps) {
   async function handle(request: InvitationRequest): Promise<InvitationReply> {
     // Facts are read before the transaction: a transaction body is synchronous and holds the queue.
     if (request.op === "present") {
-      const [finished, account] = await Promise.all([safe(deps.setupFinished, false), safe(deps.account, "unknown" as const)]);
-      if (!(await ensure())) return { status: "present", card: null };
+      const [finished, account, at] = await Promise.all([
+        safe(deps.setupFinished, false), safe(deps.account, "unknown" as const), anchor(),
+      ]);
       const nowMs = deps.now();
-      if ((await store.recordOpening({ opening: request.opening, ordinary: true, nowMs, localDay: localDayOrdinal(nowMs) })) !== "ready")
-        return { status: "present", card: null };
-      const reservation = await store.reserve("sync", {
+      // The one opening record for this popup opening: ledger, anchor and day of use together.
+      const opened = await recordRatingOpening(store, {
+        installation: deps.newInstallationId(), anchorMs: at, opening: request.opening, ordinary: true, nowMs,
+      });
+      if (opened !== "ready") return { status: "present", card: null };
+      const context = {
         opening: request.opening,
         nowMs,
-        syncApplicable: deps.signInAvailable && account === "signed-out",
+        // An unknown account may be signed out: a due sync card still outranks rating, and shows
+        // only when the account is known to be signed out.
+        syncApplicable: deps.signInAvailable && account !== "signed-in",
         linkApplicable: false,
-        suppressed: finished ? (request.hold ?? null) : "setup",
-      });
+        suppressed: finished ? (request.hold ?? null) : ("setup" as const),
+      };
+      const decision = await store.arbitrate(context);
+      let reservation: InvitationReservation | null = null;
+      if (decision.kind === "sync" && account === "signed-out") {
+        reservation = await store.reserve("sync", context);
+      } else if (decision.kind === "rating" && deps.rating) {
+        const rated = await reserveRatingCard(
+          { store, freshCheck: deps.rating.freshCheck, now: deps.now, hostSurface: deps.rating.surface },
+          { ...context, surface: deps.rating.surface },
+        );
+        reservation = rated.reserved ? rated.reservation : null;
+      }
       const id = reservation ? await installation() : null;
       return { status: "present", card: reservation && id ? { installation: id, reservation } : null };
     }

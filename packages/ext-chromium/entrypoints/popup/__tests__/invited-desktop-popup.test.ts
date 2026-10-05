@@ -7,10 +7,12 @@ import type {
 } from "../../../../core/src/ui/v3/popup-invitation-flow.js";
 import { configurePopupInvitationHost } from "../../../lib/invitation-popup-host.js";
 import InvitedDesktopPopup from "../InvitedDesktopPopup.svelte";
+import { CHROME_WEB_STORE_REVIEW_URL } from "../../../../core/src/ui/config.js";
 
 afterEach(() => {
   cleanup();
   configurePopupInvitationHost(null);
+  vi.unstubAllGlobals();
 });
 
 const CARD = "Use the same settings in every browser";
@@ -132,5 +134,54 @@ describe("the invitation wrapper around the V3 popup", () => {
     render(InvitedDesktopPopup, { props });
     expect(screen.queryByRole("region", { name: CARD })).toBeNull();
     expect(screen.getByRole("heading", { level: 1 })).toBeTruthy();
+  });
+
+  describe("the rating card (U13-P3)", () => {
+    const RATE = "Rate Still";
+    const rating: PopupInvitationReservation = {
+      installation: "install-1",
+      reservation: { kind: "rating", opening: "opening-1", generation: 7 },
+    };
+
+    it("renders only after the commit, and Rate Still opens the store review page", async () => {
+      const { props } = await fixture();
+      const create = vi.fn(async () => ({}));
+      vi.stubGlobal("chrome", { tabs: { create } });
+      const commit = deferred<boolean>();
+      let cardAtCommit: boolean | null = null;
+      host({
+        present: async () => rating,
+        commit: () => { cardAtCommit = screen.queryByRole("region", { name: RATE }) !== null; return commit.promise; },
+      });
+      render(InvitedDesktopPopup, { props });
+      await waitFor(() => expect(cardAtCommit).toBe(false));
+      expect(screen.queryByRole("region", { name: RATE })).toBeNull();
+      commit.resolve(true);
+      const card = await screen.findByRole("region", { name: RATE });
+      expect(within(card).getByText("A rating helps other people find Still.")).toBeTruthy();
+      await fireEvent.click(within(card).getByRole("button", { name: RATE }));
+      expect(create).toHaveBeenCalledWith({ url: CHROME_WEB_STORE_REVIEW_URL });
+      await waitFor(() => expect(screen.queryByRole("region", { name: RATE })).toBeNull());
+    });
+
+    it("Not now closes it and opens nothing; a rejected commit shows nothing", async () => {
+      const { props } = await fixture();
+      const create = vi.fn(async () => ({}));
+      vi.stubGlobal("chrome", { tabs: { create } });
+      host({ present: async () => rating, commit: async () => true }, "user-1");
+      render(InvitedDesktopPopup, { props });
+      // Signed in is fine for rating: it is not the sync card.
+      const card = await screen.findByRole("region", { name: RATE });
+      await fireEvent.click(within(card).getByRole("button", { name: "Not now" }));
+      await waitFor(() => expect(screen.queryByRole("region", { name: RATE })).toBeNull());
+      expect(create).not.toHaveBeenCalled();
+      cleanup();
+      const commit = vi.fn(async () => false);
+      host({ present: async () => rating, commit });
+      render(InvitedDesktopPopup, { props });
+      await waitFor(() => expect(commit).toHaveBeenCalledOnce());
+      await new Promise(r => setTimeout(r, 20));
+      expect(screen.queryByRole("region", { name: RATE })).toBeNull();
+    });
   });
 });
