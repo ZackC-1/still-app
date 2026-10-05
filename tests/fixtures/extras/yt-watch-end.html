@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Synthetic YouTube watch page: end of video</title>
+  </head>
+  <body>
+    <!--
+      Synthetic structural model for youtube.endscreen (CP-085), at the moment the video ends.
+      UNVERIFIED CANDIDATE selector family: .ytp-ce-element (end cards) and .ytp-endscreen-content
+      (end-screen grid). Not any parent that owns Replay, and not the autonav countdown overlay,
+      which belongs to Autoplay (ids "keep-*"). Invented text only.
+    -->
+    <div id="movie_player" class="html5-video-player ended-mode">
+      <video></video>
+      <div class="ytp-chrome-bottom" id="keep-controls">
+        <button class="ytp-play-button" id="keep-replay" aria-label="Replay">Replay</button>
+        <div class="ytp-progress-bar" id="keep-seek" role="slider" aria-valuenow="100">Seek</div>
+        <button class="ytp-mute-button" id="keep-volume">Volume</button>
+        <button class="ytp-subtitles-button" id="keep-captions">Captions</button>
+        <button class="ytp-settings-button" id="keep-settings">Settings</button>
+        <button class="ytp-fullscreen-button" id="keep-fullscreen">Fullscreen</button>
+      </div>
+      <div class="ytp-ce-element" id="target-end-card-video"><a href="/watch?v=inv200001">Invented end card video</a></div>
+      <div class="ytp-ce-element ytp-ce-channel" id="target-end-card-channel"><a href="/@invented-channel">Invented end card channel</a></div>
+      <div class="ytp-endscreen-content" id="target-endscreen-grid">
+        <a class="ytp-videowall-still" href="/watch?v=inv200002">Invented grid tile one</a>
+        <a class="ytp-videowall-still" href="/watch?v=inv200003">Invented grid tile two</a>
+      </div>
+      <div class="ytp-autonav-endscreen-countdown-overlay" id="keep-autonav-countdown">
+        <span>Up next in 8</span>
+        <button id="keep-autonav-cancel">Cancel</button>
+      </div>
+    </div>
+    <h1 id="keep-title">An invented video that just ended</h1>
+  </body>
+</html>

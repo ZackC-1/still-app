@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Synthetic YouTube watch page: autoplay</title>
+  </head>
+  <body>
+    <!--
+      Synthetic structural model for youtube.autoplay (CP-086). Nothing here is a selector
+      candidate: Autoplay prevention is a content handler, not rule data (UNVERIFIED mechanisms:
+      dismissing the autonav instance, or a capture-phase "ended" gate). This page gives such a
+      handler something to act on, and gives the dormancy check something to leave alone.
+      A scripted "ended" event shows what a dormant build does: nothing. Invented text only.
+    -->
+    <div id="movie_player" class="html5-video-player">
+      <video id="player-video"></video>
+      <div class="ytp-autonav-endscreen-countdown-overlay" id="keep-autonav-overlay">
+        <span>Up next in 8</span>
+        <button class="ytp-autonav-endscreen-upnext-cancel-button" id="keep-autonav-cancel">Cancel</button>
+        <a href="/watch?v=inv300002" id="keep-autonav-next">Invented up next video</a>
+      </div>
+      <button class="ytp-autonav-toggle-button" id="keep-autoplay-toggle" aria-checked="true">Autoplay</button>
+    </div>
+    <ytd-playlist-panel-renderer id="keep-playlist-panel">
+      <a href="/watch?v=inv300003&amp;list=PLinvented03&amp;index=2" id="keep-playlist-next">Invented playlist item two</a>
+    </ytd-playlist-panel-renderer>
+    <script>
+      // Records what a dormant build must leave alone. "loads" counts document loads in this tab
+      // through sessionStorage, so a reload or a back-and-forward bounce to the same URL still
+      // shows up; "token" is unique to this document's lifetime. "ended" counts the scripted
+      // video "ended" event at its target, which proves the event really fired.
+      const loads = Number(sessionStorage.getItem("autoplayProbeLoads") || "0") + 1;
+      sessionStorage.setItem("autoplayProbeLoads", String(loads));
+      window.__autoplayProbe = { toggleClicks: 0, cancelClicks: 0, ended: 0, loads, token: Math.random().toString(36).slice(2) };
+      document.getElementById("keep-autoplay-toggle").addEventListener("click", () => window.__autoplayProbe.toggleClicks++);
+      document.getElementById("keep-autonav-cancel").addEventListener("click", () => window.__autoplayProbe.cancelClicks++);
+      document.getElementById("player-video").addEventListener("ended", () => window.__autoplayProbe.ended++);
+      window.fireEnded = () => document.getElementById("player-video").dispatchEvent(new Event("ended"));
+    </script>
+  </body>
+</html>

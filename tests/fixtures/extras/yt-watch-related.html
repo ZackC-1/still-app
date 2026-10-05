@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Synthetic YouTube watch page: related videos</title>
+  </head>
+  <body>
+    <!--
+      Synthetic structural model for youtube.related (CP-084). Invented text and IDs only.
+      UNVERIFIED CANDIDATE selector family: ytd-watch-next-secondary-results-renderer in both the
+      side-column and below-video placements. Never #secondary or #related as wrappers: they also
+      hold the playlist panel and the live chat frame, which must stay (ids "keep-*").
+      The "target-*" ids are the recommendation renderers a future rule may hide.
+    -->
+    <ytd-watch-flexy id="keep-watch-root">
+      <div id="primary">
+        <div id="keep-player"><video></video></div>
+        <h1 id="keep-title">An invented long-form video</h1>
+        <div id="keep-description">Invented description text.</div>
+        <!-- Narrow layout: related renderer below the video. -->
+        <ytd-watch-next-secondary-results-renderer id="target-related-below" class="narrow-placement">
+          <ytd-compact-video-renderer><a href="/watch?v=inv000001">Invented suggestion one</a></ytd-compact-video-renderer>
+          <ytd-compact-video-renderer><a href="/watch?v=inv000002">Invented suggestion two</a></ytd-compact-video-renderer>
+        </ytd-watch-next-secondary-results-renderer>
+        <ytd-comments id="keep-comments"><a href="#c1">An invented comment</a></ytd-comments>
+      </div>
+      <div id="secondary">
+        <ytd-playlist-panel-renderer id="keep-playlist-panel">
+          <a href="/watch?v=inv000003&amp;list=PLinvented01">Invented playlist item</a>
+        </ytd-playlist-panel-renderer>
+        <ytd-live-chat-frame id="keep-chat-frame">
+          <iframe id="keep-chat-iframe" title="Chat" srcdoc="<p>invented chat</p>"></iframe>
+        </ytd-live-chat-frame>
+        <!-- Wide layout: related renderer in the side column. -->
+        <div id="related">
+          <ytd-watch-next-secondary-results-renderer id="target-related-side">
+            <ytd-compact-video-renderer><a href="/watch?v=inv000004">Invented suggestion three</a></ytd-compact-video-renderer>
+            <ytd-compact-video-renderer><a href="/watch?v=inv000005">Invented suggestion four</a></ytd-compact-video-renderer>
+          </ytd-watch-next-secondary-results-renderer>
+        </div>
+      </div>
+    </ytd-watch-flexy>
+  </body>
+</html>

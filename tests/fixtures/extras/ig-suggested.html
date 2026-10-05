@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Synthetic Instagram suggested accounts</title>
+  </head>
+  <body>
+    <!--
+      Synthetic structural model for instagram.suggested (CP-079): sidebar, in-feed and profile
+      recommendation containers, structurally bounded. UNVERIFIED CANDIDATE: containers of account
+      cards linking to profile roots that sit beside a "suggested" region. Ordinary account lists
+      (followers, following, search, account switcher, footer) stay. No text-based targeting.
+      Invented text and handles only.
+    -->
+    <aside id="target-sidebar-suggestions" aria-label="Suggested for you">
+      <a href="/explore/people/">See all</a>
+      <a href="/inventedsuggest1/">inventedsuggest1</a>
+      <a href="/inventedsuggest2/">inventedsuggest2</a>
+    </aside>
+    <aside id="keep-account-switcher"><a href="/inventedme/">inventedme</a><a href="/accounts/switch/">Switch</a></aside>
+    <article id="keep-feed-post"><a href="/p/InvH8/">An invented feed post</a></article>
+    <div id="target-infeed-carousel" role="list" aria-label="Suggested accounts">
+      <a href="/inventedsuggest3/">inventedsuggest3</a>
+      <a href="/inventedsuggest4/">inventedsuggest4</a>
+    </div>
+    <div id="target-profile-similar" role="region" aria-label="Similar accounts">
+      <a href="/inventedsuggest5/">inventedsuggest5</a>
+    </div>
+    <dialog open id="keep-followers-list">
+      <ul><li><a href="/inventedfollower1/">inventedfollower1</a></li><li><a href="/inventedfollower2/">inventedfollower2</a></li></ul>
+    </dialog>
+    <div id="keep-search-box"><input type="search" placeholder="Search" /></div>
+    <footer id="keep-footer"><a href="/about/">About</a><a href="/legal/privacy/">Privacy</a></footer>
+  </body>
+</html>
