@@ -69,9 +69,9 @@ public struct SettingsBridge {
   /// extension, which never saves a first record.
   public var firstRecord: AtomicSettingsRecord.FirstRecord?
   /// False for the Safari extension: initialize, scope and acknowledge belong to the app, the only
-  /// cloud client and the only converter (U3-W4 design, authority split). The extension's pages
-  /// commit single-field intents only; this refuses the rest natively instead of relying on the
-  /// extension's scripts never sending them.
+  /// cloud client and the only converter (U3-W4 design, authority split), and so does writing a
+  /// modern record through a coarse `set`. The extension's pages commit single-field intents only;
+  /// this refuses the rest natively instead of relying on the extension's scripts never sending them.
   public let admitsAtomicCommands: Bool
 
   /// `notifyChanged` fires after a `set` that actually changed the store — the Darwin broadcast in
@@ -103,8 +103,14 @@ public struct SettingsBridge {
       } catch { return "{\"status\":\"unavailable\"}" }
     case .set(let incoming):
       guard let data = try? JSONEncoder().encode(incoming) else { return "" }
+      guard admitsAtomicCommands || !AtomicSettingsRecord.isModern(data) else { return "{\"status\":\"unavailable\"}" }
       return apply(data)
     case .setPreserved(let incoming):
+      // The extension may never plant a modern record through a coarse set: over an absent or
+      // legacy store that would skip the app's first-record writer and its unknown conversion, with
+      // ownership, scope and account of the extension's choosing. Refused before any read or lock.
+      // settingsAdopt is the one sanctioned import (owner decision 30), decided by the app's rules.
+      guard admitsAtomicCommands || !AtomicSettingsRecord.isModern(incoming) else { return "{\"status\":\"unavailable\"}" }
       return apply(incoming)
     case .atomic(let command):
       // Refused before any read or lock: the same reply as an unavailable command.

@@ -41,6 +41,37 @@ final class ExtensionBridgeAuthorityTests: XCTestCase {
     }
   }
 
+  /// Review P2: over an absent, legacy or first-record App Group, a coarse `set` carrying a modern
+  /// record must not plant extension-chosen ownership, scope or account.
+  func testExtensionRefusesModernRecordsThroughSetWithoutWriting() throws {
+    var planted = try XCTUnwrap(JSONSerialization.jsonObject(with: AtomicSettingsRecord.firstRecord(.newInstall)) as? [String: Any])
+    var state = try XCTUnwrap(planted["atomic"] as? [String: Any])
+    state["ownership"] = "previous-account"
+    state["scope"] = ["accountId": account, "generation": 4]
+    planted["atomic"] = state
+    let modern = String(decoding: try JSONSerialization.data(withJSONObject: planted), as: UTF8.self)
+    // A modern settings document without an atomic state (schemaVersion 2), decodable as a record.
+    let schemaOnly = "{\"settings\":{\"schemaVersion\":2,\"globalOn\":false,\"services\":{\"youtube\":true,\"instagram\":true,\"tiktok\":true,\"facebook\":true},\"pauses\":[],\"updatedAt\":5},\"syncMetadata\":null}"
+    let legacy = try JSONEncoder().encode(StoredSettingsRecord(settings: StillSettings(globalOn: false, services: StillServices(), pauses: [], updatedAt: 9), syncMetadata: nil))
+    for start in [nil, legacy, try AtomicSettingsRecord.firstRecord(.newInstall)] {
+      for incoming in [modern, schemaOnly] {
+        let dir = try directory()
+        if let start { try AtomicSettingsBacking(directory: dir).transaction { $0 = start } }
+        let notified = Counter()
+        let bridge = SettingsBridge.safariExtension(store: SharedSettingsStore(backing: AtomicSettingsBacking(directory: dir)), notifyChanged: { notified.value += 1 })
+        XCTAssertEqual(bridge.handle(rawBody: ["kind": "set", "settings": incoming]), "{\"status\":\"unavailable\"}", incoming)
+        XCTAssertEqual(bridge.handle(BridgeRequest.setPreserved(Data(incoming.utf8))), "{\"status\":\"unavailable\"}")
+        XCTAssertEqual(try AtomicSettingsBacking(directory: dir).transaction { $0 }, start)
+        XCTAssertEqual(notified.value, 0)
+      }
+    }
+    // A legacy record through set still works for the extension (its 2.x path).
+    let dir = try directory()
+    let bridge = SettingsBridge.safariExtension(store: SharedSettingsStore(backing: AtomicSettingsBacking(directory: dir)), notifyChanged: {})
+    XCTAssertNotEqual(bridge.handle(rawBody: ["kind": "set", "settings": String(decoding: legacy, as: UTF8.self)]), "{\"status\":\"unavailable\"}")
+    XCTAssertNotNil(try AtomicSettingsBacking(directory: dir).transaction { $0 })
+  }
+
   func testExtensionKeepsItsOwnLanes() throws {
     let dir = try directory()
     try AtomicSettingsBacking(directory: dir).transaction { $0 = try AtomicSettingsRecord.firstRecord(.newInstall) }
