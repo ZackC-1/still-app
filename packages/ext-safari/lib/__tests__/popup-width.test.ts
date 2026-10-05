@@ -10,53 +10,60 @@ import { describe, expect, it } from "vitest";
 // the extension sheet in Safari on iPhone, where 380px overhangs a 375pt screen by 5px and a 320pt
 // screen by 60px and the controls on the right edge cannot be reached.
 const here = dirname(fileURLToPath(import.meta.url));
-const popupSource = readFileSync(
-  resolve(here, "../../entrypoints/popup/PopupApp.svelte"),
-  "utf8",
-);
 const tokens = readFileSync(
   resolve(here, "../../../core/src/ui/tokens.css"),
   "utf8",
 );
 
-const styleBlock = popupSource
-  .slice(popupSource.indexOf("<style>"), popupSource.indexOf("</style>"))
-  // Strip CSS comments. The explanatory comment on `.popup` deliberately names the units it warns
-  // against, and those mentions must not trip the assertions below.
-  .replace(/\/\*[\s\S]*?\*\//g, "");
+// Both popup documents: the legacy popup and the opted-in V3 popup host (U12-W4), which keeps its
+// own copy of the same rule because the legacy file must stay byte-identical.
+describe.each([
+  "../../entrypoints/popup/PopupApp.svelte",
+  "../../entrypoints/popup/SafariV3Popup.svelte",
+])("%s", (file) => {
+  const popupSource = readFileSync(resolve(here, file), "utf8");
 
-// The width declaration only. The lookbehind keeps `max-inline-size` out of this match, since the
-// two properties have opposite rules: the width must be absolute, the maximum must be relative.
-const widthDeclaration = /(?<![-\w])inline-size:\s*([^;]+);/.exec(styleBlock)?.[1];
+  const styleBlock = popupSource
+    .slice(popupSource.indexOf("<style>"), popupSource.indexOf("</style>"))
+    // Strip CSS comments. The explanatory comment on `.popup` deliberately names the units it warns
+    // against, and those mentions must not trip the assertions below.
+    .replace(/\/\*[\s\S]*?\*\//g, "");
 
-describe("popup sizing", () => {
-  it("has a <style> block", () => {
-    expect(styleBlock).toContain(".popup");
-  });
+  // The width declaration only. The lookbehind keeps `max-inline-size` out of this match, since the
+  // two properties have opposite rules: the width must be absolute, the maximum must be relative.
+  const widthDeclaration = /(?<![-\w])inline-size:\s*([^;]+);/.exec(
+    styleBlock,
+  )?.[1];
 
-  it("sizes the popup with a pixel width, directly or through the shared token", () => {
-    expect(widthDeclaration).toBeDefined();
-    expect(widthDeclaration).toMatch(
-      /^(\d+px|var\(--popup-inline-size,\s*\d+px\))$/,
-    );
-  });
+  describe("popup sizing", () => {
+    it("has a <style> block", () => {
+      expect(styleBlock).toContain(".popup");
+    });
 
-  it("takes that width from a token that is itself a pixel value", () => {
-    // The popup names the token with a pixel fallback, so the popup file alone cannot prove the
-    // width is absolute. Pin the token too, or a relative value could be introduced one file away.
-    expect(tokens).toMatch(/--popup-inline-size:\s*\d+px;/);
-  });
+    it("sizes the popup with a pixel width, directly or through the shared token", () => {
+      expect(widthDeclaration).toBeDefined();
+      expect(widthDeclaration).toMatch(
+        /^(\d+px|var\(--popup-inline-size,\s*\d+px\))$/,
+      );
+    });
 
-  it("never uses viewport units to size the popup (they collapse to a sliver)", () => {
-    // The WHOLE viewport-unit family collapses a popup, not just vw/vh: vmin/vmax and the
-    // dynamic/small/large variants (dvw, svw, lvw, dvh, …) and vi/vb all resolve against a
-    // viewport that is ~0 during the popup's content-measurement pass. Reject any of them.
-    expect(styleBlock).not.toMatch(/\d\s*[sdl]?v(?:w|h|i|b|min|max)\b/i);
-  });
+    it("takes that width from a token that is itself a pixel value", () => {
+      // The popup names the token with a pixel fallback, so the popup file alone cannot prove the
+      // width is absolute. Pin the token too, or a relative value could be introduced one file away.
+      expect(tokens).toMatch(/--popup-inline-size:\s*\d+px;/);
+    });
 
-  it("clamps the popup to the surface it is given, so it fits the smallest phone", () => {
-    // Without this the popup keeps its full 380px on a 320pt or 375pt iPhone screen and the
-    // switches on the right edge are cut off, with no sideways scrolling to reach them.
-    expect(styleBlock).toMatch(/max-inline-size:\s*100%;/);
+    it("never uses viewport units to size the popup (they collapse to a sliver)", () => {
+      // The WHOLE viewport-unit family collapses a popup, not just vw/vh: vmin/vmax and the
+      // dynamic/small/large variants (dvw, svw, lvw, dvh, …) and vi/vb all resolve against a
+      // viewport that is ~0 during the popup's content-measurement pass. Reject any of them.
+      expect(styleBlock).not.toMatch(/\d\s*[sdl]?v(?:w|h|i|b|min|max)\b/i);
+    });
+
+    it("clamps the popup to the surface it is given, so it fits the smallest phone", () => {
+      // Without this the popup keeps its full 380px on a 320pt or 375pt iPhone screen and the
+      // switches on the right edge are cut off, with no sideways scrolling to reach them.
+      expect(styleBlock).toMatch(/max-inline-size:\s*100%;/);
+    });
   });
 });
