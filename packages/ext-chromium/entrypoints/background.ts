@@ -22,6 +22,7 @@ import {
 import { createIndexedDbKeyValue, QUIET_FLUSH_ALARM, requestQuietFlush } from "@still/core/analytics";
 import { createBackgroundAnalytics, storageKeyValue } from "../lib/analytics.js";
 import { modernSettingsRuntime } from "../lib/modern-settings-runtime.js";
+import { FIRST_RUN_PAGE, shouldOpenFirstRun } from "../../core/src/ui/v3/first-run-host.js";
 
 // Chromium/Firefox background (Chrome MV3 service worker / Firefox MV3 event page). Three
 // independent jobs:
@@ -203,6 +204,16 @@ export default defineBackground(() => {
       void initializeInstalledSettings().catch(heldInitialization);
     }
     analytics.onInstalled(details);
+    // D14: a brand-new install opens the first-run page, after (never instead of) install-time
+    // settings and analytics. Nothing waits on it, and blocking never depends on it; an update
+    // never opens it (Settings → Setup guide reopens it on request).
+    if (shouldOpenFirstRun(details)) {
+      void Promise.resolve()
+        .then(() => chrome.tabs.create({ url: chrome.runtime.getURL(FIRST_RUN_PAGE) }))
+        .catch(() => {
+          /* a tab that cannot open changes nothing about blocking */
+        });
+    }
   });
   chrome.alarms?.onAlarm.addListener((alarm) => {
     if (alarm.name === QUIET_FLUSH_ALARM) void analytics.flushWhenReady();
