@@ -8,12 +8,15 @@ name: Firefox for Android emulator spike
 # It is NOT a required check. Each run uploads a report and screenshots as workflow artifacts and
 # writes a step-by-step table to the run summary, including where any step had to stop.
 
+# Manual and weekly. Pull requests run it only when they change the spike itself, so it is never a
+# red optional check on ordinary extension pull requests.
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * 1"
   pull_request:
     branches: [main]
     paths:
-      - "packages/ext-chromium/**"
       - "tests/firefox-android/**"
       - ".github/workflows/firefox-android-emulator.yml"
 
@@ -87,7 +90,9 @@ jobs:
           echo "${FENIX_SHA256}  $RUNNER_TEMP/fenix.apk" | sha256sum --check --strict
           apksigner="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)/apksigner"
           "$apksigner" verify --print-certs "$RUNNER_TEMP/fenix.apk" | tee "$RUNNER_TEMP/fenix-signer.txt"
-          signer="$(grep -m1 'Signer #1 certificate SHA-256 digest' "$RUNNER_TEMP/fenix-signer.txt" | awk '{print $NF}')"
+          # apksigner prints "Signer #1 certificate SHA-256 digest: …" for v1 and "V2 Signer: certificate
+          # SHA-256 digest: …" for v2+ schemes, depending on build-tools; accept either.
+          signer="$(grep -m1 -E '(Signer #1|V2 Signer):? certificate SHA-256 digest' "$RUNNER_TEMP/fenix-signer.txt" | awk '{print $NF}')"
           if [ "$signer" != "$MOZILLA_RELEASE_SIGNER" ]; then
             echo "::error::Firefox APK is not signed by Mozilla's release certificate (got '$signer')"
             exit 1
