@@ -433,6 +433,52 @@ test("any change to verification, config or tooling changes the digest; tamperin
   );
 });
 
+test("the real 0015 check pins the private routines 0016's schema-wide revoke changes, so they deploy one at a time", async () => {
+  const root = new URL("../../../", import.meta.url);
+  const read = (path) => readFile(new URL(path, root), "utf8");
+  const migrations = [
+    {
+      file: "0015_settings_sync_per_field.sql",
+      text: await read("supabase/migrations/0015_settings_sync_per_field.sql"),
+      verificationText: await read(
+        "scripts/backend/deploy/verify/0015_settings_sync_per_field.sql",
+      ),
+    },
+    {
+      file: "0016_product_policy.sql",
+      text: await read("supabase/migrations/0016_product_policy.sql"),
+      verificationText: await read(
+        "scripts/backend/deploy/verify/0016_product_policy.sql",
+      ),
+    },
+  ];
+  assert.ok(routinesChanged(migrations[1].text).has("private.*"));
+  assert.throws(
+    () => assertIndependentVerifications(migrations),
+    (error) =>
+      error instanceof Refusal &&
+      error.category === "verification-overlap" &&
+      /0016_product_policy\.sql changes/.test(error.message) &&
+      /private\.lock_settings/.test(error.message) &&
+      /deploy 0015_settings_sync_per_field\.sql alone/.test(error.message),
+  );
+  // Once 0015 is deployed and verified, 0016 plans on its own.
+  assert.doesNotThrow(() => assertIndependentVerifications([migrations[1]]));
+});
+
+test("the real 0016 verification and row-count invariant pass the read-only lint", async () => {
+  for (const name of [
+    "0016_product_policy.sql",
+    "0016_product_policy.invariant.sql",
+  ]) {
+    const text = await readFile(
+      new URL(`./verify/${name}`, import.meta.url),
+      "utf8",
+    );
+    assert.equal(lintVerificationSql(text), true, name);
+  }
+});
+
 // ── Verification SQL contract ────────────────────────────────────────────────────────────────
 
 test("verification lint accepts the real 0014 query and rejects writes or multiple statements", async () => {

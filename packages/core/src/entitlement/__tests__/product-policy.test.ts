@@ -222,11 +222,19 @@ describe("dormancy", () => {
     });
   }
 
-  it("has no production importer: free blocking, sync and Restore never consult it", () => {
+  // The server store and its two Edge Functions (U6-P2) may import the shared grammar: they are the
+  // policy's publisher, not a client. Every other importer under packages/**, apps/** or supabase/**
+  // is refused, so client dormancy stays enforced.
+  const SERVER_IMPORTERS = /^supabase\/functions\/product-policy(-admin)?\//;
+
+  it("has no client importer: free blocking, sync and Restore never consult it", () => {
     const importers = [...sources(join(root, "packages")), ...sources(join(root, "apps")), ...sources(join(root, "supabase"))]
       .filter(path => !/__tests__|\.test\.|\.spec\./.test(path))
       .filter(path => /product-policy(\.js|\.ts)?["']/.test(readFileSync(path, "utf8")))
-      .map(path => relative(root, path));
+      .map(path => relative(root, path))
+      // Deno's `_test.ts` naming is excluded only for server tests, never for client code.
+      .filter(path => !/^supabase\/.*_test\.ts$/.test(path))
+      .filter(path => !SERVER_IMPORTERS.test(path));
     expect(importers).toEqual(["packages/core/src/entitlement/product-policy.ts"]);
   });
 
