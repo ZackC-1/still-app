@@ -9,7 +9,15 @@ let backing = AtomicSettingsBacking(directory: directory, beforeReplace: pause ?
   raise(SIGSTOP)
 } : nil)
 let store = SharedSettingsStore(backing: backing)
-let bridge = SettingsBridge(store: store, notifyChanged: {})
+// "lost-reply": the bridge calls notifyChanged after the App Group transaction has returned
+// (the replacement is durable) and before the reply is built. Stop there so the test can kill
+// this process with the reply never written: a host killed between its write and its reply.
+let lostReply = CommandLine.arguments.count > 2 && CommandLine.arguments[2] == "lost-reply"
+let bridge = SettingsBridge(store: store, notifyChanged: lostReply ? {
+  print("committed-unreplied")
+  fflush(stdout)
+  raise(SIGSTOP)
+} : {})
 if CommandLine.arguments.count > 2 && CommandLine.arguments[2] == "hold" {
   try backing.transaction { _ in
     print("holding"); fflush(stdout)
