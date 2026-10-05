@@ -105,9 +105,14 @@
     }
   }
 
+  /** The change each section last attempted (a draft or a rollback), so "Try again" after a
+   * failure replays exactly that change and never a different one. */
+  const lastChange: Record<"rating" | "sales", Change | null> = { rating: null, sales: null };
+
   async function run(namespace: "rating" | "sales", change: Change) {
     const loaded = namespace === "rating" ? rating : sales;
     if (!client || !loaded) return;
+    lastChange[namespace] = change;
     const setStatus = (s: SectionState) => (namespace === "rating" ? (ratingStatus = s) : (salesStatus = s));
     const env = environment;
     const result: FlowResult = await applyChange(
@@ -135,6 +140,11 @@
 
   const applyRating = (draft: RatingModel) => run("rating", { draft: ratingDraft(draft) });
   const applySales = (draft: SalesModel) => run("sales", { draft: salesDraft(draft) });
+  /** Try again after a failure: the same change again (it changed nothing, so it is still valid). */
+  const retry = (namespace: "rating" | "sales") => {
+    const change = lastChange[namespace];
+    if (change) void run(namespace, change);
+  };
   const rollback = (namespace: "rating" | "sales") => {
     const loaded = namespace === "rating" ? rating : sales;
     if (loaded && loaded.state.revision >= 2) void run(namespace, { rollbackOf: loaded.state.revision - 1 });
@@ -185,7 +195,7 @@
       onApply={applyRating}
       onRollback={() => rollback("rating")}
       onEdit={() => (ratingStatus = "idle")}
-      onStatusAction={(s, draft) => (s === "failed" ? applyRating(draft) : reloadSection("rating"))}
+      onStatusAction={(s) => (s === "failed" ? retry("rating") : reloadSection("rating"))}
     />
     <SalesSwitch
       bind:this={salesView}
@@ -195,7 +205,7 @@
       onApply={applySales}
       onRollback={() => rollback("sales")}
       onEdit={() => (salesStatus = "idle")}
-      onStatusAction={(s, draft) => (s === "failed" ? applySales(draft) : reloadSection("sales"))}
+      onStatusAction={(s) => (s === "failed" ? retry("sales") : reloadSection("sales"))}
     />
   {/if}
 </div>

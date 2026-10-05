@@ -156,6 +156,45 @@ describe("owner page", () => {
     expect(server.writes).toBe(1);
   });
 
+  it("Try again after a failed Undo repeats the Undo, not the unchanged draft (allowances)", async () => {
+    const server = new FakeAdminFunction();
+    server.seed("rating", "sandbox", { master: false, surfaces: allSurfaces(false), builds: BUILDS });
+    server.seed("rating", "sandbox", { master: true, surfaces: allSurfaces(true), builds: BUILDS });
+    await signIn(OWNER_TOKEN, server);
+    const region = await screen.findByRole("region", { name: A.title });
+    expect(switchFor(region, A.all)).toHaveAttribute("aria-checked", "true");
+    server.failApply = true;
+    await fireEvent.click(within(region).getByRole("button", { name: PENDING_OWNER_COPY.rollback }));
+    expect(await within(region).findByText(A.failed)).toBeInTheDocument();
+    expect(server.writes).toBe(2);
+    server.failApply = false;
+    await fireEvent.click(within(region).getByRole("button", { name: A.tryAgain }));
+    expect(await within(region).findByText(A.applied)).toBeInTheDocument();
+    const previews = server.calls.filter((c) => String(c.action).startsWith("preview"));
+    expect(previews.at(-1)).toMatchObject({ action: "preview-rollback", sourceRevision: 1, expectedRevision: 2 });
+    expect(JSON.parse(server.current("rating", "sandbox")!.body)).toMatchObject({ revision: 3, master: false });
+    expect(switchFor(region, A.all)).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("Try again after a failed Undo repeats the Undo, not the unchanged draft (sales)", async () => {
+    const server = new FakeAdminFunction();
+    server.seed("sales", "sandbox", { salesEnabled: false, channels: salesChannels(false), builds: [] });
+    server.seed("sales", "sandbox", { salesEnabled: true, channels: salesChannels(true), builds: [] });
+    await signIn(OWNER_TOKEN, server);
+    const region = await screen.findByRole("region", { name: PENDING_OWNER_COPY.salesTitle });
+    expect(switchFor(region, PENDING_OWNER_COPY.salesSwitch)).toHaveAttribute("aria-checked", "true");
+    server.failApply = true;
+    await fireEvent.click(within(region).getByRole("button", { name: PENDING_OWNER_COPY.rollback }));
+    expect(await within(region).findByText(A.failed)).toBeInTheDocument();
+    server.failApply = false;
+    await fireEvent.click(within(region).getByRole("button", { name: A.tryAgain }));
+    expect(await within(region).findByText(A.applied)).toBeInTheDocument();
+    const previews = server.calls.filter((c) => c.namespace === "sales" && String(c.action).startsWith("preview"));
+    expect(previews.at(-1)).toMatchObject({ action: "preview-rollback", sourceRevision: 1, expectedRevision: 2 });
+    expect(JSON.parse(server.current("sales", "sandbox")!.body)).toMatchObject({ revision: 3, salesEnabled: false });
+    expect(switchFor(region, PENDING_OWNER_COPY.salesSwitch)).toHaveAttribute("aria-checked", "false");
+  });
+
   it("losing owner access mid-session (403 on apply) switches to the neutral state", async () => {
     const server = new FakeAdminFunction();
     await signIn(OWNER_TOKEN, server);
