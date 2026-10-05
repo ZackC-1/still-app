@@ -21,6 +21,8 @@ import { parseAccessCacheRecord, type AccessCacheRecord } from "../entitlement/a
 //   safariSetupState   → SafariSetupObservation (read-only; see observeSafariSetup)
 //   onboardingState    → { ok: true, shouldShow, platform, osMajorVersion }
 //   completeOnboarding → { ok: true } | rejected when the web view is not the onboarding presenter
+//   setAnalyticsConsent → { ok: true, enabled, answered }
+//   analyticsContext   → { …, consent, consentAnswered, … } (see AnalyticsContextReply)
 
 export interface AppleCredential {
   readonly identityToken: string;
@@ -70,6 +72,12 @@ export interface OnboardingStateReply {
   readonly platform: "ios" | "macos";
   /** The OS major version from the host (iOS 18 moved Safari's settings under Apps). */
   readonly osMajorVersion: number;
+}
+
+/** The committed native usage-sharing consent. `answered` is false while it is only the default. */
+export interface AnalyticsConsentObservation {
+  readonly consent: boolean;
+  readonly answered: boolean;
 }
 
 /** Deadline for a native read whose caller must never hang (onboarding, Safari setup). */
@@ -143,6 +151,7 @@ export class NativeBridge {
   private onboardingStateReadGeneration = 0;
   private onboardingCompletionGeneration = 0;
   private analyticsConsentReadGeneration = 0;
+  private analyticsConsentWriteGeneration = 0;
   constructor(
     private readonly win: StillBridgeWindow = globalThis as unknown as StillBridgeWindow,
   ) {}
@@ -239,12 +248,12 @@ export class NativeBridge {
     }
   }
 
-  /** Read back the usage-sharing consent the native App Group actually holds (the `consent` field
-   * of the `analyticsContext` reply). Unlike `analyticsContext()`, a missing or non-boolean field is
-   * null rather than off, so a caller confirming a saved choice can never mistake an unreadable
-   * reply for "not sharing". Null outside the app, on a failed post, after a port swap, or when a
-   * newer read was started. Callers bound it with `boundedNativeRead`. */
-  async observeAnalyticsConsent(): Promise<boolean | null> {
+  /** Read back the usage-sharing consent the native App Group actually holds, and whether it is
+   * an explicit answer. Sharing reads on until a choice is written (AnalyticsIdentity.swift), so
+   * only `answered: true` may ever be presented as a saved choice. Strict: both fields must be
+   * booleans, otherwise null (never "off"). Null outside the app, on a failed post, after a port
+   * swap, or when a newer read was started. Callers bound it with `boundedNativeRead`. */
+  async observeAnalyticsConsent(): Promise<AnalyticsConsentObservation | null> {
     const generation = ++this.analyticsConsentReadGeneration;
     const port = this.port;
     if (!port) return null;
@@ -253,9 +262,36 @@ export class NativeBridge {
       if (generation !== this.analyticsConsentReadGeneration || port !== this.port) return null;
       const obj = asObject(reply);
       if (!obj || Array.isArray(obj)) return null;
-      return typeof obj.consent === "boolean" ? obj.consent : null;
+      if (typeof obj.consent !== "boolean" || typeof obj.consentAnswered !== "boolean") return null;
+      return { consent: obj.consent, answered: obj.consentAnswered };
     } catch {
       return null;
+    }
+  }
+
+  /** Write the person's explicit usage-sharing choice straight to the native App Group (the
+   * existing `setAnalyticsConsent` writer). True only for `{ ok: true, enabled: <choice>,
+   * answered: true }` from the port this call posted to, while no newer write was started;
+   * anything else (no host, refusal, an older native reply without `answered`, a stored value
+   * that differs, a port swap) is false. Unlike `setAnalyticsConsent`, it never reports a value
+   * it did not see stored. */
+  async commitAnalyticsConsent(enabled: boolean): Promise<boolean> {
+    const generation = ++this.analyticsConsentWriteGeneration;
+    const port = this.port;
+    if (!port) return false;
+    try {
+      const reply = await port.postMessage({ kind: "setAnalyticsConsent", enabled });
+      if (generation !== this.analyticsConsentWriteGeneration || port !== this.port) return false;
+      const obj = asObject(reply);
+      return (
+        !!obj &&
+        !Array.isArray(obj) &&
+        obj.ok === true &&
+        obj.enabled === enabled &&
+        obj.answered === true
+      );
+    } catch {
+      return false;
     }
   }
 

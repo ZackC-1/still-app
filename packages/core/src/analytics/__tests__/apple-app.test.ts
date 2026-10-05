@@ -209,6 +209,36 @@ describe("Apple app installs counted after sharing is turned on", () => {
   });
 });
 
+describe("Apple app follows a choice committed natively elsewhere", () => {
+  it("adopting Don't share drops the queue and stops sending, with no write and no event", async () => {
+    const { app, events, bridge } = setup();
+    await app.start();
+    expect(events().length).toBeGreaterThan(0);
+    app.adoptCommittedConsent(false);
+    await vi.waitFor(() => expect(events()).toEqual([]));
+    app.ui.track("opened", { where: "app" });
+    await app.recheckSetup();
+    expect(events()).toEqual([]);
+    expect(bridge.setAnalyticsConsent).not.toHaveBeenCalled();
+    expect(await app.ui.sharing!()).toMatchObject({ enabled: false });
+  });
+
+  it("adopting Share resumes reporting without a choice event or a second write", async () => {
+    const { app, events, bridge } = setup({ consent: false });
+    await app.start();
+    expect(events()).toEqual([]);
+    app.adoptCommittedConsent(true);
+    app.ui.track("opened", { where: "app" });
+    await vi.waitFor(() =>
+      expect(events().some((e) => e.event === "opened")).toBe(true),
+    );
+    expect(events().some((e) => e.event === "analytics_choice_made")).toBe(
+      false,
+    );
+    expect(bridge.setAnalyticsConsent).not.toHaveBeenCalled();
+  });
+});
+
 describe("Apple app sends wait for the launch's account check", () => {
   it("a session-less launch never sends the previous account's events", async () => {
     const posted: string[] = [];

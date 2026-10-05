@@ -56,6 +56,10 @@ export interface AppAnalytics {
   /** There is known to be no account (a launch with no session, or the session ended). Any earlier
    * account is let go, and its waiting events with it. */
   accountAbsent(): Promise<void>;
+  /** Native already holds the person's explicit choice (committed and confirmed by
+   * `createAppleConsentCommitter`). Follow it in memory: work in flight is fenced, and turning it
+   * off drops the queue. Writes nothing and sends no event. */
+  adoptCommittedConsent(enabled: boolean): void;
 }
 
 interface Ready {
@@ -326,6 +330,12 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       const r = await ready();
       if (!r) return;
       await r.client.confirm(null, { forget: true }); // known: nobody is signed in
+    },
+    adoptCommittedConsent(enabled) {
+      epoch += 1; // observations and switch changes still in flight belong to the old choice
+      currentReady?.client.permissionChanged();
+      consent = enabled;
+      if (!enabled) void currentReady?.client.clearQueue().catch(() => {});
     },
   };
 }

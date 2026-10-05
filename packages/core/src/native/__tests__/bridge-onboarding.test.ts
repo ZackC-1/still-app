@@ -197,17 +197,25 @@ describe("NativeBridge analytics consent read-back", () => {
     installId: "x",
     anchorId: "y",
     consent: true,
+    consentAnswered: true,
   };
 
-  it.each([true, false])(
-    "returns the committed consent %s from object and JSON",
-    async (consent) => {
+  it.each([
+    [true, true],
+    [false, true],
+    [true, false],
+  ])(
+    "returns consent %s answered %s from object and JSON",
+    async (consent, consentAnswered) => {
       for (const raw of [
-        { ...context, consent },
-        JSON.stringify({ ...context, consent }),
+        { ...context, consent, consentAnswered },
+        JSON.stringify({ ...context, consent, consentAnswered }),
       ]) {
         const h = host(raw);
-        expect(await h.bridge.observeAnalyticsConsent()).toBe(consent);
+        expect(await h.bridge.observeAnalyticsConsent()).toEqual({
+          consent,
+          answered: consentAnswered,
+        });
         expect(h.port.postMessage.mock.calls).toEqual([
           [{ kind: "analyticsContext" }],
         ]);
@@ -220,11 +228,13 @@ describe("NativeBridge analytics consent read-back", () => {
     ["string consent", { ...context, consent: "false" }],
     ["number consent", { ...context, consent: 0 }],
     ["null consent", { ...context, consent: null }],
+    ["missing answered (older native)", { ...context, consentAnswered: undefined }],
+    ["string answered", { ...context, consentAnswered: "true" }],
     ["array", [{ ...context, consent: false }]],
     ["null", null],
     ["empty", ""],
     ["malformed JSON", "{"],
-  ])("is null, never off, for %s", async (_label, reply) => {
+  ])("is null, never off or answered, for %s", async (_label, reply) => {
     expect(await host(reply).bridge.observeAnalyticsConsent()).toBeNull();
   });
 
@@ -246,9 +256,64 @@ describe("NativeBridge analytics consent read-back", () => {
     const h = host(context);
     h.port.postMessage.mockReturnValueOnce(pending.promise);
     const old = h.bridge.observeAnalyticsConsent();
-    expect(await h.bridge.observeAnalyticsConsent()).toBe(true);
+    expect(await h.bridge.observeAnalyticsConsent()).toEqual({
+      consent: true,
+      answered: true,
+    });
     pending.resolve({ ...context, consent: false });
     expect(await old).toBeNull();
+  });
+});
+
+describe("NativeBridge analytics consent writer", () => {
+  it.each([true, false])(
+    "posts the existing setAnalyticsConsent writer and confirms an answered %s",
+    async (enabled) => {
+      for (const raw of [
+        { ok: true, enabled, answered: true },
+        JSON.stringify({ ok: true, enabled, answered: true }),
+      ]) {
+        const h = host(raw);
+        expect(await h.bridge.commitAnalyticsConsent(enabled)).toBe(true);
+        expect(h.port.postMessage.mock.calls).toEqual([
+          [{ kind: "setAnalyticsConsent", enabled }],
+        ]);
+      }
+    },
+  );
+
+  it.each([
+    ["the default, not an answer", { ok: true, enabled: true, answered: false }],
+    ["an older reply without answered", { ok: true, enabled: true }],
+    ["a different stored value", { ok: true, enabled: false, answered: true }],
+    ["false ok", { ok: false, enabled: true, answered: true }],
+    ["truthy ok", { ok: "true", enabled: true, answered: true }],
+    ["string answered", { ok: true, enabled: true, answered: "true" }],
+    ["array", [{ ok: true, enabled: true, answered: true }]],
+    ["null", null],
+  ])("is false for %s", async (_label, reply) => {
+    expect(await host(reply).bridge.commitAnalyticsConsent(true)).toBe(false);
+  });
+
+  it("is false without a host, on refusal, after a port swap and when superseded", async () => {
+    expect(await new NativeBridge({}).commitAnalyticsConsent(false)).toBe(false);
+    const ok = { ok: true, enabled: false, answered: true };
+    const h = host(ok);
+    h.port.postMessage.mockRejectedValueOnce(new Error("refused"));
+    expect(await h.bridge.commitAnalyticsConsent(false)).toBe(false);
+    const swapped = deferred();
+    h.port.postMessage.mockReturnValueOnce(swapped.promise);
+    const write = h.bridge.commitAnalyticsConsent(false);
+    replace(h.win, host(ok).port);
+    swapped.resolve(ok);
+    expect(await write).toBe(false);
+    const h2 = host(ok);
+    const older = deferred();
+    h2.port.postMessage.mockReturnValueOnce(older.promise);
+    const first = h2.bridge.commitAnalyticsConsent(false);
+    expect(await h2.bridge.commitAnalyticsConsent(false)).toBe(true);
+    older.resolve(ok);
+    expect(await first).toBe(false);
   });
 });
 
