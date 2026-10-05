@@ -24,8 +24,14 @@ async function storedSchema(worker: Worker): Promise<number | null> {
   });
 }
 
-test("configured build: a fresh install never commits schema-2 settings and pages run the legacy engine", async ({ context }) => {
-  const [worker] = context.serviceWorkers();
+test("configured build: a fresh install never commits schema-2 settings and pages run the legacy engine", async ({
+  context,
+  extensionId,
+}) => {
+  // Resolving extensionId first waits for the background worker (or finds it already running);
+  // waiting for a "serviceworker" event after the worker has started would hang.
+  expect(extensionId).toMatch(/^[a-p]{32}$/);
+  const worker = context.serviceWorkers()[0]!;
   const page = await context.newPage();
   await page.route("**://*.youtube.com/**", (route) =>
     route.fulfill({ contentType: "text/html; charset=utf-8", body: fixture("youtube.html") }),
@@ -37,7 +43,7 @@ test("configured build: a fresh install never commits schema-2 settings and page
   await expect(page.locator("#shelf")).toHaveCount(0); // the legacy remove surface
   await expect(page.locator("#keep-video")).toBeVisible();
   await page.waitForTimeout(1_000);
-  expect(await storedSchema(worker ?? (await context.waitForEvent("serviceworker")))).not.toBe(2);
+  expect(await storedSchema(worker)).not.toBe(2);
 });
 
 test.describe("configured build with a saved schema-1 profile", () => {
