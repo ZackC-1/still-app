@@ -5,6 +5,7 @@ import { DEFAULT_SETTINGS } from "@still/shared-types";
 import { AtomicSettingsWriter, InMemoryStorageAdapter } from "@still/core/storage";
 import {
   SAFARI_DESKTOP_POPUP_BROWSER,
+  SAFARI_SETTINGS_LABEL,
   appManagedPopupAccount,
   appManagedSettingsSync,
   safariPopupSurface,
@@ -83,8 +84,9 @@ describe("Safari popup surface", () => {
     expect(safariPopupSurface("win")).toBe("mobile");
   });
 
-  it("keeps DesktopPopup's D01 reference label pending an owner copy ruling", () => {
+  it("passes DesktopPopup its required browser value and the approved Settings label", () => {
     expect(SAFARI_DESKTOP_POPUP_BROWSER).toBe("Chrome");
+    expect(SAFARI_SETTINGS_LABEL).toBe("Still settings");
   });
 });
 

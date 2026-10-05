@@ -7,6 +7,8 @@ import {
 } from "../../entitlement/wk-benefit-adapter.js";
 import type { UiAnalytics, DeleteFlow, PurchaseFlow } from "../controller.svelte.js";
 import type { ReceiptStatusValue, SafariSetupObservation } from "../../native/bridge.js";
+import type { StillBridgeWindow } from "../../storage/wkwebview-adapter.js";
+import { safeParse } from "../../storage/settings-validation.js";
 import { STRINGS } from "../strings.js";
 import { PRIVACY_POLICY_URL, SETUP_GUIDE_URL } from "../config.js";
 import { createDesktopPopupBinding } from "./desktop-popup-binding.js";
@@ -149,11 +151,21 @@ export function observeAppleSetup(
 }
 
 /**
- * The setup card appears only when native observes the Mac extension turned off. iOS cannot
- * observe it, and an unknown, missing or late observation never nags. No native message opens
- * Safari's settings, so the card's action stays unsupplied.
+ * Opens one fixed native destination from a tap (the `openDestination` message, through
+ * `openNativeDestination`). The setup card only ever asks for Safari's extension settings.
  */
-export function appleSettingsSetup(observation: SafariSetupObservation | null): AppleSettingsProps["setup"] {
+export type AppleSetupOpener = (destination: "safariExtensionSettings") => void;
+
+/**
+ * The setup card appears only when native observes the Mac extension turned off. iOS cannot
+ * observe it, and an unknown, missing or late observation never nags. Its "Open Safari Settings"
+ * action opens the fixed Safari extension settings destination when an opener is supplied, and
+ * stays unsupplied (disabled) otherwise.
+ */
+export function appleSettingsSetup(
+  observation: SafariSetupObservation | null,
+  open?: AppleSetupOpener,
+): AppleSettingsProps["setup"] {
   if (observation?.platform !== "macos" || observation.extensionStatus !== "disabled") return undefined;
   return {
     title: "Turn on Still in Safari",
@@ -165,6 +177,7 @@ export function appleSettingsSetup(observation: SafariSetupObservation | null): 
       "Allow it on every website.",
     ],
     actionLabel: "Open Safari Settings",
+    onAction: open ? () => open("safariExtensionSettings") : undefined,
   };
 }
 
@@ -185,6 +198,7 @@ export function watchAppleSetup(
   publish: (view: AppleSetupView) => void,
   doc: Document = document,
   deadlineMs: number = APPLE_SETUP_OBSERVATION_DEADLINE_MS,
+  open?: AppleSetupOpener,
 ): () => void {
   let ticket = 0;
   let stopped = false;
@@ -193,7 +207,7 @@ export function watchAppleSetup(
     void observeAppleSetup(read, deadlineMs).then((observation) => {
       if (stopped || current !== ticket) return;
       publish({
-        setup: appleSettingsSetup(observation),
+        setup: appleSettingsSetup(observation, open),
         platform: observation ? appleSettingsPlatform(observation) : null,
       });
     });
@@ -313,10 +327,49 @@ export function appleSettingsRestore(source: {
   return source.purchaseFlow === "restoring" ? { state: "checking" } : undefined;
 }
 
-/** The slice of NativeBridge the free-period Restore uses; tests supply a fake. */
+/**
+ * The native Restore check's answer (FreePeriodRestore.swift): `none` only after the App Store
+ * answered with no Still purchase, `failed` when there was no conclusive answer.
+ */
+export type AppleRestoreCheck = "restored" | "none" | "failed";
+
+/** The native calls the free-period Restore uses; tests supply a fake. */
 export interface AppleRestoreBridge {
-  restore(): Promise<boolean>;
+  /** The restore reply's conclusive answer, or null when the reply carries none. */
+  restoreCheck(): Promise<AppleRestoreCheck | null>;
   receiptStatus(): Promise<ReceiptStatusValue>;
+}
+
+/**
+ * Read a native restore reply. The conclusive `restore` field wins; a bare `entitled: true` (the
+ * paid-tier reply) is restored; anything else, including a malformed reply, is no answer, so it can
+ * never become "nothing found".
+ */
+export function appleRestoreCheck(reply: unknown): AppleRestoreCheck | null {
+  const obj: unknown = typeof reply === "string" ? safeParse(reply) : reply;
+  if (!obj || typeof obj !== "object") return null;
+  const { restore, entitled } = obj as Record<string, unknown>;
+  if (restore === "restored" || restore === "none" || restore === "failed") return restore;
+  return entitled === true ? "restored" : null;
+}
+
+/**
+ * The Restore bridge over the one native port: the restore message read through
+ * `appleRestoreCheck`, and the device receipt read through the existing NativeBridge. It lives here
+ * rather than on NativeBridge so the default Apple bundle, which never shows this screen, is
+ * unchanged.
+ */
+export function appleRestoreBridge(
+  native: Pick<AppleRestoreBridge, "receiptStatus">,
+  win: StillBridgeWindow = globalThis as unknown as StillBridgeWindow,
+): AppleRestoreBridge {
+  return {
+    async restoreCheck() {
+      const port = win.webkit?.messageHandlers?.still;
+      return port ? appleRestoreCheck(await port.postMessage({ kind: "restore" })) : null;
+    },
+    receiptStatus: () => native.receiptStatus(),
+  };
 }
 
 export interface AppleSettingsRestoreDeps {
@@ -333,15 +386,14 @@ export interface AppleSettingsRestoreDeps {
 
 /**
  * The plain "Restore purchase" link shown while the paid flags are off (owner decision 17). It
- * runs the existing signed-out 2.x sequence (native restore, then the device receipt read, as
- * AppleSession.onRestore does) and then re-reads access through the existing entitlement path.
- * It never touches settings: no cache, binding or settings message is involved.
+ * asks native to restore and then re-reads access through the existing entitlement path. It never
+ * touches settings: no cache, binding or settings message is involved.
  *
- * Outcomes use only the existing RestoreStatusCard states. "Nothing found" needs a conclusive
- * answer: a restore reply of false is not one (native also answers false when it refuses or
- * cannot reach the store), so it is used only when the receipt is verified not entitled. A
- * receipt that is entitled is restored; no signal, or any rejection, is "couldn't finish" with
- * Try again. One restore at a time. After `stop` (the screen unmounted) a late reply is ignored:
+ * Outcomes use only the existing RestoreStatusCard states. While the paid tier is off, native runs
+ * a read-only App Store check and answers conclusively: restored, none ("nothing found") or failed
+ * ("couldn't finish" with Try again). A reply with no conclusive answer falls back to the device
+ * receipt read, as AppleSession.onRestore does: entitled is restored, verified not entitled is
+ * nothing found, and no signal or any rejection is couldn't finish. One restore at a time. After `stop` (the screen unmounted) a late reply is ignored:
  * no further native read, no access re-read and nothing published.
  */
 export function createAppleSettingsRestore(deps: AppleSettingsRestoreDeps) {
@@ -349,7 +401,10 @@ export function createAppleSettingsRestore(deps: AppleSettingsRestoreDeps) {
   let stopped = false;
   async function outcome(): Promise<"restored" | "nothing" | "failed" | null> {
     try {
-      if (await deps.bridge.restore()) return "restored";
+      const check = await deps.bridge.restoreCheck();
+      if (check === "restored") return "restored";
+      if (check === "none") return "nothing";
+      if (check === "failed") return "failed";
       if (stopped) return null;
       const receipt = await deps.bridge.receiptStatus();
       if (receipt === "entitled") return "restored";

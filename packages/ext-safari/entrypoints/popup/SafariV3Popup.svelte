@@ -24,6 +24,7 @@
   import type { SafariV3Composition } from "../../lib/safari-v3-runtime.js";
   import {
     SAFARI_DESKTOP_POPUP_BROWSER,
+    SAFARI_SETTINGS_LABEL,
     appManagedPopupAccount,
     type SafariPopupSurface,
   } from "../../lib/safari-v3.js";
@@ -114,6 +115,7 @@
       settings={ready.settings}
       access={ready.access}
       browser={SAFARI_DESKTOP_POPUP_BROWSER}
+      settingsLabel={SAFARI_SETTINGS_LABEL}
       commandsDisabled={view.held}
       onGlobalChange={ready.commands.global}
       onServiceChange={ready.commands.service}
