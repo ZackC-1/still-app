@@ -39,7 +39,9 @@
 </script>
 
 <section class="card card-stack" aria-label="Still Pro">
-  {#if ownership !== "verify" && (ownership === "checking" || accessChecking || (accessHeld && !accessVerify))}
+  <!-- Mirrors ProOfferCard: verify and failed ownership or a failed purchase show their own
+    state, never the spinner. A residual held access counts as checking unless verify is held. -->
+  {#if (ownership === "checking" || accessChecking || (accessHeld && !accessVerify)) && ownership !== "verify" && ownership !== "failed" && state !== "failed"}
     <h2 class="card-title">Still Pro</h2>
     <div class="status-line" data-tone="pending" role="status">
       <span class="glyph"><Glyph name="spinner" size={16} /></span>
