@@ -1,4 +1,4 @@
-// Private reference rehearsal only; never uploads or claims operational access.
+// Reference rehearsal only; never uploads or claims operational access.
 // node render-assets.mjs --id cws-1 --mode comparison|export
 //   --design-root /path/to/approved/package --output-dir /private/tmp/owned-empty-dir
 import {
@@ -13,7 +13,8 @@ import {
 } from "node:fs/promises";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import { tmpdir } from "node:os";
-import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repository = resolve(here, "../../../../..");
@@ -77,6 +78,11 @@ async function main() {
   );
   if (tokens.version !== manifest.designVersion)
     throw new Error("Design version mismatch.");
+  const { width, height } = frame.canvas ?? manifest.canvas;
+  const tile = frame.kind === "tile";
+  const icon = tile
+    ? `data:image/png;base64,${(await readFile(join(design, frame.icon))).toString("base64")}`
+    : undefined;
   const harness = join(output, ".harness");
   await mkdir(harness, { mode: 0o700 }); // Refuse to overwrite a previous proof run.
   await mkdir(join(harness, "node_modules"), { mode: 0o700 });
@@ -93,6 +99,14 @@ import { FEATURE_REGISTRY } from '@still/shared-types';
 import StoreAssets from ${JSON.stringify(fromFs(join(here, "StoreAssets.svelte")))};
 import ${JSON.stringify(fromFs(join(design, "styles.css")))};
 const frame = ${frameJson};
+${
+  tile
+    ? `
+mount(StoreAssets,{target:document.querySelector('#root'),props:{
+  id:frame.id,headline:frame.headline,body:frame.body,kind:'tile',
+  width:${width},height:${height},icon:${JSON.stringify(icon)}}});
+`
+    : `
 const settings = Object.freeze({ schemaVersion:2, globalOn:true,
   services:Object.freeze({youtube:true,instagram:true,facebook:true,tiktok:true}),
   sites:Object.freeze(Object.fromEntries(FEATURE_REGISTRY.map(row=>[row.id,
@@ -103,9 +117,13 @@ const access = Object.freeze({ schema:1,generation:0,refreshAfterMs:null,
   states:Object.freeze(Object.fromEntries([...FEATURE_REGISTRY.map(row=>[row.id,
     row.tier==='free'?'free':frame.proAccess]),['tiktok.all','free']])) });
 mount(StoreAssets,{target:document.querySelector('#root'),props:{
-  id:frame.id,headline:frame.headline,body:frame.body,
+  id:frame.id,headline:frame.headline,body:frame.body,browser:frame.browser,
+  kind:frame.kind,width:${width},height:${height},uiBase:frame.uiBase,
   view:{purpose:'synthetic-reference-only',settings,access,services:frame.services,
+    features:frame.mobile?FEATURE_REGISTRY.filter(row=>row.id!=='facebook.sidebar_ads').map(row=>row.id):undefined,
     open:frame.open,account:frame.account}}});
+`
+}
 window.referenceFixturePurpose='synthetic-reference-only';
 `;
   const comparison = mode === "comparison";
@@ -116,16 +134,23 @@ window.referenceFixturePurpose='synthetic-reference-only';
   const html = `<!doctype html><html data-theme="light"><meta charset="utf-8">
 <style>html,body{margin:0}body{background:${manifest.comparison.parentBackground};
 font-family:var(--font-ui);-webkit-font-smoothing:antialiased}
-#root{position:absolute;left:${origin.x}px;top:${origin.y}px;width:1280px;height:800px;
+#root{position:absolute;left:${origin.x}px;top:${origin.y}px;width:${width}px;height:${height}px;
 overflow:hidden;border-radius:${radius}px;--text-scale:1}</style>
 <div id="root"></div><script type="module" src="/entry.js"></script></html>`;
   await writeFile(join(harness, "entry.js"), entry, { mode: 0o600 });
   await writeFile(join(harness, "index.html"), html, { mode: 0o600 });
-  const [{ createServer }, { svelte }, { chromium }] = await Promise.all([
-    import("vite"),
-    import("@sveltejs/vite-plugin-svelte"),
-    import("@playwright/test"),
-  ]);
+  // pnpm keeps vitest (which re-exports Vite's server) and the Svelte plugin under packages/core, not the repository root.
+  const coreRequire = createRequire(
+    join(repository, "packages/core/package.json"),
+  );
+  const importCore = (id) =>
+    import(pathToFileURL(coreRequire.resolve(id)).href);
+  const [{ createViteServer: createServer }, { svelte }, { chromium }] =
+    await Promise.all([
+      importCore("vitest/node"),
+      importCore("@sveltejs/vite-plugin-svelte"),
+      import("@playwright/test"),
+    ]);
   let server;
   let browser;
   const errors = [];
@@ -177,12 +202,25 @@ overflow:hidden;border-radius:${radius}px;--text-scale:1}</style>
         fontLoaded: document.fonts.check('16px "InterVariable"'),
         fontStatus: document.fonts.status,
         openSections: document.querySelectorAll(".service-options.open").length,
-        uiTheme: element.querySelector(".still-ui").dataset.theme,
+        uiTheme:
+          element.querySelector(".still-ui")?.dataset.theme ??
+          document.documentElement.dataset.theme,
       };
     });
+    if (tile) {
+      observed.tileArtworkLoaded = await page
+        .locator("[data-asset] img")
+        .evaluate((image) => image.complete && image.naturalWidth === 1024);
+    }
+    if (frame.browser) {
+      observed.settingsHostLabel = await page
+        .locator(".open-options")
+        .getAttribute("aria-label");
+    }
     if (
       errors.length ||
       !observed.fontLoaded ||
+      (tile && !observed.tileArtworkLoaded) ||
       observed.purpose !== manifest.purpose
     ) {
       throw new Error(
@@ -197,7 +235,7 @@ overflow:hidden;border-radius:${radius}px;--text-scale:1}</style>
     const buffer = await readFile(destination);
     const dimensions = [buffer.readUInt32BE(16), buffer.readUInt32BE(20)];
     const scale = comparison ? 2 : 1;
-    if (dimensions[0] !== 1280 * scale || dimensions[1] !== 800 * scale) {
+    if (dimensions[0] !== width * scale || dimensions[1] !== height * scale) {
       throw new Error(`Incorrect raster dimensions: ${dimensions}`);
     }
     const result = {

@@ -71,8 +71,10 @@ type DnrUpdate = (
 async function start(
   initial: Record<string, unknown> = {},
   updateEnabledRulesets?: DnrUpdate,
+  // "false" with stubbed Supabase config gives a configured legacy (atomicLocal false) build.
+  modernSyncFlag = "true",
 ) {
-  vi.stubEnv("VITE_MODERN_SETTINGS_SYNC_ENABLED", "true");
+  vi.stubEnv("VITE_MODERN_SETTINGS_SYNC_ENABLED", modernSyncFlag);
   vi.resetModules();
   const store = structuredClone(initial);
   const installed: Array<(details: chrome.runtime.InstalledDetails) => void> =

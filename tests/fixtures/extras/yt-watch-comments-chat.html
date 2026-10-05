@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Synthetic YouTube watch page: comments and live chat</title>
+  </head>
+  <body>
+    <!--
+      Synthetic structural model shared by youtube.comments (CP-087) and youtube.livechat (CP-088),
+      so all four on/off combinations can be exercised on one page.
+      UNVERIFIED CANDIDATE selector families:
+        comments:  ytd-comments#comments, and the comments engagement panel
+        live chat: ytd-live-chat-frame, its entry button and the chat replay container
+      The two must be independent: a carousel or panel that holds the live-chat entry is not a
+      comments target (ids "keep-*"). Invented text only.
+    -->
+    <ytd-watch-flexy>
+      <div id="keep-player"><video></video></div>
+      <h1 id="keep-title">An invented live stream replay</h1>
+      <div id="keep-description">Invented description text.</div>
+      <ytd-live-chat-frame id="target-chat-frame">
+        <iframe title="Chat" srcdoc="<p>invented chat</p>"></iframe>
+        <button id="target-chat-entry" aria-label="Show chat">Show chat</button>
+      </ytd-live-chat-frame>
+      <ytd-engagement-panel-section-list-renderer id="target-chat-replay" target-id="engagement-panel-live-chat-replay">
+        <p>Invented chat replay</p>
+      </ytd-engagement-panel-section-list-renderer>
+      <ytd-comments id="target-comments">
+        <ytd-comment-thread-renderer><a href="#c1">An invented comment</a></ytd-comment-thread-renderer>
+      </ytd-comments>
+      <ytd-engagement-panel-section-list-renderer id="target-comments-panel" target-id="engagement-panel-comments-section">
+        <p>Invented comments panel</p>
+      </ytd-engagement-panel-section-list-renderer>
+      <ytd-watch-metadata id="keep-action-carousel">
+        <button id="keep-like">Like</button>
+        <button id="keep-share">Share</button>
+        <button id="keep-more-actions" aria-label="More actions">More</button>
+      </ytd-watch-metadata>
+    </ytd-watch-flexy>
+  </body>
+</html>
