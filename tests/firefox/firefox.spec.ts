@@ -186,8 +186,10 @@ test("tiktok: the website follows the paid-tier switch", async () => {
 test("tiktok: Open TikTok this time allows only this tab after the confirmation", async () => {
   test.skip(PAID_TIER_ENABLED, "TikTok is left alone for free users while the paid tier is on");
   // documentId, which proves the exact blocked page, arrived in Firefox 153.
+  // firefoxVersion is the raw "Mozilla Firefox 156.0.1" line; an unreadable version skips too.
+  const major = Number.parseInt(/(\d+)\./.exec(firefox.firefoxVersion)?.[1] ?? "", 10);
   test.skip(
-    Number.parseInt(firefox.firefoxVersion, 10) < 153,
+    !(major >= 153),
     `Firefox ${firefox.firefoxVersion} lacks MessageSender.documentId, so opening stays unavailable`,
   );
   const tab = await firefox.openTab("https://www.tiktok.com/foryou");
@@ -222,6 +224,10 @@ test("tiktok: Open TikTok this time allows only this tab after the confirmation"
     // A second tab is still closed.
     await other.goto("https://www.tiktok.com/foryou");
     await expectTiktokBlockedPage(other);
+    // The first tab keeps its pass until it is closed: it can open TikTok again.
+    await tab.goto("https://www.tiktok.com/foryou");
+    await tab.waitFor("TikTok again in this tab", () => tiktokUrl(tab), (url) => url === "https://www.tiktok.com/foryou");
+    await tab.waitForVisible("#tiktok-feed", true);
   } finally {
     await other.close();
     await tab.close();
