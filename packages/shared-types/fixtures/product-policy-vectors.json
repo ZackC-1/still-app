@@ -1,0 +1,2857 @@
+{
+  "schema": 1,
+  "about": "Shared U6 product policy vectors. TypeScript (packages/core product-policy-vectors.test.ts) and Swift (StillKit ProductPolicyVectorTests) must give exactly these verdicts. Runners evaluate sales with the compiled switch on through a test-only seam; with the shipped switch off every sales vector is compiled_off (or context). A response body is either body (text, UTF-8 encoded by the runner) or bodyHex (raw bytes). When present, padTo appends ASCII spaces until the body is that many bytes. now is the injected clock value. Expectations are hand-authored, never generated from either implementation.",
+  "cases": [
+    {
+      "name": "two-key: packaged context off with remote salesEnabled true stays off",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": false,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "compiled_off",
+        "revision": null
+      }
+    },
+    {
+      "name": "two-key: packaged context off never parses an invalid body",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": false,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{not json",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "compiled_off",
+        "revision": null
+      }
+    },
+    {
+      "name": "two-key: packaged context off with no response",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": false,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": null,
+      "expect": {
+        "allowed": false,
+        "reason": "compiled_off",
+        "revision": null
+      }
+    },
+    {
+      "name": "two-key: packaged context off on an Apple host",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": false,
+        "environment": "sandbox",
+        "surface": "apple_mobile_host",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "compiled_off",
+        "revision": null
+      }
+    },
+    {
+      "name": "both keys on, web channel on, build listed",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": true,
+        "reason": "on",
+        "revision": 3
+      }
+    },
+    {
+      "name": "remote salesEnabled off",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":false,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "off",
+        "revision": 3
+      }
+    },
+    {
+      "name": "web channel off turns chrome off",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":false,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "off",
+        "revision": 3
+      }
+    },
+    {
+      "name": "web channel off leaves the Apple host on",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "apple_mobile_host",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":false,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": true,
+        "reason": "on",
+        "revision": 3
+      }
+    },
+    {
+      "name": "apple channel off turns the macOS host off",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "apple_macos_host",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":false,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "off",
+        "revision": 3
+      }
+    },
+    {
+      "name": "firefox for Android uses the web channel",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "firefox_android",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": true,
+        "reason": "on",
+        "revision": 3
+      }
+    },
+    {
+      "name": "edge is a deferred surface even when listed and on",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "edge_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "deferred_surface",
+        "revision": null
+      }
+    },
+    {
+      "name": "build not on the allowlist",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.1"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "build",
+        "revision": 3
+      }
+    },
+    {
+      "name": "build listed only for another surface",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "firefox_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "build",
+        "revision": 3
+      }
+    },
+    {
+      "name": "empty build allowlist",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "build",
+        "revision": 3
+      }
+    },
+    {
+      "name": "wrong environment",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"production\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "environment",
+        "revision": null
+      }
+    },
+    {
+      "name": "production context reads production policy",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "production",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"production\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": true,
+        "reason": "on",
+        "revision": 3
+      }
+    },
+    {
+      "name": "unknown environment value",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"staging\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "revision 0 is rejected",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":0,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "revision 1 is the minimum",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":1,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": true,
+        "reason": "on",
+        "revision": 1
+      }
+    },
+    {
+      "name": "negative revision",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":-1,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "fractional revision",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":1.5,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "integral revision written with a fraction",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3.0,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "exponent revision",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":1e2,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "leading-zero revision",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":03,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "string revision",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":\"3\",\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "largest safe revision",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":9007199254740991,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": true,
+        "reason": "on",
+        "revision": 9007199254740991
+      }
+    },
+    {
+      "name": "revision beyond the safe range",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":9007199254740992,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "stale: below the highest seen revision",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 4,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "stale",
+        "revision": 3
+      }
+    },
+    {
+      "name": "equal to the highest seen revision",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 3,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": true,
+        "reason": "on",
+        "revision": 3
+      }
+    },
+    {
+      "name": "unsupported schema",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":2,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "missing schema",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "unknown top-level key",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}],\"note\":\"hello\"}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "remote paidMode key is not part of the grammar",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}],\"paidMode\":true}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "remote key named like the compiled flag is not part of the grammar",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}],\"paidTierEnabled\":true}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "compiled-flag name alongside salesEnabled is an unknown key",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}],\"paidTierEnabled\":true}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "prototype key",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"__proto__\":{\"salesEnabled\":true},\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "unknown key inside a channel",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\",\"price\":199},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "unknown channel",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"android\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "missing channel",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "unreviewed offer",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v4\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "offer given as a URL",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"https://pay.example/checkout\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "unknown key inside a build entry",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\",\"url\":\"x\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "build given as a URL",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"https://evil.example/3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "build containing a colon",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"a:b\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "uppercase build",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"V3\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "build starting with a dot",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\".3\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "96-character build is accepted",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": true,
+        "reason": "on",
+        "revision": 3
+      }
+    },
+    {
+      "name": "97-character build is rejected",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"chrome_desktop\",\"build\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "unknown surface in a build entry",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"safari\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "duplicate build entry",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "32 builds is the maximum",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"chrome_desktop\",\"build\":\"b1\"},{\"surface\":\"chrome_desktop\",\"build\":\"b2\"},{\"surface\":\"chrome_desktop\",\"build\":\"b3\"},{\"surface\":\"chrome_desktop\",\"build\":\"b4\"},{\"surface\":\"chrome_desktop\",\"build\":\"b5\"},{\"surface\":\"chrome_desktop\",\"build\":\"b6\"},{\"surface\":\"chrome_desktop\",\"build\":\"b7\"},{\"surface\":\"chrome_desktop\",\"build\":\"b8\"},{\"surface\":\"chrome_desktop\",\"build\":\"b9\"},{\"surface\":\"chrome_desktop\",\"build\":\"b10\"},{\"surface\":\"chrome_desktop\",\"build\":\"b11\"},{\"surface\":\"chrome_desktop\",\"build\":\"b12\"},{\"surface\":\"chrome_desktop\",\"build\":\"b13\"},{\"surface\":\"chrome_desktop\",\"build\":\"b14\"},{\"surface\":\"chrome_desktop\",\"build\":\"b15\"},{\"surface\":\"chrome_desktop\",\"build\":\"b16\"},{\"surface\":\"chrome_desktop\",\"build\":\"b17\"},{\"surface\":\"chrome_desktop\",\"build\":\"b18\"},{\"surface\":\"chrome_desktop\",\"build\":\"b19\"},{\"surface\":\"chrome_desktop\",\"build\":\"b20\"},{\"surface\":\"chrome_desktop\",\"build\":\"b21\"},{\"surface\":\"chrome_desktop\",\"build\":\"b22\"},{\"surface\":\"chrome_desktop\",\"build\":\"b23\"},{\"surface\":\"chrome_desktop\",\"build\":\"b24\"},{\"surface\":\"chrome_desktop\",\"build\":\"b25\"},{\"surface\":\"chrome_desktop\",\"build\":\"b26\"},{\"surface\":\"chrome_desktop\",\"build\":\"b27\"},{\"surface\":\"chrome_desktop\",\"build\":\"b28\"},{\"surface\":\"chrome_desktop\",\"build\":\"b29\"},{\"surface\":\"chrome_desktop\",\"build\":\"b30\"},{\"surface\":\"chrome_desktop\",\"build\":\"b31\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": true,
+        "reason": "on",
+        "revision": 3
+      }
+    },
+    {
+      "name": "33 builds is rejected",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"chrome_desktop\",\"build\":\"b1\"},{\"surface\":\"chrome_desktop\",\"build\":\"b2\"},{\"surface\":\"chrome_desktop\",\"build\":\"b3\"},{\"surface\":\"chrome_desktop\",\"build\":\"b4\"},{\"surface\":\"chrome_desktop\",\"build\":\"b5\"},{\"surface\":\"chrome_desktop\",\"build\":\"b6\"},{\"surface\":\"chrome_desktop\",\"build\":\"b7\"},{\"surface\":\"chrome_desktop\",\"build\":\"b8\"},{\"surface\":\"chrome_desktop\",\"build\":\"b9\"},{\"surface\":\"chrome_desktop\",\"build\":\"b10\"},{\"surface\":\"chrome_desktop\",\"build\":\"b11\"},{\"surface\":\"chrome_desktop\",\"build\":\"b12\"},{\"surface\":\"chrome_desktop\",\"build\":\"b13\"},{\"surface\":\"chrome_desktop\",\"build\":\"b14\"},{\"surface\":\"chrome_desktop\",\"build\":\"b15\"},{\"surface\":\"chrome_desktop\",\"build\":\"b16\"},{\"surface\":\"chrome_desktop\",\"build\":\"b17\"},{\"surface\":\"chrome_desktop\",\"build\":\"b18\"},{\"surface\":\"chrome_desktop\",\"build\":\"b19\"},{\"surface\":\"chrome_desktop\",\"build\":\"b20\"},{\"surface\":\"chrome_desktop\",\"build\":\"b21\"},{\"surface\":\"chrome_desktop\",\"build\":\"b22\"},{\"surface\":\"chrome_desktop\",\"build\":\"b23\"},{\"surface\":\"chrome_desktop\",\"build\":\"b24\"},{\"surface\":\"chrome_desktop\",\"build\":\"b25\"},{\"surface\":\"chrome_desktop\",\"build\":\"b26\"},{\"surface\":\"chrome_desktop\",\"build\":\"b27\"},{\"surface\":\"chrome_desktop\",\"build\":\"b28\"},{\"surface\":\"chrome_desktop\",\"build\":\"b29\"},{\"surface\":\"chrome_desktop\",\"build\":\"b30\"},{\"surface\":\"chrome_desktop\",\"build\":\"b31\"},{\"surface\":\"chrome_desktop\",\"build\":\"b32\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "string Boolean master",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":\"true\",\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "numeric Boolean master",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":1,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "null master",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":null,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "duplicate key: off then on",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":false,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "duplicate key: on then off",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"salesEnabled\":false,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "a rating body is not a sales body",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "pretty-printed body with reordered keys",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\n  \"builds\": [\n    {\n      \"surface\": \"chrome_desktop\",\n      \"build\": \"3.0.0\"\n    },\n    {\n      \"surface\": \"firefox_android\",\n      \"build\": \"3.0.0\"\n    },\n    {\n      \"surface\": \"apple_mobile_host\",\n      \"build\": \"3.0.0\"\n    },\n    {\n      \"surface\": \"apple_macos_host\",\n      \"build\": \"3.0.0\"\n    },\n    {\n      \"surface\": \"edge_desktop\",\n      \"build\": \"3.0.0\"\n    }\n  ],\n  \"channels\": {\n    \"apple\": {\n      \"enabled\": true,\n      \"offer\": \"still-pro-v3\"\n    },\n    \"web\": {\n      \"enabled\": true,\n      \"offer\": \"still-pro-v3\"\n    }\n  },\n  \"schema\": 1,\n  \"environment\": \"sandbox\",\n  \"revision\": 3,\n  \"salesEnabled\": true\n}\n",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": true,
+        "reason": "on",
+        "revision": 3
+      }
+    },
+    {
+      "name": "byte-order mark",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "﻿{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "trailing comma",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}],}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "trailing garbage",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}x",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "two documents",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "escape sequence in a string",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.\\u0030\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "non-ASCII in a string",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0é\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "non-ASCII outside a string",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]} ",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "top-level array",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "[{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}]",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "top-level null",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "null",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "empty body",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "whitespace-only body",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "   \n",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "non-finite token",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":Infinity,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "deep nesting is rejected",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}],\"x\":[[[[[[1]]]]]]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "executable-looking text is only an unknown string",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}],\"code\":\"fetch('https://x')\"}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: plain ASCII body is accepted",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a332c2273616c6573456e61626c6564223a747275652c226368616e6e656c73223a7b226170706c65223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d2c22776562223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d7d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e30227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7d",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": true,
+        "reason": "on",
+        "revision": 3
+      }
+    },
+    {
+      "name": "bytes: UTF-8 byte-order mark",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "efbbbf7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a332c2273616c6573456e61626c6564223a747275652c226368616e6e656c73223a7b226170706c65223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d2c22776562223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d7d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e30227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7d",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: UTF-16 byte-order mark",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "fffe7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a332c2273616c6573456e61626c6564223a747275652c226368616e6e656c73223a7b226170706c65223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d2c22776562223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d7d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e30227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7d",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: invalid UTF-8 byte in a string",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a332c2273616c6573456e61626c6564223a747275652c226368616e6e656c73223a7b226170706c65223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d2c22776562223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d7d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e30ff227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7d",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: overlong UTF-8 slash in a string",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a332c2273616c6573456e61626c6564223a747275652c226368616e6e656c73223a7b226170706c65223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d2c22776562223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d7d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e30c0af227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7d",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: truncated UTF-8 sequence at the end",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a332c2273616c6573456e61626c6564223a747275652c226368616e6e656c73223a7b226170706c65223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d2c22776562223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d7d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e30227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7dc3",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: Latin-1 e-acute in a build",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a332c2273616c6573456e61626c6564223a747275652c226368616e6e656c73223a7b226170706c65223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d2c22776562223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d7d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e30e9227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7d",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: NUL inside a string",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a332c2273616c6573456e61626c6564223a747275652c226368616e6e656c73223a7b226170706c65223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d2c22776562223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d7d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e3000227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7d",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: trailing NUL",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a332c2273616c6573456e61626c6564223a747275652c226368616e6e656c73223a7b226170706c65223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d2c22776562223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d7d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e30227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7d00",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: DEL inside a string",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a332c2273616c6573456e61626c6564223a747275652c226368616e6e656c73223a7b226170706c65223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d2c22776562223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d7d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e307f227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7d",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "body padded to exactly the byte cap",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000,
+        "padTo": 8192
+      },
+      "expect": {
+        "allowed": true,
+        "reason": "on",
+        "revision": 3
+      }
+    },
+    {
+      "name": "body one byte over the cap",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000,
+        "padTo": 8193
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "oversized",
+        "revision": null
+      }
+    },
+    {
+      "name": "oversized beats invalid",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{",
+        "requestStartedAt": 1000,
+        "padTo": 9000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "oversized",
+        "revision": null
+      }
+    },
+    {
+      "name": "multi-byte padding counts bytes",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "oversized",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: raw bytes over the cap",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a332c2273616c6573456e61626c6564223a747275652c226368616e6e656c73223a7b226170706c65223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d2c22776562223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d7d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e30227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7de9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "oversized",
+        "revision": null
+      }
+    },
+    {
+      "name": "missing body",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": null,
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "missing",
+        "revision": null
+      }
+    },
+    {
+      "name": "no response at all",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": null,
+      "expect": {
+        "allowed": false,
+        "reason": "missing",
+        "revision": null
+      }
+    },
+    {
+      "name": "clock 4999 ms after request start",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 5999,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": true,
+        "reason": "on",
+        "revision": 3
+      }
+    },
+    {
+      "name": "clock 5000 ms after request start is late",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 6000,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "late",
+        "revision": null
+      }
+    },
+    {
+      "name": "clock equal to request start",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1000,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": true,
+        "reason": "on",
+        "revision": 3
+      }
+    },
+    {
+      "name": "request started after the clock",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 999,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "late",
+        "revision": null
+      }
+    },
+    {
+      "name": "negative request start",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": -1
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "late",
+        "revision": null
+      }
+    },
+    {
+      "name": "negative clock",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": -5,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 0
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "late",
+        "revision": null
+      }
+    },
+    {
+      "name": "replayed stored response with its original start time",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 3601000,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "late",
+        "revision": null
+      }
+    },
+    {
+      "name": "late beats invalid",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 60000,
+      "response": {
+        "body": "{",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "late",
+        "revision": null
+      }
+    },
+    {
+      "name": "unknown context surface",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "safari",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "context",
+        "revision": null
+      }
+    },
+    {
+      "name": "unknown context environment",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "staging",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "context",
+        "revision": null
+      }
+    },
+    {
+      "name": "context build that is a URL",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "https://x"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "context",
+        "revision": null
+      }
+    },
+    {
+      "name": "negative highest seen revision",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": -1,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "context",
+        "revision": null
+      }
+    },
+    {
+      "name": "context check comes before the compiled flag",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": false,
+        "environment": "sandbox",
+        "surface": "safari",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "context",
+        "revision": null
+      }
+    },
+    {
+      "name": "truth table: master true, surface true, build listed true",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": true,
+        "reason": "on",
+        "revision": 7
+      }
+    },
+    {
+      "name": "truth table: master true, surface true, build listed false",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "build",
+        "revision": 7
+      }
+    },
+    {
+      "name": "truth table: master true, surface false, build listed true",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":false,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "off",
+        "revision": 7
+      }
+    },
+    {
+      "name": "truth table: master true, surface false, build listed false",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":false,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "build",
+        "revision": 7
+      }
+    },
+    {
+      "name": "truth table: master false, surface true, build listed true",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":false,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "off",
+        "revision": 7
+      }
+    },
+    {
+      "name": "truth table: master false, surface true, build listed false",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":false,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "build",
+        "revision": 7
+      }
+    },
+    {
+      "name": "truth table: master false, surface false, build listed true",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":false,\"surfaces\":{\"chrome_desktop\":false,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "off",
+        "revision": 7
+      }
+    },
+    {
+      "name": "truth table: master false, surface false, build listed false",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":false,\"surfaces\":{\"chrome_desktop\":false,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "build",
+        "revision": 7
+      }
+    },
+    {
+      "name": "rating ignores the paid flag",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": false,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": true,
+        "reason": "on",
+        "revision": 7
+      }
+    },
+    {
+      "name": "master off retains surface choices but is off",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "apple_mobile_host",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":false,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "off",
+        "revision": 7
+      }
+    },
+    {
+      "name": "Apple mobile host on",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "apple_mobile_host",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": true,
+        "reason": "on",
+        "revision": 7
+      }
+    },
+    {
+      "name": "Apple macOS host on",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "apple_macos_host",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": true,
+        "reason": "on",
+        "revision": 7
+      }
+    },
+    {
+      "name": "Firefox for Android on",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "firefox_android",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": true,
+        "reason": "on",
+        "revision": 7
+      }
+    },
+    {
+      "name": "another surface's allowance does not apply",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "apple_macos_host",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":false},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "off",
+        "revision": 7
+      }
+    },
+    {
+      "name": "edge is a deferred surface even when listed and on",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "edge_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "deferred_surface",
+        "revision": null
+      }
+    },
+    {
+      "name": "edge stays deferred with no response",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "edge_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": null,
+      "expect": {
+        "allowed": false,
+        "reason": "deferred_surface",
+        "revision": null
+      }
+    },
+    {
+      "name": "unknown surface key",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true,\"safari\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "missing surface key",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "string surface allowance",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":\"true\",\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "remote threshold is not part of the grammar",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}],\"minimumDays\":1}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "remote review URL is not part of the grammar",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}],\"reviewUrl\":\"https://chromewebstore.google.com/x\"}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "a sales body is not a rating body",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "wrong environment",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "production",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "environment",
+        "revision": null
+      }
+    },
+    {
+      "name": "revision 0 is rejected",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":0,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "missing body",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": null,
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "missing",
+        "revision": null
+      }
+    },
+    {
+      "name": "late",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 6000,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "late",
+        "revision": null
+      }
+    },
+    {
+      "name": "replayed stored response",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 86401000,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "late",
+        "revision": null
+      }
+    },
+    {
+      "name": "oversized",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000,
+        "padTo": 8193
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "oversized",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: UTF-8 byte-order mark",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "efbbbf7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a372c226d6173746572223a747275652c227375726661636573223a7b226368726f6d655f6465736b746f70223a747275652c22656467655f6465736b746f70223a747275652c2266697265666f785f6465736b746f70223a747275652c2266697265666f785f616e64726f6964223a747275652c226170706c655f6d6f62696c655f686f7374223a747275652c226170706c655f6d61636f735f686f7374223a747275657d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e30227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7d",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: Latin-1 byte",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a372c226d6173746572223a74727565a02c227375726661636573223a7b226368726f6d655f6465736b746f70223a747275652c22656467655f6465736b746f70223a747275652c2266697265666f785f6465736b746f70223a747275652c2266697265666f785f616e64726f6964223a747275652c226170706c655f6d6f62696c655f686f7374223a747275652c226170706c655f6d61636f735f686f7374223a747275657d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e30227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7d",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "stale",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 8,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "stale",
+        "revision": 7
+      }
+    },
+    {
+      "name": "build not on the allowlist",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.1"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "build",
+        "revision": 7
+      }
+    },
+    {
+      "name": "unknown context surface",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "nativeAndroid",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "context",
+        "revision": null
+      }
+    }
+  ]
+}
