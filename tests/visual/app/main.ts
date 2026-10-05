@@ -78,8 +78,12 @@ async function run(id: string) {
   if (!c) throw new Error(`unknown case ${id}`);
   await chromeStyles(c.page);
   const { component, props } = await c.render();
+  // The inventory box is where each reference frame sat on its review page; reproducing it keeps
+  // the same subpixel phase and scroll-into-view geometry, which measurably affect rasterisation.
+  // One frame was captured partly above the viewport (y -50); it keeps only its subpixel phase.
   const x = Number(params.get("x") ?? 0);
-  const y = Number(params.get("y") ?? 0);
+  const rawY = Number(params.get("y") ?? 0);
+  const y = rawY >= 0 ? rawY : 40 + (rawY - Math.floor(rawY));
   document.body.style.minHeight = `${y + 3000}px`;
   document.body.style.minWidth = `${x + 3000}px`;
   mount(Frame, {

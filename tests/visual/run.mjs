@@ -241,9 +241,13 @@ for (const c of cases) {
       row.status = outcome.passed ? "PASS" : "FAIL";
       row.reason = outcome.passed
         ? ""
-        : row.deviations.length
-          ? row.deviations.join("; ")
-          : "pixel difference above 0.5%";
+        : [
+            ...row.deviations,
+            row.notes ??
+              (row.deviations.length ? "" : "pixel difference above 0.5%"),
+          ]
+            .filter(Boolean)
+            .join("; ");
     }
   } catch (error) {
     row.status = "FAIL";
