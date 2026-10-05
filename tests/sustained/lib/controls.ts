@@ -1,7 +1,7 @@
-// Negative controls. Each one is a disposable copy of the built extension with one deliberate fault
-// appended to its content script, so the harness can be shown to catch it. The shipping artifact
-// and the engine source are never touched; the copy is deleted after the run and the artifact's
-// hash is checked before and after.
+// The extension the harness loads: always a disposable copy of the built folder. A negative control
+// is the same copy with one deliberate fault appended to its content script, so the harness can be
+// shown to catch it. The shipping artifact and the engine source are never touched; the copy is
+// deleted after the run and the artifact's hash is checked before and after.
 import { createHash } from "node:crypto";
 import { appendFile, cp, mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -52,15 +52,19 @@ export async function artifactHash(path: string): Promise<string> {
   return hash.digest("hex");
 }
 
-/** A disposable copy of `built` carrying one fault. Call `remove()` when done. */
-export async function faultyCopy(built: string, control: ControlName): Promise<{ path: string; remove(): Promise<void> }> {
-  const dir = await mkdtemp(join(tmpdir(), `still-sustained-${control}-`));
+/** A disposable copy of `built`, optionally carrying one fault. Chromium writes into an unpacked
+ * extension it loads (for example _metadata/generated_indexed_rulesets), so the harness ALWAYS
+ * loads a copy and never the build folder itself. Call `remove()` when done. */
+export async function disposableCopy(built: string, control: ControlName | null): Promise<{ path: string; remove(): Promise<void> }> {
+  const dir = await mkdtemp(join(tmpdir(), `still-sustained-${control ?? "clean"}-`));
   const path = join(dir, "extension");
   await cp(built, path, { recursive: true });
-  const manifest = JSON.parse(await readFile(join(path, "manifest.json"), "utf8")) as {
-    content_scripts: { js: string[] }[];
-  };
-  await appendFile(join(path, manifest.content_scripts[0]!.js[0]!), FAULTS[control]);
+  if (control) {
+    const manifest = JSON.parse(await readFile(join(path, "manifest.json"), "utf8")) as {
+      content_scripts: { js: string[] }[];
+    };
+    await appendFile(join(path, manifest.content_scripts[0]!.js[0]!), FAULTS[control]);
+  }
   return { path, remove: () => rm(dir, { recursive: true, force: true }) };
 }
 

@@ -1,7 +1,8 @@
-// U19 sustained-session performance harness. Loads the BUILT Chromium extension (the unconfigured
-// build, whose fresh install commits schema-2 settings and runs the format-2 engine on YouTube,
-// Instagram and Facebook) and keeps five ordinary fixture pages open for a long session:
-// scrolling, feed growth, same-document navigation, settings turned off and on mid-session.
+// U19 sustained-session performance harness. Loads a disposable copy of the BUILT Chromium
+// extension (the unconfigured build, whose fresh install commits schema-2 settings and runs the
+// format-2 engine on YouTube, Instagram and Facebook) and keeps five ordinary fixture pages open for
+// a long session: scrolling, feed growth, same-document navigation, settings turned off and on
+// mid-session. The build folder is hashed before and after and must never change.
 // No real site is contacted and nobody signs in.
 //
 // Run through tests/sustained/run.mjs (see its header for flags). Results go to a JSON report;
@@ -12,7 +13,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { cpus, loadavg } from "node:os";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { artifactHash, controlFromEnv, faultyCopy } from "./lib/controls.js";
+import { artifactHash, controlFromEnv, disposableCopy } from "./lib/controls.js";
 import { installMainWorldHarness, type DomWrites, type MainWorldHarness } from "./lib/main-world.js";
 import { fixtureFor, SESSION_PAGES, type SessionPage } from "./lib/pages.js";
 import { PageProbe, type Checkpoint } from "./lib/probe.js";
@@ -66,8 +67,9 @@ test.skip(syncConfigured, "The sustained harness measures the format-2 lane; con
 test("sustained five-page session", async () => {
   test.setTimeout((MINUTES * 60 + 600) * 1000);
   const shippingHash = await artifactHash(BUILT);
-  const copy = CONTROL ? await faultyCopy(BUILT, CONTROL) : null;
-  const extensionPath = copy?.path ?? BUILT;
+  // Never load the build folder in place: Chromium writes into an unpacked extension it loads.
+  const copy = await disposableCopy(BUILT, CONTROL);
+  const extensionPath = copy.path;
   const context = await chromium.launchPersistentContext("", {
     channel: "chromium",
     viewport: { width: 1280, height: 900 },
@@ -279,7 +281,7 @@ test("sustained five-page session", async () => {
         browser: `chromium ${context.browser()?.version() ?? (await options.evaluate(() => navigator.userAgent))}`,
         platform: `${process.platform} ${process.arch}`,
         node: process.version,
-        extension: CONTROL ? `disposable copy of the built artifact with control "${CONTROL}"` : "built artifact (unchanged)",
+        extension: CONTROL ? `disposable copy of the built artifact with control "${CONTROL}"` : "disposable copy of the built artifact (unchanged)",
         artifactSha256: shippingHash,
         cpuSlowdown: `${CP013.cpuSlowdown}x`,
         cpus: String(cpus().length),
@@ -314,7 +316,7 @@ test("sustained five-page session", async () => {
     expect(failed.map((v) => `${v.check} ${v.page}: ${v.measured}`), "gated checks").toEqual([]);
   } finally {
     await context.close();
-    await copy?.remove();
+    await copy.remove();
     expect(await artifactHash(BUILT), "the built artifact is never modified").toBe(shippingHash);
   }
 });
