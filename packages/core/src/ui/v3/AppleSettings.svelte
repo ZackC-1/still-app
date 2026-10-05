@@ -117,13 +117,18 @@
         (!features || features.includes(row.id)),
     ).map((row) => row.id),
   );
-  let accessHeld = $derived(
+  let accessChecking = $derived(
     FEATURE_REGISTRY.some(
-      (row) =>
-        row.tier === "pro" &&
-        ["checking", "verification_required"].includes(access.states[row.id]),
+      (row) => row.tier === "pro" && access.states[row.id] === "checking",
     ),
   );
+  let accessVerify = $derived(
+    FEATURE_REGISTRY.some(
+      (row) =>
+        row.tier === "pro" && access.states[row.id] === "verification_required",
+    ),
+  );
+  let accessHeld = $derived(accessChecking || accessVerify);
   let knownMissing = $derived(
     FEATURE_REGISTRY.some(
       (row) => row.tier === "pro" && access.states[row.id] === "locked",
@@ -274,9 +279,13 @@
   {/if}
   {#if link}<AccountLinkCard {...link} />{/if}
   {#if pro && pro.ownership !== "owned" && (pro.ownership !== "verify" || (!restore && pro.onRestore))}
+    <!-- Checking and verify stay separate so the card shows the matching presentation;
+      accessHeld covers only rights not known missing for any other reason. -->
     <NativeProOfferCard
       {...pro}
-      accessHeld={accessHeld || (pro.ownership === "none" && !knownMissing)}
+      {accessChecking}
+      {accessVerify}
+      accessHeld={pro.ownership === "none" && !knownMissing && !accessHeld}
       {restoreHeld}
     />
   {/if}

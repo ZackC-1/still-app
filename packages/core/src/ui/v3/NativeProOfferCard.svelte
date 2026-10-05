@@ -1,6 +1,5 @@
 <script lang="ts">
   import type { NativeProOfferCardProps } from "./apple-settings-presentation.js";
-  import type { ProOfferCardProps } from "./extension-settings-presentation.js";
   import Glyph from "./Glyph.svelte";
   let {
     ownership,
@@ -14,10 +13,7 @@
     onBuy,
     onRestore,
     onRetry,
-  }: NativeProOfferCardProps &
-    // Optional held-access observations, as on the browser card. Without them a held access
-    // still shows as checking.
-    Pick<ProOfferCardProps, "accessChecking" | "accessVerify"> = $props();
+  }: NativeProOfferCardProps = $props();
   let held = $derived(accessHeld || accessChecking || accessVerify);
   let ready = $derived(
     ownership === "none" &&
