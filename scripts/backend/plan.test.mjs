@@ -202,7 +202,7 @@ test("handler workflows run the retained limiter assertion with exact source-rea
     const permission = args.find((arg) => arg.startsWith("--allow-read="));
     assert.equal(
       permission,
-      "--allow-read=../migrations/0013_counter_retention.sql,../../scripts/backend/sql/settings-sync-candidate.sql",
+      "--allow-read=../migrations/0013_counter_retention.sql,../migrations/0015_settings_sync_per_field.sql",
     );
     const options = {
       cwd: join(root, "supabase/functions"),
@@ -224,10 +224,10 @@ test("handler workflows run the retained limiter assertion with exact source-rea
   }
 });
 
-test("candidate SQL structural constants and fields equal the maintained grammar", async () => {
+test("migration 0015 structural constants and fields equal the maintained grammar", async () => {
   const root = fileURLToPath(new URL("../../", import.meta.url));
   const sql = await readFile(
-    join(root, "scripts/backend/sql/settings-sync-candidate.sql"),
+    join(root, "supabase/migrations/0015_settings_sync_per_field.sql"),
     "utf8",
   );
   const source = await readFile(
@@ -269,7 +269,7 @@ test("candidate SQL structural constants and fields equal the maintained grammar
     ),
   );
   const actual =
-    /create function private.settings_fields\(\)[\s\S]*?select array\[([^\]]+)\]/
+    /create or replace function private\.settings_fields\(\)[\s\S]*?select array\[([^\]]+)\]/
       .exec(sql)[1]
       .split(",")
       .map((s) => s.trim().slice(1, -1));

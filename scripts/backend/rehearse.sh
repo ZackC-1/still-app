@@ -37,7 +37,7 @@ SQL
 bootstrap_fixture
 export STILL_SECURITY_TEST_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
 # One environment permission for every database test: driver PG* defaults plus each test's inputs.
-db_test_env=--allow-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,STILL_SECURITY_TEST_DATABASE_URL,STILL_GRANTS_TEST_DATABASE_URL,STILL_GRANTS_TEST_MODE,STILL_GRANTS_GATEWAY_PASSWORD,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME
+db_test_env=--allow-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,STILL_SECURITY_TEST_DATABASE_URL,STILL_GRANTS_TEST_DATABASE_URL,STILL_GRANTS_TEST_MODE,STILL_GRANTS_GATEWAY_PASSWORD,STILL_U3_MIGRATION_TEST_DATABASE_URL,STILL_U3_MIGRATION_TEST_MODE,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME
 deno test --config supabase/functions/deno.json "$db_test_env" --allow-read=scripts/backend/sql --allow-net=127.0.0.1:54322 supabase/tests/security_foundation_test.ts
 supabase db reset --local --no-seed >/dev/null
 # The reset removed the first test's candidates. Reinstall them atomically so pgTAP proves
@@ -71,5 +71,19 @@ supabase db reset --local --no-seed >/dev/null
 grants_test clean
 # The existing pgTAP suite against migrations alone (no candidate). On 0013 it fails the
 # set_entitlement, entitlement-write and anon free-sync checks; 0014 must make it pass.
+supabase test db supabase/tests/rls_test.sql
+# Migration 0015 on its own: upgrade from 0014 with realistic released-app rows (the CLI applies
+# 0015 as the ordinary postgres role), then a clean head. Client probes use `authenticator`.
+u3_migration_test() {
+  STILL_U3_MIGRATION_TEST_DATABASE_URL="$STILL_SECURITY_TEST_DATABASE_URL" STILL_U3_MIGRATION_TEST_MODE="$1" \
+    deno test --config supabase/functions/deno.json "$db_test_env" --allow-read=supabase/migrations,supabase/tests --allow-net=127.0.0.1:54322 supabase/tests/settings_sync_migration_test.ts
+}
+supabase db reset --local --no-seed --version 0014 >/dev/null
+psql "$STILL_SECURITY_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --file=supabase/tests/settings_sync_migration_seed.sql
+supabase migration up --local >/dev/null
+u3_migration_test upgrade
+supabase db reset --local --no-seed >/dev/null
+u3_migration_test clean
+# The pgTAP suite again at the 0015 head, after the per-field path has been exercised.
 supabase test db supabase/tests/rls_test.sql
 node scripts/backend/plan.mjs verify "$1" synthetic-github-runner "$RUNNER_TEMP/u1-plan.json" "$2"

@@ -27,7 +27,21 @@ trap 'exit 130' INT TERM
 # never injected into the function env file and does not change checked-in config.
 export SUPABASE_AUTH_JWT_ISSUER='http://kong:8000/auth/v1'
 supabase start --exclude studio,imgproxy,mailpit,logflare,vector >/dev/null
+export STILL_SETTINGS_TEST_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+# Migration 0015 exactly as the CLI applies it, as the ordinary non-superuser postgres role:
+# first on a clean head, then as an upgrade from 0014 holding realistic released-app rows.
+migration_test() {
+  STILL_U3_MIGRATION_TEST_DATABASE_URL="$STILL_SETTINGS_TEST_DATABASE_URL" STILL_U3_MIGRATION_TEST_MODE="$1" \
+    deno test --frozen --config supabase/functions/deno.json --allow-env --allow-read=supabase/migrations,supabase/tests --allow-net=127.0.0.1:54322 supabase/tests/settings_sync_migration_test.ts
+}
 supabase db reset --local --no-seed >/dev/null
+migration_test clean
+supabase db reset --local --no-seed --version 0014 >/dev/null
+psql "$STILL_SETTINGS_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --file=supabase/tests/settings_sync_migration_seed.sql
+supabase migration up --local >/dev/null
+migration_test upgrade
+# The lifecycle and served probes run on that upgraded database. The synthetic superuser only
+# prefills rows, holds blocking locks and probes owner drift; it never applies the migration.
 docker exec -i supabase_db_still-app psql -U supabase_admin -d postgres -X --set=ON_ERROR_STOP=1 <<'SQL'
 do $$ begin
   if not exists(select 1 from pg_catalog.pg_roles where rolname='u1_catalog_fixture') then
@@ -35,12 +49,7 @@ do $$ begin
   end if;
 end $$;
 SQL
-export STILL_SETTINGS_TEST_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
-psql "$STILL_SETTINGS_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --file=scripts/backend/sql/catalog-reconciliation.sql
-PGPASSWORD='u1-synthetic-fixture-only' psql -h 127.0.0.1 -p 54322 -U u1_catalog_fixture -d postgres -X --set=ON_ERROR_STOP=1 --file=scripts/backend/sql/synthetic-catalog-fixture.sql
-psql "$STILL_SETTINGS_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --file=scripts/backend/sql/security-audit-candidate.sql
-# The test proves ordinary postgres denial/rollback before explicit synthetic-admin hardening+candidate.
-deno test --frozen --config supabase/functions/deno.json --allow-env --allow-read=scripts/backend/sql --allow-net=127.0.0.1:54322 --filter 'U3 SQL lifecycle' supabase/tests/settings_sync_test.ts
+deno test --frozen --config supabase/functions/deno.json --allow-env --allow-read=supabase/migrations --allow-net=127.0.0.1:54322 --filter 'U3 SQL lifecycle' supabase/tests/settings_sync_test.ts
 umask 077
 export STILL_SETTINGS_REHEARSAL_INSTANCE
 STILL_SETTINGS_REHEARSAL_INSTANCE=$(node -e 'console.log(require("node:crypto").randomUUID())')

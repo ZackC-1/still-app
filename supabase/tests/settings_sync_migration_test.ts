@@ -553,7 +553,7 @@ Deno.test({
                   0
                 ].source as string;
               const mutant = definition.replace(
-                /if exists \(select 1 from private\.settings_anchors a[\s\S]*?raise exception 'settings client upgrade required' using errcode = '40001';\n  end if;/,
+                /if exists \(select 1 from private\.settings_anchors a[\s\S]*?raise exception 'settings client upgrade required' using errcode = '40001';\n {2}end if;/,
                 "",
               );
               assert(mutant !== definition, "guard located");
