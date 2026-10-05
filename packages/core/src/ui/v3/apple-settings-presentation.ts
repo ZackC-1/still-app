@@ -1,3 +1,4 @@
+import type { Snippet } from "svelte";
 import type { DesktopPopupProps } from "./presentation.js";
 import type {
   SyncCardProps,
@@ -55,7 +56,8 @@ export interface AppleSettingsProps extends Pick<
   sync: Omit<SyncCardProps, "account"> & {
     account?: AppleSettingsAccount;
   };
-  pro: Omit<NativeProOfferCardProps, "accessHeld" | "restoreHeld">;
+  /** Absent while no trusted paid producer is supplied; never fabricate an offer. */
+  pro?: Omit<NativeProOfferCardProps, "accessHeld" | "restoreHeld">;
   restore?: RestoreStatusCardProps;
   link?: AccountLinkCardProps;
   /** Eligibility is supplied only for a later ordinary visit, never inferred from buying. */
@@ -64,7 +66,9 @@ export interface AppleSettingsProps extends Pick<
     onLink?: () => void;
     onDismiss?: () => void;
   };
-  sharing: SharingCardProps;
+  sharing?: SharingCardProps;
+  /** Existing real privacy actions when no genuine combined-consent producer is supplied. */
+  privacyActions?: Snippet;
   /** TODO: exact iOS/macOS setup wording/action must come from the approved host. */
   setup?: {
     title: string;
