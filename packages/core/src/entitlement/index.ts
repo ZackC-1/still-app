@@ -16,3 +16,4 @@ export {
   entitlementStampExpired,
 } from "./chrome-adapter.js";
 export * from "./local-protection.js";
+export { WKBenefitAccessAdapter, type NativeBenefitSource } from "./wk-benefit-adapter.js";

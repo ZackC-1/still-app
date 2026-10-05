@@ -56,6 +56,14 @@ export interface AppAnalytics {
   /** There is known to be no account (a launch with no session, or the session ended). Any earlier
    * account is let go, and its waiting events with it. */
   accountAbsent(): Promise<void>;
+  /** Follow an explicit choice made through `createAppleConsentCommitter`, which writes native
+   * itself, so this writes nothing. `false` is called at the Don't share tap, before native
+   * confirms anything: like `setSharing(false)` it fences work in flight, stops reporting, drops
+   * the queue and ends the permission in force (so a later Share needs a fresh one), and sends
+   * nothing, whether or not the launch's native context read has finished. `true` is called only after native confirmed Share: it resumes
+   * reporting without fencing (a launch already observed under the on-by-default value keeps its
+   * events) and, like `setSharing(true)`, records `analytics_choice_made {choice:"share"}` once. */
+  adoptCommittedConsent(enabled: boolean): void;
 }
 
 interface Ready {
@@ -72,6 +80,12 @@ interface Observed extends Ready {
 
 export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
   let consent = false;
+  /** A Don't share tapped this session (adoptCommittedConsent(false)) holds web reporting off even
+   * if native could not record it and still reads on; a later explicit Share clears it. */
+  let declinedHere = false;
+  /** A Don't share tapped before the launch's client existed, ending the permission in force (see
+   * `stopBeforeReady`). The launch's client is built only once it has finished. */
+  let stopping: Promise<void> | null = null;
   let noticeSeen = true;
   let readyPromise: Promise<Ready | null> | null = null;
   let currentReady: Ready | null = null;
@@ -99,7 +113,12 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         )
       )
         return null;
-      consent = context.consent;
+      while (stopping) {
+        const stop = stopping;
+        await stop; // the two clients never write the same storage at once
+        if (stopping === stop) stopping = null;
+      }
+      consent = context.consent && !declinedHere;
       noticeSeen = context.noticeSeen;
       const client = new AnalyticsClient({
         config: deps.config,
@@ -142,6 +161,40 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       if (!r) readyPromise = null;
       return r;
     }));
+
+  // A Don't share before the launch's client exists (a first launch's native context read can wait
+  // 5 s for iCloud) ends the permission in force at once, durably, through the client's own storage
+  // path, exactly as a ready client's Don't share does: the queue is dropped and the permission's
+  // origin recorded as stopped, so a later Share needs a fresh permission in both timings. The
+  // client made here only touches that storage; it never records, attributes or sends anything.
+  const stopBeforeReady = async (): Promise<void> => {
+    const permission = readAnalyticsPermission(
+      await deps.permission?.().catch(() => null),
+    );
+    if (
+      !privacyPolicyReady(deps.privacyPolicy) ||
+      permission?.state !== "granted" ||
+      permission.version !== deps.privacyPolicy?.permissionVersion
+    )
+      return; // no client reports under it, so there is nothing to end
+    const client = new AnalyticsClient({
+      config: deps.config,
+      surface: "app-ios", // not stored with the stop; any valid surface
+      appVersion: "0.0.0",
+      store: deps.store,
+      identity: () => Promise.reject(new Error("This client never reports")),
+      // Lets it take up the permission in force, so that is the origin it records as stopped.
+      consent: async () => true,
+      permission: deps.permission,
+      privacyPolicy: deps.privacyPolicy,
+      fetch: () => Promise.reject(new Error("This client never sends")),
+      now: deps.now ?? Date.now,
+      uuid: deps.uuid ?? (() => crypto.randomUUID()),
+      startsUnconfirmed: true,
+    });
+    await client.canReport();
+    await client.clearQueue();
+  };
 
   // Eligibility belongs to the observed action, before native/startup promises settle.
   const observed = async (): Promise<Observed | null> => {
@@ -217,6 +270,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       return r ? { enabled: await r.client.canReport(), noticeNeeded: !noticeSeen } : null;
     },
     async setSharing(enabled) {
+      if (enabled) declinedHere = false;
       epoch += 1;
       const asked = epoch;
       const previous = currentReady;
@@ -326,6 +380,31 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       const r = await ready();
       if (!r) return;
       await r.client.confirm(null, { forget: true }); // known: nobody is signed in
+    },
+    adoptCommittedConsent(enabled) {
+      if (!enabled) {
+        declinedHere = true;
+        epoch += 1; // observations and switch changes still in flight belong to the old choice
+        consent = false;
+        if (currentReady) {
+          currentReady.client.permissionChanged();
+          void currentReady.client.clearQueue().catch(() => {});
+        } else
+          stopping = (stopping ?? Promise.resolve())
+            .then(stopBeforeReady)
+            .catch(() => {});
+        return;
+      }
+      declinedHere = false;
+      consent = true;
+      withReady(async (r) => {
+        if (!(await r.client.canReport())) return;
+        await r.client.track(
+          "analytics_choice_made",
+          { choice: "share" },
+          { observation: r.observation },
+        );
+      });
     },
   };
 }
