@@ -437,3 +437,20 @@ $$;
 -- affected function without its guard block and keeps `set search_path = ''`, the writer-only
 -- grants and the revokes above. The REVOKEs remain the primary control; the guard is a second
 -- layer. Payments stay disabled until the fix-forward is verified.
+--
+-- ── RULES FOR LATER MIGRATIONS ─────────────────────────────────────────────────────────────────
+-- Data repairs never go through the guarded RPCs. Hosted `supabase db push` logs in as
+-- cli_login_postgres, a member of postgres WITHOUT inheritance, and only switches role. Its
+-- session_user is therefore neither the writer nor a role holding the owner's privileges, so the
+-- guard refuses it. A migration that must correct entitlements or purchase events writes
+-- public.entitlements / public.revenuecat_events directly (the migration role owns them); it never
+-- calls set_entitlement, record_revenuecat_event or the claim/complete/release functions.
+--
+-- Nothing created by postgres is client-reachable by default any more. Every 0015+ migration must
+-- grant explicitly:
+--   * EXECUTE on each new client RPC to exactly the roles that call it;
+--   * EXECUTE on helper functions that client-evaluated policies, defaults or checks call;
+--   * SELECT on any table or column clients read (RLS still decides which rows);
+--   * revoke every server-only function from public, anon, authenticated and service_role and
+--     grant it only to its narrow server role;
+--   * `set search_path = ''` on every SECURITY DEFINER function, with fully qualified bodies.
