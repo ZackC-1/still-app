@@ -29,17 +29,20 @@ schedules, counters or hard locks. Users can disable Still or revoke its website
 | Installation | Scope |
 |---|---|
 | Chrome/Chromium extension | Desktop websites; Chrome Web Store package. |
-| Firefox extension | Desktop websites; separate Firefox build from the same WXT project. |
+| Firefox extension | Desktop and Firefox for Android websites; separate Firefox build from the same WXT project. |
 | Still for Mac | Native container app and Safari Web Extension. |
 | Still for iPhone/iPad | Native container app and Safari Web Extension; websites opened in Safari only. |
 
 Install Still separately on every browser/device. The Apple app does not install the Chrome or
-Firefox extensions. There is no Android app or Google Play artifact; mobile Chrome/Firefox and
-native YouTube, Instagram, Facebook and TikTok apps are outside this release's support scope.
+Firefox extensions. Works in Safari on iPhone and iPad, and in Firefox on Android. There is no
+Android app or Google Play artifact; mobile Chrome and native YouTube, Instagram, Facebook and
+TikTok apps are outside this release's support scope.
 
 Source deployment targets are iOS/iPadOS 15.0 and macOS 12.0. The Firefox manifest sets desktop
-`strict_min_version: 140.0` and omits `gecko_android`. A deployment target or supported-platform
-claim is not proof that each OS/device combination was physically tested. Physical iPad coverage
+`strict_min_version: 140.0` and `gecko_android.strict_min_version: 142.0` (the first Firefox for
+Android release with the built-in data-consent screen). A deployment target or supported-platform
+claim is not proof that each OS/device combination was physically tested; Firefox for Android has
+no physical-device verification yet. Physical iPad coverage
 is explicitly skipped/unverified under the owner's accepted exception.
 
 ## Setup and optional account
