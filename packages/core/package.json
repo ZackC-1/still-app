@@ -8,6 +8,7 @@
     "./analytics": "./src/analytics/index.ts",
     "./rules": "./src/rules/index.ts",
     "./content": "./src/content/index.ts",
+    "./content/modern-entry": "./src/content/modern-shipping-entry.ts",
     "./entitlement": "./src/entitlement/index.ts",
     "./storage": "./src/storage/index.ts",
     "./sync": "./src/sync/index.ts",

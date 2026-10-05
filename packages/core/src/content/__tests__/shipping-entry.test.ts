@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS, type ServiceId } from "@still/shared-types";
 import {
   createShippingContentEntry,
@@ -8,9 +8,18 @@ import {
 } from "../extension-entry.js";
 import type { ContentScriptHandle } from "../index.js";
 import { createFormat2EntryHost } from "./format2-entry-host.js";
+import { createModernShippingContentEntry } from "../modern-shipping-entry.js";
 import { PACKAGED_RULE_SET_V2 } from "../../rules/packaged.js";
 
 const scripts: ContentScriptHandle[] = [];
+// The V3 entry (modern-shipping-entry.ts) mirrors createShippingContentEntry's lane selection so
+// configured builds can keep the original byte-for-byte. Every lane case runs against both.
+const FACTORIES = [
+  ["shipping entry", createShippingContentEntry],
+  ["modern entry", createModernShippingContentEntry],
+] as const;
+type Factory = (typeof FACTORIES)[number][1];
+let factory: Factory = createShippingContentEntry;
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 const ACTIVE: ReadonlySet<ServiceId> = new Set(["youtube", "instagram", "facebook", "tiktok"]);
 type Host = Awaited<ReturnType<typeof createFormat2EntryHost>>;
@@ -43,7 +52,7 @@ async function start(h: Host, overrides: Partial<ShippingContentEntryDeps> = {})
   const lanes: ShippingContentLane[] = [];
   const storage = local();
   const reads: string[] = [];
-  await createShippingContentEntry({
+  await factory({
     storage: { get: (key) => (reads.push(key), storage.get(key)) },
     prod: false,
     earlyRedirect: true,
@@ -64,7 +73,11 @@ function legacySettings(h: Host, settings: object = { ...DEFAULT_SETTINGS, updat
   h.values["still:settings"] = { settings, syncMetadata: null };
 }
 
-describe("shipping content entry lane selection", () => {
+describe.each(FACTORIES)("%s lane selection", (_name, entry) => {
+  beforeEach(() => {
+    factory = entry;
+  });
+
   it("ships format-2 for YouTube, Instagram and Facebook; TikTok stays on its legacy block with no extra read", async () => {
     expect([...FORMAT2_SHIPPING_SERVICES].sort()).toEqual(["facebook", "instagram", "youtube"]);
     const h = await host("tiktok.html", "https://www.tiktok.com/foryou");
@@ -233,7 +246,7 @@ describe("shipping content entry lane selection", () => {
     const created = vi.fn();
     let invalid = false;
     const storage = local();
-    const run = createShippingContentEntry({
+    const run = factory({
       storage: { get: async (key) => { const value = await storage.get(key); invalid = true; return value; } },
       prod: false,
       earlyRedirect: true,
