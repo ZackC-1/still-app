@@ -120,6 +120,8 @@ export interface EnginePageSession {
   /** Internal modern media adapter; matches only the currently owned, effectively hidden plan. */
   ownsHiddenMedia?(media: Element): boolean;
   activeMediaKey?(): string;
+  /** Format-2 only: the features the last prepared inputs effectively hide (empty unless applying). */
+  effectiveFeatures?(): readonly BenefitId[];
 }
 
 /**
@@ -585,6 +587,7 @@ function createFormat2PageSession(input: unknown): EnginePageSession {
     applyDom(settings, url, doc, opts = {}) { return apply(settings, url, doc, opts); },
     applyRemovals(settings, url, doc, opts = {}) { return apply(settings, url, doc, opts); },
     activeServiceId: () => stopped ? null : serviceId,
+    effectiveFeatures: () => stopped || decision.kind !== "apply" ? [] : effective,
     activeMediaKey: () => !stopped && decision.kind === "apply" && ownedStyle?.isConnected && ownedStyle.sheet && !ownedStyle.sheet.disabled && serviceId
       ? `${serviceId}:${effective.filter(benefit => (plans.get(serviceId!)?.get(benefit)?.length ?? 0) > 0).join("|")}` : "",
     ownsHiddenMedia(media) {

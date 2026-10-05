@@ -30,6 +30,9 @@ import { createReapplyObserver, type Scheduler } from "./observer.js";
 // document_start, and never sees static chrome hidden-then-revealed. An on-user shares the same
 // brief pre-hydration window (symmetric and honest).
 
+/** The marker the content script sets on a plain-text Shorts search chip; rule data hides it. */
+const SHORTS_CHIP_MARKER = "yt-chip-cloud-chip-renderer[data-still-shorts-chip]";
+
 export interface ContentScriptDeps {
   readonly win: StillWindow;
   readonly doc: Document;
@@ -90,12 +93,16 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   const fallbackAccess = initialAccessSnapshot();
   const teardowns: Array<() => void> = [];
   const shortsChipRule = ruleSet.services.youtube?.surfaces.find((s) => s.id === "yt-chips");
+  // The helper runs only when the rule set in force hides its marker, preserving rule overrides.
+  const legacyShortsChips = !!shortsChipRule?.enabledByDefault && shortsChipRule.action === "hide"
+    && !!shortsChipRule.selectors?.includes(SHORTS_CHIP_MARKER);
+  const modernShortsChips = deps.ruleSetV2?.services.youtube?.surfaces.some((surface) =>
+    surface.feature === "youtube.shorts" && surface.action === "hide"
+    && surface.selectors.includes(SHORTS_CHIP_MARKER)) === true;
   let resetShortsFilterRequested = false;
   let shortsFilterSearch: string | null = null;
 
   const prepareYouTubeChips = (url: URL): void => {
-    if (!shortsChipRule?.enabledByDefault || shortsChipRule.action !== "hide"
-      || !shortsChipRule.selectors?.includes("yt-chip-cloud-chip-renderer[data-still-shorts-chip]")) return;
     const search = `${url.pathname}\n${url.searchParams.get("search_query") ?? ""}`;
     if (shortsFilterSearch !== search) resetShortsFilterRequested = false;
     shortsFilterSearch = search;
@@ -213,6 +220,10 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       // The existing cache is the committed authority. No account/storage read or legacy
       // service-wide CSS grant occurs on this path; CSS handles recycled nodes itself.
       pageSession.applyDom(cache.current(), url, doc, modernOptions());
+      // Same Shorts-filter recovery as the legacy lane, under the committed youtube.shorts gate.
+      if (modernShortsChips && pageSession.activeServiceId() === "youtube"
+        && pageSession.effectiveFeatures?.().includes("youtube.shorts")) prepareYouTubeChips(url);
+      else resetShortsFilterRequested = false;
       mediaQuieting?.reconcile();
       consumeModernNavigation(url);
       return;
@@ -245,7 +256,7 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
         setRootService(pageSession.activeServiceId());
         setRootActive(true);
         setRootProActive(pro);
-        if (pageSession.activeServiceId() === "youtube") prepareYouTubeChips(url);
+        if (legacyShortsChips && pageSession.activeServiceId() === "youtube") prepareYouTubeChips(url);
         (deps.manifestCssOwnsHides ? pageSession.applyRemovals : pageSession.applyDom)(settings, url, doc, opts);
         return;
       case "noop":
@@ -272,6 +283,16 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       } else {
         doc.addEventListener("DOMContentLoaded", reapply, { once: true });
         teardowns.push(() => doc.removeEventListener("DOMContentLoaded", reapply));
+        if (modernShortsChips) {
+          // YouTube's own "page rendered" event: its search chips render after the URL commits,
+          // and this lane has no document observer. An event listener, not a DOM scan per frame.
+          doc.addEventListener("yt-navigate-finish", reapply);
+          teardowns.push(() => {
+            doc.removeEventListener("yt-navigate-finish", reapply);
+            for (const chip of doc.querySelectorAll("[data-still-shorts-chip]"))
+              chip.removeAttribute("data-still-shorts-chip");
+          });
+        }
       }
       teardowns.push(cache.subscribe(() => reapply()));
       if (deps.entitlement) teardowns.push(modern
