@@ -2,7 +2,9 @@ import type { ServiceRulesV2 } from "@still/shared-types";
 
 /** Captured Shorts discovery targets for explicit internal format2 opt-in.
  * Renderer children stay attached; the existing compiler owns reversible feature CSS.
- * Plain-text Shorts search-chip recovery and the five optional controls are separate work.
+ * The content script marks a plain-text Shorts search chip with `data-still-shorts-chip`
+ * (and leaves a Shorts-only search once); the marker selector below hides it under the same
+ * feature gate. The five optional controls are separate work.
  */
 const selectors = Object.freeze([
   'ytd-guide-entry-renderer:has(a[title="Shorts"])',
@@ -25,6 +27,7 @@ const selectors = Object.freeze([
   'yt-tab-shape[tab-title="Shorts"]',
   'tp-yt-paper-tab:has([href$="/shorts"])',
   'yt-chip-cloud-chip-renderer:has([title="Shorts"])',
+  "yt-chip-cloud-chip-renderer[data-still-shorts-chip]",
   "ytm-app ytm-rich-section-renderer:has(ytm-shorts-lockup-view-model)",
   "ytm-app ytm-rich-section-renderer:has(ytm-reel-shelf-renderer)",
   "ytm-app ytm-reel-shelf-renderer",

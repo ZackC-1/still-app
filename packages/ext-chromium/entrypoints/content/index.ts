@@ -7,8 +7,8 @@ import { tiktokBlockedPageEnabled } from "../tiktok-blocked/gate.js";
 // The document_start content script. It wires core's engine to the live page, reading settings
 // from the chrome.storage-backed cache. On Chromium the hard-nav Shorts redirect is the DNR rule
 // (background.ts); this script handles SPA navigations, the observer, and rule application.
-// The shipping entry carries the packaged format-2 rule set and picks one engine per page; services
-// stay on the legacy seed engine until core activates them (FORMAT2_SHIPPING_SERVICES).
+// The shipping entry carries the packaged format-2 rule set and picks one engine per page: format-2
+// for YouTube, Instagram and Facebook once settings are schema 2, otherwise the legacy seed engine.
 //
 // TikTok: builds that show the V3 screens hand a blocked top-level TikTok document to the
 // extension's own blocked page through the background (same gate as background.ts). The message
