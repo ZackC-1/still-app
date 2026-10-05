@@ -36,10 +36,14 @@ private final class FakeAppStore: FreePeriodRestoreStore, @unchecked Sendable {
     return next
   }
 
-  func syncWithAppStore() async throws {
+  private func countSync() {
     lock.lock()
+    defer { lock.unlock() }
     _syncCount += 1
-    lock.unlock()
+  }
+
+  func syncWithAppStore() async throws {
+    countSync()
     switch sync {
     case .succeeds: return
     case .fails: throw URLError(.notConnectedToInternet)
@@ -138,6 +142,19 @@ final class FreePeriodRestoreTests: XCTestCase {
       FakeAppStore(reads: [.absent, .absent], sync: .hangs), syncDeadline: 50_000_000)
     XCTAssertEqual(result, .failed)
     XCTAssertLessThan(Date().timeIntervalSince(started), 3, "the deadline settles the reply")
+  }
+
+  /// The sync can outlive its deadline (a sign-in sheet still open). Try again must wait on that
+  /// same sync, bounded by its own deadline, instead of raising a second sign-in sheet.
+  func testTryAgainAfterASyncDeadlineWaitsOnTheSameSyncInsteadOfStartingAnother() async {
+    let store = FakeAppStore(reads: [.absent, .absent, .absent, .absent], sync: .hangs)
+    let restore = FreePeriodRestoreCheck(
+      store: store, readDeadlineNanoseconds: 2_000_000_000, syncDeadlineNanoseconds: 50_000_000)
+    let first = await restore.run()
+    XCTAssertEqual(first, .failed)
+    let second = await restore.run()
+    XCTAssertEqual(second, .failed, "the retry is bounded by its own deadline")
+    XCTAssertEqual(store.syncCount, 1, "a retry while the first sync is pending must not start another")
   }
 
   func testOnlyAnUnverifiedPurchaseAfterTheSyncIsFailedNeitherRestoredNorNone() async {

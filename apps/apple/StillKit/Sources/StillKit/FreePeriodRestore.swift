@@ -44,8 +44,10 @@ public enum FreePeriodRestoreResult: String, Sendable, Equatable {
 /// Group entitlement stamp still goes through the existing receipt lane and `StampPolicy`, and while
 /// the paid tier is off the extension's access snapshot ignores that stamp entirely.
 ///
-/// One check at a time: a second tap while one runs joins it rather than asking Apple twice, so at
-/// most one sign-in sheet can be raised by this path.
+/// One check at a time: a second tap while one runs joins it rather than asking Apple twice. The
+/// App Store sync has its own slot too, held until the sync itself settles rather than until its
+/// deadline: a Try again after a timed-out sync waits on that same sync instead of starting a
+/// second one, so at most one sign-in sheet can be raised by this path.
 @MainActor
 public final class FreePeriodRestoreCheck {
   /// Every product a past purchase can be restored from: the historical 2.x product and the
@@ -64,6 +66,8 @@ public final class FreePeriodRestoreCheck {
   private let readDeadline: UInt64
   private let syncDeadline: UInt64
   private var inFlight: Task<FreePeriodRestoreResult, Never>?
+  /// The pending `AppStore.sync()`, cleared only when it settles (never when a deadline fires).
+  private var syncInFlight: Task<Bool, Never>?
 
   public init(
     store: FreePeriodRestoreStore,
@@ -80,13 +84,7 @@ public final class FreePeriodRestoreCheck {
   /// Run the check, or join the one already running.
   public func run() async -> FreePeriodRestoreResult {
     if let inFlight { return await inFlight.value }
-    let store = self.store, productIDs = self.productIDs
-    let readDeadline = self.readDeadline, syncDeadline = self.syncDeadline
-    let task = Task<FreePeriodRestoreResult, Never> {
-      await Self.check(
-        store: store, productIDs: productIDs,
-        readDeadline: readDeadline, syncDeadline: syncDeadline)
-    }
+    let task = Task<FreePeriodRestoreResult, Never> { await self.check() }
     inFlight = task
     let result = await task.value
     // Only the caller that started this check clears it, and only if it is still the current one.
@@ -98,18 +96,30 @@ public final class FreePeriodRestoreCheck {
   /// 2. Otherwise sync with the App Store. Any failure, cancel or timeout is `failed`.
   /// 3. Read again. Only a verified purchase is `restored`, and only a verified empty list after a
   ///    successful sync is `none`; anything else is `failed`.
-  nonisolated static func check(
-    store: FreePeriodRestoreStore,
-    productIDs: Set<String>,
-    readDeadline: UInt64,
-    syncDeadline: UInt64
-  ) async -> FreePeriodRestoreResult {
-    let local = await withDeadline(readDeadline) {
+  private func check() async -> FreePeriodRestoreResult {
+    let store = self.store, productIDs = self.productIDs
+    let local = await Self.withDeadline(readDeadline) {
       await store.currentEntitlement(matching: productIDs)
     }
     if local == .verified { return .restored }
 
-    let synced = await withDeadline(syncDeadline) { () async -> Bool in
+    let sync = sharedSync()
+    let synced = await Self.withDeadline(syncDeadline) { await sync.value }
+    guard synced == true else { return .failed }
+
+    switch await Self.withDeadline(readDeadline, { await store.currentEntitlement(matching: productIDs) }) {
+    case .verified?: return .restored
+    case .absent?: return .none
+    case .unverified?, nil: return .failed
+    }
+  }
+
+  /// The pending sync, or a new one. The slot is cleared by the sync settling, so a deadline that
+  /// fires first leaves it held and the next check waits on the same sync.
+  private func sharedSync() -> Task<Bool, Never> {
+    if let syncInFlight { return syncInFlight }
+    let store = self.store
+    let sync = Task<Bool, Never> {
       do {
         try await store.syncWithAppStore()
         return true
@@ -117,13 +127,12 @@ public final class FreePeriodRestoreCheck {
         return false
       }
     }
-    guard synced == true else { return .failed }
-
-    switch await withDeadline(readDeadline, { await store.currentEntitlement(matching: productIDs) }) {
-    case .verified?: return .restored
-    case .absent?: return .none
-    case .unverified?, nil: return .failed
+    syncInFlight = sync
+    Task { [weak self] in
+      _ = await sync.value
+      if self?.syncInFlight == sync { self?.syncInFlight = nil }
     }
+    return sync
   }
 
   /// The web reply for a result. `entitled` keeps the shape every existing reader of the restore
