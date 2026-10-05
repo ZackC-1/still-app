@@ -17,10 +17,13 @@
 --      reachable from a client role;
 --  (3) schema private: only still_settings_writer and the two policy roles hold anything (USAGE);
 --  (4) the four policy tables: owned by postgres, RLS on, no table or column grant to anyone, every
---      column the routes use with its exact type and NOT NULL, the primary keys, and the owner
---      allowlist cascading from auth.users on delete;
---  (5) the write-once triggers on product_policy_revisions and paid_cutoff: present, enabled, row
---      level before update or delete and statement level before truncate;
+--      column the routes use with its exact type and NOT NULL, the primary keys, the owner
+--      allowlist cascading from auth.users on delete, unique(operation_id) plus a plain foreign key
+--      to the operation ledger on revisions and paid_cutoff, and exactly the reviewed CHECK
+--      constraints (md5 over their sorted definitions);
+--  (5) the write-once triggers on product_policy_revisions and paid_cutoff: present, ENABLE ALWAYS
+--      (session_replication_role = replica cannot skip them), unconditional, row level before update
+--      or delete and statement level before truncate;
 --  (6) the eight 0016 routines: owned by postgres, search_path pg_temp-last, SECURITY DEFINER
 --      exactly for the four routes, EXECUTE only for the owner plus each route's one narrow role,
 --      bodies byte-identical to the migration;
@@ -93,7 +96,7 @@ expected_routines(sig, definer, grantee, body_md5) as (
     ('private.read_product_policy(text,text)', true, 'still_policy_reader', 'ad421f64810e24473d75c15d3ea0c053'),
     ('private.read_product_policy_state(uuid,text,text)', true, 'still_policy_admin', '2a1de40e3d9e718c86387e9205ca70d2'),
     ('private.preview_product_policy(uuid,text,text,bigint,text,bigint)', true, 'still_policy_admin', 'd8ccd612daf98806810c07d3135d5892'),
-    ('private.apply_product_policy(uuid,uuid,text,text,text,bigint,text,text,text[])', true, 'still_policy_admin', 'ba726b725d139a12a3651fe1a4566cec')
+    ('private.apply_product_policy(uuid,uuid,text,text,text,bigint,text,text,text[])', true, 'still_policy_admin', '24cd12ae029693fd59ff3e6e5054f4ca')
 ),
 routines as (
   select e.sig, e.definer, e.grantee, e.body_md5, pg_catalog.to_regprocedure(e.sig)::oid as oid
@@ -239,7 +242,36 @@ issues(issue) as (
                     where k.conrelid = x.oid and k.contype = 'f'
                       and k.confrelid = pg_catalog.to_regclass('auth.users')::oid and k.confdeltype = 'c')
   union all
-  -- (5) write-once triggers. tgtype 27 = row, before, update or delete; 34 = statement, before, truncate.
+  select 'policy_operation_link:' || x.relname
+  from relations x
+  where x.relname in ('product_policy_revisions', 'paid_cutoff') and x.oid is not null and not (
+    exists (select 1 from pg_catalog.pg_index i
+            join pg_catalog.pg_attribute a on a.attrelid = i.indrelid and a.attnum = i.indkey[0]
+            where i.indrelid = x.oid and i.indisunique and i.indnkeyatts = 1
+              and i.indpred is null and i.indexprs is null and a.attname = 'operation_id')
+    and exists (select 1 from pg_catalog.pg_constraint k
+                join pg_catalog.pg_attribute a on a.attrelid = k.conrelid and a.attnum = k.conkey[1]
+                join pg_catalog.pg_attribute b on b.attrelid = k.confrelid and b.attnum = k.confkey[1]
+                where k.conrelid = x.oid and k.contype = 'f'
+                  and k.confrelid = pg_catalog.to_regclass('private.product_policy_operations')
+                  and pg_catalog.cardinality(k.conkey) = 1 and a.attname = 'operation_id'
+                  and b.attname = 'operation_id' and k.convalidated
+                  and k.confdeltype = 'a' and k.confupdtype = 'a'))
+  union all
+  select 'policy_checks:' || x.relname
+  from (values
+    ('product_policy_owners', 'd41d8cd98f00b204e9800998ecf8427e'),
+    ('product_policy_operations', '11f39a1a4f7debf95ce3b484a73d7d9c'),
+    ('product_policy_revisions', '5c2890384b0a699b98598c8922d213f5'),
+    ('paid_cutoff', 'ed4e7b2d75e2c75b88388249923b2398')
+  ) c(relname, digest)
+  join relations x on x.relname = c.relname and x.oid is not null
+  where pg_catalog.md5(coalesce((select pg_catalog.string_agg(pg_catalog.pg_get_constraintdef(k.oid), E'\n'
+          order by pg_catalog.pg_get_constraintdef(k.oid) collate "C")
+        from pg_catalog.pg_constraint k where k.conrelid = x.oid and k.contype = 'c'), '')) <> c.digest
+  union all
+  -- (5) write-once triggers: ALWAYS enabled (replica mode cannot skip them), no WHEN, no column
+  -- list. tgtype 27 = row, before, update or delete; 34 = statement, before, truncate.
   select 'write_once_trigger:' || t.tgname
   from (values
     ('product_policy_revisions', 'product_policy_revisions_write_once', 27),
@@ -250,7 +282,8 @@ issues(issue) as (
   where not exists (
     select 1 from pg_catalog.pg_trigger g
     where g.tgrelid = pg_catalog.to_regclass('private.' || t.relname) and g.tgname = t.tgname
-      and g.tgtype = t.tgtype and g.tgenabled = 'O' and not g.tgisinternal
+      and g.tgtype = t.tgtype and g.tgenabled = 'A' and not g.tgisinternal
+      and g.tgqual is null and g.tgattr = ''::pg_catalog.int2vector
       and g.tgfoid = pg_catalog.to_regprocedure('private.product_policy_refuse_change()'))
   union all
   -- (6) the eight routines.

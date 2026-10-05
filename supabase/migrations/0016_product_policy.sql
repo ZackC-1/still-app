@@ -12,9 +12,9 @@
 --                                        update, delete or truncate, so a revision never changes
 --                                        and never decreases. The newest row per namespace and
 --                                        environment is the current policy;
---   * private.paid_cutoff                the paid cutoff. At most one row per environment, written
---                                        only inside the first sales activation, and write-once:
---                                        triggers refuse update, delete and truncate.
+--   * private.paid_cutoff                the paid cutoff. At most one row per environment and
+--                                        write-once: triggers refuse update, delete and truncate.
+--                                        Nothing in this migration can write it (see "Paid" below).
 --
 -- Roles. `still_policy_reader` may only read the current published body (the public endpoint);
 -- `still_policy_admin` may only preview, apply and read back as an allowlisted owner (the owner
@@ -36,9 +36,20 @@
 -- owner, exact preview id, hash, body and expected revision; compare-and-set on the revision;
 -- idempotent per operation id, so a retry after a lost reply returns the committed result) ->
 -- authoritative readback. Rollback republishes the body of an earlier revision at a NEW revision.
--- A first sales activation (salesEnabled with an enabled channel for an allowlisted build) must
--- carry the frozen cutoff snapshot; without it the apply is refused and nothing is written. The
--- owner endpoint passes no snapshot today, so no paid activation is possible from this change.
+--
+-- Paid. A first sales activation (salesEnabled with an enabled channel for an allowlisted build)
+-- needs the frozen cutoff snapshot, and this migration does not accept one: apply refuses any
+-- non-null cutoff argument, and an activating sales body with no cutoff on record answers
+-- "cutoff_required" and writes nothing. So no paid activation is possible from this change,
+-- whatever the calling code passes. A future, separately reviewed migration enables the cutoff
+-- write; before it does, the snapshot must be shown in the preview and bound into the preview hash
+-- (today it is in neither, which is moot while every snapshot is refused).
+--
+-- Write-once and its limit. The triggers on the revisions and the cutoff are ENABLE ALWAYS, so a
+-- session that sets session_replication_role = replica still cannot change or delete a row. The
+-- table owner (`postgres`, the migration role) can still DROP or ALTER these tables or their
+-- triggers; that owner-level authority is a documented, accepted risk, and the post-apply check
+-- proves the triggers are present and always enabled.
 --
 -- Deploy order. 0015 must be deployed and verified on its own before 0016. 0015's post-apply check
 -- enumerates the private schema exactly, so a run listing both would fail 0015's check after
@@ -157,9 +168,10 @@ revoke all on table private.product_policy_owners, private.product_policy_operat
        still_policy_reader, still_policy_admin;
 
 -- ── 3. Write-once enforcement ─────────────────────────────────────────────────────────────────
--- Published revisions and the paid cutoff can be inserted, never changed. Only an owner-level
--- `alter table ... disable trigger` could bypass this; the post-apply check proves the triggers are
--- present and enabled.
+-- Published revisions and the paid cutoff can be inserted, never changed. ENABLE ALWAYS keeps the
+-- triggers firing under session_replication_role = replica. Only the table owner could drop or
+-- alter them (an accepted, documented risk); the post-apply check proves they are present and
+-- always enabled.
 create or replace function private.product_policy_refuse_change() returns trigger
 language plpgsql set search_path = pg_catalog, pg_temp as $$
 begin
@@ -177,6 +189,10 @@ create or replace trigger paid_cutoff_write_once
 create or replace trigger paid_cutoff_no_truncate
   before truncate on private.paid_cutoff
   for each statement execute function private.product_policy_refuse_change();
+alter table private.product_policy_revisions enable always trigger product_policy_revisions_write_once;
+alter table private.product_policy_revisions enable always trigger product_policy_revisions_no_truncate;
+alter table private.paid_cutoff enable always trigger paid_cutoff_write_once;
+alter table private.paid_cutoff enable always trigger paid_cutoff_no_truncate;
 
 -- ── 4. Grammar helpers (owner-only, not SECURITY DEFINER) ─────────────────────────────────────
 -- The one canonical rendering. Key order: schema, environment, revision, the namespace's fields,
@@ -395,8 +411,8 @@ end $$;
 -- per-namespace/environment transaction lock, so of two parallel applies one commits and the other
 -- answers "stale" (an open preview is never silently rebased); idempotent per operation id (a
 -- committed operation answers every later identical retry with its committed result, even after
--- expiry); a changed body or hash never reuses it. The first sales activation must carry the cutoff
--- snapshot.
+-- expiry); a changed body or hash never reuses it. Every cutoff argument is refused (see "Paid" in
+-- the header): an activating sales body with no cutoff on record answers "cutoff_required".
 create or replace function private.apply_product_policy(
   p_owner uuid, p_operation uuid, p_hash text, p_namespace text, p_environment text,
   p_expected bigint, p_body text, p_cutoff_product text, p_cutoff_benefits text[]
@@ -412,9 +428,12 @@ begin
   if p_operation is null or p_hash is null or p_body is null
      or p_namespace is null or p_namespace not in ('sales', 'rating')
      or p_environment is null or p_environment not in ('sandbox', 'production')
-     or p_expected is null or p_expected < 0 or p_expected >= 9007199254740991
-     or (p_cutoff_product is null) <> (p_cutoff_benefits is null) then
+     or p_expected is null or p_expected < 0 or p_expected >= 9007199254740991 then
     raise exception 'product policy request shape' using errcode = '22023';
+  end if;
+  -- No cutoff write is enabled by this migration, whatever the caller passes.
+  if p_cutoff_product is not null or p_cutoff_benefits is not null then
+    raise exception 'product policy cutoff not enabled' using errcode = '22023';
   end if;
   -- One apply per namespace and environment at a time, taken before the operation's row lock. Every
   -- other open preview for the same namespace and environment then fails the compare-and-set.
@@ -459,19 +478,7 @@ begin
   end if;
   if p_namespace = 'sales' and private.product_policy_sales_activates(op.body)
      and not exists (select 1 from private.paid_cutoff c where c.environment = p_environment) then
-    if p_cutoff_product is null then
-      return pg_catalog.jsonb_build_object('status', 'cutoff_required');
-    end if;
-    if p_cutoff_product !~ '^[a-z0-9][a-z0-9._-]{0,95}$' or p_cutoff_product = 'still-pro-v3'
-       or pg_catalog.cardinality(p_cutoff_benefits) not between 1 and 32
-       or exists (select 1 from pg_catalog.unnest(p_cutoff_benefits) b
-                  where b is null or b !~ '^[a-z0-9][a-z0-9._-]{0,95}$')
-       or p_cutoff_benefits is distinct from (select pg_catalog.array_agg(d.b order by d.b collate "C")
-                                             from (select distinct u.b from pg_catalog.unnest(p_cutoff_benefits) u(b)) d) then
-      raise exception 'product policy cutoff shape' using errcode = '22023';
-    end if;
-    insert into private.paid_cutoff (environment, product, benefits, sales_revision, operation_id, activated_at)
-    values (p_environment, p_cutoff_product, p_cutoff_benefits, op.expected_revision + 1, op.operation_id, v_now);
+    return pg_catalog.jsonb_build_object('status', 'cutoff_required');
   end if;
   insert into private.product_policy_revisions (namespace, environment, revision, body, operation_id, published_at)
   values (p_namespace, p_environment, op.expected_revision + 1, op.body, op.operation_id, v_now);
@@ -661,9 +668,47 @@ begin
          and k.confrelid = 'auth.users'::pg_catalog.regclass and k.confdeltype = 'c') then
     issues := issues || 'policy_owner_no_account_cascade'::text;
   end if;
+  -- Each operation publishes at most one revision and at most one cutoff, and neither can point at
+  -- a missing operation: unique(operation_id) plus a plain foreign key to the ledger.
+  for item in
+    select x.relname from (values ('product_policy_revisions'), ('paid_cutoff')) x(relname)
+    where pg_catalog.to_regclass('private.' || x.relname) is not null and not (
+      exists (select 1 from pg_catalog.pg_index i
+              join pg_catalog.pg_attribute a on a.attrelid = i.indrelid and a.attnum = i.indkey[0]
+              where i.indrelid = pg_catalog.to_regclass('private.' || x.relname) and i.indisunique
+                and i.indnkeyatts = 1 and i.indpred is null and i.indexprs is null and a.attname = 'operation_id')
+      and exists (select 1 from pg_catalog.pg_constraint k
+                  join pg_catalog.pg_attribute a on a.attrelid = k.conrelid and a.attnum = k.conkey[1]
+                  join pg_catalog.pg_attribute b on b.attrelid = k.confrelid and b.attnum = k.confkey[1]
+                  where k.conrelid = pg_catalog.to_regclass('private.' || x.relname) and k.contype = 'f'
+                    and k.confrelid = pg_catalog.to_regclass('private.product_policy_operations')
+                    and pg_catalog.cardinality(k.conkey) = 1 and a.attname = 'operation_id'
+                    and b.attname = 'operation_id' and k.convalidated
+                    and k.confdeltype = 'a' and k.confupdtype = 'a'))
+  loop
+    issues := issues || ('policy_operation_link:' || item.relname);
+  end loop;
+  -- The CHECK constraints are exactly the reviewed ones: md5 over their sorted definitions.
+  for item in
+    select x.relname from (values
+      ('product_policy_owners', 'd41d8cd98f00b204e9800998ecf8427e'),
+      ('product_policy_operations', '11f39a1a4f7debf95ce3b484a73d7d9c'),
+      ('product_policy_revisions', '5c2890384b0a699b98598c8922d213f5'),
+      ('paid_cutoff', 'ed4e7b2d75e2c75b88388249923b2398')
+    ) x(relname, digest)
+    where pg_catalog.to_regclass('private.' || x.relname) is not null
+      and pg_catalog.md5(coalesce((select pg_catalog.string_agg(pg_catalog.pg_get_constraintdef(k.oid), E'\n'
+            order by pg_catalog.pg_get_constraintdef(k.oid) collate "C")
+          from pg_catalog.pg_constraint k
+          where k.conrelid = pg_catalog.to_regclass('private.' || x.relname) and k.contype = 'c'), ''))
+        <> x.digest
+  loop
+    issues := issues || ('policy_checks:' || item.relname);
+  end loop;
 
-  -- Write-once triggers: present, enabled, calling the refusal function. tgtype 27 = row, before,
-  -- update or delete; 34 = statement, before, truncate.
+  -- Write-once triggers: present, ALWAYS enabled (so replica mode cannot skip them), unconditional
+  -- (no WHEN, no column list), calling the refusal function. tgtype 27 = row, before, update or
+  -- delete; 34 = statement, before, truncate.
   for item in
     select x.relname, x.tgname, x.tgtype from (values
       ('product_policy_revisions', 'product_policy_revisions_write_once', 27),
@@ -674,7 +719,8 @@ begin
     where not exists (
       select 1 from pg_catalog.pg_trigger t
       where t.tgrelid = pg_catalog.to_regclass('private.' || x.relname) and t.tgname = x.tgname
-        and t.tgtype = x.tgtype and t.tgenabled = 'O' and not t.tgisinternal
+        and t.tgtype = x.tgtype and t.tgenabled = 'A' and not t.tgisinternal
+        and t.tgqual is null and t.tgattr = ''::pg_catalog.int2vector
         and t.tgfoid = pg_catalog.to_regprocedure('private.product_policy_refuse_change()'))
   loop
     issues := issues || ('write_once_trigger:' || item.tgname);
