@@ -2,7 +2,7 @@ import type { FeatureId, ServiceId, SettingsField, StillSettings } from "@still/
 import { SettingsStorageRecovery, type AtomicSettingsState, type CanonicalSettingsEnvelope, type SettingsScope } from "./atomic-settings.js";
 import { DEFAULT_SETTINGS, SETTINGS_FIELDS } from "@still/shared-types";
 import { permitsUnknownLocalEdit, requireModernSettings, sameSettingsScope } from "./atomic-settings.js";
-import { parseStoredSettingsRecord } from "./settings-validation.js";
+import { parseSettings, parseStoredSettingsRecord } from "./settings-validation.js";
 import type {
   SettingsSyncMetadata,
   StorageAdapter,
@@ -113,7 +113,7 @@ export class SettingsCache {
     return this.legacyReread;
   }
 
-  private async readLegacyAuthority(): Promise<LegacySettingsRereadOutcome> {
+  private async readLegacyAuthority(afterAbsentNoop = false): Promise<LegacySettingsRereadOutcome> {
     if (this.atomic || this.atomicOwnership !== undefined)
       return { status: "unavailable", reason: "legacy-command-unavailable" };
     const ticket = this.authorityTicket;
@@ -152,7 +152,8 @@ export class SettingsCache {
     if (!this.isLegacyAuthority(stored)) {
       return unavailable("legacy-command-unavailable", null, true);
     }
-    if (!this.isCurrentLegacyRecord(stored)) {
+    // Current absence retires the vanished record's ordering, including for a peer recreation.
+    if (!afterAbsentNoop && !this.isCurrentLegacyRecord(stored)) {
       return unavailable("stale-authority");
     }
     // Accepting a validated read uses no persistence path, including same-version metadata.
@@ -303,7 +304,7 @@ export class SettingsCache {
       // Safari subscriptions supply a successful authority reread, never the auxiliary signal.
       this.applyStoredRecord(record, "external");
       // Rejected older/conflicting notifications are not successful current-authority reads.
-      if (this.isCurrentLegacyRecord(record) && sameSettings(record.settings, this.snapshot)) {
+      if (this.isCurrentLegacyRecord(record) && sameLegacySettings(record.settings, this.snapshot)) {
         this.authorityTicket += 1;
         this.hydrationRecovery = null;
         this.publishLegacyRead({ status: "ready", settings: this.snapshot });
@@ -456,9 +457,12 @@ export class SettingsCache {
       const record = await this.adapter.commitIntent!({ path, value, updatedAt: this.now() });
       const currentAbsence = absent && this.legacyRead.status === "absent" &&
         authorityTicket === this.authorityTicket && legacyReadTicket === this.legacyReadTicket;
-      // A no-op after an actual absent read is not a saved defaults record. A real recreation
-      // belongs to this current absence boundary, rather than the vanished record's ordering.
-      if (!legacyCommand || record.atomic ||
+      // A false no-op cannot establish presence: the writer may have found absent defaults or
+      // a peer's saved matching choice. One fenced pure read distinguishes them without replay.
+      if (currentAbsence && record.intentCommitted === false && this.isLegacyAuthority(record))
+        await this.readLegacyAuthority(true);
+      // A real recreation belongs to current absence, not the vanished record's ordering.
+      else if (!legacyCommand || record.atomic ||
         (currentAbsence ? record.intentCommitted === true && this.isLegacyAuthority(record) : this.isCurrentLegacyRecord(record)))
         this.acceptCommitted(record, "external");
       else if (authorityTicket === this.authorityTicket && !this.isLegacyAuthority(record))
@@ -688,4 +692,10 @@ function sameMetadata(a: SettingsSyncMetadata | null, b: SettingsSyncMetadata | 
 
 function sameSettings(a: StillSettings, b: StillSettings): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
+}
+
+function sameLegacySettings(a: StillSettings, b: StillSettings): boolean {
+  const left = parseSettings(a);
+  const right = parseSettings(b);
+  return left !== null && right !== null && sameSettings(left, right);
 }

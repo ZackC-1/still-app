@@ -1036,3 +1036,265 @@ describe("reviewed legacy-to-atomic transition replies", () => {
     }
   });
 });
+
+describe("current presence after an absent legacy no-op", () => {
+  it.each(["globalOn", "services.youtube"] as const)(
+    "adopts a peer's saved Off for matching %s without a local toggle",
+    async (path) => {
+      const h = browser(undefined, false);
+      await h.cache.hydrate();
+      const edits = vi.fn();
+      h.cache.subscribe(edits);
+      // A real writer saves Off after the consumer's absent read, with no watch delivery.
+      const peer = new ChromeStorageAdapter({ authority: true });
+      expect(
+        (await peer.commitIntent({ path, value: false, updatedAt: 100 }))
+          .intentCommitted,
+      ).toBe(true);
+      const durable = h.raw();
+      const reads = h.local.get.mock.calls.length;
+      const outcome = await h.cache.commitLegacyIntent(path, false);
+      expect(outcome.intentCommitted).toBe(false);
+      expect(outcome.settings).toEqual((await h.consumer.get())!.settings);
+      expect(
+        path === "globalOn"
+          ? h.cache.current().globalOn
+          : h.cache.current().services.youtube,
+      ).toBe(false);
+      expect(h.cache.legacyReadState()).toEqual({
+        status: "ready",
+        settings: h.cache.current(),
+      });
+      // One writer read and one pure presence read; the last get above is our observation.
+      expect(h.local.get.mock.calls.length - reads).toBe(3);
+      expect(h.local.set).toHaveBeenCalledTimes(1);
+      expect(h.sendMessage).toHaveBeenCalledTimes(1);
+      expect(edits.mock.calls.map(([, source]) => source)).toEqual([
+        "external",
+      ]);
+      expect(h.raw()).toEqual(durable);
+    },
+  );
+
+  it("adopts saved Off with delayed watch delivery after absence of a higher-clock record", async () => {
+    const h = browser(saved(true, 9000));
+    await h.cache.hydrate();
+    const stop = h.cache.watch();
+    const initialize = vi.spyOn(h.consumer, "initializeAtomic");
+    try {
+      h.put(undefined, false);
+      expect(await h.cache.rereadLegacyAuthority()).toEqual({
+        status: "absent",
+      });
+      const peer = new ChromeStorageAdapter({ authority: true });
+      await peer.commitIntent({ path: "globalOn", value: false, updatedAt: 1 });
+      const durable = h.raw();
+      const outcome = await h.cache.commitLegacyIntent("globalOn", false);
+      expect(outcome.intentCommitted).toBe(false);
+      expect(outcome.settings.globalOn).toBe(false);
+      expect(outcome.settings.updatedAt).toBe(1);
+      expect(h.cache.legacyReadState()).toEqual({
+        status: "ready",
+        settings: outcome.settings,
+      });
+      h.emit(durable as StoredSettingsRecord);
+      expect(h.cache.legacyReadState()).toEqual({
+        status: "ready",
+        settings: outcome.settings,
+      });
+      expect(h.raw()).toEqual(durable);
+      expect(h.local.set).toHaveBeenCalledTimes(1);
+      expect(initialize).not.toHaveBeenCalled();
+    } finally {
+      stop();
+    }
+  });
+
+  it.each(["read-failed", "unreadable"] as const)(
+    "holds %s in the followup instead of treating a no-op reply as saved",
+    async (reason) => {
+      const h = browser(undefined, false);
+      await h.cache.hydrate();
+      const peer = new ChromeStorageAdapter({ authority: true });
+      await peer.commitIntent({
+        path: "globalOn",
+        value: false,
+        updatedAt: 100,
+      });
+      const send = h.sendMessage.getMockImplementation()!;
+      h.sendMessage.mockImplementationOnce(async (message) => {
+        const reply = await send(message);
+        if (reason === "read-failed")
+          h.local.get.mockRejectedValueOnce(new Error("Presence read failed"));
+        else h.put({ settings: { globalOn: false } });
+        return reply;
+      });
+      const outcome = await h.cache.commitLegacyIntent("globalOn", false);
+      expect(outcome.intentCommitted).toBe(false);
+      expect(h.cache.legacyReadState()).toEqual({
+        status: "unavailable",
+        settings: null,
+        reason,
+      });
+      expect(h.cache.current()).toEqual(DEFAULT_SETTINGS);
+      await expect(
+        h.cache.commitLegacyIntent("globalOn", false),
+      ).rejects.toThrow("legacy-command-unavailable");
+      expect(h.sendMessage).toHaveBeenCalledTimes(1);
+      expect(h.local.set).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it.each(["read", "absence", "watch", "command", "atomic"] as const)(
+    "a newer accepted %s supersedes a delayed no-op presence read",
+    async (kind) => {
+      const h = browser(undefined, false);
+      await h.cache.hydrate();
+      const peer = new ChromeStorageAdapter({ authority: true });
+      await peer.commitIntent({
+        path: "globalOn",
+        value: false,
+        updatedAt: 100,
+      });
+      const captured = h.raw();
+      const stop = h.cache.watch();
+      const gate = deferred<Record<string, unknown>>();
+      const send = h.sendMessage.getMockImplementation()!;
+      h.sendMessage.mockImplementationOnce(async (message) => {
+        const reply = await send(message);
+        h.local.get.mockImplementationOnce(() => gate.promise);
+        return reply;
+      });
+      const pending = h.cache.commitLegacyIntent("globalOn", false);
+      void pending.catch(() => undefined);
+      try {
+        await vi.waitFor(() =>
+          expect(h.cache.legacyReadState().status).toBe("loading"),
+        );
+        if (kind === "read") {
+          h.put(saved(true, 300));
+          expect(await h.cache.rereadLegacyAuthority()).toEqual({
+            status: "ready",
+          });
+        } else if (kind === "absence") {
+          h.put(undefined, false);
+          expect(await h.cache.rereadLegacyAuthority()).toEqual({
+            status: "absent",
+          });
+        } else if (kind === "watch") h.emit(saved(true, 300));
+        else if (kind === "command") await h.cache.setGlobalOn(true);
+        else {
+          const modern = await peer.initializeAtomic("never-linked");
+          const newer = await peer.commitIntent({
+            path: "globalOn",
+            value: true,
+            updatedAt: 300,
+          });
+          expect(newer.atomic!.sequence).toBeGreaterThan(
+            modern.atomic!.sequence,
+          );
+          h.emit(newer);
+        }
+        const current = h.cache.currentRecord();
+        const state = h.cache.legacyReadState();
+        gate.resolve({ [KEY]: captured });
+        expect(await pending).toEqual({
+          intentCommitted: false,
+          settings: current.settings,
+        });
+        expect(h.cache.currentRecord()).toEqual(current);
+        expect(h.cache.legacyReadState()).toEqual(state);
+        expect(h.sendMessage).toHaveBeenCalledTimes(kind === "command" ? 2 : 1);
+      } finally {
+        gate.resolve({ [KEY]: captured });
+        await pending.catch(() => undefined);
+        stop();
+      }
+    },
+  );
+});
+
+describe("normalized legacy watch recovery", () => {
+  it("an unchanged validated known projection clears failure while retaining opaque saved members", async () => {
+    const h = browser(saved());
+    await h.cache.hydrate();
+    const stop = h.cache.watch();
+    const before = h.cache.current();
+    const edits = vi.fn();
+    h.cache.subscribe(edits);
+    try {
+      h.local.get.mockRejectedValueOnce(
+        new Error("Current storage unavailable"),
+      );
+      expect(await h.cache.rereadLegacyAuthority()).toEqual({
+        status: "unavailable",
+        reason: "read-failed",
+      });
+      h.emit(saved()); // Actual Chrome subscribe strips opaque members from its projection.
+      expect(h.cache.legacyReadState()).toEqual({
+        status: "ready",
+        settings: before,
+      });
+      expect(h.cache.current()).toBe(before);
+      expect(h.cache.current()).toEqual(saved().settings);
+      expect(h.raw()).toEqual(saved());
+      await expect(h.cache.whenHydrated()).resolves.toBeUndefined();
+      expect(h.local.set).not.toHaveBeenCalled();
+      expect(edits).not.toHaveBeenCalled();
+    } finally {
+      stop();
+    }
+  });
+
+  it.each(["choice", "epoch", "version", "timestamp"] as const)(
+    "a conflicting or stale known %s watch retains the current failure hold",
+    async (kind) => {
+      const record = {
+        ...saved(),
+        syncEpoch: 3,
+        syncMetadata: {
+          version: 8,
+          serverUpdatedAt: "2026-10-04T00:00:00Z",
+          lastWriteId: null,
+        },
+      };
+      const h = browser(record);
+      await h.cache.hydrate();
+      const stop = h.cache.watch();
+      const before = h.cache.currentRecord();
+      try {
+        h.local.get.mockRejectedValueOnce(
+          new Error("Current storage unavailable"),
+        );
+        expect(await h.cache.rereadLegacyAuthority()).toEqual({
+          status: "unavailable",
+          reason: "read-failed",
+        });
+        const rejected = {
+          ...record,
+          syncEpoch: kind === "epoch" ? 2 : 3,
+          syncMetadata: {
+            ...record.syncMetadata,
+            version: kind === "version" ? 7 : 8,
+          },
+          settings: {
+            ...record.settings,
+            globalOn: kind === "choice" ? true : false,
+            updatedAt: kind === "timestamp" ? 50 : 100,
+          },
+        };
+        h.emit(rejected);
+        expect(h.cache.currentRecord()).toEqual(before);
+        expect(h.cache.legacyReadState()).toEqual({
+          status: "unavailable",
+          reason: "read-failed",
+          settings: before.settings,
+        });
+        await expect(h.cache.whenHydrated()).rejects.toThrow("read-failed");
+        expect(h.local.set).not.toHaveBeenCalled();
+      } finally {
+        stop();
+      }
+    },
+  );
+});
