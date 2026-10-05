@@ -267,14 +267,29 @@ else
     },
   });
 
-/** D12 onboarding first, only when the one native gate hands it to the web view; then D04. */
+/** D12 onboarding first, only when the one native gate hands it to the web view; then D04. Never
+ * rejects: a failure anywhere (loading the onboarding, mounting it, mounting settings) ends with
+ * settings requested once, so the app is never left blank by an unhandled rejection. The native
+ * gate stays incomplete on those paths, so onboarding is offered again next launch. */
 async function mountAppleScreens(adapter: WKWebViewStorageAdapter): Promise<void> {
-  const { showAppleOnboardingFirst } = await import("./apple-onboarding.js");
-  await showAppleOnboardingFirst({
-    bridge,
-    target: document.getElementById("app")!,
-    showSettings: () => void mountAppleSettings(adapter),
-  });
+  let settingsRequested = false;
+  const showSettings = (): void => {
+    if (settingsRequested) return;
+    settingsRequested = true;
+    void mountAppleSettings(adapter).catch(() => {
+      /* nothing left to fall back to; the error must not escape as an unhandled rejection */
+    });
+  };
+  try {
+    const { showAppleOnboardingFirst } = await import("./apple-onboarding.js");
+    await showAppleOnboardingFirst({
+      bridge,
+      target: document.getElementById("app")!,
+      showSettings,
+    });
+  } catch {
+    showSettings();
+  }
 }
 
 /** D04 over the same cache: committed binding + read-only native access, mounted at once. */
@@ -293,6 +308,7 @@ async function mountAppleSettings(adapter: WKWebViewStorageAdapter): Promise<voi
         authority,
         observeSetup: () => bridge.observeSafariSetup(),
         help: appleSettingsHelp((url) => openExternalLink(url)),
+        restoreBridge: bridge,
         onCommittedToggle: appleSettingsToggleReporter(analytics.ui),
       },
     });

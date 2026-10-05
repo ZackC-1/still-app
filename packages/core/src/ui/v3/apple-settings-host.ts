@@ -6,7 +6,7 @@ import {
   type NativeBenefitSource,
 } from "../../entitlement/wk-benefit-adapter.js";
 import type { UiAnalytics, DeleteFlow, PurchaseFlow } from "../controller.svelte.js";
-import type { SafariSetupObservation } from "../../native/bridge.js";
+import type { ReceiptStatusValue, SafariSetupObservation } from "../../native/bridge.js";
 import { STRINGS } from "../strings.js";
 import { PRIVACY_POLICY_URL, SETUP_GUIDE_URL } from "../config.js";
 import { createDesktopPopupBinding } from "./desktop-popup-binding.js";
@@ -306,19 +306,100 @@ function accountStatus(source: AppleSettingsAccountSource, retry: (() => void) |
   return { tone: "pending", text: STRINGS.sync.checking };
 }
 
-/** Restore appears only while an actual Restore runs; there is no idle Restore entry. */
+/** A controller-driven Restore shows its status only while it actually runs. */
 export function appleSettingsRestore(source: {
   readonly purchaseFlow: PurchaseFlow;
 }): RestoreStatusCardProps | undefined {
   return source.purchaseFlow === "restoring" ? { state: "checking" } : undefined;
 }
 
+/** The slice of NativeBridge the free-period Restore uses; tests supply a fake. */
+export interface AppleRestoreBridge {
+  restore(): Promise<boolean>;
+  receiptStatus(): Promise<ReceiptStatusValue>;
+}
+
+export interface AppleSettingsRestoreDeps {
+  readonly bridge: AppleRestoreBridge;
+  /**
+   * The existing entitlement path (the authority's EntitlementCache.refreshAccess). While the paid
+   * tier is off it returns the packaged free snapshot without asking native, so a restore never
+   * reveals paid UI there.
+   */
+  readonly refreshAccess: () => Promise<unknown>;
+  /** Receives the RestoreStatusCard state to show; undefined before the first tap. */
+  readonly publish: (restore: RestoreStatusCardProps) => void;
+}
+
 /**
- * Open an https page the way the legacy Apple screen does: a user-activated `target=_blank`
- * anchor, which the native navigation policy cancels in the web view and hands to the system.
+ * The plain "Restore purchase" link shown while the paid flags are off (owner decision 17). It
+ * runs the existing signed-out 2.x sequence (native restore, then the device receipt read, as
+ * AppleSession.onRestore does) and then re-reads access through the existing entitlement path.
+ * It never touches settings: no cache, binding or settings message is involved.
+ *
+ * Outcomes use only the existing RestoreStatusCard states. "Nothing found" needs a conclusive
+ * answer: a restore reply of false is not one (native also answers false when it refuses or
+ * cannot reach the store), so it is used only when the receipt is verified not entitled. A
+ * receipt that is entitled is restored; no signal, or any rejection, is "couldn't finish" with
+ * Try again. One restore at a time. After `stop` (the screen unmounted) a late reply is ignored:
+ * no further native read, no access re-read and nothing published.
+ */
+export function createAppleSettingsRestore(deps: AppleSettingsRestoreDeps) {
+  let flight: Promise<void> | null = null;
+  let stopped = false;
+  async function outcome(): Promise<"restored" | "nothing" | "failed" | null> {
+    try {
+      if (await deps.bridge.restore()) return "restored";
+      if (stopped) return null;
+      const receipt = await deps.bridge.receiptStatus();
+      if (receipt === "entitled") return "restored";
+      return receipt === "verifiedNotEntitled" ? "nothing" : "failed";
+    } catch {
+      return "failed";
+    }
+  }
+  async function run(): Promise<void> {
+    deps.publish({ state: "checking" });
+    const state = await outcome();
+    if (stopped || state === null) return;
+    try {
+      await deps.refreshAccess();
+    } catch {
+      /* The entitlement cache keeps its own held state. */
+    }
+    if (stopped) return;
+    deps.publish(state === "failed" ? { state, onAction: start } : { state });
+  }
+  function start(): void {
+    if (stopped || flight) return;
+    flight = run().finally(() => {
+      flight = null;
+    });
+  }
+  return {
+    start,
+    stop(): void {
+      stopped = true;
+    },
+  };
+}
+
+/**
+ * The approved support destination: exactly `mailto:${SUPPORT_EMAIL}` (config.ts), with no query
+ * or other recipient; a test pins the two together. It is a literal because any top-level
+ * expression over SUPPORT_EMAIL survives tree-shaking (string coercion is not provably pure) and
+ * would change the default Apple bundle, which must stay byte-identical.
+ */
+export const SUPPORT_MAILTO = "mailto:support@stillapp.fit";
+
+/**
+ * Open an https page, or the support email, the way the legacy Apple screen opens links: a
+ * user-activated `target=_blank` anchor, which the native navigation policy cancels in the web view
+ * and hands to the system. Assigning `location.href` would reach native as a non-link navigation
+ * and be cancelled, so the anchor click is required. The only mailto accepted is SUPPORT_MAILTO.
  */
 export function openExternalLink(url: string, doc: Document = document): void {
-  if (!/^https:\/\//.test(url)) return;
+  if (!/^https:\/\//.test(url) && url !== SUPPORT_MAILTO) return;
   const anchor = doc.createElement("a");
   anchor.href = url;
   anchor.target = "_blank";
@@ -333,14 +414,14 @@ export function openExternalLink(url: string, doc: Document = document): void {
 }
 
 /**
- * Help destinations (owner decision 2026-10-05): the live setup guide and the shipped privacy
- * policy open externally. Contact support stays unsupplied: the approved destination is the
- * support email, and the native navigation policy opens only http(s) links externally (a mailto
- * link would be cancelled), so a button here would do nothing.
+ * Help destinations (owner decision 11): the live setup guide, the shipped support email and the
+ * shipped privacy policy, all opened externally. The native navigation policy hands a user-tapped
+ * link to exactly `mailto:support@stillapp.fit` to the system mail app.
  */
 export function appleSettingsHelp(open: (url: string) => void): AppleSettingsProps["help"] {
   return {
     onGuide: () => open(SETUP_GUIDE_URL),
+    onSupport: () => open(SUPPORT_MAILTO),
     onPrivacy: () => open(PRIVACY_POLICY_URL),
   };
 }

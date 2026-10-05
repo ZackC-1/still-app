@@ -41,6 +41,10 @@ describe("cross-platform design contract", () => {
         "--content-max-inline-size",
       "../ext-safari/entrypoints/options/OptionsApp.svelte":
         "--content-max-inline-size",
+      "../ext-safari/entrypoints/popup/SafariV3Popup.svelte":
+        "--popup-inline-size",
+      "../ext-safari/entrypoints/options/SafariV3Options.svelte":
+        "--content-max-inline-size",
     };
 
     const declared = new Map<string, string>();

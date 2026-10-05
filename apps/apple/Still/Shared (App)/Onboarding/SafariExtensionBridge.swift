@@ -82,4 +82,58 @@ enum SafariExtensionBridge {
     }
     #endif
   }
+
+  /// Open one fixed destination for the web view's `openDestination` message, after
+  /// `NativeOpenRequest.authorize` accepted it. The enable locations use the same calls as
+  /// `openEnableLocation()` above; `safari` launches Safari by its bundle id. Returns whether the
+  /// system accepted the open.
+  ///
+  /// The system completion handlers run on background queues. This target defaults to main-actor
+  /// isolation, so each handler is an explicitly `@Sendable` (nonisolated) closure that only
+  /// resumes a continuation; the caller's `await` is what returns to the main actor. A handler that
+  /// inherited main-actor isolation would fail Swift 6's runtime isolation check.
+  @MainActor static func open(_ destination: NativeOpenDestination) async -> Bool {
+    #if os(macOS)
+    switch destination {
+    case .safariExtensionSettings:
+      return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+        SFSafariApplication.showPreferencesForExtension(withIdentifier: extensionBundleID) {
+          @Sendable error in
+          continuation.resume(returning: error == nil)
+        }
+      }
+    case .safari:
+      guard let safari = NSWorkspace.shared.urlForApplication(
+        withBundleIdentifier: NativeOpenDestination.safariBundleIdentifier)
+      else { return false }
+      return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+        NSWorkspace.shared.openApplication(
+          at: safari, configuration: NSWorkspace.OpenConfiguration()
+        ) { @Sendable _, error in
+          continuation.resume(returning: error == nil)
+        }
+      }
+    case .settingsAppStillPage:
+      return false
+    }
+    #elseif os(iOS)
+    switch destination {
+    case .settingsAppStillPage:
+      guard let url = URL(string: UIApplication.openSettingsURLString) else { return false }
+      // The async form: UIKit resumes this main-actor caller itself, so no handler closure exists.
+      return await UIApplication.shared.open(url, options: [:])
+    case .safariExtensionSettings, .safari:
+      return false
+    }
+    #endif
+  }
+
+  /// Whether the app is the active app right now (a tap in it is possible).
+  @MainActor static var appIsActive: Bool {
+    #if os(macOS)
+    return NSApplication.shared.isActive
+    #else
+    return UIApplication.shared.applicationState == .active
+    #endif
+  }
 }

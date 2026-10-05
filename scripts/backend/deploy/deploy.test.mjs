@@ -11,6 +11,7 @@ import {
   CLI_TARBALL_SHA256,
   Refusal,
   TOOLING_PATHS,
+  assertIndependentVerifications,
   assertSamePlan,
   checkProtection,
   compareHistory,
@@ -28,6 +29,8 @@ import {
   prepareWorkdir,
   readProtection,
   redact,
+  routinesChanged,
+  routinesPinned,
   renderPlan,
   renderFinal,
   renderReceipt,
@@ -218,6 +221,143 @@ test("plan requires exactly the newest migrations at the commit", async (t) => {
     plan(root, head, "0002_harden.sql", { functions: "delete-user" }),
     "functions-unsupported",
   );
+});
+
+test("plan refuses listing a migration that changes what an earlier listed one's check pins", async (t) => {
+  const { root } = await repo(t);
+  const pinning =
+    "select coalesce((select '[\"f_changed\"]' from pg_catalog.pg_proc p where p.oid = pg_catalog.to_regprocedure('public.f()') and pg_catalog.md5(p.prosrc) <> 'x'), '[]');\n";
+  await put(
+    root,
+    "supabase/migrations/0003_pin.sql",
+    "create or replace function public.f() returns int language sql as 'select 1';\n",
+  );
+  await put(root, "scripts/backend/deploy/verify/0003_pin.sql", pinning);
+  await put(
+    root,
+    "supabase/migrations/0004_change.sql",
+    "-- alter function public.g() is only mentioned in a comment\nalter function public.f() set search_path = pg_catalog, pg_temp;\n",
+  );
+  await put(
+    root,
+    "scripts/backend/deploy/verify/0004_change.sql",
+    "select '[]';\n",
+  );
+  git(root, "add", "-A");
+  git(root, "commit", "-q", "-m", "pin then change");
+  const head = git(root, "rev-parse", "HEAD");
+  await refuses(
+    plan(root, head, "0003_pin.sql,0004_change.sql"),
+    "verification-overlap",
+  );
+  // Each alone, the earlier one first, is the supported order.
+  const alone = await plan(root, head, "0004_change.sql");
+  assert.deepEqual(
+    alone.migrations.map((m) => m.file),
+    ["0004_change.sql"],
+  );
+  // Control: when the later migration leaves the pinned routine alone, both may go together.
+  await put(
+    root,
+    "supabase/migrations/0004_change.sql",
+    "alter function public.g() set search_path = pg_catalog, pg_temp;\n",
+  );
+  git(root, "commit", "-q", "-am", "change something unpinned");
+  const both = await plan(
+    root,
+    git(root, "rev-parse", "HEAD"),
+    "0003_pin.sql,0004_change.sql",
+  );
+  assert.deepEqual(
+    both.migrations.map((m) => m.file),
+    ["0003_pin.sql", "0004_change.sql"],
+  );
+});
+
+test("routine change and pin detection covers definitions, grants and schema-wide statements", async () => {
+  assert.deepEqual(
+    [
+      ...routinesChanged(`
+        create or replace function private.a(x int) returns int language sql as 'select 1';
+        CREATE FUNCTION public.B () returns void language sql as '';
+        alter function public.c(text) owner to postgres;
+        drop function if exists public.d();
+        revoke all on function public.e(uuid), private.f() from public, anon;
+        grant execute on function public.g(text,integer,integer) to still_settings_writer;
+        grant execute on all functions in schema extra to anon;
+        -- alter function public.commented() set search_path = '';
+        /* create function public.blocked() */
+        select 'public.literal()';
+      `),
+    ].sort(),
+    [
+      "extra.*",
+      "private.a",
+      "private.f",
+      "public.b",
+      "public.c",
+      "public.d",
+      "public.e",
+      "public.g",
+    ],
+  );
+  assert.deepEqual(
+    [
+      ...routinesPinned(
+        "select 'public.f(uuid)', 'x' -- 'public.ignored()'\n;",
+      ),
+    ],
+    ["public.f"],
+  );
+  assert.throws(
+    () =>
+      assertIndependentVerifications([
+        {
+          file: "0001_a.sql",
+          text: "",
+          verificationText: "select 'public.f()';",
+        },
+        {
+          file: "0002_b.sql",
+          text: "grant execute on all functions in schema public to anon;",
+          verificationText: "select '[]';",
+        },
+      ]),
+    (error) =>
+      error instanceof Refusal && error.category === "verification-overlap",
+  );
+});
+
+test("the real 0014 check pins routines 0015 changes, so they deploy one at a time", async () => {
+  const root = new URL("../../../", import.meta.url);
+  const read = (path) => readFile(new URL(path, root), "utf8");
+  const migrations = [
+    {
+      file: "0014_server_rpc_privilege_hardening.sql",
+      text: await read(
+        "supabase/migrations/0014_server_rpc_privilege_hardening.sql",
+      ),
+      verificationText: await read(
+        "scripts/backend/deploy/verify/0014_server_rpc_privilege_hardening.sql",
+      ),
+    },
+    {
+      file: "0015_settings_sync_per_field.sql",
+      text: await read("supabase/migrations/0015_settings_sync_per_field.sql"),
+      verificationText: await read(
+        "scripts/backend/deploy/verify/0015_settings_sync_per_field.sql",
+      ),
+    },
+  ];
+  assert.throws(
+    () => assertIndependentVerifications(migrations),
+    (error) =>
+      error instanceof Refusal &&
+      error.category === "verification-overlap" &&
+      /public\.consume_rate_limit/.test(error.message) &&
+      /public\.write_profile_settings/.test(error.message),
+  );
+  assert.doesNotThrow(() => assertIndependentVerifications([migrations[1]]));
 });
 
 test("plan requires a lint-clean read-only verification query at the commit", async (t) => {

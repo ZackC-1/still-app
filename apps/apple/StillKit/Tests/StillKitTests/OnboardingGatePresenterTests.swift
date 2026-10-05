@@ -121,4 +121,66 @@ final class OnboardingGatePresenterTests: XCTestCase {
     XCTAssertEqual(native["shouldShow"] as? Bool, false, "the web never shows while SwiftUI presents")
     XCTAssertEqual(native["platform"] as? String, "macos")
   }
+
+  // MARK: the web flow needs a web UI that can present it (#282 review P3-1)
+
+  private let d12Bundle = "<script type=\"module\">const a=\"still-onboarding-presenter:web-d12\";</script>"
+  private let legacyBundle = "<script type=\"module\">mount(App)</script>"
+
+  func testAWebKeyWithALegacyWebBuildKeepsSwiftUISoOnboardingStillShows() {
+    let presenter = OnboardingGate.presenter(fromInfoValue: "web", webUIIndexHTML: { self.legacyBundle })
+    XCTAssertEqual(presenter, .swiftUI)
+    // Not "neither": the SwiftUI flow presents while the gate is open.
+    XCTAssertEqual(OnboardingGate.nativeInitialStep(presenter: presenter, defaults: defaults), 0)
+    XCTAssertFalse(OnboardingGate.webShouldShow(presenter: presenter, defaults: defaults))
+  }
+
+  func testAMissingOrUnreadableWebUIKeepsSwiftUI() {
+    XCTAssertEqual(OnboardingGate.presenter(fromInfoValue: "web", webUIIndexHTML: { nil }), .swiftUI)
+    XCTAssertEqual(OnboardingGate.presenter(fromInfoValue: "web", webUIIndexHTML: { "" }), .swiftUI)
+  }
+
+  func testAWebKeyWithAD12WebBuildSelectsTheWebFlow() {
+    XCTAssertEqual(
+      OnboardingGate.presenter(fromInfoValue: "web", webUIIndexHTML: { self.d12Bundle }), .web)
+  }
+
+  func testTheWebUIIsNeverReadWithoutTheWebKey() {
+    for value: Any? in [nil, "swiftui", "Web", true] {
+      var reads = 0
+      let presenter = OnboardingGate.presenter(fromInfoValue: value, webUIIndexHTML: {
+        reads += 1
+        return self.d12Bundle
+      })
+      XCTAssertEqual(presenter, .swiftUI, "\(String(describing: value))")
+      XCTAssertEqual(reads, 0, "shipped builds (no key) never read the web bundle")
+    }
+  }
+
+  func testEveryCombinationShowsExactlyOneOnboardingWhileTheGateIsOpen() {
+    for value: Any? in [nil, "web", "swiftui"] {
+      for html in [nil, legacyBundle, d12Bundle] as [String?] {
+        OnboardingGate.reset(defaults)
+        let presenter = OnboardingGate.presenter(fromInfoValue: value, webUIIndexHTML: { html })
+        let native = OnboardingGate.nativeInitialStep(presenter: presenter, defaults: defaults) != nil
+        // The web shows only when it asks the gate, which only a D12 web build does.
+        let webAsks = html == d12Bundle
+        let web = webAsks && OnboardingGate.webShouldShow(presenter: presenter, defaults: defaults)
+        XCTAssertTrue(
+          native != web,
+          "key=\(String(describing: value)) d12=\(webAsks): native=\(native) web=\(web)")
+      }
+    }
+  }
+
+  /// The marker is spelled in Swift and in the TypeScript wiring that only D12 builds include.
+  func testTheD12MarkerMatchesTheWebWiring() throws {
+    let source = try String(
+      contentsOf: appleRoot.deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("packages/app-webview/src/apple-onboarding.ts"),
+      encoding: .utf8)
+    XCTAssertTrue(
+      source.contains("export const D12_WEB_ONBOARDING_MARKER = \"\(OnboardingGate.webD12Marker)\";"),
+      "OnboardingGate.webD12Marker must equal D12_WEB_ONBOARDING_MARKER in apple-onboarding.ts")
+  }
 }
