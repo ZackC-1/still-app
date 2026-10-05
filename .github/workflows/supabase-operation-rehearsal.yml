@@ -1,0 +1,62 @@
+name: Supabase operation rehearsal
+
+# Runs the production deploy job's own rehearsal of the owner-approved operations
+# (pause-settings-sync / resume-settings-sync) on a throwaway database inside this runner, from the
+# pull request's code. It proves the writer's sign-in is refused or allowed, its open connection is
+# closed, the purchase, sales and rating roles still sign in, and no other role, grant, row or
+# migration changes. No environment, secret or production access; it never deploys anything.
+on:
+  pull_request:
+    paths:
+      - "scripts/backend/deploy/**"
+      - "supabase/migrations/**"
+      - "supabase/config.toml"
+      - ".github/workflows/supabase-operation-rehearsal.yml"
+      - ".github/workflows/supabase-production-deploy.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-operation-rehearsal-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  operation-rehearsal:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        operation:
+          - pause-settings-sync
+          - resume-settings-sync
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Install pinned Supabase CLI (checksum verified)
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/supabase.tgz" \
+            https://github.com/supabase/cli/releases/download/v2.119.0/supabase_2.119.0_linux_amd64.tar.gz
+          echo "bf1c3ae93be98533eb8a3105dbf4564bd0b2d9dc24690d8a920f980ef975c1b4  $RUNNER_TEMP/supabase.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/supabase.tgz" -C "$RUNNER_TEMP/bin" supabase
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Verify pinned tools
+        run: |
+          test "$(supabase --version)" = '2.119.0'
+          psql --version
+      - name: Plan the operation from this commit (no secrets)
+        env:
+          DEPLOY_OPERATION: ${{ matrix.operation }}
+          DEPLOY_MIGRATIONS: ""
+          DEPLOY_FUNCTIONS: ""
+        run: |
+          DEPLOY_SHA="$(git rev-parse HEAD)" node scripts/backend/deploy/deploy.mjs plan --out "$RUNNER_TEMP/operation-plan.json" --summary
+      - name: Rehearse the operation on a throwaway database
+        run: bash scripts/backend/deploy/replay.sh "$RUNNER_TEMP/operation-plan.json" "$RUNNER_TEMP/replay"

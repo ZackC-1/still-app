@@ -34,14 +34,23 @@ export const CLI_TARBALL_SHA256 =
   "bf1c3ae93be98533eb8a3105dbf4564bd0b2d9dc24690d8a920f980ef975c1b4";
 export const MIGRATIONS_DIR = "supabase/migrations";
 export const VERIFY_DIR = "scripts/backend/deploy/verify";
+export const OPERATIONS_DIR = "scripts/backend/deploy/operations";
+/** Plan kind of an owner-approved operation (pause/resume settings sync); see operations.mjs. */
+export const OPERATION_KIND = "supabase-exact-operation";
 export const CONFIG_PATH = "supabase/config.toml";
 export const TOOLING_PATHS = Object.freeze([
   ".github/workflows/supabase-production-deploy.yml",
   "scripts/backend/deploy/deploy.mjs",
+  "scripts/backend/deploy/operations.mjs",
   "scripts/backend/deploy/replay.sh",
   "scripts/backend/deploy/sql/catalog-facts.sql",
   "scripts/backend/deploy/sql/migration-history.sql",
+  "scripts/backend/deploy/sql/rehearsal-data-fingerprint.sql",
+  "scripts/backend/deploy/sql/role-facts.sql",
 ]);
+const isOperation = (plan) => plan?.kind === OPERATION_KIND;
+/** Loaded on demand: operations.mjs imports this module, so a static import would be a cycle. */
+const operations = () => import("./operations.mjs");
 const HISTORY_SQL = "scripts/backend/deploy/sql/migration-history.sql";
 const FACTS_SQL = "scripts/backend/deploy/sql/catalog-facts.sql";
 const MIGRATION_FILE = /^([0-9]{4,14})_([a-z0-9_]+)\.sql$/;
@@ -178,7 +187,7 @@ export function makeGit(exec, cwd) {
   };
 }
 
-async function migrationsAt(git, commit) {
+export async function migrationsAt(git, commit) {
   const entries = (await git.files(commit, MIGRATIONS_DIR)).filter((name) =>
     name.endsWith(".sql"),
   );
@@ -242,7 +251,7 @@ export function lintVerificationSql(text) {
 
 const ROUTINE = /([a-z_][a-z0-9_]*)\s*\.\s*([a-z_][a-z0-9_]*)\s*\(/g;
 
-function stripComments(sql) {
+export function stripComments(sql) {
   return String(sql)
     .replace(/\/\*[\s\S]*?\*\//g, " ")
     .replace(/--[^\n]*/g, " ")
@@ -465,6 +474,8 @@ export const invariantPath = (file) =>
 
 /** Every file the deploy relies on, with its planned hash. */
 export function boundFiles(plan) {
+  // An operation's apply uses only the deploy tooling and its own SQL and check.
+  if (isOperation(plan)) return [...plan.tooling, plan.sql, plan.verification];
   return [
     // Deploy tooling (workflow, deploy.mjs, replay.sh, SQL helpers): main must not have
     // changed how the deploy runs or reads history while the approval was pending.
@@ -506,6 +517,8 @@ export async function checkFreshness({ git, plan, tipRef }) {
       );
     }
   }
+  // An operation adds nothing to migration history, so newer migrations on main do not matter.
+  if (isOperation(plan)) return { tip, mode: "files-identical" };
   const highest = plan.expectedHistoryAfter.at(-1).version;
   const atTip = (
     await migrationsAt(git, tip).catch(() => {
@@ -560,7 +573,8 @@ export async function prepareWorkdir({ exec, cwd, plan, dir, stage }) {
         `--output=${tarball}`,
         plan.revision,
         "supabase",
-        VERIFY_DIR,
+        // An operation needs its own SQL folder; older commits (deployed for migrations) lack it.
+        isOperation(plan) ? OPERATIONS_DIR : VERIFY_DIR,
       ],
     ],
     ["tar", ["-xf", tarball, "-C", dir]],
@@ -571,7 +585,7 @@ export async function prepareWorkdir({ exec, cwd, plan, dir, stage }) {
   }
   await rm(tarball, { force: true });
   await rm(join(dir, "supabase", ".temp"), { recursive: true, force: true });
-  if (stage === "prior") {
+  if (stage === "prior" && !isOperation(plan)) {
     for (const m of plan.migrations)
       await rm(join(dir, MIGRATIONS_DIR, m.file), { force: true });
   }
@@ -596,10 +610,10 @@ export async function addListedMigrations({ exec, cwd, plan, dir }) {
 }
 
 export async function verifyWorkdir({ plan, dir, stage }) {
-  const expected = [
-    ...plan.priorMigrations,
-    ...(stage === "full" ? plan.migrations : []),
-  ];
+  // An operation's rehearsal database holds every migration at the commit, for either stage.
+  const expected = isOperation(plan)
+    ? plan.rehearsalMigrations
+    : [...plan.priorMigrations, ...(stage === "full" ? plan.migrations : [])];
   const present = (await readdir(join(dir, MIGRATIONS_DIR)))
     .filter((f) => !f.startsWith("."))
     .sort();
@@ -625,10 +639,13 @@ export async function verifyWorkdir({ plan, dir, stage }) {
       "config.toml hash differs from the plan",
     );
   }
-  for (const file of plan.migrations.flatMap((m) => [
-    m.verification,
-    ...(m.invariant ? [m.invariant] : []),
-  ])) {
+  const checked = isOperation(plan)
+    ? [plan.sql, plan.verification]
+    : plan.migrations.flatMap((m) => [
+        m.verification,
+        ...(m.invariant ? [m.invariant] : []),
+      ]);
+  for (const file of checked) {
     if (sha256(await readFile(join(dir, file.path))) !== file.sha256) {
       throw new Refusal(
         "hash-mismatch",
@@ -1771,6 +1788,9 @@ export async function main(
     cwd = process.cwd(),
     out = process.stdout,
     platform = process.platform,
+    // Test seams for operations only: the settle wait and the rehearsal's held connection.
+    settleMs,
+    spawnHeld,
   } = {},
 ) {
   const [command, ...args] = argv;
@@ -1778,13 +1798,24 @@ export async function main(
   const readPlan = async () =>
     JSON.parse(await readFile(option(args, "--plan"), "utf8"));
   if (command === "plan") {
-    const plan = await createDeployPlan({
+    // DEPLOY_OPERATION selects numbered migrations (empty or "migrations", the default) or one
+    // owner-approved operation; an operation refuses to run together with any migration.
+    const operation = String(env.DEPLOY_OPERATION ?? "").trim();
+    const request = {
       git: makeGit(exec, cwd),
       sha: env.DEPLOY_SHA,
       migrations: env.DEPLOY_MIGRATIONS,
       functions: env.DEPLOY_FUNCTIONS,
       mainRef: option(args, "--main-ref") ?? "HEAD",
-    });
+    };
+    const ops =
+      operation === "" || operation === "migrations"
+        ? null
+        : await operations();
+    const plan = ops
+      ? await ops.createOperationPlan({ ...request, operation })
+      : await createDeployPlan(request);
+    const render = ops ? ops.renderOperationPlan : renderPlan;
     const expect = option(args, "--expect-digest");
     if (expect !== undefined) assertSamePlan(plan, expect);
     if (option(args, "--out"))
@@ -1792,10 +1823,10 @@ export async function main(
         option(args, "--out"),
         `${JSON.stringify(plan, null, 2)}\n`,
       );
-    if (args.includes("--summary")) await writeSummary(renderPlan(plan), env);
+    if (args.includes("--summary")) await writeSummary(render(plan), env);
     if (env.GITHUB_OUTPUT)
       await appendFile(env.GITHUB_OUTPUT, `plan-digest=${plan.digest}\n`);
-    say(args.includes("--print") ? renderPlan(plan) : plan.digest);
+    say(args.includes("--print") ? render(plan) : plan.digest);
     return 0;
   }
   if (command === "protection") {
@@ -1847,10 +1878,14 @@ export async function main(
     const receipt = await readFile(option(args, "--receipt"), "utf8")
       .then((text) => JSON.parse(text))
       .catch(() => null);
-    const text = renderFinal(receipt, {
+    const context = {
       applyOutcome: env.APPLY_OUTCOME,
       jobStatus: env.JOB_STATUS,
-    });
+    };
+    const text =
+      receipt?.kind === "operation"
+        ? (await operations()).renderOperationFinal(receipt, context)
+        : renderFinal(receipt, context);
     await writeSummary(text, env);
     say(text);
     return 0;
@@ -1866,6 +1901,32 @@ export async function main(
         "Production URL points at this runner",
       );
     for (const value of maskValues(conn)) say(`::add-mask::${value}`);
+    if (isOperation(plan)) {
+      const ops = await operations();
+      const receipt = await ops.runOperation({
+        exec,
+        plan,
+        dir: option(args, "--dir"),
+        conn,
+        target: "production",
+        cwd,
+        log: (l) => say(redact(l, conn)),
+        onProgress: async (r) => {
+          if (option(args, "--receipt"))
+            await writeFile(option(args, "--receipt"), JSON.stringify(r));
+        },
+        ...(settleMs !== undefined ? { settleMs } : {}),
+      });
+      await writeSummary(ops.renderOperationReceipt(receipt), env);
+      say(JSON.stringify(receipt));
+      if (!["verified", "no-change"].includes(receipt.status)) {
+        say(
+          `::error title=Production operation ${receipt.status}::${receipt.issues.join(", ")}. ${receipt.recovery}`,
+        );
+        return 1;
+      }
+      return 0;
+    }
     const receipt = await runDeploy({
       exec,
       plan,
@@ -1899,6 +1960,22 @@ export async function main(
     requireRunner(env, platform);
     const plan = await readPlan();
     const conn = parseDbUrl(env.SUPABASE_DB_URL);
+    if (isOperation(plan)) {
+      const ops = await operations();
+      const result = await ops.runOperationReplay({
+        exec,
+        plan,
+        dir: option(args, "--dir"),
+        conn,
+        cwd,
+        log: say,
+        ...(spawnHeld ? { spawnHeld } : {}),
+        ...(settleMs !== undefined ? { settleMs } : {}),
+      });
+      await writeSummary(ops.renderOperationReplay(result), env);
+      say(JSON.stringify(result));
+      return result.status === "verified" ? 0 : 1;
+    }
     const { receipt, diff } = await runReplay({
       exec,
       plan,
