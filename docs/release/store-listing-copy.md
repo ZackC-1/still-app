@@ -250,7 +250,7 @@ Privacy: https://stillapp.fit/privacy/
 | Box | Value | Length |
 |---|---|---|
 | Name (from the manifest) | Still: Remove Shorts & Reels, Stop Scrolling | 44/45 |
-| Summary | Remove YouTube Shorts and Instagram & Facebook Reels, and block the TikTok website. Free, with no timers or stats. Sign in free to sync your settings with Chrome and with Safari on iPhone, iPad and Mac. Desktop Firefox. | 219/250 |
+| Summary | Remove YouTube Shorts and Instagram & Facebook Reels. Block the TikTok website. Free, no timers. Sign in free to sync your settings with Chrome and with Safari on iPhone, iPad and Mac. Works in Safari on iPhone and iPad, and in Firefox on Android. | 247/250 |
 | Categories | Social & Communication; Photos, Music & Videos | |
 | Support email | support@stillapp.fit | |
 | Support website | https://stillapp.fit/support/ | |
@@ -299,7 +299,7 @@ Privacy: https://stillapp.fit/privacy/
 **Notes to reviewer:**
 
 ```
-All blocking and optional settings sync are free. No account or purchase is needed for blocking. Sign-in uses an emailed six-digit code. Host permissions are limited to YouTube, Instagram, Facebook and TikTok. This release supports desktop Firefox.
+All blocking and optional settings sync are free. No account or purchase is needed for blocking. Sign-in uses an emailed six-digit code. Host permissions are limited to YouTube, Instagram, Facebook and TikTok. This release works in desktop Firefox and in Firefox on Android (142 or newer).
 
 New in 2.1: optional usage analytics declared as the optional "technicalAndInteraction" data collection permission. Nothing is sent unless the user grants it (at install or later from Still's settings). It records product events only, never page addresses, videos, searches or page content.
 

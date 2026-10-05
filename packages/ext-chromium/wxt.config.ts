@@ -46,7 +46,7 @@ export function stillManifest(browser: string) {
     // description at 132 and AMO's summary at 250 (lib/__tests__/firefox-manifest.test.ts).
     name: "Still: Remove Shorts & Reels, Stop Scrolling",
     description: isFirefox
-      ? "Remove YouTube Shorts and Instagram & Facebook Reels, and block the TikTok website. Free, with no timers or stats. Sign in free to sync your settings with Chrome and with Safari on iPhone, iPad and Mac. Desktop Firefox."
+      ? "Remove YouTube Shorts and Instagram & Facebook Reels. Block the TikTok website. Free, no timers. Sign in free to sync your settings with Chrome and with Safari on iPhone, iPad and Mac. Works in Safari on iPhone and iPad, and in Firefox on Android."
       : "Remove YouTube Shorts and Instagram & Facebook Reels. Block the TikTok website. Free, no timers. Syncs with Still on iPhone & Mac.",
     permissions: [
       "storage",
