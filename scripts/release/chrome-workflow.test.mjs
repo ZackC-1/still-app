@@ -12,6 +12,16 @@ const WORKFLOWS = new URL("../../.github/workflows/", import.meta.url);
 const FILE = "release-chrome.yml";
 const PINNED = /^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/;
 const AUTH = "google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093";
+// The store job's identity-token permission covers every step in it, so every action it runs could ask
+// for a Google token. Only these five pinned actions may run there. Changing this list is a security
+// decision, not a version bump.
+const STORE_JOB_ACTIONS = [
+  "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1",
+  "actions/setup-node@820762786026740c76f36085b0efc47a31fe5020",
+  "actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c",
+  "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
+  AUTH,
+];
 
 // Same plain-data YAML reader as scripts/backend/deploy/deploy-workflow.test.mjs: no anchors, no tags.
 function value(node) {
@@ -158,6 +168,13 @@ const checks = {
     assert.deepEqual(store[check].env, { CWS_PUBLISHER_ID: "${{ vars.CWS_PUBLISHER_ID }}", CWS_EXTENSION_ID: "${{ vars.CWS_EXTENSION_ID }}" });
     assert.equal(store[check].if, undefined, "the check always runs");
   },
+  "the store job runs only the five allowlisted actions, and setup-node there caches nothing": (_t, w) => {
+    const used = steps(w.jobs.store).filter((s) => s.uses).map((s) => s.uses);
+    assert.deepEqual([...new Set(used)].sort(), [...STORE_JOB_ACTIONS].sort());
+    const setupNode = steps(w.jobs.store).filter((s) => String(s.uses).startsWith("actions/setup-node@"));
+    assert.equal(setupNode.length, 1);
+    assert.deepEqual(Object.keys(setupNode[0].with).sort(), ["node-version"], "no cache or other inputs on setup-node in the store job");
+  },
   "exact Node version in both jobs": (_t, w) => {
     const versions = Object.values(w.jobs).map((job) => steps(job).find((s) => String(s.uses).startsWith("actions/setup-node@")).with["node-version"]);
     assert.equal(new Set(versions).size, 1);
@@ -216,6 +233,8 @@ const BREAKS = [
   ["checkouts keep no credentials and use the dispatched main commit", (t) => t.replace("ref: ${{ github.sha }}", "ref: ${{ inputs.commit }}")],
   ["the store job installs nothing from npm", (t) => t.replace("run: node scripts/release/chrome-release.mjs protection", "run: pnpm install && node scripts/release/chrome-release.mjs protection")],
   ["Chrome identifiers are checked in their own step before the first sign-in", (t) => t.replace("      - name: Check the Chrome identifiers before any sign-in\n        env:\n          CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}\n          CWS_EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID }}\n        run: node scripts/release/chrome-release.mjs check-ids\n", "")],
+  ["the store job runs only the five allowlisted actions, and setup-node there caches nothing", (t) => t.replace("      - name: Verify it is byte-for-byte the approved package\n", "      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830\n        with:\n          path: ~/.npm\n          key: npm\n      - name: Verify it is byte-for-byte the approved package\n")],
+  ["the store job runs only the five allowlisted actions, and setup-node there caches nothing", (t) => t.replace('          node-version: "22.23.3"\n      - name: Check the inputs and that this is the real workflow on main', '          node-version: "22.23.3"\n          cache: pnpm\n      - name: Check the inputs and that this is the real workflow on main')],
   ["exact Node version in both jobs", (t) => t.replace('node-version: "22.23.3"', 'node-version: "22"')],
 ];
 
