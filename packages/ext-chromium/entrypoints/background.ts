@@ -206,8 +206,9 @@ export default defineBackground(() => {
     analytics.onInstalled(details);
     // D14: a brand-new install opens the first-run page, after (never instead of) install-time
     // settings and analytics. Nothing waits on it, and blocking never depends on it; an update
-    // never opens it (Settings → Setup guide reopens it on request).
-    if (shouldOpenFirstRun(details)) {
+    // never opens it (Settings → Setup guide reopens it on request). Like the other V3 screens it
+    // appears only in builds that show them; configured 2.x builds keep today's install behaviour.
+    if (settingsRuntime.atomicLocal && shouldOpenFirstRun(details)) {
       void Promise.resolve()
         .then(() => chrome.tabs.create({ url: chrome.runtime.getURL(FIRST_RUN_PAGE) }))
         .catch(() => {

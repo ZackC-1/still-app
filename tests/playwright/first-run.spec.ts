@@ -16,6 +16,11 @@ const CHROMIUM_EXTENSION = resolve(
 
 const FIRST_RUN = /^chrome-extension:\/\/[a-z]{32}\/first-run\.html$/;
 
+// The first-run page is a V3 screen: it opens only in builds that show the V3 screens. A configured
+// (2.x store-style) build keeps today's install behaviour and its existing settings page.
+const syncConfigured = process.env.STILL_TEST_SYNC_CONFIGURED === "true";
+const V3_ONLY = "First-run is a V3 screen; configured 2.x builds do not open it";
+
 async function firstRunPage(context: BrowserContext): Promise<Page> {
   const open = context.pages().find((page) => FIRST_RUN.test(page.url()));
   if (open) return open;
@@ -29,6 +34,7 @@ test("a new install opens the first-run page once, without a combined consent qu
   context,
   extensionId,
 }) => {
+  test.skip(syncConfigured, V3_ONLY);
   expect(extensionId).toMatch(/^[a-z]{32}$/);
   const page = await firstRunPage(context);
   await page.waitForLoadState("domcontentloaded");
@@ -109,6 +115,7 @@ async function launchWithExtensionLoader(profile: string) {
 }
 
 test("an update does not open the first-run page", async () => {
+  test.skip(syncConfigured, V3_ONLY);
   test.setTimeout(120_000);
   const work = mkdtempSync(join(tmpdir(), "still-first-run-update-"));
   const extension = join(work, "extension");
@@ -155,8 +162,7 @@ test("an update does not open the first-run page", async () => {
 });
 
 test("blocking works on a fresh install without ever looking at the first-run page", async ({ context }) => {
-  const setup = await firstRunPage(context);
-  await setup.close();
+  if (!syncConfigured) await (await firstRunPage(context)).close();
   const page = await context.newPage();
   await page.route("**://*.youtube.com/**", (route) =>
     route.fulfill({ contentType: "text/html; charset=utf-8", body: fixture("youtube.html") }),
@@ -167,6 +173,7 @@ test("blocking works on a fresh install without ever looking at the first-run pa
 });
 
 test("Settings → Setup guide reopens the first-run page", async ({ context, extensionId }) => {
+  test.skip(syncConfigured, V3_ONLY);
   const setup = await firstRunPage(context);
   await setup.close();
   const options = await context.newPage();
@@ -175,4 +182,11 @@ test("Settings → Setup guide reopens the first-run page", async ({ context, ex
   await options.getByRole("button", { name: "Setup guide" }).click();
   const page = await reopened;
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Still is on.");
+});
+
+test("a configured store-style build does not open the first-run page on install", async ({ context, extensionId }) => {
+  test.skip(!syncConfigured, "Requires the independently declared configured build");
+  expect(extensionId).toMatch(/^[a-z]{32}$/);
+  await new Promise((resolveQuiet) => setTimeout(resolveQuiet, 3_000));
+  expect(firstRunPages(context)).toHaveLength(0);
 });
