@@ -6,6 +6,11 @@
 // runner. The apply job (GitHub environment `supabase-production`, owner approval required)
 // re-derives the same digest, refuses unexpected hosted history, applies only the listed
 // migrations with the pinned Supabase CLI and then runs read-only verification queries.
+// Before the secret step it also refuses if main moved and changed any planned file since dispatch.
+//
+// Public logs: on the production target nothing from the CLI, psql or Postgres is printed raw
+// (an error DETAIL can quote row values). Only fixed categories, SQLSTATE codes, planned file
+// names and counts per verification issue class appear. Full text only in the local rehearsal.
 //
 // No rollback: a failure stops, reports what is known, and requires a reviewed fix-forward.
 // Dependency-free on purpose (node built-ins only): the secret-bearing job installs nothing.
@@ -160,6 +165,10 @@ export function makeGit(exec, cwd) {
       if (result.code !== 0) return [];
       return result.stdout.toString("utf8").split("\0").filter(Boolean).sort();
     },
+    async onFirstParent(commit, main) {
+      const result = await git(["rev-list", "--first-parent", main]);
+      return result.stdout.toString("utf8").split("\n").includes(commit);
+    },
     async blob(commit, path) {
       const result = await git(["cat-file", "blob", `${commit}:${path}`], {
         allowFail: true,
@@ -305,28 +314,40 @@ export async function createDeployPlan({
   }
   const byFile = new Map(hashed.map((m) => [m.file, m]));
 
-  const planned = [];
-  for (const m of listed) {
-    const path = `${VERIFY_DIR}/${m.file}`;
+  // Verification, invariant and config bytes must also be identical on main, so a commit that
+  // reached main through a merge's second parent cannot bring a stale or weaker check.
+  const boundFile = async (path, { optional = false, category }) => {
     const bytes = await git.blob(inputs.sha, path);
-    if (!bytes) {
+    const onMain = await git.blob(mainCommit, path);
+    if (!bytes && !onMain && optional) return null;
+    if (!bytes) throw new Refusal(category, `${path} missing at that commit`);
+    if (!onMain || sha256(bytes) !== sha256(onMain)) {
       throw new Refusal(
-        "verification-missing",
-        `No read-only verification query for ${m.file} at that commit`,
+        "file-changed-on-main",
+        `${path} differs between the commit and main`,
       );
     }
-    lintVerificationSql(bytes.toString("utf8"));
+    return { path, sha256: sha256(bytes), text: bytes.toString("utf8") };
+  };
+  const planned = [];
+  for (const m of listed) {
+    const verification = await boundFile(`${VERIFY_DIR}/${m.file}`, {
+      category: "verification-missing",
+    });
+    lintVerificationSql(verification.text);
+    const invariant = await boundFile(invariantPath(m.file), {
+      optional: true,
+      category: "invariant-missing",
+    });
+    if (invariant) lintVerificationSql(invariant.text);
+    const pick = (f) => (f ? { path: f.path, sha256: f.sha256 } : null);
     planned.push({
       ...byFile.get(m.file),
-      verification: { path, sha256: sha256(bytes) },
+      verification: pick(verification),
+      invariant: pick(invariant),
     });
   }
-  const config = await git.blob(inputs.sha, CONFIG_PATH);
-  if (!config)
-    throw new Refusal(
-      "config-missing",
-      "supabase/config.toml missing at that commit",
-    );
+  const config = await boundFile(CONFIG_PATH, { category: "config-missing" });
 
   const tooling = [];
   for (const path of TOOLING_PATHS) {
@@ -343,8 +364,9 @@ export async function createDeployPlan({
     environment: ENVIRONMENT_NAME,
     revision: inputs.sha,
     workflowRevision: mainCommit,
+    onFirstParent: await git.onFirstParent(inputs.sha, mainCommit),
     cli: { version: CLI_VERSION, tarballSha256: CLI_TARBALL_SHA256 },
-    config: { path: CONFIG_PATH, sha256: sha256(config) },
+    config: { path: config.path, sha256: config.sha256 },
     migrations: planned,
     functions: [],
     priorMigrations: hashed.filter(
@@ -358,6 +380,68 @@ export async function createDeployPlan({
       "stop-and-fix-forward; never restore removed grants; no automatic rollback",
   };
   return { ...manifest, digest: sha256(canonical(manifest)) };
+}
+
+export const invariantPath = (file) =>
+  `${VERIFY_DIR}/${file.replace(/\.sql$/, "")}.invariant.sql`;
+
+/** Every file the deploy relies on, with its planned hash. */
+export function boundFiles(plan) {
+  return [
+    plan.config,
+    ...plan.priorMigrations.map((m) => ({
+      path: `${MIGRATIONS_DIR}/${m.file}`,
+      sha256: m.sha256,
+    })),
+    ...plan.migrations.flatMap((m) => [
+      { path: `${MIGRATIONS_DIR}/${m.file}`, sha256: m.sha256 },
+      m.verification,
+      ...(m.invariant ? [m.invariant] : []),
+    ]),
+  ];
+}
+
+/**
+ * Staleness guard for a run that waited for approval while main moved. Passes when main's
+ * current tip is still the dispatch revision, or when every bound file is byte-identical at the
+ * tip and the tip holds exactly the planned migrations up to the newest planned version.
+ */
+export async function checkFreshness({ git, plan, tipRef }) {
+  const tip = await git.commit(tipRef);
+  if (tip === plan.workflowRevision) return { tip, mode: "tip-unchanged" };
+  if (!(await git.isAncestor(plan.revision, tip))) {
+    throw new Refusal(
+      "main-moved",
+      "The planned commit is no longer on main; plan again",
+    );
+  }
+  for (const file of boundFiles(plan)) {
+    const bytes = await git.blob(tip, file.path);
+    if (!bytes || sha256(bytes) !== file.sha256) {
+      throw new Refusal(
+        "main-moved",
+        `main changed ${file.path} after dispatch; plan again`,
+      );
+    }
+  }
+  const highest = plan.expectedHistoryAfter.at(-1).version;
+  const atTip = (
+    await migrationsAt(git, tip).catch(() => {
+      throw new Refusal(
+        "main-moved",
+        "main's migrations are no longer valid; plan again",
+      );
+    })
+  )
+    .filter((m) => compareVersions(m.version, highest) <= 0)
+    .map(({ version, name }) => ({ version, name }));
+  if (canonical(atTip) !== canonical(plan.expectedHistoryAfter)) {
+    throw new Refusal(
+      "main-moved",
+      "main's migrations changed after dispatch; plan again",
+    );
+  }
+  return { tip, mode: "files-identical" };
 }
 
 export function assertSamePlan(plan, expectedDigest) {
@@ -459,14 +543,14 @@ export async function verifyWorkdir({ plan, dir, stage }) {
       "config.toml hash differs from the plan",
     );
   }
-  for (const m of plan.migrations) {
-    if (
-      sha256(await readFile(join(dir, m.verification.path))) !==
-      m.verification.sha256
-    ) {
+  for (const file of plan.migrations.flatMap((m) => [
+    m.verification,
+    ...(m.invariant ? [m.invariant] : []),
+  ])) {
+    if (sha256(await readFile(join(dir, file.path))) !== file.sha256) {
       throw new Refusal(
         "hash-mismatch",
-        `${m.verification.path} hash differs from the plan`,
+        `${file.path} hash differs from the plan`,
       );
     }
   }
@@ -581,8 +665,28 @@ export function cliDbUrl(conn, target) {
   return `postgresql://${encodeURIComponent(conn.user)}:${encodeURIComponent(conn.password)}@${host}:${conn.port}/${encodeURIComponent(conn.database)}?sslmode=${sslmodeFor(conn, target)}`;
 }
 
+/** True when output from tools may be shown in full (only the runner's own throwaway database). */
+export const showsRawOutput = (target) => target === "local-replay";
+
+/** Extracts only a SQLSTATE code and a planned migration file name from tool output. */
+export function failureFacts(text, plannedFiles = []) {
+  const source = String(text ?? "");
+  const codes = [
+    ...source.matchAll(/SQLSTATE[\s:=]*([0-9A-Z]{5})\b/g),
+    ...source.matchAll(/^(?:ERROR|FATAL|PANIC):\s+([0-9A-Z]{5})\s*$/gm),
+  ].map((m) => m[1]);
+  let migration = null;
+  let at = -1;
+  for (const file of plannedFiles) {
+    const index = source.lastIndexOf(file);
+    if (index > at) [at, migration] = [index, file];
+  }
+  return { sqlstate: codes.at(-1) ?? "unknown", migration };
+}
+
 /** Runs one bound read-only query file; returns the last output line. */
 export async function runReadOnlySql({ exec, conn, target, file, cwd }) {
+  const raw = showsRawOutput(target);
   const result = await exec(
     "psql",
     [
@@ -592,20 +696,25 @@ export async function runReadOnlySql({ exec, conn, target, file, cwd }) {
       "-t",
       "-v",
       "ON_ERROR_STOP=1",
+      // Production errors carry only the SQLSTATE: no message, DETAIL or row values.
+      "-v",
+      `VERBOSITY=${raw ? "default" : "sqlstate"}`,
       "-c",
       "set session characteristics as transaction read only",
       "-c",
       "set statement_timeout = '60s'",
+      "-c",
+      "set lock_timeout = '10s'",
       "-f",
       file,
     ],
     { cwd, env: pgEnv(conn, target) },
   );
   if (result.code !== 0) {
-    throw new Refusal(
-      "sql-failed",
-      `Read-only query failed: ${redact(result.stderr, conn).slice(0, 2000)}`,
-    );
+    const detail = raw
+      ? redact(result.stderr, conn).slice(0, 2000)
+      : `SQLSTATE ${failureFacts(result.stderr).sqlstate}`;
+    throw new Refusal("sql-failed", `Read-only query failed: ${detail}`);
   }
   const lines = result.stdout
     .toString()
@@ -704,6 +813,8 @@ export function parseDryRun(text) {
 
 // ── Orchestration ──────────────────────────────────────────────────────────────────────────────
 
+export const LOCK_TIMEOUT = "15s";
+
 async function supabasePush({ exec, conn, target, dir, dryRun }) {
   const args = [
     "db",
@@ -717,7 +828,12 @@ async function supabasePush({ exec, conn, target, dir, dryRun }) {
   if (dryRun) args.push("--dry-run");
   const result = await exec("supabase", args, {
     cwd: dir,
-    env: { DO_NOT_TRACK: "1", SUPABASE_TELEMETRY_DISABLED: "1" },
+    env: {
+      DO_NOT_TRACK: "1",
+      SUPABASE_TELEMETRY_DISABLED: "1",
+      // pgx reads PGOPTIONS: give up instead of queueing behind a long-held lock.
+      PGOPTIONS: `-c lock_timeout=${LOCK_TIMEOUT}`,
+    },
   });
   return {
     code: result.code,
@@ -725,10 +841,38 @@ async function supabasePush({ exec, conn, target, dir, dryRun }) {
   };
 }
 
+/** Splits verification output into failing issues and the reviewed, reported residual. */
+export function classifyIssues(list) {
+  if (list.some((i) => typeof i !== "string")) {
+    throw new Refusal(
+      "verification-output-invalid",
+      "Issue codes must be strings",
+    );
+  }
+  return {
+    failing: list.filter((i) => !i.startsWith("residual:")),
+    residual: list.filter((i) => i.startsWith("residual:")),
+  };
+}
+
+/** Public form of issue codes: counts per class (text before the first colon), never names. */
+export function issueCounts(list) {
+  const counts = new Map();
+  for (const issue of list) {
+    const kind = issue.split(":")[0];
+    counts.set(kind, (counts.get(kind) ?? 0) + 1);
+  }
+  return [...counts]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([kind, n]) => `${kind}×${n}`)
+    .join(", ");
+}
+
 /**
  * Applies exactly the planned migrations to `conn`. Never throws: always returns a receipt.
  * status: verified | refused (nothing written) | stopped (write attempted, needs review) |
- * verification-failed (write done, end state wrong).
+ * verification-failed (write done, end state wrong). While running the status is in-progress;
+ * `onProgress` receives the receipt after every step so an interrupted run leaves a record.
  */
 export async function runDeploy({
   exec,
@@ -738,24 +882,40 @@ export async function runDeploy({
   target,
   cwd,
   log = () => {},
+  onProgress = async () => {},
 }) {
+  const raw = showsRawOutput(target);
+  const planned = plan.migrations.map((m) => m.file);
   const receipt = {
-    status: "refused",
+    status: "in-progress",
     target,
     digest: plan.digest,
     revision: plan.revision,
-    migrations: plan.migrations.map((m) => m.file),
+    migrations: plan.migrations.map((m) => ({
+      file: m.file,
+      sha256: m.sha256,
+    })),
     writeAttempted: false,
+    historyKnown: false,
     steps: [],
     issues: [],
     recovery: "none needed: nothing was written",
   };
-  const step = (name, outcome, detail) => {
+  const step = async (name, outcome, detail) => {
     receipt.steps.push(detail ? { name, outcome, detail } : { name, outcome });
     log(
       `${outcome === "ok" ? "PASS" : "FAIL"} ${name}${detail ? `: ${detail}` : ""}`,
     );
+    await onProgress(receipt);
   };
+  // Raw tool text only for the local rehearsal; production gets category + SQLSTATE + file.
+  const toolFailure = (category, output) =>
+    raw
+      ? output
+      : (({ sqlstate, migration }) =>
+          `${category} sqlstate=${sqlstate} migration=${migration ?? "none"}`)(
+          failureFacts(output, planned),
+        );
   const history = async () =>
     parseHistory(
       await runReadOnlySql({
@@ -766,40 +926,81 @@ export async function runDeploy({
         file: join(cwd, HISTORY_SQL),
       }),
     );
+  const verification = async (m) =>
+    classifyIssues(
+      parseJsonArray(
+        await runReadOnlySql({
+          exec,
+          conn,
+          target,
+          cwd,
+          file: join(dir, m.verification.path),
+        }),
+        "verification-output-invalid",
+      ),
+    );
+  const invariant = async (m) =>
+    runReadOnlySql({
+      exec,
+      conn,
+      target,
+      cwd,
+      file: join(dir, m.invariant.path),
+    });
+  const invariantsBefore = new Map();
   try {
     await verifyWorkdir({ plan, dir, stage: "full" });
-    step("deploy directory matches plan hashes", "ok");
+    await step("deploy directory matches plan hashes", "ok");
 
     const before = compareHistory(await history(), plan.expectedHistoryBefore, {
       alreadyApplied: plan.expectedHistoryAfter,
     });
+    receipt.historyKnown = true;
     if (!before.ok) {
-      step(
+      await step(
         "migration history before",
         "refused",
         `${before.category} (observed ${before.observedCount}, expected ${before.expectedCount}, unexpected ${before.unexpected}, missing ${before.missing})`,
       );
       throw new Refusal(`history-${before.category}`);
     }
-    step(
+    await step(
       "migration history before",
       "ok",
       `${before.observedCount} entries, as expected`,
     );
 
+    // Baseline: the end-state check is expected to report issues before the change.
+    for (const m of plan.migrations) {
+      const { failing, residual } = await verification(m);
+      await step(
+        `baseline ${m.file}`,
+        "ok",
+        `${failing.length} open issue(s) before the change${failing.length ? ` (${raw ? failing.join(", ") : issueCounts(failing)})` : ""}; residual ${residual.length}`,
+      );
+      if (m.invariant) {
+        invariantsBefore.set(m.file, await invariant(m));
+        await step(
+          `invariant baseline ${m.file}`,
+          "ok",
+          "recorded (not printed)",
+        );
+      }
+    }
+
     const dry = await supabasePush({ exec, conn, target, dir, dryRun: true });
     const pending = dry.code === 0 ? parseDryRun(dry.output) : null;
-    const wanted = plan.migrations.map((m) => m.file).sort();
+    const wanted = [...planned].sort();
     if (!pending || canonical(pending) !== canonical(wanted)) {
-      step(
+      await step(
         "dry run lists exactly the planned migrations",
         "refused",
         pending ? `dry run listed ${pending.length}` : "dry run failed",
       );
-      if (!pending) log(dry.output);
+      if (!pending) log(toolFailure("dry-run-failed", dry.output));
       throw new Refusal("dry-run-differs");
     }
-    step(
+    await step(
       "dry run lists exactly the planned migrations",
       "ok",
       wanted.join(", "),
@@ -807,50 +1008,59 @@ export async function runDeploy({
 
     const recheck = compareHistory(await history(), plan.expectedHistoryBefore);
     if (!recheck.ok) {
-      step(
+      await step(
         "migration history unchanged before apply",
         "refused",
         recheck.category,
       );
       throw new Refusal(`history-${recheck.category}`);
     }
-    step("migration history unchanged before apply", "ok");
+    await step("migration history unchanged before apply", "ok");
   } catch (error) {
+    receipt.status = "refused";
     receipt.issues.push(
       error instanceof Refusal ? error.category : "unexpected-error",
     );
     if (error instanceof Refusal && error.message !== error.category)
       log(error.message);
+    await onProgress(receipt);
     return receipt;
   }
 
   receipt.writeAttempted = true;
+  receipt.historyKnown = false;
   receipt.recovery =
     "fix-forward only: keep payments off, do not restore removed grants, inspect the recorded state, " +
     "write a new forward migration, and approve it as a new deploy";
+  await onProgress(receipt);
   const pushed = await supabasePush({ exec, conn, target, dir, dryRun: false });
-  log(pushed.output);
+  if (raw) log(pushed.output);
   if (pushed.code !== 0) {
     receipt.status = "stopped";
-    step("apply", "failed", "supabase db push exited with an error");
     receipt.issues.push("apply-failed");
+    await step(
+      "apply",
+      "failed",
+      raw
+        ? "supabase db push exited with an error"
+        : toolFailure("apply-failed", pushed.output),
+    );
     try {
       const observed = await history();
+      receipt.historyKnown = true;
       const recorded = new Set(
         observed.map((e) => `${e.version}_${e.name}.sql`),
       );
-      const applied = plan.migrations.filter((m) =>
-        recorded.has(m.file),
-      ).length;
-      receipt.appliedListed = `${applied} of ${plan.migrations.length}`;
-      step(
+      const applied = planned.filter((f) => recorded.has(f)).length;
+      receipt.appliedListed = `${applied} of ${planned.length}`;
+      await step(
         "history after failure",
         "ok",
-        `${applied} of ${plan.migrations.length} planned migrations recorded`,
+        `${applied} of ${planned.length} planned migrations recorded`,
       );
     } catch {
       receipt.appliedListed = "unknown";
-      step(
+      await step(
         "history after failure",
         "failed",
         "state unknown; inspect privately",
@@ -858,59 +1068,83 @@ export async function runDeploy({
     }
     return receipt;
   }
-  step("apply", "ok");
+  await step("apply", "ok");
 
   receipt.status = "verification-failed";
   try {
     const after = compareHistory(await history(), plan.expectedHistoryAfter);
+    receipt.historyKnown = true;
     if (!after.ok) {
-      step("migration history after", "failed", after.category);
       receipt.issues.push(`history-after-${after.category}`);
+      await step("migration history after", "failed", after.category);
     } else
-      step(
+      await step(
         "migration history after",
         "ok",
         `${after.observedCount} entries, as expected`,
       );
   } catch (error) {
-    step("migration history after", "failed", "unreadable");
     receipt.issues.push(
       error instanceof Refusal ? error.category : "unexpected-error",
     );
+    await step("migration history after", "failed", "unreadable");
   }
   for (const m of plan.migrations) {
     try {
-      const file = join(dir, m.verification.path);
-      if (sha256(await readFile(file)) !== m.verification.sha256)
-        throw new Refusal("verification-hash-mismatch");
-      const issues = parseJsonArray(
-        await runReadOnlySql({ exec, conn, target, cwd, file }),
-        "verification-output-invalid",
-      );
-      if (issues.length > 0 || issues.some((i) => typeof i !== "string")) {
-        step(
+      const { failing, residual } = await verification(m);
+      if (failing.length > 0) {
+        receipt.issues.push(`verification-issues:${m.file}`);
+        await step(
           `verify ${m.file}`,
           "failed",
-          issues
-            .map((i) => String(i))
-            .join(", ")
-            .slice(0, 4000),
+          `${failing.length} issue(s): ${raw ? failing.join(", ").slice(0, 4000) : issueCounts(failing)}`,
         );
-        receipt.issues.push(`verification-issues:${m.file}`);
-      } else step(`verify ${m.file}`, "ok", "no issues");
+      } else
+        await step(
+          `verify ${m.file}`,
+          "ok",
+          `no issues; reviewed residual reported ${residual.length}${raw && residual.length ? ` (${residual.join(", ")})` : ""}`,
+        );
     } catch (error) {
-      step(
+      receipt.issues.push(`verification-error:${m.file}`);
+      await step(
         `verify ${m.file}`,
         "failed",
-        error instanceof Refusal ? error.category : "unexpected-error",
+        raw && error instanceof Refusal
+          ? error.message
+          : error instanceof Refusal
+            ? error.category
+            : "unexpected-error",
       );
-      receipt.issues.push(`verification-error:${m.file}`);
+    }
+    if (m.invariant) {
+      try {
+        const now = await invariant(m);
+        if (now !== invariantsBefore.get(m.file)) {
+          receipt.issues.push(`invariant-changed:${m.file}`);
+          await step(
+            `invariant ${m.file}`,
+            "failed",
+            raw
+              ? `before ${invariantsBefore.get(m.file)} after ${now}`
+              : "changed (values not printed; may be live traffic, inspect privately)",
+          );
+        } else await step(`invariant ${m.file}`, "ok", "unchanged");
+      } catch (error) {
+        receipt.issues.push(`invariant-error:${m.file}`);
+        await step(
+          `invariant ${m.file}`,
+          "failed",
+          error instanceof Refusal ? error.category : "unexpected-error",
+        );
+      }
     }
   }
   if (receipt.issues.length === 0) {
     receipt.status = "verified";
     receipt.recovery = "none needed";
   }
+  await onProgress(receipt);
   return receipt;
 }
 
@@ -943,7 +1177,7 @@ export async function runReplay({
   // Negative control: verification must NOT pass before the change, or it proves nothing.
   const vacuous = [];
   for (const m of plan.migrations) {
-    // An error or any reported issue both count as "not passing" here.
+    // An error or any failing issue both count as "not passing" here; residual does not count.
     const passes = await runReadOnlySql({
       exec,
       conn,
@@ -953,8 +1187,8 @@ export async function runReplay({
     })
       .then(
         (out) =>
-          canonical(parseJsonArray(out, "verification-output-invalid")) ===
-          "[]",
+          classifyIssues(parseJsonArray(out, "verification-output-invalid"))
+            .failing.length === 0,
       )
       .catch(() => false);
     if (passes) vacuous.push(m.file);
@@ -1172,8 +1406,10 @@ export function renderReceipt(receipt) {
     `## ${icon} Production deploy: ${receipt.status}`,
     "",
     `- Commit \`${receipt.revision}\`, plan digest \`${receipt.digest}\``,
-    `- Migrations: ${receipt.migrations.map((m) => `\`${m}\``).join(", ")}`,
-    `- Write attempted: ${receipt.writeAttempted ? "yes" : "no"}`,
+    ...receipt.migrations.map(
+      (m) => `- Migration \`${m.file}\` SHA-256 \`${m.sha256}\``,
+    ),
+    `- Write attempted: ${receipt.writeAttempted ? "yes" : "no"}; migration history ${receipt.historyKnown ? "known" : "UNKNOWN"}`,
     ...(receipt.appliedListed
       ? [
           `- Planned migrations recorded after the failure: ${receipt.appliedListed}`,
@@ -1190,6 +1426,30 @@ export function renderReceipt(receipt) {
     ),
     "",
   ];
+  return lines.join("\n");
+}
+
+/** Always-run, secret-free closing summary; covers cancellation and timeouts. */
+export function renderFinal(receipt, { applyOutcome, jobStatus }) {
+  const lines = ["## Deploy closing record", ""];
+  if (!receipt) {
+    lines.push(
+      `- The apply step did not leave a record (step outcome: ${applyOutcome || "not run"}, job: ${jobStatus || "unknown"}).`,
+      "- Nothing reached the database unless the step started; treat migration history as UNKNOWN and inspect it privately before any new deploy.",
+    );
+  } else {
+    const interrupted = receipt.status === "in-progress";
+    lines.push(
+      `- Outcome: ${interrupted ? `interrupted (${jobStatus === "cancelled" ? "cancelled" : "stopped or timed out"})` : receipt.status}; apply step ${applyOutcome || "unknown"}, job ${jobStatus || "unknown"}`,
+      `- Write attempted: ${receipt.writeAttempted ? "yes" : "no"}`,
+      `- Migration history: ${receipt.historyKnown && !interrupted ? "known (see steps above)" : "UNKNOWN: inspect privately before any new deploy"}`,
+      ...receipt.migrations.map(
+        (m) => `- Planned \`${m.file}\` SHA-256 \`${m.sha256}\``,
+      ),
+      `- Recovery: ${interrupted && receipt.writeAttempted ? "fix-forward only; never restore removed grants" : receipt.recovery}`,
+    );
+  }
+  lines.push("");
   return lines.join("\n");
 }
 
@@ -1225,11 +1485,11 @@ export function defaultExec(cmd, args, { cwd, env = {}, binary = false } = {}) {
   });
 }
 
-function requireRunner(env) {
+function requireRunner(env, platform) {
   if (
     env.GITHUB_ACTIONS !== "true" ||
     env.RUNNER_ENVIRONMENT !== "github-hosted" ||
-    process.platform !== "linux"
+    platform !== "linux"
   ) {
     throw new Refusal(
       "runner-required",
@@ -1238,8 +1498,8 @@ function requireRunner(env) {
   }
 }
 
-function requireProductionContext(env) {
-  requireRunner(env);
+function requireProductionContext(env, platform) {
+  requireRunner(env, platform);
   if (
     env.GITHUB_EVENT_NAME !== "workflow_dispatch" ||
     env.GITHUB_REF !== "refs/heads/main"
@@ -1264,7 +1524,12 @@ async function writeSummary(text, env) {
 export async function main(
   argv,
   env = process.env,
-  { exec = defaultExec, cwd = process.cwd(), out = process.stdout } = {},
+  {
+    exec = defaultExec,
+    cwd = process.cwd(),
+    out = process.stdout,
+    platform = process.platform,
+  } = {},
 ) {
   const [command, ...args] = argv;
   const say = (text) => out.write(`${text}\n`);
@@ -1324,8 +1589,32 @@ export async function main(
     say(`deploy directory ready (${option(args, "--stage")})`);
     return 0;
   }
+  if (command === "freshness") {
+    const plan = await readPlan();
+    const result = await checkFreshness({
+      git: makeGit(exec, cwd),
+      plan,
+      tipRef: option(args, "--main-ref") ?? "refs/remotes/origin/main",
+    });
+    const text = `Main is still safe to deploy from: ${result.mode} (current tip \`${result.tip}\`).`;
+    await writeSummary(text, env);
+    say(text);
+    return 0;
+  }
+  if (command === "final-summary") {
+    const receipt = await readFile(option(args, "--receipt"), "utf8")
+      .then((text) => JSON.parse(text))
+      .catch(() => null);
+    const text = renderFinal(receipt, {
+      applyOutcome: env.APPLY_OUTCOME,
+      jobStatus: env.JOB_STATUS,
+    });
+    await writeSummary(text, env);
+    say(text);
+    return 0;
+  }
   if (command === "apply") {
-    requireProductionContext(env);
+    requireProductionContext(env, platform);
     const plan = await readPlan();
     assertSamePlan(plan, env.EXPECTED_PLAN_DIGEST);
     const conn = parseDbUrl(env.SUPABASE_DB_URL);
@@ -1343,6 +1632,10 @@ export async function main(
       target: "production",
       cwd,
       log: (l) => say(redact(l, conn)),
+      onProgress: async (r) => {
+        if (option(args, "--receipt"))
+          await writeFile(option(args, "--receipt"), JSON.stringify(r));
+      },
     });
     await writeSummary(renderReceipt(receipt), env);
     say(JSON.stringify(receipt));
@@ -1355,7 +1648,7 @@ export async function main(
     return 0;
   }
   if (command === "replay") {
-    requireRunner(env);
+    requireRunner(env, platform);
     const plan = await readPlan();
     const conn = parseDbUrl(env.SUPABASE_DB_URL);
     const { receipt, diff } = await runReplay({
@@ -1382,7 +1675,7 @@ export async function main(
   }
   throw new Refusal(
     "input-invalid",
-    "Use plan, protection, workdir, apply or replay",
+    "Use plan, protection, workdir, freshness, apply, final-summary or replay",
   );
 }
 

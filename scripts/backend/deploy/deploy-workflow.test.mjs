@@ -119,11 +119,26 @@ test("only the approved apply job is bound to the environment and sees the one s
     JSON.stringify(s).includes("secrets."),
   );
   assert.equal(secretSteps.length, 1);
+  const applyStep = apply.steps.find((s) => s.id === "apply");
   assert.equal(
     secretSteps[0],
-    apply.steps.at(-1),
-    "the secret reaches only the final apply step",
+    applyStep,
+    "the secret reaches only the apply step",
   );
+  assert.equal(applyStep["timeout-minutes"], "10");
+  assert.match(
+    applyStep.run,
+    /--receipt "\$RUNNER_TEMP\/deploy-receipt\.json"/,
+  );
+  // The always-run closing record follows it, holds no secret and reads only the receipt.
+  const closing = apply.steps.at(-1);
+  assert.equal(apply.steps.indexOf(applyStep), apply.steps.length - 2);
+  assert.equal(closing.if, "always()");
+  assert.deepEqual(closing.env, {
+    APPLY_OUTCOME: "${{ steps.apply.outcome }}",
+    JOB_STATUS: "${{ job.status }}",
+  });
+  assert.match(closing.run, /deploy\.mjs final-summary --receipt/);
   assert.deepEqual(Object.keys(secretSteps[0].env), ["SUPABASE_DB_URL"]);
   assert.match(secretSteps[0].run, /deploy\.mjs apply /);
   assert.ok(!JSON.stringify(plan).includes("secrets."));
@@ -192,7 +207,10 @@ test("both jobs install the same checksum-pinned CLI and re-derive the plan befo
     "--expect-digest",
     "sha256sum -c",
     "--stage full",
+    "git fetch --no-tags --prune origin +refs/heads/main:refs/remotes/origin/main",
+    "deploy.mjs freshness --plan",
     "deploy.mjs apply",
+    "deploy.mjs final-summary",
   ].map((needle) => names.findIndex((r) => r.includes(needle)));
   assert.ok(
     order.every((i) => i >= 0),

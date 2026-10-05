@@ -146,7 +146,19 @@ jobs:
           psql --version
       - name: Extract the exact commit and re-verify every hash
         run: node scripts/backend/deploy/deploy.mjs workdir --plan "$RUNNER_TEMP/deploy-plan.json" --dir "$RUNNER_TEMP/deploy" --stage full
+      - name: Refuse if main moved and changed any planned file while approval was pending
+        run: |
+          git fetch --no-tags --prune origin +refs/heads/main:refs/remotes/origin/main
+          node scripts/backend/deploy/deploy.mjs freshness --plan "$RUNNER_TEMP/deploy-plan.json" --main-ref refs/remotes/origin/main
       - name: Apply exactly the planned migrations, then verify read-only
+        id: apply
+        timeout-minutes: 10
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_PRODUCTION_DB_URL }}
-        run: node scripts/backend/deploy/deploy.mjs apply --plan "$RUNNER_TEMP/deploy-plan.json" --dir "$RUNNER_TEMP/deploy"
+        run: node scripts/backend/deploy/deploy.mjs apply --plan "$RUNNER_TEMP/deploy-plan.json" --dir "$RUNNER_TEMP/deploy" --receipt "$RUNNER_TEMP/deploy-receipt.json"
+      - name: Closing record (always; no secret)
+        if: always()
+        env:
+          APPLY_OUTCOME: ${{ steps.apply.outcome }}
+          JOB_STATUS: ${{ job.status }}
+        run: node scripts/backend/deploy/deploy.mjs final-summary --receipt "$RUNNER_TEMP/deploy-receipt.json"

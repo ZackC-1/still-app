@@ -6,6 +6,7 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { createHash } from "node:crypto";
 import {
   CLI_TARBALL_SHA256,
   Refusal,
@@ -28,8 +29,12 @@ import {
   readProtection,
   redact,
   renderPlan,
+  renderFinal,
   renderReceipt,
   runDeploy,
+  checkFreshness,
+  failureFacts,
+  issueCounts,
   runReplay,
   sha256,
 } from "./deploy.mjs";
@@ -71,6 +76,11 @@ async function repo(t) {
     root,
     "scripts/backend/deploy/verify/0002_harden.sql",
     "select '[]';\n",
+  );
+  await put(
+    root,
+    "scripts/backend/deploy/verify/0002_harden.invariant.sql",
+    "select '{}';\n",
   );
   for (const path of TOOLING_PATHS) await put(root, path, `tooling ${path}\n`);
   git(root, "add", "-A");
@@ -304,31 +314,38 @@ test("verification lint accepts the real 0014 query and rejects writes or multip
   );
 });
 
-test("the 0014 verification covers every promise of the migration's self-check", async () => {
-  const real = await readFile(
-    new URL(
-      "./verify/0014_server_rpc_privilege_hardening.sql",
-      import.meta.url,
-    ),
-    "utf8",
-  );
+test("the 0014 verification covers the migration author's whole end-state list", async () => {
+  const read = (name) =>
+    readFile(new URL(`./verify/${name}`, import.meta.url), "utf8");
+  const real = await read("0014_server_rpc_privilege_hardening.sql");
   for (const code of [
-    "writer_missing:",
-    "service_role_execute:",
-    "client_execute:",
-    "write_profile_settings_beyond_authenticated",
-    "free_sync_missing",
-    "rule_read_missing",
-    "unpinned_search_path:",
+    "migration_missing:0014",
+    "routine_missing:",
+    "routine_extra_grantee:",
+    "routine_grantee_missing:",
+    "routine_reachable:",
+    "purchase_rpc_not_plpgsql:",
+    "purchase_rpc_not_definer:",
+    "routine_owner:",
     "guard_missing:",
+    "free_sync_body_changed",
+    "unpinned_search_path:",
+    "client_execute:",
+    "table_missing:",
     "rls_disabled:",
+    "public_write:",
+    "role_write:",
     "writer_table_privilege:",
-    "client_write:",
     "client_read:",
+    "client_read_missing:",
+    "entitlements_table_select:",
+    "service_role_changed:",
     "client_schema_create",
+    "postgres_global_function_default_missing",
     "postgres_global_function_default",
-    "postgres_public_schema_default",
-    "postgres_global_relation_default",
+    "postgres_public_default_service_role_missing:",
+    "residual:supabase_admin_public_default:",
+    "default_reaches_client:",
   ]) {
     assert.ok(real.includes(`'${code}`), `missing check ${code}`);
   }
@@ -339,9 +356,44 @@ test("the 0014 verification covers every promise of the migration's self-check",
     "public.complete_revenuecat_event(text,uuid)",
     "public.release_revenuecat_event(text,uuid)",
     "public.consume_rate_limit(text,integer,integer)",
+    "public.cleanup_rate_limit_counters()",
+    "public.sync_rate_limit_account()",
+    "public.write_profile_settings(jsonb,uuid)",
+    "public.get_current_rule_set()",
   ]) {
     assert.ok(real.includes(`'${sig}'`), sig);
   }
+  assert.match(real, /order by i\.issue collate "C"/);
+  // The free-sync body hash is the md5 of the exact 0012 body (what PostgreSQL stores as prosrc).
+  const m0012 = await readFile(
+    new URL(
+      "../../../supabase/migrations/0012_profiles_write_free_sync.sql",
+      import.meta.url,
+    ),
+    "utf8",
+  );
+  const start =
+    m0012.indexOf(
+      "$$",
+      m0012.indexOf("function public.write_profile_settings"),
+    ) + 2;
+  const body = m0012.slice(start, m0012.indexOf("$$", start));
+  const md5 = createHash("md5").update(body).digest("hex");
+  assert.ok(real.includes(`'${md5}'`), `free-sync md5 ${md5}`);
+  const invariant = await read(
+    "0014_server_rpc_privilege_hardening.invariant.sql",
+  );
+  assert.equal(lintVerificationSql(invariant), true);
+  for (const table of [
+    "auth.users",
+    "public.canary_state",
+    "public.entitlements",
+    "public.profiles",
+    "public.revenuecat_events",
+    "public.rule_sets",
+  ])
+    assert.ok(invariant.includes(`from ${table})`), table);
+  assert.doesNotMatch(invariant, /from public\.rate_limit/);
 });
 
 // ── Secrets handling ─────────────────────────────────────────────────────────────────────────
@@ -437,12 +489,17 @@ function fakeDb(
     pushFails,
     onPush,
     beforeSecondRead,
+    pushOutput,
+    countsAfterPush,
+    psqlFailure,
   } = {},
 ) {
   const state = {
     history: structuredClone(history ?? p.expectedHistoryBefore),
     calls: [],
     historyReads: 0,
+    counts: { "public.profiles": 3 },
+    pushed: false,
   };
   const exec = async (cmd, args, opts = {}) => {
     state.calls.push([cmd, args, opts]);
@@ -456,6 +513,14 @@ function fakeDb(
         !args.join(" ").includes(SECRET),
         "secret must never be a psql argument",
       );
+      if (psqlFailure && psqlFailure(file, state))
+        return { code: 3, stdout: "", stderr: psqlFailure(file, state) };
+      if (file.endsWith(".invariant.sql"))
+        return {
+          code: 0,
+          stdout: `${JSON.stringify(state.counts)}\n`,
+          stderr: "",
+        };
       if (file.endsWith("migration-history.sql")) {
         state.historyReads++;
         if (state.historyReads === 2 && beforeSecondRead)
@@ -492,6 +557,8 @@ function fakeDb(
         };
       }
       onPush?.(state);
+      state.pushed = true;
+      if (pushOutput) return pushOutput;
       if (pushFails)
         return {
           code: 1,
@@ -499,6 +566,7 @@ function fakeDb(
           stderr: `ERROR: self-check failed at ${PROD_URL}`,
         };
       state.history = structuredClone(p.expectedHistoryAfter);
+      if (countsAfterPush) state.counts = countsAfterPush;
       return {
         code: 0,
         stdout:
@@ -555,12 +623,27 @@ test("deploy applies only after history and dry run match, then verifies read-on
     );
   assert.deepEqual(order, [
     "migration-history.sql",
+    "0002_harden.sql",
+    "0002_harden.invariant.sql",
     "dry-run",
     "migration-history.sql",
     "push",
     "migration-history.sql",
     "0002_harden.sql",
+    "0002_harden.invariant.sql",
   ]);
+  assert.deepEqual(receipt.migrations, [
+    { file: "0002_harden.sql", sha256: p.migrations[0].sha256 },
+  ]);
+  assert.match(renderReceipt(receipt), new RegExp(p.migrations[0].sha256));
+  for (const [cmd, args, opts] of db.state.calls) {
+    if (cmd === "supabase")
+      assert.equal(opts.env.PGOPTIONS, "-c lock_timeout=15s");
+    if (cmd === "psql") {
+      assert.ok(args.includes("set lock_timeout = '10s'"));
+      assert.ok(args.includes("VERBOSITY=sqlstate"));
+    }
+  }
   const push = pushes(db.state)[0][1];
   assert.ok(push.join(" ").includes("sslmode=require"));
   assert.ok(
@@ -702,9 +785,29 @@ test("verification issues after apply fail loudly with their codes", async (t) =
   });
   assert.equal(receipt.status, "verification-failed");
   assert.deepEqual(receipt.issues, ["verification-issues:0002_harden.sql"]);
-  assert.match(receipt.steps.at(-1).detail, /client_execute:anon/);
+  const verifyStep = receipt.steps.find(
+    (x) => x.name === "verify 0002_harden.sql",
+  );
+  // Production prints counts per issue class only, never object or role names.
+  assert.equal(verifyStep.detail, "1 issue(s): client_execute×1");
+  assert.ok(!JSON.stringify(receipt).includes("set_entitlement"));
+  const local = await runDeploy({
+    exec: fakeDb(p, {
+      verify: () =>
+        '["client_execute:anon:public.set_entitlement(uuid,boolean,text,text)"]',
+    }).exec,
+    plan: p,
+    dir,
+    conn: parseDbUrl(PROD_URL),
+    target: "local-replay",
+    cwd: root,
+  });
+  assert.match(
+    local.steps.find((x) => x.name === "verify 0002_harden.sql").detail,
+    /client_execute:anon:public\.set_entitlement/,
+  );
   for (const output of ["", "not json", '{"ok":true}', "ERROR"]) {
-    const bad = fakeDb(p, { verify: () => output });
+    const bad = fakeDb(p, { verify: (st) => (st.pushed ? output : "[]") });
     const r = await runDeploy({
       exec: bad.exec,
       plan: p,
@@ -770,6 +873,383 @@ test("replay refuses a vacuous verification and non-local targets; shows the cha
     removed: ["a"],
     added: ["c"],
   });
+});
+
+test("a malformed baseline verification refuses before any write", async (t) => {
+  const { root, p, dir } = await deployFixture(t);
+  const db = fakeDb(p, { verify: () => "not json" });
+  const receipt = await runDeploy({
+    exec: db.exec,
+    plan: p,
+    dir,
+    conn: parseDbUrl(PROD_URL),
+    target: "production",
+    cwd: root,
+  });
+  assert.deepEqual(
+    [receipt.status, receipt.issues, receipt.writeAttempted],
+    ["refused", ["verification-output-invalid"], false],
+  );
+  assert.equal(pushes(db.state).length, 0);
+});
+
+test("the reviewed residual is reported, never fatal; anything else still fails", async (t) => {
+  const { root, p, dir } = await deployFixture(t);
+  const run = (verify) =>
+    runDeploy({
+      exec: fakeDb(p, { verify }).exec,
+      plan: p,
+      dir,
+      conn: parseDbUrl(PROD_URL),
+      target: "production",
+      cwd: root,
+    });
+  const ok = await run(() => '["residual:supabase_admin_public_default:f"]');
+  assert.equal(ok.status, "verified");
+  assert.match(
+    ok.steps.find((x) => x.name === "verify 0002_harden.sql").detail,
+    /residual reported 1/,
+  );
+  const bad = await run((st) =>
+    st.pushed
+      ? '["default_reaches_client:supabase_admin:global:f","residual:supabase_admin_public_default:f"]'
+      : "[]",
+  );
+  assert.equal(bad.status, "verification-failed");
+  assert.equal(
+    bad.steps.find((x) => x.name === "verify 0002_harden.sql").detail,
+    "1 issue(s): default_reaches_client×1",
+  );
+  assert.equal(issueCounts(["a:x", "b:y", "a:z", "c"]), "a×2, b×1, c×1");
+});
+
+test("row-count invariant must be unchanged; production never prints the counts", async (t) => {
+  const { root, p, dir } = await deployFixture(t);
+  const db = fakeDb(p, { countsAfterPush: { "public.profiles": 98765 } });
+  const logs = [];
+  const receipt = await runDeploy({
+    exec: db.exec,
+    plan: p,
+    dir,
+    conn: parseDbUrl(PROD_URL),
+    target: "production",
+    cwd: root,
+    log: (l) => logs.push(l),
+  });
+  assert.equal(receipt.status, "verification-failed");
+  assert.deepEqual(receipt.issues, ["invariant-changed:0002_harden.sql"]);
+  const text = `${logs.join("\n")}${JSON.stringify(receipt)}${renderReceipt(receipt)}`;
+  assert.ok(!text.includes("98765"));
+  assert.ok(!text.includes('"public.profiles":3'));
+});
+
+// Negative control for public logs: a constraint failure quoting row values must never surface.
+const ROW_SENTINEL = "5f1e0000-0000-4000-8000-00000000beef";
+const LEAKY_PUSH = {
+  code: 1,
+  stdout: "Applying migration 0002_harden.sql...\n",
+  stderr:
+    `ERROR: new row for relation "entitlements" violates check constraint "x" (SQLSTATE 23514)\n` +
+    `DETAIL: Failing row contains (${ROW_SENTINEL}, t, private-subscriber-sentinel).\n` +
+    `Key (user_id)=(${ROW_SENTINEL}) already exists.\n` +
+    `At statement 3: update public.entitlements set source = 'private-subscriber-sentinel'\n`,
+};
+const LEAKS = [
+  ROW_SENTINEL,
+  "Failing row contains",
+  "Key (user_id)",
+  "private-subscriber-sentinel",
+  "violates check constraint",
+];
+
+test("production prints only category, SQLSTATE and planned file for tool failures", async (t) => {
+  const { root, p, dir } = await deployFixture(t);
+  const logs = [];
+  const receipt = await runDeploy({
+    exec: fakeDb(p, {
+      pushOutput: LEAKY_PUSH,
+      psqlFailure: (file, st) =>
+        st.pushed && file.endsWith("migration-history.sql")
+          ? `ERROR:  23505\nDETAIL:  Key (user_id)=(${ROW_SENTINEL}) already exists.\n`
+          : null,
+    }).exec,
+    plan: p,
+    dir,
+    conn: parseDbUrl(PROD_URL),
+    target: "production",
+    cwd: root,
+    log: (l) => logs.push(l),
+  });
+  assert.equal(receipt.status, "stopped");
+  assert.equal(receipt.appliedListed, "unknown");
+  const text = `${logs.join("\n")}\n${JSON.stringify(receipt)}\n${renderReceipt(receipt)}\n${renderFinal(receipt, {})}`;
+  for (const leak of LEAKS) assert.ok(!text.includes(leak), leak);
+  assert.match(text, /apply-failed sqlstate=23514 migration=0002_harden\.sql/);
+  assert.deepEqual(failureFacts("ERROR:  42501\n"), {
+    sqlstate: "42501",
+    migration: null,
+  });
+  // The same failure in the local rehearsal keeps full text for debugging.
+  const localLogs = [];
+  await runDeploy({
+    exec: fakeDb(p, { pushOutput: LEAKY_PUSH }).exec,
+    plan: p,
+    dir,
+    conn: parseDbUrl(PROD_URL),
+    target: "local-replay",
+    cwd: root,
+    log: (l) => localLogs.push(l),
+  });
+  assert.ok(localLogs.join("\n").includes("Failing row contains"));
+});
+
+test("the apply command's stdout and job summary carry no row values (end to end)", async (t) => {
+  const { root, p, dir } = await deployFixture(t);
+  const planFile = join(root, ".plan.json");
+  const summary = join(root, ".summary.md");
+  const receiptFile = join(root, ".receipt.json");
+  await writeFile(planFile, JSON.stringify(p));
+  const out = {
+    text: "",
+    write(x) {
+      this.text += x;
+    },
+  };
+  const env = {
+    GITHUB_ACTIONS: "true",
+    RUNNER_ENVIRONMENT: "github-hosted",
+    GITHUB_EVENT_NAME: "workflow_dispatch",
+    GITHUB_REF: "refs/heads/main",
+    EXPECTED_PLAN_DIGEST: p.digest,
+    SUPABASE_DB_URL: PROD_URL,
+    GITHUB_STEP_SUMMARY: summary,
+  };
+  const code = await main(
+    ["apply", "--plan", planFile, "--dir", dir, "--receipt", receiptFile],
+    env,
+    {
+      exec: fakeDb(p, { pushOutput: LEAKY_PUSH }).exec,
+      cwd: root,
+      out,
+      platform: "linux",
+    },
+  );
+  assert.equal(code, 1);
+  const written = `${out.text}\n${await readFile(summary, "utf8")}\n${await readFile(receiptFile, "utf8")}`;
+  for (const leak of LEAKS) assert.ok(!written.includes(leak), leak);
+  // The only appearance of credential parts is the runner's own ::add-mask:: registration.
+  const unmasked = out.text
+    .split("\n")
+    .filter((line) => !line.startsWith("::add-mask::"))
+    .join("\n");
+  for (const v of [SECRET, REF]) assert.ok(!unmasked.includes(v), v);
+  assert.equal(
+    JSON.parse(await readFile(receiptFile, "utf8")).status,
+    "stopped",
+  );
+});
+
+test("progress is recorded before the write, so an interrupted run is reported as unknown", async (t) => {
+  const { root, p, dir } = await deployFixture(t);
+  const snapshots = [];
+  await runDeploy({
+    exec: fakeDb(p).exec,
+    plan: p,
+    dir,
+    conn: parseDbUrl(PROD_URL),
+    target: "production",
+    cwd: root,
+    onProgress: async (r) => snapshots.push(structuredClone(r)),
+  });
+  const beforeWrite = snapshots.find(
+    (r) =>
+      r.writeAttempted &&
+      r.status === "in-progress" &&
+      r.steps.length &&
+      r.steps.at(-1).name.startsWith("migration history unchanged"),
+  );
+  assert.ok(
+    beforeWrite,
+    "a write-attempted, in-progress record exists before the push returns",
+  );
+  const interrupted = renderFinal(beforeWrite, {
+    applyOutcome: "cancelled",
+    jobStatus: "cancelled",
+  });
+  assert.match(interrupted, /interrupted \(cancelled\)/);
+  assert.match(interrupted, /Migration history: UNKNOWN/);
+  assert.match(interrupted, /fix-forward only/);
+  assert.match(
+    renderFinal(null, { applyOutcome: "", jobStatus: "failure" }),
+    /did not leave a record.*UNKNOWN/s,
+  );
+  const done = snapshots.at(-1);
+  assert.equal(done.status, "verified");
+  assert.match(
+    renderFinal(done, { applyOutcome: "success", jobStatus: "success" }),
+    /Migration history: known/,
+  );
+  assert.match(
+    renderFinal(
+      { ...beforeWrite, status: "in-progress" },
+      { applyOutcome: "failure", jobStatus: "failure" },
+    ),
+    /stopped or timed out/,
+  );
+});
+
+test("final-summary command works without any secret and tolerates a missing receipt", async (t) => {
+  const { root } = await repo(t);
+  const out = {
+    text: "",
+    write(x) {
+      this.text += x;
+    },
+  };
+  const code = await main(
+    ["final-summary", "--receipt", join(root, "absent.json")],
+    { APPLY_OUTCOME: "skipped", JOB_STATUS: "cancelled" },
+    { out },
+  );
+  assert.equal(code, 0);
+  assert.match(
+    out.text,
+    /did not leave a record \(step outcome: skipped, job: cancelled\)/,
+  );
+});
+
+// ── Staleness while approval is pending (main moves) ─────────────────────────────────────────
+
+test("freshness: unchanged tip or untouched planned files proceed", async (t) => {
+  const { root, head } = await repo(t);
+  const p = await plan(root, head);
+  const g = makeGit(defaultExec, root);
+  assert.equal(
+    (await checkFreshness({ git: g, plan: p, tipRef: "main" })).mode,
+    "tip-unchanged",
+  );
+  await put(root, "README.md", "unrelated\n");
+  await put(root, "supabase/migrations/0003_later.sql", "select 1;\n");
+  git(root, "add", "-A");
+  git(root, "commit", "-q", "-m", "unrelated and newer");
+  const moved = await checkFreshness({ git: g, plan: p, tipRef: "main" });
+  assert.equal(moved.mode, "files-identical");
+  assert.notEqual(moved.tip, head);
+});
+
+test("freshness: main changing, reverting or re-pointing a planned file refuses", async (t) => {
+  for (const mutate of [
+    async (root) =>
+      put(
+        root,
+        "supabase/migrations/0002_harden.sql",
+        "revoke all on a from public;\n",
+      ),
+    async (root) => rm(join(root, "supabase/migrations/0002_harden.sql")),
+    async (root) =>
+      put(
+        root,
+        "scripts/backend/deploy/verify/0002_harden.sql",
+        "select '[\"x\"]';\n",
+      ),
+    async (root) =>
+      put(
+        root,
+        "scripts/backend/deploy/verify/0002_harden.invariant.sql",
+        "select '{\"a\":1}';\n",
+      ),
+    async (root) => put(root, "supabase/config.toml", 'project_id = "other"\n'),
+    async (root) =>
+      put(
+        root,
+        "supabase/migrations/0001_init.sql",
+        "create table b (id int);\n",
+      ),
+    async (root) =>
+      put(root, "supabase/migrations/0001_extra.sql", "select 1;\n"),
+  ]) {
+    const { root, head } = await repo(t);
+    const p = await plan(root, head);
+    await mutate(root);
+    git(root, "add", "-A");
+    git(root, "commit", "-q", "-m", "main moved");
+    await refuses(
+      checkFreshness({
+        git: makeGit(defaultExec, root),
+        plan: p,
+        tipRef: "main",
+      }),
+      "main-moved",
+    );
+  }
+  // Reverting the whole change (a revert commit) also refuses.
+  const { root, head } = await repo(t);
+  const p = await plan(root, head);
+  git(root, "rm", "-q", "supabase/migrations/0002_harden.sql");
+  git(root, "commit", "-q", "-m", "Revert 0002");
+  await refuses(
+    checkFreshness({
+      git: makeGit(defaultExec, root),
+      plan: p,
+      tipRef: "main",
+    }),
+    "main-moved",
+  );
+  // A rewritten main that no longer contains the commit refuses.
+  git(root, "checkout", "-q", "--orphan", "rewritten");
+  git(root, "commit", "-q", "-m", "rewritten history");
+  await refuses(
+    checkFreshness({
+      git: makeGit(defaultExec, root),
+      plan: p,
+      tipRef: "rewritten",
+    }),
+    "main-moved",
+  );
+});
+
+// ── Merge-commit history (first parent) ──────────────────────────────────────────────────────
+
+test("a commit reached through a merge's second parent needs main-identical checks", async (t) => {
+  const { root, head } = await repo(t);
+  git(root, "checkout", "-q", "-b", "feature");
+  await put(root, "supabase/migrations/0003_feature.sql", "select 3;\n");
+  await put(
+    root,
+    "scripts/backend/deploy/verify/0003_feature.sql",
+    "select '[]';\n",
+  );
+  git(root, "add", "-A");
+  git(root, "commit", "-q", "-m", "feature");
+  const feature = git(root, "rev-parse", "HEAD");
+  git(root, "checkout", "-q", "main");
+  await put(root, "README.md", "main work\n");
+  git(root, "add", "-A");
+  git(root, "commit", "-q", "-m", "main work");
+  git(root, "merge", "-q", "--no-ff", "--no-edit", "feature");
+  const merge = git(root, "rev-parse", "HEAD");
+
+  const viaSecondParent = await plan(root, feature, "0003_feature.sql");
+  assert.equal(viaSecondParent.onFirstParent, false);
+  const viaMerge = await plan(root, merge, "0003_feature.sql");
+  assert.equal(viaMerge.onFirstParent, true);
+  assert.equal((await plan(root, head)).onFirstParent, true);
+
+  for (const [path, text] of [
+    [
+      "scripts/backend/deploy/verify/0003_feature.sql",
+      "select '[\"stricter\"]';\n",
+    ],
+    ["supabase/config.toml", 'project_id = "changed"\n'],
+  ]) {
+    await put(root, path, text);
+    git(root, "commit", "-q", "-am", `change ${path}`);
+    await refuses(
+      plan(root, feature, "0003_feature.sql"),
+      "file-changed-on-main",
+    );
+    git(root, "reset", "-q", "--hard", merge);
+  }
 });
 
 // ── GitHub protection ────────────────────────────────────────────────────────────────────────
