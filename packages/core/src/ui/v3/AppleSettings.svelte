@@ -155,7 +155,8 @@
       pro.ownership === "none" &&
       !restoreHeld &&
       pro.channel === "ready" &&
-      Boolean(pro.offer?.price) &&
+      // Same trimmed-price rule as the native card: a blank price is no offer.
+      Boolean(pro.offer?.price.trim()) &&
       Boolean(pro.onBuy) &&
       (!pro.state || pro.state === "idle"),
   );

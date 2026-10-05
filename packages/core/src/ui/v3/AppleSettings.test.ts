@@ -1538,3 +1538,60 @@ describe("D04 native offer card follows the supplied Pro access states", () => {
     expect([pro.ownership, verify.ownership]).toEqual(["none", "none"]);
   });
 });
+
+describe("D04 native purchase entry requires a non-blank offer price", () => {
+  it.each(["", " ", "   ", "\t\n "])(
+    "offers no Buy, lock action or Apple caption for a blank price %j",
+    async (price) => {
+      const { props } = await fixture("locked");
+      const buy = vi.fn();
+      props.pro = {
+        ownership: "none",
+        channel: "ready",
+        offer: { price },
+        onBuy: buy,
+        onRestore: vi.fn(),
+      };
+      const view = render(AppleSettings, { props });
+      expect(
+        screen.queryByRole("button", { name: "Get Still Pro" }),
+      ).toBeNull();
+      expect(
+        screen.queryByText("No account needed. Payment is handled by Apple."),
+      ).toBeNull();
+      await fireEvent.click(
+        screen.getByRole("button", { name: "YouTube Blocker" }),
+      );
+      const lock = screen.getByRole("button", { name: PRO_LOCK });
+      expect(lock).toHaveAttribute("aria-disabled", "true");
+      await fireEvent.click(lock);
+      expect(buy).not.toHaveBeenCalled();
+      view.unmount();
+    },
+  );
+
+  it("still offers Buy, the lock action and the Apple caption for a padded real price", async () => {
+    const { props } = await fixture("locked");
+    const buy = vi.fn();
+    props.pro = {
+      ownership: "none",
+      channel: "ready",
+      offer: { price: "  fixture native offer  " },
+      onBuy: buy,
+      onRestore: vi.fn(),
+    };
+    const view = render(AppleSettings, { props });
+    expect(
+      screen.getByText("No account needed. Payment is handled by Apple."),
+    ).toBeVisible();
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Get Still Pro" }),
+    );
+    await fireEvent.click(
+      screen.getByRole("button", { name: "YouTube Blocker" }),
+    );
+    await fireEvent.click(screen.getByRole("button", { name: PRO_LOCK }));
+    expect(buy).toHaveBeenCalledTimes(2);
+    view.unmount();
+  });
+});
