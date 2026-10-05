@@ -7,12 +7,14 @@
     type UiController,
     type CommittedPopupBinding,
     type CommittedPopupToggle,
+    type LegacyPopupAuthority,
   } from "@still/core/ui";
 
   interface Props {
     controller: UiController;
     browser?: "Chrome" | "Firefox";
     committedPopupBinding?: CommittedPopupBinding;
+    legacyPopupAuthority?: LegacyPopupAuthority;
     onCommittedPopupToggle?: (toggle: CommittedPopupToggle) => void;
     /** Web restore = a fresh authenticated reconcile (plan U5/U6). Absent on builds without the
      * purchase spine — the paywall then renders its explanatory state with no live buttons. */
@@ -23,6 +25,7 @@
     controller,
     browser = "Chrome",
     committedPopupBinding,
+    legacyPopupAuthority,
     onCommittedPopupToggle,
     onRestore,
     surfaceGuidance,
@@ -60,6 +63,7 @@
   <App
     {controller}
     {committedPopupBinding}
+    {legacyPopupAuthority}
     {onCommittedPopupToggle}
     {onRestore}
     popupPresentation={committedPopupBinding

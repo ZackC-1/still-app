@@ -4,6 +4,7 @@ import {
   createExtensionUiController,
   type CommittedPopupBinding,
   type CommittedPopupToggle,
+  type LegacyPopupAuthority,
 } from "@still/core/ui";
 import {
   extensionPurchaseDeps,
@@ -28,6 +29,7 @@ function init(): void {
   const purchase = extensionPurchaseDeps();
   const analytics = createPageAnalytics(Boolean(import.meta.env.FIREFOX));
   let committedPopupBinding: CommittedPopupBinding | undefined;
+  let legacyPopupAuthority: LegacyPopupAuthority | undefined;
   const onCommittedPopupToggle = ({
     service,
     enabled,
@@ -45,6 +47,11 @@ function init(): void {
           committedPopupBinding = binding;
         }
       : undefined,
+    onLegacyPopupAuthority: !settingsRuntime.atomicLocal
+      ? (authority) => {
+          legacyPopupAuthority = authority;
+        }
+      : undefined,
     openedWhere: "popup",
   });
   mount(PopupApp, {
@@ -53,6 +60,7 @@ function init(): void {
       controller,
       browser: import.meta.env.FIREFOX ? "Firefox" : "Chrome",
       committedPopupBinding,
+      legacyPopupAuthority,
       onCommittedPopupToggle,
       onRestore: purchase ? restoreHandler(controller) : undefined,
       surfaceGuidance,

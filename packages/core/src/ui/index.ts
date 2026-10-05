@@ -49,3 +49,4 @@ export type CommittedPopupToggle = {
   readonly enabled: boolean;
   readonly service?: import("@still/shared-types").ServiceId;
 };
+export type { LegacyPopupAuthority } from "./v3/legacy-popup-view-binding.svelte.js";

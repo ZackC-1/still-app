@@ -15,6 +15,10 @@
   import type { SurfaceGuidance } from "./surface-guidance.js";
   import type { CommittedPopupBinding, CommittedPopupToggle } from "./index.js";
   import { createPopupViewBinding } from "./v3/popup-view-binding.svelte.js";
+  import {
+    createLegacyPopupViewBinding,
+    type LegacyPopupAuthority,
+  } from "./v3/legacy-popup-view-binding.svelte.js";
   import type { Component } from "svelte";
   import type { DesktopPopupProps } from "./v3/presentation.js";
   import type { ExtensionSettingsProps } from "./v3/extension-settings-presentation.js";
@@ -23,6 +27,7 @@
     controller: UiController;
     /** Optional actual committed settings authority; absent preserves every legacy host. */
     committedPopupBinding?: CommittedPopupBinding;
+    legacyPopupAuthority?: LegacyPopupAuthority;
     onCommittedPopupToggle?: (toggle: CommittedPopupToggle) => void;
     /** Actual desktop browser host opts in with its existing options-page operation. */
     popupPresentation?: {
@@ -52,6 +57,7 @@
   let {
     controller: c,
     committedPopupBinding,
+    legacyPopupAuthority,
     onCommittedPopupToggle,
     popupPresentation,
     settingsPresentation,
@@ -64,14 +70,33 @@
     () => committedPopupBinding,
     reportCommitted,
   );
+  const legacyView = createLegacyPopupViewBinding(
+    () => legacyPopupAuthority,
+    () => c,
+    reportCommitted,
+  );
   let popupState = $derived(popupView.state);
   let choices = $derived(
-    committedPopupBinding ? (popupView.settings ?? null) : c.settings,
+    committedPopupBinding
+      ? (popupView.settings ?? null)
+      : legacyPopupAuthority
+        ? (legacyView.settings ??
+          (legacyView.state?.status === "absent" ? c.settings : null))
+        : c.settings,
   );
-  let held = $derived(popupView.held);
-  let settingsUnavailable = $derived(popupView.settingsUnavailable);
-  let settingsRecovery = $derived(popupView.recovering);
-  const recoverSettings = popupView.recoverSettings;
+  let held = $derived(legacyPopupAuthority ? legacyView.held : popupView.held);
+  let settingsUnavailable = $derived(
+    legacyPopupAuthority
+      ? legacyView.settingsUnavailable
+      : popupView.settingsUnavailable,
+  );
+  let settingsRecovery = $derived(
+    legacyPopupAuthority ? legacyView.recovering : popupView.recovering,
+  );
+  function recoverSettings(): void {
+    if (legacyPopupAuthority) legacyView.recoverSettings();
+    else popupView.recoverSettings();
+  }
   let desktopPresentation = $derived(
     committedPopupBinding ? popupPresentation : undefined,
   );
@@ -300,6 +325,10 @@
     }
   }
   function toggleGlobal(): void {
+    if (legacyPopupAuthority) {
+      legacyView.toggle();
+      return;
+    }
     const binding = committedPopupBinding;
     if (!binding) {
       c.toggleGlobal();
@@ -313,6 +342,10 @@
     });
   }
   function toggleService(service: ServiceId): void {
+    if (legacyPopupAuthority) {
+      legacyView.toggle(service);
+      return;
+    }
     const binding = committedPopupBinding;
     if (!binding) {
       c.toggleService(service);
@@ -345,6 +378,9 @@
     (!desktopPresentation || !modern || !DesktopPopup)}
   class:v3-popup-host={Boolean(desktopPresentation)}
   data-density={compact ? "compact" : "comfortable"}
+  data-settings-receipt={legacyPopupAuthority
+    ? (legacyView.state?.status ?? "loading")
+    : undefined}
 >
   {#if settingsHost && modern && popupState && desktopCommands && SettingsPresentation}
     <SettingsPresentation
