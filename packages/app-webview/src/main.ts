@@ -255,7 +255,7 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") void analytics.recheckSetup();
 });
 
-if (appleSettingsAdapter) void mountAppleSettings(appleSettingsAdapter);
+if (appleSettingsAdapter) void mountAppleScreens(appleSettingsAdapter);
 else
   mount(App, {
     target: document.getElementById("app")!,
@@ -266,6 +266,16 @@ else
       surfaceGuidance: SAFARI_SURFACE_GUIDANCE,
     },
   });
+
+/** D12 onboarding first, only when the one native gate hands it to the web view; then D04. */
+async function mountAppleScreens(adapter: WKWebViewStorageAdapter): Promise<void> {
+  const { showAppleOnboardingFirst } = await import("./apple-onboarding.js");
+  await showAppleOnboardingFirst({
+    bridge,
+    target: document.getElementById("app")!,
+    showSettings: () => void mountAppleSettings(adapter),
+  });
+}
 
 /** D04 over the same cache: committed binding + read-only native access, mounted at once. */
 async function mountAppleSettings(adapter: WKWebViewStorageAdapter): Promise<void> {

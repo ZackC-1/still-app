@@ -1,12 +1,14 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
   import type { AppleOnboardingProps } from "./apple-onboarding-presentation.js";
+  import type { OperationStatus } from "./extension-settings-presentation.js";
   import SharingCard from "./SharingCard.svelte";
   import Glyph from "./Glyph.svelte";
   import "./design/styles.css";
   import "./apple-onboarding-layout.css";
   let {
     step,
+    progress,
     platform,
     onBack,
     onContinue,
@@ -17,6 +19,7 @@
     consent,
     onOpenSafari,
     onGoToSettings,
+    completion,
   }: AppleOnboardingProps = $props();
   let macOn = $derived(
     platform === "mac" &&
@@ -78,6 +81,9 @@
   function operationAction() {
     if (mounted && step === 3) consent.operation?.onAction?.();
   }
+  function completionAction() {
+    if (mounted && step === 4) completion?.onAction?.();
+  }
 </script>
 
 {#snippet mark()}
@@ -104,6 +110,28 @@
   </div>
 {/snippet}
 
+{#snippet operationLine(operation: OperationStatus, action: () => void)}
+  <div
+    class="status-line"
+    data-tone={operation.tone}
+    role={operation.tone === "failed" ? "alert" : "status"}
+  >
+    <div class="status-body">
+      <span>{operation.text}</span
+      >{#if operation.detail}<span
+          class="muted"
+          style="font-size:calc(12.5px * var(--text-scale, 1));"
+          >{operation.detail}</span
+        >{/if}{#if operation.actionLabel}<button
+          type="button"
+          class="link status-action"
+          disabled={!operation.onAction}
+          onclick={action}>{operation.actionLabel}</button
+        >{/if}
+    </div>
+  </div>
+{/snippet}
+
 <main class="still-ui ob">
   <div class="ob-col">
     <div class="ob-top">
@@ -113,7 +141,7 @@
           disabled={!onBack}
           onclick={back}>Back</button
         >{:else}<span></span>{/if}
-      <span>Step {step} of 4</span>
+      <span>Step {progress?.current ?? step} of {progress?.total ?? 4}</span>
     </div>
     <div class="ob-main">
       {#if step === 1}
@@ -172,28 +200,10 @@
             onDecline={canChoose && consent.onDecline ? decline : undefined}
           />
         {/if}
-        {#if consent.operation}
-          <div
-            class="status-line"
-            data-tone={consent.operation.tone}
-            role={consent.operation.tone === "failed" ? "alert" : "status"}
-          >
-            <div class="status-body">
-              <span>{consent.operation.text}</span
-              >{#if consent.operation.detail}<span
-                  class="muted"
-                  style="font-size:calc(12.5px * var(--text-scale, 1));"
-                  >{consent.operation.detail}</span
-                >{/if}{#if consent.operation.actionLabel}<button
-                  type="button"
-                  class="link status-action"
-                  disabled={!consent.operation.onAction}
-                  onclick={operationAction}
-                  >{consent.operation.actionLabel}</button
-                >{/if}
-            </div>
-          </div>
-        {/if}
+        {#if consent.operation}{@render operationLine(
+            consent.operation,
+            operationAction,
+          )}{/if}
       {:else}
         {@render mark()}
         <h1>You're set</h1>
@@ -204,6 +214,10 @@
         <p class="caption">
           Settings sync is free and optional. Sign in from Settings any time.
         </p>
+        {#if completion}{@render operationLine(
+            completion,
+            completionAction,
+          )}{/if}
       {/if}
     </div>
     {#if step !== 3 || consent.status === "saved"}

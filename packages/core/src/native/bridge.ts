@@ -18,6 +18,11 @@ import { parseAccessCacheRecord, type AccessCacheRecord } from "../entitlement/a
 //   configurePurchases → { ok: true }
 //   purchase           → { outcome, entitled, error? }
 //   restore / status   → { entitled }
+//   safariSetupState   → SafariSetupObservation (read-only; see observeSafariSetup)
+//   onboardingState    → { ok: true, shouldShow, platform, osMajorVersion }
+//   completeOnboarding → { ok: true } | rejected when the web view is not the onboarding presenter
+//   setAnalyticsConsent → { ok: true, enabled, answered }
+//   analyticsContext   → { …, consent, consentAnswered, … } (see AnalyticsContextReply)
 
 export interface AppleCredential {
   readonly identityToken: string;
@@ -59,8 +64,51 @@ export type SafariSetupObservation =
       readonly enableLocation: "safariExtensionSettings";
     };
 
+/** The one native onboarding gate, as the web view sees it (OnboardingGatePresenter.swift).
+ * `shouldShow` is true only when the app hands onboarding to the web view and it is not complete. */
+export interface OnboardingStateReply {
+  readonly ok: true;
+  readonly shouldShow: boolean;
+  readonly platform: "ios" | "macos";
+  /** The OS major version from the host (iOS 18 moved Safari's settings under Apps). */
+  readonly osMajorVersion: number;
+}
+
+/** The committed native usage-sharing consent. `answered` is false while it is only the default. */
+export interface AnalyticsConsentObservation {
+  readonly consent: boolean;
+  readonly answered: boolean;
+}
+
+/** Deadline for a native read whose caller must never hang (onboarding, Safari setup). */
+export const NATIVE_READ_DEADLINE_MS = 3_000;
+
+/** Resolve `read()` or `fallback`, whichever comes first: a rejection, a throw or a reply slower
+ * than `deadlineMs` all become `fallback`, so a silent native host can never stall the caller. */
+export function boundedNativeRead<T>(
+  read: () => Promise<T>,
+  fallback: T,
+  deadlineMs: number = NATIVE_READ_DEADLINE_MS,
+): Promise<T> {
+  return new Promise<T>((resolve) => {
+    let settled = false;
+    const finish = (value: T): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(fallback), deadlineMs);
+    Promise.resolve()
+      .then(read)
+      .then(finish, () => finish(fallback));
+  });
+}
+
 export type NativeMessage =
   | { readonly kind: "safariSetupState" }
+  | { readonly kind: "onboardingState" }
+  | { readonly kind: "completeOnboarding" }
   | { readonly kind: "signInWithApple" }
   | { readonly kind: "configurePurchases"; readonly appUserID: string }
   | { readonly kind: "purchase" }
@@ -100,6 +148,10 @@ export interface AnalyticsContextReply {
 
 export class NativeBridge {
   private safariSetupReadGeneration = 0;
+  private onboardingStateReadGeneration = 0;
+  private onboardingCompletionGeneration = 0;
+  private analyticsConsentReadGeneration = 0;
+  private analyticsConsentWriteGeneration = 0;
   constructor(
     private readonly win: StillBridgeWindow = globalThis as unknown as StillBridgeWindow,
   ) {}
@@ -157,6 +209,95 @@ export class NativeBridge {
       return null;
     }
   }
+  /** Ask the one native onboarding gate whether the web view should show onboarding. Null (never
+   * a guessed `shouldShow`) outside the app, on any malformed reply, on a failed post, after a port
+   * swap, or when a newer read was started. Callers bound it with `boundedNativeRead`. */
+  async onboardingState(): Promise<OnboardingStateReply | null> {
+    const generation = ++this.onboardingStateReadGeneration;
+    const port = this.port;
+    if (!port) return null;
+    try {
+      const reply = await port.postMessage({ kind: "onboardingState" });
+      if (generation !== this.onboardingStateReadGeneration || port !== this.port) return null;
+      const obj = asObject(reply);
+      if (!obj || Array.isArray(obj) || obj.ok !== true) return null;
+      if (typeof obj.shouldShow !== "boolean") return null;
+      if (obj.platform !== "ios" && obj.platform !== "macos") return null;
+      const major = obj.osMajorVersion;
+      if (typeof major !== "number" || !Number.isInteger(major) || major < 1) return null;
+      return { ok: true, shouldShow: obj.shouldShow, platform: obj.platform, osMajorVersion: major };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Mark the one native onboarding gate complete. True only for an explicit `{ ok: true }` from
+   * the port this call posted to, while no newer completion was started; anything else (no host,
+   * refusal, malformed reply, port swap) is false so the caller keeps onboarding visible. */
+  async completeOnboarding(): Promise<boolean> {
+    const generation = ++this.onboardingCompletionGeneration;
+    const port = this.port;
+    if (!port) return false;
+    try {
+      const reply = await port.postMessage({ kind: "completeOnboarding" });
+      if (generation !== this.onboardingCompletionGeneration || port !== this.port) return false;
+      const obj = asObject(reply);
+      return !!obj && !Array.isArray(obj) && obj.ok === true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Read back the usage-sharing consent the native App Group actually holds, and whether it is
+   * an explicit answer. Sharing reads on until a choice is written (AnalyticsIdentity.swift), so
+   * only `answered: true` may ever be presented as a saved choice. Strict: both fields must be
+   * booleans, otherwise null (never "off"). Null outside the app, on a failed post, after a port
+   * swap, or when a newer read was started. Callers bound it with `boundedNativeRead`.
+   *
+   * `answered` cannot tell an answer to the older 2.1 usage switch from an answer to the new
+   * combined email-plus-usage question (owner decision 21): never link email from it alone. */
+  async observeAnalyticsConsent(): Promise<AnalyticsConsentObservation | null> {
+    const generation = ++this.analyticsConsentReadGeneration;
+    const port = this.port;
+    if (!port) return null;
+    try {
+      const reply = await port.postMessage({ kind: "analyticsContext" });
+      if (generation !== this.analyticsConsentReadGeneration || port !== this.port) return null;
+      const obj = asObject(reply);
+      if (!obj || Array.isArray(obj)) return null;
+      if (typeof obj.consent !== "boolean" || typeof obj.consentAnswered !== "boolean") return null;
+      return { consent: obj.consent, answered: obj.consentAnswered };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Write the person's explicit usage-sharing choice straight to the native App Group (the
+   * existing `setAnalyticsConsent` writer). True only for `{ ok: true, enabled: <choice>,
+   * answered: true }` from the port this call posted to, while no newer write was started;
+   * anything else (no host, refusal, an older native reply without `answered`, a stored value
+   * that differs, a port swap) is false. Unlike `setAnalyticsConsent`, it never reports a value
+   * it did not see stored. */
+  async commitAnalyticsConsent(enabled: boolean): Promise<boolean> {
+    const generation = ++this.analyticsConsentWriteGeneration;
+    const port = this.port;
+    if (!port) return false;
+    try {
+      const reply = await port.postMessage({ kind: "setAnalyticsConsent", enabled });
+      if (generation !== this.analyticsConsentWriteGeneration || port !== this.port) return false;
+      const obj = asObject(reply);
+      return (
+        !!obj &&
+        !Array.isArray(obj) &&
+        obj.ok === true &&
+        obj.enabled === enabled &&
+        obj.answered === true
+      );
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Present native Sign in with Apple. Returns the identity token + raw nonce to exchange via Supabase
    * `signInWithIdToken({ provider: "apple", token, nonce })`. Throws on cancel/failure with the

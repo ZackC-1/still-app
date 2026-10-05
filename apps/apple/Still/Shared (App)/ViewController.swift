@@ -198,7 +198,9 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
     }
 
     // Present the first-launch onboarding (U18) over the Settings WebView, once. The presenter gates
-    // on OnboardingGate, so this no-ops on every launch after the user finishes the flow.
+    // on OnboardingGate, so this no-ops on every launch after the user finishes the flow. It also
+    // no-ops for the whole launch when the Info.plist presenter flag hands the gate to the web view
+    // (OnboardingPresenter.selected), so only one onboarding ever presents.
 #if os(iOS)
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
