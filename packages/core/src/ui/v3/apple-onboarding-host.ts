@@ -53,6 +53,10 @@ export interface AppleOnboardingHostDeps {
   };
   /** Called once, only after the native gate confirmed completion. */
   readonly onDone: (destination: AppleOnboardingDestination) => void;
+  /** The step-4 destinations this host can actually reach (default: both). A destination left
+   * out renders its button disabled and can never complete, so no button promises a place that
+   * nothing opens. */
+  readonly destinations?: readonly AppleOnboardingDestination[];
   readonly onChange?: (view: AppleOnboardingHostView) => void;
   /** Native read/complete deadline. */
   readonly deadlineMs?: number;
@@ -162,6 +166,9 @@ export function createAppleOnboardingHost(
     deps.consent.purposesVerified === true &&
     !!deps.consent.purposes?.length;
   const afterSetup: AppleOnboardingProps["step"] = asksConsent ? 3 : 4;
+  const destinations = deps.destinations ?? ["safari", "settings"];
+  const reachable = (destination: AppleOnboardingDestination): boolean =>
+    destinations.includes(destination);
   let view: AppleOnboardingHostView = { visible: false, done: false };
 
   const emit = (): void => {
@@ -253,7 +260,7 @@ export function createAppleOnboardingHost(
   }
 
   function complete(destination: AppleOnboardingDestination): void {
-    if (!active() || step !== 4 || busy()) return;
+    if (!active() || step !== 4 || busy() || !reachable(destination)) return;
     lastDestination = destination;
     completion = "saving";
     emit();
@@ -321,8 +328,10 @@ export function createAppleOnboardingHost(
       onAssertEnabled: platform === "ios" ? leaveSetup : undefined,
       onDoLater: platform === "mac" ? leaveSetup : undefined,
       consent: consentProps(),
-      onOpenSafari: idle ? () => complete("safari") : undefined,
-      onGoToSettings: idle ? () => complete("settings") : undefined,
+      onOpenSafari:
+        idle && reachable("safari") ? () => complete("safari") : undefined,
+      onGoToSettings:
+        idle && reachable("settings") ? () => complete("settings") : undefined,
       completion:
         completion === "failed"
           ? {
@@ -365,4 +374,65 @@ export function createAppleOnboardingHost(
       setupGeneration += 1;
     },
   };
+}
+
+/** The two screens the Apple app's entry can put in its one mount point. */
+export interface AppleOnboardingScreens {
+  /** Mount the onboarding for a visible host. `watch` delivers every later view change and
+   * returns its own unsubscribe. Returns an unmount. */
+  showOnboarding(
+    host: AppleOnboardingHost,
+    watch: (listener: (view: AppleOnboardingHostView) => void) => () => void,
+  ): () => void;
+  /** Mount settings. Called at most once. */
+  showSettings(): void;
+}
+
+/** The app entry's order: onboarding first, and only when the one native gate hands it to the web
+ * view (`shouldShow === true`); settings otherwise, or after the gate confirmed completion. A
+ * hidden reply, a timeout or no native host goes straight to settings and leaves the gate
+ * untouched, so the presenter the native side chose (SwiftUI in every shipped build) stays the
+ * only one. Settings mount in place, never through a reload, so finishing cannot loop. */
+export async function runAppleOnboardingFirst(
+  deps: Omit<AppleOnboardingHostDeps, "onDone" | "onChange">,
+  screens: AppleOnboardingScreens,
+): Promise<"onboarding" | "settings"> {
+  const listeners = new Set<(view: AppleOnboardingHostView) => void>();
+  let settingsShown = false;
+  let unmountOnboarding: (() => void) | undefined;
+  const showSettings = (): void => {
+    if (settingsShown) return;
+    settingsShown = true;
+    listeners.clear();
+    host.dispose();
+    const unmount = unmountOnboarding;
+    unmountOnboarding = undefined;
+    unmount?.();
+    screens.showSettings();
+  };
+  const host = createAppleOnboardingHost({
+    ...deps,
+    onChange: (view) => {
+      for (const listener of [...listeners]) listener(view);
+    },
+    onDone: showSettings,
+  });
+  await host.start();
+  if (!host.view.visible) {
+    showSettings();
+    return "settings";
+  }
+  try {
+    unmountOnboarding = screens.showOnboarding(host, (listener) => {
+      if (settingsShown) return () => {};
+      listeners.add(listener);
+      return () => void listeners.delete(listener);
+    });
+  } catch (error) {
+    // A screen that cannot mount must not leave the app blank. The gate stays incomplete, so the
+    // onboarding is offered again on the next launch.
+    showSettings();
+    throw error;
+  }
+  return "onboarding";
 }
