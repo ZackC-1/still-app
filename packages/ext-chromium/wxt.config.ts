@@ -17,6 +17,13 @@ export const firefoxBrowserSpecificSettings = {
       optional: ["technicalAndInteraction"],
     },
   },
+  // Lists the same add-on for Firefox for Android (AMO offers it on desktop only without this key).
+  // 142 is the first Android release with the built-in data-collection consent screen, the same
+  // reason the desktop floor is 140, so nobody on Android can sign in without seeing that consent.
+  // Mozilla reads data_collection_permissions from `gecko` for both, so it is not repeated here.
+  gecko_android: {
+    strict_min_version: "142.0",
+  },
 };
 
 // WebExtension build for Chromium (Chrome/Edge/Brave/Arc) AND Firefox — both MV3, same entrypoints.
@@ -64,8 +71,7 @@ export function stillManifest(browser: string) {
     // Firefox requires a stable add-on id; this is PERMANENT once published on AMO.
     ...(isFirefox
       ? {
-          // Deliberately omit gecko_android for launch. AMO therefore lists this build for desktop
-          // Firefox only, matching the product promise that mobile support is Safari-only.
+          // `gecko` for desktop Firefox and `gecko_android` for Firefox for Android (see above).
           browser_specific_settings: firefoxBrowserSpecificSettings,
         }
       : {
