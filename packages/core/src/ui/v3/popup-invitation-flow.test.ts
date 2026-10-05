@@ -58,6 +58,16 @@ describe("presentInvitation: commit before the card renders", () => {
   });
 });
 
+describe("presentInvitation hold", () => {
+  it("passes the hold to the port so it can be reserved against", async () => {
+    const seen: unknown[] = [];
+    const port: PopupInvitationPort = { present: async (o, hold) => { seen.push([o, hold]); return null; }, commit: async () => true };
+    await presentInvitation(port, "o", () => {}, "error");
+    await presentInvitation(port, "o", () => {});
+    expect(seen).toEqual([["o", "error"], ["o", undefined]]);
+  });
+});
+
 describe("syncInvitationPresentation", () => {
   const base = { installation: "i", opening: "o", surface: "chrome" as const, onSignIn: () => {}, onNotNow: () => {} };
   it("is a visible sync card while open and hidden once closed", () => {

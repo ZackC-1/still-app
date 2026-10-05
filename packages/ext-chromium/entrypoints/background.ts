@@ -27,6 +27,7 @@ import {
   chromeInvitationLedgerPort,
   createInvitationHost,
   declaredHostsGranted,
+  readAccountState,
 } from "../lib/invitation-background.js";
 import seed from "@still/core/seed";
 import { PAID_TIER_ENABLED, type SignedRuleSet, type SignedRuleSetV2 } from "@still/shared-types";
@@ -143,13 +144,7 @@ export default defineBackground(() => {
     const invitations = createInvitationHost({
       port: chromeInvitationLedgerPort(order, chrome.storage.local),
       setupFinished: () => declaredHostsGranted(chrome.permissions, chrome.runtime.getManifest()),
-      account: async () => {
-        if (!client) return "signed-out";
-        return Promise.race([
-          client.auth.getSession().then(({ data }): "signed-in" | "signed-out" => (data.session ? "signed-in" : "signed-out")),
-          new Promise<"unknown">(resolve => setTimeout(() => resolve("unknown"), 3_000)),
-        ]);
-      },
+      account: async () => (client ? readAccountState(client.auth) : "signed-out"),
       signInAvailable: spine !== null,
       now: Date.now,
       newInstallationId: () => crypto.randomUUID(),

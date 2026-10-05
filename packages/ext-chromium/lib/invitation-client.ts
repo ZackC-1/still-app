@@ -23,8 +23,8 @@ async function ask(message: object): Promise<InvitationReply | null> {
 }
 
 export const invitationPort: PopupInvitationPort = {
-  async present(opening) {
-    const reply = await ask({ kind: INVITATION_MESSAGE_KIND, op: "present", opening });
+  async present(opening, hold) {
+    const reply = await ask({ kind: INVITATION_MESSAGE_KIND, op: "present", opening, ...(hold ? { hold } : {}) });
     return reply?.status === "present" ? reply.card : null;
   },
   async commit(reservation: InvitationReservation) {

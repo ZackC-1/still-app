@@ -13,6 +13,7 @@ import {
   chromeInvitationLedgerPort,
   createInvitationHost,
   declaredHostsGranted,
+  readAccountState,
   readInvitationRequest,
   type InvitationReply,
 } from "../invitation-background.js";
@@ -65,7 +66,7 @@ function harness(overrides: Partial<{ finished: boolean; account: "signed-out" |
   return { facts, area, serialize, host, page, ledger, popup: page(`${ORIGIN}popup.html`), options: page(`${ORIGIN}options.html`) };
 }
 type H = ReturnType<typeof harness>;
-const present = (h: H, opening: string) => h.popup({ kind: INVITATION_MESSAGE_KIND, op: "present", opening }) as Promise<Extract<InvitationReply, { status: "present" }>>;
+const present = (h: H, opening: string, hold?: "setup" | "error") => h.popup({ kind: INVITATION_MESSAGE_KIND, op: "present", opening, ...(hold ? { hold } : {}) }) as Promise<Extract<InvitationReply, { status: "present" }>>;
 const control = (send: H["popup"], c: "site" | "feature" | "global") => send({ kind: INVITATION_MESSAGE_KIND, op: "control", control: c });
 const commit = (h: H, reservation: unknown) => h.popup({ kind: INVITATION_MESSAGE_KIND, op: "commit", reservation }) as Promise<Extract<InvitationReply, { status: "commit" }>>;
 
@@ -271,5 +272,61 @@ describe("readiness is the browser's own site access", () => {
     expect(await declaredHostsGranted({ contains } as never, manifest)).toBe(true);
     expect(contains).toHaveBeenCalledWith({ origins: manifest.host_permissions });
     expect(await declaredHostsGranted({ contains } as never, {})).toBe(false);
+  });
+});
+
+describe("a hold from the popup keeps the one card from being used up unseen", () => {
+  it("accepts only the two named holds", () => {
+    const base = { kind: INVITATION_MESSAGE_KIND, op: "present", opening: "o" };
+    expect(readInvitationRequest({ ...base, hold: "error" })).toMatchObject({ hold: "error" });
+    expect(readInvitationRequest({ ...base, hold: "setup" })).toMatchObject({ hold: "setup" });
+    expect(readInvitationRequest({ ...base, hold: "purchase" })).toBeNull();
+    expect(readInvitationRequest({ ...base, hold: "error", extra: 1 })).toBeNull();
+  });
+  it.each(["setup", "error"] as const)("reserves and commits nothing while the popup holds (%s), then shows later", async hold => {
+    const h = harness();
+    await earnMilestone(h);
+    expect((await present(h, "opening-2", hold)).card).toBeNull();
+    expect(h.ledger()).toMatchObject({ sync: "due", shown: 0, reservation: null });
+    expect((await present(h, "opening-3")).card).not.toBeNull();
+  });
+});
+
+describe("readAccountState: only a clean session read counts as signed in or out", () => {
+  const session = { user: { id: "u" } };
+  it("reads a clean session", async () => {
+    expect(await readAccountState({ getSession: async () => ({ data: { session }, error: null }) })).toBe("signed-in");
+    expect(await readAccountState({ getSession: async () => ({ data: { session: null }, error: null }) })).toBe("signed-out");
+  });
+  it("an offline refresh error with no session is unknown, not signed out", async () => {
+    expect(await readAccountState({ getSession: async () => ({ data: { session: null }, error: { message: "fetch failed" } }) })).toBe("unknown");
+  });
+  it("a rejected read is unknown", async () => {
+    expect(await readAccountState({ getSession: async () => { throw new Error("storage"); } })).toBe("unknown");
+  });
+  it("a read that never answers is unknown after the timeout", async () => {
+    expect(await readAccountState({ getSession: () => new Promise(() => {}) }, 10)).toBe("unknown");
+  });
+  it("clears its timer once the race has settled", async () => {
+    vi.useFakeTimers();
+    try {
+      const done = readAccountState({ getSession: async () => ({ data: { session: null }, error: null }) });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(await done).toBe("signed-out");
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("an unknown account never counts a control and never shows the card", async () => {
+    const unknown = () => readAccountState({ getSession: async () => ({ data: { session: null }, error: { message: "offline" } }) });
+    const h = harness();
+    await earnMilestone(h);
+    h.facts.account = await unknown();
+    expect((await present(h, "opening-2")).card).toBeNull();
+    const k = harness({ account: await unknown() });
+    await present(k, "opening-1");
+    for (const c of ["site", "feature", "global"] as const) await control(k.popup, c);
+    expect(k.ledger()).toMatchObject({ milestones: 0, sync: "idle" });
   });
 });

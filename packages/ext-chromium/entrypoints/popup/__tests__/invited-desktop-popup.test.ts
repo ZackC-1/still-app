@@ -106,6 +106,27 @@ describe("the invitation wrapper around the V3 popup", () => {
     expect(present).toHaveBeenCalledOnce();
   });
 
+  it("asks the background to hold while the popup would hide the card", async () => {
+    const { props } = await fixture();
+    const present = vi.fn(async (_opening: string, _hold?: "setup" | "error") => null);
+    host({ present, commit: async () => true });
+    render(InvitedDesktopPopup, { props: { ...props, account: { status: { tone: "pending", text: "Syncing" } } } });
+    await waitFor(() => expect(present).toHaveBeenCalledOnce());
+    expect(present.mock.calls[0]![1]).toBe("error");
+    cleanup();
+    const present2 = vi.fn(async (_opening: string, _hold?: "setup" | "error") => null);
+    host({ present: present2, commit: async () => true });
+    render(InvitedDesktopPopup, { props: { ...props, desktopSetup: { title: "t", detail: "d", actionLabel: "a" } } });
+    await waitFor(() => expect(present2).toHaveBeenCalledOnce());
+    expect(present2.mock.calls[0]![1]).toBe("setup");
+    cleanup();
+    const present3 = vi.fn(async (_opening: string, _hold?: "setup" | "error") => null);
+    host({ present: present3, commit: async () => true });
+    render(InvitedDesktopPopup, { props });
+    await waitFor(() => expect(present3).toHaveBeenCalledOnce());
+    expect(present3.mock.calls[0]![1]).toBeUndefined();
+  });
+
   it("is the plain popup when no host is configured", async () => {
     const { props } = await fixture();
     render(InvitedDesktopPopup, { props });

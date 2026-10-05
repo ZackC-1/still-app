@@ -18,9 +18,22 @@
   onMount(() => {
     if (!host || host.started) return;
     host.started = true;
-    void presentInvitation(host.port, host.opening, (reserved) => {
-      shown = { installation: reserved.installation };
-    });
+    // The popup hides the card during its own setup state or a pending, failed or cautioned
+    // account state. Say so up front, so nothing is reserved or consumed unseen.
+    const tone = props.account?.status?.tone;
+    const hold = props.desktopSetup
+      ? "setup"
+      : tone === "pending" || tone === "failed" || tone === "caution"
+        ? "error"
+        : undefined;
+    void presentInvitation(
+      host.port,
+      host.opening,
+      (reserved) => {
+        shown = { installation: reserved.installation };
+      },
+      hold,
+    );
   });
 
   // Someone signed in meanwhile (another window, a code entered here): the card has no purpose.

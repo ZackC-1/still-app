@@ -29,8 +29,13 @@ export const SYNC_INVITATION_PARAMETERS: InvitationOwnerParameters = /* @__PURE_
   countedControls: /* @__PURE__ */ Object.freeze(["site", "feature", "global"] as const),
 });
 
+/** A fact the popup already knows that would hide the card: a pending, failed or cautioned
+ * sign-in/account state ("error"), or its own setup state ("setup"). */
+export type InvitationHold = "setup" | "error";
+const HOLDS: readonly InvitationHold[] = ["setup", "error"];
+
 export type InvitationRequest =
-  | { kind: typeof INVITATION_MESSAGE_KIND; op: "present"; opening: string }
+  | { kind: typeof INVITATION_MESSAGE_KIND; op: "present"; opening: string; hold?: InvitationHold }
   | { kind: typeof INVITATION_MESSAGE_KIND; op: "commit"; reservation: InvitationReservation }
   | { kind: typeof INVITATION_MESSAGE_KIND; op: "control"; control: InvitationControl };
 
@@ -48,8 +53,12 @@ const keysAre = (v: Record<string, unknown>, keys: readonly string[]) =>
 
 export function readInvitationRequest(message: unknown): InvitationRequest | null {
   if (!plain(message) || message.kind !== INVITATION_MESSAGE_KIND) return null;
-  if (message.op === "present" && keysAre(message, ["kind", "op", "opening"]) && validInvitationId(message.opening))
-    return { kind: INVITATION_MESSAGE_KIND, op: "present", opening: message.opening };
+  if (message.op === "present" && validInvitationId(message.opening)) {
+    if (keysAre(message, ["kind", "op", "opening"]))
+      return { kind: INVITATION_MESSAGE_KIND, op: "present", opening: message.opening };
+    if (keysAre(message, ["kind", "op", "opening", "hold"]) && HOLDS.includes(message.hold as InvitationHold))
+      return { kind: INVITATION_MESSAGE_KIND, op: "present", opening: message.opening, hold: message.hold as InvitationHold };
+  }
   if (message.op === "control" && keysAre(message, ["kind", "op", "control"]) && CONTROLS.includes(message.control as InvitationControl))
     return { kind: INVITATION_MESSAGE_KIND, op: "control", control: message.control as InvitationControl };
   if (message.op === "commit" && keysAre(message, ["kind", "op", "reservation"]) && plain(message.reservation)) {
@@ -96,7 +105,7 @@ export function createInvitationHost(deps: InvitationBackgroundDeps) {
         nowMs,
         syncApplicable: deps.signInAvailable && account === "signed-out",
         linkApplicable: false,
-        suppressed: finished ? null : "setup",
+        suppressed: finished ? (request.hold ?? null) : "setup",
       });
       const id = reservation ? await installation() : null;
       return { status: "present", card: reservation && id ? { installation: id, reservation } : null };
@@ -154,4 +163,30 @@ export function declaredHostsGranted(
     : [];
   if (origins.length === 0) return Promise.resolve(false);
   return permissions.contains({ origins });
+}
+
+/**
+ * The sign-in state as the background session reports it. Anything that is not a clean read is
+ * "unknown": an offline refresh with an expired token returns `{ session: null, error }` for a
+ * person who is in fact signed in, so an error, a rejection and a timeout must never read as
+ * signed out. Unknown never counts a control and never shows a card.
+ */
+export async function readAccountState(
+  auth: { getSession(): Promise<{ data: { session: unknown }; error?: unknown }> },
+  timeoutMs = 3_000,
+): Promise<"signed-out" | "signed-in" | "unknown"> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      auth.getSession().then(
+        ({ data, error }): "signed-out" | "signed-in" | "unknown" => (error ? "unknown" : data.session ? "signed-in" : "signed-out"),
+        () => "unknown" as const,
+      ),
+      new Promise<"unknown">(resolve => { timer = setTimeout(() => resolve("unknown"), timeoutMs); }),
+    ]);
+  } catch {
+    return "unknown";
+  } finally {
+    clearTimeout(timer);
+  }
 }

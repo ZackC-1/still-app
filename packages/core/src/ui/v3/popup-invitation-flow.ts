@@ -16,8 +16,9 @@ export interface PopupInvitationReservation {
 }
 
 export interface PopupInvitationPort {
-  /** Background: record this opening, decide and reserve. Null means no card for this opening. */
-  present(opening: string): Promise<PopupInvitationReservation | null>;
+  /** Background: record this opening, decide and reserve. Null means no card for this opening.
+   * `hold` names a state that would hide the card, so the one card is never used up unseen. */
+  present(opening: string, hold?: "setup" | "error"): Promise<PopupInvitationReservation | null>;
   /** Background: consume the reservation. False means another host or state won: show nothing. */
   commit(reservation: InvitationReservation): Promise<boolean>;
 }
@@ -31,10 +32,11 @@ export async function presentInvitation(
   port: PopupInvitationPort,
   opening: string,
   show: (reserved: PopupInvitationReservation) => void,
+  hold?: "setup" | "error",
 ): Promise<boolean> {
   let reserved: PopupInvitationReservation | null;
   try {
-    reserved = await port.present(opening);
+    reserved = await port.present(opening, hold);
   } catch {
     return false;
   }
