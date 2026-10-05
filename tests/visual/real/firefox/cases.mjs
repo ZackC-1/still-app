@@ -14,13 +14,6 @@ export const cases = [
     theme: "light",
     recipe: "firstrun-permission-needed",
     mode: "gated",
-    // Measured 2026-10-05: the reference draws a 74 px (device) browser-tab header the page does not have, which pushes
-    // everything down; a combined email-and-usage consent card the product no longer has; the old sync wording
-    // ("every device and browser", owner-approved wording is "every supported surface"); and an enabled Sign in
-    // button where the unconfigured build shows it inert. Aligned and without the header and the card, the page
-    // differs by 0.678% (6,695 of 987,840 px), the copy and the Sign in button. No renderer or layout defect.
-    causes:
-      "reference content the product lacks (tab header strip, combined consent card, enabled Sign in on an unconfigured build) plus owner-approved sync wording",
   },
   {
     id: "d14-04",
@@ -35,15 +28,6 @@ export const cases = [
     theme: "light",
     mode: "blocked",
     reason: OWNER_ASSISTED,
-  },
-  {
-    id: "d01-08",
-    reference:
-      "d01-desktop-popup/08-firefox-autoplay-unavailable-522px-tall.png",
-    theme: "light",
-    mode: "blocked",
-    reason:
-      "no product state: the V3 popup has no Firefox 'Autoplay unavailable' branch (Autoplay prevention is a locked Pro row on every browser); owner question",
   },
   {
     id: "d14-01",

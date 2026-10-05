@@ -271,7 +271,6 @@ for (const c of cases) {
       size,
       reference: c.reference,
       impl: relative(REPO, impl),
-      reason: status === "FAIL" ? (c as { causes?: string }).causes : undefined,
     });
     if (c.mode === "gated")
       expect(
