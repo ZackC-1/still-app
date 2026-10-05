@@ -515,23 +515,6 @@ function workflowValue(node) {
   assert.fail(`Unsupported workflow node: ${node.type}`);
 }
 
-// Evaluate the actual sealed condition's equality conjunction, with no arbitrary eval.
-// A changed condition grammar requires an explicit test update instead of being ignored.
-function protectedJobSchedules(condition, values) {
-  return condition
-    .split(/\s+&&\s+/)
-    .map((clause) => {
-      const match = /^([\w.-]+) == '([^']*)'$/.exec(clause);
-      assert.ok(match, `Unsupported protected condition: ${clause}`);
-      assert.ok(
-        Object.hasOwn(values, match[1]),
-        `Unknown condition context: ${match[1]}`,
-      );
-      return values[match[1]] === match[2];
-    })
-    .every(Boolean);
-}
-
 test("preview installs pinned Deno and existing parser before running Node tests", async () => {
   const text = await readFile(
     new URL("../../.github/workflows/supabase-deploy.yml", import.meta.url),
@@ -566,7 +549,9 @@ test("public workflow effective authority output cannot schedule production or r
   const ast = await parsers.yaml.parse(text);
   const workflow = workflowValue(ast.children[0].children[1]);
   const preview = workflow.jobs.preview;
-  const protectedApply = workflow.jobs["protected-apply"];
+  // The sealed placeholder job was replaced by supabase-production-deploy.yml (CP-033). This
+  // foundation workflow must never name an environment or schedule a production job.
+  assert.deepEqual(Object.keys(workflow.jobs), ["preview", "synthetic"]);
   const authorities = preview.steps.filter((step) => step.id === "authority");
   assert.equal(authorities.length, 1);
   const authority = authorities[0];
@@ -577,11 +562,9 @@ test("public workflow effective authority output cannot schedule production or r
   assert.deepEqual(authority.env, {
     REQUESTED_OPERATION: "${{ inputs.operation }}",
   });
-  assert.equal(protectedApply.needs, "preview");
-  assert.equal(protectedApply.environment, "supabase-production");
   assert.deepEqual(workflow.permissions, { contents: "read" });
-  for (const [name, job] of Object.entries(workflow.jobs)) {
-    if (name !== "protected-apply") assert.equal(job.environment, undefined);
+  for (const job of Object.values(workflow.jobs)) {
+    assert.equal(job.environment, undefined);
     for (const scope of [job, ...job.steps]) {
       assert.doesNotMatch(JSON.stringify(scope), /\bsecrets\s*[.[]/);
       for (const level of Object.values(scope.permissions ?? {}))
@@ -626,14 +609,6 @@ test("public workflow effective authority output cannot schedule production or r
         }),
     );
     assert.equal(outputs["production-ready"], "false");
-    assert.equal(
-      protectedJobSchedules(protectedApply.if, {
-        "github.event_name": event,
-        "github.ref": "refs/heads/main",
-        "needs.preview.outputs.production-ready": outputs["production-ready"],
-      }),
-      false,
-    );
   }
   assert.doesNotMatch(
     text,
