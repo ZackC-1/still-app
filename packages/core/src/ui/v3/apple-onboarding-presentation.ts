@@ -37,4 +37,6 @@ export interface AppleOnboardingProps {
   consent: OnboardingConsent;
   onOpenSafari?: () => void;
   onGoToSettings?: () => void;
+  /** Step 4 only: the actual outcome of finishing setup, e.g. a failure with a retry action. */
+  completion?: OperationStatus;
 }
