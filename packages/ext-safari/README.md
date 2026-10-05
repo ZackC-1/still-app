@@ -9,6 +9,12 @@ entitlement and account status through the Safari bridge.
 - `wxt.config.ts`: Safari manifest and resource output configuration.
 - `lib/__tests__/`: bridge, reconciliation, CSS and layout regressions.
 
+The V3 popup and settings page are a developer opt-in that matches the Apple app's: build with
+`VITE_APPLE_ATOMIC_SETTINGS=true` and no Supabase values, for both this package and
+`packages/app-webview`. Even then they appear only once the app has converted the saved record;
+otherwise the existing screens show. Default builds are byte-identical without it, which
+`node scripts/bundles/identity.mjs` checks (snapshot before and after, then diff).
+
 From the repository root, run `pnpm --filter @still/ext-safari test` and
 `pnpm --filter @still/ext-safari build`. Generated resources live in ignored `dist/`.
 Xcode copies the built resources into the extension; this directory alone is not an installable

@@ -177,6 +177,9 @@ Deno.test({
       "select public.release_revenuecat_event('u1a-evt-processing', gen_random_uuid())",
     ];
 
+    // Set by the preconditions step. 0015 re-pins every SECURITY DEFINER search_path to
+    // `pg_catalog, pg_temp` (pg_temp last), which 0014's own self-check predates.
+    const history = { latest: "", has0015: false };
     try {
       const preconditions = await t.step(
         "preconditions: ordinary non-superuser owner, expected migration history",
@@ -203,6 +206,8 @@ Deno.test({
               `migration ${required} applied`,
             );
           }
+          history.latest = versions[versions.length - 1];
+          history.has0015 = versions.includes("0015");
           if (mode === "clean") await admin.unsafe(await seedSource());
           await admin.unsafe(
             `alter role still_entitlement_writer login password '${WRITER_PASSWORD}'`,
@@ -366,8 +371,12 @@ Deno.test({
               false,
             );
           }
+          // 0014 pins the empty path; once 0015 is applied the stricter pg_temp-last form is required.
+          const pinned = history.has0015
+            ? "search_path=pg_catalog, pg_temp"
+            : 'search_path=""';
           const unpinned =
-            await admin`select p.oid::regprocedure::text as routine from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosecdef and not coalesce(p.proconfig @> array['search_path=""'], false)`;
+            await admin`select p.oid::regprocedure::text as routine from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosecdef and not coalesce(p.proconfig @> array[${pinned}::text], false)`;
           assertEquals(
             unpinned.map((r) => r.routine),
             [],
@@ -872,21 +881,30 @@ Deno.test({
         },
       );
 
-      await t.step("re-applying 0014 as postgres is a no-op", async () => {
-        const before = await catalogState(admin);
-        await admin.begin(async (tx) => {
-          assertEquals(
-            (await tx`select current_user::text as role`)[0].role,
-            "postgres",
-          );
-          await tx.unsafe(await migrationSource());
-        });
-        assertEquals(await catalogState(admin), before);
+      // Re-applying 0014 is only meaningful while 0014 is the newest migration: it would put the
+      // empty search_path back over 0015's pg_temp-last pins. The rehearsal therefore also runs
+      // this test on a database reset to exactly 0014, where these two steps execute.
+      await t.step({
+        name: "re-applying 0014 as postgres is a no-op (0014 newest only)",
+        ignore: history.latest !== "0014",
+        fn: async () => {
+          const before = await catalogState(admin);
+          await admin.begin(async (tx) => {
+            assertEquals(
+              (await tx`select current_user::text as role`)[0].role,
+              "postgres",
+            );
+            await tx.unsafe(await migrationSource());
+          });
+          assertEquals(await catalogState(admin), before);
+        },
       });
 
-      await t.step(
-        "the migration self-check rejects client reach it does not itself remove",
-        async () => {
+      await t.step({
+        name:
+          "the migration self-check rejects client reach it does not itself remove (0014 newest only)",
+        ignore: history.latest !== "0014",
+        fn: async () => {
           const before = await catalogState(admin);
           // Each state is something 0014's own statements leave in place, so only the final
           // self-check can catch it. Every probe rolls back.
@@ -933,7 +951,7 @@ Deno.test({
           }
           assertEquals(await catalogState(admin), before);
         },
-      );
+      });
     } finally {
       await extra.other?.end();
       await writer.end();
