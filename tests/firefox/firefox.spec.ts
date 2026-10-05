@@ -5,7 +5,9 @@ import { PAID_TIER_ENABLED } from "../../packages/shared-types/src/entitlement.j
 import {
   expectInstagramLeftAlone,
   expectYoutubeLeftAlone,
-  stillIsActive,
+  noStillMarker,
+  stillIsWorking,
+  type Format2Service,
 } from "./_assertions.js";
 import { findFirefox } from "./_bidi.js";
 import {
@@ -19,6 +21,11 @@ import {
 // loaded into a real Firefox. They answer one question the Chromium lane cannot: does the Firefox
 // build, with no declarativeNetRequest and Firefox's own content-script and storage behaviour, still
 // do the job on every supported surface?
+//
+// This unconfigured build runs the format-2 engine on YouTube, Instagram and Facebook once its
+// background has committed schema-2 settings: an owned feature marker on <html>, targets hidden by
+// a scoped stylesheet but left in the page, ordinary content untouched. TikTok keeps the legacy
+// engine's site block.
 //
 // Not covered here: sign-in and sync, the options page, popup sizing, mobile pages, and
 // Firefox for Android (the product is desktop Firefox only).
@@ -53,6 +60,8 @@ test.beforeAll(async () => {
     if (host.endsWith("tiktok.com")) return fixture("tiktok.html");
     return null;
   });
+  // Pages pick their engine from saved settings; wait for the install-time schema-2 settings.
+  await firefox.waitForModernSettings();
 });
 
 test.afterAll(async () => {
@@ -61,25 +70,30 @@ test.afterAll(async () => {
 
 const rootClass = (tab: Tab) =>
   tab.evaluate<string>("document.documentElement.className");
-const waitActive = (tab: Tab) =>
+const waitWorking = (tab: Tab, service: Format2Service) =>
   tab.waitFor(
-    "Still to mark the page active",
-    () => stillIsActive(tab),
+    `Still to mark the ${service} page with its feature marker`,
+    () => stillIsWorking(tab, service),
     Boolean,
   );
+/** Hidden by Still, yet still in the page (the engine never removes renderer-owned nodes). */
+async function waitHiddenPresent(tab: Tab, selector: string): Promise<void> {
+  await tab.waitForVisible(selector, false);
+  expect(await tab.count(selector), `${selector} stays in the page`).toBe(1);
+}
 
 test("youtube: Shorts shelves go, ordinary feed content stays", async () => {
   const tab = await firefox.openTab(
     "https://www.youtube.com/feed/subscriptions",
   );
-  await waitActive(tab);
+  await waitWorking(tab, "youtube");
 
-  await tab.waitForCount("#shelf", 0);
-  await tab.waitForCount("#rich-shorts-section", 0);
-  await tab.waitForCount("#subs-shorts-shelf", 0);
-  await tab.waitForVisible("#endpoint", false);
-  await tab.waitForVisible("#shorts-mini-guide", false);
-  await tab.waitForVisible("#shorts-chip", false);
+  await waitHiddenPresent(tab, "#shelf");
+  await waitHiddenPresent(tab, "#rich-shorts-section");
+  await waitHiddenPresent(tab, "#subs-shorts-shelf");
+  await waitHiddenPresent(tab, "#endpoint");
+  await waitHiddenPresent(tab, "#shorts-mini-guide");
+  await waitHiddenPresent(tab, "#shorts-chip");
 
   expect(await tab.isVisible("#keep-video")).toBe(true);
   expect(await tab.isVisible("#keep-subs-video")).toBe(true);
@@ -87,7 +101,8 @@ test("youtube: Shorts shelves go, ordinary feed content stays", async () => {
   expect(await tab.isVisible("#keep-chip-all")).toBe(true);
   expect(await tab.isVisible("#keep-mixed-section")).toBe(true);
   expect(await tab.isVisible("#keep-reels-titled-video")).toBe(true);
-  expect(await rootClass(tab)).toContain("still-service-youtube");
+  // The format-2 lane never raises the legacy engine's page markers, so the two never stack.
+  expect(await rootClass(tab)).not.toMatch(/still-(active|service-)/);
   await tab.close();
 });
 
@@ -110,9 +125,9 @@ test("instagram: a Reel post and the Reels link follow the paid-tier switch, an 
   if (PAID_TIER_ENABLED) {
     await expectInstagramLeftAlone(tab);
   } else {
-    await waitActive(tab);
-    await tab.waitForCount("#reel-post", 0);
-    await tab.waitForVisible("#reels-link", false);
+    await waitWorking(tab, "instagram");
+    await waitHiddenPresent(tab, "#reel-post");
+    await waitHiddenPresent(tab, "#reels-link");
   }
   expect(await tab.isVisible("#keep-post")).toBe(true);
   await tab.close();
@@ -124,14 +139,14 @@ test("facebook: a Reel article and the Reels shortcut follow the paid-tier switc
     await tab.holdsFor(
       "Facebook left alone",
       async () =>
-        (await tab.count("#reel-article")) > 0 &&
+        (await tab.isVisible("#reel-article")) &&
         (await tab.isVisible("#reels-shortcut")) &&
-        !(await stillIsActive(tab)),
+        (await noStillMarker(tab)),
     );
   } else {
-    await waitActive(tab);
-    await tab.waitForCount("#reel-article", 0);
-    await tab.waitForVisible("#reels-shortcut", false);
+    await waitWorking(tab, "facebook");
+    await waitHiddenPresent(tab, "#reel-article");
+    await waitHiddenPresent(tab, "#reels-shortcut");
   }
   expect(await tab.isVisible("#keep-article")).toBe(true);
   expect(await tab.isVisible("#keep-lookalike-article")).toBe(true);
@@ -185,22 +200,23 @@ async function setSwitch(
 // Off is proved in two steps, each starting from a page where Still was seen working:
 //  1. Live: with the page open and blocked, switching Off must make Still take its marker away and
 //     un-hide the hidden parts. That marker change is the positive sign Still ran and chose to stop.
-//  2. Reload: a fresh page must then stay whole for a full second, so removed parts really return.
+//  2. Reload: a fresh page must then stay whole for a full second, so hidden parts really return.
 test("the master switch: Off restores every page, On blocks again", async () => {
   const popup = await firefox.openExtensionPage("popup.html");
   try {
     const url = "https://www.youtube.com/feed/subscriptions";
     const tab = await firefox.openTab(url);
-    await waitActive(tab);
-    await tab.waitForCount("#shelf", 0);
+    await waitWorking(tab, "youtube");
+    await waitHiddenPresent(tab, "#shelf");
 
     await setSwitch(popup, "Still", false);
     await tab.waitFor(
       "Still to take its marker away",
-      () => stillIsActive(tab),
-      (active) => !active,
+      () => stillIsWorking(tab, "youtube"),
+      (working) => !working,
     );
     await tab.waitForVisible("#endpoint", true);
+    await tab.waitForVisible("#shelf", true);
 
     await tab.goto(url);
     await expectYoutubeLeftAlone(tab);
@@ -208,8 +224,8 @@ test("the master switch: Off restores every page, On blocks again", async () => 
 
     await setSwitch(popup, "Still", true);
     const on = await firefox.openTab(url);
-    await waitActive(on);
-    await on.waitForCount("#shelf", 0);
+    await waitWorking(on, "youtube");
+    await waitHiddenPresent(on, "#shelf");
     await on.close();
   } finally {
     await setSwitch(popup, "Still", true);
@@ -226,16 +242,17 @@ test("one service switch Off restores only that service", async () => {
   try {
     const url = "https://www.instagram.com/someuser/";
     const instagram = await firefox.openTab(url);
-    await waitActive(instagram);
-    await instagram.waitForCount("#reel-post", 0);
+    await waitWorking(instagram, "instagram");
+    await waitHiddenPresent(instagram, "#reel-post");
 
     await setSwitch(popup, "Still on Instagram", false);
     await instagram.waitFor(
       "Still to take its marker away",
-      () => stillIsActive(instagram),
-      (active) => !active,
+      () => stillIsWorking(instagram, "instagram"),
+      (working) => !working,
     );
     await instagram.waitForVisible("#reels-link", true);
+    await instagram.waitForVisible("#reel-post", true);
 
     await instagram.goto(url);
     await expectInstagramLeftAlone(instagram);
@@ -244,8 +261,8 @@ test("one service switch Off restores only that service", async () => {
     const youtube = await firefox.openTab(
       "https://www.youtube.com/feed/subscriptions",
     );
-    await waitActive(youtube);
-    await youtube.waitForCount("#shelf", 0);
+    await waitWorking(youtube, "youtube");
+    await waitHiddenPresent(youtube, "#shelf");
     await youtube.close();
   } finally {
     await setSwitch(popup, "Still on Instagram", true);

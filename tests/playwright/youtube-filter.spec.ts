@@ -1,9 +1,12 @@
 import type { BrowserContext } from "@playwright/test";
 import { test, expect, fixture } from "./_extension.js";
 
-// The Chromium build runs these on committed schema-2 settings, i.e. the format-2 lane; the
-// Safari build (no native settings authority in this harness) keeps the legacy lane.
-test.use({ settingsProfile: "modern" });
+// An unconfigured Chromium build runs these on committed schema-2 settings, i.e. the format-2
+// lane; a configured build (legacy settings document) and the Safari build (no native settings
+// authority in this harness) keep the legacy lane. The assertions hold on both lanes.
+test.use({
+  settingsProfile: process.env.STILL_TEST_SYNC_CONFIGURED === "true" ? "fresh" : "modern",
+});
 
 async function checkFilter(context: BrowserContext, extensionId: string): Promise<void> {
   await context.route(/^https?:/, (route) => route.request().url().startsWith("https://www.youtube.com/")

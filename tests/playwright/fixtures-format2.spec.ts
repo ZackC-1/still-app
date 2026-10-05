@@ -13,6 +13,14 @@ import type { BrowserContext, Page } from "@playwright/test";
 // asserts the target is hidden AND still attached, ordinary content stays visible, and turning
 // Still off restores the target (then on hides it again).
 
+// Configured (2.x store-style) builds keep the legacy settings document until the modern settings
+// rollout, so they never run the format-2 lane; configured-lane.spec.ts pins that instead.
+const syncConfigured = process.env.STILL_TEST_SYNC_CONFIGURED === "true";
+test.skip(
+  syncConfigured,
+  "Format-2 lane needs committed schema-2 settings; configured builds stay on the legacy lane",
+);
+
 test.use({ settingsProfile: "modern" });
 
 async function serve(page: Page, domainGlob: string, html: string): Promise<void> {
