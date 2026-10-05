@@ -1,7 +1,22 @@
 import { mount } from "svelte";
 import { createClient, type SupabaseClient, type SupportedStorage } from "@supabase/supabase-js";
 import "@still/core/ui/tokens.css";
-import { App, SAFARI_SURFACE_GUIDANCE, UiController, type AuthPersistence } from "@still/core/ui";
+import {
+  App,
+  SAFARI_SURFACE_GUIDANCE,
+  UiController,
+  appleSettingsCacheOptions,
+  appleSettingsHelp,
+  appleSettingsPlatform,
+  appleSettingsSetup,
+  observeAppleSetup,
+  appleSettingsToggleReporter,
+  createAppleSettingsAuthority,
+  openExternalLink,
+  selectAppleSettingsMode,
+  type AppleSettingsMode,
+  type AuthPersistence,
+} from "@still/core/ui";
 import { SettingsCache, WKWebViewStorageAdapter } from "@still/core/storage";
 import { NativeBridge } from "@still/core/native";
 import { createAppAnalytics, type AnalyticsKeyValue } from "@still/core/analytics";
@@ -22,7 +37,26 @@ import {
 // (StoreKit/RevenueCat) keyed to the Supabase UUID (KTD5); the UI gates on the Supabase
 // entitlement surfaced through SyncService.
 
-const cache = new SettingsCache(new WKWebViewStorageAdapter());
+// D04 settings (committed atomic authority) is selected only by the tested core rule, and only
+// for unconfigured builds running inside the native host. The inline build-time check below can
+// only narrow to the legacy screen: Vite inlines both env values, so a configured build folds this
+// to "legacy" and drops the D04 module and its global stylesheet from the single-file bundle.
+const appleSettingsMode: AppleSettingsMode = !(
+  import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY
+)
+  ? selectAppleSettingsMode({
+      supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
+      supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+      nativePort: new NativeBridge().available,
+    })
+  : "legacy";
+
+// The ONE settings cache and writer. Atomic mode initializes the App Group record through native
+// with unknown ownership; the legacy screen keeps exactly the construction it always had.
+const cache =
+  appleSettingsMode === "atomic"
+    ? new SettingsCache(new WKWebViewStorageAdapter(), appleSettingsCacheOptions(appleSettingsMode))
+    : new SettingsCache(new WKWebViewStorageAdapter());
 cache.watch();
 void cache.hydrate();
 
@@ -218,15 +252,44 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") void analytics.recheckSetup();
 });
 
-mount(App, {
-  target: document.getElementById("app")!,
-  props: {
-    controller,
-    onGet,
-    onRestore,
-    surfaceGuidance: SAFARI_SURFACE_GUIDANCE,
-  },
-});
+if (appleSettingsMode === "atomic") void mountAppleSettings();
+else
+  mount(App, {
+    target: document.getElementById("app")!,
+    props: {
+      controller,
+      onGet,
+      onRestore,
+      surfaceGuidance: SAFARI_SURFACE_GUIDANCE,
+    },
+  });
+
+/** D04 over the same cache: committed binding + read-only native access, mounted once. */
+async function mountAppleSettings(): Promise<void> {
+  const [{ default: AppleSettingsHost }, setup] = await Promise.all([
+    import("./AppleSettingsHost.svelte"),
+    observeAppleSetup(() => bridge.observeSafariSetup()),
+  ]);
+  const authority = createAppleSettingsAuthority(cache, bridge);
+  try {
+    mount(AppleSettingsHost, {
+      target: document.getElementById("app")!,
+      props: {
+        controller,
+        binding: authority.binding,
+        platform: appleSettingsPlatform(setup),
+        initialSetup: appleSettingsSetup(setup),
+        observeSetup: () => bridge.observeSafariSetup(),
+        help: appleSettingsHelp((url) => openExternalLink(url)),
+        settingsRead: cache.whenHydrated(),
+        onCommittedToggle: appleSettingsToggleReporter(analytics.ui),
+      },
+    });
+  } catch (error) {
+    authority.stop();
+    throw error;
+  }
+}
 
 /** localStorage with an in-memory fallback — WKWebView's file:// origin can refuse persistent storage,
  * and Supabase auth must not throw on construction. The session then lives for the launch only. */

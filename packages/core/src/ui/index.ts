@@ -50,3 +50,27 @@ export type CommittedPopupToggle = {
   readonly service?: import("@still/shared-types").ServiceId;
 };
 export type { LegacyPopupAuthority } from "./v3/legacy-popup-view-binding.svelte.js";
+
+// Apple app D04 settings host (app-webview). AppleSettings itself is never exported here: only the
+// app-webview host imports it, behind a build-time-folded dynamic import, so its global stylesheet
+// never reaches another host's bundle.
+export { default as SignInSheet } from "./components/SignInSheet.svelte";
+export { createPopupViewBinding } from "./v3/popup-view-binding.svelte.js";
+export {
+  selectAppleSettingsMode,
+  appleSettingsCacheOptions,
+  createAppleSettingsAuthority,
+  appleSettingsPlatform,
+  appleSettingsSetup,
+  observeAppleSetup,
+  watchAppleSetup,
+  appleSettingsSync,
+  appleSettingsRestore,
+  appleSettingsHelp,
+  appleSettingsToggleReporter,
+  openExternalLink,
+  type AppleSettingsMode,
+  type AppleSettingsModeInput,
+  type AppleSettingsAccountSource,
+} from "./v3/apple-settings-host.js";
+export type { AppleSettingsProps } from "./v3/apple-settings-presentation.js";
