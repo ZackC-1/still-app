@@ -91,8 +91,33 @@ final class QAHooksReleaseExclusionTests: XCTestCase {
       contentsOf: projectDirectory.appendingPathComponent("Still.xcodeproj/project.pbxproj"), encoding: .utf8)
     let lines = project.components(separatedBy: "\n")
     // Exactly one build-file entry per app target (iOS, macOS), and no extension target.
-    XCTAssertEqual(lines.filter { $0.contains("QAHooks.swift in Sources */ = {isa = PBXBuildFile") }.count, 2)
+    let buildFiles = lines.filter { $0.contains("QAHooks.swift in Sources */ = {isa = PBXBuildFile") }
+      .compactMap { $0.trimmingCharacters(in: .whitespaces).split(separator: " ").first.map(String.init) }
+    XCTAssertEqual(buildFiles.count, 2)
     XCTAssertEqual(lines.filter { $0.contains("QAHooks.swift in Resources") }.count, 0)
+    // Each sits in a Sources phase, and those phases belong to exactly the two app targets.
+    let owners = Set(buildFiles.compactMap { Self.targetOwningSourcesEntry($0, in: project) })
+    XCTAssertEqual(owners, ["Still (iOS)", "Still (macOS)"])
+    XCTAssertEqual(buildFiles.compactMap { Self.targetOwningSourcesEntry($0, in: project) }.count, 2)
+  }
+
+  /// The native target whose Sources build phase lists the build-file id, or nil.
+  static func targetOwningSourcesEntry(_ buildFileID: String, in project: String) -> String? {
+    func objects(_ isa: String) -> [(id: String, body: String)] {
+      let pattern = #"([0-9A-F]{24}) /\*[^*]*\*/ = \{\s*isa = "# + isa + #";(.*?)\n\t\t\};"#
+      let regex = try! NSRegularExpression(pattern: pattern, options: [.dotMatchesLineSeparators])
+      let ns = project as NSString
+      return regex.matches(in: project, range: NSRange(location: 0, length: ns.length)).map {
+        (ns.substring(with: $0.range(at: 1)), ns.substring(with: $0.range(at: 2)))
+      }
+    }
+    guard let phase = objects("PBXSourcesBuildPhase").first(where: { $0.body.contains("\(buildFileID) /*") })
+    else { return nil }
+    guard let target = objects("PBXNativeTarget").first(where: { $0.body.contains("\(phase.id) /* Sources */") }),
+      let name = target.body.range(of: #"\n\t\t\tname = "?([^";]+)"?;"#, options: .regularExpression)
+    else { return nil }
+    return String(target.body[name]).replacingOccurrences(of: "name = ", with: "")
+      .trimmingCharacters(in: CharacterSet(charactersIn: "\n\t\";"))
   }
 
   // MARK: - 4. The shipping path
@@ -114,7 +139,11 @@ final class QAHooksReleaseExclusionTests: XCTestCase {
         let archiveAction = text?.range(of: "<ArchiveAction").map { String(text![$0.lowerBound...]) } ?? ""
         XCTAssertTrue(archiveAction.contains("buildConfiguration = \"Release\""), url.lastPathComponent)
         XCTAssertFalse(text?.contains("STILL_QA_") ?? false, url.lastPathComponent)
-      case "plist", "xcconfig", "entitlements":
+      case "xcconfig":
+        // Includes a developer's local, ignored Secrets.local.xcconfig: it is part of every build.
+        XCTAssertFalse(text?.contains("STILL_QA_") ?? false, "\(url.lastPathComponent) sets a QA key")
+        XCTAssertFalse(Self.definesDebug(text ?? "", format: .xcconfig), "\(url.lastPathComponent) defines DEBUG")
+      case "plist", "entitlements":
         XCTAssertFalse(text?.contains("STILL_QA_") ?? false, "\(url.lastPathComponent) sets a QA key")
       default:
         break
@@ -136,6 +165,17 @@ final class QAHooksReleaseExclusionTests: XCTestCase {
     XCTAssertTrue(Self.definesDebug(#"SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";"#))
     XCTAssertFalse(Self.definesDebug(#"SWIFT_ACTIVE_COMPILATION_CONDITIONS = "QA_LANE";"#))
     XCTAssertTrue(Self.definesDebug("OTHER_SWIFT_FLAGS = \"-D DEBUG\";"))
+    // pbxproj array forms, spread over lines.
+    XCTAssertTrue(Self.definesDebug("SWIFT_ACTIVE_COMPILATION_CONDITIONS = (\n\t\t\t\t\tDEBUG,\n\t\t\t\t\t\"$(inherited)\",\n\t\t\t\t);"))
+    XCTAssertTrue(Self.definesDebug("OTHER_SWIFT_FLAGS = (\n\t\"-D\",\n\tDEBUG,\n);"))
+    XCTAssertTrue(Self.definesDebug("OTHER_SWIFT_FLAGS = (\"-DDEBUG\");"))
+    XCTAssertTrue(Self.definesDebug("\"SWIFT_ACTIVE_COMPILATION_CONDITIONS[sdk=iphonesimulator*]\" = DEBUG;"))
+    XCTAssertFalse(Self.definesDebug("SWIFT_ACTIVE_COMPILATION_CONDITIONS = (\n\tQA_LANE,\n\t\"$(inherited)\",\n);\nOTHER_FLAG = DEBUG;"))
+    XCTAssertFalse(Self.definesDebug("GCC_PREPROCESSOR_DEFINITIONS = (\n\t\"DEBUG=1\",\n);"))
+    // xcconfig forms: one line each, comments ignored.
+    XCTAssertTrue(Self.definesDebug("SWIFT_ACTIVE_COMPILATION_CONDITIONS = $(inherited) DEBUG\n", format: .xcconfig))
+    XCTAssertTrue(Self.definesDebug("OTHER_SWIFT_FLAGS = $(inherited) -D DEBUG\n", format: .xcconfig))
+    XCTAssertFalse(Self.definesDebug("SWIFT_ACTIVE_COMPILATION_CONDITIONS = QA_LANE // not DEBUG\nX = DEBUG\n", format: .xcconfig))
   }
 
   /// Comments compile to nothing, so a comment may name the hooks anywhere.
@@ -195,13 +235,30 @@ final class QAHooksReleaseExclusionTests: XCTestCase {
     return result
   }
 
-  static func definesDebug(_ settings: String) -> Bool {
-    for line in settings.components(separatedBy: "\n") {
-      let isCondition =
-        line.contains("SWIFT_ACTIVE_COMPILATION_CONDITIONS") || line.contains("OTHER_SWIFT_FLAGS")
-      guard isCondition, let equals = line.firstIndex(of: "=") else { continue }
-      let value = line[line.index(after: equals)...]
-      let words = value.split(whereSeparator: { " \t\";-".contains($0) })
+  enum SettingsFormat { case pbxproj, xcconfig }
+
+  /// Whether the text sets a Swift compilation condition named DEBUG through
+  /// SWIFT_ACTIVE_COMPILATION_CONDITIONS or OTHER_SWIFT_FLAGS (`-D DEBUG`, `-DDEBUG`), in any form:
+  /// a scalar, a quoted list, or a pbxproj array spread over several lines, and with or without a
+  /// conditional suffix such as `[sdk=iphonesimulator*]`. A pbxproj value runs to its terminating
+  /// `;` (outside quotes); an xcconfig value runs to the end of its line (before any `//`).
+  static func definesDebug(_ text: String, format: SettingsFormat = .pbxproj) -> Bool {
+    let key = try! NSRegularExpression(
+      pattern: #"(SWIFT_ACTIVE_COMPILATION_CONDITIONS|OTHER_SWIFT_FLAGS)(\[[^\]\n]*\])?"?[ \t]*=[ \t]*"#)
+    let ns = text as NSString
+    for match in key.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+      let rest = ns.substring(from: match.range.location + match.range.length)
+      var value = ""
+      var quoted = false
+      for character in rest {
+        if character == "\"" { quoted.toggle() }
+        if format == .pbxproj, character == ";", !quoted { break }
+        if format == .xcconfig, character == "\n" { break }
+        value.append(character)
+      }
+      if format == .xcconfig, let comment = value.range(of: "//") { value = String(value[..<comment.lowerBound]) }
+      let words = value.split(whereSeparator: { " \t\n\r\",;()".contains($0) })
+        .map { $0.drop(while: { $0 == "-" }) }
       if words.contains(where: { $0 == "DEBUG" || $0 == "DDEBUG" }) { return true }
     }
     return false
