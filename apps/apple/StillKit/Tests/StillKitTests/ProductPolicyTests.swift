@@ -142,7 +142,9 @@ final class ProductPolicyTests: XCTestCase {
   }
 
   /// Dormant: nothing in StillKit or the app targets consults this policy yet, so free blocking,
-  /// free sync and Restore cannot depend on it, and no production source reaches the seam.
+  /// free sync and Restore cannot depend on it, and no production source reaches the seam. The one
+  /// permitted user is the dormant client, `ProductPolicyRuntime.swift`, which must itself use only
+  /// the public evaluators. Any other source naming it (it contains "ProductPolicy") fails below.
   func testNoProductionSwiftUsesProductPolicy() throws {
     var root = URL(fileURLWithPath: #filePath)
     for _ in 0..<6 { root.deleteLastPathComponent() }
@@ -153,6 +155,10 @@ final class ProductPolicyTests: XCTestCase {
       let path = url.path
       if path.contains("/Tests/") || path.contains("/.build/") || url.lastPathComponent == "ProductPolicy.swift" { continue }
       let source = try String(contentsOf: url, encoding: .utf8)
+      if url.lastPathComponent == "ProductPolicyRuntime.swift" && path.contains("/StillKit/Sources/StillKit/") {
+        if source.contains("RestrictedJSON") || source.contains("compiledPaidTierEnabled") { users.append(url.lastPathComponent) }
+        continue
+      }
       if source.contains("ProductPolicy") || source.contains("RestrictedJSON") || source.contains("compiledPaidTierEnabled") {
         users.append(url.lastPathComponent)
       }
