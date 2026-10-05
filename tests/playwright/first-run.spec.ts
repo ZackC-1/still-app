@@ -93,12 +93,16 @@ async function launchWithExtensionLoader(profile: string) {
     // Waits for the browser process to exit, so its profile is no longer being written when the
     // caller deletes it.
     async close() {
-      await browser.close().catch(() => {});
       if (proc.exitCode !== null || proc.signalCode !== null) return;
       const exited = new Promise((resolveExit) => proc.once("exit", resolveExit));
-      proc.kill();
-      const forced = setTimeout(() => proc.kill("SIGKILL"), 5_000);
+      // Ask Chromium to quit so it shuts down its own helper processes, which otherwise keep writing
+      // to the profile after the main process is killed.
+      await session.send("Browser.close" as never).catch(() => {});
+      await browser.close().catch(() => {});
+      const terminate = setTimeout(() => proc.kill(), 3_000);
+      const forced = setTimeout(() => proc.kill("SIGKILL"), 8_000);
       await exited;
+      clearTimeout(terminate);
       clearTimeout(forced);
     },
   };
@@ -141,7 +145,12 @@ test("an update does not open the first-run page", async () => {
     expect(firstRunPages(context)).toHaveLength(0);
   } finally {
     await browser?.close();
-    rmSync(work, { recursive: true, force: true, maxRetries: 3 });
+    // Best-effort cleanup of a throwaway temp folder; it must not fail a test that passed.
+    try {
+      rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    } catch (error) {
+      console.warn(`could not remove ${work}: ${String(error)}`);
+    }
   }
 });
 
