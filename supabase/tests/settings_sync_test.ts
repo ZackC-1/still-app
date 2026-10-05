@@ -131,7 +131,8 @@ Deno.test({
             await fixture`select proname,proconfig from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid=p.pronamespace where n.nspname='private' and proname in ('lock_settings','claim_settings_write','commit_settings','cleanup_settings_writes')`;
           assertEquals(paths.length, 4);
           for (const path of paths) {
-            assert(path.proconfig.includes('search_path=""'));
+            // pg_temp last: an empty path would search the caller's pg_temp first for types.
+            assertEquals(path.proconfig, ["search_path=pg_catalog, pg_temp"]);
           }
           // Later functions are created by the same ordinary migration role. In private nobody
           // but the owner may execute them. In public, clients and the writer may not either;
