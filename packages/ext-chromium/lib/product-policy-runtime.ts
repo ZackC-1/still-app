@@ -203,11 +203,15 @@ export function createProductPolicyRuntime(options: ProductPolicyRuntimeOptions)
     return value;
   }
 
-  /** Persist max(previous, revision). Called only after an accepted verdict. */
-  function raiseHighestSeen(namespace: ProductPolicyNamespace, revision: number): Promise<void> {
+  /** Persist max(previous, revision). Called only after an accepted verdict. The fence is re-read
+   * here, inside the serialized write, because a concurrent check may have accepted a newer
+   * revision while this one was in flight: then this answer is "stale" and must not be returned. */
+  function raiseHighestSeen(namespace: ProductPolicyNamespace, revision: number): Promise<"current" | "stale"> {
     return serialize(async () => {
       const previous = await readHighestSeen(namespace);
+      if (previous > revision) return "stale";
       if (revision > previous) await area.set({ [highestSeenKey(namespace)]: revision });
+      return "current";
     });
   }
 
@@ -227,7 +231,9 @@ export function createProductPolicyRuntime(options: ProductPolicyRuntimeOptions)
       // Only accepted verdicts move the fence; "stale" and every failure leave it untouched.
       if (!accepted(verdict)) return verdict;
       // An On that cannot be fenced is not an On: a failed write falls to the catch below.
-      await raiseHighestSeen(namespace, verdict.revision);
+      if (await raiseHighestSeen(namespace, verdict.revision) === "stale") {
+        return Object.freeze({ allowed: false, reason: "stale" as const, revision: verdict.revision });
+      }
       return verdict;
     } catch {
       return off("context");

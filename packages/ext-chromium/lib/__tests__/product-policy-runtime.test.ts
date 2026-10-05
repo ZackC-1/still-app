@@ -216,8 +216,33 @@ describe("the revision fence", () => {
     const revisions = [9, 4, 11, 2];
     const net = scriptedFetch(() => ok(ratingBody({ revision: revisions.shift()! })));
     const policy = runtime({ area: storage.area, fetchImpl: net.fetchImpl });
-    await Promise.all([1, 2, 3, 4].map(() => policy.freshCheck("rating")));
+    const verdicts = await Promise.all([1, 2, 3, 4].map(() => policy.freshCheck("rating")));
     expect(storage.data.get(HIGHEST)).toBe(11);
+    // Every check started with fence 0; answers older than an already fenced revision are stale.
+    expect(verdicts).toEqual([
+      { allowed: true, reason: "on", revision: 9 },
+      { allowed: false, reason: "stale", revision: 4 },
+      { allowed: true, reason: "on", revision: 11 },
+      { allowed: false, reason: "stale", revision: 2 },
+    ]);
+  });
+
+  it("an in-flight older On is stale once a concurrent check fenced a newer revision", async () => {
+    const storage = memoryArea();
+    let releaseOld!: () => void;
+    const oldGate = new Promise<void>(resolve => { releaseOld = resolve; });
+    const answers = [
+      async () => { await oldGate; return ok(ratingBody({ revision: 5 })); },
+      async () => ok(ratingBody({ revision: 6, master: false })),
+    ];
+    const net = scriptedFetch(() => answers.shift()!());
+    const policy = runtime({ area: storage.area, fetchImpl: net.fetchImpl });
+    const older = policy.freshCheck("rating");
+    await vi.waitFor(() => expect(net.calls).toHaveLength(1));
+    expect(await policy.freshCheck("rating")).toEqual({ allowed: false, reason: "off", revision: 6 });
+    releaseOld();
+    expect(await older).toEqual({ allowed: false, reason: "stale", revision: 5 });
+    expect(storage.data.get(HIGHEST)).toBe(6);
   });
 });
 
