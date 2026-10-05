@@ -211,6 +211,22 @@ describe("owner page", () => {
     expect(within(sales()).getByText(PENDING_OWNER_COPY.noBuilds)).toBeInTheDocument();
   });
 
+  it("sales switched on with no approved builds applies and reads back, and still says it has no effect", async () => {
+    const server = new FakeAdminFunction();
+    server.seed("sales", "sandbox", { salesEnabled: false, channels: salesChannels(false), builds: [] });
+    await signIn(OWNER_TOKEN, server);
+    const region = await screen.findByRole("region", { name: PENDING_OWNER_COPY.salesTitle });
+    expect(within(region).getByText(PENDING_OWNER_COPY.noBuilds)).toBeInTheDocument();
+    await fireEvent.click(switchFor(region, PENDING_OWNER_COPY.salesSwitch));
+    await fireEvent.click(within(region).getByRole("button", { name: A.apply }));
+    expect(await within(region).findByText(A.applied)).toBeInTheDocument();
+    // Nothing activates without a listed build, so the server has no cutoff to refuse.
+    expect(within(region).queryByText(PENDING_OWNER_COPY.salesCutoffRefused)).toBeNull();
+    expect(JSON.parse(server.current("sales", "sandbox")!.body)).toMatchObject({ revision: 2, salesEnabled: true, builds: [] });
+    expect(switchFor(region, PENDING_OWNER_COPY.salesSwitch)).toHaveAttribute("aria-checked", "true");
+    expect(within(region).getByText(PENDING_OWNER_COPY.noBuilds)).toBeInTheDocument();
+  });
+
   it("losing owner access mid-session (403 on apply) switches to the neutral state", async () => {
     const server = new FakeAdminFunction();
     await signIn(OWNER_TOKEN, server);
