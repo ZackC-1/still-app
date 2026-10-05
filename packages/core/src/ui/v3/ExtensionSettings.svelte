@@ -6,6 +6,7 @@
   import SettingsSiteList from "./SettingsSiteList.svelte";
   import SyncCard from "./SyncCard.svelte";
   import ProOfferCard from "./ProOfferCard.svelte";
+  import ProPaywallSheet from "./ProPaywallSheet.svelte";
   import RestoreStatusCard from "./RestoreStatusCard.svelte";
   import AccountLinkCard from "./AccountLinkCard.svelte";
   import SharingCard from "./SharingCard.svelte";
@@ -97,10 +98,16 @@
       pro.state !== "failed" &&
       pro.state !== "success",
   );
-  function requestPro() {
-    if (!proActionReady || !pro) return;
-    if (sync.account?.confirmed) pro.onBuy?.();
-    else pro.onSignIn?.();
+  // Owner decision 41: a locked row opens the offer in a sheet; only its own Buy starts anything.
+  let paywall = $state.raw<{ opener: HTMLElement } | null>(null);
+  let paywallShown = $derived(
+    paywall !== null && pro !== undefined && pro.ownership !== "owned",
+  );
+  $effect(() => {
+    if (paywall && !paywallShown) paywall = null;
+  });
+  function openPaywall(opener: HTMLElement) {
+    if (proActionReady) paywall = { opener };
   }
   $effect(() => () => {
     deleteTarget = null;
@@ -182,7 +189,7 @@
     {services}
     {features}
     {labels}
-    onProAction={proActionReady ? requestPro : undefined}
+    onProAction={proActionReady ? openPaywall : undefined}
   />
   <SyncCard
     owned={pro?.ownership === "owned"}
@@ -240,6 +247,24 @@
       account is attached.
     </p>
   </section>
+  {#if paywallShown && pro}
+    <ProPaywallSheet
+      opener={paywall?.opener}
+      onDismiss={() => {
+        paywall = null;
+      }}
+    >
+      <ProOfferCard
+        {...pro}
+        confirmedAccount={sync.account?.confirmed ?? false}
+        {knownMissing}
+        {accessHeld}
+        {accessChecking}
+        {accessVerify}
+        {restoreHeld}
+      />
+    </ProPaywallSheet>
+  {/if}
   <ConfirmationDialog
     open={deleteTargetCurrent}
     title="Delete your account?"
