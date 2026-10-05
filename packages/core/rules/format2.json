@@ -1,0 +1,106 @@
+{
+  "format": 2,
+  "version": "3.0.0",
+  "services": {
+    "youtube": {
+      "matches": [
+        "*://*.youtube.com/*"
+      ],
+      "surfaces": [
+        {
+          "id": "youtube-shorts-discovery",
+          "feature": "youtube.shorts",
+          "action": "hide",
+          "selectors": [
+            "ytd-guide-entry-renderer:has(a[title=\"Shorts\"])",
+            "ytd-mini-guide-entry-renderer:has(a[title=\"Shorts\"])",
+            "a#endpoint[title=\"Shorts\"]",
+            "ytm-pivot-bar-item-renderer:has(a[href=\"/shorts\"])",
+            "ytm-pivot-bar-item-renderer:has(.pivot-shorts)",
+            "ytd-rich-section-renderer:has(ytd-rich-shelf-renderer[is-shorts])",
+            "ytm-rich-section-renderer:has(ytm-shorts-lockup-view-model):not(ytm-app *)",
+            "ytm-rich-section-renderer:has(ytm-reel-shelf-renderer):not(ytm-app *)",
+            "ytd-reel-shelf-renderer",
+            "ytm-reel-shelf-renderer:not(ytm-app *)",
+            "grid-shelf-view-model:has(ytm-shorts-lockup-view-model):not(ytm-app *)",
+            "ytm-rich-item-renderer:has(ytm-shorts-lockup-view-model):not(ytm-app *)",
+            "ytm-video-with-context-renderer:has(ytm-media-item.big-shorts-singleton):not(ytm-app *)",
+            "ytm-video-with-context-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"]):not(ytm-app *)",
+            "ytm-rich-item-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"]):not(ytm-app *)",
+            "ytm-shorts-lockup-view-model:not(ytm-app *)",
+            "ytd-video-renderer:has(a#thumbnail[href^=\"/shorts/\"])",
+            "yt-tab-shape[tab-title=\"Shorts\"]",
+            "tp-yt-paper-tab:has([href$=\"/shorts\"])",
+            "yt-chip-cloud-chip-renderer:has([title=\"Shorts\"])",
+            "ytm-app ytm-rich-section-renderer:has(ytm-shorts-lockup-view-model)",
+            "ytm-app ytm-rich-section-renderer:has(ytm-reel-shelf-renderer)",
+            "ytm-app ytm-reel-shelf-renderer",
+            "ytm-app grid-shelf-view-model:has(ytm-shorts-lockup-view-model)",
+            "ytm-app ytm-rich-item-renderer:has(ytm-shorts-lockup-view-model)",
+            "ytm-app ytm-video-with-context-renderer:has(ytm-media-item.big-shorts-singleton)",
+            "ytm-app ytm-video-with-context-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"])",
+            "ytm-app ytm-rich-item-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"])",
+            "ytm-app ytm-shorts-lockup-view-model"
+          ]
+        }
+      ]
+    },
+    "instagram": {
+      "matches": [
+        "*://*.instagram.com/*"
+      ],
+      "surfaces": [
+        {
+          "id": "instagram-reels-discovery",
+          "feature": "instagram.reels",
+          "action": "hide",
+          "selectors": [
+            "nav a[href=\"/reels/\"]",
+            "article:has(> a[href^=\"/reel/\"])",
+            "article:has(a[href^=\"/reels/\"]:not([href^=\"/reels/audio/\"]) video)",
+            "a[href^=\"/\"]:not([href^=\"//\"])[href*=\"/reel/\"]:has(svg[aria-label=\"Clip\"]):not(article *)"
+          ]
+        }
+      ]
+    },
+    "facebook": {
+      "matches": [
+        "*://*.facebook.com/*"
+      ],
+      "surfaces": [
+        {
+          "id": "facebook-reels-discovery",
+          "feature": "facebook.reels",
+          "action": "hide",
+          "selectors": [
+            "nav a[aria-label=\"Reels\"]",
+            "nav li:has(> a[aria-label=\"Reels\"])",
+            "[role=\"feed\"] [role=\"article\"]:has(> a[href^=\"/reel/\"])",
+            "[role=\"feed\"] [role=\"article\"]:has(> a[href^=\"/reels/\"])",
+            "div[data-virtualized] > div:has(div[role=\"grid\"][aria-label=\"Reels\"]):not(:has([data-virtualized]))",
+            "a[role=\"tab\"][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"]) > *",
+            "[role=\"menu\"] a[role=\"menuitemradio\"][aria-checked][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"])",
+            "[role=\"tab\"][aria-label^=\"Reels,\" i] > *"
+          ]
+        }
+      ]
+    },
+    "tiktok": {
+      "matches": [
+        "*://*.tiktok.com/*"
+      ],
+      "surfaces": [
+        {
+          "id": "tiktok-site",
+          "feature": "tiktok.all",
+          "action": "blockSite"
+        }
+      ]
+    }
+  },
+  "signature": {
+    "kid": "still-dev-1",
+    "alg": "ed25519",
+    "value": "a58af50bb386a1e0b6cb8e81a7851ace7621ca6be6e375ddc64299a54a54b40610a649244db22bba030577b4d5b629e78f9d068c0a35c9b10965432548af200b"
+  }
+}

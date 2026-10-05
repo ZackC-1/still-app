@@ -34,8 +34,6 @@ final class Upgrade211FixtureTests: XCTestCase {
     let services: [String: SettingsJSONValue]
   }
 
-  /// Same set as SWIFT_HOLDS_UNKNOWN in packages/core upgrade-2.1.1-fixtures.test.ts.
-  private static let swiftHoldsUnknown: Set<String> = ["browser-defaults-synced", "app-group-defaults-synced"]
 
   private func fixture() throws -> Fixture {
     var root = URL(fileURLWithPath: #filePath)
@@ -71,7 +69,9 @@ final class Upgrade211FixtureTests: XCTestCase {
     XCTAssertEqual(settings.updatedAt, e.updatedAt, name, file: file, line: line)
   }
 
-  private func assertModern(_ document: [String: SettingsJSONValue], _ e: Expected, _ name: String, file: StaticString = #filePath, line: UInt = #line) {
+  /// `pauses` is nil for the pure migration, and the empty retired list for a stored record, which
+  /// carries the same legacy projection as the TypeScript AtomicSettingsWriter.
+  private func assertModern(_ document: [String: SettingsJSONValue], _ e: Expected, _ name: String, pauses: SettingsJSONValue? = nil, file: StaticString = #filePath, line: UInt = #line) {
     XCTAssertEqual(document["schemaVersion"], .number(2), name, file: file, line: line)
     XCTAssertEqual(document["globalOn"], .bool(e.globalOn), name, file: file, line: line)
     XCTAssertEqual(document["updatedAt"], .number(Double(e.updatedAt)), name, file: file, line: line)
@@ -85,7 +85,7 @@ final class Upgrade211FixtureTests: XCTestCase {
     for field in PackagedFeatureRegistry.settingsFields {
       XCTAssertEqual(clocks[field], .object(["baseRevision": .number(0), "localStep": .number(0)]), "\(name) \(field)", file: file, line: line)
     }
-    XCTAssertNil(document["pauses"], name, file: file, line: line)
+    XCTAssertEqual(document["pauses"], pauses, name, file: file, line: line)
     for (key, value) in e.retained?.settings ?? [:] { XCTAssertEqual(document[key], value, "\(name) \(key)", file: file, line: line) }
     for (key, value) in e.retained?.services ?? [:] { XCTAssertEqual(services[key], value, "\(name) \(key)", file: file, line: line) }
   }
@@ -169,21 +169,11 @@ final class Upgrade211FixtureTests: XCTestCase {
       let bytes = try XCTUnwrap(raw(c))
       let backing = InMemoryBacking(bytes)
       let store = SharedSettingsStore(backing: backing)
-      // Known divergence (reported, not fixed here): a never-edited record that 2.1.x synced keeps
-      // updatedAt 0. TypeScript AtomicSettingsWriter.initialize accepts it for any ownership; Swift
-      // initialize accepts zero only for "never-linked", so an "unknown" upgrade holds instead.
-      // Holding is safe: the shipped bytes stay exactly as they were and still read back unchanged.
-      // Keyed by case name: when Swift is aligned with TypeScript, empty the set and this test
-      // must then migrate these cases like every other one.
-      if Self.swiftHoldsUnknown.contains(c.name) {
-        XCTAssertThrowsError(try store.initializeAtomic(ownership: "unknown"), c.name)
-        XCTAssertEqual(backing.read(), bytes, c.name)
-        assertChoices(try XCTUnwrap(store.peekRecord(), c.name).settings, e, c.name)
-        continue
-      }
+      // Includes the synced never-edited records (updatedAt 0): like TypeScript
+      // AtomicSettingsWriter.initialize, StillKit migrates them for "unknown" ownership.
       let data = try store.initializeAtomic(ownership: "unknown")
       let root = try JSONDecoder().decode([String: SettingsJSONValue].self, from: data)
-      assertModern(try XCTUnwrap(root["settings"]?.object, c.name), e, c.name)
+      assertModern(try XCTUnwrap(root["settings"]?.object, c.name), e, c.name, pauses: .array([]))
       let record = try JSONDecoder().decode(StoredSettingsRecord.self, from: data)
       XCTAssertEqual(record.syncMetadata, e.syncMetadata, c.name)
       XCTAssertEqual(record.syncEpoch, e.syncEpoch, c.name)

@@ -8,9 +8,9 @@ final class AtomicSettingsTests: XCTestCase {
     addTeardownBlock { try? FileManager.default.removeItem(at: url) }
     return url
   }
-  private func seed(_ store: SharedSettingsStore) throws {
+  private func seed(_ store: SharedSettingsStore, ownership: String = "unknown") throws {
     store.save(StillSettings(globalOn: true, services: StillServices(), pauses: [], updatedAt: 1))
-    _ = try store.initializeAtomic(ownership: "unknown")
+    _ = try store.initializeAtomic(ownership: ownership)
   }
   private func root(_ data: Data) throws -> [String: Any] {
     try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
@@ -133,7 +133,9 @@ final class AtomicSettingsTests: XCTestCase {
     let dir = try directory()
     let first = SharedSettingsStore(backing: AtomicSettingsBacking(directory: dir))
     let peer = SharedSettingsStore(backing: AtomicSettingsBacking(directory: dir))
-    try seed(first)
+    // Queued allocation applies to a previous-account journal (as in TypeScript); unknown null-scope
+    // edits are local-only and their two-host allocation is pinned in AtomicSettingsLocalOnlyTests.
+    try seed(first, ownership: "previous-account")
     _ = try first.commitIntent(path: "globalOn", value: false, updatedAt: 10)
     _ = try peer.commitIntent(path: "services.youtube", value: false, updatedAt: 10)
     _ = try peer.commitIntent(path: "globalOn", value: true, updatedAt: 10)
