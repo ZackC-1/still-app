@@ -229,9 +229,11 @@ describe("dormancy", () => {
 
   it("has no client importer: free blocking, sync and Restore never consult it", () => {
     const importers = [...sources(join(root, "packages")), ...sources(join(root, "apps")), ...sources(join(root, "supabase"))]
-      .filter(path => !/__tests__|\.test\.|\.spec\.|_test\.ts$/.test(path))
+      .filter(path => !/__tests__|\.test\.|\.spec\./.test(path))
       .filter(path => /product-policy(\.js|\.ts)?["']/.test(readFileSync(path, "utf8")))
       .map(path => relative(root, path))
+      // Deno's `_test.ts` naming is excluded only for server tests, never for client code.
+      .filter(path => !/^supabase\/.*_test\.ts$/.test(path))
       .filter(path => !SERVER_IMPORTERS.test(path));
     expect(importers).toEqual(["packages/core/src/entitlement/product-policy.ts"]);
   });
