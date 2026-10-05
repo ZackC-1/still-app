@@ -32,6 +32,20 @@ export const AUTOPLAY_PLAYER = "#movie_player";
 export const AUTOPLAY_COUNTDOWN = ".ytp-autonav-endscreen-countdown-overlay";
 /** That countdown's own Cancel control: cancels this one up-next, never the autoplay setting. */
 export const AUTOPLAY_CANCEL = ".ytp-autonav-endscreen-upnext-cancel-button";
+/** The countdown's Play-now control, which must never be pressed in place of Cancel. */
+const AUTOPLAY_PLAY = "ytp-autonav-endscreen-upnext-play-button";
+
+/**
+ * True only for a real Cancel button: a <button>, not the Play control, and with no link between
+ * it and the countdown (a click inside a link could navigate to the up-next video).
+ */
+const isCancelButton = (cancel: Element, countdown: Element): cancel is HTMLButtonElement => {
+  if (!(cancel instanceof HTMLButtonElement) || cancel.classList.contains(AUTOPLAY_PLAY)) return false;
+  for (let at: Element | null = cancel; at && at !== countdown; at = at.parentElement) {
+    if (at.matches("a[href]")) return false;
+  }
+  return true;
+};
 
 export interface YouTubeAutoplayGuard {
   /** Records who started a navigation the content script saw; "deliberate" sets the chosen playlist. */
@@ -94,8 +108,8 @@ export function createYouTubeAutoplayGuard(doc: Document, initialUrl: URL): YouT
       return;
     }
     if (ended.cancelled === countdown || continuesChosenPlaylist(countdown)) return;
-    const cancel = countdown.querySelector<HTMLElement>(AUTOPLAY_CANCEL);
-    if (!cancel) return;
+    const cancel = countdown.querySelector(AUTOPLAY_CANCEL);
+    if (!cancel || !isCancelButton(cancel, countdown)) return;
     ended.cancelled = countdown;
     cancel.click();
   };

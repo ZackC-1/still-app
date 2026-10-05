@@ -228,6 +228,27 @@ describe("the Autoplay guard", () => {
     expect(counts.cancel, "the automatic Mix is not continued").toBe(1);
   });
 
+  it("clicks only a real Cancel button: never a non-button, anything inside a link, or the Play button", async () => {
+    const variants: Array<[string, string]> = [
+      ["a non-button with the Cancel class", '<div class="ytp-autonav-endscreen-upnext-cancel-button" id="probe">Cancel</div>'],
+      ["a Cancel button inside a link", '<a href="/watch?v=inv300002"><button class="ytp-autonav-endscreen-upnext-cancel-button" id="probe">Cancel</button></a>'],
+      ["the Play button wearing the Cancel class", '<button class="ytp-autonav-endscreen-upnext-cancel-button ytp-autonav-endscreen-upnext-play-button" id="probe">Play</button>'],
+    ];
+    for (const [name, markup] of variants) {
+      render();
+      document.getElementById("keep-autonav-cancel")!.remove();
+      overlay().insertAdjacentHTML("afterbegin", markup);
+      let clicks = 0;
+      document.getElementById("probe")!.addEventListener("click", (event) => { clicks++; event.preventDefault(); });
+      const g = guard();
+      g.reconcile(true, new URL(WATCH));
+      end();
+      await settle();
+      expect(clicks, name).toBe(0);
+      g.stop();
+    }
+  });
+
   it("stop removes every listener and observer", async () => {
     const counts = counters();
     overlay().style.display = "none";
