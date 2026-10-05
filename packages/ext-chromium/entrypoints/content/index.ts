@@ -2,6 +2,7 @@ import "./still.css"; // packaged critical CSS (manifest content_scripts css, KT
 import "./still-pro.css"; // packaged Pro CSS gated by html.still-pro-active
 import { createShippingContentEntry } from "@still/core/content";
 import { backForwardNavigation, createTikTokBlockedNavigation } from "@still/core/content";
+import { tiktokBlockedPageEnabled } from "../tiktok-blocked/gate.js";
 
 // The document_start content script. It wires core's engine to the live page, reading settings
 // from the chrome.storage-backed cache. On Chromium the hard-nav Shorts redirect is the DNR rule
@@ -12,16 +13,9 @@ import { backForwardNavigation, createTikTokBlockedNavigation } from "@still/cor
 // TikTok: builds that show the V3 screens hand a blocked top-level TikTok document to the
 // extension's own blocked page through the background (same gate as background.ts). The message
 // names nothing; the background reads the browser's sender. Other builds keep the in-page block.
-// The gate is lib/modern-settings-runtime.ts's `atomicLocal` (unconfigured, or configured with
-// modern sync opted in), restated here because a content script must never import the sync
-// module graph, which reaches analytics (core/src/analytics/__tests__/boundaries.test.ts).
-const configured = Boolean(
-  (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim() &&
-    (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim(),
-);
-const showsV3Screens =
-  !configured || (import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED as string | undefined) === "true";
-const tiktokBlockedPage = showsV3Screens && window.top === window
+// The gate (tiktok-blocked/gate.ts) is shared with background.ts and import-free, because a
+// content script must never import the sync module graph, which reaches analytics.
+const tiktokBlockedPage = tiktokBlockedPageEnabled(import.meta.env) && window.top === window
   ? createTikTokBlockedNavigation({
       doc: document,
       send: (message) => chrome.runtime.sendMessage(message),

@@ -307,18 +307,37 @@ export function createTiktokBlockedRoute(deps: TiktokBlockedRouteDeps) {
 
   async function onBlocked(sender: TiktokRouteSender, traversal: boolean): Promise<TiktokRouteReply> {
     if (!wired || stopped) return { status: "held" };
+    const tabId = tabOf(sender)!;
+    // This tab now shows a TikTok document, so any blocked page that opened a confirmation here is
+    // gone. Retire it first: otherwise this answer would queue behind it for up to the whole
+    // confirmation bound and then act long after the person moved on.
+    settlePending(tabId);
+    const deadline = Date.now() + (deps.limits?.contentAnswerMs ?? TIKTOK_CONTENT_ANSWER_MS);
+    // Before each browser-visible write: the answer is still wanted and the tab still shows the
+    // exact document this request validated. A late or moved request writes nothing.
+    const current = async (): Promise<boolean> => {
+      if (stopped || Date.now() >= deadline) return false;
+      const tab = await bound(() => tabs!.get(tabId));
+      return (
+        !stopped &&
+        Date.now() < deadline &&
+        tab.id === tabId &&
+        tab.url === sender.url &&
+        (!tab.pendingUrl || tab.pendingUrl === sender.url)
+      );
+    };
     if (await authority.isAllowed(sender).catch(() => false)) return { status: "allowed" };
     // Back/Forward into a blocked entry stays on this page's own block instead of re-sending the
     // person forward to the blocked page, which would trap Back.
-    if (traversal || !(await blockedHere(sender.url!))) return { status: "held" };
-    const tabId = tabOf(sender)!;
-    const tab = await bound(() => tabs!.get(tabId));
-    if (tab.id !== tabId || tab.url !== sender.url || (tab.pendingUrl && tab.pendingUrl !== sender.url))
-      return { status: "held" };
+    if (traversal || !(await blockedHere(sender.url!)) || !(await current())) return { status: "held" };
     const request = deps.randomId();
     if (!REQUEST_ID.test(request)) return { status: "held" };
     await session!.set({ [originKey(tabId)]: { request, target: sender.url } });
-    if (stopped) return { status: "held" };
+    if (!(await current())) {
+      // Never leave an address behind for a redirect that will not happen.
+      await session!.remove(originKey(tabId)).catch(() => {});
+      return { status: "held" };
+    }
     const url = new URL(deps.pageUrl);
     url.searchParams.set("r", request);
     await bound(() =>
@@ -390,6 +409,8 @@ export function createTiktokBlockedRoute(deps: TiktokBlockedRouteDeps) {
     settlePending(tabOf(sender)!);
     const target = await resolveOriginalTarget(sender);
     if (target === null || !(await authority.allow(sender))) return { status: "failed" };
+    // The address has done its one job; keep it no longer than needed. The tab's allowance stays.
+    await session!.remove(originKey(tabOf(sender)!)).catch(() => {});
     return { status: "open", url: target };
   }
 

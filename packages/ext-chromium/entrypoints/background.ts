@@ -31,6 +31,7 @@ import {
   TIKTOK_WAIT_MS,
 } from "../../core/src/content/tiktok-blocked-route.js";
 import { createChromeTiktokTabAuthority, type TiktokTabBrowser } from "../lib/tiktok-tab-authority.js";
+import { tiktokBlockedPageEnabled } from "./tiktok-blocked/gate.js";
 
 // Chromium/Firefox background (Chrome MV3 service worker / Firefox MV3 event page). Three
 // independent jobs:
@@ -262,10 +263,10 @@ export default defineBackground(() => {
 
   // ── TikTok blocked page (D29) ───────────────────────────────────────────────────────────────────
   // Same release gate as the other V3 screens: builds that show the V3 popup/settings send blocked
-  // TikTok tabs to the extension's own page; configured 2.x builds keep the in-page block (the
-  // content script makes the same decision from the same packaged inputs). Constructed in this
+  // TikTok tabs to the extension's own page; configured 2.x builds keep the in-page block. The
+  // content script reads this same gate (tiktok-blocked/gate.ts), pinned to `atomicLocal` by test. Constructed in this
   // first synchronous pass so the tab owner's onRemoved/onReplaced listeners are top-level.
-  if (settingsRuntime.atomicLocal) wireTiktokBlockedPage(settingsAuthority, entitlements);
+  if (tiktokBlockedPageEnabled(import.meta.env)) wireTiktokBlockedPage(settingsAuthority, entitlements);
 
   // Resume on EVERY background start (R2 hard rule): restart the sync write-through from the
   // CACHED entitlement, with no purchase-service query. A worker that wakes on a settings edit

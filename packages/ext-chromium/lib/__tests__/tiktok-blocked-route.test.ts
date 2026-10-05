@@ -299,6 +299,87 @@ describe("TikTok blocked page route over the real one-tab authority", () => {
     await route.stop();
   });
 
+  it("a confirmation left open by a page that has gone never delays or outlives a later block of that tab", async () => {
+    vi.useFakeTimers();
+    const h = host();
+    const route = h.create();
+    h.open(7, TIKTOK);
+    const first = send(route, { kind: TIKTOK_ROUTE.blocked }, h.content(7));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await first).toEqual({ status: "redirected" });
+    const page = h.screen(7);
+    const requested = send(route, { kind: TIKTOK_ROUTE.request }, page);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await requested).toEqual({ status: "confirming" });
+    // The blocked page goes away (the person navigates the tab to another TikTok address).
+    h.open(7, "https://www.tiktok.com/@other");
+    const again = send(route, { kind: TIKTOK_ROUTE.blocked }, h.content(7));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await again).toEqual({ status: "redirected" });
+    expect(h.update).toHaveBeenCalledTimes(2);
+    // The retired confirmation can no longer be answered, and nothing acts minutes later.
+    expect(await send(route, { kind: TIKTOK_ROUTE.confirm }, page)).toEqual({ status: "failed" });
+    await vi.advanceTimersByTimeAsync(130_000);
+    expect(h.update).toHaveBeenCalledTimes(2);
+    expect(h.session.has("still:tiktok-tab:7")).toBe(false);
+    await route.stop();
+  });
+
+  it("a tab that leaves TikTok before the redirect is never redirected and keeps no address", async () => {
+    const h = host();
+    const route = h.create();
+    h.open(7, TIKTOK);
+    const set = h.sessionArea.set.getMockImplementation()!;
+    h.sessionArea.set.mockImplementationOnce(async (items) => {
+      await set(items);
+      // The person navigates away between validation and the redirect.
+      h.open(7, "https://example.com/elsewhere");
+    });
+    expect(await send(route, { kind: TIKTOK_ROUTE.blocked }, h.content(7))).toEqual({ status: "held" });
+    expect(h.update).not.toHaveBeenCalled();
+    expect(h.session.has("still:tiktok-origin:7")).toBe(false);
+    await route.stop();
+  });
+
+  it("an answer whose budget has expired writes no redirect, even though the tab is still on TikTok", async () => {
+    vi.useFakeTimers();
+    const h = host({ limits: { contentAnswerMs: 5_000, waitMs: 3_000 } });
+    const route = h.create();
+    h.open(7, TIKTOK);
+    const read = h.readCommitted.getMockImplementation()!;
+    const set = h.sessionArea.set.getMockImplementation()!;
+    // Each wait stays inside its own bound; together they outlast the whole answer.
+    h.readCommitted.mockImplementation(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 2_500));
+      return read();
+    });
+    h.sessionArea.set.mockImplementationOnce(async (items) => {
+      await new Promise((resolve) => setTimeout(resolve, 2_600));
+      await set(items);
+    });
+    const reply = send(route, { kind: TIKTOK_ROUTE.blocked }, h.content(7));
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(await reply).toEqual({ status: "held" });
+    expect(h.tabs.get(7)!.url).toBe(TIKTOK);
+    expect(h.update).not.toHaveBeenCalled();
+    expect(h.session.has("still:tiktok-origin:7")).toBe(false);
+    await route.stop();
+  });
+
+  it("a successful reopen clears the stored address at once; the tab keeps its allowance", async () => {
+    const h = host();
+    const route = h.create();
+    await block(h, route, 7);
+    await grant(h, route, 7);
+    expect(h.session.has("still:tiktok-origin:7")).toBe(true);
+    expect(await send(route, { kind: TIKTOK_ROUTE.open }, h.screen(7))).toEqual({ status: "open", url: TIKTOK });
+    expect(h.session.has("still:tiktok-origin:7")).toBe(false);
+    expect([...h.session.values()]).not.toContain(TIKTOK);
+    h.open(7, TIKTOK);
+    expect(await send(route, { kind: TIKTOK_ROUTE.blocked }, h.content(7))).toEqual({ status: "allowed" });
+    await route.stop();
+  });
+
   it("cancel keeps TikTok closed; a cancel after the confirm cannot revoke it", async () => {
     const h = host();
     const route = h.create();
