@@ -310,6 +310,18 @@ test("Firefox for Android spike", async () => {
   // 3. One synthetic fixture check, served from tests/fixtures (no real site). Run while access is
   //    granted, so it does not depend on the prompt step below.
   let fixtureDone = false;
+  let fixturePassed = false;
+  // Console and error output from every realm, kept for the report when a fixture check fails.
+  const consoleLines: string[] = [];
+  bidi.on("log.entryAdded", (entry) => {
+    if (consoleLines.length < 50)
+      consoleLines.push(`${String(entry.level)} ${String(entry.source?.realm ?? "")}: ${String(entry.text).slice(0, 300)}`);
+  });
+  try {
+    await bidi.send("session.subscribe", { events: ["log.entryAdded"] });
+  } catch (error) {
+    record("subscribe to console output", "info", String(error));
+  }
   const fixtureCheck = async (): Promise<Tab | null> => {
     fixtureDone = true;
     let page: Tab | null = null;
@@ -347,30 +359,72 @@ test("Firefox for Android spike", async () => {
         (u) => u.includes("/watch"),
         20_000,
       );
-      record("fixture: m.youtube.com Shorts address ends on the watch page", url.includes("/watch?v=abc123") ? "pass" : "fail", url);
+      fixturePassed = url.includes("/watch?v=abc123");
+      record("fixture: m.youtube.com Shorts address ends on the watch page", fixturePassed ? "pass" : "fail", url);
       expect.soft(url).toMatch(/\/watch\?v=abc123/);
       await pageScreenshot(bidi, tab, "fixture-youtube-redirect");
     } catch (error) {
       record("fixture: m.youtube.com Shorts address ends on the watch page", "fail", String(error));
       expect.soft(String(error)).toBe("");
-      // Evidence for a failure: is Still on the page at all, and does a reload change anything?
-      if (page) {
-        const probe = page;
-        const root = () =>
-          probe
-            .evaluate<string>(`JSON.stringify({ url: location.href, root: document.documentElement.className, navigation: "navigation" in window })`)
-            .catch((reason: unknown) => String(reason));
-        record("fixture evidence: page state after the wait", "info", await root());
-        try {
-          await bidi.send("browsingContext.reload", { context: probe.context, wait: "none" });
-          await sleep(5_000);
-        } catch (reason) {
-          record("fixture evidence: reload", "info", String(reason));
-        }
-        record("fixture evidence: page state after one reload", "info", await root());
-      }
+      if (page) await fixtureEvidence(page);
     }
     return page;
+  };
+  // Evidence for a failed fixture: was the fixture document served, is the tab visible, did Still
+  // act on the page at all (the format-2 engine hides the fixture's Shorts shelves without raising
+  // a root class, so the class alone proves nothing), what realms BiDi sees, what the console said,
+  // and whether a reload or the desktop host behaves differently.
+  const fixtureEvidence = async (probe: Tab): Promise<void> => {
+    const state = () =>
+      probe
+        .evaluate<string>(`JSON.stringify({
+          url: location.href,
+          title: document.title,
+          bodyLength: document.body?.innerHTML.length ?? -1,
+          readyState: document.readyState,
+          visibility: document.visibilityState,
+          root: document.documentElement.className,
+          navigation: "navigation" in window,
+          hidden: ["#rich-shorts-section", "#subs-shorts-shelf", "#shorts-chip", "#shorts-guide"].map((s) => {
+            const el = document.querySelector(s);
+            return el ? s + "=" + getComputedStyle(el).display : s + "=absent";
+          }),
+        })`)
+        .catch((reason: unknown) => String(reason));
+    record("fixture evidence: page state after the wait", "info", await state());
+    try {
+      const realms = await bidi.send("script.getRealms", { context: probe.context });
+      record(
+        "fixture evidence: realms in the tab",
+        "info",
+        ((realms.realms as Json[]) ?? []).map((r) => `${r.type}${r.sandbox ? `:${r.sandbox}` : ""} ${r.origin}`),
+      );
+    } catch (reason) {
+      record("fixture evidence: realms in the tab", "info", String(reason));
+    }
+    try {
+      screencap("fixture-youtube-failed");
+    } catch {
+      /* evidence only */
+    }
+    try {
+      await bidi.send("browsingContext.reload", { context: probe.context, wait: "none" });
+      await sleep(5_000);
+    } catch (reason) {
+      record("fixture evidence: reload", "info", String(reason));
+    }
+    record("fixture evidence: page state after one reload", "info", await state());
+    try {
+      await bidi.send("browsingContext.navigate", {
+        context: probe.context,
+        url: "https://www.youtube.com/shorts/abc123",
+        wait: "none",
+      });
+      const url = await probe.waitFor("the desktop-host redirect", () => probe.url().catch(() => ""), (u) => u.includes("/watch"), 10_000);
+      record("fixture evidence: www.youtube.com Shorts address", "info", url);
+    } catch (reason) {
+      record("fixture evidence: www.youtube.com Shorts address", "info", String(reason));
+    }
   };
   if (grantedAtInstall) {
     const front = await fixtureCheck();
@@ -515,5 +569,17 @@ test("Firefox for Android spike", async () => {
   if (!fixtureDone) {
     if (granted) await fixtureCheck();
     else record("fixture: m.youtube.com Shorts address ends on the watch page", "stopped", "site access not granted");
+  } else if (!fixturePassed && granted) {
+    // Evidence only (the failure above already counts): does the same page work later, once the
+    // browser has settled and access was granted through the prompt?
+    const retry = await anyTab(bidi);
+    try {
+      await bidi.send("browsingContext.navigate", { context: retry.context, url: "https://m.youtube.com/shorts/abc123", wait: "none" });
+      const url = await retry.waitFor("the Shorts redirect", () => retry.url().catch(() => ""), (u) => u.includes("/watch"), 20_000);
+      record("fixture evidence: the same check later, after the prompt grant", "info", url);
+    } catch (error) {
+      record("fixture evidence: the same check later, after the prompt grant", "info", String(error));
+    }
   }
+  if (!fixturePassed) record("fixture evidence: console output", "info", consoleLines);
 });
