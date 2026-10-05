@@ -90,7 +90,7 @@ describe("controlled D01 presentation", () => {
     expect(props.onSignIn).not.toHaveBeenCalled();
   });
 
-  it("presents packaged unsupported choices honestly while free controls commit through the writer", async () => {
+  it("presents packaged dormant Still Pro rows locked and inert (decision 24) while free controls commit through the writer", async () => {
     const { storage, cache, props } = await fixture();
     await cache.setFeature("youtube.comments", true);
     props.settings = requireModernSettings(cache.currentRecord());
@@ -132,13 +132,17 @@ describe("controlled D01 presentation", () => {
           .getByText(label)
           .closest(".option-row") as HTMLElement;
         if (feature.tier === "pro") {
+          // Owner decision 24: paid off shows the existing locked design, never the unsupported
+          // note, and the lock offers nothing even though a purchase port is supplied.
           expect(within(row).queryByRole("switch")).toBeNull();
-          expect(within(row).queryByRole("button")).toBeNull();
-          expect(
-            within(row).getByText(
-              "Not available in this browser. Your choice is saved.",
-            ),
-          ).toBeTruthy();
+          expect(within(row).queryByText(/Not available/)).toBeNull();
+          expect(row).toHaveAttribute("data-access", "locked");
+          expect(within(row).getByText("Still Pro")).toBeTruthy();
+          const lock = within(row).getByRole("button", {
+            name: `${label}. Included in Still Pro. See Still Pro`,
+          });
+          expect(lock).toHaveAttribute("aria-disabled", "true");
+          await fireEvent.click(lock);
         } else {
           const control = within(row).getByRole("switch", { name: label });
           expect(control).not.toHaveAttribute("aria-disabled", "true");

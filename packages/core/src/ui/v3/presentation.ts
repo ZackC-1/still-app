@@ -5,11 +5,34 @@ import type {
 import type { Snippet } from "svelte";
 import {
   FEATURE_REGISTRY,
+  PAID_TIER_ENABLED,
   type FeatureId,
   type ServiceId,
   type SettingsV2,
   type BenefitAccessSnapshot,
 } from "@still/shared-types";
+
+/**
+ * Owner decision 24: true while the Still Pro rows are dormant, that is, the compiled paid flag is
+ * off and the trusted snapshot holds every Pro feature `unsupported` (the dormancy gate in
+ * accessCapabilities keeps them there). Hosts then present each Pro row with the existing locked
+ * design, a lock and "Still Pro", instead of the unsupported note, and the row offers nothing:
+ * no purchase, price or app hand-off. Presentation only. The access states, saved choices and the
+ * engine (which applies nothing) are unchanged, and every purchase entry still reads the real
+ * states, so none of them appears. A paid-on host that cannot run a feature keeps the honest
+ * unsupported note.
+ */
+export function proRowsDormant(
+  access: BenefitAccessSnapshot,
+  paidMode: boolean = PAID_TIER_ENABLED,
+): boolean {
+  return (
+    !paidMode &&
+    FEATURE_REGISTRY.every(
+      (row) => row.tier !== "pro" || access.states[row.id] === "unsupported",
+    )
+  );
+}
 
 /** Presentation labels/order only. Feature identity, defaults and tier remain registry-owned. */
 export function rowsFor(service: ServiceId) {
