@@ -7,7 +7,7 @@ import {
   expectYoutubeLeftAlone,
   stillIsActive,
 } from "./_assertions.js";
-import { findFirefox } from "./_bidi.js";
+import { EXTENSION_UUID, findFirefox } from "./_bidi.js";
 import {
   FIREFOX_EXTENSION,
   StillFirefox,
@@ -138,6 +138,36 @@ test("facebook: a Reel article and the Reels shortcut follow the paid-tier switc
   await tab.close();
 });
 
+// TikTok: this lane always runs the unconfigured build (StillFirefox.start refuses a build with a
+// server compiled in), which shows the V3 screens, so a blocked TikTok tab goes to the extension's
+// own blocked page instead of the old in-page block.
+const TIKTOK_BLOCKED = new RegExp(
+  `^moz-extension://${EXTENSION_UUID}/tiktok-blocked\\.html\\?r=[A-Za-z0-9-]+$`,
+);
+// The tab may be mid-navigation when sampled; an unreadable sample is simply "not yet".
+const tiktokSample = <T>(read: () => Promise<T>, fallback: T) => read().catch(() => fallback);
+const tiktokUrl = (tab: Tab) => tiktokSample(() => tab.url(), "");
+const tiktokText = (tab: Tab) =>
+  tiktokSample(() => tab.evaluate<string>("document.body?.innerText ?? ''"), "");
+async function tiktokClick(tab: Tab, scope: string, name: string): Promise<void> {
+  await tab.evaluate(`(() => {
+    const button = [...document.querySelectorAll(${JSON.stringify(`${scope} button`)})]
+      .find((b) => b.textContent.trim() === ${JSON.stringify(name)});
+    if (!button) throw new Error("no button " + ${JSON.stringify(name)});
+    button.click();
+    return true;
+  })()`);
+}
+async function expectTiktokBlockedPage(tab: Tab): Promise<void> {
+  await tab.waitFor("the TikTok blocked page", () => tiktokUrl(tab), (url) => TIKTOK_BLOCKED.test(url));
+  await tab.waitFor(
+    "the TikTok blocked heading",
+    () => tiktokSample(() => tab.evaluate<string>("document.querySelector('h1')?.textContent ?? ''"), ""),
+    (text) => text === "TikTok stays closed.",
+  );
+  expect(await tab.count("#tiktok-feed")).toBe(0);
+}
+
 test("tiktok: the website follows the paid-tier switch", async () => {
   const tab = await firefox.openTab("https://www.tiktok.com/foryou");
   if (PAID_TIER_ENABLED) {
@@ -148,10 +178,54 @@ test("tiktok: the website follows the paid-tier switch", async () => {
         (await tab.count("#still-placeholder")) === 0,
     );
   } else {
-    await tab.waitForVisible("#still-placeholder", true);
-    await tab.waitForCount("#tiktok-feed", 0);
+    await expectTiktokBlockedPage(tab);
   }
   await tab.close();
+});
+
+test("tiktok: Open TikTok this time allows only this tab after the confirmation", async () => {
+  test.skip(PAID_TIER_ENABLED, "TikTok is left alone for free users while the paid tier is on");
+  // documentId, which proves the exact blocked page, arrived in Firefox 153.
+  test.skip(
+    Number.parseInt(firefox.firefoxVersion, 10) < 153,
+    `Firefox ${firefox.firefoxVersion} lacks MessageSender.documentId, so opening stays unavailable`,
+  );
+  const tab = await firefox.openTab("https://www.tiktok.com/foryou");
+  const other = await firefox.openTab("about:blank");
+  try {
+    await expectTiktokBlockedPage(tab);
+    const open = "main.blocked .blocked-actions";
+    await tab.waitFor(
+      "Open TikTok this time to be enabled",
+      () =>
+        tiktokSample(
+          () =>
+            tab.evaluate<string | null>(`(() => {
+              const button = [...document.querySelectorAll(${JSON.stringify(`${open} button`)})]
+                .find((b) => b.textContent.trim() === "Open TikTok this time");
+              return button ? button.getAttribute("aria-disabled") : "absent";
+            })()`),
+          "absent" as string | null,
+        ),
+      (disabled) => disabled === null,
+    );
+    await tiktokClick(tab, open, "Open TikTok this time");
+    await tab.waitFor("the confirmation", () => tiktokText(tab), (text) => text.includes("Open TikTok in this tab?"));
+    await tiktokClick(tab, '[role="dialog"]', "Open TikTok this time");
+    await tab.waitFor("the reload step", () => tiktokText(tab), (text) => text.includes("Reload this page to open TikTok."));
+    await tiktokClick(tab, open, "Reload page");
+    await tab.waitFor("TikTok in this tab", () => tiktokUrl(tab), (url) => url === "https://www.tiktok.com/foryou");
+    await tab.waitForVisible("#tiktok-feed", true);
+    await tab.holdsFor("this tab stays on TikTok", async () =>
+      (await tiktokUrl(tab)) === "https://www.tiktok.com/foryou" && (await tab.isVisible("#tiktok-feed")),
+    );
+    // A second tab is still closed.
+    await other.goto("https://www.tiktok.com/foryou");
+    await expectTiktokBlockedPage(other);
+  } finally {
+    await other.close();
+    await tab.close();
+  }
 });
 
 // Settings are changed the way a person changes them: by pressing the real switches in the popup.
