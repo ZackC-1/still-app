@@ -1,6 +1,7 @@
 import "./still.css"; // packaged critical CSS (manifest content_scripts css, KTD2)
 import "./still-pro.css"; // packaged Pro CSS gated by html.still-pro-active
 import { createShippingContentEntry } from "@still/core/content";
+import { createModernShippingContentEntry } from "@still/core/content/modern-entry";
 import { backForwardNavigation, createTikTokBlockedNavigation } from "@still/core/content";
 import { tiktokBlockedPageEnabled } from "../tiktok-blocked/gate.js";
 
@@ -40,13 +41,30 @@ export default defineContentScript({
   ],
   runAt: "document_start",
   cssInjectionMode: "manifest",
-  main: createShippingContentEntry({
-    storage: chrome.storage.local,
-    prod: import.meta.env.PROD,
-    earlyRedirect: import.meta.env.FIREFOX,
-    tiktokBlockedPage,
-    requestReconcile: () => {
-      void Promise.resolve(chrome.runtime.sendMessage({ kind: "reconcile" })).catch(() => {});
-    },
-  }),
+  // Firefox V3 builds (the same `atomicLocal` rule as tiktokEnabled above, written inline so the
+  // build folds it) run the modern entry: an early document_start redirect for every core route,
+  // not only Shorts. Chrome keeps DNR and the existing entry; configured 2.x builds fold this away
+  // and stay byte-identical (U7-W3 ruling Q7).
+  main:
+    import.meta.env.FIREFOX &&
+    (!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
+      import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true")
+      ? createModernShippingContentEntry({
+          storage: chrome.storage.local,
+          prod: import.meta.env.PROD,
+          earlyRedirect: true,
+          tiktokBlockedPage,
+          requestReconcile: () => {
+            void Promise.resolve(chrome.runtime.sendMessage({ kind: "reconcile" })).catch(() => {});
+          },
+        })
+      : createShippingContentEntry({
+          storage: chrome.storage.local,
+          prod: import.meta.env.PROD,
+          earlyRedirect: import.meta.env.FIREFOX,
+          tiktokBlockedPage,
+          requestReconcile: () => {
+            void Promise.resolve(chrome.runtime.sendMessage({ kind: "reconcile" })).catch(() => {});
+          },
+        }),
 });
