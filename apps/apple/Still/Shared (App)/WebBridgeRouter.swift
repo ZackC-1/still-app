@@ -9,6 +9,27 @@
 //        { kind:"get" }                       → "<settings json>" | ""
 //        { kind:"set", settings:"<json>" }    → "<resolved settings json>"
 //
+//    • Safari setup (read-only; SafariSetupObservation.swift is the contract):
+//        { kind:"safariSetupState" }          → { ok:true, platform:"ios", extensionStatus:"unknown",
+//                                               enableLocation:"settingsAppStillPage" }
+//                                             | { ok:true, platform:"macos",
+//                                               extensionStatus:"enabled"|"disabled"|"unknown",
+//                                               enableLocation:"safariExtensionSettings" }
+//      Opens nothing and writes nothing. iOS is always "unknown" (a containing app cannot read the
+//      extension's state on the iPhone versions this build targets), so only a macOS "enabled" is a
+//      positive signal. Callers bound the read with a deadline and treat a timeout, a malformed reply
+//      or "unknown" as not confirmed.
+//
+//    • Onboarding (the one OnboardingGate; OnboardingGatePresenter.swift is the contract):
+//        { kind:"onboardingState" }           → { ok:true, shouldShow:Bool, platform:"ios"|"macos",
+//                                               osMajorVersion:Int }
+//        { kind:"completeOnboarding" }        → { ok:true }  | error "still: onboarding not presented
+//                                                                 by the web view"
+//      `shouldShow` is true only when the Info.plist presenter flag selects the web flow AND the gate
+//      is not complete; with the shipped (absent) flag the SwiftUI OnboardingPresenter owns the gate,
+//      `shouldShow` is always false and completion is refused, so the two flows can never both show.
+//      platform/osMajorVersion are host facts for choosing the approved setup steps.
+//
 //    • U19 auth + purchase (reply a small JSON object; purchase-first — plan 2026-07-15-001):
 //        { kind:"signInWithApple" }           → { identityToken, nonce, email?, fullName? } | { error }
 //        { kind:"configurePurchases", appUserID } → { ok:true }   (KTD5 — RC re-keyed to the Supabase UUID)
@@ -121,6 +142,23 @@ final class WebBridgeRouter {
         let observation = await SafariExtensionBridge.observeSetup()
         reply(Self.json(observation.bridgeReply), nil)
       }
+
+    case "onboardingState":
+      reply(Self.json(OnboardingGate.webStateReply(
+        presenter: OnboardingPresenter.selected,
+        defaults: OnboardingGate.appGroupDefaults(),
+        platform: Self.setupPlatform,
+        osMajorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+      )), nil)
+
+    case "completeOnboarding":
+      guard OnboardingGate.completeFromWeb(
+        presenter: OnboardingPresenter.selected, defaults: OnboardingGate.appGroupDefaults())
+      else {
+        reply(nil, "still: onboarding not presented by the web view")
+        return
+      }
+      reply(Self.json(["ok": true]), nil)
 
     case "signInWithApple":
       Task { await self.handleSignIn(reply: reply) }
@@ -389,6 +427,14 @@ final class WebBridgeRouter {
     return AnalyticsIdentityStore.deviceClass(isPad: UIDevice.current.userInterfaceIdiom == .pad)
     #else
     return AnalyticsIdentityStore.deviceClass(isPad: false)
+    #endif
+  }
+
+  private static var setupPlatform: SafariSetupObservation.Platform {
+    #if os(macOS)
+    return .macos
+    #else
+    return .ios
     #endif
   }
 
