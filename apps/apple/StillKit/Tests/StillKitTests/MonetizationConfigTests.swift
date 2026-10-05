@@ -164,7 +164,14 @@ final class MonetizationConfigTests: XCTestCase {
     let name: String
     let call: Bool
 
-    func found(in code: String) -> Bool {
+    func found(in source: String) -> Bool {
+      // The `{` that ends an `if`/`guard`/`while` line opens its body (Swift does not parse a
+      // trailing closure in a condition), so `if let purchase {` binds a name and calls nothing.
+      let code = call
+        ? source.replacingOccurrences(
+          of: #"(?m)^([ \t]*(?:\}[ \t]*else[ \t]+)?(?:if|guard|while)\b[^\n]*?)\{[ \t]*\r?$"#,
+          with: "$1", options: .regularExpression)
+        : source
       let escaped = NSRegularExpression.escapedPattern(for: name)
       let pattern = call
         ? #"(?<![\w])"# + escaped + #"\s*[({]|\."# + escaped + #"(?![\w])"#
@@ -183,53 +190,88 @@ final class MonetizationConfigTests: XCTestCase {
   ]
 
   /// `source` without `//` line comments and `/* */` blocks (which nest in Swift). Comment markers
-  /// inside `"..."` and `"""..."""` string literals are text, not comments, and stay.
+  /// inside string literals are text, not comments, and stay: `"..."`, `"""..."""`, and raw strings
+  /// (`#"..."#`, any number of hashes). A string interpolation (`\(...)`, or `\#(...)` in a raw
+  /// string) is code again, so a comment inside it is removed and a string inside it is read as a
+  /// string. A line ends at any newline, including the two-character CRLF, which Swift's `Character`
+  /// treats as one character that is not equal to "\n".
   private static func withoutComments(_ source: String) -> String {
     let chars = Array(source)
     var out = ""
     var i = 0
-    var blockDepth = 0
-    func at(_ offset: Int, _ text: String) -> Bool {
-      let end = offset + text.count
-      return end <= chars.count && String(chars[offset..<end]) == text
+    func at(_ text: String) -> Bool {
+      let end = i + text.count
+      return end <= chars.count && String(chars[i..<end]) == text
     }
-    while i < chars.count {
-      if blockDepth > 0 {
-        if at(i, "/*") { blockDepth += 1; i += 2 }
-        else if at(i, "*/") { blockDepth -= 1; i += 2 }
-        else { i += 1 }
-        continue
-      }
-      if at(i, "//") {
-        while i < chars.count && chars[i] != "\n" { i += 1 }
-        continue
-      }
-      if at(i, "/*") { blockDepth = 1; i += 2; continue }
-      if at(i, "\"\"\"") {
-        out += "\"\"\""
-        i += 3
-        while i < chars.count && !at(i, "\"\"\"") {
-          if chars[i] == "\\" && i + 1 < chars.count { out.append(chars[i]); i += 1 }
-          out.append(chars[i])
-          i += 1
+    /// The hash count of a string literal that opens at `i`, or nil when none does.
+    func stringOpening() -> (hashes: Int, multiline: Bool)? {
+      var hashes = 0
+      while i + hashes < chars.count && chars[i + hashes] == "#" { hashes += 1 }
+      guard i + hashes < chars.count, chars[i + hashes] == "\"" else { return nil }
+      let triple = i + hashes + 2 < chars.count && chars[i + hashes + 1] == "\"" && chars[i + hashes + 2] == "\""
+      return (hashes, triple)
+    }
+    /// Copies a string literal through its closing delimiter. A one-line string stops at a newline.
+    func copyString(hashes: Int, multiline: Bool) {
+      let marks = String(repeating: "#", count: hashes)
+      let quote = multiline ? "\"\"\"" : "\""
+      out += marks + quote
+      i += hashes + quote.count
+      let close = quote + marks
+      let escape = "\\" + marks
+      while i < chars.count {
+        if at(close) { out += close; i += close.count; return }
+        if !multiline && chars[i].isNewline { return }
+        if at(escape) {
+          out += escape
+          i += escape.count
+          if i < chars.count && chars[i] == "(" {
+            out.append("(")
+            i += 1
+            copyCode(untilClosingParenthesis: true)
+          } else if i < chars.count && !(chars[i].isNewline && !multiline) {
+            out.append(chars[i])
+            i += 1
+          }
+          continue
         }
-        if i < chars.count { out += "\"\"\""; i += 3 }
-        continue
-      }
-      if chars[i] == "\"" {
         out.append(chars[i])
         i += 1
-        while i < chars.count && chars[i] != "\"" && chars[i] != "\n" {
-          if chars[i] == "\\" && i + 1 < chars.count { out.append(chars[i]); i += 1 }
-          out.append(chars[i])
-          i += 1
-        }
-        if i < chars.count && chars[i] == "\"" { out.append(chars[i]); i += 1 }
-        continue
       }
-      out.append(chars[i])
-      i += 1
     }
+    func copyCode(untilClosingParenthesis: Bool) {
+      var depth = 0
+      while i < chars.count {
+        if at("//") {
+          while i < chars.count && !chars[i].isNewline { i += 1 }
+          continue
+        }
+        if at("/*") {
+          var blockDepth = 1
+          i += 2
+          while i < chars.count && blockDepth > 0 {
+            if at("/*") { blockDepth += 1; i += 2 }
+            else if at("*/") { blockDepth -= 1; i += 2 }
+            else { i += 1 }
+          }
+          continue
+        }
+        if let opening = stringOpening() {
+          copyString(hashes: opening.hashes, multiline: opening.multiline)
+          continue
+        }
+        if untilClosingParenthesis {
+          if chars[i] == "(" { depth += 1 }
+          else if chars[i] == ")" {
+            if depth == 0 { out.append(")"); i += 1; return }
+            depth -= 1
+          }
+        }
+        out.append(chars[i])
+        i += 1
+      }
+    }
+    copyCode(untilClosingParenthesis: false)
     return out
   }
 
@@ -293,6 +335,62 @@ final class MonetizationConfigTests: XCTestCase {
     let revenueCat = ForbiddenName(name: "RevenueCat", call: false)
     XCTAssertTrue(revenueCat.found(in: "import RevenueCat"))
     XCTAssertFalse(revenueCat.found(in: "RevenueCatNote"))
+  }
+
+  /// The scanner reads Swift the way the compiler does where it matters here: a raw string
+  /// (`#"..."#`) holds `//` as text, a string interpolation is code (so a comment inside it is a
+  /// comment and a string inside it is a string), and a Windows line ending ends a `//` comment.
+  func testTheCommentScannerHandlesRawStringsInterpolationsAndCRLF() {
+    let logIn = ForbiddenName(name: "logIn", call: true)
+    func hides(_ source: String) -> Bool { !logIn.found(in: Self.withoutComments(source)) }
+
+    // Raw strings: the quote and the comment marker inside are text; the call after them is code.
+    XCTAssertFalse(hides("let p = #\"a//b\"#; logIn(id)"), "// inside a raw string is text")
+    XCTAssertFalse(hides("let p = #\"say \"//\" now\"#; logIn(id)"), "a bare quote does not end a raw string")
+    XCTAssertFalse(hides("let p = ##\"x\"#//y\"##; logIn(id)"), "a raw string ends only at its own hash count")
+    XCTAssertFalse(hides("let p = #\"\"\"\nsee http://x\n\"\"\"#; logIn(id)"), "multi-line raw string")
+    XCTAssertFalse(hides("let p = #\"\\#(a)//\"#; logIn(id)"), "a raw interpolation is not the end of the string")
+    // A backslash is an ordinary character in a raw string, so it never escapes the closing quote.
+    XCTAssertFalse(hides("let p = #\"a\\\"#; logIn(id)"), "a trailing backslash in a raw string")
+
+    // Interpolation: code inside a string.
+    XCTAssertFalse(hides("let p = \"a \\(\"//\") b\"; logIn(id)"), "a string with // inside an interpolation")
+    XCTAssertFalse(hides("let p = \"a \\(dict[\"k\"]) //\"; logIn(id)"), "a quoted key inside an interpolation")
+    XCTAssertTrue(hides("let p = \"a \\(x /* logIn(id) */) b\""), "a comment inside an interpolation is a comment")
+    XCTAssertFalse(hides("let p = \"a \\(f(\"\\(g())\")) b\"; logIn(id)"), "nested interpolation")
+
+    // CRLF: Swift treats \r\n as ONE character, so a scan for \n alone never sees it.
+    XCTAssertFalse(hides("let a = 1 // note\r\nlogIn(id)\r\n"), "a // comment ends at a CRLF line end")
+    XCTAssertTrue(hides("let a = 1 // logIn(id)\r\nlet b = 2\r\n"), "the comment itself is still removed")
+    XCTAssertFalse(hides("let p = \"unterminated\r\nlogIn(id)"), "a one-line string ends at a CRLF")
+    XCTAssertTrue(hides("/* a\r\nlogIn(id)\r\n*/ let b = 2"), "a block comment spans CRLF lines")
+  }
+
+  /// `purchase` is also an ordinary name: a binding or a condition on it is not a purchase call, and
+  /// a real call is still found whether or not it sits inside an `if`.
+  func testThePurchaseMatcherIgnoresBindingsAndConditionsButNotCalls() {
+    let purchase = ForbiddenName(name: "purchase", call: true)
+    for harmless in [
+      "if let purchase {\n  show()\n}",
+      "if let purchase = stored {\n  show()\n}",
+      "guard let purchase else {\n  return\n}",
+      "guard let purchase = stored else {\n  return\n}",
+      "if purchase {\n  show()\n}",
+      "while let purchase = queue.next() {\n  show()\n}",
+      "} else if let purchase {\n  show()\n}",
+      "if let purchase,\n   purchase.isValid {\n  show()\n}",
+    ] {
+      XCTAssertFalse(purchase.found(in: harmless), "not a call: \(harmless)")
+    }
+    for call in [
+      "if await manager.purchase(product) {\n}",
+      "if purchase(product) {\n}",
+      "guard let r = try await manager.purchase(product) else {\n}",
+      "if let r = await manager.purchase { _ in } {\n}",
+      "try await manager.purchase { _ in }",
+    ] {
+      XCTAssertTrue(purchase.found(in: call), "a call: \(call)")
+    }
   }
 
   /// The bodies of the router methods `code` calls (with or without `self.`), and of the methods
