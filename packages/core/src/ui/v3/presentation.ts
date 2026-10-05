@@ -43,6 +43,8 @@ export interface DesktopPopupProps {
   onFeatureChange: (feature: FeatureId, next: boolean) => void;
   onSignIn?: () => void;
   onSettings: () => void;
+  /** Screen-reader name for the Settings button; unset keeps "Settings. Find Still in <browser>." */
+  settingsLabel?: string;
   privacyUrl: string;
   /** Current committed authority can hold commands without changing saved choices. */
   commandsDisabled?: boolean;

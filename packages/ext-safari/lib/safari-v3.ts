@@ -46,12 +46,14 @@ export function safariPopupSurface(os: string | undefined): SafariPopupSurface {
 }
 
 /**
- * The browser name DesktopPopup puts in its Settings button's accessible name. DesktopPopup only
- * accepts the D01 reference values, and the coordinator ruled that no new label may be invented,
- * so the reference text is kept unchanged ("Settings. Find Still in Chrome."). This is an OPEN
- * OWNER COPY QUESTION for the macOS Safari popup; change it only with an approved label.
+ * The browser value DesktopPopup requires (it accepts only the D01 reference values). It no longer
+ * reaches the Settings button's accessible name: the macOS Safari popup passes
+ * SAFARI_SETTINGS_LABEL instead.
  */
 export const SAFARI_DESKTOP_POPUP_BROWSER = "Chrome" as const;
+
+/** The macOS Safari popup's Settings button screen-reader label (owner decision 27). */
+export const SAFARI_SETTINGS_LABEL = "Still settings";
 
 /** The account fields the extension shows; the Apple app is the account authority on Safari. */
 export interface AppManagedAccountSource {
