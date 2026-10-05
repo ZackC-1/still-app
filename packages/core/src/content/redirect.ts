@@ -251,7 +251,8 @@ export function installNavigationHooks(
  * pushState, so without `window.navigation` page-driven moves are invisible. This polls
  * location.href on a short interval (no MutationObserver, no main-world script) and reports
  * each change once, with the previous URL. popstate/hashchange report at once; popstate is
- * history traversal (deliberate). It runs only while `active` and the document is visible.
+ * history traversal (deliberate). The poll runs only while `active` and the document is
+ * visible; the history listeners stay attached while `active`, hidden or not.
  */
 export interface UrlChangeWatch {
   /** Re-evaluate whether to run; call after anything that may change `active`. */
@@ -289,19 +290,29 @@ export function createUrlChangeWatch(input: {
     onChange(previous, next, traverse);
   };
   const poll = () => report(false);
-  const onPop = () => { if (timer !== null) report(true); };
-  const onHash = () => { if (timer !== null) report(false); };
+  // History listeners stay attached whenever the watch is wanted, visible or not: a Back or
+  // forward taken while the tab is hidden still moves the baseline, so resuming the poll never
+  // mistakes that traversal for the page advancing on its own.
+  let listening = false;
+  const onPop = () => { if (listening) report(true); };
+  const onHash = () => { if (listening) report(false); };
   const apply = () => {
-    const run = wanted && !stopped && doc.visibilityState !== "hidden";
-    if (run && timer === null) {
-      timer = setInterval(poll, input.intervalMs ?? URL_WATCH_INTERVAL_MS);
+    const listen = wanted && !stopped;
+    if (listen && !listening) {
       win.addEventListener("popstate", onPop);
       win.addEventListener("hashchange", onHash);
+      listening = true;
+    } else if (!listen && listening) {
+      win.removeEventListener("popstate", onPop);
+      win.removeEventListener("hashchange", onHash);
+      listening = false;
+    }
+    const run = listen && doc.visibilityState !== "hidden";
+    if (run && timer === null) {
+      timer = setInterval(poll, input.intervalMs ?? URL_WATCH_INTERVAL_MS);
     } else if (!run && timer !== null) {
       clearInterval(timer);
       timer = null;
-      win.removeEventListener("popstate", onPop);
-      win.removeEventListener("hashchange", onHash);
     }
   };
   const onVisibility = () => apply();

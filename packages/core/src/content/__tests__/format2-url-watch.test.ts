@@ -4,7 +4,7 @@ import { AtomicSettingsWriter } from "../../storage/atomic-settings.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
 import { SettingsCache } from "../../storage/cache.js";
 import { createContentScript, type ContentScriptHandle } from "../index.js";
-import { createNavigationIntentTracker, URL_WATCH_INTERVAL_MS } from "../redirect.js";
+import { createNavigationIntentTracker, URL_WATCH_INTERVAL_MS, type NavigationIntentTracker } from "../redirect.js";
 import { ruleSet } from "../../rules/__tests__/format2-fixtures.js";
 import seed from "../../../rules/seed.json";
 
@@ -42,7 +42,8 @@ afterEach(() => {
   document.head.innerHTML = "";
 });
 
-async function host(href: string, intents = createNavigationIntentTracker()) {
+/** `intents: null` leaves the script's own tracker in place (no test seam). */
+async function host(href: string, intents: NavigationIntentTracker | null = createNavigationIntentTracker()) {
   const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 1 });
   const writer = new AtomicSettingsWriter(storage);
   await writer.initialize("never-linked");
@@ -73,12 +74,12 @@ async function host(href: string, intents = createNavigationIntentTracker()) {
     ruleSetV2: allCores,
     capabilities: cores,
     cache,
-    navigationIntents: intents,
+    navigationIntents: intents ?? undefined,
   });
   scripts.push(script);
   await script.start();
   return {
-    win, writer, cache, script, replace, assign, entries, intents, isolatedPush,
+    win, writer, cache, script, replace, assign, entries, intents: intents!, isolatedPush,
     /** The page's own main-world pushState: invisible to the content script's wrapper. */
     pagePush: (path: string) => {
       current = new URL(path, current).href;
@@ -246,5 +247,63 @@ describe("format-2 URL watch fallback (no Navigation API)", () => {
     scripts.push(script);
     await script.start();
     expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("ADV-1: the hooks' trusted link listener feeds the same tracker the URL watch reads", async () => {
+    fake();
+    const added = vi.spyOn(document, "addEventListener");
+    // No injected tracker: the script's own hooks and URL watch must share theirs.
+    const h = await host("https://www.instagram.com/reel/A1/", null);
+    const onLink = added.mock.calls.find(([type, , capture]) => type === "click" && capture === true)?.[1] as
+      | ((event: Event) => void)
+      | undefined;
+    expect(onLink).toBeDefined();
+    const anchor = document.createElement("a");
+    anchor.href = "https://www.instagram.com/reel/B2/";
+    document.body.append(anchor);
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    // jsdom cannot create a trusted event; force only isTrusted (and the path), as the browser would.
+    const trusted = new Proxy(click, {
+      get(target, key) {
+        if (key === "isTrusted") return true;
+        if (key === "composedPath") return () => [anchor, document.body, document];
+        const value = Reflect.get(target, key, target);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    onLink!(trusted);
+    expect(click.defaultPrevented).toBe(false); // the site routes the click itself
+    await vi.advanceTimersByTimeAsync(2_000);
+    h.pagePush("/reel/B2/");
+    await tickWatch();
+    expect(h.replace).not.toHaveBeenCalled();
+    anchor.remove();
+  });
+
+  it("ADV-2: a Back taken while the tab is hidden is not mistaken for the page advancing", async () => {
+    fake();
+    const h = await host("https://www.facebook.com/reel/111");
+    h.intents.recordLink(new URL("https://www.facebook.com/reel/222"));
+    h.pagePush("/reel/222");
+    await tickWatch(); // seen as the deliberate move
+    expect(h.replace).not.toHaveBeenCalled();
+    setVisibility("hidden");
+    expect(h.back()).toBe("https://www.facebook.com/reel/111");
+    setVisibility("visible");
+    await tickWatch();
+    expect(h.replace).not.toHaveBeenCalled();
+  });
+
+  it("ADV-3: re-enabling starts from the current URL, not a move made while Off", async () => {
+    fake();
+    const h = await host("https://www.instagram.com/reel/A1/");
+    await h.writer.commit({ path: "sites.instagram.reels", value: false, updatedAt: 2 });
+    h.script.reapply();
+    h.pagePush("/reel/B2/");
+    await tickWatch();
+    await h.writer.commit({ path: "sites.instagram.reels", value: true, updatedAt: 3 });
+    h.script.reapply();
+    await tickWatch();
+    expect(h.replace).not.toHaveBeenCalled();
   });
 });
