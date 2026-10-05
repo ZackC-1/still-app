@@ -31,6 +31,8 @@ import {
 
 const ENDPOINT = process.env.STILL_ANDROID_BIDI ?? "ws://127.0.0.1:9222";
 const PACKAGE = process.env.STILL_ANDROID_XPI ?? "";
+/** The same package, pushed to the device by run-spike.sh (installed by path, see below). */
+const DEVICE_PACKAGE = process.env.STILL_ANDROID_DEVICE_XPI ?? "";
 const ORIGINS = [
   "*://*.youtube.com/*",
   "*://*.instagram.com/*",
@@ -250,13 +252,19 @@ test("Firefox for Android spike", async () => {
   }
 
   // 1. Install, then the feasibility question: site access from the first-run page.
+  // Install from the copy run-spike.sh pushed to the device. Not base64: Firefox for Android 142's
+  // remote agent deletes the temporary file a base64 install writes, which leaves every content
+  // script "Unable to load script" (Firefox 157 keeps it). A real AMO install is unaffected.
+  const extensionData: Json = DEVICE_PACKAGE
+    ? { type: "archivePath", path: DEVICE_PACKAGE }
+    : { type: "base64", value: readFileSync(PACKAGE).toString("base64") };
   let firefox: StillFirefox;
   try {
     firefox = await bounded(StillFirefox.attach(
       { bidi, version: process.env.FENIX_VERSION ?? "unknown", stop: async () => bidi.close() },
-      { type: "base64", value: readFileSync(PACKAGE).toString("base64") },
+      extensionData,
     ), 120_000, "webExtension.install and network intercept");
-    record("install Still as a temporary add-on (webExtension.install)", "pass");
+    record("install Still as a temporary add-on (webExtension.install)", "pass", extensionData.type);
   } catch (error) {
     record("install Still as a temporary add-on (webExtension.install)", "fail", String(error));
     screencap("install-failed");
@@ -527,7 +535,22 @@ test("Firefox for Android spike", async () => {
       setDisplayWidthDp(dp);
       await sleep(2_500);
       await popup.goto(`${EXTENSION}/popup.html`);
-      await popup.waitFor("the popup to render its services", () => popup.count(".still-ui .service-row"), (n) => n >= 4, 20_000);
+      // Note whether the popup passes through its "Settings are unavailable." recovery state while it
+      // loads (a device frame at 320 dp once showed it while the page itself rendered normally).
+      let sawUnavailable = false;
+      await popup.waitFor(
+        "the popup to render its services",
+        async () => {
+          const view = await popup.evaluate<{ rows: number; unavailable: boolean }>(
+            `({ rows: document.querySelectorAll(".still-ui .service-row").length, unavailable: document.body.textContent.includes("Settings are unavailable.") })`,
+          );
+          sawUnavailable ||= view.unavailable;
+          return view.rows;
+        },
+        (n) => n >= 4,
+        20_000,
+      );
+      record(`popup at ${dp} dp showed "Settings are unavailable." while loading`, "info", sawUnavailable);
       const geometry = await popup.evaluate<Json>(`(() => {
         const root = document.documentElement;
         const frame = document.querySelector(".popup")?.getBoundingClientRect();

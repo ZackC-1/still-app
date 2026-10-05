@@ -95,8 +95,17 @@ else
 fi
 adb forward "tcp:$PORT" "tcp:$PORT" || stop "adb forward failed"
 
+# Still is installed from a copy on the device by path. Installing from base64 data would make
+# Firefox for Android up to at least 142 write the package to a temporary file and delete it right
+# after the install, so every content script then fails with "Unable to load script" (newer
+# Firefox keeps that file). /data/local/tmp is readable by Firefox, as the config file above shows.
+DEVICE_XPI=/data/local/tmp/still-firefox.xpi
+adb push "$STILL_ANDROID_XPI" "$DEVICE_XPI" > /dev/null || stop "could not push the extension package"
+adb shell chmod 644 "$DEVICE_XPI" || true
+
 log "run the spike spec"
-STILL_ANDROID_BIDI="ws://127.0.0.1:$PORT" pnpm exec playwright test -c tests/firefox-android/playwright.config.ts
+STILL_ANDROID_BIDI="ws://127.0.0.1:$PORT" STILL_ANDROID_DEVICE_XPI="$DEVICE_XPI" \
+  pnpm exec playwright test -c tests/firefox-android/playwright.config.ts
 status=$?
 log "spike spec exit status: $status"
 exit "$status"
