@@ -16,7 +16,7 @@ import { InMemoryStorageAdapter } from "../../storage/adapter.js";
 import { SettingsCache } from "../../storage/cache.js";
 import { parseStoredSettingsRecord } from "../../storage/settings-validation.js";
 import { WKWebViewStorageAdapter, type StillBridgeWindow } from "../../storage/wkwebview-adapter.js";
-import { NativeBridge } from "../../native/bridge.js";
+import { NativeBridge, openNativeDestination } from "../../native/bridge.js";
 import { UiController, type UiAnalytics } from "../controller.svelte.js";
 import { STRINGS } from "../strings.js";
 import { FIND_MY_PURCHASE_MAILTO, PRIVACY_POLICY_URL, SETUP_GUIDE_URL, SUPPORT_EMAIL } from "../config.js";
@@ -26,6 +26,8 @@ import LegacyApp from "../App.svelte";
 import { EntitlementCache } from "../../entitlement/cache.js";
 import {
   appleSettingsCacheOptions,
+  appleRestoreBridge,
+  appleRestoreCheck,
   appleSettingsHelp,
   appleSettingsPlatform,
   appleSettingsRestore,
@@ -212,8 +214,8 @@ async function composeAtomic(
   });
   const { analytics, setSharing } = analyticsDouble();
   const controller = new UiController({ cache, host: { canPurchase: true }, analytics });
-  // The entry passes this same NativeBridge as the free-period Restore bridge.
-  const bridge = new NativeBridge(native.win);
+  // The entry builds the free-period Restore bridge over this same port and NativeBridge.
+  const bridge = appleRestoreBridge(new NativeBridge(native.win), native.win);
   return { backend, native, adapter, cache, authority, controller, setSharing, hydrated, bridge };
 }
 
@@ -282,7 +284,9 @@ describe("Apple settings mode rule", () => {
     expect(main).toContain("void cache.hydrate().catch(() => {});");
     // D04 help opens through the anchor route; the free-period Restore uses the one native bridge.
     expect(main).toContain("help: appleSettingsHelp((url) => openExternalLink(url)),");
-    expect(main).toContain("restoreBridge: bridge,");
+    expect(main).toContain("restoreBridge: appleRestoreBridge(bridge),");
+    // The setup card opens only the fixed destination it names, through the tap-only opener.
+    expect(main).toContain("openDestination: (destination) => void openNativeDestination(destination),");
     expect(main).not.toMatch(/location\.href/);
     const index = readFileSync(resolve(import.meta.dirname, "../index.ts"), "utf8");
     expect(index).not.toMatch(/AppleSettings\.svelte/);
@@ -763,6 +767,19 @@ describe("Safari setup card", () => {
     });
   });
 
+  it("with an opener, Open Safari Settings opens only the fixed Safari extension settings destination", () => {
+    const open = vi.fn();
+    const setup = appleSettingsSetup({ ...MAC, extensionStatus: "disabled" }, open);
+    expect(open).not.toHaveBeenCalled();
+    setup?.onAction?.();
+    expect(open).toHaveBeenCalledExactlyOnceWith("safariExtensionSettings");
+    // No opener: the action stays unsupplied, so the button renders disabled.
+    expect(appleSettingsSetup({ ...MAC, extensionStatus: "disabled" })?.onAction).toBeUndefined();
+    // Never a card (and so never an open) where native did not observe the Mac extension off.
+    expect(appleSettingsSetup(IOS, open)).toBeUndefined();
+    expect(appleSettingsSetup(null, open)).toBeUndefined();
+  });
+
   it.each([
     ["macOS enabled", { ...MAC, extensionStatus: "enabled" } as SafariSetupObservation],
     ["macOS unknown", { ...MAC, extensionStatus: "unknown" } as SafariSetupObservation],
@@ -845,6 +862,31 @@ describe("Safari setup card", () => {
     next = { ...MAC, extensionStatus: "enabled" };
     document.dispatchEvent(new Event("visibilitychange"));
     await waitFor(() => expect(screen.queryByRole("heading", { name: "Turn on Still in Safari" })).toBeNull());
+    f.authority.stop();
+  });
+
+  it("a tap on Open Safari Settings posts exactly one fixed openDestination message, and nothing without user activation", async () => {
+    const f = await composeAtomic(tsBackend, {
+      replies: { openDestination: async () => JSON.stringify({ ok: true, destination: "safariExtensionSettings" }) },
+    });
+    await f.hydrated;
+    let active = true;
+    await renderHost(f, {
+      observeSetup: async () => ({ ...MAC, extensionStatus: "disabled" }),
+      // The entry's opener (main.ts), with this test's port and activation in place of the page's.
+      openDestination: (destination: "safariExtensionSettings") =>
+        void openNativeDestination(destination, { win: f.native.win, userActivation: { isActive: active } }),
+    });
+    const button = await screen.findByRole("button", { name: "Open Safari Settings" });
+    expect(button).toBeEnabled();
+    const before = f.native.messages.length;
+    await fireEvent.click(button);
+    expect(f.native.messages.slice(before)).toEqual([
+      { kind: "openDestination", destination: "safariExtensionSettings" },
+    ]);
+    active = false;
+    await fireEvent.click(button);
+    expect(f.native.messages.slice(before)).toHaveLength(1);
     f.authority.stop();
   });
 });
@@ -1009,7 +1051,9 @@ describe("account, restore, help and telemetry mapping", () => {
 
 describe("free-period Restore purchase (owner decision 17)", () => {
   const RESTORED = "Still Pro is restored on this device.";
-  const NOTHING = "No Still Pro purchase was found for this account.";
+  // Owner decision 26: the Apple app's "nothing found" names the Apple Account.
+  const NOTHING = "No Still Pro purchase was found for this Apple Account.";
+  const NOTHING_DETAIL = "Bought it with another Apple Account? Sign in with that one and try again.";
   const FAILED = "We couldn't finish checking. Nothing changed.";
   type Replies = Record<string, () => Promise<unknown>>;
   const json =
@@ -1062,10 +1106,50 @@ describe("free-period Restore purchase (owner decision 17)", () => {
     h.f.authority.stop();
   });
 
-  // Today's native contract while paid is off: restore is refused without asking StoreKit
-  // ({ entitled: false }) and a person who never bought has no transaction, so the receipt read is
-  // noSignal. That is not a conclusive answer, so it is "couldn't finish", never "nothing found".
-  it("never purchased (native refuses restore, receipt has no signal): couldn't finish, not nothing found", async () => {
+  // Native's answer while paid is off is the read-only App Store check (FreePeriodRestore.swift).
+  it("the App Store check finds a purchase: restored, with no receipt read", async () => {
+    const h = await restoreHost({ restore: json({ entitled: true, restore: "restored" }) });
+    await fireEvent.click(screen.getByRole("button", { name: "Restore purchase" }));
+    expect(await screen.findByText(RESTORED)).toBeInTheDocument();
+    expect(h.sentAfter()).toEqual(["restore"]);
+    await expectUnchanged(h);
+    h.f.authority.stop();
+  });
+
+  it("never purchased (the App Store answered, no purchase): nothing found, with no receipt read", async () => {
+    const h = await restoreHost({
+      restore: json({ entitled: false, restore: "none" }),
+      receiptStatus: json({ receipt: "noSignal" }),
+    });
+    await fireEvent.click(screen.getByRole("button", { name: "Restore purchase" }));
+    expect(await screen.findByText(NOTHING)).toBeInTheDocument();
+    expect(screen.getByText(NOTHING_DETAIL)).toBeInTheDocument();
+    // The browser wording never appears in the Apple app.
+    expect(screen.queryByText("No Still Pro purchase was found for this account.")).toBeNull();
+    expect(screen.queryByText(/another account or Apple ID/)).toBeNull();
+    expect(screen.queryByText(FAILED)).toBeNull();
+    expect(h.sentAfter()).toEqual(["restore"]);
+    await expectUnchanged(h);
+    h.f.authority.stop();
+  });
+
+  it("the App Store check failed (sync error, cancel or timeout): couldn't finish, never nothing found", async () => {
+    const h = await restoreHost({
+      restore: json({ entitled: false, restore: "failed" }),
+      receiptStatus: json({ receipt: "verifiedNotEntitled" }),
+    });
+    await fireEvent.click(screen.getByRole("button", { name: "Restore purchase" }));
+    expect(await screen.findByText(FAILED)).toBeInTheDocument();
+    expect(screen.queryByText(NOTHING)).toBeNull();
+    expect(h.sentAfter()).toEqual(["restore"]);
+    await expectUnchanged(h);
+    h.f.authority.stop();
+  });
+
+  // A reply with no conclusive answer (only { entitled: false }) falls back to the receipt read.
+  // A person who never bought has no transaction there, so it is noSignal: not a conclusive
+  // answer, so "couldn't finish", never "nothing found".
+  it("no conclusive answer and a receipt with no signal: couldn't finish, not nothing found", async () => {
     const h = await restoreHost({
       restore: json({ entitled: false }),
       receiptStatus: json({ receipt: "noSignal" }),
@@ -1161,6 +1245,32 @@ describe("free-period Restore purchase (owner decision 17)", () => {
   });
 });
 
+describe("appleRestoreCheck", () => {
+  it("keeps the native check's conclusive answer and never invents one", () => {
+    expect(appleRestoreCheck(JSON.stringify({ entitled: true, restore: "restored" }))).toBe("restored");
+    expect(appleRestoreCheck({ entitled: false, restore: "none" })).toBe("none");
+    expect(appleRestoreCheck(JSON.stringify({ entitled: false, restore: "failed" }))).toBe("failed");
+    // The paid-tier reply carries only `entitled`: true is restored, false is no answer.
+    expect(appleRestoreCheck(JSON.stringify({ entitled: true }))).toBe("restored");
+    expect(appleRestoreCheck(JSON.stringify({ entitled: false }))).toBeNull();
+    // Malformed or absent replies are never "none".
+    for (const reply of [JSON.stringify({ restore: "banana" }), "{", "", null, undefined, 1, "none"])
+      expect(appleRestoreCheck(reply)).toBeNull();
+  });
+
+  it("the bridge posts one restore message on the given port, and none without a native host", async () => {
+    const posted: unknown[] = [];
+    const win: StillBridgeWindow = {
+      webkit: { messageHandlers: { still: { postMessage: async (m: unknown) => (posted.push(m), JSON.stringify({ entitled: false, restore: "none" })) } } },
+    };
+    const receiptStatus = vi.fn(async () => "noSignal" as const);
+    expect(await appleRestoreBridge({ receiptStatus }, win).restoreCheck()).toBe("none");
+    expect(posted).toEqual([{ kind: "restore" }]);
+    expect(receiptStatus).not.toHaveBeenCalled();
+    expect(await appleRestoreBridge({ receiptStatus }, {}).restoreCheck()).toBeNull();
+  });
+});
+
 describe("createAppleSettingsRestore", () => {
   function deferred<T>() {
     let resolve!: (value: T) => void;
@@ -1171,12 +1281,23 @@ describe("createAppleSettingsRestore", () => {
     });
     return { promise, resolve, reject };
   }
-  function entry(bridge: { restore: () => Promise<boolean>; receiptStatus?: () => Promise<"entitled" | "verifiedNotEntitled" | "noSignal"> }, refreshAccess = vi.fn(async () => {})) {
+  /** `restore` answers like a reply carrying only `entitled`: true is restored, false no answer. */
+  function entry(
+    bridge: {
+      restore?: () => Promise<boolean>;
+      restoreCheck?: () => Promise<"restored" | "none" | "failed" | null>;
+      receiptStatus?: () => Promise<"entitled" | "verifiedNotEntitled" | "noSignal">;
+    },
+    refreshAccess = vi.fn(async () => {}),
+  ) {
     const published: unknown[] = [];
-    const restore = vi.fn(bridge.restore);
+    const legacy = bridge.restore;
+    const restore = vi.fn(
+      bridge.restoreCheck ?? (async () => ((legacy && (await legacy())) ? ("restored" as const) : null)),
+    );
     const receiptStatus = vi.fn(bridge.receiptStatus ?? (async () => "noSignal" as const));
     const handle = createAppleSettingsRestore({
-      bridge: { restore, receiptStatus },
+      bridge: { restoreCheck: restore, receiptStatus },
       refreshAccess,
       publish: (next) => published.push(next),
     });
@@ -1216,6 +1337,11 @@ describe("createAppleSettingsRestore", () => {
       [{ restore: async () => false, receiptStatus: async () => "noSignal" as const }, "failed"],
       [{ restore: async () => false, receiptStatus: () => Promise.reject(new Error("x")) }, "failed"],
       [{ restore: () => Promise.reject(new Error("x")) }, "failed"],
+      // The native App Store check's conclusive answers are final: no receipt fallback.
+      [{ restoreCheck: async () => "restored" as const, receiptStatus: async () => "noSignal" as const }, "restored"],
+      [{ restoreCheck: async () => "none" as const, receiptStatus: async () => "entitled" as const }, "nothing"],
+      [{ restoreCheck: async () => "failed" as const, receiptStatus: async () => "verifiedNotEntitled" as const }, "failed"],
+      [{ restoreCheck: async () => null, receiptStatus: async () => "verifiedNotEntitled" as const }, "nothing"],
     ] as const;
     for (const [bridge, state] of cases) {
       const e = entry(bridge);

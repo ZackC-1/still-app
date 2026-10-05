@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { RestoreStatusCardProps } from "./extension-settings-presentation.js";
   import Glyph from "./Glyph.svelte";
-  let { state, onAction }: RestoreStatusCardProps = $props();
+  let { state, onAction, nothingCopy }: RestoreStatusCardProps = $props();
   const messages = {
     checking: {
       tone: "pending",
@@ -42,7 +42,11 @@
     failed: "alert",
     caution: "clock",
   } as const;
-  let message = $derived(messages[state]);
+  let message = $derived(
+    state === "nothing" && nothingCopy
+      ? { ...messages.nothing, ...nothingCopy }
+      : messages[state],
+  );
 </script>
 
 <section class="card card-stack">

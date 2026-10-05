@@ -72,6 +72,27 @@ describe("controlled D01 presentation", () => {
     expect(props.onSettings).toHaveBeenCalledOnce();
   });
 
+  it("names the Settings button after the browser by default, and uses a supplied label exactly", async () => {
+    for (const browser of ["Chrome", "Firefox"] as const) {
+      const { props } = await fixture();
+      const view = render(DesktopPopup, { props: { ...props, browser } });
+      expect(
+        screen.getByRole("button", { name: `Settings. Find Still in ${browser}.` }),
+      ).toBeInTheDocument();
+      view.unmount();
+    }
+    const { props } = await fixture();
+    const view = render(DesktopPopup, {
+      props: { ...props, settingsLabel: "Still settings" },
+    });
+    const settings = screen.getByRole("button", { name: "Still settings" });
+    expect(settings).toHaveTextContent("Settings");
+    expect(screen.queryByRole("button", { name: /Find Still in/ })).toBeNull();
+    await fireEvent.click(settings);
+    expect(props.onSettings).toHaveBeenCalledOnce();
+    view.unmount();
+  });
+
   it("uses account presence independently of its optional display address", async () => {
     const { props } = await fixture();
     props.account = {

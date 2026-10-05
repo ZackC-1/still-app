@@ -81,9 +81,10 @@ describe("Safari V3 popup: surfaces", () => {
     expect(f.openOptionsPage).toHaveBeenCalledOnce();
   });
 
-  it("macOS gets DesktopPopup with its D01 reference label unchanged (owner copy question)", async () => {
+  it("macOS gets DesktopPopup with the owner-approved Settings label \"Still settings\" (decision 27)", async () => {
     await open("atomic", { platform: "mac" });
-    await waitFor(() => expect(screen.getByRole("button", { name: "Settings. Find Still in Chrome." })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("button", { name: "Still settings" })).toBeTruthy());
+    expect(screen.queryByRole("button", { name: /Find Still in/ })).toBeNull();
     expect(screen.getByRole("heading", { name: "Still is active" })).toBeTruthy();
   });
 

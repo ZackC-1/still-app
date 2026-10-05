@@ -27,6 +27,7 @@
     onFeatureChange,
     onSignIn,
     onSettings,
+    settingsLabel,
     privacyUrl,
     commandsDisabled = false,
     accountActions,
@@ -326,7 +327,7 @@
     <button
       type="button"
       class="open-options"
-      aria-label={`Settings. Find Still in ${browser}.`}
+      aria-label={settingsLabel ?? `Settings. Find Still in ${browser}.`}
       onclick={onSettings}>Settings</button
     ><a class="link" href={privacyUrl}>Privacy policy</a>
   </footer>
