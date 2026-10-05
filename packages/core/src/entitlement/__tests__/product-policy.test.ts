@@ -243,8 +243,22 @@ describe("dormancy", () => {
     ]);
   });
 
+  const nonTestImporters = (pattern: RegExp) =>
+    [...sources(join(root, "packages")), ...sources(join(root, "apps")), ...sources(join(root, "supabase"))]
+      .filter(path => !/__tests__|\.test\.|\.spec\.|_test\.ts$/.test(path))
+      .filter(path => pattern.test(readFileSync(path, "utf8")))
+      .map(path => relative(root, path));
+
+  it("the dormant browser client itself has no importer: no background, page, content script or Restore path", () => {
+    expect(nonTestImporters(/product-policy-runtime(\.js|\.ts)?["']/)).toEqual([]);
+  });
+
+  it("the paid-cutoff adapter has no importer until a configuration-signing verifier exists", () => {
+    expect(nonTestImporters(/paid-cutoff(\.js|\.ts)?["']/)).toEqual([]);
+  });
+
   it("is not re-exported from either package index", () => {
     expect(readFileSync(join(root, "packages/shared-types/src/index.ts"), "utf8")).not.toMatch(/product-policy/);
-    expect(readFileSync(join(root, "packages/core/src/entitlement/index.ts"), "utf8")).not.toMatch(/product-policy/);
+    expect(readFileSync(join(root, "packages/core/src/entitlement/index.ts"), "utf8")).not.toMatch(/product-policy|paid-cutoff/);
   });
 });
