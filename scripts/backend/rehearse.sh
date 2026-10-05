@@ -36,7 +36,9 @@ SQL
 }
 bootstrap_fixture
 export STILL_SECURITY_TEST_DATABASE_URL='postgresql://postgres:postgres@127.0.0.1:54322/postgres'
-deno test --config supabase/functions/deno.json --allow-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,STILL_SECURITY_TEST_DATABASE_URL,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME --allow-read=scripts/backend/sql --allow-net=127.0.0.1:54322 supabase/tests/security_foundation_test.ts
+# One environment permission for every database test: driver PG* defaults plus each test's inputs.
+db_test_env=--allow-env=GITHUB_ACTIONS,RUNNER_ENVIRONMENT,STILL_SECURITY_TEST_DATABASE_URL,STILL_GRANTS_TEST_DATABASE_URL,STILL_GRANTS_TEST_MODE,STILL_GRANTS_GATEWAY_PASSWORD,PGSSL,PGSSLNEGOTIATION,PGIDLE_TIMEOUT,PGCONNECT_TIMEOUT,PGMAX_LIFETIME,PGMAX_PIPELINE,PGBACKOFF,PGKEEP_ALIVE,PGDEBUG,PGFETCH_TYPES,PGPUBLICATIONS,PGTARGET_SESSION_ATTRS,PGTARGETSESSIONATTRS,PGAPPNAME
+deno test --config supabase/functions/deno.json "$db_test_env" --allow-read=scripts/backend/sql --allow-net=127.0.0.1:54322 supabase/tests/security_foundation_test.ts
 supabase db reset --local --no-seed >/dev/null
 # The reset removed the first test's candidates. Reinstall them atomically so pgTAP proves
 # cross-account isolation against the hardened state, with extension-only test helper grants.
@@ -54,4 +56,20 @@ supabase test db supabase/tests/rls_test.sql
 psql "$STILL_SECURITY_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --file=scripts/backend/sql/assert-security.sql
 # Handler and boundary suites are actual code; the external RevenueCat response is synthetic.
 deno test --config supabase/functions/deno.json supabase/functions/_shared/auth.test.ts supabase/functions/_shared/jwt.test.ts supabase/functions/reconcile-entitlement/handler.test.ts supabase/functions/revenuecat-webhook/handler.test.ts
+# Migration 0014 on its own, with no privileged candidate: upgrade path (0013 plus realistic
+# synthetic rows, then the CLI applies 0014 as the ordinary postgres role) and clean path. Client
+# probes log in as the real `authenticator` role and switch role as PostgREST does.
+grants_test() {
+  STILL_GRANTS_TEST_DATABASE_URL="$STILL_SECURITY_TEST_DATABASE_URL" STILL_GRANTS_TEST_MODE="$1" \
+    deno test --config supabase/functions/deno.json "$db_test_env" --allow-read=supabase/migrations,supabase/tests --allow-net=127.0.0.1:54322 supabase/tests/server_rpc_grants_test.ts
+}
+supabase db reset --local --no-seed --version 0013 >/dev/null
+psql "$STILL_SECURITY_TEST_DATABASE_URL" -X --set=ON_ERROR_STOP=1 --file=supabase/tests/server_rpc_grants_seed.sql
+supabase migration up --local >/dev/null
+grants_test upgrade
+supabase db reset --local --no-seed >/dev/null
+grants_test clean
+# The existing pgTAP suite against migrations alone (no candidate). On 0013 it fails the
+# set_entitlement, entitlement-write and anon free-sync checks; 0014 must make it pass.
+supabase test db supabase/tests/rls_test.sql
 node scripts/backend/plan.mjs verify "$1" synthetic-github-runner "$RUNNER_TEMP/u1-plan.json" "$2"
