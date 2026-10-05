@@ -91,9 +91,12 @@ describe("Instagram extras routes (paid on through the real implementation table
       expect(route(`${IG}${path}`), path).toEqual(APPLY);
   });
 
-  it("Highlights links stay where they are (their route is a separate, open owner question)", () => {
-    for (const path of ["/stories/highlights/900000000000001/", "/stories/highlights/900000000000001", "/stories/highlights/"])
-      expect(route(`${IG}${path}`), path).toEqual(APPLY);
+  it("Highlights links go to same-site Home too (V3-D-252; owner question Q8 still open)", () => {
+    for (const path of ["/stories/highlights/900000000000001/", "/stories/highlights/900000000000001", "/stories/highlights/900000000000001/?igsh=invented"])
+      expect(route(`${IG}${path}`), path).toEqual(redirect("/"));
+    expect(route(`${IG}/stories/highlights/900000000000001/`, savedOff("instagram.stories"))).toEqual(APPLY);
+    // Home is never routed again.
+    expect(route(`${IG}/`)).toEqual(APPLY);
   });
 
   it("Suggested accounts: /explore/people/ (and anything under it) goes Home", () => {
@@ -103,7 +106,7 @@ describe("Instagram extras routes (paid on through the real implementation table
   });
 
   it("never loops: no route's destination is itself routed, by the core or any extra", () => {
-    const samples = ["/explore/", "/stories/inventeduser1/", "/explore/people/"];
+    const samples = ["/explore/", "/stories/inventeduser1/", "/stories/highlights/900000000000001/", "/explore/people/"];
     for (const path of samples) {
       const first = route(`${IG}${path}`);
       expect(first.kind, path).toBe("redirect");

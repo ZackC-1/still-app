@@ -147,6 +147,16 @@ test.describe("Instagram extras, paid on", () => {
     for (const id of fixtureIds(extrasFixture("ig-stories.html"), "keep-")) await expect(page.locator(`#${id}`), id).toBeVisible();
   });
 
+  test("Highlights: a Highlights link goes Home once, without a loop", async ({ page }) => {
+    const loads = await serveInstagram(page, () => extrasFixture("ig-stories.html"));
+    await page.goto("https://www.instagram.com/stories/highlights/900000000000001/");
+    await expect(page).toHaveURL("https://www.instagram.com/");
+    await settled(page);
+    expect(page.url()).toBe("https://www.instagram.com/");
+    expect(loads.get("/"), "Home loaded once").toBe(1);
+    await expect(page.locator("#keep-profile-header")).toBeVisible();
+  });
+
   test("Suggested accounts: /explore/people/ goes Home; recommendation blocks hidden, account lists kept", async ({ page }) => {
     await serveInstagram(page, () => extrasFixture("ig-suggested.html"));
     await page.goto("https://www.instagram.com/explore/people/");

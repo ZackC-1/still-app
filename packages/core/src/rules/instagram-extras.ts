@@ -22,10 +22,12 @@ export const INSTAGRAM_SEARCH_ENTRY = "/explore/search/";
 
 /** The exact Explore hub, with or without its trailing slash. */
 const EXPLORE_HUB = /^\/explore\/?$/;
-/** Story viewer addresses: /stories/<user>/ and /stories/<user>/<id>/, shared links included. */
+/**
+ * Story viewer addresses: /stories/<user>/ and /stories/<user>/<id>/, shared links included, and
+ * Highlights (/stories/highlights/<id>/), which also go Home per V3-D-252 while owner question Q8
+ * (Home or the owning profile) is open. The Highlights part is its own commit so it can be dropped.
+ */
 const STORY_PATH = /^\/stories(\/|$)/;
-/** Highlights (/stories/highlights/<id>/): the route for them is a separate, open owner question. */
-const HIGHLIGHT_PATH = /^\/stories\/highlights(\/|$)/;
 /** Suggested accounts' own page and anything under it. */
 const SUGGESTED_PATH = /^\/explore\/people(\/|$)/;
 
@@ -42,8 +44,9 @@ const routes: readonly ExtrasRoute[] = Object.freeze([
   }),
   Object.freeze({
     feature: "instagram.stories",
-    // The story viewer, including shared story links, goes to same-site Home (D043, V3-D-252).
-    matches: (url: URL) => STORY_PATH.test(url.pathname) && !HIGHLIGHT_PATH.test(url.pathname),
+    // The story viewer, including shared story links and Highlights, goes to same-site Home
+    // (D043, V3-D-252).
+    matches: (url: URL) => STORY_PATH.test(url.pathname),
     destination: home,
   }),
   Object.freeze({
