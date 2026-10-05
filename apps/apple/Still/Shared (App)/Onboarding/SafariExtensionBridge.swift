@@ -28,6 +28,17 @@ enum SafariExtensionBridge {
   /// Must match the Safari extension target's bundle id (com.chartash.still + .Extension).
   static let extensionBundleID = "com.chartash.still.Extension"
 
+  /// Pure observation only; the existing enable action and onboarding gate are unchanged.
+  static func observeSetup() async -> SafariSetupObservation {
+    #if os(macOS)
+      let platform = SafariSetupObservation.Platform.macos
+    #else
+      let platform = SafariSetupObservation.Platform.ios
+    #endif
+    return SafariSetupObservation(
+      platform: platform, extensionStatus: await currentStatus(), enableLocation: enableLocation)
+  }
+
   /// The live extension state. Real on macOS; always `.unknown` on the iPhone versions this build
   /// targets, where reading it is not available to a containing app.
   static func currentStatus() async -> SafariExtensionStatus {
