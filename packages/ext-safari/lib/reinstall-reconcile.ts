@@ -22,6 +22,11 @@ import { NATIVE_APP } from "./native-settings.js";
 // (`still:settingsInstallGeneration`), and a different id is a one-time decision. The first time
 // this code runs, that record is seeded from the entitlement lane's last-seen id
 // (`still:installGeneration`, issue #63) before any entitlement pull can move it on.
+//
+// Known edge, not handled: when neither id was ever recorded (the previous install's app never
+// published one, or this extension never read it), there is no reinstall evidence. Rule (1) still
+// holds, but rule (2) cannot fire, so a modern copy with a higher commit order than the reinstalled
+// app's changed record keeps winning the ordinary order until the app's record outranks it.
 
 export const PROJECTION_INSTALL_KEY = "still:settingsInstallGeneration";
 const SETTINGS_KEY = "still:settings";
@@ -65,6 +70,16 @@ export function isUntouchedFirstRecord(record: StoredSettingsRecord): boolean {
     record.syncMetadata === null && (state!.ownership === "never-linked" || state!.ownership === "unknown");
 }
 
+/**
+ * Two first records that differ in nothing a person chose: the same settings values and clocks,
+ * ignoring only the unstamped `updatedAt` and the ownership marker. Anything else (an Off choice
+ * kept by a converted 2.x record, for example) is a copy to offer, never to replace.
+ */
+function sameFirstChoices(a: StoredSettingsRecord, b: StoredSettingsRecord): boolean {
+  const choices = (record: StoredSettingsRecord) => ({ ...record.settings, updatedAt: undefined });
+  return canonical(choices(a)) === canonical(choices(b));
+}
+
 function canonical(value: unknown): string {
   const sorted = (v: unknown): unknown => Array.isArray(v) ? v.map(sorted)
     : v && typeof v === "object" ? Object.fromEntries(Object.keys(v).filter(k => k !== "intentCommitted").sort()
@@ -74,21 +89,42 @@ function canonical(value: unknown): string {
 
 export function createReinstallAwareReconciler(deps: ReinstallReconcilerDeps): AppGroupReconciler {
   const ordinary = createAppGroupReconciler(deps);
+  // An App Group install id cannot change within one background lifetime (deleting the app ends
+  // this extension too), so once this projection is recorded against the id the app reported,
+  // later reconciles in this lifetime need not ask again.
+  let confirmedId: string | null = null;
 
   /** Settle the install decision first. Returns whether the ordinary reconcile should then run. */
   async function settle(): Promise<boolean> {
     await deps.projectionInstall.seed();
     const app = await deps.pullFromApp();
     const local = await deps.local.get();
-    let installId: string | null = null;
-    try { installId = await deps.appInstallId(); } catch { /* no signal */ }
     let recorded: string | null = null;
     let recordKnown = true;
     try { recorded = await deps.projectionInstall.get(); } catch { recordKnown = false; }
+    let installId: string | null = null;
+    if (recordKnown && recorded !== null && recorded === confirmedId) installId = recorded;
+    else try { installId = await deps.appInstallId(); } catch { /* no signal */ }
     // Affirmative evidence only: both ids known and different. Unknown is never a change.
     const changed = recordKnown && installId !== null && recorded !== null && recorded !== installId;
     const settled = async (): Promise<void> => {
       if (recordKnown && installId !== null && recorded !== installId) await deps.projectionInstall.set(installId);
+      if (recordKnown && installId !== null) confirmedId = installId;
+    };
+    /**
+     * The one-time replacement, compare-and-set: the projection is re-read right before the write.
+     * If it no longer holds what this decision was made on (a page mirrored a newer native record
+     * meanwhile), nothing is written and the decision stays open for the next reconcile. Already
+     * holding the target counts as done.
+     */
+    const replace = async (record: StoredSettingsRecord): Promise<false> => {
+      const now = await deps.local.get();
+      if (now && canonical(now) === canonical(record)) await settled();
+      else if (canonical(now) === canonical(local)) {
+        await deps.replaceLocal(record);
+        await settled();
+      }
+      return false;
     };
     // Before the app holds a committed record there is nothing to decide; legacy records keep the
     // ordinary order (the existing behaviour, in which Safari's retained copy wins).
@@ -99,37 +135,22 @@ export function createReinstallAwareReconciler(deps: ReinstallReconcilerDeps): A
     }
     const same = local !== null && canonical(local) === canonical(app);
     if (isUntouchedFirstRecord(app) && local && !same) {
-      // Safari's copy is itself an untouched first record (only ownership can differ): nothing
-      // deliberate to keep, so take the app's record and stop asking.
-      if (isUntouchedFirstRecord(local)) {
-        await deps.replaceLocal(app);
-        await settled();
-        return false;
-      }
+      // Safari's copy is itself an untouched first record holding exactly the app's choices (only
+      // ownership or the unstamped time differ): nothing deliberate to keep, so take the app's
+      // record without asking. Any differing value, an Off choice above all, is offered instead.
+      if (isUntouchedFirstRecord(local) && sameFirstChoices(local, app)) return replace(app);
       const adoption = await deps.adoptIntoApp(local);
       if (!adoption) return false; // app unreachable: keep the copy, a later reconcile retries
-      if (adoption.status === "adopted" && adoption.record) {
-        await deps.replaceLocal(adoption.record);
-        await settled();
-        return false;
-      }
+      if (adoption.status === "adopted" && adoption.record) return replace(adoption.record);
       if (adoption.status === "refused" && !changed) return false; // unreadable there: hold the copy
       // Kept (the app's record moved on meanwhile) or refused after a reinstall: the app wins.
       const current = adoption.record ?? app;
-      if (changed || adoption.status === "refused") {
-        await deps.replaceLocal(current);
-        await settled();
-        return false;
-      }
+      if (changed || adoption.status === "refused") return replace(current);
       await settled();
       return true;
     }
-    if (changed && local && !same) {
-      // The reinstalled app's record has changed since its first launch: the app wins, once.
-      await deps.replaceLocal(app);
-      await settled();
-      return false;
-    }
+    // The reinstalled app's record has changed since its first launch: the app wins, once.
+    if (changed && local && !same) return replace(app);
     await settled();
     return true;
   }
@@ -187,11 +208,24 @@ export async function appInstallId(): Promise<string | null> {
 
 /**
  * Write the projection directly. Only the one-time install decision uses this, inside the
- * reconciler's own serialized lane; every other projection write keeps the ordered mirror.
+ * reconciler's own serialized lane and after its compare-and-set re-read; every other projection
+ * write keeps the ordered mirror.
  */
 export async function replaceProjection(record: StoredSettingsRecord): Promise<void> {
   const { intentCommitted: _committed, ...stored } = record;
   await browser.storage.local.set({ [SETTINGS_KEY]: stored });
+}
+
+let seeding: Promise<void> | null = null;
+async function seedOnce(store: BrowserProjectionInstallStore): Promise<void> {
+  try {
+    if (await store.get()) return;
+    const previous: unknown = (await browser.storage.local.get(INSTALL_GENERATION_KEY))[INSTALL_GENERATION_KEY];
+    // Re-checked right before the write: a recorded id is never replaced by a seed.
+    if (typeof previous === "string" && previous !== "" && !(await store.get())) await store.set(previous);
+  } catch {
+    /* unknown stays unknown */
+  }
 }
 
 /** The projection's install id in browser storage. */
@@ -203,15 +237,16 @@ export class BrowserProjectionInstallStore implements ProjectionInstallStore {
   async set(id: string): Promise<void> {
     await browser.storage.local.set({ [PROJECTION_INSTALL_KEY]: id });
   }
-  /** Never throws; a failure leaves the record unknown (no change is ever inferred from unknown). */
-  async seed(): Promise<void> {
-    try {
-      if (await this.get()) return;
-      const previous: unknown = (await browser.storage.local.get(INSTALL_GENERATION_KEY))[INSTALL_GENERATION_KEY];
-      if (typeof previous === "string" && previous !== "") await this.set(previous);
-    } catch {
-      /* unknown stays unknown */
-    }
+  /**
+   * Never throws; a failure leaves the record unknown (no change is ever inferred from unknown).
+   * Every seeder in this context (the reconciler and the entitlement lane) shares one in-flight
+   * seeding, so neither can read the entitlement id after the other has moved it on.
+   */
+  seed(): Promise<void> {
+    seeding ??= seedOnce(this).finally(() => {
+      seeding = null;
+    });
+    return seeding;
   }
 }
 

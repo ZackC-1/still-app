@@ -67,7 +67,7 @@ function fakeLocal(initial: StoredSettingsRecord | null) {
     set: (record) => { value = record; return Promise.resolve(); },
     subscribe: () => () => {},
   };
-  return { store, replace: vi.fn(async (record: StoredSettingsRecord) => { value = record; }), get value() { return value; } };
+  return { store, write(record: StoredSettingsRecord) { value = record; }, replace: vi.fn(async (record: StoredSettingsRecord) => { value = record; }), get value() { return value; } };
 }
 function fakeInstall(initial: string | null): ProjectionInstallStore & { value: string | null } {
   const store = { value: initial,
@@ -81,6 +81,8 @@ function harness(opts: {
   appId?: string | null;
   recorded?: string | null;
   adopt?: (record: StoredSettingsRecord) => Promise<LeftoverAdoption | null>;
+  /** Runs right before the one-time replacement writes (a racing page mirror, for example). */
+  beforeReplace?: (local: ReturnType<typeof fakeLocal>) => void;
 }) {
   let app = opts.app;
   const local = fakeLocal(opts.local);
@@ -90,11 +92,22 @@ function harness(opts: {
     app = adoptedFrom(record);
     return { status: "adopted", record: app };
   }));
+  const appInstallId = vi.fn(async () => (opts.appId === undefined ? NEW : opts.appId));
+  let raced = false;
+  let reads = 0;
+  const get = local.store.get;
+  local.store.get = () => {
+    // The reconciler reads the projection twice per replacement: to decide, then right before
+    // writing. The racing write lands between the two.
+    if (opts.beforeReplace && !raced && reads > 0) { raced = true; opts.beforeReplace(local); }
+    reads += 1;
+    return get();
+  };
   const reconciler = createReinstallAwareReconciler({
     pullFromApp: async () => app, pushToApp, local: local.store, adoptIntoApp, replaceLocal: local.replace,
-    appInstallId: async () => (opts.appId === undefined ? NEW : opts.appId), projectionInstall: install,
+    appInstallId, projectionInstall: install,
   });
-  return { reconciler, local, install, pushToApp, adoptIntoApp, setApp(next: StoredSettingsRecord) { app = next; }, app: () => app };
+  return { reconciler, local, install, pushToApp, adoptIntoApp, appInstallId, setApp(next: StoredSettingsRecord) { app = next; }, app: () => app };
 }
 
 describe("reinstall: Safari's retained copy wins over the untouched first record", () => {
@@ -142,6 +155,33 @@ describe("reinstall: Safari's retained copy wins over the untouched first record
     expect(h.adoptIntoApp).not.toHaveBeenCalled();
     expect(h.local.replace).toHaveBeenCalledOnce();
     expect(h.local.value).toEqual(firstRecord("never-linked"));
+  });
+
+  it("a converted 2.x copy at commit order zero that kept an Off choice is offered and kept, never replaced", async () => {
+    // A signed-out 2.x user with Instagram Off opened the V3 app once: its unknown conversion sits at
+    // sequence 0 / generation 0 and Safari mirrored it. After a reinstall the new first record is
+    // all On. Structurally both look untouched; only the values tell them apart.
+    const converted: StoredSettingsRecord = { ...firstRecord("unknown"),
+      settings: { ...firstRecord("unknown").settings, services: { ...DEFAULT_SETTINGS.services, instagram: false }, updatedAt: 42 } };
+    expect(isUntouchedFirstRecord(converted)).toBe(true);
+    const h = harness({ app: firstRecord("never-linked"), local: converted });
+    await h.reconciler.reconcile();
+    expect(h.adoptIntoApp).toHaveBeenCalledWith(converted);
+    expect(h.local.value).toEqual(adoptedFrom(converted));
+    expect(h.local.value?.settings.services.instagram).toBe(false);
+  });
+
+  it("asks the app for its install id once per lifetime after the projection is recorded against it", async () => {
+    const h = harness({ app: afterAppChoice(), local: afterAppChoice(), recorded: NEW });
+    await h.reconciler.reconcile();
+    await h.reconciler.reconcile();
+    await h.reconciler.reconcile();
+    expect(h.appInstallId).toHaveBeenCalledOnce();
+    // A recorded id that does not match keeps asking (unknown is never assumed).
+    const other = harness({ app: afterAppChoice(), local: afterAppChoice(), recorded: OLD, appId: null });
+    await other.reconciler.reconcile();
+    await other.reconciler.reconcile();
+    expect(other.appInstallId).toHaveBeenCalledTimes(2);
   });
 
   it("recognizes only an untouched first record", () => {
@@ -196,6 +236,21 @@ describe("reinstall: once the reinstalled app's record has changed, the app wins
     expect(h.local.value).toEqual(afterAppChoice());
   });
 
+  it("the one-time replacement is compare-and-set: a newer projection written meanwhile is never overwritten", async () => {
+    const newer = { ...afterAppChoice(), atomic: { ...afterAppChoice().atomic!, sequence: 2 } };
+    const h = harness({ app: afterAppChoice(), local: retainedModern, beforeReplace: (local) => local.write(newer) });
+    await h.reconciler.reconcile();
+    expect(h.local.replace).not.toHaveBeenCalled();
+    expect(h.local.value).toBe(newer);
+    // The decision stays open: the install id is not recorded until a reconcile completes it.
+    expect(h.install.value).toBe(OLD);
+    // A racing write of the very record being installed counts as done.
+    const same = harness({ app: afterAppChoice(), local: retainedModern, beforeReplace: (local) => local.write(afterAppChoice()) });
+    await same.reconciler.reconcile();
+    expect(same.local.replace).not.toHaveBeenCalled();
+    expect(same.install.value).toBe(NEW);
+  });
+
   it("an unreadable copy after a confirmed reinstall gives way to the app's record", async () => {
     const h = harness({ app: firstRecord(), local: retainedLegacy, adopt: async () => ({ status: "refused", record: firstRecord() }) });
     await h.reconciler.reconcile();
@@ -229,6 +284,28 @@ describe("Safari background dependencies", () => {
     const empty = storage({});
     await new BrowserProjectionInstallStore().seed();
     expect(empty.data[PROJECTION_INSTALL_KEY]).toBeUndefined();
+  });
+
+  it("concurrent seeders share one seeding, so the entitlement lane cannot move the id first", async () => {
+    // Storage that yields between every call, as browser storage does; the reconciler's first read
+    // answers (as of the moment it was asked) only after the entitlement lane has had time to run.
+    const data: Record<string, unknown> = { [INSTALL_GENERATION_KEY]: OLD };
+    const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
+    let first = true;
+    vi.stubGlobal("browser", { storage: { local: {
+      get: async (key: string) => {
+        const answer = key in data ? { [key]: data[key] } : {};
+        const slow = first && key === PROJECTION_INSTALL_KEY;
+        first = false;
+        await tick(slow ? 30 : 0);
+        return answer;
+      },
+      set: async (values: Record<string, unknown>) => { await tick(); Object.assign(data, values); },
+    } } });
+    // The reconciler starts seeding; the entitlement lane records the new App Group id meanwhile.
+    await Promise.all([new BrowserProjectionInstallStore().seed(), new SeedingInstallGenerationStore().set(NEW)]);
+    expect(data[PROJECTION_INSTALL_KEY]).toBe(OLD);
+    expect(data[INSTALL_GENERATION_KEY]).toBe(NEW);
   });
 
   it("adoptIntoApp sends one settingsAdopt with the stored record, never the per-reply flag", async () => {
