@@ -51,6 +51,30 @@ function fixture(
   };
 }
 
+// Same caller bindings republished under a different observation value.
+function observed(
+  state: TikTokBlockedPresentation["state"],
+  observation: string,
+): TikTokBlockedPresentation {
+  const p = fixture(state);
+  p.observation = observation;
+  for (const binding of [
+    p.capability,
+    p.requestConfirmation,
+    p.confirmOpen,
+    p.cancel,
+    p.settings,
+    p.reload,
+    p.outcome,
+  ])
+    if (binding) binding.observation = observation;
+  return p;
+}
+
+function settingsControl() {
+  return screen.getByRole("button", { name: "Change this in Still settings" });
+}
+
 function openControl() {
   return screen.getByRole("button", { name: "Open TikTok this time" });
 }
@@ -412,6 +436,70 @@ describe("current choice fence and cancellation", () => {
     await fireEvent.click(openControl());
     expect(replacement.request).toHaveBeenCalledOnce();
   });
+
+  it("never lets a settings request hold opening after a same-value republish", async () => {
+    const p = fixture();
+    const view = render(TikTokBlocked, { presentation: p });
+    await fireEvent.click(settingsControl());
+    expect(p.settings!.request).toHaveBeenCalledOnce();
+    await view.rerender({ presentation: p });
+    await view.rerender({ presentation: { ...p } });
+    expect(openControl()).not.toHaveAttribute("aria-disabled");
+    await fireEvent.click(openControl());
+    expect(p.requestConfirmation!.request).toHaveBeenCalledOnce();
+    await fireEvent.click(openControl());
+    expect(p.requestConfirmation!.request).toHaveBeenCalledOnce();
+    expect(p.settings!.request).toHaveBeenCalledOnce();
+  });
+
+  it("dispatches settings once per scope and holds it behind a pending confirmation request", async () => {
+    const p = fixture();
+    const view = render(TikTokBlocked, { presentation: p });
+    await fireEvent.click(settingsControl());
+    await fireEvent.click(settingsControl());
+    await view.rerender({ presentation: { ...p } });
+    expect(settingsControl()).toHaveAttribute("aria-disabled", "true");
+    await fireEvent.click(settingsControl());
+    expect(p.settings!.request).toHaveBeenCalledOnce();
+    const fresh = observed("blocked", "fresh-observation");
+    await view.rerender({ presentation: fresh });
+    expect(settingsControl()).not.toHaveAttribute("aria-disabled");
+    await fireEvent.click(settingsControl());
+    expect(fresh.settings!.request).toHaveBeenCalledOnce();
+    const next = observed("blocked", "next-observation");
+    await view.rerender({ presentation: next });
+    await fireEvent.click(openControl());
+    expect(next.requestConfirmation!.request).toHaveBeenCalledOnce();
+    expect(settingsControl()).toHaveAttribute("aria-disabled", "true");
+    await fireEvent.click(settingsControl());
+    expect(next.settings!.request).not.toHaveBeenCalled();
+  });
+
+  it.each(["observation", "port"] as const)(
+    "returns focus to the current opener when caller replaces the %s between states",
+    async (kind) => {
+      const value = (step: string) =>
+        kind === "observation" ? step : "fixture-observation";
+      const p = observed("blocked", value("first"));
+      const view = render(TikTokBlocked, { presentation: p });
+      openControl().focus();
+      await fireEvent.click(openControl());
+      expect(p.requestConfirmation!.request).toHaveBeenCalledOnce();
+      const confirming = observed("confirmation", value("second"));
+      await view.rerender({ presentation: confirming });
+      const cancel = screen.getByRole("button", { name: "Keep it closed" });
+      expect(cancel).toHaveFocus();
+      await fireEvent.click(cancel);
+      expect(confirming.cancel!.request).toHaveBeenCalledOnce();
+      const closed = observed("blocked", value("third"));
+      await view.rerender({ presentation: closed });
+      await Promise.resolve();
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(document.activeElement).not.toBe(document.body);
+      expect(openControl()).toHaveFocus();
+      expect(closed.requestConfirmation!.request).not.toHaveBeenCalled();
+    },
+  );
 
   it.each(["button", "Escape", "scrim"])(
     "cancels through %s only on current authority; caller close restores opener",

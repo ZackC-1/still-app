@@ -47,6 +47,9 @@
   // Fence intent dispatch only; caller observations alone control the screen and modal.
   let requested = $state.raw<typeof current>();
   let cancelRequested = $state.raw<typeof current>();
+  // Settings opens elsewhere and leaves this page unchanged, so its fence never
+  // holds the opening path. It still dispatches at most once per scope.
+  let settingsRequested = $state.raw<typeof current>();
   let mounted = true;
   onDestroy(() => {
     mounted = false;
@@ -82,6 +85,25 @@
     return () => {
       active = false;
     };
+  });
+  let wasConfirming = false;
+  $effect(() => {
+    // The shared dialog restores focus to its opener only while that node is
+    // still attached. A caller that publishes a new observation or new port
+    // objects recreates the opener, so fall back to the current first page
+    // action when closing left focus nowhere. Dispatch authority is unchanged.
+    if (confirming) {
+      wasConfirming = true;
+      return;
+    }
+    if (!wasConfirming) return;
+    wasConfirming = false;
+    queueMicrotask(() => {
+      if (!mounted || confirming) return;
+      const active = document.activeElement;
+      if (active && active !== document.body && active.isConnected) return;
+      background?.querySelector<HTMLElement>("button")?.focus();
+    });
   });
   let reloading = $derived(tikTokReloadConfirmed(presentation));
   let backgroundKey = $derived(
@@ -132,6 +154,14 @@
       if (action === "cancel") {
         if (cancelRequested === scope) return;
         cancelRequested = scope;
+      } else if (action === "settings") {
+        if (
+          settingsRequested === scope ||
+          requested === scope ||
+          cancelRequested === scope
+        )
+          return;
+        settingsRequested = scope;
       } else {
         if (requested === scope || cancelRequested === scope) return;
         requested = scope;
@@ -226,6 +256,7 @@
                 class="link center"
                 aria-disabled={confirming ||
                   requested === current ||
+                  settingsRequested === current ||
                   !allowed(presentation, presentation?.settings, "settings") ||
                   undefined}
                 onclick={confirming

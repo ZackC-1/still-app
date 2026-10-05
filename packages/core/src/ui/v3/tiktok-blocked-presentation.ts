@@ -24,6 +24,12 @@ export interface TikTokBlockedPresentation extends TikTokObservationBinding {
     status: "supported" | "unknown" | "unavailable";
   };
   requestConfirmation?: TikTokActionPort;
+  /**
+   * Confirm and cancel are fenced separately, so a cancel can still be
+   * dispatched after a confirm in the same observation, before the caller
+   * transitions. The caller must arbitrate a cancel that arrives after a
+   * confirm; this leaf never resolves that race or grants anything itself.
+   */
   confirmOpen?: TikTokActionPort;
   cancel?: TikTokActionPort;
   settings?: TikTokActionPort;
