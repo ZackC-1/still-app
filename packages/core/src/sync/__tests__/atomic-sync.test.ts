@@ -93,7 +93,7 @@ function harness(owner: "unknown" | "never-linked" | "previous-account" = "unkno
     currentSettingsSession: async () => account === null ? null : { userId: account, sessionId },
     signOut: async () => {}, signInWithMagicLink: async () => ({}) };
   const service = new SyncService(cache, auth, backend);
-  return { cache, writer, storage, service, requests, invoke, port, auth,
+  return { cache, writer, storage, service, requests, invoke, port, auth, backend,
     newLifetime() { const nextCache = makeCache(); nextCache.watch(); return { cache: nextCache, service: new SyncService(nextCache, auth, backend) }; },
     canonicalResponse: response,
     useUntouchedCanonicalGlobal() { settings = { ...settings, clocks: { ...settings.clocks, globalOn: { baseRevision: 0, localStep: 0 } } }; },
@@ -564,5 +564,50 @@ describe("existing SyncService and exact Supabase modern port", () => {
     expect(Object.values(h.cache.current().services).every(on => !on)).toBe(true);
     expect(h.requests).toEqual([]);
     await h.service.signOut();
+  });
+});
+
+// U3-W4 T12: the kill switch is pausing the sync-settings function. While every read and write of
+// that function fails, a modern client keeps the person's choices on the device (blocking follows
+// them), shows the existing unreachable state, retries no more often than every 30 s, and never
+// falls back to the coarse whole-document path. When the function returns, the held choices upload.
+describe("sync-settings paused (kill switch rehearsal at the client)", () => {
+  it("keeps choices local, stays unreachable with bounded retries, never writes the coarse profile, and recovers", async () => {
+    const h = harness(); await h.cache.hydrate(); await h.service.onSignedIn(A); vi.useFakeTimers();
+    const serving = h.invoke.getMockImplementation()!;
+    const coarseWrite = vi.spyOn(h.backend, "writeProfile");
+    const coarseRead = vi.spyOn(h.backend, "readProfile");
+    const callTimes: number[] = [];
+    const paused = vi.fn(async (name: string) => {
+      callTimes.push(Date.now());
+      expect(name).toBe("sync-settings"); // never a coarse write_profile_settings fallback
+      return { data: null, error: Object.assign(new Error("Edge Function returned a non-2xx status code"), { name: "FunctionsHttpError" }) };
+    });
+    h.invoke.mockImplementation(paused as unknown as typeof serving);
+    try {
+      await h.cache.setGlobalOn(false); await settle();
+      expect(h.service.getState()).toMatchObject({ cloudReachable: false, pendingUpload: true });
+      expect(h.cache.current().globalOn).toBe(false);
+      await vi.advanceTimersByTimeAsync(60_000); await settle();
+      await h.cache.setService("youtube", false); await settle();
+      await vi.advanceTimersByTimeAsync(240_000); await settle();
+      expect(h.service.getState()).toMatchObject({ cloudReachable: false, pendingUpload: true });
+      expect(h.cache.current()).toMatchObject({ globalOn: false, services: { youtube: false } });
+      expect(h.cache.currentRecord().atomic!.pending.length).toBeGreaterThan(0);
+      const gaps = callTimes.slice(1).map((t, i) => t - callTimes[i]!);
+      expect(Math.max(...gaps)).toBeLessThanOrEqual(30_000);
+      expect(callTimes.length).toBeLessThanOrEqual(40); // about one exchange per 30 s over 5 minutes
+      expect(h.settings().globalOn).toBe(true); // nothing reached the server while paused
+      expect(coarseWrite).not.toHaveBeenCalled();
+      expect(coarseRead).not.toHaveBeenCalled();
+
+      h.invoke.mockImplementation(serving);
+      await vi.advanceTimersByTimeAsync(30_000); await settle();
+      expect(h.service.getState()).toMatchObject({ cloudReachable: true, pendingUpload: false });
+      expect(h.settings().globalOn).toBe(false);
+      expect(h.settings().services.youtube).toBe(false);
+      expect(h.cache.currentRecord().atomic!.pending).toEqual([]);
+    } finally { await h.service.signOut(); h.cache.watch()(); }
+    expect(vi.getTimerCount()).toBe(0);
   });
 });
