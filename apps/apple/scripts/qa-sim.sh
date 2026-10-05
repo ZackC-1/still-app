@@ -3,19 +3,26 @@
 # qa-sim.sh — the Apple simulator QA lane (L5). Builds a DEBUG app with the V3 web screens, puts it
 # on a simulator the script itself created, seeds app states through the DEBUG-only QA hooks
 # (Still/Shared (App)/QA/QAHooks.swift), sets appearance and text size, and captures screenshots
-# and layout position dumps. Nothing here downloads a simulator runtime, signs, or touches a store.
+# and layout position dumps. Nothing here downloads a simulator runtime or touches a store or the
+# Apple Developer account: simulator builds are unsigned, and `build macos` signs only with the
+# development identity and profiles already on this Mac (it fails rather than create any; see
+# QA_ALLOW_PROVISIONING). The QA web screens are never written into packages/*/dist, the folders
+# Xcode copies into shipping builds; they live in this run's own folder and are placed only into
+# the QA app. The script refuses to build in the main checkout.
 #
 # Usage: qa-sim.sh <command> [args]
 #
 #   doctor                         installed runtimes, QA devices, free disk
-#   build [ios|macos]              DEBUG build (V3 web screens, unsigned) into $QA_DERIVED
+#   build [ios|macos]              DEBUG build into the run folder with the $QA_WEB_SCREENS web
+#                                  screens (iOS: unsigned; macOS: existing local signing only)
 #   verify-release                 build Release for the simulator and prove the QA hooks are absent
 #                                  (and present in the Debug build: the positive control)
 #   create <label> <device type> [runtime id]
 #                                  create a run device, e.g. create se "iPhone SE (3rd generation)";
 #                                  prints its UDID and records it for `cleanup`
 #   clone <label> <golden udid>    clone a golden simulator on which Still is already enabled in
-#                                  Safari (see "Golden simulator" below); recorded for `cleanup`
+#                                  Safari (see "Golden simulator" below); recorded for `cleanup`.
+#                                  Checks free disk first: a clone copies the device's data
 #   boot <udid>                    boot, wait until ready, pin a clean status bar
 #   install <udid>                 install the DEBUG build from $QA_DERIVED
 #   refresh-web <udid>             rebuild only the web bundle ($QA_WEB_SCREENS) and replace the
@@ -41,8 +48,8 @@
 #                                  seeded state (for example a reset onboarding gate) changes that
 #                                  Mac's real Still. Use a dedicated QA Mac account.
 #   shutdown <udid>
-#   cleanup                        shut down and delete every device this script created, and
-#                                  delete $QA_DERIVED
+#   cleanup                        shut down and delete every device this run created, and delete
+#                                  this run's folder (only a folder this script made, see below)
 #
 # States (capture / mac-capture): each is a set of STILL_QA_* launch keys.
 #   d12-step-1         web onboarding, first step              (D12-01/05)
@@ -63,9 +70,16 @@
 # YouTube Shorts link opened by `xcrun simctl openurl` (the redirect is the positive control).
 #
 # Environment:
-#   QA_DERIVED   DerivedData for these builds (default /private/tmp/still-qa-sim-derived)
+#   QA_RUN_ID    names this run (letters, digits, . _ -; default "default"). Each run has its own
+#                folder /private/tmp/still-qa-sim-<run id> holding its DerivedData, QA web bundle
+#                and device ledger, so concurrent runs with different ids never share state.
+#   QA_DERIVED   the run folder itself; must be /private/tmp/still-qa-sim-<name>. The script marks
+#                folders it creates and refuses to build into, record in or delete any other.
 #   QA_HEAVY     wrapper for heavy commands (default /private/tmp/claude-501/heavy.sh when present)
-#   QA_MIN_FREE_GB  refuse to build below this much free disk (default 8)
+#   QA_MIN_FREE_GB  refuse to build or clone below this much free disk (default and minimum 8)
+#   QA_ALLOW_PROVISIONING  "1" lets `build macos` pass -allowProvisioningUpdates, which can register
+#                devices and create profiles in the Apple Developer account. OWNER ONLY, off by
+#                default.
 #   QA_WEB_SCREENS  "v3" (default): the D04/D12 web screens; "shipped": today's shipped web screen
 #
 set -euo pipefail
@@ -76,38 +90,88 @@ REPO="$(cd "$HERE/../../.." && pwd)"
 PROJECT_DIR="$HERE/../Still"
 QA_SOURCE="$PROJECT_DIR/Shared (App)/QA/QAHooks.swift"
 BUNDLE_ID="com.chartash.still"
-QA_DERIVED="${QA_DERIVED:-/private/tmp/still-qa-sim-derived}"
+MAIN_CHECKOUT="/Users/zack/Projects/still-app"
+QA_RUN_ID="${QA_RUN_ID:-default}"
+QA_DERIVED="${QA_DERIVED:-/private/tmp/still-qa-sim-$QA_RUN_ID}"
 QA_MIN_FREE_GB="${QA_MIN_FREE_GB:-8}"
 QA_WEB_SCREENS="${QA_WEB_SCREENS:-v3}"
+RUN_MARKER="$QA_DERIVED/.still-qa-sim-run"
 DEVICE_LEDGER="$QA_DERIVED/devices.txt"
+QA_WEBUI="$QA_DERIVED/webui"
 if [[ -z "${QA_HEAVY+x}" ]]; then
   if [[ -x /private/tmp/claude-501/heavy.sh ]]; then QA_HEAVY=/private/tmp/claude-501/heavy.sh; else QA_HEAVY=""; fi
 fi
 
 die() { echo "qa-sim: $*" >&2; exit 1; }
 [[ "$QA_WEB_SCREENS" == "v3" || "$QA_WEB_SCREENS" == "shipped" ]] || die "QA_WEB_SCREENS must be v3 or shipped"
+[[ "$QA_RUN_ID" =~ ^[A-Za-z0-9._-]+$ ]] || die "QA_RUN_ID may use only letters, digits, . _ -"
+# The run folder is always exactly /private/tmp/still-qa-sim-<name>: never a parent, a home folder
+# or a path that climbs out, whatever QA_DERIVED says.
+[[ "$QA_DERIVED" =~ ^/private/tmp/still-qa-sim-[A-Za-z0-9._-]+$ && "$QA_DERIVED" != *..* ]] ||
+  die "QA_DERIVED must be /private/tmp/still-qa-sim-<name> (got '$QA_DERIVED')"
+[[ "$QA_MIN_FREE_GB" =~ ^[0-9]+$ ]] || die "QA_MIN_FREE_GB must be a whole number"
+(( QA_MIN_FREE_GB >= 8 )) || QA_MIN_FREE_GB=8 # the lane's floor: never lower
 heavy() { if [[ -n "$QA_HEAVY" ]]; then "$QA_HEAVY" "$@"; else "$@"; fi; }
+
+# Creates the run folder with this script's marker, or accepts one that already carries it. A
+# folder that exists without the marker was not made here, so nothing is written into it.
+ensure_run_dir() {
+  if [[ ! -e "$QA_DERIVED" ]]; then
+    mkdir -p "$QA_DERIVED"
+    echo "created by apps/apple/scripts/qa-sim.sh (run $QA_RUN_ID)" > "$RUN_MARKER"
+  elif [[ ! -f "$RUN_MARKER" ]]; then
+    die "$QA_DERIVED exists but was not created by qa-sim.sh; refusing to use it"
+  fi
+}
+
+refuse_main_checkout() {
+  [[ "$REPO" != "$MAIN_CHECKOUT" ]] || die "never build in the main checkout ($MAIN_CHECKOUT); use a worktree"
+}
 
 free_gb() { df -g "$1" | awk 'NR==2 {print $4}'; }
 require_disk() {
   local free; free="$(free_gb /private/tmp)"
   if (( free < QA_MIN_FREE_GB )); then
-    die "only ${free} GB free (need ${QA_MIN_FREE_GB}); not building"
+    die "only ${free} GB free (need ${QA_MIN_FREE_GB}); stopping"
   fi
   echo "==> ${free} GB free"
 }
 
-# The V3 web screens (D04 settings + D12 onboarding) are an explicit developer opt-in that needs
-# no Supabase configuration. The empty values override any local .env, so a configured developer
-# checkout still builds the unconfigured QA bundle. No analytics key: nothing is ever sent.
-build_web() {
+# The QA web screens: the V3 D04 settings + D12 onboarding are an explicit developer opt-in that
+# needs no Supabase configuration. The empty values override any local .env, so a configured
+# checkout still builds the unconfigured QA bundle. No analytics key: nothing is ever sent. The
+# bundle goes into this run's folder ONLY, never packages/app-webview/dist.
+build_qa_web() {
+  ensure_run_dir
   local atomic=true
   [[ "$QA_WEB_SCREENS" == "shipped" ]] && atomic=
-  echo "==> Web bundle ($QA_WEB_SCREENS Apple screens, unconfigured)…"
+  echo "==> QA web bundle ($QA_WEB_SCREENS Apple screens, unconfigured) into $QA_WEBUI…"
   ( cd "$REPO" && VITE_APPLE_ATOMIC_SETTINGS=$atomic VITE_SUPABASE_URL= VITE_SUPABASE_ANON_KEY= \
-      VITE_POSTHOG_KEY= VITE_POSTHOG_HOST= pnpm --filter @still/app-webview build )
-  echo "==> Safari extension bundle…"
-  ( cd "$REPO" && pnpm --filter @still/ext-safari build )
+      VITE_POSTHOG_KEY= VITE_POSTHOG_HOST= heavy pnpm --filter @still/app-webview exec \
+      vite build --outDir "$QA_WEBUI" --emptyOutDir >/dev/null )
+  [[ -f "$QA_WEBUI/index.html" ]] || die "QA web bundle missing at $QA_WEBUI"
+}
+
+# Xcode's copy phases need packages/app-webview/dist and packages/ext-safari/dist to exist. When
+# they are absent this builds them exactly as scripts/build.sh does (the normal bundles), and
+# otherwise leaves them untouched. The QA screens reach the QA app afterwards, never through them.
+ensure_shipping_bundles() {
+  if [[ ! -f "$REPO/packages/app-webview/dist/index.html" ]]; then
+    echo "==> Normal web bundle (as build.sh)…"
+    ( cd "$REPO" && heavy pnpm --filter @still/app-webview build >/dev/null )
+  fi
+  if [[ ! -f "$REPO/packages/ext-safari/dist/safari-mv3/manifest.json" ]]; then
+    echo "==> Normal Safari extension bundle (as build.sh)…"
+    ( cd "$REPO" && heavy pnpm --filter @still/ext-safari build >/dev/null )
+  fi
+}
+
+# Simulator apps are unsigned, so their WebUI folder can be replaced after the build.
+install_qa_web_into() {
+  local app="$1"
+  [[ -d "$app/WebUI" ]] || die "no WebUI folder in $app"
+  rsync -a --delete --exclude='.DS_Store' "$QA_WEBUI/" "$app/WebUI/"
+  echo "==> $QA_WEB_SCREENS web screens placed in $app"
 }
 
 xcode() {
@@ -121,19 +185,30 @@ app_path() {
 
 cmd_build() {
   local target="${1:-ios}"
+  refuse_main_checkout
   require_disk
-  mkdir -p "$QA_DERIVED"
-  build_web
+  ensure_run_dir
+  build_qa_web
+  ensure_shipping_bundles
   case "$target" in
     ios)
       xcode build -scheme "Still (iOS)" -configuration Debug -sdk iphonesimulator \
         -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
-      echo "==> $(app_path Debug iphonesimulator)" ;;
+      install_qa_web_into "$(app_path Debug iphonesimulator)" ;;
     macos)
-      # The Mac app needs its App Group entitlement to run, so this one is signed for local runs
-      # with the team's development identity (automatic signing), never for distribution.
+      # The Mac app needs its App Group entitlement to run, so it is signed for local runs with the
+      # development identity and profiles already on this Mac. A signed bundle cannot have its
+      # WebUI replaced afterwards, so the QA screens go into the copy phase's source for the length
+      # of this one build, and the normal bundle is put back on every exit path.
+      local provisioning=()
+      [[ "${QA_ALLOW_PROVISIONING:-}" == "1" ]] && provisioning=(-allowProvisioningUpdates)
+      local dist="$REPO/packages/app-webview/dist" saved="$QA_DERIVED/dist-saved"
+      rm -rf "$saved"; mv "$dist" "$saved"
+      trap 'rm -rf "'"$dist"'"; mv "'"$saved"'" "'"$dist"'"' EXIT
+      cp -R "$QA_WEBUI" "$dist"
       xcode build -scheme "Still (macOS)" -configuration Debug -destination 'platform=macOS' \
-        -allowProvisioningUpdates
+        "${provisioning[@]+"${provisioning[@]}"}" ||
+        die "macOS build failed (without QA_ALLOW_PROVISIONING=1 it needs an existing local profile)"
       echo "==> $QA_DERIVED/Build/Products/Debug/Still.app" ;;
     *) die "unknown build target '$target' (ios | macos)" ;;
   esac
@@ -152,9 +227,10 @@ count_markers() {
 }
 
 cmd_verify_release() {
+  refuse_main_checkout
   require_disk
-  mkdir -p "$QA_DERIVED"
-  build_web
+  ensure_run_dir
+  ensure_shipping_bundles
   xcode build -scheme "Still (iOS)" -configuration Debug -sdk iphonesimulator \
     -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO
   require_disk
@@ -179,7 +255,7 @@ cmd_verify_release() {
   echo "==> PASS: QA hooks are in Debug only"
 }
 
-record_device() { mkdir -p "$QA_DERIVED"; echo "$1" >> "$DEVICE_LEDGER"; }
+record_device() { ensure_run_dir; echo "$1" >> "$DEVICE_LEDGER"; }
 
 cmd_create() {
   local label="$1" type="$2" runtime="${3:-}"
@@ -195,6 +271,8 @@ cmd_create() {
 
 cmd_clone() {
   local label="$1" golden="$2" udid
+  require_disk
+  ensure_run_dir
   udid="$(xcrun simctl clone "$golden" "still-qa-$label")"
   record_device "$udid"
   echo "$udid"
@@ -216,14 +294,12 @@ cmd_install() {
 
 cmd_refresh_web() {
   local udid="$1" app
+  refuse_main_checkout
+  require_disk
   app="$(xcrun simctl get_app_container "$udid" "$BUNDLE_ID")"
   [[ -d "$app/WebUI" ]] || die "Still is not installed on $udid"
-  ( cd "$REPO" && VITE_APPLE_ATOMIC_SETTINGS=$([[ "$QA_WEB_SCREENS" == "v3" ]] && echo true) \
-      VITE_SUPABASE_URL= VITE_SUPABASE_ANON_KEY= VITE_POSTHOG_KEY= VITE_POSTHOG_HOST= \
-      pnpm --filter @still/app-webview build >/dev/null )
-  rm -rf "$app/WebUI"
-  cp -R "$REPO/packages/app-webview/dist" "$app/WebUI"
-  echo "==> $QA_WEB_SCREENS web screens installed on $udid"
+  build_qa_web
+  install_qa_web_into "$app"
 }
 
 cmd_appearance() { xcrun simctl ui "$1" appearance "$2"; }
@@ -244,9 +320,10 @@ state_keys() {
 
 cmd_capture() {
   local udid="$1" state="$2" out="$3"; shift 3
+  local keys container dump env_args=() pair
+  keys="$(state_keys "$state")" || exit 1 # an unknown state stops here, before anything launches
   mkdir -p "$out"
-  local container dump env_args=() pair
-  for pair in $(state_keys "$state") STILL_QA_LAYOUT_DUMP=1 "$@"; do
+  for pair in $keys STILL_QA_LAYOUT_DUMP=1 "$@"; do
     env_args+=("SIMCTL_CHILD_${pair}")
   done
   container="$(xcrun simctl get_app_container "$udid" "$BUNDLE_ID" data)"
@@ -323,16 +400,19 @@ cmd_mac_capture() {
   local state="$1" out="$2"; shift 2
   [[ "${QA_MAC_ALLOW_SHARED_STATE:-}" == "1" ]] ||
     die "mac-capture changes this Mac's real Still state (shared App Group); set QA_MAC_ALLOW_SHARED_STATE=1 on a dedicated QA account"
-  local app="$QA_DERIVED/Build/Products/Debug/Still.app" pair env_args=()
+  local keys app="$QA_DERIVED/Build/Products/Debug/Still.app" pair env_args=()
+  keys="$(state_keys "$state")" || exit 1 # an unknown state stops here, before anything launches
   [[ -d "$app" ]] || die "no Debug Mac build at $app (run: qa-sim.sh build macos)"
   mkdir -p "$out"
+  ensure_run_dir
   local dumpdir="$QA_DERIVED/mac-dump"
   mkdir -p "$dumpdir"
-  for pair in $(state_keys "$state") STILL_QA_LAYOUT_DUMP=1 "STILL_QA_OUTPUT_DIR=$dumpdir" "$@"; do env_args+=("$pair"); done
+  for pair in $keys STILL_QA_LAYOUT_DUMP=1 "STILL_QA_OUTPUT_DIR=$dumpdir" "$@"; do env_args+=("$pair"); done
   local dump="$dumpdir/layout.json"
   rm -f "$dump"
   env "${env_args[@]}" "$app/Contents/MacOS/Still" >/dev/null 2>&1 &
   local pid=$!
+  trap 'kill "$pid" 2>/dev/null || true' EXIT # never leave the app running, whatever happens
   local waited=0
   until [[ -s "$dump" ]]; do
     sleep 1; waited=$((waited + 1))
@@ -359,6 +439,8 @@ SWIFT
 cmd_shutdown() { xcrun simctl shutdown "$1" 2>/dev/null || true; }
 
 cmd_cleanup() {
+  [[ -d "$QA_DERIVED" ]] || { echo "==> nothing to clean for run $QA_RUN_ID"; return 0; }
+  [[ -f "$RUN_MARKER" ]] || die "$QA_DERIVED was not created by qa-sim.sh; not deleting it"
   if [[ -f "$DEVICE_LEDGER" ]]; then
     while IFS= read -r udid; do
       [[ -n "$udid" ]] || continue
