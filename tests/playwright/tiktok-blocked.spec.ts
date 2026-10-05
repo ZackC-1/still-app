@@ -7,6 +7,11 @@ import type { BrowserContext, Page, Worker } from "@playwright/test";
 
 const BLOCKED = /^chrome-extension:\/\/[a-p]{32}\/tiktok-blocked\.html\?r=[A-Za-z0-9-]+$/;
 
+// The blocked page is a V3 screen: only builds that show the V3 screens use it. The CI configured
+// lane builds a configured 2.x extension, which keeps today's in-page block (last test below).
+const syncConfigured = process.env.STILL_TEST_SYNC_CONFIGURED === "true";
+const V3_ONLY = "The TikTok blocked page is a V3 screen; configured 2.x builds keep the in-page block";
+
 async function serve(context: BrowserContext): Promise<void> {
   // The blocked page acts only on committed settings; wait for this fresh profile's first record.
   await expect
@@ -47,6 +52,7 @@ async function allowThisTab(page: Page): Promise<void> {
 }
 
 test("blocked TikTok opens the extension page; Open TikTok this time allows this one living tab only", async ({ context }) => {
+  test.skip(syncConfigured, V3_ONLY);
   test.setTimeout(90_000);
   await serve(context);
   const page = await context.newPage();
@@ -81,6 +87,7 @@ test("blocked TikTok opens the extension page; Open TikTok this time allows this
 });
 
 test("Keep it closed grants nothing and a fresh tab or reload stays blocked", async ({ context }) => {
+  test.skip(syncConfigured, V3_ONLY);
   test.setTimeout(60_000);
   await serve(context);
   const page = await context.newPage();
@@ -97,6 +104,7 @@ test("Keep it closed grants nothing and a fresh tab or reload stays blocked", as
 });
 
 test("with TikTok turned off, TikTok loads normally and no blocked page appears", async ({ context, extensionId }) => {
+  test.skip(syncConfigured, V3_ONLY);
   await serve(context);
   const options = await context.newPage();
   await options.goto(`chrome-extension://${extensionId}/options.html`);
@@ -113,6 +121,7 @@ test("with TikTok turned off, TikTok loads normally and no blocked page appears"
 });
 
 test("Back from the blocked page leaves TikTok without bouncing forward again", async ({ context }) => {
+  test.skip(syncConfigured, V3_ONLY);
   test.setTimeout(60_000);
   await serve(context);
   const page = await context.newPage();
@@ -125,4 +134,38 @@ test("Back from the blocked page leaves TikTok without bouncing forward again", 
   expect(page.url()).toBe("https://www.tiktok.com/foryou");
   await page.goBack({ waitUntil: "commit" });
   await expect(page.locator("#elsewhere")).toBeVisible();
+});
+
+test("configured 2.x build: TikTok keeps the in-page block and is never sent to the blocked page", async ({ context }) => {
+  test.skip(!syncConfigured, "Requires the independently declared configured build");
+  // Give this profile a readable saved record with TikTok on, so a wrongly enabled gate would
+  // really redirect: without one, the background fails closed and the in-page block hides it.
+  await (await worker(context)).evaluate(async () => {
+    await chrome.storage.local.set({
+      "still:settings": {
+        settings: {
+          globalOn: true,
+          services: { youtube: true, instagram: true, facebook: true, tiktok: true },
+          pauses: [],
+          updatedAt: 1,
+        },
+        syncMetadata: null,
+      },
+    });
+  });
+  await context.route("**://*.tiktok.com/**", (route) =>
+    route.fulfill({ contentType: "text/html; charset=utf-8", body: fixture("tiktok.html") }),
+  );
+  const page = await context.newPage();
+  const visited: string[] = [];
+  page.on("framenavigated", (frame) => {
+    if (frame === page.mainFrame()) visited.push(frame.url());
+  });
+  await page.goto("https://www.tiktok.com/foryou");
+  await expect(page.locator("#still-placeholder")).toBeVisible();
+  await expect(page.locator("#tiktok-feed")).toHaveCount(0);
+  // Give a (wrongly wired) background time to answer a redirect request before checking.
+  await page.waitForTimeout(1_500);
+  expect(page.url()).toBe("https://www.tiktok.com/foryou");
+  expect(visited.filter((url) => url.includes("tiktok-blocked.html"))).toEqual([]);
 });

@@ -658,9 +658,17 @@ test("facebook mobile: Pro user blocks Reels routes and removes mobile Reels sec
 });
 
 // TikTok's whole-site block is the extension's own blocked page (D29) in builds that show the V3
-// screens, which includes this unconfigured fixture build. The page replaces the TikTok document,
-// so the feed can never be reached behind it.
-async function expectTikTokBlockedPage(page: Page): Promise<void> {
+// screens (the unconfigured fixture build); the page replaces the TikTok document, so the feed can
+// never be reached behind it. A configured 2.x build (the CI configured lane) keeps today's
+// in-page block, asserted exactly as before the blocked page existed.
+const syncConfigured = process.env.STILL_TEST_SYNC_CONFIGURED === "true";
+
+async function expectTikTokBlocked(page: Page): Promise<void> {
+  if (syncConfigured) {
+    await expect(page.locator("#still-placeholder")).toBeVisible();
+    await expect(page.locator("#tiktok-feed")).toHaveCount(0);
+    return;
+  }
   await page.waitForURL(/^chrome-extension:\/\/[a-p]{32}\/tiktok-blocked\.html\?r=/, { waitUntil: "commit" });
   await expect(page.getByRole("heading", { name: "TikTok stays closed." })).toBeVisible();
   await expect(page.locator("#tiktok-feed")).toHaveCount(0);
@@ -669,7 +677,9 @@ async function expectTikTokBlockedPage(page: Page): Promise<void> {
 // The blocked page acts only on committed settings. Writing an entitlement before this fresh
 // profile has committed its first settings record would make the install keep its defaults
 // unsaved (a provenance hold), and then TikTok correctly stays on the in-page block instead.
+// Configured 2.x builds keep the legacy settings path and never use the blocked page.
 async function settingsCommitted(context: BrowserContext): Promise<void> {
+  if (syncConfigured) return;
   const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"));
   await expect
     .poll(() => worker.evaluate(async () => Boolean((await chrome.storage.local.get("still:settings"))["still:settings"])))
@@ -683,30 +693,30 @@ test("tiktok: free-user whole-site blocking follows the paid-tier switch", async
   await page.goto("https://www.tiktok.com/foryou", { waitUntil: "commit" });
 
   if (PAID_TIER_ENABLED) {
-    await expect(page.locator("#tiktok-feed")).toBeVisible();
     await expect(page.locator("#still-placeholder")).toHaveCount(0);
+    await expect(page.locator("#tiktok-feed")).toBeVisible();
     expect(page.url()).toBe("https://www.tiktok.com/foryou");
   } else {
-    await expectTikTokBlockedPage(page);
+    await expectTikTokBlocked(page);
   }
 });
 
-test("tiktok: Pro user gets the TikTok blocked page", async ({ context, extensionId }) => {
+test("tiktok: Pro user gets TikTok blocked", async ({ context, extensionId }) => {
   await settingsCommitted(context);
   await setEntitled(context, extensionId, true);
   const page = await context.newPage();
   await serve(page, "**://*.tiktok.com/**", fixture("tiktok.html"));
   await page.goto("https://www.tiktok.com/foryou", { waitUntil: "commit" });
 
-  await expectTikTokBlockedPage(page);
+  await expectTikTokBlocked(page);
 });
 
-test("tiktok mobile: Pro user gets the TikTok blocked page on m.tiktok.com", async ({ context, extensionId }) => {
+test("tiktok mobile: Pro user gets TikTok blocked on m.tiktok.com", async ({ context, extensionId }) => {
   await settingsCommitted(context);
   await setEntitled(context, extensionId, true);
   const page = await context.newPage();
   await serve(page, "**://*.tiktok.com/**", fixture("tiktok.html"));
   await page.goto("https://m.tiktok.com/foryou", { waitUntil: "commit" });
 
-  await expectTikTokBlockedPage(page);
+  await expectTikTokBlocked(page);
 });
