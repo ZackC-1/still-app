@@ -15,7 +15,6 @@ import {
  * update or a rollback to a build without this code can never inherit a stale redirect.
  */
 export interface NavigationDnrApi {
-  getSessionRules(): Promise<readonly { readonly id: number }[]>;
   updateSessionRules(options: {
     removeRuleIds: number[];
     addRules: NavigationDnrRule[];
@@ -43,7 +42,8 @@ export interface NavigationDnrDeps {
  *
  * Each pass reads the committed settings, picks the same lane the content script picks, and then:
  * - pages on the format-2 lane get the compiled session rules for their effective FREE features
- *   (one atomic updateSessionRules call that removes every rule id this sync owns first);
+ *   (one atomic updateSessionRules call that first removes this sync's own rule ids, and only
+ *   those: any other session rule is left exactly as it is);
  * - YouTube pages still on the legacy lane keep today's static Shorts ruleset and its gate.
  * Turning something off removes before it adds (the static ruleset is disabled first), so a pass
  * never leaves an Off service redirected; a failed rule update clears the session rules and the
@@ -54,12 +54,19 @@ export interface NavigationDnrDeps {
  * receives settles only after a pass that saw everything committed before the call.
  *
  * `retire(path)` is for a choice about to be saved Off: it withholds the rules that choice can
- * switch off from every pass until released, and resolves once a pass has removed them. Saving
- * the Off only after that means no page can read the saved Off while its redirect is installed.
+ * switch off from every pass until released, and resolves once a pass has run. It never rejects:
+ * a failed pass is reported as `failure` but the hold stays until the caller releases it (after
+ * the Off is committed), so no later pass can bring the redirect back in between. A failed pass
+ * has already cleared this sync's rules, so the Off is safe to commit either way.
  */
+export interface NavigationDnrRetirement {
+  readonly release: () => void;
+  readonly failure: unknown;
+}
+
 export interface NavigationDnrSync {
   sync(): Promise<void>;
-  retire(path: string): Promise<() => void>;
+  retire(path: string): Promise<NavigationDnrRetirement>;
 }
 
 export function createNavigationDnrSync(deps: NavigationDnrDeps): NavigationDnrSync {
@@ -86,8 +93,8 @@ export function createNavigationDnrSync(deps: NavigationDnrDeps): NavigationDnrS
     const staticOn = !plan.format2Services.has("youtube") && isServiceEnabledGlobally(legacyGate, "youtube");
     const { api } = deps;
     if (!staticOn) await api.updateEnabledRulesets({ disableRulesetIds: [deps.staticRulesetId] });
-    const existing = await api.getSessionRules();
-    const removeRuleIds = [...new Set([...existing.map((rule) => rule.id), ...NAVIGATION_DNR_RULE_IDS])];
+    // Only this sync's own ids. Removing an id that is not installed is a no-op in Chrome.
+    const removeRuleIds = [...NAVIGATION_DNR_RULE_IDS];
     try {
       await api.updateSessionRules({ removeRuleIds, addRules: plan.rules.filter((rule) => !withheld.has(rule.id)) });
     } catch (error) {
@@ -109,7 +116,7 @@ export function createNavigationDnrSync(deps: NavigationDnrDeps): NavigationDnrS
     return next;
   };
 
-  const retire = async (path: string): Promise<() => void> => {
+  const retire = async (path: string): Promise<NavigationDnrRetirement> => {
     const ids = navigationDnrRuleIdsFor(path);
     for (const id of ids) withheld.set(id, (withheld.get(id) ?? 0) + 1);
     let released = false;
@@ -123,14 +130,13 @@ export function createNavigationDnrSync(deps: NavigationDnrDeps): NavigationDnrS
       }
       void sync().catch(() => undefined);
     };
-    if (ids.length === 0) return release;
+    if (ids.length === 0) return { release, failure: null };
     try {
       await sync();
-    } catch (error) {
-      release();
-      throw error;
+      return { release, failure: null };
+    } catch (failure) {
+      return { release, failure: failure ?? new Error("Navigation rule update failed") };
     }
-    return release;
   };
 
   return { sync, retire };

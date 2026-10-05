@@ -34,14 +34,16 @@ function chromeDnr() {
   const calls: string[] = [];
   let failNext: Error | null = null;
   let hold: Promise<void> | null = null;
-  const api: NavigationDnrApi = {
+  const api: NavigationDnrApi & { getSessionRules(): Promise<NavigationDnrRule[]> } = {
     async getSessionRules() {
-      calls.push("getSessionRules");
-      if (hold) await hold;
       return [...session.values()].map((rule) => structuredClone(rule));
     },
     async updateSessionRules({ removeRuleIds, addRules }) {
       calls.push(`updateSessionRules(-${removeRuleIds.length},+${addRules.length})`);
+      if (hold) {
+        calls.push("held");
+        await hold;
+      }
       if (failNext) {
         const error = failNext;
         failNext = null;
@@ -67,6 +69,8 @@ function chromeDnr() {
     rules: () => [...session.values()],
     staticOn: () => enabled.has(STATIC),
     failNextUpdate: (error: Error) => { failNext = error; },
+    /** A rule another part of the extension installed in the same session-rule space. */
+    addForeign: (rule: NavigationDnrRule) => { session.set(rule.id, structuredClone(rule)); },
     holdReads() {
       let release!: () => void;
       hold = new Promise((resolve) => { release = resolve; });
@@ -145,7 +149,7 @@ describe("navigation DNR sync (format-2 builds)", () => {
     const h = harness(fresh);
     const release = h.dnr.holdReads();
     const first = h.sync();
-    await vi.waitFor(() => expect(h.dnr.calls).toContain("getSessionRules"));
+    await vi.waitFor(() => expect(h.dnr.calls).toContain("held"));
     // The first pass already read all-on settings; Instagram goes Off while it is held.
     h.state.settings = withSite(fresh, "instagram.reels", false);
     const second = h.sync();
@@ -159,7 +163,8 @@ describe("navigation DNR sync (format-2 builds)", () => {
   it("retire withholds a choice's rules from every pass until released", async () => {
     const h = harness(fresh);
     await h.sync();
-    const release = await h.retire("sites.instagram.reels");
+    const { release, failure } = await h.retire("sites.instagram.reels");
+    expect(failure).toBeNull();
     // Removed while the saved choice is still On, and an unrelated pass does not bring them back.
     expect(domains(h.dnr.rules())).toEqual(["facebook.com", "youtube.com"]);
     await h.sync();
@@ -168,13 +173,46 @@ describe("navigation DNR sync (format-2 builds)", () => {
     release();
     await vi.waitFor(() => expect(h.dnr.rules()).toEqual(expected(fresh)));
     // The master switch retires every rule; a service switch retires only that service's.
-    const all = await h.retire("globalOn");
+    const { release: all } = await h.retire("globalOn");
     expect(h.dnr.rules()).toEqual([]);
     all();
-    const youtube = await h.retire("services.youtube");
+    const { release: youtube } = await h.retire("services.youtube");
     expect(domains(h.dnr.rules())).toEqual(["facebook.com", "instagram.com"]);
     youtube();
     await vi.waitFor(() => expect(h.dnr.rules()).toEqual(expected(fresh)));
+  });
+
+  it("removes only its own rule ids: another session rule survives every sync", async () => {
+    const h = harness(fresh);
+    const foreign = {
+      id: 9001, priority: 1, action: { type: "allow" as const },
+      condition: { regexFilter: "^https://example\\.invalid/$", isUrlFilterCaseSensitive: true as const, requestDomains: ["example.invalid"], resourceTypes: ["main_frame"] as const },
+    } satisfies NavigationDnrRule;
+    h.dnr.addForeign(foreign);
+    await h.sync();
+    h.state.settings = { ...fresh, globalOn: false } as SettingsV2;
+    await h.sync();
+    expect(h.dnr.rules()).toEqual([foreign]);
+    h.state.settings = fresh;
+    await h.sync();
+    expect(h.dnr.rules()).toEqual([foreign, ...expected(fresh)]);
+  });
+
+  it("a failed update while retiring keeps the redirect out until the Off is committed", async () => {
+    const h = harness(fresh);
+    await h.sync();
+    h.dnr.failNextUpdate(new Error("quota"));
+    const { release, failure } = await h.retire("sites.youtube.shorts");
+    expect(failure).toEqual(new Error("quota"));
+    // The failed pass cleared every owned rule; the hold keeps YouTube's out of later passes.
+    expect(h.dnr.rules()).toEqual([]);
+    await h.sync(); // e.g. a storage notification before the Off lands
+    expect(domains(h.dnr.rules())).toEqual(["facebook.com", "instagram.com"]);
+    // The Off commits, then the hold is released: the redirect stays gone.
+    h.state.settings = withSite(fresh, "youtube.shorts", false);
+    release();
+    await h.sync();
+    expect(domains(h.dnr.rules())).toEqual(["facebook.com", "instagram.com"]);
   });
 
   it("schema-1 settings keep the legacy lane: no session rules, static ruleset gated as before", async () => {
@@ -251,6 +289,24 @@ describe("background navigation DNR wiring", () => {
     expect(d.dnr.rules()).toEqual([]);
     write.release();
     expect(await reply).toMatchObject({ status: "committed" });
+    expect(d.dnr.rules()).toEqual([]);
+  });
+
+  it("a failed rule update while retiring still keeps the redirect out until the Off is saved", async () => {
+    const d = fullDnr();
+    const h = await start({ [KEY]: retainedDnrRecord(true, true) }, d.updateEnabledRulesets, "true", { sessionRules: d.sessionRules });
+    expect(domains(d.dnr.rules())).toEqual(["youtube.com"]);
+    d.dnr.failNextUpdate(new Error("quota"));
+    const write = h.gateWrite(KEY);
+    const reply = h.message({ kind: "still:settings-intent", path: "sites.youtube.shorts", value: false, updatedAt: 71 });
+    await write.started;
+    expect(d.dnr.rules()).toEqual([]);
+    // Any pass that runs while the Off is still being written keeps Shorts out (the hold).
+    await h.settle();
+    expect(d.dnr.rules()).toEqual([]);
+    write.release();
+    expect(await reply).toMatchObject({ status: "committed" });
+    await h.settle();
     expect(d.dnr.rules()).toEqual([]);
   });
 

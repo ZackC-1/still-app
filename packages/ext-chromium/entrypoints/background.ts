@@ -84,7 +84,6 @@ export default defineBackground(() => {
   const navigationDnr =
     settingsRuntime.atomicLocal &&
     typeof dnrApi?.updateSessionRules === "function" &&
-    typeof dnrApi.getSessionRules === "function" &&
     typeof dnrApi.updateEnabledRulesets === "function"
       ? createNavigationDnrSync({
           api: dnrApi as NavigationDnrApi,
@@ -109,17 +108,15 @@ export default defineBackground(() => {
   // An Off is saved only after the rules it switches off are gone (and stay withheld until it is
   // saved), so no page can read the saved Off while its redirect is still installed.
   const commitSettingsIntent = async (intent: Parameters<typeof settingsAuthority.commitIntent>[0]) => {
-    const release = navigationDnr && intent.value === false
-      ? await navigationDnr.retire(intent.path).catch((error: unknown) => {
-          heldInitialization(error);
-          return null;
-        })
-      : null;
+    // The hold stays until the Off is committed even when the retiring pass failed (that pass
+    // already cleared the rules), so no other pass can restore the redirect in between.
+    const retirement = navigationDnr && intent.value === false ? await navigationDnr.retire(intent.path) : null;
+    if (retirement?.failure) heldInitialization(retirement.failure);
     let record: Awaited<ReturnType<typeof settingsAuthority.commitIntent>>;
     try {
       record = await settingsAuthority.commitIntent(intent);
     } finally {
-      release?.();
+      retirement?.release();
     }
     return afterSettingsWrite(record);
   };
