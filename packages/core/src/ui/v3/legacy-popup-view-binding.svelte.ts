@@ -1,4 +1,4 @@
-import type { ServiceId } from "@still/shared-types";
+import { DEFAULT_SETTINGS, type ServiceId } from "@still/shared-types";
 import type { SettingsCache } from "../../storage/cache.js";
 import type { UiController } from "../controller.svelte.js";
 import type { CommittedPopupToggle } from "../index.js";
@@ -22,12 +22,24 @@ export function createLegacyPopupViewBinding(
     LegacyPopupAuthority["legacyReadState"]
   > | null>(null);
   let lifetime = 0;
+  let request = 0;
+  let acceptedRead = 0;
+  type Read = ReturnType<LegacyPopupAuthority["legacyReadState"]>;
+  // The same absence baseline supplies both display and deliberate gesture targets.
+  function choices(read: Read | null) {
+    return read?.status === "absent"
+      ? DEFAULT_SETTINGS
+      : (read?.settings ?? null);
+  }
   type Flight = {
     authority: LegacyPopupAuthority;
     controller: UiController;
     revision: number;
     userId: string | null;
     lifetime: number;
+    request: number;
+    acceptedRead: number;
+    read: Read;
   };
   let failed = $state.raw<Flight | null>(null);
   let recovery = $state.raw<Flight | null>(null);
@@ -39,7 +51,18 @@ export function createLegacyPopupViewBinding(
       revision: controller.accountRevision,
       userId: controller.userId,
       lifetime,
+      request: ++request,
+      acceptedRead,
+      read: authority.legacyReadState(),
     };
+  }
+  function currentFailure(flight: Flight): boolean {
+    return (
+      current(flight) &&
+      flight.request === request &&
+      flight.acceptedRead === acceptedRead &&
+      flight.read === flight.authority.legacyReadState()
+    );
   }
   function current(flight: Flight): boolean {
     const controller = getController();
@@ -69,8 +92,13 @@ export function createLegacyPopupViewBinding(
         attachment === lifetime &&
         authority === getAuthority() &&
         controller === getController()
-      )
+      ) {
         state = authority.legacyReadState();
+        if (state.status === "ready" || state.status === "absent") {
+          acceptedRead += 1;
+          failed = null;
+        }
+      }
     });
     return () => {
       lifetime += 1;
@@ -110,7 +138,7 @@ export function createLegacyPopupViewBinding(
           failed = null;
       })
       .catch(() => {
-        if (current(flight)) failed = flight;
+        if (currentFailure(flight)) failed = flight;
       })
       .finally(() => {
         if (recovery === flight && current(flight)) recovery = null;
@@ -122,9 +150,11 @@ export function createLegacyPopupViewBinding(
     // Check current producer readiness at the gesture, never only the rendered snapshot.
     const read = authority.legacyReadState();
     if (read.status !== "ready" && read.status !== "absent") return;
-    const choices = read.settings ?? getController().settings;
-    if (service && !choices.globalOn) return;
-    const enabled = service ? !choices.services[service] : !choices.globalOn;
+    const projected = choices(read)!;
+    if (service && !projected.globalOn) return;
+    const enabled = service
+      ? !projected.services[service]
+      : !projected.globalOn;
     const flight = capture(authority);
     void authority
       .commitLegacyIntent(service ? `services.${service}` : "globalOn", enabled)
@@ -133,7 +163,8 @@ export function createLegacyPopupViewBinding(
           reportCommitted(service ? { service, enabled } : { enabled });
       })
       .catch(() => {
-        if (current(flight)) failed = flight;
+        // Only errors use the newest request/read fence. Every live true receipt reports.
+        if (currentFailure(flight)) failed = flight;
       });
   }
   return {
@@ -141,7 +172,7 @@ export function createLegacyPopupViewBinding(
       return observed === getAuthority() ? state : null;
     },
     get settings() {
-      return observed === getAuthority() ? state?.settings : null;
+      return observed === getAuthority() ? choices(state) : null;
     },
     get held() {
       return held;

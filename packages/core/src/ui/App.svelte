@@ -80,8 +80,7 @@
     committedPopupBinding
       ? (popupView.settings ?? null)
       : legacyPopupAuthority
-        ? (legacyView.settings ??
-          (legacyView.state?.status === "absent" ? c.settings : null))
+        ? legacyView.settings
         : c.settings,
   );
   let held = $derived(legacyPopupAuthority ? legacyView.held : popupView.held);

@@ -486,3 +486,210 @@ describe("factory legacy attachment and view recovery lifetimes", () => {
     expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 });
+
+describe("confirmed absence and current recovery projection", () => {
+  it.each(["global", "youtube"])(
+    "uses package defaults after prior Off becomes absent, then commits deliberate %s Off",
+    async (target) => {
+      const h = browser(saved(false));
+      await h.cache.hydrate();
+      const v = view(h);
+      await tick();
+      h.local.get.mockRejectedValueOnce(new Error("read unavailable"));
+      await h.cache.rereadLegacyAuthority();
+      await tick();
+      h.put(null, false);
+      await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+      await waitFor(() =>
+        expect(
+          document
+            .querySelector(".still-ui")
+            ?.getAttribute("data-settings-receipt"),
+        ).toBe("absent"),
+      );
+      expect(globalSwitch().getAttribute("aria-checked")).toBe("true");
+      expect(
+        screen
+          .getByRole("switch", { name: "Still on YouTube Shorts" })
+          .getAttribute("aria-checked"),
+      ).toBe("true");
+      expect(h.controller.settings.globalOn).toBe(false);
+      expect(h.local.set).not.toHaveBeenCalled();
+      expect(v.report).not.toHaveBeenCalled();
+      await fireEvent.click(
+        target === "global"
+          ? globalSwitch()
+          : screen.getByRole("switch", { name: "Still on YouTube Shorts" }),
+      );
+      await waitFor(() => expect(h.local.set).toHaveBeenCalledTimes(1));
+      await waitFor(() =>
+        expect(v.report).toHaveBeenCalledExactlyOnceWith(
+          target === "global"
+            ? { enabled: false }
+            : { service: "youtube", enabled: false },
+        ),
+      );
+      const persisted = h.raw() as StoredSettingsRecord;
+      expect(persisted.settings.globalOn).toBe(target !== "global");
+      expect(persisted.settings.services).toEqual({
+        ...DEFAULT_SETTINGS.services,
+        ...(target === "youtube" ? { youtube: false } : {}),
+      });
+      expect(persisted.settings.pauses).toEqual([]);
+      expect(persisted.settings).not.toHaveProperty("opaqueChoice");
+      expect(persisted).not.toHaveProperty("opaqueRoot");
+      v.unmount();
+      const reopened = new SettingsCache(h.consumer);
+      await reopened.hydrate();
+      const controller = new UiController({
+        cache: reopened,
+        host: { canPurchase: false },
+      });
+      render(App, { props: { controller, legacyPopupAuthority: reopened } });
+      await tick();
+      expect(globalSwitch().getAttribute("aria-checked")).toBe(
+        String(target !== "global"),
+      );
+      expect(
+        screen
+          .getByRole("switch", { name: "Still on YouTube Shorts" })
+          .getAttribute("aria-checked"),
+      ).toBe("false");
+      expect(h.local.set).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("does not let an older rejected real broker reply hold a newer true commit", async () => {
+    const h = browser(saved(true));
+    await h.cache.hydrate();
+    const v = view(h);
+    await tick();
+    const old = deferred<void>();
+    let deliveries = 0;
+    h.delayReply(async (reply) => {
+      if (++deliveries === 1) await old.promise;
+      return reply;
+    });
+    await fireEvent.click(
+      screen.getByRole("switch", { name: "Still on YouTube Shorts" }),
+    );
+    await flush();
+    await fireEvent.click(
+      screen.getByRole("switch", { name: "Still on TikTok website" }),
+    );
+    await waitFor(() =>
+      expect(v.report).toHaveBeenCalledExactlyOnceWith({
+        service: "tiktok",
+        enabled: true,
+      }),
+    );
+    old.reject(new Error("older broker delivery lost"));
+    await flush();
+    await tick();
+    expect(h.cache.legacyReadState().status).toBe("ready");
+    expect(screen.queryByText("Settings are unavailable.")).toBeNull();
+    expect((globalSwitch() as HTMLButtonElement).disabled).toBe(false);
+    expect(
+      screen
+        .getByRole("switch", { name: "Still on TikTok website" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(h.local.set).toHaveBeenCalledTimes(2);
+    expect(v.report).toHaveBeenCalledTimes(1);
+  });
+
+  it("clears a current unexpected failure when pure retry is superseded by an actual newer ready watch", async () => {
+    const h = browser(saved(false));
+    await h.cache.hydrate();
+    const v = view(h);
+    await tick();
+    // Fault only the public command boundary; actual read/watch producer remains intact.
+    vi.spyOn(h.cache, "commitLegacyIntent").mockRejectedValueOnce(
+      new Error("unexpected command exception"),
+    );
+    await fireEvent.click(globalSwitch());
+    await waitFor(() =>
+      expect(screen.getByText("Settings are unavailable.")).toBeTruthy(),
+    );
+    expect(h.cache.legacyReadState().status).toBe("ready");
+    const gate = deferred<Record<string, unknown>>();
+    h.local.get.mockImplementationOnce(() => gate.promise);
+    await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await flush();
+    h.emit(saved(true, 300));
+    await tick();
+    gate.resolve({ [KEY]: saved(false) });
+    await flush();
+    await tick();
+    expect(h.cache.legacyReadState().status).toBe("ready");
+    expect(globalSwitch().getAttribute("aria-checked")).toBe("true");
+    expect((globalSwitch() as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByText("Settings are unavailable.")).toBeNull();
+    expect(v.report).not.toHaveBeenCalled();
+    expect(h.local.set).not.toHaveBeenCalled();
+  });
+
+  it("keeps genuinely current unexpected failure and later loading/unreadable authority held", async () => {
+    const h = browser(saved(false));
+    await h.cache.hydrate();
+    const v = view(h);
+    await tick();
+    vi.spyOn(h.cache, "commitLegacyIntent").mockRejectedValueOnce(
+      new Error("current command exception"),
+    );
+    await fireEvent.click(globalSwitch());
+    await waitFor(() =>
+      expect(screen.getByText("Settings are unavailable.")).toBeTruthy(),
+    );
+    expect((globalSwitch() as HTMLButtonElement).disabled).toBe(true);
+    const gate = deferred<Record<string, unknown>>();
+    h.local.get.mockImplementationOnce(() => gate.promise);
+    await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await flush();
+    expect(h.cache.legacyReadState().status).toBe("loading");
+    expect((globalSwitch() as HTMLButtonElement).disabled).toBe(true);
+    gate.resolve({ [KEY]: "corrupt" });
+    await waitFor(() =>
+      expect(h.cache.legacyReadState().status).toBe("unavailable"),
+    );
+    expect(globalSwitch().getAttribute("aria-checked")).toBe("false");
+    expect((globalSwitch() as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText("Settings are unavailable.")).toBeTruthy();
+    expect(h.local.set).not.toHaveBeenCalled();
+    expect(v.report).not.toHaveBeenCalled();
+  });
+
+  it("reports both actual true commits once despite reversed delivery order", async () => {
+    const h = browser(saved(true));
+    await h.cache.hydrate();
+    const v = view(h);
+    await tick();
+    const gates = [deferred<void>(), deferred<void>()] as const;
+    let delivery = 0;
+    h.delayReply(async (reply) => {
+      await (delivery++ === 0 ? gates[0] : gates[1]).promise;
+      return reply;
+    });
+    await fireEvent.click(
+      screen.getByRole("switch", { name: "Still on YouTube Shorts" }),
+    );
+    await fireEvent.click(
+      screen.getByRole("switch", { name: "Still on TikTok website" }),
+    );
+    await flush();
+    gates[1].resolve();
+    await waitFor(() =>
+      expect(v.report).toHaveBeenCalledExactlyOnceWith({
+        service: "tiktok",
+        enabled: true,
+      }),
+    );
+    gates[0].resolve();
+    await waitFor(() => expect(v.report).toHaveBeenCalledTimes(2));
+    expect(v.report.mock.calls).toEqual([
+      [{ service: "tiktok", enabled: true }],
+      [{ service: "youtube", enabled: true }],
+    ]);
+    expect(h.local.set).toHaveBeenCalledTimes(2);
+  });
+});

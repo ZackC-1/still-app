@@ -415,3 +415,109 @@ describe("actual legacy factory recovery and preserved host operations", () => {
     expect(toggles(f)).toHaveLength(0);
   });
 });
+
+describe("actual main recovery regression", () => {
+  it("projects unsaved package defaults after saved Off is absent and commits one deliberate Off", async () => {
+    const f = await installBrowser();
+    configured();
+    await main("prior-off-absence-regression");
+    const global = () => screen.getByRole("switch", { name: "Still on/off" });
+    await waitFor(() =>
+      expect(global().getAttribute("aria-checked")).toBe("false"),
+    );
+    f.local.set.mockRejectedValueOnce(new Error("save down"));
+    await fireEvent.click(global());
+    await waitFor(() =>
+      expect(screen.getByText("Settings are unavailable.")).toBeTruthy(),
+    );
+    delete f.store["still:settings"];
+    const writes = f.local.set.mock.calls.length;
+    await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() =>
+      expect(
+        document
+          .querySelector(".still-ui")
+          ?.getAttribute("data-settings-receipt"),
+      ).toBe("absent"),
+    );
+    expect(global().getAttribute("aria-checked")).toBe("true");
+    expect(f.local.set).toHaveBeenCalledTimes(writes);
+    expect(toggles(f)).toHaveLength(0);
+    await fireEvent.click(global());
+    await waitFor(() => expect(toggles(f)).toHaveLength(1));
+    expect(f.local.set).toHaveBeenCalledTimes(writes + 1);
+    expect(
+      (f.store["still:settings"] as { settings: { globalOn: boolean } })
+        .settings.globalOn,
+    ).toBe(false);
+    expect(toggles(f)[0]).toEqual({
+      kind: "still:analytics",
+      action: "track",
+      name: "global_toggled",
+      props: { enabled: false, where: "popup" },
+    });
+    for (const instance of mounted.instances.splice(0)) await unmount(instance);
+    await main("prior-off-absence-reopen");
+    await waitFor(() =>
+      expect(global().getAttribute("aria-checked")).toBe("false"),
+    );
+    expect(toggles(f)).toHaveLength(1);
+  });
+
+  it("a late rejected older broker operation cannot hold newer actual saved choices", async () => {
+    const f = await installBrowser({
+      settings: {
+        ...structuredClone(DEFAULT_SETTINGS),
+        schemaVersion: 1,
+        globalOn: true,
+        services: {
+          ...DEFAULT_SETTINGS.services,
+          youtube: false,
+          tiktok: false,
+        },
+        updatedAt: 100,
+      },
+      syncMetadata: null,
+    });
+    configured();
+    await main("late-failed-after-newer-ready");
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("switch", { name: "Still on YouTube Shorts" })
+          .getAttribute("aria-checked"),
+      ).toBe("false"),
+    );
+    const old = deferred<void>();
+    let admitted = 0;
+    f.port(async (intent) => {
+      if (++admitted === 1) await old.promise;
+      return f.authority.commitIntent(intent);
+    });
+    await fireEvent.click(
+      screen.getByRole("switch", { name: "Still on YouTube Shorts" }),
+    );
+    await flush();
+    await fireEvent.click(
+      screen.getByRole("switch", { name: "Still on TikTok website" }),
+    );
+    await waitFor(() => expect(toggles(f)).toHaveLength(1));
+    old.reject(new Error("older operation failed"));
+    await flush();
+    expect(screen.queryByText("Settings are unavailable.")).toBeNull();
+    expect(
+      (
+        screen.getByRole("switch", {
+          name: "Still on/off",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+    expect(
+      screen
+        .getByRole("switch", { name: "Still on TikTok website" })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(f.local.set).toHaveBeenCalledTimes(1);
+    expect(toggles(f)).toHaveLength(1);
+  });
+});
