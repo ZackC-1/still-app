@@ -154,3 +154,85 @@ describe("native Still Pro card price gate", () => {
     view.unmount();
   });
 });
+
+describe("native Still Pro card checking condition", () => {
+  const ownerships = ["none", "checking", "verify", "failed"] as const;
+  const states = ["idle", "pending", "failed", "success"] as const;
+  const cases = ownerships.flatMap((ownership) =>
+    states.flatMap((state) =>
+      [false, true].map((accessChecking) => ({
+        ownership,
+        state,
+        accessChecking,
+      })),
+    ),
+  );
+
+  it.each(cases)(
+    "shows the checking spinner exactly when the browser card does (ownership $ownership, state $state, accessChecking $accessChecking)",
+    ({ ownership, state, accessChecking }) => {
+      const browser = render(ProOfferCard, {
+        props: {
+          ownership,
+          state,
+          accessChecking,
+          channel: "ready",
+          offer: { price: "fixture browser offer" },
+          confirmedAccount: true,
+          knownMissing: true,
+          onBuy: vi.fn(),
+          onRestore: vi.fn(),
+        },
+      });
+      const expected = screen.queryByText(checking) !== null;
+      browser.unmount();
+      const view = render(NativeProOfferCard, {
+        props: native({ ownership, state, accessChecking }),
+      });
+      expect(screen.queryByText(checking) !== null).toBe(expected);
+      view.unmount();
+    },
+  );
+
+  it.each([
+    {
+      held: { accessChecking: true },
+      label: "a checking observation",
+    },
+    { held: { accessHeld: true }, label: "a residual held access" },
+  ])(
+    "shows a failed ownership check, not the spinner, with $label",
+    ({ held }) => {
+      const props = native({ ownership: "failed", ...held });
+      const view = render(NativeProOfferCard, { props });
+      expect(
+        screen.getByText("We couldn't finish checking. Nothing changed."),
+      ).toBeVisible();
+      expect(screen.getByRole("alert")).toHaveAttribute("data-tone", "failed");
+      expect(screen.queryByText(checking)).toBeNull();
+      expect(buy()).toBeNull();
+      view.unmount();
+    },
+  );
+
+  it.each([
+    { held: { accessChecking: true }, label: "a checking observation" },
+    { held: { accessHeld: true }, label: "a residual held access" },
+    { held: { ownership: "checking" }, label: "checking ownership" },
+  ])(
+    "shows an unconfirmed purchase, not the spinner, with $label and never retries while held",
+    async ({ held }) => {
+      const props = native({ state: "failed", ...held });
+      const view = render(NativeProOfferCard, { props });
+      expect(screen.getByText("The purchase wasn't confirmed.")).toBeVisible();
+      expect(screen.queryByText(checking)).toBeNull();
+      expect(buy()).toBeNull();
+      const retry = screen.getByRole("button", { name: "Try again" });
+      expect(retry).toBeDisabled();
+      await fireEvent.click(retry);
+      expect(props.onRetry).not.toHaveBeenCalled();
+      expect(props.onBuy).not.toHaveBeenCalled();
+      view.unmount();
+    },
+  );
+});
