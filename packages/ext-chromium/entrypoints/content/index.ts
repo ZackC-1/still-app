@@ -1,10 +1,12 @@
 import "./still.css"; // packaged critical CSS (manifest content_scripts css, KTD2)
 import "./still-pro.css"; // packaged Pro CSS gated by html.still-pro-active
-import { createExtensionContentEntry } from "@still/core/content";
+import { createShippingContentEntry } from "@still/core/content";
 
 // The document_start content script. It wires core's engine to the live page, reading settings
 // from the chrome.storage-backed cache. On Chromium the hard-nav Shorts redirect is the DNR rule
 // (background.ts); this script handles SPA navigations, the observer, and rule application.
+// The shipping entry carries the packaged format-2 rule set and picks one engine per page; services
+// stay on the legacy seed engine until core activates them (FORMAT2_SHIPPING_SERVICES).
 export default defineContentScript({
   matches: [
     "*://*.youtube.com/*",
@@ -14,7 +16,7 @@ export default defineContentScript({
   ],
   runAt: "document_start",
   cssInjectionMode: "manifest",
-  main: createExtensionContentEntry({
+  main: createShippingContentEntry({
     storage: chrome.storage.local,
     prod: import.meta.env.PROD,
     earlyRedirect: import.meta.env.FIREFOX,

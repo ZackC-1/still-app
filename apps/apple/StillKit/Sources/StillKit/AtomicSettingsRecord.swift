@@ -63,13 +63,29 @@ public enum AtomicSettingsRecord {
   public static func initialize(_ raw: Data?, ownership: String) throws -> Data {
     guard ["never-linked", "previous-account", "unknown"].contains(ownership), let raw else { throw Failure.unreadable }
     var root = try decode(raw)
-    if root["atomic"] != nil { return raw }
+    if let state = root["atomic"]?.object {
+      // A later wake leaves an initialized record alone. The one exception is the retired
+      // pending-limit pause that earlier StillKit builds persisted on unknown local-only records;
+      // clearing it keeps every saved value and held choice exactly and only re-admits edits.
+      guard var state = recoveredLegacyPendingLimit(state, settings: root["settings"]?.object) else { return raw }
+      guard case .number(let sequence) = state["sequence"] else { return raw }
+      state["sequence"] = .number(sequence + 1)
+      root["atomic"] = .object(state)
+      let result = try encoder.encode(root)
+      guard result.count <= 131_072 else { return raw }
+      return result
+    }
     let settings = root["settings"]?.object ?? root
     let original = try encoder.encode(settings)
-    let provenance = SettingsV2Provenance(kind: "readable-local", provenInitialization: ownership == "never-linked" && settings["updatedAt"] == .number(0))
+    // Matches AtomicSettingsWriter.initialize: a readable zero-stamp record (a 2.1.x install that
+    // was never edited, possibly with sync metadata) is accepted for any ownership marker.
+    let provenance = SettingsV2Provenance(kind: "readable-local", provenInitialization: settings["updatedAt"] == .number(0))
     guard case .ready(let modern, _) = SettingsV2Migration.read(original, provenance: provenance) else { throw Failure.unreadable }
     if root["settings"] == nil { root = ["syncMetadata": .null, "syncEpoch": .number(0)] }
-    root["settings"] = .object(modern.document)
+    // The TypeScript writer's legacy projection: retired pauses persist as an empty list.
+    var document = modern.document
+    document["pauses"] = .array([])
+    root["settings"] = .object(document)
     root["atomic"] = .object([
       "format": .number(1), "sequence": .number(0), "ownership": .string(ownership),
       "scope": .object(["accountId": .null, "generation": .number(0)]),
@@ -134,6 +150,40 @@ public enum AtomicSettingsRecord {
       case .string(let pause) = state["paused"],
       ["awaiting-anchor", "ownership-hold", "pending-limit", "ordering-hold"].contains(pause) else { return }
     state["paused"] = .null
+  }
+  private static func sameScope(_ a: [String: SettingsJSONValue]?, _ b: [String: SettingsJSONValue]) -> Bool {
+    guard let a else { return false }
+    return a["accountId"] == b["accountId"] && a["generation"] == b["generation"] && a["sessionId"] == b["sessionId"]
+  }
+  /// Mirrors TypeScript permitsUnknownLocalEdit: an unknown-ownership record outside any account
+  /// edits its own settings directly. Nothing is queued for an account, so no pending limit applies.
+  /// `legacyPause` additionally admits the retired pending-limit pause (see the recovery below).
+  private static func permitsUnknownLocalEdit(_ state: [String: SettingsJSONValue], settings: [String: SettingsJSONValue]?, legacyPause: Bool = false) -> Bool {
+    guard validState(state), state["ownership"] == .string("unknown"), let scope = state["scope"]?.object,
+      scope["accountId"] == .null, scope["sessionId"] == nil, state["anchor"] == .null,
+      case .number(let sequence) = state["sequence"], sequence < SettingsV2Migration.maxRevision,
+      state["paused"] == .null || legacyPause && state["paused"] == .string("pending-limit"),
+      case .array(let pending) = state["pending"],
+      pending.allSatisfy({ entry in
+        guard let item = entry.object else { return false }
+        return item["receipt"] == .null && item["originScope"] == nil && sameScope(item["scope"]?.object, scope)
+      }),
+      let settings, settings["schemaVersion"] == .number(2), let bytes = try? encoder.encode(settings),
+      case .ready = SettingsV2Migration.read(bytes, provenance: .init(kind: "readable-local", provenInitialization: settings["updatedAt"] == .number(0)))
+    else { return false }
+    return true
+  }
+  /// Earlier StillKit builds queued every unknown local edit and, at 64, persisted `pending-limit`.
+  /// Under the local-only rule that queue never reaches an account (any scope change retires it),
+  /// so the pause no longer protects anything. Only the pause is cleared: settings, clocks, held
+  /// choices and the retained requests stay exactly as saved, and the result is a record the
+  /// TypeScript writer itself admits. Returns nil for every other shape, which stays untouched.
+  private static func recoveredLegacyPendingLimit(_ state: [String: SettingsJSONValue], settings: [String: SettingsJSONValue]?) -> [String: SettingsJSONValue]? {
+    guard state["paused"] == .string("pending-limit"),
+      permitsUnknownLocalEdit(state, settings: settings, legacyPause: true) else { return nil }
+    var state = state
+    state["paused"] = .null
+    return state
   }
 
   /// Internal host commands operate on the same locked complete record. Receipt syntax is not
@@ -309,6 +359,34 @@ public enum AtomicSettingsRecord {
         let prior = SettingsOrderedField(value: priorValue, stamp: stamp),
         case .ready = SettingsV2Migration.read(try encoder.encode(settings), provenance: .init(kind: "readable-local", provenInitialization: settings["updatedAt"] == .number(0)))
       else { throw Failure.unreadable }
+      if atomic["ownership"] == .string("unknown"), scope["accountId"] == .null {
+        // Retained unknown local-only authority, exactly as AtomicSettingsWriter.commit: the choice
+        // is saved in place with a local stamp, the existing requests stay untouched and nothing new
+        // is queued, so there is no pending limit. Any other unknown null-scope shape is refused.
+        guard permitsUnknownLocalEdit(atomic, settings: root["settings"]?.object, legacyPause: true) else { throw Failure.unavailable }
+        // A matching overlay alone is not a saved field; persist the person's deliberate choice.
+        if priorValue == value && held[path] == nil { return (try raw ?? encoder.encode(root), false) }
+        held.removeValue(forKey: path)
+        switch SettingsFieldOrder.edit(prior, acknowledgedRevision: 0, requestedValue: value) {
+        case .edited(let next):
+          setField(&settings, path, value)
+          var nextClocks = clocks
+          nextClocks[path] = .object(next.stamp)
+          settings["clocks"] = .object(nextClocks)
+          settings["updatedAt"] = .number(Double(updatedAt))
+        case .unchanged: break
+        case .hold, .recovery: throw Failure.unavailable
+        }
+        settings["pauses"] = .array([]) // Same legacy projection as the TypeScript writer.
+        atomic["paused"] = .null // Only null or the retired pending-limit pause reaches here.
+        atomic["held"] = .object(held)
+        atomic["sequence"] = .number(sequence + 1)
+        root["atomic"] = .object(atomic)
+        root["settings"] = .object(settings)
+        let result = try encoder.encode(root)
+        guard result.count <= 131_072 else { throw Failure.unreadable }
+        return (result, true)
+      }
       let effective = held[path] ?? .bool(priorValue)
       if effective == .bool(value) { return (try raw ?? encoder.encode(root), false) }
       pending = pending.filter { $0.object?["scope"]?.object == scope }

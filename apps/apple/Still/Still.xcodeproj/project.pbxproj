@@ -111,6 +111,7 @@
 		27467FC2A004926ED26C3C69 /* WebBridgeRouter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WebBridgeRouter.swift; sourceTree = "<group>"; };
 		38A772B6682863706C45FB5D /* StillExtension.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = StillExtension.entitlements; sourceTree = "<group>"; };
 		513D6A39176BF7BAAB473EB1 /* SignInWithApple.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SignInWithApple.swift; sourceTree = "<group>"; };
+		5C0E5101000000000000A001 /* Still.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = Still.storekit; sourceTree = "<group>"; };
 		67CDB89E135D61905E659535 /* PurchaseManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = PurchaseManager.swift; sourceTree = "<group>"; };
 		8D9264E5ACACFF91459C50B7 /* OnboardingPresenter.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OnboardingPresenter.swift; sourceTree = "<group>"; };
 		9E6E888C8B18227CC92E297C /* SafariExtensionBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SafariExtensionBridge.swift; sourceTree = "<group>"; };
@@ -178,6 +179,7 @@
 				14DE45A22FEC760B0056BB36 /* macOS (Extension) */,
 				14DE45772FEC760B0056BB36 /* Products */,
 				0B52F67C943D6D4E1F1BA6B4 /* Config */,
+				5C0E5101000000000000A001 /* Still.storekit */,
 			);
 			sourceTree = "<group>";
 		};
