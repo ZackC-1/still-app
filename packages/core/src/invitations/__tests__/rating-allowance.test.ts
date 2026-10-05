@@ -47,14 +47,16 @@ describe("packaged surfaces and review links", () => {
     expect(ratingReviewUrl("chrome")).toBe(CHROME_WEB_STORE_REVIEW_URL);
     expect(ratingReviewUrl("firefox")).toBe(FIREFOX_ADDONS_REVIEW_URL);
     expect(CHROME_WEB_STORE_REVIEW_URL).toBe(
-      "https://chromewebstore.google.com/detail/still-block-shorts-reels/midpefhbieafmeboompbboemeahjjnkf/reviews");
-    expect(FIREFOX_ADDONS_REVIEW_URL).toBe("https://addons.mozilla.org/en-US/firefox/addon/still-free-yourself/reviews/");
+      "https://chromewebstore.google.com/detail/still-remove-shorts-reels/midpefhbieafmeboompbboemeahjjnkf/reviews");
+    expect(FIREFOX_ADDONS_REVIEW_URL).toBe("https://addons.mozilla.org/firefox/addon/still-free-yourself/reviews/");
     for (const url of [CHROME_WEB_STORE_REVIEW_URL, FIREFOX_ADDONS_REVIEW_URL]) {
       const parsed = new URL(url);
       expect(parsed.protocol).toBe("https:");
       expect(parsed.search).toBe("");
       expect(parsed.hash).toBe("");
       expect(url).not.toMatch(/utm_|ref=|campaign/i);
+      // No locale segment: the store opens in the reader's own language.
+      expect(parsed.pathname).not.toMatch(/\/[a-z]{2}(-[A-Z]{2})?\//);
     }
   });
   it("the 168 hour spacing applies between any two invitations, sync or rating (coordinator ruling)", () => {
