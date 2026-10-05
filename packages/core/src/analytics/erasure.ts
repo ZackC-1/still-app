@@ -73,9 +73,13 @@ export interface ErasureService {
 
 const STATES: readonly ErasureEntryState[] = ["unsent", "requested", "verifying", "deleted"];
 
-function readLedger(value: unknown): ErasureEntry[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((v): v is ErasureEntry => {
+/** The ledger, or null when it cannot be trusted: anything but a missing value or an array of valid
+ * entries. An unreadable ledger is never saved over (that would drop obligations) and owns nothing,
+ * so a stopped permission keeps refusing a new Share. */
+function readLedger(value: unknown): ErasureEntry[] | null {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) return null;
+  const valid = value.filter((v): v is ErasureEntry => {
     if (!v || typeof v !== "object" || Array.isArray(v)) return false;
     const e = v as Record<string, unknown>;
     return (
@@ -89,6 +93,7 @@ function readLedger(value: unknown): ErasureEntry[] {
       Number.isFinite(e.requestedAt)
     );
   });
+  return valid.length === value.length ? valid : null;
 }
 
 /** Make room by dropping the oldest deleted entries only; null when only pending ones would fit. */
@@ -124,7 +129,7 @@ export function createErasureService(deps: {
     try {
       return readLedger(await deps.store.get(ERASURE_LEDGER_KEY));
     } catch {
-      return null;
+      return null; // unreadable: see readLedger
     }
   };
   const save = async (entries: ErasureEntry[]): Promise<boolean> => {

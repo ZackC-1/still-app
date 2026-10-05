@@ -874,7 +874,7 @@ describe("recovering from a storage failure", () => {
     expect(client.accountConfirmed).toBe(true);
   });
 
-  it("the server attach never runs, or marks, for an account the client could not install", async () => {
+  it("unreachable legacy guard: the old email attach never runs, or marks, for an account the client could not install", async () => {
     const backing = pausable();
     const state = refusable(backing);
     const { client } = makeClient({ store: state.store });
@@ -886,8 +886,9 @@ describe("recovering from a storage failure", () => {
       consent: async () => true,
       identifyOnServer: async () => void served.push(authenticatedAs),
     });
-    // The legacy attach follows whatever the client confirmed; without per-device subjects the
-    // identifier itself confirms nothing (U5-W2), so confirm the client directly here.
+    // Covers a guard no host can reach any more: with per-device subjects the attach is a no-op and
+    // without them the identifier confirms nothing (U5-W2). The client is confirmed directly here so
+    // the guard stays tested until the legacy attach is removed.
     await client.identify(U1);
     await accounts.attach();
     expect(served).toEqual([U1]);

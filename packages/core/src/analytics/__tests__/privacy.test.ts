@@ -265,8 +265,10 @@ describe("reviewed recovery", () => {
       await new Promise((r) => setTimeout(r, 0));
       const events = (store.data[QUEUE_KEY] ?? []) as { event: string }[];
       expect(events).toEqual([]);
-      // B's actual account confirmation may attach once; the superseded action cannot add work.
-      expect(attach).toHaveBeenCalledTimes(1);
+      // B's actual account confirmation may ask for B's subject once (a request cancelled by the
+      // switch is retried at the next screen instead); the superseded action cannot add work.
+      expect(attach.mock.calls.length).toBeLessThanOrEqual(1);
+      expect(attach.mock.calls.every((call) => call[2] === B)).toBe(true);
     },
   );
   it("repeated Apple Share retains the actual granted origin", async () => {

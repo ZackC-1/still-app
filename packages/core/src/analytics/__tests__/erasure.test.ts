@@ -141,6 +141,34 @@ describe("client identity and the late-arrival fence", () => {
     expect(await h.client.canReport()).toBe(false);
   });
 
+  it("a missing, corrupt or mismatched anonymous index is unknown, never 0", async () => {
+    const h = harness();
+    const origin = TEST_PERMISSION.origin;
+    await h.client.track("opened", { where: "popup" }); // installs the permission at index 0
+    const state = () => h.store.data[STATE_KEY] as Record<string, unknown>;
+    expect(state().anonIndex).toBe(0);
+    // TEST_PERMISSION's first id was not derived from its origin: the cross-check refuses it.
+    expect(await h.client.erasureIndex(origin)).toBeNull();
+    await h.client.identify(ACCOUNT);
+    await h.client.reset(); // index 1, derived
+    expect(await h.client.erasureIndex(origin)).toBe(1);
+    for (const corrupt of [undefined, -1, 256, 1.5, "1"]) {
+      h.store.data[STATE_KEY] = { ...state(), anonIndex: corrupt };
+      expect(await h.client.erasureIndex(origin)).toBeNull();
+    }
+    h.store.data[STATE_KEY] = { ...state(), anonIndex: 2 }; // the id at index 1 is not anon(2)
+    expect(await h.client.erasureIndex(origin)).toBeNull();
+    // A sign-out with an unknown index records no anonymous id and sends nothing signed out,
+    // rather than guess the next id.
+    h.store.data[STATE_KEY] = { ...state(), anonIndex: undefined, userId: ACCOUNT };
+    await h.client.reset();
+    expect([state().userId, state().anonId, state().anonIndex]).toEqual([null, null, null]);
+    const sentBefore = h.sent().length;
+    await h.client.track("opened", { where: "popup" });
+    await h.client.flush();
+    expect(h.sent().length).toBe(sentBefore);
+  });
+
   it("drops an event older than 30 days at send time and sends a younger one", async () => {
     const h = harness();
     await h.client.track("opened", { where: "popup" });
@@ -234,6 +262,22 @@ describe("per-device subjects through the host", () => {
     await extension.client.flush();
     expect(JSON.stringify(h.bodies)).not.toContain(ACCOUNT);
     expect(JSON.stringify(h.store.data[STATE_KEY] ?? {})).not.toContain(ACCOUNT);
+    extension.stop();
+  });
+
+  it("NEGATIVE CONTROL: from confirmed-nobody, an account whose subject request fails sends nothing as nobody", async () => {
+    const { h, host: extension, requests } = host(() => {
+      throw new Error("offline");
+    });
+    extension.onStart(null);
+    await extension.flushWhenReady();
+    expect(extension.client.accountConfirmed).toBe(true); // nobody is signed in
+    await extension.identify(ACCOUNT);
+    expect(requests).toHaveLength(1);
+    expect(extension.client.accountConfirmed).toBe(false);
+    await extension.client.track("opened", { where: "popup" });
+    await extension.client.flush();
+    expect(h.sink).not.toHaveBeenCalled(); // signed-in use is never reported under the anonymous id
     extension.stop();
   });
 
@@ -345,6 +389,23 @@ describe("device erasure (erasure.ts)", () => {
     await unconfigured.record(await derivedPermission(ORIGIN), 0);
     await unconfigured.kick();
     expect(await unconfigured.withdrawal()).toBe("failed");
+  });
+
+  it("NEGATIVE CONTROL: an unparseable ledger is never saved over, and the tombstone keeps refusing", async () => {
+    for (const corrupt of ["garbage", { 0: 1 }, [{ origin: "nope" }], [{ origin: ORIGIN, anonIndex: 0, state: "unsent" }]]) {
+      const ledger = memory();
+      const authority = memory();
+      ledger.data[ERASURE_LEDGER_KEY] = structuredClone(corrupt);
+      const { erasure } = service(() => ({ state: "requested" }), ledger);
+      const consent = createStoredConsent(authority, false, { cleanupOwned: (origin) => erasure.owns(origin) });
+      await consent.grant(TEST_PERMISSION.version);
+      const granted = (await consent.read())!;
+      await consent.set(false);
+      expect(await erasure.record(granted, 0)).toBe(false);
+      expect(ledger.data[ERASURE_LEDGER_KEY]).toEqual(corrupt);
+      expect(await erasure.owns(granted.origin)).toBe(false);
+      await expect(consent.grant(TEST_PERMISSION.version)).rejects.toThrow("Previous permission cleanup is pending");
+    }
   });
 
   it("refuses to record what storage does not keep", async () => {

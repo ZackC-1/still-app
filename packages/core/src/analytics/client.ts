@@ -140,8 +140,9 @@ interface ClientState {
    * to the person who signed out. Derived from the permission origin at `anonIndex` (derive.ts), so
    * the device can always name every anonymous id it used when it asks for erasure. */
   readonly anonId: string | null;
-  /** Index of `anonId` under the current permission origin: 0 at Share, +1 per sign-out. */
-  readonly anonIndex: number;
+  /** Index of `anonId` under the current permission origin: 0 at Share, +1 per sign-out. Null when
+   * unknown (missing or corrupt in storage): never guessed as 0. */
+  readonly anonIndex: number | null;
   /** The account behind the confirmed provider identity, when the host named it. Never sent: a
    * queued event whose person is this account id is refused at send. */
   readonly accountRef: string | null;
@@ -161,7 +162,7 @@ const EMPTY_STATE: ClientState = {
   identifiedAs: null,
   daily: {},
   anonId: null,
-  anonIndex: 0,
+  anonIndex: null,
   accountRef: null,
   forgotten: [],
   permission: null,
@@ -181,7 +182,7 @@ function parseState(value: unknown): ClientState {
     anonIndex:
       Number.isSafeInteger(v.anonIndex) && (v.anonIndex as number) >= 0 && (v.anonIndex as number) <= ANON_INDEX_LIMIT
         ? (v.anonIndex as number)
-        : 0,
+        : null,
     accountRef: isAnalyticsId(v.accountRef) ? v.accountRef : null,
     forgotten: Array.isArray(v.forgotten) ? v.forgotten.filter((id): id is string => typeof id === "string") : [],
     permission: readAnalyticsPermission(v.permission),
@@ -503,12 +504,22 @@ export class AnalyticsClient {
   }
 
   /** For the device-erasure service only, never the envelope: the last anonymous id index used
-   * under `origin`, or null when this client's state belongs to another origin or is unreadable. */
+   * under `origin`, or null when it is not known: the state is unreadable, belongs to another
+   * origin, has no valid index, or its anonymous id is not the one derived at that index. The caller
+   * then erases every index (it never guesses 0). */
   erasureIndex(origin: string): Promise<number | null> {
     return this.run(async () => {
       const state = await this.read();
-      if (!state) return null;
-      return state.permission?.origin === origin || state.stoppedOrigin === origin ? state.anonIndex : null;
+      if (!state || state.anonIndex === null) return null;
+      if (state.permission?.origin !== origin && state.stoppedOrigin !== origin) return null;
+      if (state.anonId !== null) {
+        try {
+          if (state.anonId.toLowerCase() !== (await deriveAnonymousId(origin, state.anonIndex))) return null;
+        } catch {
+          return null;
+        }
+      }
+      return state.anonIndex;
     });
   }
 
@@ -716,15 +727,18 @@ export class AnalyticsClient {
       options.forget && !state.forgotten.includes(state.userId) ? [...state.forgotten, state.userId] : state.forgotten;
     // The next derived anonymous id under this permission's origin. Past the last index the
     // device stops reporting rather than reuse or invent an id it could not later erase.
-    const anonIndex = state.permission ? state.anonIndex + 1 : 0;
-    if (anonIndex > ANON_INDEX_LIMIT) {
+    // An unknown index cannot be continued without risking a reused or unerasable id: the sign-out is
+    // recorded with no anonymous id and an unknown index, and nothing is sent signed out until a
+    // fresh permission starts again at index 0 (see post).
+    const anonIndex = state.permission ? (state.anonIndex === null ? null : state.anonIndex + 1) : 0;
+    if (anonIndex !== null && anonIndex > ANON_INDEX_LIMIT) {
       this.blocked = true;
       if (options.forget) await this.dropEventsOf(new Set(forgotten));
       return false;
     }
     let anonId: string | null;
     try {
-      anonId = state.permission ? await deriveAnonymousId(state.permission.origin, anonIndex) : null;
+      anonId = state.permission && anonIndex !== null ? await deriveAnonymousId(state.permission.origin, anonIndex) : null;
     } catch {
       this.blocked = true;
       return false;
@@ -1250,6 +1264,7 @@ export class AnalyticsClient {
         ) ||
         !Number.isFinite(Date.parse(event.timestamp)) ||
         Date.parse(event.timestamp) < oldest ||
+        (state.userId === null && state.anonIndex === null) ||
         !isAnalyticsId(props.distinct_id) ||
         (state.accountRef !== null && String(props.distinct_id).toLowerCase() === state.accountRef) ||
         !isAnalyticsId(props.$device_id) ||

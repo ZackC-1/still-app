@@ -366,15 +366,15 @@ export function createAccountIdentifier(deps: {
    * screen retries a subject request that failed, only while nothing has changed since (a sign-out,
    * a deletion or a permission change makes the stamp stale, so a stale account is never restored). */
   let wanted: { readonly account: string; readonly stamp: ReturnType<AnalyticsClient["stamp"]> } | null = null;
-  /** The account whose subject the client was last confirmed under. */
-  let confirmedAccount: string | null = null;
   const identifySubject = async (asked: string, options: TrackOptions): Promise<void> => {
     if (!isAnalyticsId(asked) || !client.enabled) return;
     const account = asked.toLowerCase();
-    // A different account than the one confirmed: stop attributing to the previous one now, even
-    // if this one's subject cannot be confirmed yet.
-    if (confirmedAccount !== null && confirmedAccount !== account) {
-      confirmedAccount = null;
+    // Unless the client already reports as this account's own subject, stop attributing to whatever
+    // it reports as now (another account's subject, or nobody), and cancel any confirmation still
+    // pending for someone else, even if this account's subject cannot be confirmed yet.
+    const before = await client.captureObservation();
+    const known = before ? await cachedSubject(account, before.permission.origin) : null;
+    if (!(client.accountConfirmed && known !== null && (await client.signedInAs()) === known)) {
       await client.withdrawConfirmation();
     }
     wanted = { account, stamp: client.stamp() };
@@ -396,7 +396,6 @@ export function createAccountIdentifier(deps: {
     }
     if (!(await client.observationCurrent(observation))) return;
     await client.confirm(subject, { quiet: options.quiet, accountId: account });
-    confirmedAccount = account;
   };
 
   return {
