@@ -13,8 +13,11 @@ import { jsonResponse } from "../_shared/store.ts";
 // Two request shapes:
 //   * Released 2.1 clients send a body without `originProof` (usually `{}`). Nothing in it is read,
 //     and the email goes on the account's person, exactly as before.
-//   * A V3 client sends exactly {"originProof": <64 hex>}: a one-way hash of its private consent
-//     handle, never the handle. The server issues (or returns) this device's own PostHog identity
+//   * A V3 client sends exactly {"originProof": <64 hex>}: SHA-256 of its erasure key, itself a
+//     one-way HMAC of its private consent handle; never the handle or the key. This path is off
+//     unless ANALYTICS_SUBJECTS_ENABLED is "true" (HARD GATE: not before the account-deletion
+//     reorder and the subject snapshot are deployed and verified; see migration 0017). While off it
+//     answers 503 and touches nothing. The server issues (or returns) this device's own PostHog identity
 //     (a random "subject", never the account UUID), puts the email on that subject, and answers
 //     {state: "active", subject}. A device that has asked for erasure answers {state: "stopped"},
 //     and a subject retired while the email was being attached also answers "stopped", so the
@@ -57,6 +60,8 @@ export interface SubjectDeps {
 export interface AnalyticsIdentifyDeps extends AuthDeps {
   readonly accounts: AccountLookup;
   readonly posthog: PostHogPort;
+  /** The explicit switch for the per-device path, independent of any credential. Default off. */
+  readonly subjectsEnabled?: boolean;
   readonly subjects?: SubjectDeps | null;
   readonly now?: () => number;
   /** Override for ACCOUNTS_COUNTED_SINCE (tests). */
@@ -115,8 +120,11 @@ async function identifySubject(
   req: Request,
 ): Promise<Response> {
   const subjects = deps.subjects;
-  // Without the store or a project key there is no identity to issue: the device keeps waiting.
-  if (!subjects || !subjects.posthog.canIdentify) return jsonResponse(503, { error: "unavailable" });
+  // Switched off, or without the store or a project key, there is no identity to issue: the device
+  // keeps waiting and nothing is read or written.
+  if (deps.subjectsEnabled !== true || !subjects || !subjects.posthog.canIdentify) {
+    return jsonResponse(503, { error: "unavailable" });
+  }
   const limited = await enforceRateLimit(subjects.limiter, "analytics-identify", userId, req, SUBJECT_RATE_LIMIT);
   if (limited) return limited;
   const issue = await subjects.store.issueSubject(userId, proof);

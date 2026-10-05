@@ -401,9 +401,9 @@ verify_jwt = true
 
 [functions.analytics-erasure]
 # verify_jwt=false is deliberate: device erasure must work without an account (stopping sharing never
-# needs a signup). A device names itself only by its origin proof (a one-way hash of its private
-# consent handle) and the database refuses any target that is not that device's own; the worker
-# route is gated by a constant-time compare against ANALYTICS_ERASURE_WORKER_TOKEN (fail closed).
+# needs a signup). A device sends its erasure key (a one-way HMAC of its private consent handle) and
+# the database derives every target from it; a request names no id. The worker route is gated by a
+# constant-time compare against ANALYTICS_ERASURE_WORKER_TOKEN (fail closed).
 verify_jwt = false
 
 [functions.selector-canary]

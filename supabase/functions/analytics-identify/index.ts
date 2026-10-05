@@ -52,6 +52,10 @@ const accounts = {
   },
 };
 
+// HARD GATE: off unless exactly "true". Not before the account-deletion reorder and the subject
+// snapshot (migration 0017) are deployed and verified.
+const subjectsEnabled = Deno.env.get("ANALYTICS_SUBJECTS_ENABLED") === "true";
+
 Deno.serve((req) =>
-  handleAnalyticsIdentify(req, { jwtSecret, jwksUrl, expected, accounts, posthog, subjects })
+  handleAnalyticsIdentify(req, { jwtSecret, jwksUrl, expected, accounts, posthog, subjectsEnabled, subjects })
 );

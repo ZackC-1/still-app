@@ -9,9 +9,12 @@
 //     matched) counts; anything else is a failure the worker retries, never "done".
 //
 // The bulk_delete response fields used here (persons_found, persons_queued_for_deletion,
-// events_queued_for_deletion, deletion_errors) are documented by PostHog or observed in its source;
-// the synthetic provider proof (U5-W5) must confirm them before any erasure capability is marked
-// verified. Configuration is the same function secrets as posthog.ts.
+// persons_deleted, events_queued_for_deletion, deletion_errors) are documented by PostHog or
+// observed in its source, and are read with the same rules as the account-deletion path (#305).
+// The synthetic provider proof (U5-W5) must confirm them before any erasure capability is marked
+// verified. A person deletion says nothing about when PostHog deletes that person's events (a later
+// batch), which is why a device is not told "deleted" until 8 days after acceptance (0017).
+// Configuration is the same function secrets as posthog.ts.
 
 import { accountCreatedEventId, type PostHogConfig } from "./posthog.ts";
 import type { ErasureOutcome } from "./erasure-store.ts";
@@ -37,21 +40,36 @@ export interface PostHogErasurePort {
   deleteByDistinctIds(distinctIds: readonly string[]): Promise<ErasureOutcome>;
 }
 
-/** Classify one bulk_delete response. Unknown or partial shapes are failures, never success. */
+/**
+ * Classify one bulk_delete response, with the same rules the account-deletion path uses (#305):
+ *   - a 202 that queued or deleted at least one person, with no deletion_errors (an absent field is
+ *     an empty list) and events not refused, is `queued`; fewer queued than found is partial;
+ *   - a 202 with `persons_found: 0`, nothing queued or deleted and no errors is `none_found`
+ *     (PostHog's current answer for ids with no person);
+ *   - deletion_errors, `events_queued_for_deletion: false` or a match that queued nothing is
+ *     `provider_partial`; 429 and 5xx are `provider_unavailable`; other statuses are
+ *     `provider_rejected` (a 400 first gets the older-PostHog check in bulkDelete);
+ *   - anything else is `provider_shape`. Unknown is never success.
+ */
 export function classifyBulkDelete(status: number, body: unknown): ErasureOutcome {
   if (status === 429 || status >= 500) return "provider_unavailable";
   if (status < 200 || status >= 300) return "provider_rejected";
   if (typeof body !== "object" || body === null || Array.isArray(body)) return "provider_shape";
   const b = body as Record<string, unknown>;
-  if (!Array.isArray(b.deletion_errors)) return "provider_shape";
-  if (b.deletion_errors.length > 0) return "provider_partial";
+  if (b.deletion_errors !== undefined) {
+    if (!Array.isArray(b.deletion_errors)) return "provider_shape";
+    if (b.deletion_errors.length > 0) return "provider_partial";
+  }
+  const count = (value: unknown) => (value === undefined ? 0 : Number.isSafeInteger(value) ? value as number : NaN);
+  const queued = count(b.persons_queued_for_deletion) + count(b.persons_deleted);
   const found = b.persons_found;
-  const queued = b.persons_queued_for_deletion;
-  if (!Number.isSafeInteger(found) || (found as number) < 0) return "provider_shape";
-  if (found === 0) return queued === undefined || queued === 0 ? "none_found" : "provider_shape";
-  if (!Number.isSafeInteger(queued) || (queued as number) < 0) return "provider_shape";
-  if ((queued as number) < (found as number)) return "provider_partial";
-  if (queued !== found || b.events_queued_for_deletion !== true) return "provider_shape";
+  if (Number.isNaN(queued) || (found !== undefined && (!Number.isSafeInteger(found) || (found as number) < 0))) {
+    return "provider_shape";
+  }
+  if (found === 0) return queued === 0 ? "none_found" : "provider_shape";
+  if (queued < 1) return found === undefined ? "provider_shape" : "provider_partial";
+  if (b.events_queued_for_deletion === false) return "provider_partial";
+  if (found !== undefined && queued < (found as number)) return "provider_partial";
   return "queued";
 }
 
@@ -67,6 +85,14 @@ export function combineOutcomes(outcomes: readonly ErasureOutcome[]): ErasureOut
 }
 
 const trimSlash = (url: string) => url.trim().replace(/\/+$/, "");
+
+async function readJson(res: Response): Promise<unknown> {
+  try {
+    return JSON.parse(await res.text());
+  } catch {
+    return null; // not JSON: a shape failure when the status was 2xx
+  }
+}
 
 export class HttpPostHogErasure implements PostHogSubjectPort, PostHogErasurePort {
   constructor(
@@ -137,12 +163,31 @@ export class HttpPostHogErasure implements PostHogSubjectPort, PostHogErasurePor
     } catch {
       return "provider_unavailable";
     }
-    let body: unknown = null;
+    const body = await readJson(res);
+    if (res.status !== 400) return classifyBulkDelete(res.status, body);
+    // Older PostHog behaviour (as in #305): with delete_events, ids that match no person were
+    // refused with a 400. Ask again without event deletion, which reported the unmatched ids. Only
+    // "none of these ids has a person" counts; anything else stays a failure. Caveat carried from
+    // #305: if some ids did match, that second call deletes those persons without their events,
+    // which the next run cannot re-target by person; it is reported as partial for follow-up.
+    let check: Response;
     try {
-      body = JSON.parse(await res.text());
+      check = await this.fetchImpl(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.config.personalApiKey!.trim()}`,
+        },
+        body: JSON.stringify({ distinct_ids: distinctIds, delete_events: false }),
+      });
     } catch {
-      /* not JSON: classified as a shape failure below when the status was 2xx */
+      return "provider_unavailable";
     }
-    return classifyBulkDelete(res.status, body);
+    const checked = await readJson(check);
+    if (!check.ok) return classifyBulkDelete(check.status, checked);
+    if (classifyBulkDelete(check.status, checked) === "none_found") return "none_found";
+    const unmatched = (checked as { unmatched_distinct_ids?: unknown } | null)?.unmatched_distinct_ids;
+    if (Array.isArray(unmatched) && distinctIds.every((id) => unmatched.includes(id))) return "none_found";
+    return "provider_partial";
   }
 }

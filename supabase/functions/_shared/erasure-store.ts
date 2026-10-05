@@ -2,9 +2,12 @@
 // tests inject a fake; the Postgres implementation connects ONLY as still_analytics_eraser, whose
 // privileges are EXECUTE on the six private.analytics_* routes and the retained limiter.
 //
-// A device is named only by its origin proof: 32 bytes, sent as 64 lowercase hex characters. The
-// proof is a one-way hash of the device's private consent handle; the handle itself never reaches
-// the server. The database stores only a hash of the proof.
+// Two device values reach the server, each 32 bytes sent as 64 lowercase hex characters, and the
+// device's private consent handle never does (derive.ts on the client):
+//   * the origin proof P = SHA-256(E), sent at sign-in to issue the device's subject;
+//   * the erasure key E = HMAC(handle, "still:analytics:erasure"), sent only when the device asks
+//     to erase itself. The database derives every target from E; a request names no id.
+// The database stores only SHA-256(P), never P or E.
 
 import postgres from "postgres";
 
@@ -40,25 +43,42 @@ export interface ErasureJobRef {
 export interface ClaimedErasureJob extends ErasureJobRef {
   readonly lease: string;
   readonly sweeps: number;
+  readonly attempts: number;
   readonly targets: readonly string[];
+}
+
+export interface RecordedOutcome {
+  /** False when the lease is no longer held (another run claimed the job). */
+  readonly recorded: boolean;
+  /** Five or more failures in a row: alert, and keep retrying. */
+  readonly overdue: boolean;
 }
 
 export interface ErasureStore {
   issueSubject(userId: string, originProof: string): Promise<SubjectIssue>;
   subjectActive(subject: string): Promise<boolean>;
-  /** "refused" when the request names an account id or another device's subject. */
-  beginDeviceErasure(originProof: string, anonymousIds: readonly string[]): Promise<ErasureJobRef | "refused">;
-  erasureStatus(originProof: string): Promise<ErasureJobRef | null>;
+  /** From the erasure key and the last anonymous index the device used; the database derives the
+   * targets. Throws ErasureCapacity when the global cap on new jobs is reached. */
+  beginDeviceErasure(erasureKey: string, anonIndex: number): Promise<ErasureJobRef>;
+  erasureStatus(erasureKey: string): Promise<ErasureJobRef | null>;
   claimWork(limit: number, leaseSeconds: number): Promise<ClaimedErasureJob[]>;
-  /** False when the lease is no longer held (another run claimed the job, or it completed). */
-  recordOutcome(job: string, lease: string, outcome: ErasureOutcome): Promise<boolean>;
+  recordOutcome(job: string, lease: string, outcome: ErasureOutcome): Promise<RecordedOutcome>;
 }
 
 const PROOF = /^[0-9a-f]{64}$/;
+/** The last anonymous index a device may name (derive.ts ANON_INDEX_LIMIT). */
+export const ANON_INDEX_LIMIT = 255;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 export function isOriginProof(value: unknown): value is string {
   return typeof value === "string" && PROOF.test(value);
+}
+
+/** Same shape as a proof; a different value with a different power (see the header). */
+export const isErasureKey = isOriginProof;
+
+export function isAnonIndex(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0 && (value as number) <= ANON_INDEX_LIMIT;
 }
 
 export function isLowerUuid(value: unknown): value is string {
@@ -67,6 +87,14 @@ export function isLowerUuid(value: unknown): value is string {
 
 function isStage(value: unknown): value is ErasureStage {
   return (ERASURE_STAGES as readonly unknown[]).includes(value);
+}
+
+/** The global cap on new device jobs per 10 minutes was reached: try again later. */
+export class ErasureCapacity extends Error {
+  constructor() {
+    super("Analytics erasure capacity reached");
+    this.name = "ErasureCapacity";
+  }
 }
 
 /** Storage failures carry no driver detail: driver errors can include bind parameters. */
@@ -88,9 +116,9 @@ export class PgErasureStore implements ErasureStore {
       if (rows.length !== 1) throw new Error("row");
       return rows[0]!.value;
     } catch (error) {
-      if (error instanceof postgres.PostgresError && error.code === "42501" &&
-        error.message === "analytics erasure target refused") {
-        throw new TargetRefused();
+      if (error instanceof postgres.PostgresError && error.code === "53400" &&
+        error.message === "analytics erasure capacity") {
+        throw new ErasureCapacity();
       }
       throw new ErasureStorageUnavailable();
     }
@@ -114,24 +142,19 @@ export class PgErasureStore implements ErasureStore {
     return value;
   }
 
-  async beginDeviceErasure(originProof: string, anonymousIds: readonly string[]): Promise<ErasureJobRef | "refused"> {
-    try {
-      const value = await this.one(() =>
-        this.sql<{ value: unknown }[]>`
-          select private.analytics_begin_device_erasure(pg_catalog.decode(${originProof}, 'hex'),
-            pg_catalog.string_to_array(${anonymousIds.join(",")}, ',')::uuid[]) as value`
-      );
-      return jobRef(value);
-    } catch (error) {
-      if (error instanceof TargetRefused) return "refused";
-      throw error;
-    }
-  }
-
-  async erasureStatus(originProof: string): Promise<ErasureJobRef | null> {
+  async beginDeviceErasure(erasureKey: string, anonIndex: number): Promise<ErasureJobRef> {
     const value = await this.one(() =>
       this.sql<{ value: unknown }[]>`
-        select private.analytics_erasure_status(pg_catalog.decode(${originProof}, 'hex')) as value`
+        select private.analytics_begin_device_erasure(pg_catalog.decode(${erasureKey}, 'hex'),
+          ${anonIndex}::integer) as value`
+    );
+    return jobRef(value);
+  }
+
+  async erasureStatus(erasureKey: string): Promise<ErasureJobRef | null> {
+    const value = await this.one(() =>
+      this.sql<{ value: unknown }[]>`
+        select private.analytics_erasure_status(pg_catalog.decode(${erasureKey}, 'hex')) as value`
     ) as Record<string, unknown> | null;
     if (value && value.stage === null) return null;
     return jobRef(value);
@@ -148,24 +171,22 @@ export class PgErasureStore implements ErasureStore {
       const ref = jobRef(v);
       const targets = v.targets;
       if (
-        !isLowerUuid(v.lease) || !Number.isSafeInteger(v.sweeps) ||
+        !isLowerUuid(v.lease) || !Number.isSafeInteger(v.sweeps) || !Number.isSafeInteger(v.attempts) ||
         !Array.isArray(targets) || !targets.every(isLowerUuid)
       ) throw new ErasureStorageUnavailable();
-      return { ...ref, lease: v.lease, sweeps: v.sweeps as number, targets };
+      return { ...ref, lease: v.lease, sweeps: v.sweeps as number, attempts: v.attempts as number, targets };
     });
   }
 
-  async recordOutcome(job: string, lease: string, outcome: ErasureOutcome): Promise<boolean> {
+  async recordOutcome(job: string, lease: string, outcome: ErasureOutcome): Promise<RecordedOutcome> {
     const value = await this.one(() =>
       this.sql<{ value: unknown }[]>`
         select private.analytics_record_erasure_outcome(${job}::uuid, ${lease}::uuid, ${outcome}) as value`
     ) as Record<string, unknown> | null;
     if (typeof value?.recorded !== "boolean") throw new ErasureStorageUnavailable();
-    return value.recorded;
+    return { recorded: value.recorded, overdue: value.overdue === true };
   }
 }
-
-class TargetRefused extends Error {}
 
 function jobRef(value: unknown): ErasureJobRef {
   const v = value as Record<string, unknown> | null;
@@ -173,8 +194,11 @@ function jobRef(value: unknown): ErasureJobRef {
   return { job: v.job, stage: v.stage };
 }
 
-/** What a device is told about its erasure. "deleted" once the provider confirmed and the first
- * sweep found nothing; later sweeps continue in the background. Pending is never success. */
+/** What a device is told about its erasure. Pending is never success: "deleted" only at
+ * `complete`, which the database reaches no sooner than 8 days after PostHog accepted the deletion
+ * and only after a sweep then finds nobody. A person that is gone says nothing about its events,
+ * which PostHog deletes in a later batch (weekends on PostHog Cloud), so a confirmed person
+ * deletion still reads as "verifying". Later sweeps continue in the background. */
 export type DeviceErasureState = "none" | "requested" | "verifying" | "deleted";
 
 export function deviceErasureState(ref: ErasureJobRef | null): DeviceErasureState {
@@ -183,8 +207,8 @@ export function deviceErasureState(ref: ErasureJobRef | null): DeviceErasureStat
     case "stop_recorded":
       return "requested";
     case "provider_delete_accepted":
-      return "verifying";
     case "provider_delete_confirmed":
+      return "verifying";
     case "complete":
       return "deleted";
   }

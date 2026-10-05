@@ -1,9 +1,10 @@
 import {
   deviceErasureState,
+  ErasureCapacity,
   ErasureStorageUnavailable,
   type ErasureStore,
-  isLowerUuid,
-  isOriginProof,
+  isAnonIndex,
+  isErasureKey,
 } from "../_shared/erasure-store.ts";
 import type { PostHogErasurePort } from "../_shared/posthog-erasure.ts";
 import { clientIp, type RateLimiter, tooManyRequests } from "../_shared/rate-limit.ts";
@@ -14,26 +15,29 @@ import { runErasureWorker } from "./worker.ts";
 // Device-slice erasure (U5-W2). Called by a device that has turned sharing off, with or without an
 // account (D144: stopping never needs a signup), and by the deletion worker.
 //
-//   {"action":"device","originProof":<64 hex>,"anonymousIds":[<uuid>, ...]}  → 202 {state}
-//   {"action":"status","originProof":<64 hex>}                                → 200 {state}
-//   {"action":"work"} with the worker token in Authorization                  → 200 {claimed, ...}
+//   {"action":"device","erasureKey":<64 hex>,"anonIndex":<0..255>}  → 202 {state}
+//   {"action":"status","erasureKey":<64 hex>}                       → 200 {state}
+//   {"action":"work"} with the worker token in Authorization        → 200 {claimed, ...}
 //
-// The device names itself only by its origin proof, a one-way hash of its private consent handle;
-// the handle never reaches the server. The anonymous ids are the ids the device derived and sent
-// under; the database refuses any that is an account id or another device's subject, so a request
-// can delete only what that device sent. Any other key (an account id, an email, the handle) is
-// refused, not ignored. Nothing a request carries is logged.
+// The erasure key is HMAC(private consent handle, "still:analytics:erasure"); the handle never
+// reaches the server. The request names no id: the database derives the device's anonymous ids
+// (indexes 0 to anonIndex) from the key, and finds the device's issued subjects by
+// SHA-256(SHA-256(key)). Knowing someone's anonymous id, account id or origin proof (which crosses
+// the network at every sign-in) gives no power to delete or to read status here: both need the key.
+// Any other key in the body (an account id, an email, a list of ids, the handle) is refused.
+// Nothing a request carries is logged.
 //
 // config.toml: verify_jwt = false. No session token is needed or read on the device routes; the
 // worker route is gated by a constant-time compare against its invocation token (fail closed).
 
-export const MAX_BODY_BYTES = 16_384;
-export const MAX_ANONYMOUS_IDS = 256;
-/** Per client address, per 10 minutes. A device submits once and polls on later Still screens. */
-export const ERASURE_IP_LIMIT = 30;
+export const MAX_BODY_BYTES = 1024;
+/** Per client address, per 10 minutes, in separate buckets: polling never spends the submit budget. */
+export const SUBMIT_IP_LIMIT = 30;
 export const STATUS_IP_LIMIT = 120;
 export const WORKER_BATCH = 10;
 export const WORKER_LEASE_SECONDS = 300;
+/** Retry-After for the global new-job cap (the cap's window). */
+export const CAPACITY_RETRY_SECONDS = 600;
 
 export interface AnalyticsErasureDeps {
   /** Null when this deployment has no eraser credential: every route answers 503. */
@@ -81,10 +85,18 @@ async function readBody(req: Request): Promise<Record<string, unknown> | null> {
 const hasExactly = (body: Record<string, unknown>, keys: readonly string[]) =>
   Object.keys(body).length === keys.length && keys.every((key) => Object.hasOwn(body, key));
 
-async function limited(deps: AnalyticsErasureDeps, req: Request, max: number): Promise<Response | null> {
+/** Per-address limit for one route. A request whose address cannot be determined is refused: the
+ * address is the only limiting key on these account-free routes. */
+async function limited(
+  deps: AnalyticsErasureDeps,
+  req: Request,
+  surface: "analytics-erasure-submit" | "analytics-erasure-status",
+  max: number,
+): Promise<Response | null> {
   const ip = clientIp(req);
-  if (ip === null || !deps.limiter) return null;
-  const wait = await deps.limiter.consume(`analytics-erasure:ip:${ip}`, max, 600);
+  if (ip === null) return jsonResponse(400, { error: "invalid_request" });
+  if (!deps.limiter) return unavailable();
+  const wait = await deps.limiter.consume(`${surface}:ip:${ip}`, max, 600);
   return wait > 0 ? tooManyRequests(wait) : null;
 }
 
@@ -96,27 +108,22 @@ export async function handleAnalyticsErasure(req: Request, deps: AnalyticsErasur
   try {
     switch (body.action) {
       case "device": {
-        if (!hasExactly(body, ["action", "originProof", "anonymousIds"]) || !isOriginProof(body.originProof)) {
-          return invalid();
-        }
-        const ids = body.anonymousIds;
         if (
-          !Array.isArray(ids) || ids.length < 1 || ids.length > MAX_ANONYMOUS_IDS || !ids.every(isLowerUuid) ||
-          new Set(ids).size !== ids.length
+          !hasExactly(body, ["action", "erasureKey", "anonIndex"]) || !isErasureKey(body.erasureKey) ||
+          !isAnonIndex(body.anonIndex)
         ) return invalid();
         if (!deps.store) return unavailable();
-        const limit = await limited(deps, req, ERASURE_IP_LIMIT);
+        const limit = await limited(deps, req, "analytics-erasure-submit", SUBMIT_IP_LIMIT);
         if (limit) return limit;
-        const ref = await deps.store.beginDeviceErasure(body.originProof, ids);
-        if (ref === "refused") return invalid();
+        const ref = await deps.store.beginDeviceErasure(body.erasureKey, body.anonIndex);
         return jsonResponse(202, { state: deviceErasureState(ref) });
       }
       case "status": {
-        if (!hasExactly(body, ["action", "originProof"]) || !isOriginProof(body.originProof)) return invalid();
+        if (!hasExactly(body, ["action", "erasureKey"]) || !isErasureKey(body.erasureKey)) return invalid();
         if (!deps.store) return unavailable();
-        const limit = await limited(deps, req, STATUS_IP_LIMIT);
+        const limit = await limited(deps, req, "analytics-erasure-status", STATUS_IP_LIMIT);
         if (limit) return limit;
-        return jsonResponse(200, { state: deviceErasureState(await deps.store.erasureStatus(body.originProof)) });
+        return jsonResponse(200, { state: deviceErasureState(await deps.store.erasureStatus(body.erasureKey)) });
       }
       case "work": {
         const auth = req.headers.get("Authorization") ?? "";
@@ -137,6 +144,12 @@ export async function handleAnalyticsErasure(req: Request, deps: AnalyticsErasur
         return invalid();
     }
   } catch (error) {
+    if (error instanceof ErasureCapacity) {
+      return jsonResponse(503, { error: "busy", retry_after: CAPACITY_RETRY_SECONDS }, {
+        "retry-after": String(CAPACITY_RETRY_SECONDS),
+        "access-control-expose-headers": "retry-after",
+      });
+    }
     // Fixed categories only: no proof, id or driver text reaches the log.
     console.error(
       "analytics-erasure failed:",
