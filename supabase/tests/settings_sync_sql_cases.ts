@@ -314,7 +314,7 @@ export async function verifySettingsLimiterBuckets(
 
 export async function verifySettingsLegacyOwnerGrants(
   fixture: Database,
-  candidate: string,
+  migration: string,
 ) {
   const owner = [
     ...await fixture`select r.rolname,r.rolsuper from pg_catalog.pg_proc p join pg_catalog.pg_roles r on r.oid=p.proowner where p.oid='public.write_profile_settings(jsonb,uuid)'::regprocedure`,
@@ -365,12 +365,14 @@ export async function verifySettingsLegacyOwnerGrants(
     ].allowed,
     true,
   );
-  // The first precondition must fail before any candidate DDL. The surrounding transaction
-  // also proves the deliberately drifted owner is restored; no grants bless the new owner.
+  // The owner precondition must fail before any migration DDL, even when the executing role
+  // is the right one. The surrounding transaction also proves the deliberately drifted owner is
+  // restored; no grants bless the new owner.
   const failure = await assertRejects(() =>
     fixture.begin(async (tx) => {
       await tx`alter function public.write_profile_settings(jsonb,uuid) owner to u1_catalog_fixture`;
-      await tx.unsafe(candidate);
+      await tx`set local role postgres`;
+      await tx.unsafe(migration);
     })
   );
   assertEquals((failure as Error & { code: string }).code, "42501");
@@ -382,24 +384,27 @@ export async function verifySettingsLegacyOwnerGrants(
     [...await fixture`select r.rolname,r.rolsuper from pg_catalog.pg_proc p join pg_catalog.pg_roles r on r.oid=p.proowner where p.oid='public.write_profile_settings(jsonb,uuid)'::regprocedure`],
     owner,
   );
+  // Every helper is owned by the ordinary migration role. A superuser (or any other role)
+  // re-running the migration is refused before DDL, so ownership can never drift to it.
   const creator = [
-    ...await fixture`select proowner,proacl from pg_catalog.pg_proc where oid='private.settings_json_bounded(jsonb)'::regprocedure`,
+    ...await fixture`select p.oid::regprocedure::text as routine,pg_catalog.pg_get_userbyid(p.proowner) as owner,p.proacl::text as acl from pg_catalog.pg_proc p where p.pronamespace='private'::regnamespace order by 1`,
   ];
-  const grantStart = candidate.lastIndexOf("do $$ declare helper text;");
-  assert(grantStart >= 0);
+  assertEquals(creator.length, 7);
+  for (const row of creator) assertEquals(row.owner, "postgres", row.routine);
   const creatorFailure = await assertRejects(() =>
     fixture.begin(async (tx) => {
-      await tx`alter function private.settings_json_bounded(jsonb) owner to postgres`;
-      await tx.unsafe(candidate.slice(grantStart));
+      await tx.unsafe(migration);
     })
   );
   assertEquals((creatorFailure as Error & { code: string }).code, "42501");
   assertEquals(
     (creatorFailure as Error).message,
-    "settings helper creator precondition",
+    "settings sync migration role precondition",
   );
   assertEquals(
-    [...await fixture`select proowner,proacl from pg_catalog.pg_proc where oid='private.settings_json_bounded(jsonb)'::regprocedure`],
+    [
+      ...await fixture`select p.oid::regprocedure::text as routine,pg_catalog.pg_get_userbyid(p.proowner) as owner,p.proacl::text as acl from pg_catalog.pg_proc p where p.pronamespace='private'::regnamespace order by 1`,
+    ],
     creator,
   );
 }

@@ -29,9 +29,10 @@ export function connection(
     debug: onQuery ? () => onQuery() : undefined,
   });
 }
-export async function source(name: string) {
+/** The numbered settings-sync migration, exactly as the CLI applies it. */
+export async function migrationSource() {
   return await Deno.readTextFile(
-    new URL(`../../scripts/backend/sql/${name}.sql`, import.meta.url),
+    new URL("../migrations/0015_settings_sync_per_field.sql", import.meta.url),
   );
 }
 export function write(

@@ -238,6 +238,75 @@ export function lintVerificationSql(text) {
   return true;
 }
 
+// ── Ordering between migrations listed together ──────────────────────────────────────────────
+
+const ROUTINE = /([a-z_][a-z0-9_]*)\s*\.\s*([a-z_][a-z0-9_]*)\s*\(/g;
+
+function stripComments(sql) {
+  return String(sql)
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/--[^\n]*/g, " ")
+    .toLowerCase();
+}
+
+/**
+ * Schema-qualified routines a migration changes: created or replaced, altered (including its
+ * configuration), dropped, or named in a GRANT/REVOKE on functions. `schema.*` marks a statement
+ * that covers every function in a schema. Dynamic SQL is not seen; that limit is why the rule
+ * below is a refusal, never permission.
+ */
+export function routinesChanged(sql) {
+  const text = stripComments(sql);
+  const names = new Set();
+  for (const m of text.matchAll(
+    /\b(?:create\s+(?:or\s+replace\s+)?|alter\s+|drop\s+)(?:function|procedure)\s+(?:if\s+exists\s+)?([a-z_][a-z0-9_]*)\s*\.\s*([a-z_][a-z0-9_]*)\s*\(/g,
+  ))
+    names.add(`${m[1]}.${m[2]}`);
+  for (const m of text.matchAll(
+    /\b(?:grant|revoke)\b[^;]*?\bon\s+(?:function|routine|procedure)s?\s+([^;]*?)\s+(?:to|from)\b/g,
+  ))
+    for (const r of m[1].matchAll(ROUTINE)) names.add(`${r[1]}.${r[2]}`);
+  for (const m of text.matchAll(
+    /\bon\s+all\s+(?:functions|routines|procedures)\s+in\s+schema\s+([a-z_][a-z0-9_]*)/g,
+  ))
+    names.add(`${m[1]}.*`);
+  return names;
+}
+
+/** Schema-qualified routines a verification query names in a string literal, e.g. 'public.f(...)'. */
+export function routinesPinned(verificationSql) {
+  const names = new Set();
+  for (const literal of stripComments(verificationSql).matchAll(
+    /'((?:[^']|'')*)'/g,
+  ))
+    for (const r of literal[1].matchAll(ROUTINE)) names.add(`${r[1]}.${r[2]}`);
+  return names;
+}
+
+/**
+ * Refuse a plan in which a later listed migration changes a routine that an earlier listed
+ * migration's post-apply verification pins. All verifications run after the whole push, so the
+ * earlier check would judge the later migration's state and fail after the apply. Such
+ * migrations deploy one at a time, each verified before the next.
+ */
+export function assertIndependentVerifications(migrations) {
+  for (let i = 0; i < migrations.length; i++) {
+    const pinned = routinesPinned(migrations[i].verificationText);
+    for (let j = i + 1; j < migrations.length; j++) {
+      const changed = routinesChanged(migrations[j].text);
+      const hit = [...pinned].filter(
+        (name) => changed.has(name) || changed.has(`${name.split(".")[0]}.*`),
+      );
+      if (hit.length > 0) {
+        throw new Refusal(
+          "verification-overlap",
+          `${migrations[j].file} changes ${hit.sort().join(", ")}, which the post-apply check of ${migrations[i].file} pins; deploy ${migrations[i].file} alone and verify it first`,
+        );
+      }
+    }
+  }
+}
+
 // ── Plan ───────────────────────────────────────────────────────────────────────────────────────
 
 export async function createDeployPlan({
@@ -300,6 +369,7 @@ export async function createDeployPlan({
     );
   }
   const hashed = [];
+  const sourceText = new Map();
   for (const m of atSha) {
     const path = `${MIGRATIONS_DIR}/${m.file}`;
     const bytes = await git.blob(inputs.sha, path);
@@ -311,6 +381,7 @@ export async function createDeployPlan({
       );
     }
     hashed.push({ ...m, sha256: sha256(bytes) });
+    sourceText.set(m.file, bytes.toString("utf8"));
   }
   const byFile = new Map(hashed.map((m) => [m.file, m]));
 
@@ -330,11 +401,17 @@ export async function createDeployPlan({
     return { path, sha256: sha256(bytes), text: bytes.toString("utf8") };
   };
   const planned = [];
+  const ordering = [];
   for (const m of listed) {
     const verification = await boundFile(`${VERIFY_DIR}/${m.file}`, {
       category: "verification-missing",
     });
     lintVerificationSql(verification.text);
+    ordering.push({
+      file: m.file,
+      text: sourceText.get(m.file),
+      verificationText: verification.text,
+    });
     const invariant = await boundFile(invariantPath(m.file), {
       optional: true,
       category: "invariant-missing",
@@ -347,6 +424,7 @@ export async function createDeployPlan({
       invariant: pick(invariant),
     });
   }
+  assertIndependentVerifications(ordering);
   const config = await boundFile(CONFIG_PATH, { category: "config-missing" });
 
   const tooling = [];

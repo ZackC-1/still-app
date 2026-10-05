@@ -20,6 +20,7 @@ import {
   type StillWindow,
 } from "./redirect.js";
 import { createReapplyObserver, type Scheduler } from "./observer.js";
+import type { TikTokBlockedNavigation } from "./tiktok-blocked-navigation.js";
 
 // The document_start orchestrator. It wires the engine to a live page: reads settings from the
 // SettingsCache's SYNCHRONOUS snapshot (never awaiting the adapter on the apply path), hooks SPA
@@ -39,6 +40,11 @@ export interface ContentScriptDeps {
   readonly capabilities?: ReadonlySet<BenefitId>;
   /** Trusted host adapter for the approved TikTok screen; absent means that action stays held. */
   readonly handleBlockedNavigation?: (target: URL) => boolean;
+  /**
+   * Legacy-lane host for the TikTok blocked page (tiktok-blocked-navigation.ts). Absent keeps the
+   * existing in-page block. Consulted only for a blocked TikTok decision on the current document.
+   */
+  readonly tiktokBlockedPage?: Pick<TikTokBlockedNavigation, "current">;
   readonly cache: SettingsCache;
   readonly entitlement?: EntitlementCache;
   /** Override destination navigation; default preserves native push/replacement history intent. */
@@ -239,6 +245,11 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
         setRootActive(false);
         setRootProActive(false);
         setRootService(null);
+        // TikTok's whole-site block belongs to its extension page when a host provides one: an
+        // allowed tab stays untouched, a held page stays hidden while the host redirects it, and
+        // only a host failure falls through to the in-page block below.
+        if (decision.blocked && deps.tiktokBlockedPage && pageSession.activeServiceId() === "tiktok" &&
+          deps.tiktokBlockedPage.current() !== "fallback") return;
         renderPlaceholder(doc, decision.blocked ? blockedLine : placeholderLine);
         return;
       case "apply":
@@ -359,6 +370,14 @@ export {
   type StillWindow,
 } from "./redirect.js";
 export { createReapplyObserver, type ObserverHandle, type Scheduler } from "./observer.js";
+export {
+  backForwardNavigation,
+  createTikTokBlockedNavigation,
+  type TikTokBlockedNavigation,
+  type TikTokBlockedNavigationDeps,
+  type TikTokBlockedPageState,
+} from "./tiktok-blocked-navigation.js";
+export { TIKTOK_ROUTE } from "./tiktok-blocked-route.js";
 export {
   createExtensionContentEntry,
   createShippingContentEntry,
