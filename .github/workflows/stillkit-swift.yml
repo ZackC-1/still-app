@@ -6,7 +6,6 @@ on:
     paths:
       - 'apps/apple/StillKit/**'
       - 'apps/apple/Still/**'
-      - 'packages/core/src/ui/config.ts'
       - 'packages/shared-types/src/entitlement.ts'
       - 'packages/shared-types/fixtures/**'
       - 'tests/access-proof/**'
@@ -16,7 +15,6 @@ on:
     paths:
       - 'apps/apple/StillKit/**'
       - 'apps/apple/Still/**'
-      - 'packages/core/src/ui/config.ts'
       - 'packages/shared-types/src/entitlement.ts'
       - 'packages/shared-types/fixtures/**'
       - 'tests/access-proof/**'
@@ -41,7 +39,7 @@ jobs:
           persist-credentials: false
 
       # No SwiftPM cache: the package has no dependencies, so there is nothing worth caching.
-      # Uses the runner's default Xcode; the package needs swift-tools-version 6.0 or later.
+      # Uses the runner's default Xcode (Swift 6.0 or later; the package's tools version is 6.0).
       - name: Show toolchain
         run: |
           xcode-select -p
