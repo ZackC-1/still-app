@@ -1,7 +1,11 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { FEATURE_REGISTRY, type ServiceId } from "@still/shared-types";
-  import { rowsFor, type DesktopPopupProps } from "./presentation.js";
+  import {
+    proRowsDormant,
+    rowsFor,
+    type DesktopPopupProps,
+  } from "./presentation.js";
   import { serviceIconSrc } from "./service-icons.js";
   import PopupInvitation from "./PopupInvitation.svelte";
   import {
@@ -75,6 +79,7 @@
           ].includes(access.states[row.id]),
       ),
   );
+  let dormant = $derived(proRowsDormant(access));
   let invitationReady = $derived(
     invitation?.identity.surface === browser.toLowerCase() &&
       !desktopSetup &&
@@ -248,6 +253,7 @@
                       id={row.id}
                       label={labels[row.id] ?? row.label}
                       state={access.states[row.id]}
+                      dormant={dormant && row.tier === "pro"}
                       checked={settings.sites[row.id]}
                       inactive={commandsDisabled ||
                         !settings.globalOn ||
