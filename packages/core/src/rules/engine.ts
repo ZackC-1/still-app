@@ -2,7 +2,11 @@ import { FEATURE_REGISTRY, PAID_TIER_ENABLED, type ServiceId, type SignedRuleSet
 import { resolveService, etldPlusOne, applyRedirectTemplate, urlMatchesPattern } from "./match.js";
 
 import { validateRuleSetV2 } from "./schema.js";
-import { CURRENT_ACCESS_CAPABILITIES, initialAccessSnapshot, isBenefitEffective } from "../entitlement/access-policy.js";
+import { accessCapabilities, initialAccessSnapshot, isBenefitEffective } from "../entitlement/access-policy.js";
+import { extrasRouteMatches, resolveExtrasRoute, type ExtrasRouteTable } from "./extras.js";
+import { YOUTUBE_EXTRAS } from "./youtube-extras.js";
+import { INSTAGRAM_EXTRAS } from "./instagram-extras.js";
+import { FACEBOOK_EXTRAS } from "./facebook-extras.js";
 
 // The framework-agnostic rule engine. Pure functions over a rule set + settings + a DOM, so the
 // whole thing is unit-testable in jsdom without a browser. The content script (U7) owns side
@@ -160,7 +164,7 @@ function reelViewerItem(
  * resolving match patterns again on every mutation frame.
  */
 export function createEnginePageSession(ruleSet: SignedRuleSet | SignedRuleSetV2): EnginePageSession {
-  if ("format" in ruleSet) return createFormat2PageSession(ruleSet);
+  if ("format" in ruleSet) return createFormat2PageSession(ruleSet, PACKAGED_EXTRAS_ROUTES);
   let lastSettings: StillSettings | null = null;
   let lastHref: string | null = null;
   let lastPro: boolean | undefined;
@@ -500,20 +504,46 @@ function safeQueryAll(doc: Document, selector: string): Element[] {
   }
 }
 
+/** The compiled Still Pro extras routes, one module per service. Consulted only when effective. */
+const PACKAGED_EXTRAS_ROUTES: ExtrasRouteTable = Object.freeze({
+  youtube: YOUTUBE_EXTRAS.routes,
+  instagram: INSTAGRAM_EXTRAS.routes,
+  facebook: FACEBOOK_EXTRAS.routes,
+});
+
+/**
+ * Test-only seam: a format-2 session over synthetic extras routes, for the dormancy and loop
+ * tests. No shipped module imports it (a static test checks), so bundlers drop it and a shipped
+ * session always uses the compiled per-service tables.
+ */
+export function createFormat2PageSessionForTest(ruleSet: SignedRuleSetV2, extrasRoutes: ExtrasRouteTable): EnginePageSession {
+  return createFormat2PageSession(ruleSet, extrasRoutes);
+}
+
+/** The packaged host capabilities when a caller supplies none: free-only while paid is off. */
+const PACKAGED_CAPABILITIES = accessCapabilities({ paidMode: PAID_TIER_ENABLED });
+
 // The format2 branch extends the same page-session interpreter. Selection is an internal host
 // seam: its caller must admit packaged or signature-verified data; loaders/seeds remain format1.
 // Root-scoped CSS owns hides, including inserted and recycled nodes, without touching renderer
 // children/styles/listeners or scanning the document on each mutation. Navigation/media adapters
 // and the approved TikTok blocked screen remain separate U7/service integration boundaries.
 let format2Sequence = 0;
-function createFormat2PageSession(input: unknown): EnginePageSession {
+function createFormat2PageSession(input: unknown, extrasRoutes: ExtrasRouteTable): EnginePageSession {
   const admitted = validateRuleSetV2(input);
   if (!admitted.ok) throw new Error("Invalid format2 interpreter input");
   const ruleSet = admitted.value;
   const scope = `still-feature-${++format2Sequence}`;
   const featureClass = (benefit: BenefitId): string => `${scope}-${benefit.replace(".", "-")}`;
   const plans = new Map<ServiceId, Map<BenefitId, readonly string[]>>();
-  const css = new Map<ServiceId, string>();
+  // Owned CSS rules per service and feature. The stylesheet text is composed from the EFFECTIVE
+  // features only, in plan order, so a dormant or Off feature adds no rules (no style recalculation
+  // cost and no bytes) to a page; with only the free core effective the text is exactly the
+  // free-only text.
+  const css = new Map<ServiceId, Map<BenefitId, readonly string[]>>();
+  // Every feature the service's session can make effective: hide plan features, then features
+  // that only route. The predicate below decides which of them actually apply.
+  const candidates = new Map<ServiceId, readonly BenefitId[]>();
   let compiledSelectors = 0;
   for (const [id, service] of Object.entries(ruleSet.services)) {
     if (!service) continue;
@@ -525,16 +555,16 @@ function createFormat2PageSession(input: unknown): EnginePageSession {
     }
     const plan = new Map([...selectors].map(([benefit, values]) => [benefit, [...values]] as const));
     plans.set(id as ServiceId, plan);
-    const rules: string[] = [];
+    const rules = new Map<BenefitId, readonly string[]>();
     for (const [benefit, values] of plan) {
       compiledSelectors += values.length;
-      for (const selector of values) {
-        // :is() keeps EVERY comma-list branch below the same owned feature gate. One rule per
-        // selector lets a browser reject unsupported syntax without discarding its neighbours.
-        rules.push(`.${featureClass(benefit)} :is(${selector}){display:none!important}`);
-      }
+      // :is() keeps EVERY comma-list branch below the same owned feature gate. One rule per
+      // selector lets a browser reject unsupported syntax without discarding its neighbours.
+      rules.set(benefit, values.map(selector => `.${featureClass(benefit)} :is(${selector}){display:none!important}`));
     }
-    css.set(id as ServiceId, rules.join("\n"));
+    css.set(id as ServiceId, rules);
+    const routeOnly = (extrasRoutes[id as ServiceId] ?? []).map(route => route.feature).filter(feature => !plan.has(feature));
+    candidates.set(id as ServiceId, [...new Set([...plan.keys(), ...routeOnly])]);
   }
   const defaultAccess = initialAccessSnapshot();
   let stopped = false, serviceResolutions = 0, rootWrites = 0;
@@ -545,6 +575,7 @@ function createFormat2PageSession(input: unknown): EnginePageSession {
   let serviceId: ServiceId | null = null;
   let coreEffective = false;
   let effective: readonly BenefitId[] = [];
+  let styleText = "";
   let decision: Decision = { kind: "noop" };
   let ownedRoot: Element | null = null;
   let ownedStyle: HTMLStyleElement | null = null;
@@ -556,11 +587,11 @@ function createFormat2PageSession(input: unknown): EnginePageSession {
   const prepare = (settings: StillSettings | SettingsV2, url: URL, opts: EngineOptions): void => {
     if (stopped) return;
     const access = opts.access ?? defaultAccess;
-    const capabilities = opts.capabilities ?? CURRENT_ACCESS_CAPABILITIES;
-    const capabilityKey = [...plans.values()].flatMap(plan => [...plan.keys()]).map(benefit => `${benefit}:${capabilities.has(benefit)}`).join("|");
+    const capabilities = opts.capabilities ?? PACKAGED_CAPABILITIES;
+    const capabilityKey = [...candidates.values()].flat().map(benefit => `${benefit}:${capabilities.has(benefit)}`).join("|");
     if (settings === previousSettings && url.href === previousHref && access === previousAccess && capabilityKey === previousCapabilities) return;
     previousSettings = settings; previousHref = url.href; previousAccess = access; previousCapabilities = capabilityKey;
-    serviceResolutions++; serviceId = null; coreEffective = false; effective = []; decision = { kind: "noop" };
+    serviceResolutions++; serviceId = null; coreEffective = false; effective = []; styleText = ""; decision = { kind: "noop" };
     // No feature defaults/migration are invented by the engine. It consumes only the writer's
     // current schema2 projection; a legacy/unresolved model leaves this dormant lane held.
     if (!("schemaVersion" in settings) || settings.schemaVersion !== 2 || !settings.sites) return;
@@ -568,47 +599,65 @@ function createFormat2PageSession(input: unknown): EnginePageSession {
       if (service?.matches.some(pattern => urlMatchesPattern(url, pattern))) { serviceId = id as ServiceId; break; }
     }
     if (!serviceId || (Array.isArray(settings.pauses) && settings.pauses.includes(etldPlusOne(url.hostname)))) return;
-    effective = [...(plans.get(serviceId)?.keys() ?? [])].filter(benefit =>
+    const service = serviceId;
+    effective = (candidates.get(service) ?? []).filter(benefit =>
       isBenefitEffective(settings as SettingsV2, benefit, access.states[benefit], capabilities.has(benefit)));
+    styleText = effective.flatMap(benefit => css.get(service)?.get(benefit) ?? []).join("\n");
     decision = effective.length === 0 ? { kind: "noop" } : effective.includes("tiktok.all") ? { kind: "placeholder", blocked: true } : { kind: "apply" };
     // Routing semantics are compiled here, never accepted from downloaded selector data.
     // Use the same committed predicate and registry core ownership as reversible hides.
     const core = FEATURE_REGISTRY.find(feature => feature.service === serviceId && feature.tier === "free")?.id;
     coreEffective = !!core && isBenefitEffective(settings as SettingsV2, core, access.states[core], capabilities.has(core));
-    if (coreEffective) {
-      let destination: URL | null = null;
-      if (serviceId === "youtube") {
-        const id = /^\/shorts\/([\w-]+)\/?$/.exec(url.pathname)?.[1];
-        if (id) {
-          destination = new URL(url.href);
-          destination.pathname = "/watch";
-          // Preserve deliberate playlist, time and share context; normalize only the video ID.
-          destination.searchParams.set("v", id);
-        }
-      } else if (((serviceId === "instagram" || serviceId === "facebook") && /^\/reels\/?$/.test(url.pathname))
-        || (serviceId === "facebook" && /^\/watch\/reels\/?$/.test(url.pathname))) {
-        // Category browsing only: the bare Reels feeds and Facebook's own Reels feed under
-        // Watch. Direct/shared singular /reel/<id>, a Page's or profile's own Reels tab,
-        // normal/live videos, people/groups/search/messages and their query-bearing routes stay
-        // usable.
-        destination = new URL("/", url.origin);
-      } else if (serviceId === "instagram" && INSTAGRAM_REELS_VIEWER.test(url.pathname)) {
-        // Instagram's plural /reels/<code>/ feed viewer opens that same Reel at Instagram's own
-        // shared-Reel address, /reel/<code>/ (query and fragment kept); the continuation guard
-        // then stops it advancing into another Reel.
-        destination = new URL(url.href);
-        destination.pathname = `/reel/${INSTAGRAM_REELS_VIEWER.exec(url.pathname)![1]}/`;
-      }
-      if (destination && destination.href !== url.href) decision = { kind: "redirect", url: destination.href };
+    const coreRoute = (target: URL): URL | null => {
+      const destination = coreEffective ? coreDestination(service, target) : null;
+      return destination && destination.href !== target.href ? destination : null;
+    };
+    const routed = coreRoute(url);
+    if (routed) decision = { kind: "redirect", url: routed.href };
+    else if (decision.kind === "apply") {
+      // Extras routes run only after the free core declined this URL, so they can never shadow it,
+      // and each entry is consulted only while its own feature is effective.
+      const routes = extrasRoutes[service] ?? [];
+      const extra = resolveExtrasRoute(routes, url, effective,
+        destination => coreRoute(destination) !== null || extrasRouteMatches(routes, destination, effective));
+      if (extra) decision = { kind: "redirect", url: extra.href };
     }
   };
+  /** The free core's compiled destination for `url`, or null; the caller checks it is effective. */
+  function coreDestination(service: ServiceId, url: URL): URL | null {
+    let destination: URL | null = null;
+    if (service === "youtube") {
+      const id = /^\/shorts\/([\w-]+)\/?$/.exec(url.pathname)?.[1];
+      if (id) {
+        destination = new URL(url.href);
+        destination.pathname = "/watch";
+        // Preserve deliberate playlist, time and share context; normalize only the video ID.
+        destination.searchParams.set("v", id);
+      }
+    } else if (((service === "instagram" || service === "facebook") && /^\/reels\/?$/.test(url.pathname))
+      || (service === "facebook" && /^\/watch\/reels\/?$/.test(url.pathname))) {
+      // Category browsing only: the bare Reels feeds and Facebook's own Reels feed under
+      // Watch. Direct/shared singular /reel/<id>, a Page's or profile's own Reels tab,
+      // normal/live videos, people/groups/search/messages and their query-bearing routes stay
+      // usable.
+      destination = new URL("/", url.origin);
+    } else if (service === "instagram" && INSTAGRAM_REELS_VIEWER.test(url.pathname)) {
+      // Instagram's plural /reels/<code>/ feed viewer opens that same Reel at Instagram's own
+      // shared-Reel address, /reel/<code>/ (query and fragment kept); the continuation guard
+      // then stops it advancing into another Reel.
+      destination = new URL(url.href);
+      destination.pathname = `/reel/${INSTAGRAM_REELS_VIEWER.exec(url.pathname)![1]}/`;
+    }
+    return destination;
+  }
   const apply = (settings: StillSettings | SettingsV2, url: URL, doc: Document, opts: EngineOptions): ApplyResult => {
     prepare(settings, url, opts);
     if (stopped) return { hidden: 0, removed: 0 };
     const root = doc.documentElement;
     if (decision.kind !== "apply" || !root || !serviceId) { clearEffects(); return { hidden: 0, removed: 0 }; }
     if (ownedRoot !== root) { clearEffects(); ownedRoot = root; }
-    const desired = new Set(effective.map(featureClass));
+    // Route-only features own no CSS, so they never add a root class.
+    const desired = new Set(effective.filter(benefit => plans.get(serviceId!)?.has(benefit)).map(featureClass));
     for (const name of ownedClasses) {
       if (!desired.has(name)) { root.classList.remove(name); ownedClasses.delete(name); rootWrites++; }
     }
@@ -616,8 +665,7 @@ function createFormat2PageSession(input: unknown): EnginePageSession {
       if (!root.classList.contains(name)) { root.classList.add(name); ownedClasses.add(name); rootWrites++; }
     }
     ownedStyle ??= doc.createElement("style");
-    const text = css.get(serviceId) ?? "";
-    if (ownedStyle.textContent !== text) ownedStyle.textContent = text;
+    if (ownedStyle.textContent !== styleText) ownedStyle.textContent = styleText;
     if (!ownedStyle.isConnected) (doc.head ?? root).append(ownedStyle);
     // Counts describe explicit JS node effects. Native CSS matching is intentionally not counted
     // or instrumented per target, and there is no retained site-node collection.

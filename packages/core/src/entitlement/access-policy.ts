@@ -96,13 +96,60 @@ export interface TrustedAccessContext {
 }
 
 export const ACCESS_BENEFITS: readonly BenefitId[] = Object.freeze([...FEATURE_IDS, "tiktok.all"]);
-// This source slice has no optional U7/service implementations. Their actual capabilities stay
-// unsupported until those adapters supply the trusted host context; no paid activation inferred.
-export const CURRENT_ACCESS_CAPABILITIES: ReadonlySet<BenefitId> = new Set([
-  ...FEATURE_REGISTRY.filter(feature => feature.tier === "free").map(feature => feature.id), "tiktok.all",
-]);
-export function packagedAccessContext(): TrustedAccessContext {
-  return { paidMode: PAID_TIER_ENABLED, supported: CURRENT_ACCESS_CAPABILITIES,
+
+/** The extension hosts whose packaged content engine can implement a Still Pro feature. */
+export type AccessHost = "chromium" | "firefox" | "safari";
+export const ACCESS_HOSTS: readonly AccessHost[] = Object.freeze(["chromium", "firefox", "safari"]);
+type ProFeatureId = Extract<(typeof FEATURE_REGISTRY)[number], { readonly tier: "pro" }>["id"];
+
+/**
+ * Still Pro features whose packaged engine implementation exists, per host. Each site packet adds
+ * its own entries together with the code that implements them; no feature is listed here before
+ * its implementation ships. Listing a feature never activates it: see accessCapabilities.
+ */
+export const IMPLEMENTED_PRO_FEATURES: Readonly<Record<AccessHost, readonly ProFeatureId[]>> = Object.freeze({
+  chromium: Object.freeze([]),
+  firefox: Object.freeze([]),
+  safari: Object.freeze([]),
+});
+
+export interface AccessCapabilityInput {
+  readonly paidMode: boolean;
+  /** Absent when the caller does not know its host: only features implemented on EVERY host count. */
+  readonly host?: AccessHost;
+}
+
+/**
+ * The dormancy gate (owner decision 6). A Still Pro feature is a host capability only while the
+ * paid tier is on AND the host implements it. While paid is off the set is exactly the free
+ * features plus the TikTok alias, so every Pro feature resolves to `unsupported` and its engine
+ * effect is zero whatever its saved choice. Without this gate, adding a finished extra here with
+ * paid off would resolve it to `free` (initialAccessSnapshot) and apply a saved On for everyone.
+ */
+export function accessCapabilities(input: AccessCapabilityInput): ReadonlySet<BenefitId> {
+  return capabilitiesFrom(input, IMPLEMENTED_PRO_FEATURES);
+}
+
+/**
+ * Test-only seam: the same gate over a synthetic implementation table, so unit tests can exercise
+ * the paid-on branch. No shipped module imports it (a static test checks), so bundlers drop it and
+ * the shipped artifact has no way to supply a table.
+ */
+export function accessCapabilitiesForTest(input: AccessCapabilityInput,
+  implemented: Readonly<Record<AccessHost, readonly BenefitId[]>>): ReadonlySet<BenefitId> {
+  return capabilitiesFrom(input, implemented);
+}
+
+function capabilitiesFrom(input: AccessCapabilityInput, table: Readonly<Record<AccessHost, readonly BenefitId[]>>): ReadonlySet<BenefitId> {
+  const free: BenefitId[] = [...FEATURE_REGISTRY.filter(feature => feature.tier === "free").map(feature => feature.id), "tiktok.all"];
+  if (!input.paidMode) return new Set(free);
+  const pro = FEATURE_REGISTRY.filter(feature => feature.tier === "pro").map(feature => feature.id)
+    .filter(id => input.host ? table[input.host].includes(id) : ACCESS_HOSTS.every(host => table[host].includes(id)));
+  return new Set([...free, ...pro]);
+}
+
+export function packagedAccessContext(host?: AccessHost): TrustedAccessContext {
+  return { paidMode: PAID_TIER_ENABLED, supported: accessCapabilities({ paidMode: PAID_TIER_ENABLED, host }),
     localRights: new Set(), evidenceStatus: "unknown" };
 }
 

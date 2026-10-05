@@ -2,6 +2,7 @@ import type { StoredSettingsRecord } from "@still/core/storage";
 import {
   composeSafariV3,
   decideSafariV3,
+  trackAddedStylesheets,
   type SafariV3Composition,
 } from "../../lib/safari-v3-runtime.js";
 import type { SafariV3BuildInput } from "../../lib/safari-v3.js";
@@ -23,10 +24,13 @@ export interface SafariV3OptionsDeps {
 /** "v3" once the V3 settings page has mounted; otherwise "legacy" (see the popup's gate). */
 export async function startSafariV3Options(deps: SafariV3OptionsDeps): Promise<"v3" | "legacy"> {
   if (!(await decideSafariV3(deps.env, deps.probe).catch(() => false))) return "legacy";
+  // Loading the components adds their stylesheets to the page; every hand-over to legacy removes them.
+  const dropV3Styles = trackAddedStylesheets();
   let view: SafariV3OptionsView;
   try {
     view = await (deps.load ?? (() => import("./v3-mount.js")))();
   } catch {
+    dropV3Styles();
     return "legacy";
   }
   const target = document.getElementById("app")!;
@@ -34,6 +38,7 @@ export async function startSafariV3Options(deps: SafariV3OptionsDeps): Promise<"
   try {
     composition = composeSafariV3("options");
   } catch {
+    dropV3Styles();
     return "legacy";
   }
   try {
@@ -41,6 +46,7 @@ export async function startSafariV3Options(deps: SafariV3OptionsDeps): Promise<"
   } catch {
     composition.stop();
     target.replaceChildren();
+    dropV3Styles();
     return "legacy";
   }
   try {
