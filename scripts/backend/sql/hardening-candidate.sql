@@ -21,14 +21,14 @@ do $$ declare signature text; table_name text; column_name text; creator text; b
   ] loop
     execute format('revoke all on function %s from public, anon, authenticated', signature);
     execute format('grant execute on function %s to still_entitlement_writer', signature);
-    execute format('alter function %s set search_path = %L', signature, '');
+    execute format('alter function %s set search_path = pg_catalog, pg_temp', signature);
   end loop;
   -- Trigger/cleanup helpers stay owner-only, and free settings sync stays authenticated-only.
   revoke all on function public.cleanup_rate_limit_counters(), public.sync_rate_limit_account()
     from public, anon, authenticated, still_entitlement_writer;
   revoke all on function public.write_profile_settings(jsonb,uuid) from public, anon;
   grant execute on function public.write_profile_settings(jsonb,uuid) to authenticated;
-  alter function public.write_profile_settings(jsonb,uuid) set search_path = '';
+  alter function public.write_profile_settings(jsonb,uuid) set search_path = pg_catalog, pg_temp;
 
   foreach table_name in array array[
     'profiles', 'entitlements', 'revenuecat_events', 'rule_sets', 'rate_limit_counters', 'rate_limit_window_keys', 'canary_state'
@@ -72,10 +72,11 @@ grant select (user_id, still_sync) on public.entitlements to authenticated;
 -- These read grants preserve the existing zero-row RLS response, not raw event/rule enumeration.
 grant select on public.revenuecat_events, public.rule_sets to anon, authenticated;
 
--- Qualify the sole original unqualified table reference before pinning an empty search_path.
+-- Qualify the sole original unqualified table reference before pinning the search_path
+-- (pg_catalog, pg_temp: pg_temp last, as migration 0015 does for every SECURITY DEFINER function).
 create or replace function public.get_current_rule_set()
 returns table (version text, payload jsonb, signature jsonb)
-language sql security definer set search_path = '' stable
+language sql security definer set search_path = pg_catalog, pg_temp stable
 as $$ select r.version, r.payload, r.signature from public.rule_sets r where r.is_current = true limit 1; $$;
 revoke all on function public.get_current_rule_set() from public;
 grant execute on function public.get_current_rule_set() to anon, authenticated;
