@@ -20,6 +20,11 @@
     props: Record<string, unknown>;
   } = $props();
 
+  // `.r-body` is the simulated page (or popup) viewport. The review device's own transform would
+  // otherwise make the whole device, including the simulated tab bar or title bar, the containing
+  // block for the product's position:fixed dialogs and sheets. The reference draws those dialogs
+  // "contained" in this body, so the body, not the browser chrome, is the viewport here.
+  const VIEWPORT = "contain:layout";
   const device = $derived(spec.kind === "device" ? spec : null);
   const sheet = $derived(
     device?.device === "iphone" || device?.device === "android",
@@ -84,7 +89,7 @@
             <div class="r-grab" aria-hidden="true"></div>
             <div
               class="r-body"
-              style={`padding-bottom:${device.safeBottom ?? 0}px`}
+              style={`padding-bottom:${device.safeBottom ?? 0}px;${VIEWPORT}`}
             >
               <Screen {...props} />
             </div>
@@ -92,7 +97,7 @@
         {:else}
           <div
             class="r-body"
-            style={`padding-top:${device.safeTop ?? 0}px;padding-bottom:${device.safeBottom ?? 0}px`}
+            style={`padding-top:${device.safeTop ?? 0}px;padding-bottom:${device.safeBottom ?? 0}px;${VIEWPORT}`}
           >
             <Screen {...props} />
           </div>
