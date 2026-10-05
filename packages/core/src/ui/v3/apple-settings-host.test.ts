@@ -291,6 +291,21 @@ describe("Apple settings mode rule", () => {
     const index = readFileSync(resolve(import.meta.dirname, "../index.ts"), "utf8");
     expect(index).not.toMatch(/AppleSettings\.svelte/);
   });
+
+  // PR #286 P3-4 gate: D04's Restore link is the dedicated free-period handler, wired through the
+  // `restoreBridge` prop to the host's own `freeRestore.start`. AppleSession.onRestore is the
+  // paid-tier path (RevenueCat identity transfer) and must never be reachable from this screen.
+  it("D04 Restore is the dedicated free-period handler, never AppleSession.onRestore", () => {
+    const main = readFileSync(MAIN_PATH, "utf8");
+    const mountSettings = main.slice(main.indexOf("async function mountAppleSettings("));
+    const props = mountSettings.slice(mountSettings.indexOf("props: {"), mountSettings.indexOf("} catch"));
+    expect(props).toContain("restoreBridge: appleRestoreBridge(bridge),");
+    expect(props).not.toMatch(/onRestore|session/i);
+    const host = readFileSync(HOST_PATH, "utf8");
+    expect(host).toContain("onRestore={restoreBridge ? freeRestore.start : undefined}");
+    expect(host.match(/onRestore/g)).toHaveLength(1);
+    expect(host).not.toMatch(/AppleSession|session\.onRestore|\.onRestore\(/);
+  });
 });
 
 describe.each(BACKENDS)("native settings authority (%s)", (_name, factory) => {
