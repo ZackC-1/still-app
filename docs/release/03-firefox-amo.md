@@ -25,13 +25,18 @@ It uses content-script Shorts redirection, without Chromium's DNR permission/rul
 | `gecko.id` | `still@chartash.com` — permanent identifier, not a contact mailbox |
 | `gecko.strict_min_version` | `140.0` |
 | `gecko.data_collection_permissions` | `required: ["authenticationInfo"]` |
-| `gecko_android.strict_min_version` | `142.0` — Firefox for Android, first release with the built-in data-consent screen |
+| `gecko_android.strict_min_version` | `142.0` — Firefox for Android, first release with the built-in data-consent screen; V3 builds only |
 | Permissions | Storage and the four supported website hosts; no `<all_urls>` |
 
 All blocking is free without an account. Optional email-code sign-in syncs settings for free;
 there is no purchase requirement. Do not lower the Android floor or change the stable identifier
 as metadata housekeeping. When uploading the first version with `gecko_android`, confirm AMO lists
 it as compatible with Firefox for Android.
+
+`gecko_android` is added only when the build runs the V3 interface: an unconfigured build, or a
+configured build with `VITE_MODERN_SETTINGS_SYNC_ENABLED=true` (the same rule as the runtime's
+`atomicLocal`). A configured 2.x build is never listed for Android; check the built
+`manifest.json` before upload.
 
 ## Complete source reproduction
 
