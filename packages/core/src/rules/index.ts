@@ -78,3 +78,8 @@ export {
   type RuleSetTrust,
   type WritableArea,
 } from "./loader.js";
+export {
+  PACKAGED_RULE_SET_V2,
+  PACKAGED_FREE_FEATURES,
+  admitPackagedRuleSetV2,
+} from "./packaged.js";

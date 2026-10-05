@@ -22,6 +22,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "sign-seed": "node scripts/sign-seed.mjs",
+    "sign-format2": "node scripts/sign-format2.mjs",
     "gen-rule-set-key": "node scripts/gen-rule-set-key.mjs",
     "sign-prod-set": "node scripts/sign-prod-set.mjs",
     "typecheck": "svelte-check --tsconfig ./tsconfig.json"
