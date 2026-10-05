@@ -17,6 +17,37 @@ final class OnboardingGatePresenterTests: XCTestCase {
     super.tearDown()
   }
 
+  private var appleRoot: URL {
+    // …/apps/apple/StillKit/Tests/StillKitTests/<this file> → …/apps/apple
+    URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+  }
+
+  /// A deliberate tripwire. Nothing presents onboarding in the web view until the web app wires the
+  /// D12 host, so the web presenter must not be selectable from any shipped Info.plist or build
+  /// setting. Update this expectation in the same change that wires the web onboarding.
+  func testShippedBuildsDoNotSelectTheWebPresenter() throws {
+    let files = [
+      "Still/iOS (App)/Info.plist",
+      "Still/macOS (App)/Info.plist",
+      "Still/iOS (Extension)/Info.plist",
+      "Still/macOS (Extension)/Info.plist",
+      "Still/Still.xcodeproj/project.pbxproj",
+    ]
+    for path in files {
+      let url = appleRoot.appendingPathComponent(path)
+      let text = try String(contentsOf: url, encoding: .utf8)
+      XCTAssertFalse(
+        text.contains(OnboardingGate.presenterInfoKey),
+        "\(path) selects an onboarding presenter before the web onboarding is wired")
+    }
+    // The key read by the app must be the one this tripwire searches for.
+    XCTAssertEqual(OnboardingGate.presenterInfoKey, "StillOnboardingPresenter")
+  }
+
   func testShippedConfigurationKeepsSwiftUI() {
     // No key is what every shipped Info.plist has today.
     XCTAssertEqual(OnboardingGate.presenter(fromInfoValue: nil), .swiftUI)
