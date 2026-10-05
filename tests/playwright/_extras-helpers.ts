@@ -75,3 +75,20 @@ export function expectOnlyFreeScopedRules(rules: readonly string[]) {
     expect(rule, "every owned rule is scoped to a free feature class").toMatch(FREE_SCOPE);
   }
 }
+
+/** Copy the product has approved that legitimately contains a purchase word (strip before scanning). */
+export const APPROVED_PURCHASE_COPY = [
+  "If you were charged, Restore purchase will find it.",
+  "Already purchased? Restore",
+  "Restore purchase",
+] as const;
+
+const PURCHASE_WORDS =
+  /\b(buy|purchase|purchased|upgrade|subscribe|checkout|price|pricing)\b|[$€£]\s?\d|\d\s?(usd|eur|gbp)\b/i;
+
+/** True when text offers a purchase, ignoring only the exact approved strings above. */
+export function offersPurchase(text: string): boolean {
+  let rest = text.replace(/\s+/g, " ");
+  for (const approved of APPROVED_PURCHASE_COPY) rest = rest.split(approved).join(" ");
+  return PURCHASE_WORDS.test(rest);
+}

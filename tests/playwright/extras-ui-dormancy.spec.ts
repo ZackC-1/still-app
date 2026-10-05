@@ -1,76 +1,103 @@
 import { test, expect } from "./_extension.js";
 import type { Page } from "@playwright/test";
 import { EXTRAS_CONTROLS } from "../../packages/core/src/rules/__tests__/extras-fixtures.js";
-import { setAllExtras } from "./_extras-helpers.js";
+import { offersPurchase, setAllExtras } from "./_extras-helpers.js";
 
-// The UI half of A4 on the SHIPPED Chromium build, paid tier off. With all 12 extras committed On,
-// no extras row may render as an enabled switch and nothing on the page may offer a purchase.
-// Accepts either today's state ("unsupported": a note and no control) or the locked state of owner
-// decision 24 (a lock and "Still Pro", never a purchase). It forbids an enabled switch and any
-// Buy, price or purchase entry. Which of the two states shows is not asserted here.
+// The UI half of A4 on the SHIPPED Chromium build, paid tier off. Two independent checks:
+//
+// 1. Rows (unconfigured lane only: it needs committed schema-2 settings). With all 12 extras
+//    committed On, no extras row may render as an enabled switch. Each service section is opened
+//    in turn (they are an accordion, so only one is ever open) and that service's rows are
+//    checked while open; all 12 must be inspected on options AND popup. Accepts today's
+//    "unsupported" state or the locked state of owner decision 24; forbids an enabled switch or
+//    any purchase wording in a row.
+// 2. Page-wide purchase scan (BOTH lanes). Nothing on options.html or popup.html may offer a
+//    purchase. The configured build is where the purchase pieces actually exist, so this check
+//    must not be skipped there.
 
 const syncConfigured = process.env.STILL_TEST_SYNC_CONFIGURED === "true";
-test.skip(
-  syncConfigured,
-  "Format-2 lane needs committed schema-2 settings; configured builds stay on the legacy lane",
-);
 
-test.use({ settingsProfile: "modern" });
+// The 12 row names as the registry spells them, grouped by the service section that holds them.
+const ROWS_BY_SERVICE = {
+  YouTube: ["Related videos", "End-of-video suggestions", "Autoplay prevention", "Comments", "Live chat"],
+  Instagram: ["Explore recommendations", "Stories and Highlights", "Suggested accounts", "Threads links"],
+  Facebook: ["Facebook Stories", "Videos and Watch", "Desktop sidebar ads"],
+} as const;
 
-// The 12 row names as the registry spells them (the UI may relabel, but only to these).
-const ROW_NAMES = [
-  "Related videos", "End-of-video suggestions", "Autoplay prevention", "Comments", "Live chat",
-  "Explore recommendations", "Stories and Highlights", "Suggested accounts", "Threads links",
-  "Facebook Stories", "Videos and Watch", "Desktop sidebar ads",
-] as const;
+test("purchase matcher: approved copy passes, purchase offers fail", () => {
+  expect(offersPurchase("Restore purchase")).toBe(false);
+  expect(offersPurchase("Already purchased? Restore")).toBe(false);
+  expect(offersPurchase("If you were charged, Restore purchase will find it.")).toBe(false);
+  expect(offersPurchase("Buy Still Pro")).toBe(true);
+  expect(offersPurchase("Buy Still Pro for $1.99")).toBe(true);
+  expect(offersPurchase("Restore purchase. Buy Still Pro")).toBe(true);
+  expect(offersPurchase("Only $1.99")).toBe(true);
+  expect(offersPurchase("Upgrade to Still Pro")).toBe(true);
+  expect(offersPurchase("Still Pro")).toBe(false);
+  expect(EXTRAS_CONTROLS).toHaveLength(12);
+});
 
-const PURCHASE_WORDS = /\b(buy|purchase|purchased|upgrade|subscribe|checkout|price|pricing)\b|[$€£]\s?\d|\d\s?(usd|eur|gbp)\b/i;
-
-async function openExpanded(page: Page, url: string) {
-  await page.goto(url);
-  await expect(page.locator("body")).toContainText("Still is");
-  // Service sections may start collapsed; open them all so every row is in the DOM.
-  for (const toggle of await page.getByRole("button", { name: /^(YouTube|Instagram|Facebook) Blocker/ }).all())
-    if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click();
-  await page.waitForTimeout(300);
+async function openSection(page: Page, service: keyof typeof ROWS_BY_SERVICE) {
+  const header = page.getByRole("button", { name: new RegExp(`^${service} Blocker`) });
+  if ((await header.getAttribute("aria-expanded")) !== "true") await header.click();
+  await expect(header).toHaveAttribute("aria-expanded", "true");
 }
 
+test.describe("extras rows (schema-2 lane)", () => {
+  test.skip(
+    syncConfigured,
+    "Format-2 lane needs committed schema-2 settings; configured builds stay on the legacy lane",
+  );
+  test.use({ settingsProfile: "modern" });
+
+  for (const surface of ["options", "popup"] as const)
+    test(`dormant UI: ${surface} shows no enabled switch for the 12 extras`, async ({ context, extensionId }) => {
+      await setAllExtras(context, extensionId, true);
+      const page = await context.newPage();
+      await page.goto(`chrome-extension://${extensionId}/${surface}.html`);
+      await expect(page.locator("body")).toContainText("Still is");
+
+      let inspected = 0;
+      for (const [service, names] of Object.entries(ROWS_BY_SERVICE) as [keyof typeof ROWS_BY_SERVICE, readonly string[]][]) {
+        await openSection(page, service);
+        for (const name of names) {
+          const row = page.locator(".option-row").filter({ has: page.locator(".label", { hasText: new RegExp(`^${name}$`) }) });
+          await expect(row, `${name} is shown once while ${service} is open`).toHaveCount(1);
+          await expect(row, `${name} is visible while ${service} is open`).toBeVisible();
+          inspected++;
+          const controls = await row.locator('[role="switch"], input[type="checkbox"]').evaluateAll((nodes) =>
+            nodes.map((node) => ({
+              enabled: !(node as HTMLButtonElement).disabled && node.getAttribute("aria-disabled") !== "true",
+              checked: node.getAttribute("aria-checked") === "true" || (node as HTMLInputElement).checked === true,
+            })),
+          );
+          for (const control of controls) expect(control.enabled, `${name} must not be an enabled switch`).toBe(false);
+          expect(controls.filter((c) => c.checked && c.enabled), `${name}: no interactive checked control`).toEqual([]);
+          // A locked row may offer "Still Pro"; it must not offer a purchase.
+          expect(offersPurchase(await row.innerText()), `${name} row text offers no purchase`).toBe(false);
+        }
+      }
+      expect(inspected, "every extras row was inspected").toBe(12);
+    });
+});
+
+// Both lanes: the configured build is the one that carries the purchase pieces.
 for (const surface of ["options", "popup"] as const)
-  test(`dormant UI: ${surface} shows no enabled switch for the 12 extras and no purchase entry`, async ({ context, extensionId }) => {
-    await setAllExtras(context, extensionId, true);
+  test(`dormant UI: ${surface} offers no purchase text or control anywhere`, async ({ context, extensionId }) => {
     const page = await context.newPage();
-    await openExpanded(page, `chrome-extension://${extensionId}/${surface}.html`);
+    await page.goto(`chrome-extension://${extensionId}/${surface}.html`);
+    await expect(page.getByRole("switch").first()).toBeVisible();
+    await page.waitForTimeout(800); // let late-rendering cards (sign-in, Pro offers) appear
 
-    let found = 0;
-    for (const name of ROW_NAMES) {
-      const row = page.locator(".option-row").filter({ has: page.locator(".label", { hasText: new RegExp(`^${name}$`) }) });
-      const count = await row.count();
-      expect(count, `${name} appears at most once`).toBeLessThanOrEqual(1);
-      if (count === 0) continue;
-      found++;
-      // No interactive switch or checkbox that is enabled, whether or not it is checked.
-      const controls = await row.locator('[role="switch"], input[type="checkbox"]').evaluateAll((nodes) =>
-        nodes.map((node) => ({
-          enabled: !(node as HTMLButtonElement).disabled && node.getAttribute("aria-disabled") !== "true",
-          checked: node.getAttribute("aria-checked") === "true" || (node as HTMLInputElement).checked === true,
-        })),
-      );
-      for (const control of controls) expect(control.enabled, `${name} must not be an enabled switch`).toBe(false);
-      expect(controls.filter((c) => c.checked && c.enabled), `${name}: no interactive checked control`).toEqual([]);
-      // A locked row may offer "Still Pro"; it must not be a purchase.
-      const rowText = (await row.innerText()).replace(/\s+/g, " ");
-      expect(rowText, `${name} row text`).not.toMatch(PURCHASE_WORDS);
-    }
-    // Options lists every row today. The popup may fold them away; either way none misbehaves.
-    if (surface === "options") expect(found, "every extras row was inspected").toBe(ROW_NAMES.length);
-    expect(EXTRAS_CONTROLS).toHaveLength(12);
-
-    // No purchase control or wording anywhere on the page.
     const text = (await page.locator("body").innerText()).replace(/\s+/g, " ");
-    expect(text, "page text offers no purchase").not.toMatch(PURCHASE_WORDS);
+    expect(text.length, "the page rendered").toBeGreaterThan(20);
+    expect(offersPurchase(text), `page text offers no purchase: ${text}`).toBe(false);
+    // Hidden panels have empty innerText; textContent also covers anything merely collapsed.
+    const all = (await page.locator("body").evaluate((body) => body.textContent ?? "")).replace(/\s+/g, " ");
+    expect(offersPurchase(all), "page textContent offers no purchase").toBe(false);
     const controls = await page.locator("button, a, [role='button'], [role='link'], input[type='submit']").evaluateAll((nodes) =>
       nodes.map((n) => `${n.textContent ?? ""} ${n.getAttribute("aria-label") ?? ""} ${n.getAttribute("href") ?? ""}`.replace(/\s+/g, " ").trim()),
     );
-    for (const label of controls) expect(label, `control "${label}"`).not.toMatch(PURCHASE_WORDS);
+    for (const label of controls) expect(offersPurchase(label), `control "${label}"`).toBe(false);
     expect(page.url()).toContain(`/${surface}.html`);
   });
