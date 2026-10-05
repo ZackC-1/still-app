@@ -7,6 +7,7 @@
 //   node scripts/release/chrome-release.mjs check-inputs
 //   node scripts/release/chrome-release.mjs protection
 //   node scripts/release/chrome-release.mjs verify-artifact --dir <work>
+//   node scripts/release/chrome-release.mjs check-ids                     (before any sign-in)
 //   node scripts/release/chrome-release.mjs preflight      --dir <work>   (read-only token)
 //   node scripts/release/chrome-release.mjs upload         --dir <work>   (write token)
 //   node scripts/release/chrome-release.mjs submit         --dir <work>   (write token)
@@ -23,7 +24,7 @@ import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createStoreClient, decidePreflight, parseChromeVersion, redact, StoreRefusal, summarizeStatus } from "./chrome-store.mjs";
+import { createStoreClient, decidePreflight, parseChromeVersion, redact, StoreRefusal, summarizeStatus, validateItemIds } from "./chrome-store.mjs";
 
 export const EXPECTED = Object.freeze({
   repository: "ZackC-1/still-app",
@@ -276,13 +277,13 @@ export async function main(argv, deps = {}) {
   const say = (line) => out(redact(line, secrets).slice(0, 600) + "\n");
   const setOutput = (key, value) => env.GITHUB_OUTPUT && appendFileSync(env.GITHUB_OUTPUT, `${key}=${value}\n`);
   const [command, ...rest] = argv;
-  const known = ["check-inputs", "protection", "verify-artifact", "preflight", "upload", "submit", "receipt"];
+  const known = ["check-inputs", "protection", "verify-artifact", "check-ids", "preflight", "upload", "submit", "receipt"];
   try {
     if (!known.includes(command)) throw new StoreRefusal("usage", `usage: chrome-release.mjs <${known.join("|")}> [--dir <work>]`);
     const dirArg = argValue(rest, "--dir");
     if (!(rest.length === 0 || (rest.length === 2 && rest[0] === "--dir" && dirArg && !dirArg.startsWith("--")))) throw new StoreRefusal("usage", "Only --dir <work> is accepted");
     const dir = dirArg && resolve(dirArg);
-    if (command !== "check-inputs" && command !== "protection" && !dir) throw new StoreRefusal("usage", "--dir is required");
+    if (!["check-inputs", "protection", "check-ids"].includes(command) && !dir) throw new StoreRefusal("usage", "--dir is required");
     // Mask the publisher ID in what GitHub prints AFTER this line. Its first appearance, in the env
     // list GitHub shows at the top of the first step that receives it, is printed unmasked; that is
     // accepted because it is an identifier, not a credential (see docs/release/chrome-publish-workflow.md).
@@ -321,6 +322,12 @@ export async function main(argv, deps = {}) {
       for (const w of warnings) say(`Note: ${w}`);
       if (issues.length) throw new StoreRefusal("protection", `Release safeguards differ from what was approved: ${issues.join(", ")}`);
       say("Approval safeguards verified: owner-only review, no admin bypass, restricted branches, owner approved this run.");
+      return 0;
+    }
+    if (command === "check-ids") {
+      // Runs before the first sign-in, so a missing or mistyped variable stops the job before any token exists.
+      validateItemIds({ publisherId: env.CWS_PUBLISHER_ID, itemId: env.CWS_EXTENSION_ID });
+      say(`Chrome identifiers present and well formed (extension ${env.CWS_EXTENSION_ID}).`);
       return 0;
     }
     if (command === "verify-artifact") {

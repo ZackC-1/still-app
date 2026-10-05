@@ -137,6 +137,12 @@ export function decidePreflight(summary, version) {
   return { action: "proceed", note: published?.version ? `Store has ${published.version}; ${version} is higher.` : `No published version found; ${version} will be the first.` };
 }
 
+/** The Chrome publisher and extension IDs must be present and well formed. Throws before any request. */
+export function validateItemIds({ publisherId, itemId }) {
+  if (typeof publisherId !== "string" || !PUBLISHER_ID.test(publisherId)) throw new StoreRefusal("config-missing", "The publisher ID (CWS_PUBLISHER_ID) is missing or malformed");
+  if (typeof itemId !== "string" || !EXTENSION_ID.test(itemId)) throw new StoreRefusal("config-missing", "The extension ID (CWS_EXTENSION_ID) is missing or malformed");
+}
+
 const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
@@ -146,8 +152,7 @@ const defaultSleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export function createStoreClient({ fetchImpl, token, publisherId, itemId, sleep = defaultSleep, pollIntervalMs = 10_000, pollTimeoutMs = 300_000, readRetries = 3 }) {
   if (typeof fetchImpl !== "function") throw new StoreRefusal("config-missing", "No transport was provided");
   if (typeof token !== "string" || token.length < 10) throw new StoreRefusal("token-missing", "No Google access token is available; keyless sign-in did not happen, and there is no other way in");
-  if (typeof publisherId !== "string" || !PUBLISHER_ID.test(publisherId)) throw new StoreRefusal("config-missing", "The publisher ID is missing or malformed");
-  if (typeof itemId !== "string" || !EXTENSION_ID.test(itemId)) throw new StoreRefusal("config-missing", "The extension ID is missing or malformed");
+  validateItemIds({ publisherId, itemId });
   const name = `publishers/${publisherId}/items/${itemId}`;
   const secrets = [token, publisherId];
 

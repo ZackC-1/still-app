@@ -231,7 +231,7 @@ test("the module has no way to cancel a review or change a rollout percentage", 
   const source = readFileSync(new URL("chrome-store.mjs", HERE), "utf8") + readFileSync(new URL("chrome-release.mjs", HERE), "utf8");
   for (const forbidden of [":cancelSubmission", ":setPublishedDeployPercentage", "deployPercentage\":", "STAGED_PUBLISH\"", "skipReview: true", "/v1.1/", "chromewebstore/v1"])
     assert.ok(!source.includes(forbidden), forbidden);
-  assert.deepEqual(Object.keys(storeModule).sort(), ["API_ORIGIN", "PUBLISH_BODY", "READ_SCOPE", "StoreRefusal", "WRITE_SCOPE", "compareChromeVersions", "createStoreClient", "decidePreflight", "parseChromeVersion", "redact", "summarizeStatus"]);
+  assert.deepEqual(Object.keys(storeModule).sort(), ["API_ORIGIN", "PUBLISH_BODY", "READ_SCOPE", "StoreRefusal", "WRITE_SCOPE", "compareChromeVersions", "createStoreClient", "decidePreflight", "parseChromeVersion", "redact", "summarizeStatus", "validateItemIds"]);
   assert.deepEqual(Object.keys(client(fakeStore({}).fetchImpl)).sort(), ["fetchStatus", "name", "secrets", "submit", "upload", "waitForUpload"]);
 });
 
@@ -246,6 +246,30 @@ test("the scripts that run beside the token load only Node built-ins and each ot
     assert.ok(!/\bimport\(/.test(source), `${file} has a dynamic import`);
     assert.ok(!/process\.env\.\w*(API|BASE|ORIGIN|URL)/.test(source), `${file} reads an address from the environment`);
   }
+});
+
+test("check-ids stops on a missing or malformed Chrome identifier, before any sign-in or request", async () => {
+  const base = { ...RUN_ENV, RELEASE_MODE: "upload", RELEASE_COMMIT: COMMIT, RELEASE_VERSION: "2.2.0", RELEASE_ZIP_SHA256: "a".repeat(64) };
+  const store = fakeStore({});
+  const run = async (ids) => {
+    const io = capture();
+    const code = await main(["check-ids"], { env: { ...base, ...ids }, fetchImpl: store.fetchImpl, ...io.deps });
+    return { code, text: io.text() };
+  };
+  assert.equal((await run({ CWS_PUBLISHER_ID: PUBLISHER, CWS_EXTENSION_ID: ITEM })).code, 0);
+  for (const ids of [
+    { CWS_EXTENSION_ID: ITEM },
+    { CWS_PUBLISHER_ID: "", CWS_EXTENSION_ID: ITEM },
+    { CWS_PUBLISHER_ID: "has/slash", CWS_EXTENSION_ID: ITEM },
+    { CWS_PUBLISHER_ID: PUBLISHER },
+    { CWS_PUBLISHER_ID: PUBLISHER, CWS_EXTENSION_ID: "" },
+    { CWS_PUBLISHER_ID: PUBLISHER, CWS_EXTENSION_ID: "midpefhbieafmeboompbboemeahjjnkz" },
+  ]) {
+    const { code, text } = await run(ids);
+    assert.equal(code, 1, JSON.stringify(ids));
+    assert.match(text, /config-missing/);
+  }
+  assert.equal(store.calls.length, 0);
 });
 
 // ---- upload flow ----

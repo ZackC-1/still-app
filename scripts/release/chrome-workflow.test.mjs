@@ -150,6 +150,14 @@ const checks = {
     for (const forbidden of ["pnpm", "npm ", "npx", "yarn", "corepack", "package.mjs", "chrome-package.mjs"]) assert.ok(!run.includes(forbidden), forbidden);
     assert.ok(steps(w.jobs.store).every((s) => !s.run || /^node scripts\/release\/chrome-release\.mjs [a-z-]+( --dir "\$RUNNER_TEMP\/chrome-release")?$/.test(s.run.trim()) || s === steps(w.jobs.store)[0]));
   },
+  "Chrome identifiers are checked in their own step before the first sign-in": (_t, w) => {
+    const store = steps(w.jobs.store);
+    const check = store.findIndex((s) => (s.run ?? "").trim() === "node scripts/release/chrome-release.mjs check-ids");
+    const firstAuth = store.findIndex((s) => String(s.uses ?? "").startsWith("google-github-actions/auth@"));
+    assert.ok(check > 0 && check < firstAuth, "check-ids must come before the first sign-in");
+    assert.deepEqual(store[check].env, { CWS_PUBLISHER_ID: "${{ vars.CWS_PUBLISHER_ID }}", CWS_EXTENSION_ID: "${{ vars.CWS_EXTENSION_ID }}" });
+    assert.equal(store[check].if, undefined, "the check always runs");
+  },
   "exact Node version in both jobs": (_t, w) => {
     const versions = Object.values(w.jobs).map((job) => steps(job).find((s) => String(s.uses).startsWith("actions/setup-node@")).with["node-version"]);
     assert.equal(new Set(versions).size, 1);
@@ -207,6 +215,7 @@ const BREAKS = [
   ["checkouts keep no credentials and use the dispatched main commit", (t) => t.replace("persist-credentials: false", "persist-credentials: true")],
   ["checkouts keep no credentials and use the dispatched main commit", (t) => t.replace("ref: ${{ github.sha }}", "ref: ${{ inputs.commit }}")],
   ["the store job installs nothing from npm", (t) => t.replace("run: node scripts/release/chrome-release.mjs protection", "run: pnpm install && node scripts/release/chrome-release.mjs protection")],
+  ["Chrome identifiers are checked in their own step before the first sign-in", (t) => t.replace("      - name: Check the Chrome identifiers before any sign-in\n        env:\n          CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}\n          CWS_EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID }}\n        run: node scripts/release/chrome-release.mjs check-ids\n", "")],
   ["exact Node version in both jobs", (t) => t.replace('node-version: "22.23.3"', 'node-version: "22"')],
 ];
 

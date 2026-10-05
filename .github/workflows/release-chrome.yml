@@ -157,6 +157,11 @@ jobs:
           path: ${{ runner.temp }}/chrome-release/package
       - name: Verify it is byte-for-byte the approved package
         run: node scripts/release/chrome-release.mjs verify-artifact --dir "$RUNNER_TEMP/chrome-release"
+      - name: Check the Chrome identifiers before any sign-in
+        env:
+          CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
+          CWS_EXTENSION_ID: ${{ vars.CWS_EXTENSION_ID }}
+        run: node scripts/release/chrome-release.mjs check-ids
       - name: Keyless sign-in, read-only
         id: auth-read
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
