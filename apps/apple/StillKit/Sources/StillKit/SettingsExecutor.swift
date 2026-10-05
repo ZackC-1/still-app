@@ -20,6 +20,12 @@ public final class SettingsExecutor {
     worker.submit(request, completion: completion)
   }
 
+  /// Record this launch's first-record fact (owner decision 28) on the settings lane, ahead of any
+  /// request submitted afterwards. It only matters to an initialize that finds nothing saved.
+  public func prepareFirstRecord(_ kind: AtomicSettingsRecord.FirstRecord) {
+    worker.prepareFirstRecord(kind)
+  }
+
   /// A reread must not publish a snapshot preceding a subsequently submitted request. A nil
   /// completion asks the observer to reread after that work; bridge empty/unavailable stay intact.
   fileprivate func readLatest(completion: @escaping @MainActor (String?) -> Void) {
@@ -37,13 +43,24 @@ public final class SettingsExecutor {
     private let queue = DispatchQueue(label: "com.chartash.still.app-settings", qos: .userInitiated)
     private let makeBridge: @Sendable () -> SettingsBridge
     private var bridge: SettingsBridge?
+    private var firstRecord: AtomicSettingsRecord.FirstRecord?
 
     init(makeBridge: @escaping @Sendable () -> SettingsBridge) { self.makeBridge = makeBridge }
+
+    func prepareFirstRecord(_ kind: AtomicSettingsRecord.FirstRecord) {
+      queue.async { [self] in
+        firstRecord = kind
+        bridge?.firstRecord = kind
+      }
+    }
 
     func submit(_ request: BridgeRequest, completion: @escaping @MainActor (String) -> Void) {
       queue.async { [self] in
         dispatchPrecondition(condition: .onQueue(queue))
-        if bridge == nil { bridge = makeBridge() }
+        if bridge == nil {
+          bridge = makeBridge()
+          if let firstRecord { bridge!.firstRecord = firstRecord }
+        }
         let json = bridge!.handle(request)
         // FIFO main-queue delivery also preserves reply order when multiple transactions finish
         // before MainActor gets another turn. No UI/reply closure runs on the settings lane.

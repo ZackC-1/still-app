@@ -302,8 +302,8 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
       "-module-cache-path", join(temporary, "modules"), "-o", binary]);
   }, 60_000);
   afterAll(async () => { if (temporary) await rm(temporary, { recursive: true, force: true }); });
-  function host(directory: string, pause = false) {
-    const child = spawn(binary, [directory, ...(pause ? ["pause"] : [])], { stdio: ["pipe", "pipe", "pipe"] });
+  function host(directory: string, pause = false, first?: "newInstall" | "untouchedUpgrade") {
+    const child = spawn(binary, [directory, ...(pause ? ["pause"] : []), ...(first ? [`first:${first}`] : [])], { stdio: ["pipe", "pipe", "pipe"] });
     const queue: { resolve: (value: string) => void; reject: (e: Error) => void }[] = [];
     const lines = createInterface({ input: child.stdout });
     lines.on("line", value => queue.shift()?.resolve(value));
@@ -898,6 +898,91 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
         }
         expect((await storage.get())!.atomic).toMatchObject({ paused: null, held: {}, pending: legacy.atomic!.pending });
       } finally { await native.close(); }
+    });
+  });
+
+  // U3-W4 P2 (owner decisions 28 and 30): the Apple app's first record and the reinstall adoption,
+  // through the real compiled App Group store, file lock and bridge, against the TS writer.
+  describe("Apple first record and reinstall adoption", () => {
+    const sorted = (value: unknown): unknown => Array.isArray(value) ? value.map(sorted)
+      : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key => [key, sorted((value as Record<string, unknown>)[key])])) : value;
+    const bytes = (record: unknown) => { const copy = structuredClone(record) as { intentCommitted?: unknown }; delete copy.intentCommitted; return JSON.stringify(sorted(copy)); };
+    /** Chrome/Firefox install-time record (case A). */
+    async function browserFresh(): Promise<StoredSettingsRecord> {
+      return new AtomicSettingsWriter(new InMemoryStorageAdapter(null)).initializeFresh(async () => true);
+    }
+    /** X1's update-time record (case B): the ordinary unknown conversion of the unstamped defaults. */
+    async function browserUntouchedUpgrade(): Promise<StoredSettingsRecord> {
+      return new AtomicSettingsWriter(new InMemoryStorageAdapter({ settings: DEFAULT_SETTINGS, syncMetadata: null, syncEpoch: 0 })).initialize("unknown");
+    }
+    const legacyOff = { settings: { ...DEFAULT_SETTINGS, globalOn: false, services: { ...DEFAULT_SETTINGS.services, instagram: false }, updatedAt: 42 },
+      syncMetadata: { version: 4, serverUpdatedAt: "2026-09-01T00:00:00Z", lastWriteId: null }, syncEpoch: 2 } as StoredSettingsRecord;
+
+    it.each([["newInstall", browserFresh], ["untouchedUpgrade", browserUntouchedUpgrade]] as const)(
+      "the %s first record is byte-identical to the browsers' and saved once", async (kind, reference) => {
+        const native = host(join(temporary, `first-${kind}`), false, kind);
+        try {
+          expect(await native.post({ kind: "get" })).toBe("");
+          const expected = bytes(await reference());
+          expect(bytes(await native.adapter.initializeAtomic("unknown"))).toBe(expected);
+          expect(bytes(JSON.parse(await native.post({ kind: "get" })))).toBe(expected);
+          expect(bytes(await native.adapter.initializeAtomic("unknown"))).toBe(expected);
+          // A deliberate Off choice saved after it survives a later initialize.
+          await native.adapter.commitIntent({ path: "services.youtube", value: false, updatedAt: 77 });
+          const saved = await native.post({ kind: "get" });
+          await native.adapter.initializeAtomic("unknown");
+          expect(await native.post({ kind: "get" })).toBe(saved);
+        } finally { await native.close(); }
+      });
+
+    it("a saved legacy record converts exactly as without the launch fact; an absent one without it still refuses", async () => {
+      const native = host(join(temporary, "first-saved"), false, "newInstall");
+      const plain = host(join(temporary, "first-absent"));
+      try {
+        await native.post("replace:" + JSON.stringify(legacyOff));
+        const ts = await new AtomicSettingsWriter(new InMemoryStorageAdapter(structuredClone(legacyOff))).initialize("unknown");
+        expect(bytes(await native.adapter.initializeAtomic("unknown"))).toBe(bytes(ts));
+        await expect(plain.adapter.initializeAtomic("unknown")).rejects.toThrow("native-atomic-unavailable");
+        expect(await plain.post({ kind: "get" })).toBe("");
+      } finally { await native.close(); await plain.close(); }
+    });
+
+    it("Safari's retained legacy copy replaces only the untouched first record, with the TS conversion", async () => {
+      const native = host(join(temporary, "adopt-legacy"), false, "newInstall");
+      try {
+        await native.adapter.initializeAtomic("unknown");
+        const reply = JSON.parse(await native.post({ kind: "settingsAdopt", settings: JSON.stringify(legacyOff) })) as { status: string; record: StoredSettingsRecord };
+        expect(reply.status).toBe("adopted");
+        const ts = await new AtomicSettingsWriter(new InMemoryStorageAdapter(structuredClone(legacyOff))).initialize("unknown");
+        expect(bytes(reply.record)).toBe(bytes({ ...ts, atomic: { ...ts.atomic!, sequence: 1 } }));
+        expect(bytes(JSON.parse(await native.post({ kind: "get" })))).toBe(bytes(reply.record));
+        expect(reply.record.settings).toMatchObject({ globalOn: false, updatedAt: 42, services: { instagram: false } });
+        // The adopted record is ordinary unknown local authority: the next choice saves in place.
+        expect(permitsUnknownLocalEdit(reply.record)).toBe(true);
+        const again = JSON.parse(await native.post({ kind: "settingsAdopt", settings: JSON.stringify(legacyOff) })) as { status: string };
+        expect(again.status).toBe("kept");
+      } finally { await native.close(); }
+    });
+
+    it("Safari's modern copy is kept as saved, one commit step later, and never replaces a touched record", async () => {
+      const old = authority(); await old.writer.initialize("never-linked");
+      await old.writer.commit({ path: "globalOn", value: false, updatedAt: 10 });
+      await old.writer.enterScope(A, SESSION); await old.writer.enterScope(null);
+      const copy = (await old.storage.get())!;
+      const native = host(join(temporary, "adopt-modern"), false, "newInstall");
+      const touched = host(join(temporary, "adopt-touched"), false, "newInstall");
+      try {
+        await native.adapter.initializeAtomic("unknown");
+        const reply = JSON.parse(await native.post({ kind: "settingsAdopt", settings: JSON.stringify({ ...copy, intentCommitted: true }) })) as { status: string; record: StoredSettingsRecord };
+        expect(reply.status).toBe("adopted");
+        expect(bytes(reply.record)).toBe(bytes({ ...copy, atomic: { ...copy.atomic!, sequence: copy.atomic!.sequence + 1 } }));
+        await touched.adapter.initializeAtomic("unknown");
+        await touched.adapter.commitIntent({ path: "services.facebook", value: false, updatedAt: 5 });
+        const before = await touched.post({ kind: "get" });
+        const kept = JSON.parse(await touched.post({ kind: "settingsAdopt", settings: JSON.stringify(copy) })) as { status: string };
+        expect(kept.status).toBe("kept");
+        expect(await touched.post({ kind: "get" })).toBe(before);
+      } finally { await native.close(); await touched.close(); }
     });
   });
 

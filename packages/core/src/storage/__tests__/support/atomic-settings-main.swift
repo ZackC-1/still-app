@@ -9,7 +9,10 @@ let backing = AtomicSettingsBacking(directory: directory, beforeReplace: pause ?
   raise(SIGSTOP)
 } : nil)
 let store = SharedSettingsStore(backing: backing)
-let bridge = SettingsBridge(store: store, notifyChanged: {})
+// "first:newInstall" / "first:untouchedUpgrade": the app host's launch fact (owner decision 28).
+let firstRecord = CommandLine.arguments.dropFirst(2).first { $0.hasPrefix("first:") }
+  .flatMap { AtomicSettingsRecord.FirstRecord(rawValue: String($0.dropFirst(6))) }
+let bridge = SettingsBridge(store: store, notifyChanged: {}, firstRecord: firstRecord)
 if CommandLine.arguments.count > 2 && CommandLine.arguments[2] == "hold" {
   try backing.transaction { _ in
     print("holding"); fflush(stdout)
