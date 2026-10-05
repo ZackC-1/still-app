@@ -1,6 +1,7 @@
 // The Safari pending cover (owner decision V3-D-052, approved as CP-038 in V3-D-198, with the
 // redirect-in-flight extension ruled for U7-W3). It hides a page Still is about to send elsewhere,
-// so a blocked short-form page does not flash before its redirect, for at most 1.5 seconds.
+// so a blocked short-form page does not flash before its redirect. The limit is at most 1.5
+// seconds of visible blank after the page body appears (the cover is set before <body> exists).
 //
 // What it is: one class on <html> and one Still-owned stylesheet. The page's own content becomes
 // transparent, so what shows is the page's own background. It adds no colour, words, logo or
@@ -10,7 +11,10 @@
 // - a timer per cover, measured from when that cover appeared and never extended, plus a check on
 //   page show, visibility and focus for tabs whose timers were frozen;
 // - the stylesheet itself: the opacity comes from a 1.5-second animation with no fill, so it stops
-//   applying on its own even if this script's world dies with the class still set.
+//   applying on its own even if this script's world dies with the class still set. That animation
+//   starts when <body> first renders. If the script is dead and the page then replaces or re-renders
+//   <body>, the animation restarts for the new body, so the blank can recur, but each time it is
+//   again at most 1.5 seconds. While the script lives, its timer removes the class, which ends this.
 
 export const PENDING_COVER_CLASS = "still-pending-cover";
 export const PENDING_COVER_CEILING_MS = 1_500;

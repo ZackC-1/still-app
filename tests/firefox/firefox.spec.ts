@@ -118,8 +118,9 @@ test("youtube: a Shorts address ends up on the watch page", async () => {
   await tab.close();
 });
 
-// The V3 entry sends every core Reels route away from document_start too (U7-W3), not only
-// Shorts. Ordinary routes next to them are covered by the left-alone checks above and below.
+// End-state checks only: each core Reels address finally lands on its destination in real
+// Firefox. They cannot tell an early (document_start) redirect from a late one; the early timing
+// is proven by the round-based tests in packages/core (modern-shipping-entry.test.ts).
 for (const [from, to] of [
   ["https://www.instagram.com/reels/", "https://www.instagram.com/"],
   ["https://www.instagram.com/reels/C0de12/", "https://www.instagram.com/reel/C0de12/"],
