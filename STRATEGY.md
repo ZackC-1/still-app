@@ -48,8 +48,8 @@ Still is not:
 5. **Operational learning.** Convert verified launch, architecture, security, and support lessons
    into repository knowledge so each iteration starts smarter.
 
-Raw install volume must never be optimized by hiding the Safari-only mobile boundary or implying
-native-app blocking. A smaller group of correctly informed users is more valuable than mismatched
+Raw install volume must never be optimized by hiding the mobile boundary (websites in Safari on
+iPhone and iPad, and in Firefox on Android) or implying native-app blocking. A smaller group of correctly informed users is more valuable than mismatched
 downloads that generate refunds and negative reviews.
 
 ## Commercial model
