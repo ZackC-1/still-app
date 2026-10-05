@@ -1,3 +1,4 @@
+import type { Snippet } from "svelte";
 import type { OperationStatus } from "./extension-settings-presentation.js";
 import type { OnboardingConsent } from "./apple-onboarding-presentation.js";
 
@@ -36,7 +37,9 @@ export interface FirstRunProps {
     onSignIn?: () => void;
   };
   /** TODO: actual approved combined purposes/providers and acknowledged storage. */
-  consent: FirstRunConsent;
+  consent?: FirstRunConsent;
+  /** Existing real privacy actions when no genuine combined-consent producer is supplied. */
+  privacyActions?: Snippet;
   /** TODO: verified actual settings/privacy destinations. No invented URLs. */
   settings: { verified: boolean; onOpen?: () => void };
   privacy: { verified: boolean; onOpen?: () => void };
