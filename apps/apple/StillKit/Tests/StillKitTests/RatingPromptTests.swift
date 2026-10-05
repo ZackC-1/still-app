@@ -53,7 +53,7 @@ final class RatingPromptTests: XCTestCase {
   private func prompt(_ c: RatingPromptCoordinator, _ sheet: Sheet, opening: String = "o4",
                       suppressed: InvitationSuppression? = nil, status: SafariExtensionStatus = .unknown,
                       sync: Bool = false) async -> RatingPrompt.Outcome {
-    await c.promptIfAllowed(opening: opening, syncApplicable: sync, linkApplicable: false, suppressed: suppressed,
+    await c.promptIfAllowed(opening: opening, syncApplicable: sync, linkApplicable: false, suppressed: { suppressed },
                             extensionStatus: status) { [self] in
       sheet.calls += 1
       sheet.consumedAtCall.append(onDisk()?.rating)
@@ -126,7 +126,7 @@ final class RatingPromptTests: XCTestCase {
     c.recordOpening(installation: "install-a", anchorMs: t0, opening: "o4", ordinary: true, timeZone: utc)
     for reason in InvitationSuppression.allCases {
       let suppressed = await prompt(c, sheet, suppressed: reason)
-      XCTAssertEqual(suppressed, .notRequested(.local))
+      XCTAssertEqual(suppressed, .notRequested(.held))
     }
     XCTAssertEqual(asked.calls, 0)
     XCTAssertEqual(sheet.calls, 0)
@@ -198,7 +198,7 @@ final class RatingPromptTests: XCTestCase {
       let c = RatingPromptCoordinator(
         store: InvitationLedgerStore(backing: backing, parameters: RatingPrompt.parameters),
         freshCheck: { backing.armed = interference; backing.skip = 1; return ProductPolicy.Verdict(.on, revision: 5) },
-        now: { clock.ms })
+        now: { clock.ms }, timeoutSeconds: 5)
       eligible(clock, c)
       let outcome = await prompt(c, sheet)
       XCTAssertEqual(outcome, .notRequested(.commit), "\(interference)")
@@ -224,6 +224,110 @@ final class RatingPromptTests: XCTestCase {
     let yielded = await prompt(c, sheet, sync: true)
     XCTAssertEqual(yielded, .notRequested(.local))
     XCTAssertEqual(sheet.calls, 0)
+  }
+
+  // MARK: Holds: what the app is in the middle of
+
+  private final class Asked: @unchecked Sendable { var calls = 0 }
+
+  /// Prompt with the app's real hold object, the way the presenter does.
+  private func prompt(_ c: RatingPromptCoordinator, _ sheet: Sheet, hold: RatingHold, onboarding: Bool = false) async
+    -> RatingPrompt.Outcome {
+    await c.promptIfAllowed(opening: "o4", syncApplicable: false, linkApplicable: false,
+                            suppressed: { hold.suppression(onboardingShowing: onboarding) },
+                            extensionStatus: .unknown) { sheet.calls += 1 }
+  }
+
+  func testEveryReportedFlowButNoneHoldsTheSheetAndAsksNothing() async {
+    let expected: [RatingHold.Flow: InvitationSuppression] = [
+      .setup: .setup, .signIn: .link, .consent: .consent, .restore: .restore, .purchase: .purchase,
+      .delete: .delete, .error: .error,
+    ]
+    for flow in RatingHold.Flow.allCases where flow != .none {
+      try? FileManager.default.removeItem(at: directory)
+      let clock = Clock(), sheet = Sheet(), asked = Asked()
+      let c = coordinator(clock) { asked.calls += 1; return ProductPolicy.Verdict(.on, revision: 5) }
+      eligible(clock, c)
+      let hold = RatingHold()
+      XCTAssertTrue(hold.report(flow.rawValue))
+      XCTAssertEqual(hold.suppression(onboardingShowing: false), expected[flow], "\(flow)")
+      let outcome = await prompt(c, sheet, hold: hold)
+      XCTAssertEqual(outcome, .notRequested(.held), "\(flow)")
+      XCTAssertEqual(sheet.calls, 0, "\(flow)")
+      XCTAssertEqual(asked.calls, 0, "\(flow)")
+      XCTAssertEqual(onDisk()?.rating, .due, "\(flow)")
+    }
+  }
+
+  func testNotYetReportedOnboardingAndUnknownReportsHold() async {
+    let clock = Clock(), sheet = Sheet(), c = coordinator(clock)
+    eligible(clock, c)
+    let hold = RatingHold()
+    XCTAssertEqual(hold.suppression(onboardingShowing: false), .setup)
+    let unreported = await prompt(c, sheet, hold: hold)
+    XCTAssertEqual(unreported, .notRequested(.held))
+    hold.report("none")
+    let onboarding = await prompt(c, sheet, hold: hold, onboarding: true)
+    XCTAssertEqual(onboarding, .notRequested(.held))
+    for bad: Any? in [nil, "", "None", "signin", 1, ["none"]] {
+      XCTAssertFalse(hold.report(bad))
+      XCTAssertEqual(hold.suppression(onboardingShowing: false), .error)
+      let held = await prompt(c, sheet, hold: hold)
+      XCTAssertEqual(held, .notRequested(.held))
+    }
+    XCTAssertEqual(sheet.calls, 0)
+    hold.report("none")
+    let allowed = await prompt(c, sheet, hold: hold)
+    XCTAssertEqual(allowed, .requested)
+    XCTAssertEqual(sheet.calls, 1)
+  }
+
+  func testANativeRestoreOrPurchaseInFlightHoldsEvenWhenTheWebSaysNone() async {
+    for flow: RatingHold.Flow in [.restore, .purchase, .signIn] {
+      try? FileManager.default.removeItem(at: directory)
+      let clock = Clock(), sheet = Sheet(), c = coordinator(clock)
+      eligible(clock, c)
+      let hold = RatingHold()
+      hold.report("none")
+      let during: RatingPrompt.Outcome = await hold.during(flow) {
+        // An Apple Account sheet returns focus to the app while the native flow is still running.
+        await self.prompt(c, sheet, hold: hold)
+      }
+      XCTAssertEqual(during, .notRequested(.held), "\(flow)")
+      XCTAssertEqual(sheet.calls, 0)
+      XCTAssertNil(hold.suppression(onboardingShowing: false))
+      let after = await prompt(c, sheet, hold: hold)
+      XCTAssertEqual(after, .requested, "\(flow)")
+    }
+  }
+
+  func testAFlowThatStartsDuringTheCheckHoldsAndLeavesTheAttemptUnspent() async {
+    for startsBeforeCommit in [false, true] {
+      try? FileManager.default.removeItem(at: directory)
+      let hold = RatingHold()
+      hold.report("none")
+      let clock = Clock(), sheet = Sheet()
+      final class Reads: @unchecked Sendable { var count = 0 }
+      let reads = Reads()
+      let c = coordinator(clock) {
+        if !startsBeforeCommit { hold.report("signIn") }
+        return ProductPolicy.Verdict(.on, revision: 5)
+      }
+      eligible(clock, c)
+      let outcome = await c.promptIfAllowed(
+        opening: "o4", syncApplicable: false, linkApplicable: false,
+        suppressed: {
+          reads.count += 1
+          // The third read is the one just before the commit.
+          if startsBeforeCommit && reads.count == 3 { hold.report("restore") }
+          return hold.suppression(onboardingShowing: false)
+        },
+        extensionStatus: .unknown) { sheet.calls += 1 }
+      XCTAssertEqual(outcome, .notRequested(.held))
+      XCTAssertEqual(sheet.calls, 0)
+      XCTAssertEqual(onDisk()?.rating, .due)
+      XCTAssertNil(onDisk()?.reservation)
+    }
   }
 
   // MARK: The real policy client, end to end

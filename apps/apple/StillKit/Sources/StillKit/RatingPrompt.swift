@@ -9,6 +9,10 @@ import Foundation
 ///   extension never records an opening and never shows anything: Safari maps to its Apple host.
 /// - Held while the app can tell the Safari extension is turned off (macOS). On iPhone the app
 ///   cannot tell, so nothing is held for that reason.
+/// - Held during setup, sign-in or linking (including a return from Mail with a code), consent,
+///   purchase, Restore (including Apple Account sheets), account deletion and error states, and
+///   until the web UI has reported its flow at all (`RatingHold`). The hold is re-read before the
+///   reservation and again before the commit, so a flow that starts mid-check still wins.
 /// - Local eligibility first; nothing is fetched for an opening the ledger would not offer.
 /// - Then exactly one fresh allowance, bounded at five seconds. Only a fresh `.on` counts; a
 ///   cached value is never an input.
@@ -23,10 +27,10 @@ public enum RatingPrompt {
     spaceRatingFromInvitations: true, countedControls: InvitationOwnerParameters.proposed.countedControls)
 
   /// A fresh allowance check that has not answered within this many seconds is Off.
-  public static let allowanceTimeoutSeconds: TimeInterval = 5
+  static let allowanceTimeoutSeconds: TimeInterval = 5
 
   /// The App Group record the app and the extension serialize through (one cross-process lock).
-  public static let ledgerRecordName = "still-invitations"
+  static let ledgerRecordName = "still-invitations"
 
   /// The ledger over the App Group atomic store, or nil when this process has no container.
   public static func appGroupLedger(_ identifier: String = StillAppGroup.identifier,
@@ -52,7 +56,7 @@ public enum RatingPrompt {
     case notRequested(Refusal)
   }
 
-  public static func wallMilliseconds() -> Int { Int((Date().timeIntervalSince1970 * 1000).rounded(.down)) }
+  static func wallMilliseconds() -> Int { Int((Date().timeIntervalSince1970 * 1000).rounded(.down)) }
 }
 
 /// Runs one app opening through the rating path. Not tied to an actor: the ledger work is a short
@@ -65,9 +69,14 @@ public final class RatingPromptCoordinator: @unchecked Sendable {
   private let now: () -> Int
   private let timeoutSeconds: TimeInterval
 
-  public init(store: InvitationLedgerStore, freshCheck: @escaping FreshCheck,
-              now: @escaping () -> Int = RatingPrompt.wallMilliseconds,
-              timeoutSeconds: TimeInterval = RatingPrompt.allowanceTimeoutSeconds) {
+  /// The production coordinator: wall-clock time and the five-second allowance bound.
+  public convenience init(store: InvitationLedgerStore, freshCheck: @escaping FreshCheck) {
+    self.init(store: store, freshCheck: freshCheck, now: RatingPrompt.wallMilliseconds,
+              timeoutSeconds: RatingPrompt.allowanceTimeoutSeconds)
+  }
+
+  init(store: InvitationLedgerStore, freshCheck: @escaping FreshCheck, now: @escaping () -> Int,
+       timeoutSeconds: TimeInterval) {
     self.store = store
     self.freshCheck = freshCheck
     self.now = now
@@ -90,21 +99,33 @@ public final class RatingPromptCoordinator: @unchecked Sendable {
   }
 
   /// Decide for this opening, and call `requestReview` only after the attempt is durably consumed.
+  /// `suppressed` is read at each step (before the local check, the reservation and the commit), so
+  /// a flow that starts while the allowance check is in flight still holds the sheet. Everything up
+  /// to the sheet runs on the caller's executor; only `requestReview` hops to the main actor.
   public func promptIfAllowed(opening: String, syncApplicable: Bool, linkApplicable: Bool,
-                              suppressed: InvitationSuppression?, extensionStatus: SafariExtensionStatus,
+                              suppressed: @escaping @Sendable () -> InvitationSuppression?,
+                              extensionStatus: SafariExtensionStatus,
                               requestReview: @escaping @MainActor @Sendable () -> Void) async -> RatingPrompt.Outcome {
     if extensionStatus == .disabled { return .notRequested(.held) }
-    func context(_ at: Int) -> InvitationContext {
-      InvitationContext(opening: opening, nowMs: at, syncApplicable: syncApplicable, linkApplicable: linkApplicable, suppressed: suppressed)
+    func context(_ at: Int, _ hold: InvitationSuppression?) -> InvitationContext {
+      InvitationContext(opening: opening, nowMs: at, syncApplicable: syncApplicable, linkApplicable: linkApplicable, suppressed: hold)
     }
-    // 1. Local eligibility. Nothing is fetched unless the ledger would offer a rating now.
-    guard store.arbitrate(context(now())).kind == .rating else { return .notRequested(.local) }
+    // 1. Local eligibility. Nothing is fetched while held, or unless the ledger would offer a rating.
+    if suppressed() != nil { return .notRequested(.held) }
+    guard store.arbitrate(context(now(), nil)).kind == .rating else { return .notRequested(.local) }
     // 2. One fresh owner allowance, for this opening only.
     let verdict = await Self.bounded(freshCheck, seconds: timeoutSeconds)
     guard verdict.allowed, verdict.reason == .on else { return .notRequested(.policy) }
-    // 3. Reserve against the captured opening; a newer opening or another host wins.
-    guard let reservation = store.reserve(.rating, context(now())) else { return .notRequested(.reserve) }
-    // 4. Commit the consumed flag BEFORE StoreKit. Rejected or failed: no call.
+    // 3. Reserve against the captured opening; a newer opening, another host or a hold wins.
+    let hold = suppressed()
+    guard hold == nil else { return .notRequested(.held) }
+    guard let reservation = store.reserve(.rating, context(now(), hold)) else { return .notRequested(.reserve) }
+    // 4. Commit the consumed flag BEFORE StoreKit. Held now: release, since nothing was shown.
+    //    Rejected or failed: no call.
+    if suppressed() != nil {
+      _ = store.release(reservation)
+      return .notRequested(.held)
+    }
     guard store.commit(reservation, nowMs: now()) else { return .notRequested(.commit) }
     // 5. Apple's own sheet. Whether Apple shows it or not, the one attempt is already spent.
     await MainActor.run { requestReview() }
@@ -138,5 +159,75 @@ public final class RatingPromptCoordinator: @unchecked Sendable {
       lock.unlock()
       pending?.resume(returning: value)
     }
+  }
+}
+
+/// What the app is in the middle of, for holding the rating sheet. Process-local and never stored:
+/// the web UI reports its current flow over the bridge (`ratingHold`), and the bridge router marks
+/// the native flows that can raise system sheets (Restore, purchase, attaching purchases, Sign in
+/// with Apple) for as long as they run. A fresh launch starts "not yet reported", which holds.
+public final class RatingHold: @unchecked Sendable {
+  /// The flows the web UI reports. `none` is the only one that allows a sheet.
+  public enum Flow: String, CaseIterable, Sendable {
+    case none, setup, signIn, consent, restore, purchase, delete, error
+
+    var suppression: InvitationSuppression? {
+      switch self {
+      case .none: return nil
+      case .setup: return .setup
+      case .signIn: return .link
+      case .consent: return .consent
+      case .restore: return .restore
+      case .purchase: return .purchase
+      case .delete: return .delete
+      case .error: return .error
+      }
+    }
+  }
+
+  /// The app's one instance, shared by the bridge router and the rating presenter.
+  public static let app = RatingHold()
+
+  private let lock = NSLock()
+  private var reported: Flow?
+  private var running: [Flow: Int] = [:]
+
+  public init() {}
+
+  /// Record the web UI's current flow from a bridge message value. Anything unrecognized is an
+  /// error state (held). Returns whether the value was a known flow.
+  @discardableResult
+  public func report(_ raw: Any?) -> Bool {
+    let flow = (raw as? String).flatMap(Flow.init(rawValue:))
+    lock.lock(); defer { lock.unlock() }
+    reported = flow ?? .error
+    return flow != nil
+  }
+
+  /// Hold for as long as `body` runs (a native flow that may show system sheets).
+  public func during<T>(_ flow: Flow, _ body: () async -> T) async -> T {
+    begin(flow)
+    defer { end(flow) }
+    return await body()
+  }
+
+  func begin(_ flow: Flow) {
+    lock.lock(); defer { lock.unlock() }
+    running[flow, default: 0] += 1
+  }
+
+  func end(_ flow: Flow) {
+    lock.lock(); defer { lock.unlock() }
+    running[flow] = max(0, (running[flow] ?? 0) - 1)
+  }
+
+  /// The current hold. `onboardingShowing` is the native first-run gate. Native flows win, then
+  /// the web UI's report; "not yet reported" holds as setup (the UI has not finished starting).
+  public func suppression(onboardingShowing: Bool) -> InvitationSuppression? {
+    if onboardingShowing { return .setup }
+    lock.lock(); defer { lock.unlock() }
+    if let flow = Flow.allCases.first(where: { (running[$0] ?? 0) > 0 }), let hold = flow.suppression { return hold }
+    guard let reported else { return .setup }
+    return reported.suppression
   }
 }

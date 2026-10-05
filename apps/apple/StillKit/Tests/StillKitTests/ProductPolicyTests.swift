@@ -159,12 +159,23 @@ final class ProductPolicyTests: XCTestCase {
         if source.contains("RestrictedJSON") || source.contains("compiledPaidTierEnabled") { users.append(url.lastPathComponent) }
         continue
       }
-      // U13-P3: the rating path is the one consumer of the runtime. StillKit's coordinator takes a
-      // fresh `.rating` verdict and the app presenter constructs the runtime; both use only the
-      // public surface. Exactly these two files, at these paths; nothing else may name it.
-      if (url.lastPathComponent == "RatingPrompt.swift" && path.contains("/StillKit/Sources/StillKit/")) ||
-        (url.lastPathComponent == "RatingPromptPresenter.swift" && path.contains("/Still/Shared (App)/")) {
-        if source.contains("RestrictedJSON") || source.contains("compiledPaidTierEnabled") || source.contains(".sales") {
+      // U13-P3: the rating path is the one consumer of the runtime. StillKit's coordinator only
+      // reads a fresh `.rating` verdict; the app presenter may do exactly three things: construct
+      // the runtime, open the App Group revision store, and ask `freshCheck(.rating)`. Neither may
+      // evaluate a policy itself, build a response, reach the parser or the compiled switch, or
+      // touch sales.
+      let forbidden = ["RestrictedJSON", "compiledPaidTierEnabled", ".sales", "evaluateRating", "evaluateSales",
+                       "ProductPolicy.Response", "ProductPolicy.parse", "ProductPolicy.Context"]
+      if url.lastPathComponent == "RatingPrompt.swift" && path.contains("/StillKit/Sources/StillKit/") {
+        if forbidden.contains(where: source.contains) { users.append(url.lastPathComponent) }
+        continue
+      }
+      if url.lastPathComponent == "RatingPromptPresenter.swift" && path.contains("/Still/Shared (App)/") {
+        var rest = source
+        for allowed in ["ProductPolicyRuntime(", "ProductPolicyRevisionStore.appGroup()", "freshCheck(.rating)"] {
+          rest = rest.replacingOccurrences(of: allowed, with: "")
+        }
+        if rest.contains("ProductPolicy") || rest.contains("freshCheck(") || forbidden.contains(where: source.contains) {
           users.append(url.lastPathComponent)
         }
         continue

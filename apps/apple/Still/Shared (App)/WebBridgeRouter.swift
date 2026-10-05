@@ -57,6 +57,13 @@
 //        { kind:"price" }                     → { price } | {}   (localized store price for the CTA)
 //        { kind:"signOut" }                   → { ok:true }   (reset RC identity on sign-out)
 //
+//    • Rating hold (U13-P3; RatingHold in StillKit is the contract):
+//        { kind:"ratingHold", flow:"none"|"setup"|"signIn"|"consent"|"restore"|"purchase"|"delete"|"error" }
+//                                             → { ok:Bool }  (false: unknown value, recorded as "error")
+//      The web UI's current flow, kept in memory for this launch only. Until it is first reported,
+//      and while Restore, purchase, attaching purchases or Sign in with Apple run here, Apple's
+//      rating sheet is held.
+//
 //    • Entitlement mirror (reply the envelope JSON string — EntitlementBridge.swift is the contract):
 //        { kind:"setEntitlement", entitled }  → {"entitled":Bool|null,"installId":String|null,
 //                                               "source":String|null,"updatedAt":Int|null}
@@ -200,7 +207,12 @@ final class WebBridgeRouter {
       }
 
     case "signInWithApple":
-      Task { await self.handleSignIn(reply: reply) }
+      Task { await RatingHold.app.during(.signIn) { await self.handleSignIn(reply: reply) } }
+
+    case "ratingHold":
+      // The web UI's current flow, for holding Apple's rating sheet (U13-P3). Process-local only.
+      let known = RatingHold.app.report(dict["flow"])
+      reply(Self.json(["ok": known]), nil)
 
     case "configurePurchases":
       guard let appUserID = dict["appUserID"] as? String, !appUserID.isEmpty else {
@@ -227,10 +239,13 @@ final class WebBridgeRouter {
         return
       }
       Task {
-        let outcome = await self.purchases.purchaseStillPro()
-        // Restamp from the fresh receipt before acknowledging (R5): Safari unlocks even if the
-        // webview dies right after the sheet. Harmless for cancelled/failed (noSignal no-ops).
-        await self.refreshReceiptStamp()
+        let outcome = await RatingHold.app.during(.purchase) {
+          let outcome = await self.purchases.purchaseStillPro()
+          // Restamp from the fresh receipt before acknowledging (R5): Safari unlocks even if the
+          // webview dies right after the sheet. Harmless for cancelled/failed (noSignal no-ops).
+          await self.refreshReceiptStamp()
+          return outcome
+        }
         reply(Self.json(Self.outcomePayload(outcome)), nil)
       }
 
@@ -243,15 +258,21 @@ final class WebBridgeRouter {
       // tier is off the extension's access snapshot ignores that stamp.
       guard MonetizationConfig.paidTierEnabled else {
         Task {
-          let result = await self.freePeriodRestore.run()
-          await self.refreshReceiptStamp()
+          let result = await RatingHold.app.during(.restore) {
+            let result = await self.freePeriodRestore.run()
+            await self.refreshReceiptStamp()
+            return result
+          }
           reply(Self.json(FreePeriodRestoreCheck.reply(for: result)), nil)
         }
         return
       }
       Task {
-        let restored = await self.purchases.restore()
-        await self.refreshReceiptStamp()
+        let restored = await RatingHold.app.during(.restore) {
+          let restored = await self.purchases.restore()
+          await self.refreshReceiptStamp()
+          return restored
+        }
         reply(Self.json(["entitled": restored]), nil)
       }
 
@@ -275,7 +296,7 @@ final class WebBridgeRouter {
       // gate (session + SDK identity equality + purchased ownership) refuses the teardown race
       // (AE13) and family-shared transactions (AE14).
       Task {
-        let entitled = await self.purchases.attachPurchases()
+        let entitled = await RatingHold.app.during(.purchase) { await self.purchases.attachPurchases() }
         reply(Self.json(["entitled": entitled]), nil)
       }
 
