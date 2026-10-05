@@ -190,6 +190,68 @@ describe("NativeBridge onboarding completion", () => {
   });
 });
 
+describe("NativeBridge analytics consent read-back", () => {
+  const context = {
+    platform: "ios",
+    appVersion: "2.1.0",
+    installId: "x",
+    anchorId: "y",
+    consent: true,
+  };
+
+  it.each([true, false])(
+    "returns the committed consent %s from object and JSON",
+    async (consent) => {
+      for (const raw of [
+        { ...context, consent },
+        JSON.stringify({ ...context, consent }),
+      ]) {
+        const h = host(raw);
+        expect(await h.bridge.observeAnalyticsConsent()).toBe(consent);
+        expect(h.port.postMessage.mock.calls).toEqual([
+          [{ kind: "analyticsContext" }],
+        ]);
+      }
+    },
+  );
+
+  it.each([
+    ["missing consent", { ...context, consent: undefined }],
+    ["string consent", { ...context, consent: "false" }],
+    ["number consent", { ...context, consent: 0 }],
+    ["null consent", { ...context, consent: null }],
+    ["array", [{ ...context, consent: false }]],
+    ["null", null],
+    ["empty", ""],
+    ["malformed JSON", "{"],
+  ])("is null, never off, for %s", async (_label, reply) => {
+    expect(await host(reply).bridge.observeAnalyticsConsent()).toBeNull();
+  });
+
+  it("is null without a host, on a failed post, and after a port swap", async () => {
+    expect(await new NativeBridge({}).observeAnalyticsConsent()).toBeNull();
+    const h = host(context);
+    h.port.postMessage.mockRejectedValueOnce(new Error("refused"));
+    expect(await h.bridge.observeAnalyticsConsent()).toBeNull();
+    const pending = deferred();
+    h.port.postMessage.mockReturnValueOnce(pending.promise);
+    const read = h.bridge.observeAnalyticsConsent();
+    replace(h.win, host(context).port);
+    pending.resolve({ ...context, consent: false });
+    expect(await read).toBeNull();
+  });
+
+  it("a newer read supersedes an older off reply", async () => {
+    const pending = deferred();
+    const h = host(context);
+    h.port.postMessage.mockReturnValueOnce(pending.promise);
+    const old = h.bridge.observeAnalyticsConsent();
+    expect(await h.bridge.observeAnalyticsConsent()).toBe(true);
+    pending.resolve({ ...context, consent: false });
+    expect(await old).toBeNull();
+  });
+});
+
 describe("boundedNativeRead", () => {
   it("returns the read when it settles before the deadline", async () => {
     expect(await boundedNativeRead(async () => "value", null)).toBe("value");

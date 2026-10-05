@@ -142,6 +142,7 @@ export class NativeBridge {
   private safariSetupReadGeneration = 0;
   private onboardingStateReadGeneration = 0;
   private onboardingCompletionGeneration = 0;
+  private analyticsConsentReadGeneration = 0;
   constructor(
     private readonly win: StillBridgeWindow = globalThis as unknown as StillBridgeWindow,
   ) {}
@@ -235,6 +236,26 @@ export class NativeBridge {
       return !!obj && !Array.isArray(obj) && obj.ok === true;
     } catch {
       return false;
+    }
+  }
+
+  /** Read back the usage-sharing consent the native App Group actually holds (the `consent` field
+   * of the `analyticsContext` reply). Unlike `analyticsContext()`, a missing or non-boolean field is
+   * null rather than off, so a caller confirming a saved choice can never mistake an unreadable
+   * reply for "not sharing". Null outside the app, on a failed post, after a port swap, or when a
+   * newer read was started. Callers bound it with `boundedNativeRead`. */
+  async observeAnalyticsConsent(): Promise<boolean | null> {
+    const generation = ++this.analyticsConsentReadGeneration;
+    const port = this.port;
+    if (!port) return null;
+    try {
+      const reply = await port.postMessage({ kind: "analyticsContext" });
+      if (generation !== this.analyticsConsentReadGeneration || port !== this.port) return null;
+      const obj = asObject(reply);
+      if (!obj || Array.isArray(obj)) return null;
+      return typeof obj.consent === "boolean" ? obj.consent : null;
+    } catch {
+      return null;
     }
   }
 
