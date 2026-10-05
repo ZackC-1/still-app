@@ -466,6 +466,54 @@ test("the real 0015 check pins the private routines 0016's schema-wide revoke ch
   assert.doesNotThrow(() => assertIndependentVerifications([migrations[1]]));
 });
 
+test("0017 replaces the limiter 0015 pins and revokes on every private routine 0016 pins, so it deploys alone", async () => {
+  const root = new URL("../../../", import.meta.url);
+  const read = (path) => readFile(new URL(path, root), "utf8");
+  const migration = async (file) => ({
+    file,
+    text: await read(`supabase/migrations/${file}`),
+    verificationText: await read(`scripts/backend/deploy/verify/${file}`),
+  });
+  const m15 = await migration("0015_settings_sync_per_field.sql");
+  const m16 = await migration("0016_product_policy.sql");
+  const m17 = await migration("0017_analytics_erasure.sql");
+  const changed = routinesChanged(m17.text);
+  assert.ok(changed.has("private.*"));
+  assert.ok(changed.has("public.consume_rate_limit"));
+  assert.throws(
+    () => assertIndependentVerifications([m16, m17]),
+    (error) =>
+      error instanceof Refusal &&
+      error.category === "verification-overlap" &&
+      /0017_analytics_erasure\.sql changes/.test(error.message) &&
+      /private\.read_product_policy/.test(error.message) &&
+      /deploy 0016_product_policy\.sql alone/.test(error.message),
+  );
+  assert.throws(
+    () => assertIndependentVerifications([m15, m17]),
+    (error) =>
+      error instanceof Refusal &&
+      error.category === "verification-overlap" &&
+      /public\.consume_rate_limit/.test(error.message) &&
+      /deploy 0015_settings_sync_per_field\.sql alone/.test(error.message),
+  );
+  // Once 0016 is deployed and verified, 0017 plans on its own.
+  assert.doesNotThrow(() => assertIndependentVerifications([m17]));
+});
+
+test("the real 0017 verification and row-count invariant pass the read-only lint", async () => {
+  for (const name of [
+    "0017_analytics_erasure.sql",
+    "0017_analytics_erasure.invariant.sql",
+  ]) {
+    const text = await readFile(
+      new URL(`./verify/${name}`, import.meta.url),
+      "utf8",
+    );
+    assert.equal(lintVerificationSql(text), true, name);
+  }
+});
+
 test("the real 0016 verification and row-count invariant pass the read-only lint", async () => {
   for (const name of [
     "0016_product_policy.sql",
