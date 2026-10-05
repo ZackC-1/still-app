@@ -39,6 +39,16 @@ export type SettingsAuthorityRereadOutcome =
   | { readonly status: "ready" | "superseded" }
   | { readonly status: "unavailable"; readonly reason: string };
 
+export type LegacySettingsReadState =
+  | { readonly status: "loading"; readonly settings: StillSettings | null }
+  | { readonly status: "ready"; readonly settings: StillSettings }
+  | { readonly status: "absent"; readonly settings: null }
+  | { readonly status: "unavailable"; readonly settings: StillSettings | null; readonly reason: string };
+
+export type LegacySettingsRereadOutcome =
+  | { readonly status: "ready" | "absent" | "superseded" }
+  | { readonly status: "unavailable"; readonly reason: string };
+
 export class SettingsCache {
   private snapshot: StillSettings;
   private atomic: AtomicSettingsState | undefined;
@@ -59,6 +69,10 @@ export class SettingsCache {
   private committedGeneration = 0;
   private hydrationRecovery: SettingsStorageRecovery | null = null;
   private authorityReread: Promise<SettingsAuthorityRereadOutcome> | null = null;
+  private legacyRead: LegacySettingsReadState = { status: "loading", settings: null };
+  private readonly legacyReadListeners = new Set<SettingsAuthorityListener>();
+  private legacyReread: Promise<LegacySettingsRereadOutcome> | null = null;
+  private legacyReadTicket = 0;
 
   constructor(
     private readonly adapter: StorageAdapter,
@@ -82,6 +96,84 @@ export class SettingsCache {
     // Always stamped, even at zero, because that is what lets another context tell a peer that has
     // not seen the reconcile yet from a store that does not speak epochs at all.
     return { settings: this.snapshot, syncMetadata: this.syncMetadata, syncEpoch: this.syncEpoch, ...(this.atomic ? { atomic: this.atomic } : {}) };
+  }
+
+  /** Explicit legacy read receipt; startup defaults never count as saved choices. */
+  legacyReadState(): LegacySettingsReadState { return this.legacyRead; }
+
+  subscribeLegacyRead(listener: SettingsAuthorityListener): () => void {
+    this.legacyReadListeners.add(listener);
+    return () => { this.legacyReadListeners.delete(listener); };
+  }
+
+  /** Pure legacy recovery: exactly one shared adapter read, without hydration or replay. */
+  rereadLegacyAuthority(): Promise<LegacySettingsRereadOutcome> {
+    // Install the shared promise before observers can synchronously request another reread.
+    this.legacyReread ??= Promise.resolve().then(() => this.readLegacyAuthority()).finally(() => { this.legacyReread = null; });
+    return this.legacyReread;
+  }
+
+  private async readLegacyAuthority(): Promise<LegacySettingsRereadOutcome> {
+    if (this.atomic || this.atomicOwnership !== undefined)
+      return { status: "unavailable", reason: "legacy-command-unavailable" };
+    const ticket = this.authorityTicket;
+    const generation = this.committedGeneration;
+    const recovery = this.hydrationRecovery;
+    const epoch = this.syncEpoch;
+    const metadata = this.syncMetadata;
+    const snapshot = this.snapshot;
+    const superseded = () => ticket !== this.authorityTicket || generation !== this.committedGeneration ||
+      recovery !== this.hydrationRecovery || epoch !== this.syncEpoch || metadata !== this.syncMetadata ||
+      snapshot !== this.snapshot || this.atomic !== undefined;
+    const unavailable = (reason: string, retained: StoredSettingsRecord | null = null, discardRetained = false): LegacySettingsRereadOutcome => {
+      this.authorityTicket += 1;
+      this.legacyReadTicket += 1;
+      this.hydrationRecovery = new SettingsStorageRecovery(reason);
+      if (discardRetained) this.publishLegacyRead({ status: "unavailable", settings: null, reason });
+      else this.publishLegacyFailure(reason, retained);
+      return { status: "unavailable", reason };
+    };
+    this.publishLegacyRead({ status: "loading", settings: this.legacyRead.settings });
+    let stored: StoredSettingsRecord | null;
+    try { stored = await this.adapter.get(); }
+    catch (error) {
+      if (superseded()) return { status: "superseded" };
+      const reason = error instanceof SettingsStorageRecovery ? error.reason : "read-failed";
+      return unavailable(reason, error instanceof SettingsStorageRecovery ? error.retained : null);
+    }
+    if (superseded()) return { status: "superseded" };
+    if (stored === null) {
+      this.authorityTicket += 1;
+      this.legacyReadTicket += 1;
+      this.hydrationRecovery = null;
+      this.publishLegacyRead({ status: "absent", settings: null });
+      return { status: "absent" };
+    }
+    if (!this.isLegacyAuthority(stored)) {
+      return unavailable("legacy-command-unavailable", null, true);
+    }
+    if (!this.isCurrentLegacyRecord(stored)) {
+      return unavailable("stale-authority");
+    }
+    // Accepting a validated read uses no persistence path, including same-version metadata.
+    this.legacyReadTicket += 1;
+    this.acceptCommitted(stored, "external");
+    if (this.legacyRead.status !== "ready") {
+      const state = this.legacyRead;
+      return state.status === "unavailable" ? { status: "unavailable", reason: state.reason } : { status: "superseded" };
+    }
+    return { status: "ready" };
+  }
+
+  /** Deliberate legacy global/service action, with the writer's exact request receipt. */
+  commitLegacyIntent(path: "globalOn" | `services.${ServiceId}`, value: boolean): Promise<AtomicSettingsIntentOutcome> {
+    if (typeof value !== "boolean" || !SETTINGS_FIELDS.includes(path) ||
+      path !== "globalOn" && !path.startsWith("services."))
+      return Promise.reject(new TypeError("Invalid legacy settings intent"));
+    if (!this.supportsAtomicIntents() || this.atomic || this.atomicOwnership !== undefined ||
+      this.legacyRead.status !== "ready" && this.legacyRead.status !== "absent")
+      return Promise.reject(new SettingsStorageRecovery("legacy-command-unavailable"));
+    return this.executeIntent(path, value, true);
   }
 
   /** Load persisted settings once at startup. LWW so a newer in-memory edit isn't clobbered. */
@@ -157,6 +249,7 @@ export class SettingsCache {
   private async load(): Promise<StillSettings> {
     const authorityTicket = this.authorityTicket;
     const committedGeneration = this.committedGeneration;
+    const legacyReadTicket = this.legacyReadTicket;
     try {
       const stored = this.atomicOwnership !== undefined && this.adapter.initializeAtomic
         ? await this.adapter.initializeAtomic(this.atomicOwnership) : await this.adapter.get();
@@ -167,11 +260,22 @@ export class SettingsCache {
         (stored.syncEpoch > this.syncEpoch || stored.syncEpoch === this.syncEpoch &&
           stored.syncMetadata !== null && this.syncMetadata !== null &&
           stored.syncMetadata.version > this.syncMetadata.version);
-      if (stored && (committedGeneration === this.committedGeneration || newerLegacyAuthority) &&
+      if (stored && legacyReadTicket === this.legacyReadTicket && (committedGeneration === this.committedGeneration || newerLegacyAuthority) &&
         ((!stored.atomic && !this.atomic) || authorityTicket === this.authorityTicket))
         void this.applyStoredRecord(stored, "external");
+      if (authorityTicket === this.authorityTicket && committedGeneration === this.committedGeneration) {
+        if (stored === null && !this.atomic && this.atomicOwnership === undefined)
+          this.publishLegacyRead({ status: "absent", settings: null });
+        else if (stored && this.isCurrentLegacyRecord(stored))
+          this.publishLegacyRead({ status: "ready", settings: stored.settings });
+        else if (!this.atomic)
+          this.publishLegacyRead({ status: "unavailable", settings: null, reason: "legacy-command-unavailable" });
+      }
       return this.snapshot;
     } catch (error) {
+      if (authorityTicket === this.authorityTicket && committedGeneration === this.committedGeneration)
+        this.publishLegacyFailure(error instanceof SettingsStorageRecovery ? error.reason : "read-failed",
+          error instanceof SettingsStorageRecovery ? error.retained : null);
       if (error instanceof SettingsStorageRecovery && authorityTicket === this.authorityTicket) {
         if (!error.retained) { this.hydrationRecovery = error; this.notifyAuthority(); throw error; }
         // Last-known local choices keep free blocking useful during unavailable native reads.
@@ -195,6 +299,9 @@ export class SettingsCache {
         this.hydrationRecovery = null;
       }
       this.applyStoredRecord(record, "external");
+      if (this.isCurrentLegacyRecord(record)) this.publishLegacyRead({ status: "ready", settings: record.settings });
+      else if (!this.atomic && !this.isLegacyAuthority(record))
+        this.publishLegacyRead({ status: "unavailable", settings: null, reason: "legacy-command-unavailable" });
       // Atomic acceptance already publishes; legacy same-choice rereads can clear recovery here.
       if (!record.atomic && !this.atomic) this.notifyAuthority();
     });
@@ -212,6 +319,7 @@ export class SettingsCache {
     if (this.syncMetadata !== null) return false;
     if (incoming.updatedAt <= this.snapshot.updatedAt) return false;
     this.snapshot = incoming;
+    this.publishLegacyRead({ status: "loading", settings: this.legacyRead.settings });
     void this.persist();
     this.notify("external");
     return true;
@@ -259,6 +367,7 @@ export class SettingsCache {
     // Only a reconcile that actually moved this device bumps the epoch, so a background start that
     // finds the account exactly where it left it costs no needless write to every other context.
     if (repoint) this.syncEpoch += 1;
+    this.publishLegacyRead({ status: "loading", settings: repoint ? null : this.legacyRead.settings });
     void this.persist();
     if (settingsChanged) this.notify("synced");
     else this.notifyAuthority();
@@ -328,19 +437,22 @@ export class SettingsCache {
     return (await this.executeIntent(path, value)).settings;
   }
 
-  private async executeIntent(path: SettingsField, value: boolean): Promise<AtomicSettingsIntentOutcome> {
+  private async executeIntent(path: SettingsField, value: boolean, legacyCommand = false): Promise<AtomicSettingsIntentOutcome> {
     const previous = this.snapshot;
     const authorityTicket = this.authorityTicket;
     this.intentsInFlight += 1;
     let committed = false;
     try {
       const record = await this.adapter.commitIntent!({ path, value, updatedAt: this.now() });
-      this.acceptCommitted(record, "external");
+      if (!legacyCommand || this.isCurrentLegacyRecord(record)) this.acceptCommitted(record, "external");
+      else if (authorityTicket === this.authorityTicket && !this.isLegacyAuthority(record))
+        this.publishLegacyRead({ status: "unavailable", settings: null, reason: "legacy-command-unavailable" });
       committed = record.intentCommitted === true;
       return { settings: this.snapshot, intentCommitted: committed };
     } catch (error) {
       if (error instanceof SettingsStorageRecovery && authorityTicket === this.authorityTicket) {
         this.hydrationRecovery = error;
+        if (legacyCommand) this.publishLegacyFailure(error.reason);
         if (this.atomic) this.atomic = { ...this.atomic, paused: error.reason };
         this.notifyAuthority();
       }
@@ -378,6 +490,10 @@ export class SettingsCache {
       }
     }
     const changed = !sameSettings(previous, this.snapshot);
+    if (publishAuthority) {
+      if (this.isLegacyAuthority(record)) this.publishLegacyRead({ status: "ready", settings: this.snapshot });
+      else this.publishLegacyRead({ status: "unavailable", settings: null, reason: "legacy-command-unavailable" });
+    }
     if (changed) this.notify(source, publishAuthority);
     else if (publishAuthority) this.notifyAuthority();
     return changed;
@@ -470,6 +586,38 @@ export class SettingsCache {
 
   private persist(): Promise<void> {
     return this.adapter.set(this.currentRecord());
+  }
+
+  private isLegacyAuthority(record: StoredSettingsRecord): boolean {
+    return !this.atomic && this.atomicOwnership === undefined && !record.atomic &&
+      (!("schemaVersion" in record.settings) || record.settings.schemaVersion === 1) &&
+      parseStoredSettingsRecord(record) !== null;
+  }
+
+  private isCurrentLegacyRecord(record: StoredSettingsRecord): boolean {
+    if (!this.isLegacyAuthority(record)) return false;
+    if (record.syncEpoch !== undefined && record.syncEpoch !== this.syncEpoch) return record.syncEpoch > this.syncEpoch;
+    if (this.syncMetadata && !record.syncMetadata) return false;
+    if (record.syncMetadata && this.syncMetadata && record.syncMetadata.version !== this.syncMetadata.version)
+      return record.syncMetadata.version > this.syncMetadata.version;
+    if (this.legacyRead.settings === null && this.committedGeneration === 0 && this.syncMetadata === null && this.syncEpoch === 0)
+      return true;
+    return record.settings.updatedAt >= this.snapshot.updatedAt;
+  }
+
+  private publishLegacyFailure(reason: string, retained: StoredSettingsRecord | null = null): void {
+    this.publishLegacyRead({ status: "unavailable", reason,
+      settings: retained && this.isCurrentLegacyRecord(retained) ? retained.settings : this.legacyRead.settings });
+  }
+
+  private publishLegacyRead(state: LegacySettingsReadState): void {
+    if (JSON.stringify(state) === JSON.stringify(this.legacyRead)) return;
+    this.legacyRead = state;
+    for (const listener of [...this.legacyReadListeners]) {
+      if (this.legacyRead !== state) break;
+      if (!this.legacyReadListeners.has(listener)) continue;
+      try { listener(); } catch { /* Read-only observers cannot change sibling receipts. */ }
+    }
   }
 
   private notify(source: SettingsChangeSource, publishAuthority = true): void {
