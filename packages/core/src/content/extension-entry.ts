@@ -24,6 +24,7 @@ import {
 import {
   createContentScript,
   earlyShortsRedirect,
+  earlyFormat2ShortsRedirect,
   type ContentScriptDeps,
   type ContentScriptHandle,
   type RedirectDedupe,
@@ -51,7 +52,8 @@ export interface ExtensionContentEntryDeps {
   /** The target extension's local storage namespace (Safari `browser`, Chromium `chrome`). */
   readonly storage: ReadableArea;
   readonly prod: boolean;
-  /** Safari and Firefox own the early hard-navigation redirect; Chromium owns it with DNR. */
+  /** Safari and Firefox own the early hard-navigation redirect (legacy or format-2 lane);
+   * Chromium owns it with DNR. */
   readonly earlyRedirect: boolean;
   /** Safari's App-Group nudge lifecycle. Omitted by Chromium/Firefox by construction. */
   readonly nudge?: ExtensionContentNudge;
@@ -97,6 +99,14 @@ export function createExtensionContentEntry(
         win,
         ruleSet: seed as unknown as SignedRuleSet,
         cache,
+        redirectDedupe,
+      }).catch(() => {});
+    } else if (deps.earlyRedirect && bundledV2) {
+      void earlyFormat2ShortsRedirect({
+        win,
+        ruleSet: bundledV2,
+        cache: new SettingsCache(new ChromeStorageAdapter()),
+        access: () => entitlement.currentAccessSnapshot(),
         redirectDedupe,
       }).catch(() => {});
     }

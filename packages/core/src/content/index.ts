@@ -1,4 +1,4 @@
-import { PAID_TIER_ENABLED, type ServiceId, type SignedRuleSet, type SignedRuleSetV2, type BenefitId } from "@still/shared-types";
+import { PAID_TIER_ENABLED, type ServiceId, type SignedRuleSet, type SignedRuleSetV2, type BenefitId, type BenefitAccessSnapshot } from "@still/shared-types";
 import { initialAccessSnapshot } from "../entitlement/access-policy.js";
 import { createFeatureMediaQuieting } from "./feature-media.js";
 import {
@@ -10,6 +10,7 @@ import {
   ROOT_PRO_ACTIVE_CLASS,
   STILL_PLACEHOLDER_LINE,
   STILL_BLOCKED_LINE,
+  type EnginePageSession,
 } from "../rules/engine.js";
 import type { EntitlementCache } from "../entitlement/cache.js";
 import type { SettingsCache } from "../storage/cache.js";
@@ -371,6 +372,49 @@ export async function earlyShortsRedirect(deps: EarlyShortsRedirectDeps): Promis
   }
   const redirectPort = deps.redirectPort ?? locationRedirectPort(deps.win);
   redirectPort.replace(decision.url);
+}
+
+export interface EarlyFormat2ShortsRedirectDeps {
+  readonly win: StillWindow;
+  /** The admitted packaged format-2 set. Shorts routing is compiled, never read from data. */
+  readonly ruleSet: SignedRuleSetV2;
+  /**
+   * A dedicated settings cache, never the content script's own: the format-2 script registers
+   * its storage watch before hydrating, and an early hydrate on that cache would reorder it.
+   */
+  readonly cache: SettingsCache;
+  /** The same synchronous committed access snapshot the format-2 content script reads. */
+  readonly access: () => BenefitAccessSnapshot;
+  readonly redirectPort?: RedirectPort;
+  /** Pass the SAME cell to createContentScript so early + reapply never double-replace. */
+  readonly redirectDedupe?: RedirectDedupe;
+}
+
+/**
+ * The format-2 counterpart of earlyShortsRedirect for Firefox and Safari (no DNR redirect). It
+ * fires concurrently with the rule-set read, after ONE persisted settings read, and decides with
+ * the same compiled format-2 classifier and committed predicate as the content script: a saved
+ * Off for Still, YouTube or Shorts never redirects. The URL is re-read after the await.
+ */
+export async function earlyFormat2ShortsRedirect(deps: EarlyFormat2ShortsRedirectDeps): Promise<void> {
+  if (!isYouTubeShortsUrl(new URL(deps.win.location.href))) return;
+  await deps.cache.hydrate();
+  const url = new URL(deps.win.location.href);
+  if (!isYouTubeShortsUrl(url)) return;
+  const session = createEnginePageSession(deps.ruleSet);
+  let decision: ReturnType<EnginePageSession["evaluate"]>;
+  try {
+    decision = session.evaluate(deps.cache.current(), url, { access: deps.access() });
+  } finally {
+    session.stop?.();
+  }
+  if (decision.kind !== "redirect" || decision.url === url.href) return;
+  const dedupe = deps.redirectDedupe;
+  if (dedupe) {
+    if (dedupe.lastRedirect === decision.url) return;
+    dedupe.lastRedirect = decision.url;
+  }
+  (deps.redirectPort ?? locationRedirectPort(deps.win)).replace(decision.url);
 }
 
 export {
