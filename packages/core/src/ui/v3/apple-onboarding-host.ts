@@ -24,6 +24,9 @@ import {
 //     positive signal; iOS is always "unknown" and never claims the extension is on.
 //   • Completion calls `completeOnboarding` once per gesture and reports done only after the native
 //     gate confirmed it; a refusal, failure or timeout keeps onboarding visible so the user can retry.
+//   • Leaving the app goes only through caller-supplied ports: the setup button opens this
+//     platform's enable location from the tap, and "Open Safari" opens Safari only after the gate
+//     confirmed completion. A destination the caller cannot reach stays disabled.
 //   • Consent changes only from the user's Share / Don't share gesture; nothing here ever turns
 //     sharing on by itself. The choice goes through the shared Apple consent committer
 //     (analytics/apple-consent.ts), which is "Saved" only when native confirmed it as an explicit
@@ -40,8 +43,13 @@ export type AppleOnboardingDestination = "safari" | "settings";
 
 export interface AppleOnboardingHostDeps {
   readonly bridge: AppleOnboardingHostBridge;
-  /** Opens the platform's enable location. Absent → the setup button renders disabled. */
-  readonly openSetup?: () => void;
+  /** Opens this platform's enable location (Safari's Extensions settings on macOS, Still's page
+   * in the Settings app on iOS), called synchronously from the tap. Absent → the setup button
+   * renders disabled. */
+  readonly openSetup?: (location: SafariSetupObservation["enableLocation"]) => void;
+  /** Opens Safari, called synchronously once the native gate confirmed an "Open Safari"
+   * completion and before `onDone`. Only meaningful where "safari" is a reachable destination. */
+  readonly openSafari?: () => void;
   readonly consent: {
     /** Approved combined purposes, supplied by the caller. Share needs them verified. */
     readonly purposes?: SharingCardProps["purposes"];
@@ -53,10 +61,12 @@ export interface AppleOnboardingHostDeps {
   };
   /** Called once, only after the native gate confirmed completion. */
   readonly onDone: (destination: AppleOnboardingDestination) => void;
-  /** The step-4 destinations this host can actually reach (default: both). A destination left
-   * out renders its button disabled and can never complete, so no button promises a place that
-   * nothing opens. */
-  readonly destinations?: readonly AppleOnboardingDestination[];
+  /** The step-4 destinations this host can actually reach (default: both), fixed or per platform
+   * (known once the native gate answered). A destination left out renders its button disabled and
+   * can never complete, so no button promises a place that nothing opens. */
+  readonly destinations?:
+    | readonly AppleOnboardingDestination[]
+    | ((platform: AppleOnboardingProps["platform"]) => readonly AppleOnboardingDestination[]);
   readonly onChange?: (view: AppleOnboardingHostView) => void;
   /** Native read/complete deadline. */
   readonly deadlineMs?: number;
@@ -167,8 +177,12 @@ export function createAppleOnboardingHost(
     !!deps.consent.purposes?.length;
   const afterSetup: AppleOnboardingProps["step"] = asksConsent ? 3 : 4;
   const destinations = deps.destinations ?? ["safari", "settings"];
+  /** The one reachability rule: props expose a destination's port, and complete() accepts it,
+   * only through this. */
   const reachable = (destination: AppleOnboardingDestination): boolean =>
-    destinations.includes(destination);
+    (typeof destinations === "function" ? destinations(platform) : destinations).includes(
+      destination,
+    );
   let view: AppleOnboardingHostView = { visible: false, done: false };
 
   const emit = (): void => {
@@ -222,7 +236,7 @@ export function createAppleOnboardingHost(
   function openSetup(): void {
     if (!active() || step !== 2 || macOn() || !deps.openSetup) return;
     setupOpened = true;
-    deps.openSetup();
+    deps.openSetup(platform === "mac" ? "safariExtensionSettings" : "settingsAppStillPage");
     emit();
   }
 
@@ -278,6 +292,7 @@ export function createAppleOnboardingHost(
       completion = "idle";
       visible = false;
       done = true;
+      if (destination === "safari") deps.openSafari?.();
       emit();
       deps.onDone(destination);
     });

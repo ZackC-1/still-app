@@ -3,7 +3,12 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, waitFor, within } from "@testing-library/svelte";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { NativeBridge, type SafariSetupObservation } from "../../native/bridge.js";
+import {
+  NativeBridge,
+  openNativeDestination,
+  type NativeOpenDestination,
+  type SafariSetupObservation,
+} from "../../native/bridge.js";
 import type { StillBridgeWindow } from "../../storage/wkwebview-adapter.js";
 import {
   createAppleOnboardingHost,
@@ -45,6 +50,8 @@ function fakeAppleHost(options: {
     stateReply: undefined as (() => Promise<unknown>) | undefined,
     /** Replace the completeOnboarding reply (refusal, delay). */
     completeReply: undefined as (() => Promise<unknown>) | undefined,
+    /** Destinations native opened, in order. */
+    opened: [] as string[],
   };
   const port = {
     postMessage: vi.fn(async (message: unknown): Promise<unknown> => {
@@ -65,6 +72,16 @@ function fakeAppleHost(options: {
         native.completed = true;
         return JSON.stringify({ ok: true });
       }
+      if (kind === "openDestination") {
+        // NativeOpenRequest.authorize: exactly two keys, a fixed destination this platform opens.
+        const body = message as Record<string, unknown>;
+        const supported =
+          native.platform === "macos" ? ["safariExtensionSettings", "safari"] : ["settingsAppStillPage"];
+        if (Object.keys(body).length !== 2 || !supported.includes(body.destination as string))
+          throw new Error("still: open refused (unsupported)");
+        native.opened.push(body.destination as string);
+        return JSON.stringify({ ok: true, destination: body.destination });
+      }
       if (kind === "safariSetupState") {
         return JSON.stringify(
           native.platform === "ios"
@@ -80,6 +97,10 @@ function fakeAppleHost(options: {
     native,
     port,
     bridge: new NativeBridge(win),
+    /** The real fixed-destination opener over this host (a tap is assumed; jsdom has no
+     * userActivation). */
+    open: (destination: NativeOpenDestination) =>
+      openNativeDestination(destination, { win, userActivation: null }),
     kinds: () => port.postMessage.mock.calls.map(([m]) => (m as { kind: string }).kind),
     nativePresents: () => native.presenter === "swiftui" && !native.completed,
   };
@@ -91,7 +112,9 @@ interface Wiring {
     bridge: Pick<NativeBridge, "onboardingState" | "completeOnboarding" | "observeSafariSetup">;
     target: HTMLElement;
     showSettings: () => void;
+    open?: (destination: NativeOpenDestination) => Promise<boolean>;
   }): Promise<"onboarding" | "settings">;
+  D12_WEB_ONBOARDING_MARKER: string;
 }
 
 const targets: HTMLElement[] = [];
@@ -101,7 +124,10 @@ afterEach(() => {
 });
 
 /** Runs the real app-webview wiring into a fresh mount point. */
-async function launch(bridge: Pick<NativeBridge, "onboardingState" | "completeOnboarding" | "observeSafariSetup">) {
+async function launch(
+  bridge: Pick<NativeBridge, "onboardingState" | "completeOnboarding" | "observeSafariSetup">,
+  open?: (destination: NativeOpenDestination) => Promise<boolean>,
+) {
   const { showAppleOnboardingFirst } = (await import(/* @vite-ignore */ WIRING_PATH)) as Wiring;
   const target = document.createElement("div");
   document.body.append(target);
@@ -111,7 +137,7 @@ async function launch(bridge: Pick<NativeBridge, "onboardingState" | "completeOn
     settings.textContent = "SETTINGS SCREEN";
     target.append(settings);
   });
-  const result = await showAppleOnboardingFirst({ bridge, target, showSettings });
+  const result = await showAppleOnboardingFirst({ bridge, target, showSettings, open });
   return { result, target, view: within(target), showSettings };
 }
 
@@ -178,7 +204,7 @@ describe("one gate, one presenter", () => {
 describe("the D12 flow in the web view", () => {
   it("iOS 18: three steps, no consent question, completion only through the native gate", async () => {
     const app = fakeAppleHost({ presenter: "web", platform: "ios", osMajorVersion: 18 });
-    const { target, view, showSettings, result } = await launch(app.bridge);
+    const { target, view, showSettings, result } = await launch(app.bridge, app.open);
     expect(result).toBe("onboarding");
     expect(view.getByRole("heading", { name: "Welcome to Still" })).toBeInTheDocument();
     expect(view.getByText("Step 1 of 3")).toBeInTheDocument();
@@ -192,8 +218,9 @@ describe("the D12 flow in the web view", () => {
       "Turn on Still and allow it on every website.",
     ])
       expect(view.getByText(line)).toBeInTheDocument();
-    // No native message opens the Settings app yet: the button never pretends to.
-    expect(view.getByRole("button", { name: "Open Settings" })).toBeDisabled();
+    // "Open Settings" opens Still's page in the Settings app through the fixed native destination.
+    await fireEvent.click(view.getByRole("button", { name: "Open Settings" }));
+    await waitFor(() => expect(app.native.opened).toEqual(["settingsAppStillPage"]));
     await waitFor(() => expect(app.kinds()).toContain("safariSetupState"));
     expect(view.queryByText("Still is on in Safari.")).toBeNull();
 
@@ -201,6 +228,7 @@ describe("the D12 flow in the web view", () => {
     await view.findByRole("heading", { name: "You're set" });
     expect(view.getByText("Step 3 of 3")).toBeInTheDocument();
     expect(view.queryByRole("heading", { name: "Help improve Still?" })).toBeNull();
+    // iOS has no public way to open Safari itself, so the button never pretends to.
     expect(view.getByRole("button", { name: "Open Safari" })).toBeDisabled();
     expect(app.native.completed).toBe(false);
 
@@ -210,8 +238,13 @@ describe("the D12 flow in the web view", () => {
     expect(app.kinds().filter((k) => k === "completeOnboarding")).toHaveLength(1);
     expect(onboardingShown(target)).toBe(false);
     expect(view.getByText("SETTINGS SCREEN")).toBeInTheDocument();
-    // Nothing about sharing was ever sent.
-    expect(app.kinds().every((k) => ["onboardingState", "safariSetupState", "completeOnboarding"].includes(k))).toBe(true);
+    // Nothing about sharing was ever sent, and nothing but Settings was opened.
+    expect(
+      app.kinds().every((k) =>
+        ["onboardingState", "safariSetupState", "openDestination", "completeOnboarding"].includes(k),
+      ),
+    ).toBe(true);
+    expect(app.native.opened).toEqual(["settingsAppStillPage"]);
 
     // The next launch (or a web content reload) goes straight to settings: no loop.
     const again = await launch(app.bridge);
@@ -255,7 +288,7 @@ describe("the D12 flow in the web view", () => {
 
   it("macOS shows Still as on only from a positive native signal, re-read on focus", async () => {
     const app = fakeAppleHost({ presenter: "web", platform: "macos", osMajorVersion: 15, extensionStatus: "disabled" });
-    const { view } = await launch(app.bridge);
+    const { view } = await launch(app.bridge, app.open);
     await fireEvent.click(view.getByRole("button", { name: "Continue" }));
     await view.findByRole("heading", { name: "Turn on Still in Safari" });
     for (const line of ["Open Safari, then Settings, then Extensions.", "Turn on Still.", "Allow it on every website."])
@@ -263,7 +296,8 @@ describe("the D12 flow in the web view", () => {
     await waitFor(() => expect(app.kinds()).toContain("safariSetupState"));
     expect(view.queryByText("Still is on in Safari.")).toBeNull();
     expect(view.queryByRole("button", { name: "Continue" })).toBeNull();
-    expect(view.getByRole("button", { name: "Open Safari Settings" })).toBeDisabled();
+    await fireEvent.click(view.getByRole("button", { name: "Open Safari Settings" }));
+    await waitFor(() => expect(app.native.opened).toEqual(["safariExtensionSettings"]));
 
     app.native.extensionStatus = "unknown";
     window.dispatchEvent(new Event("focus"));
@@ -320,6 +354,127 @@ describe("the D12 flow in the web view", () => {
     // And the real bridge drops an iOS "enabled" reply outright.
     const app = fakeAppleHost({ presenter: "web", platform: "ios", extensionStatus: "enabled" });
     expect(await app.bridge.observeSafariSetup()).toBeNull();
+  });
+});
+
+describe("fixed native destinations", () => {
+  it("macOS: Open Safari completes the native gate, then opens Safari, then mounts settings", async () => {
+    const app = fakeAppleHost({ presenter: "web", platform: "macos", osMajorVersion: 15, extensionStatus: "enabled" });
+    const { target, view, showSettings } = await launch(app.bridge, app.open);
+    await fireEvent.click(view.getByRole("button", { name: "Continue" }));
+    expect(await view.findByText("Still is on in Safari.")).toBeInTheDocument();
+    await fireEvent.click(view.getByRole("button", { name: "Continue" }));
+    await view.findByRole("heading", { name: "You're set" });
+    await fireEvent.click(view.getByRole("button", { name: "Open Safari" }));
+    await waitFor(() => expect(showSettings).toHaveBeenCalledOnce());
+    await waitFor(() => expect(app.native.opened).toEqual(["safari"]));
+    const kinds = app.kinds();
+    expect(kinds.indexOf("completeOnboarding")).toBeLessThan(kinds.indexOf("openDestination"));
+    expect(app.native.completed).toBe(true);
+    expect(onboardingShown(target)).toBe(false);
+  });
+
+  it("an open that native refuses or that fails leaves onboarding usable", async () => {
+    const app = fakeAppleHost({ presenter: "web", platform: "ios" });
+    const refused = vi.fn(async () => false);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { view } = await launch(app.bridge, refused);
+      await fireEvent.click(view.getByRole("button", { name: "Continue" }));
+      await fireEvent.click(await view.findByRole("button", { name: "Open Settings" }));
+      expect(refused).toHaveBeenCalledExactlyOnceWith("settingsAppStillPage");
+      expect(view.getByRole("button", { name: "I've turned it on" })).toBeEnabled();
+      // Not silently lost: a developer-console trace, no user-facing copy.
+      await waitFor(() =>
+        expect(warn).toHaveBeenCalledExactlyOnceWith("still: could not open settingsAppStillPage"),
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("macOS: an Open Safari that native refuses still mounts settings and leaves a console trace", async () => {
+    const app = fakeAppleHost({ presenter: "web", platform: "macos", osMajorVersion: 15, extensionStatus: "enabled" });
+    const refused = vi.fn(async () => false);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { view, showSettings } = await launch(app.bridge, refused);
+      await fireEvent.click(view.getByRole("button", { name: "Continue" }));
+      await view.findByText("Still is on in Safari.");
+      await fireEvent.click(view.getByRole("button", { name: "Continue" }));
+      await fireEvent.click(await view.findByRole("button", { name: "Open Safari" }));
+      await waitFor(() => expect(showSettings).toHaveBeenCalledOnce());
+      expect(refused).toHaveBeenCalledExactlyOnceWith("safari");
+      await waitFor(() => expect(warn).toHaveBeenCalledExactlyOnceWith("still: could not open safari"));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("the real opener is used by default and posts nothing outside the app", async () => {
+    const app = fakeAppleHost({ presenter: "web", platform: "ios" });
+    const { view } = await launch(app.bridge);
+    await fireEvent.click(view.getByRole("button", { name: "Continue" }));
+    await fireEvent.click(await view.findByRole("button", { name: "Open Settings" }));
+    await new Promise((r) => setTimeout(r, 0));
+    // jsdom's own window has no webkit port, so the default opener never reached this host.
+    expect(app.kinds()).not.toContain("openDestination");
+  });
+
+  it("marks its mount point with the D12 marker the native presenter switch looks for", async () => {
+    const { D12_WEB_ONBOARDING_MARKER } = (await import(/* @vite-ignore */ WIRING_PATH)) as Wiring;
+    expect(D12_WEB_ONBOARDING_MARKER).toBe("still-onboarding-presenter:web-d12");
+    const swift = readFileSync(GATE_SWIFT, "utf8");
+    expect(swift).toContain(`public static let webD12Marker = "${D12_WEB_ONBOARDING_MARKER}"`);
+    const app = fakeAppleHost({ presenter: "web", completed: true });
+    const { target } = await launch(app.bridge);
+    expect(target.getAttribute("data-still-onboarding")).toBe(D12_WEB_ONBOARDING_MARKER);
+  });
+});
+
+// #282 review P3-4: a reply that arrives after the 3 s deadline.
+describe("a late native reply", () => {
+  it("an onboardingState reply after the deadline never shows onboarding over settings", async () => {
+    vi.useFakeTimers();
+    const app = fakeAppleHost({ presenter: "web" });
+    let answer!: (reply: unknown) => void;
+    app.native.stateReply = () =>
+      new Promise<unknown>((resolve) => {
+        answer = resolve;
+      });
+    const pending = launch(app.bridge, app.open);
+    await vi.advanceTimersByTimeAsync(3_000);
+    const { target, showSettings, result } = await pending;
+    expect(result).toBe("settings");
+    answer(JSON.stringify({ ok: true, shouldShow: true, platform: "ios", osMajorVersion: 18 }));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(onboardingShown(target)).toBe(false);
+    expect(showSettings).toHaveBeenCalledOnce();
+    expect(app.kinds()).not.toContain("completeOnboarding");
+    expect(app.native.completed).toBe(false);
+  });
+
+  it("a completeOnboarding reply after the deadline keeps the failure line and mounts nothing", async () => {
+    const app = fakeAppleHost({ presenter: "web", platform: "ios" });
+    const { target, view, showSettings } = await launch(app.bridge, app.open);
+    await fireEvent.click(view.getByRole("button", { name: "Continue" }));
+    await fireEvent.click(await view.findByRole("button", { name: "I've turned it on" }));
+    const done = await view.findByRole("button", { name: "Go to Settings" });
+    vi.useFakeTimers();
+    let confirm!: (reply: unknown) => void;
+    app.native.completeReply = () =>
+      new Promise<unknown>((resolve) => {
+        confirm = resolve;
+      });
+    await fireEvent.click(done);
+    await vi.advanceTimersByTimeAsync(3_000);
+    expect(view.getByText("We couldn't finish setup.")).toBeInTheDocument();
+    app.native.completed = true;
+    confirm(JSON.stringify({ ok: true }));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(view.getByText("We couldn't finish setup.")).toBeInTheDocument();
+    expect(showSettings).not.toHaveBeenCalled();
+    expect(onboardingShown(target)).toBe(true);
   });
 });
 
@@ -403,6 +558,12 @@ describe("entry wiring", () => {
     expect(main).toContain("if (appleSettingsAdapter) void mountAppleScreens(appleSettingsAdapter);");
     expect(main.match(/import\("\.\/apple-onboarding\.js"\)/g)).toHaveLength(1);
     expect(main).not.toMatch(/^import[^;]*(apple-onboarding|AppleOnboarding)/m);
+    // #282 review P3-2: loading or mounting the screens never escapes as an unhandled rejection;
+    // any failure requests settings (once), and a failed settings mount is caught too.
+    const screens = main.slice(main.indexOf("async function mountAppleScreens"));
+    expect(screens).toMatch(/try \{\s*const \{ showAppleOnboardingFirst \} = await import\("\.\/apple-onboarding\.js"\);/);
+    expect(screens).toMatch(/\} catch \{\s*showSettings\(\);\s*\}/);
+    expect(screens).toMatch(/void mountAppleSettings\(adapter\)\.catch\(/);
     const wiring = readFileSync(WIRING_PATH, "utf8");
     // No consent producer exists yet: no committer, no purposes, the question is skipped.
     expect(wiring).toContain("consent: { purposesVerified: false }");
