@@ -79,6 +79,142 @@ final class MonetizationConfigTests: XCTestCase {
     }
   }
 
+  /// While the paid tier is off, the Restore tap runs the free-period check and nothing else that
+  /// could sell or touch the RevenueCat identity. The refusal's else branch is read on its own: it
+  /// must run the read-only check and must not reach PurchaseManager or RevenueCat directly, with
+  /// or without an explicit `self.`. The router helpers it calls, and the helpers those call, are
+  /// read the same way: their only PurchaseManager call may be the read-only receipt read, and that
+  /// read itself is checked to stay on StoreKit's transaction history.
+  func testTheFreePeriodRestoreBranchRunsOnlyTheReadOnlyCheck() throws {
+    let source = try routerSource()
+    let arm = try XCTUnwrap(
+      bridgeActionBody(named: "restore", in: source),
+      "this test can no longer find the \"restore\" arm of the router's switch"
+    )
+    let refusal = try XCTUnwrap(
+      arm.range(of: "guard MonetizationConfig.paidTierEnabled else {"),
+      "the restore arm no longer starts with the paid-tier guard"
+    )
+    let afterGuard = arm[refusal.upperBound...]
+    let close = try XCTUnwrap(
+      afterGuard.range(of: "\n      }\n"),
+      "this test can no longer find where the restore arm's free-period branch ends"
+    )
+    let branch = String(afterGuard[afterGuard.startIndex..<close.lowerBound])
+    XCTAssertTrue(
+      branch.contains("self.freePeriodRestore.run()"),
+      "the free-period Restore must run the read-only App Store check"
+    )
+    for forbidden in ["purchases.", "Purchases.", "purchase(", "restorePurchases", "syncPurchases"] {
+      XCTAssertFalse(
+        branch.contains(forbidden),
+        "the free-period Restore must not reach \(forbidden): nothing is for sale and the "
+          + "RevenueCat identity stays untouched while the paid tier is off"
+      )
+    }
+
+    // Every router method the branch reaches, directly or through another helper.
+    let helpers = try routerHelpersReached(from: branch, in: source)
+    XCTAssertTrue(
+      helpers.keys.contains("refreshReceiptStamp") && helpers.keys.contains("captureOriginalInstall"),
+      "this walk no longer reaches the stamp refresh and the cohort capture: it is reading nothing"
+    )
+    for (name, body) in helpers {
+      for forbidden in [
+        "Purchases.", "RevenueCat", "purchase(", "restorePurchases", "syncPurchases",
+        "purchaseStillPro", "hasStillPro", "attachPurchases", "priceString", "logIn", "logOut",
+      ] {
+        XCTAssertFalse(
+          body.contains(forbidden),
+          "\(name)(), reached from the free-period Restore, must not reach \(forbidden)"
+        )
+      }
+      // The one PurchaseManager call allowed is the read-only receipt read.
+      let calls = body.components(separatedBy: "purchases.").dropFirst()
+      for call in calls {
+        XCTAssertTrue(
+          call.hasPrefix("refreshReceiptStatus()"),
+          "\(name)(), reached from the free-period Restore, calls PurchaseManager beyond the "
+            + "read-only receipt read: purchases.\(call.prefix(40))"
+        )
+      }
+    }
+
+    // That receipt read stays on StoreKit's transaction history: no RevenueCat, no purchase.
+    let manager = try String(
+      contentsOf: repositoryRoot
+        .appendingPathComponent("apps/apple/Still/Shared (App)/Purchases/PurchaseManager.swift"),
+      encoding: .utf8)
+    for signature in ["func refreshReceiptStatus() async -> ReceiptStatus {",
+                      "private static func boundedReceiptRead() async -> ReceiptRead {"] {
+      let body = try XCTUnwrap(
+        methodBody(signature: signature, in: manager),
+        "this test can no longer find PurchaseManager's \(signature)"
+      )
+      XCTAssertTrue(body.contains("Transaction.latest(for:") || body.contains("boundedReceiptRead()"),
+                    "the receipt read no longer reads StoreKit's transaction history")
+      for forbidden in ["Purchases.", "purchase(", "restorePurchases", "syncPurchases", "logIn", "logOut"] {
+        XCTAssertFalse(body.contains(forbidden), "the receipt read must not reach \(forbidden)")
+      }
+    }
+  }
+
+  /// The bodies of the router methods `code` calls (with or without `self.`), and of the methods
+  /// those call, by name. A name that matches no method in the router is not followed.
+  private func routerHelpersReached(from code: String, in source: String) throws -> [String: String] {
+    let declarations = try NSRegularExpression(pattern: #"\bfunc (\w+)\("#)
+    let names = Set(declarations.matches(in: source, range: NSRange(source.startIndex..., in: source))
+      .compactMap { Range($0.range(at: 1), in: source).map { String(source[$0]) } })
+    let calls = try NSRegularExpression(pattern: #"(?<![\w.])(?:self\.)?(\w+)\("#)
+    var reached: [String: String] = [:]
+    var pending = [code]
+    while let next = pending.popLast() {
+      for match in calls.matches(in: next, range: NSRange(next.startIndex..., in: next)) {
+        guard let range = Range(match.range(at: 1), in: next) else { continue }
+        let name = String(next[range])
+        guard names.contains(name), reached[name] == nil else { continue }
+        let body = try XCTUnwrap(
+          methodBody(signature: "func \(name)(", in: source),
+          "the router declares \(name)() but this test cannot find its body"
+        )
+        reached[name] = body
+        pending.append(body)
+      }
+    }
+    return reached
+  }
+
+  /// One method's body: from its signature to the first line that closes a member at class
+  /// indentation. Nil when either end is missing, never the rest of the file.
+  private func methodBody(signature: String, in source: String) -> String? {
+    guard let start = source.range(of: signature) else { return nil }
+    let rest = source[start.upperBound...]
+    guard let close = rest.range(of: "\n  }\n") else { return nil }
+    return String(rest[rest.startIndex..<close.lowerBound])
+  }
+
+  /// The live App Store half of the free-period Restore may only read. It may not import or name
+  /// RevenueCat, hold a product, or call anything that starts a purchase or a RevenueCat restore.
+  func testTheLiveFreePeriodRestoreCheckCannotReachAPurchaseOrRevenueCat() throws {
+    let url = repositoryRoot
+      .appendingPathComponent("apps/apple/Still/Shared (App)/Purchases/AppStoreRestoreCheck.swift")
+    let text = try String(contentsOf: url, encoding: .utf8)
+    let code = text.split(separator: "\n", omittingEmptySubsequences: false)
+      .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+      .joined(separator: "\n")
+    XCTAssertTrue(code.contains("Transaction.currentEntitlements"), "the check reads current entitlements")
+    XCTAssertTrue(code.contains("AppStore.sync()"), "the check syncs with the App Store")
+    for forbidden in [
+      "RevenueCat", "Purchases", "PurchaseManager", "purchase(", "Product.", "Product(",
+      "restorePurchases", "syncPurchases", "AppTransaction",
+    ] {
+      XCTAssertFalse(
+        code.contains(forbidden),
+        "AppStoreRestoreCheck must stay read-only: found \(forbidden)"
+      )
+    }
+  }
+
   /// The cohort record is written from this router at first launch and cannot be recreated later,
   /// so the value it stores has to be interpretable on both platforms. Apple reports
   /// `originalAppVersion` as a build number on iOS and a marketing version on macOS; asking
