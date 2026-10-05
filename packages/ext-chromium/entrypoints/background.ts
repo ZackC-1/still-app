@@ -307,9 +307,12 @@ function wireTiktokBlockedPage(
   settingsAuthority: ChromeStorageAdapter,
   entitlements: ChromeEntitlementAdapter,
 ): void {
-  // The packaged seed is the rule set every Chromium/Firefox content script evaluates today, so
-  // the background decides "blocked" with the same rules. The owner's type names the format-2
-  // set it is planned to receive; its engine session already dispatches on the set's own format.
+  // The packaged seed is the rule set every Chromium/Firefox content script evaluates for TikTok
+  // today (TikTok is held on the legacy lane), so the background decides "blocked" with the same
+  // rules. The owner's type names the format-2 set it is planned to receive; its engine session
+  // already dispatches on the set's own format. Follow-up: once format-2 ships for TikTok with
+  // schema-2 settings, switch this "is this blocked" check to the packaged format-2 set
+  // (PACKAGED_RULE_SET_V2) and drop the cast below.
   const ruleSet = seed as unknown as SignedRuleSet;
   const bound = <T>(operation: () => Promise<T>): Promise<T> =>
     withTimeout(Promise.resolve().then(operation), TIKTOK_WAIT_MS);
