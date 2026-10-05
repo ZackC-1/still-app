@@ -11,7 +11,7 @@ import {
   type AnalyticsPermission,
   type AnalyticsPrivacyPolicy,
 } from "./consent.js";
-import { createAccountIdentifier } from "./extension-host.js";
+import { createAccountIdentifier, type SubjectDeps } from "./extension-host.js";
 import type { AnalyticsKeyValue } from "./identity.js";
 import type { AnalyticsContextReply } from "../native/bridge.js";
 import type { UiAnalytics } from "../ui/controller.svelte.js";
@@ -39,6 +39,9 @@ export interface AppAnalyticsDeps {
   readonly store: AnalyticsKeyValue;
   /** Ask Still's server to attach the signed-in account's email (analytics-identify). */
   readonly identifyOnServer?: (signal?: AbortSignal) => Promise<void>;
+  /** Per-device identities (U5-W2, extension-host.ts SubjectDeps). Absent: the account id is
+   * confirmed, as before. */
+  readonly subjects?: SubjectDeps;
   readonly fetch?: typeof fetch;
   readonly now?: () => number;
   readonly uuid?: () => string;
@@ -149,11 +152,14 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         local: deps.store,
         consent: async () => consent,
         identifyOnServer: deps.identifyOnServer,
+        subjects: deps.subjects,
       });
       currentReady = {
         client,
         context,
-        identify: (userId: string) => client.identify(userId), // confirms the account (client.ts rule 3)
+        // Confirms the account (client.ts rule 3); with per-device subjects, under this device's
+        // issued subject once the server has issued it.
+        identify: (userId: string) => (deps.subjects ? accounts.identify(userId) : client.identify(userId)),
         attach: (observation) => accounts.attach(observation),
       };
       return currentReady;

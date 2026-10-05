@@ -11,7 +11,9 @@ import {
   type AnalyticsDevice,
   type AnalyticsSurface,
 } from "./events.js";
-import type { AnalyticsIdentity, AnalyticsKeyValue } from "./identity.js";
+import { isAnalyticsId, type AnalyticsIdentity, type AnalyticsKeyValue } from "./identity.js";
+import { originProof } from "./derive.js";
+import type { ErasureService } from "./erasure.js";
 import type {
   UiAnalytics,
   UsageSharingState,
@@ -42,6 +44,9 @@ export const NOTICE_KEY = "still:analytics:notice-seen";
 export const SERVER_IDENTIFIED_KEY = "still:analytics:server-identified";
 /** Legacy storage key retained for migration/tests. Its pre-consent history is never replayed. */
 export const PENDING_INSTALL_KEY = "still:analytics:pending-install";
+/** This device's issued per-account subjects (U5-W2): which PostHog identity each account uses here. */
+export const SUBJECTS_KEY = "still:analytics:subjects";
+export const SUBJECTS_LIMIT = 8;
 
 const QUIET: TrackOptions = { quiet: true };
 type Observation = ReturnType<AnalyticsClient["captureObservation"]>;
@@ -82,6 +87,10 @@ export interface ExtensionAnalyticsHostDeps {
   readonly isTrustedPage: (sender: MessageSender) => boolean;
   /** Ask Still's server to attach the signed-in account's email (analytics-identify). */
   readonly identifyOnServer?: (signal?: AbortSignal) => Promise<void>;
+  /** Per-device identities (U5-W2); see SubjectDeps. Absent: the account id is confirmed, as before. */
+  readonly subjects?: SubjectDeps;
+  /** Device erasure (U5-W2): records the stop when sharing is switched off here, and submits it. */
+  readonly erasure?: ErasureService;
   /** Ask for a flush at a random later time (an alarm), for events recorded quietly at a
    * background start. Without it they wait for the next popup or settings open. */
   readonly requestQuietFlush?: () => void;
@@ -146,12 +155,58 @@ export interface AccountIdentifier {
   ): Promise<void>;
 }
 
+/** The server's answer to a per-device identity request (analytics-identify with an origin proof). */
+export type SubjectReply = { readonly state: "active"; readonly subject: string } | { readonly state: "stopped" };
+
+/**
+ * Per-device identities (owner decision 50). With these, a signed-in device reports under its own
+ * server-issued subject instead of the account id, so stopping on one device can delete only that
+ * device's history. The request carries only the origin proof, a one-way hash of the private
+ * origin; the origin itself never leaves the device.
+ */
+export interface SubjectDeps {
+  /** POST {originProof} to analytics-identify as the signed-in account; resolve its JSON reply. */
+  readonly issue: (body: { readonly originProof: string }, signal: AbortSignal) => Promise<unknown>;
+  /** The server stopped this device (it was erased): end the permission in force here. */
+  readonly onStopped: () => Promise<void>;
+}
+
+interface StoredSubject {
+  readonly account: string;
+  readonly origin: string;
+  readonly subject: string;
+}
+
+function readSubjects(value: unknown): StoredSubject[] {
+  return Array.isArray(value)
+    ? value.filter(
+        (v): v is StoredSubject =>
+          !!v &&
+          typeof v === "object" &&
+          isAnalyticsId((v as StoredSubject).account) &&
+          isAnalyticsId((v as StoredSubject).origin) &&
+          isAnalyticsId((v as StoredSubject).subject),
+      )
+    : [];
+}
+
+function subjectReply(value: unknown, account: string): SubjectReply | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  if (v.state === "stopped") return { state: "stopped" };
+  if (v.state === "active" && isAnalyticsId(v.subject) && v.subject.toLowerCase() !== account.toLowerCase()) {
+    return { state: "active", subject: v.subject.toLowerCase() };
+  }
+  return null;
+}
+
 /** Shared by the extension host and the Apple app. */
 export function createAccountIdentifier(deps: {
   readonly client: AnalyticsClient;
   readonly local: AnalyticsKeyValue;
   readonly consent: () => Promise<boolean>;
   readonly identifyOnServer?: (signal?: AbortSignal) => Promise<void>;
+  readonly subjects?: SubjectDeps;
 }): AccountIdentifier {
   const { client } = deps;
   const consented = () => deps.consent().catch(() => false);
@@ -245,12 +300,97 @@ export function createAccountIdentifier(deps: {
     inflight.set(userId, attempt);
     return attempt;
   };
+  // ── Per-device subjects ──
+  const subjectRequests = new Map<string, Promise<string | "stopped" | null>>();
+  const cachedSubject = async (account: string, origin: string): Promise<string | null> => {
+    const stored = readSubjects(await deps.local.get(SUBJECTS_KEY).catch(() => null));
+    return stored.find((s) => s.account === account && s.origin === origin)?.subject ?? null;
+  };
+  const rememberSubject = async (entry: StoredSubject): Promise<boolean> => {
+    try {
+      const stored = readSubjects(await deps.local.get(SUBJECTS_KEY)).filter(
+        (s) => !(s.account === entry.account && s.origin === entry.origin),
+      );
+      await deps.local.set(SUBJECTS_KEY, [...stored, entry].slice(-SUBJECTS_LIMIT));
+      return (await cachedSubject(entry.account, entry.origin)) === entry.subject;
+    } catch {
+      return false;
+    }
+  };
+  /** One bounded, cancellable request per (account, origin). Never from a background start. */
+  const requestSubject = (
+    account: string,
+    observation: NonNullable<Awaited<ReturnType<AnalyticsClient["captureObservation"]>>>,
+  ): Promise<string | "stopped" | null> => {
+    const origin = observation.permission.origin;
+    const key = `${account}:${origin}`;
+    const existing = subjectRequests.get(key);
+    if (existing) return existing;
+    const attempt = (async (): Promise<string | "stopped" | null> => {
+      const controller = new AbortController();
+      const scope = client.cancellationSignal();
+      const abort = () => controller.abort();
+      scope.addEventListener("abort", abort, { once: true });
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        if (scope.aborted || !(await client.observationCurrent(observation))) return null;
+        const proof = await originProof(origin);
+        const reply = subjectReply(
+          await Promise.race([
+            deps.subjects!.issue({ originProof: proof }, controller.signal),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => {
+                controller.abort();
+                reject(new Error("timeout"));
+              }, SERVER_ATTACH_LIMIT_MS);
+              controller.signal.addEventListener("abort", () => reject(new Error("cancelled")), { once: true });
+            }),
+          ]),
+          account,
+        );
+        if (!reply || !(await client.observationCurrent(observation))) return null;
+        if (reply.state === "stopped") return "stopped";
+        return (await rememberSubject({ account, origin, subject: reply.subject })) ? reply.subject : null;
+      } catch {
+        return null; // retried at the next Still screen
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+        scope.removeEventListener("abort", abort);
+      }
+    })().finally(() => subjectRequests.delete(key));
+    subjectRequests.set(key, attempt);
+    return attempt;
+  };
+  const identifySubject = async (account: string, options: TrackOptions): Promise<void> => {
+    if (!isAnalyticsId(account) || !client.enabled) return;
+    // Who reports here is decided under the permission in force; without one nothing is attributed.
+    const observation = await client.captureObservation();
+    if (!observation) return;
+    let subject = await cachedSubject(account.toLowerCase(), observation.permission.origin);
+    if (!subject) {
+      // A background start never calls the server (its timing would mark a site visit): events
+      // wait unattributed until an ordinary Still screen obtains the subject.
+      if (options.quiet) return;
+      const issued = await requestSubject(account.toLowerCase(), observation);
+      if (issued === "stopped") {
+        if (await client.observationCurrent(observation)) await deps.subjects!.onStopped();
+        return;
+      }
+      if (!issued) return;
+      subject = issued;
+    }
+    if (!(await client.observationCurrent(observation))) return;
+    await client.confirm(subject, { quiet: options.quiet, accountId: account.toLowerCase() });
+  };
+
   return {
     async identify(userId, options = {}) {
+      if (deps.subjects) return identifySubject(userId, options);
       await client.identify(userId, options);
       if (!options.quiet) await attach();
     },
-    attach,
+    // With per-device subjects the email is set when the subject is issued: no separate attach.
+    attach: deps.subjects ? async () => undefined : attach,
   };
 }
 
@@ -298,6 +438,7 @@ export function createExtensionAnalyticsHost(
     local: deps.local,
     consent: deps.consent,
     identifyOnServer: deps.identifyOnServer,
+    subjects: deps.subjects,
   });
   const identify = (userId: string, options?: TrackOptions) =>
     accounts.identify(userId, options);
@@ -365,6 +506,8 @@ export function createExtensionAnalyticsHost(
         // A Still screen is an ordinary moment: finish a server email attach that a background
         // start deferred, or that failed earlier. It never changes the account (see attach).
         await accounts.attach(captured);
+        // Also the moment to send or follow up a device erasure (never a background start).
+        void deps.erasure?.kick();
         return true;
       }
       case "identify":
@@ -377,11 +520,19 @@ export function createExtensionAnalyticsHost(
       case "sharing":
         return sharing();
       case "setSharing": {
+        // The permission that is ending, read before anything changes (device erasure needs its origin).
+        const ending =
+          !request.enabled && deps.erasure ? await deps.permission?.().catch(() => null) : null;
         client.permissionChanged();
         if (request.enabled && !deps.commitPermission) return false;
         if (deps.commitPermission) await deps.commitPermission(request.enabled);
         else await deps.storeConsent?.(false);
         if (!request.enabled) await client.clearQueue();
+        // Only after the local stop: record the durable erasure obligation, then try to send it.
+        if (ending?.state === "granted" && deps.erasure) {
+          const index = await client.erasureIndex(ending.origin);
+          if (await deps.erasure.record(ending, index ?? 0)) void deps.erasure.kick();
+        }
         if (request.enabled && (await client.canReport())) {
           await client.track("analytics_choice_made", { choice: "share" });
           return true;

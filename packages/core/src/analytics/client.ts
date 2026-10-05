@@ -26,6 +26,7 @@ import {
   type AnalyticsPermission,
   type AnalyticsPrivacyPolicy,
 } from "./consent.js";
+import { ANON_INDEX_LIMIT, deriveAnonymousId } from "./derive.js";
 
 // Still's own PostHog client. It exists instead of posthog-js for three reasons:
 //
@@ -62,6 +63,9 @@ export const BATCH_SIZE = 50;
 export const FLUSH_DELAY_MS = 1_500;
 /** Longest one request may take; a stuck network must never hold the queue. */
 export const REQUEST_TIMEOUT_MS = 30_000;
+/** Late-arrival fence: an event older than this when its send comes is dropped, never sent. An
+ * offline device must not deliver history after a deletion could have run (U5-W2). */
+export const MAX_EVENT_AGE_MS = 30 * 86_400_000;
 
 export interface AnalyticsConfig {
   /** PostHog project API key (public by design: it can only send events). */
@@ -132,10 +136,15 @@ interface ClientState {
   readonly identifiedAs: string | null;
   /** Marker → local calendar day it last fired, for once-a-day events; `once:` markers → "done". */
   readonly daily: Readonly<Record<string, string>>;
-  /** The anonymous id after a sign-out. The install's anchor was merged into the account that
-   * signed out, so reusing it would keep attributing this device to that person; a fresh id per
-   * sign-out, as posthog-js does, separates them. */
+  /** The anonymous id after a sign-out: a new id per sign-out, so the device is never attributed
+   * to the person who signed out. Derived from the permission origin at `anonIndex` (derive.ts), so
+   * the device can always name every anonymous id it used when it asks for erasure. */
   readonly anonId: string | null;
+  /** Index of `anonId` under the current permission origin: 0 at Share, +1 per sign-out. */
+  readonly anonIndex: number;
+  /** The account behind the confirmed provider identity, when the host named it. Never sent: a
+   * queued event whose person is this account id is refused at send. */
+  readonly accountRef: string | null;
   /** Accounts that were forgotten (deleted) whose waiting events have not yet verifiably been
    * dropped. Recorded before the drop, in the state store, because the queue lives in a different
    * store (IndexedDB in the extensions) that can refuse a write on its own; nothing is sent while
@@ -152,6 +161,8 @@ const EMPTY_STATE: ClientState = {
   identifiedAs: null,
   daily: {},
   anonId: null,
+  anonIndex: 0,
+  accountRef: null,
   forgotten: [],
   permission: null,
   stopPending: false,
@@ -167,6 +178,11 @@ function parseState(value: unknown): ClientState {
     identifiedAs: typeof v.identifiedAs === "string" ? v.identifiedAs : null,
     daily: typeof v.daily === "object" && v.daily !== null ? (v.daily as Record<string, string>) : {},
     anonId: typeof v.anonId === "string" ? v.anonId : null,
+    anonIndex:
+      Number.isSafeInteger(v.anonIndex) && (v.anonIndex as number) >= 0 && (v.anonIndex as number) <= ANON_INDEX_LIMIT
+        ? (v.anonIndex as number)
+        : 0,
+    accountRef: isAnalyticsId(v.accountRef) ? v.accountRef : null,
     forgotten: Array.isArray(v.forgotten) ? v.forgotten.filter((id): id is string => typeof id === "string") : [],
     permission: readAnalyticsPermission(v.permission),
     stopPending: v.stopPending === true,
@@ -260,6 +276,9 @@ export interface ConfirmOptions {
   readonly forget?: boolean;
   /** A background start: do not send now (see TrackOptions.quiet). */
   readonly quiet?: boolean;
+  /** The account UUID behind a confirmed per-device subject (U5-W2). Never sent: a confirmation
+   * whose identity equals it is refused, and so is any queued event attributed to it. */
+  readonly accountId?: string;
 }
 
 export class AnalyticsClient {
@@ -408,6 +427,13 @@ export class AnalyticsClient {
   ): Promise<void> {
     if (!this.configured || (account !== null && !isAnalyticsId(account)))
       return Promise.resolve();
+    // A per-device subject is never the account id (owner decision 50).
+    if (
+      account !== null &&
+      options.accountId !== undefined &&
+      (!isAnalyticsId(options.accountId) || account.toLowerCase() === options.accountId.toLowerCase())
+    )
+      return Promise.resolve();
     if (options.forget) this.cancel();
     if (account !== this.lastAsked) {
       this.cancel();
@@ -457,6 +483,16 @@ export class AnalyticsClient {
    * needs the account, such as the server attach, then does nothing). */
   signedInAs(): Promise<string | null> {
     return this.run(async () => (await this.read())?.userId ?? null);
+  }
+
+  /** For the device-erasure service only, never the envelope: the last anonymous id index used
+   * under `origin`, or null when this client's state belongs to another origin or is unreadable. */
+  erasureIndex(origin: string): Promise<number | null> {
+    return this.run(async () => {
+      const state = await this.read();
+      if (!state) return null;
+      return state.permission?.origin === origin || state.stoppedOrigin === origin ? state.anonIndex : null;
+    });
   }
 
   /** A snapshot of the account generation and consent epoch, for work that waits and then acts. */
@@ -646,12 +682,14 @@ export class AnalyticsClient {
       return false;
     }
     if (account !== null) {
-      if (state.userId === account) return true;
+      const accountRef = options.accountId?.toLowerCase() ?? null;
+      if (state.userId === account && state.accountRef === accountRef) return true;
       const saved = await this.saveAccount({
         ...state,
         userId: account,
+        accountRef,
         identifiedAs: null,
-        accountGeneration: state.accountGeneration + 1,
+        accountGeneration: state.userId === account ? state.accountGeneration : state.accountGeneration + 1,
       });
       if (!saved) this.blocked = true;
       return saved;
@@ -659,11 +697,28 @@ export class AnalyticsClient {
     if (state.userId === null) return true; // nobody, as before: keep the same anonymous id
     const forgotten =
       options.forget && !state.forgotten.includes(state.userId) ? [...state.forgotten, state.userId] : state.forgotten;
+    // The next derived anonymous id under this permission's origin. Past the last index the
+    // device stops reporting rather than reuse or invent an id it could not later erase.
+    const anonIndex = state.permission ? state.anonIndex + 1 : 0;
+    if (anonIndex > ANON_INDEX_LIMIT) {
+      this.blocked = true;
+      if (options.forget) await this.dropEventsOf(new Set(forgotten));
+      return false;
+    }
+    let anonId: string | null;
+    try {
+      anonId = state.permission ? await deriveAnonymousId(state.permission.origin, anonIndex) : null;
+    } catch {
+      this.blocked = true;
+      return false;
+    }
     const saved = await this.saveAccount({
       ...state,
       userId: null,
+      accountRef: null,
       identifiedAs: null,
-      anonId: this.deps.uuid(),
+      anonId,
+      anonIndex,
       forgotten,
       accountGeneration: state.accountGeneration + 1,
     });
@@ -699,8 +754,10 @@ export class AnalyticsClient {
     return (
       !!stored &&
       stored.userId === next.userId &&
+      stored.accountRef === next.accountRef &&
       stored.accountGeneration === next.accountGeneration &&
       stored.anonId === next.anonId &&
+      stored.anonIndex === next.anonIndex &&
       stored.stoppedOrigin === next.stoppedOrigin &&
       JSON.stringify(stored.forgotten) === JSON.stringify(next.forgotten)
     );
@@ -860,6 +917,7 @@ export class AnalyticsClient {
           identifiedAs: null,
           daily: {},
           anonId: permission.provider.anonymousId,
+          anonIndex: 0,
         }))
       )
         return false;
@@ -1145,6 +1203,7 @@ export class AnalyticsClient {
       return "retry";
     const state = await this.read();
     if (!state || epoch !== this.epoch) return "retry";
+    const oldest = this.deps.now() - MAX_EVENT_AGE_MS;
     const outbound = batch.flatMap((event) => {
       if (!samePermission(event.permission ?? null, permission) || !isAppClientEvent(event.event)) return [];
       const props = event.properties;
@@ -1173,7 +1232,9 @@ export class AnalyticsClient {
           event.timestamp,
         ) ||
         !Number.isFinite(Date.parse(event.timestamp)) ||
+        Date.parse(event.timestamp) < oldest ||
         !isAnalyticsId(props.distinct_id) ||
+        (state.accountRef !== null && String(props.distinct_id).toLowerCase() === state.accountRef) ||
         !isAnalyticsId(props.$device_id) ||
         props.$device_id !== permission.provider.deviceId ||
         props.distinct_id !== (state.userId ?? state.anonId ?? permission.provider.anonymousId) ||
