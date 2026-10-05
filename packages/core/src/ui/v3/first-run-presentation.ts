@@ -1,21 +1,8 @@
-import type {
-  OperationStatus,
-  SharingCardProps,
-} from "./extension-settings-presentation.js";
+import type { OperationStatus } from "./extension-settings-presentation.js";
+import type { OnboardingConsent } from "./apple-onboarding-presentation.js";
 
-/** Actual caller acknowledgement; a requested choice alone is never saved. */
-export type FirstRunConsent = Pick<
-  SharingCardProps,
-  "purposes" | "purposesVerified" | "onShare" | "onDecline"
-> &
-  (
-    | { status: "saved"; choice: "on" | "off"; operation?: OperationStatus }
-    | {
-        status: "unasked" | "saving" | "failed";
-        choice?: "on" | "off";
-        operation?: OperationStatus;
-      }
-  );
+/** Actual caller acknowledgement; the same contract as Apple onboarding consent. */
+export type FirstRunConsent = OnboardingConsent;
 
 /** Actual supplied host copy; unresolved browser instructions have no defaults. */
 export interface FirstRunGuidance {

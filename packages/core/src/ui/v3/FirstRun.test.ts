@@ -1,8 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import FirstRun from "./FirstRun.svelte";
-import type { FirstRunProps } from "./first-run-presentation.js";
+import type {
+  FirstRunConsent,
+  FirstRunProps,
+} from "./first-run-presentation.js";
+import type { OnboardingConsent } from "./apple-onboarding-presentation.js";
 
 function fixture(): FirstRunProps {
   return {
@@ -274,5 +278,15 @@ describe("controlled extension first-run", () => {
     expect(after).toHaveBeenCalledOnce();
     expect(props.privacy.onOpen).not.toHaveBeenCalled();
     view.unmount();
+  });
+});
+
+describe("first-run consent contract", () => {
+  it("is the Apple onboarding consent acknowledgement, not a parallel copy", () => {
+    // Checked by the core typecheck: any divergence between the two contracts fails here.
+    expectTypeOf<FirstRunConsent>().toEqualTypeOf<OnboardingConsent>();
+    expectTypeOf<
+      NonNullable<FirstRunProps["consent"]>
+    >().toEqualTypeOf<OnboardingConsent>();
   });
 });
