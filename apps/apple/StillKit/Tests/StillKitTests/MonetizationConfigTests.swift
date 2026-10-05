@@ -169,7 +169,7 @@ final class MonetizationConfigTests: XCTestCase {
       // trailing closure in a condition), so `if let purchase {` binds a name and calls nothing.
       let code = call
         ? source.replacingOccurrences(
-          of: #"(?m)^([ \t]*(?:\}[ \t]*else[ \t]+)?(?:if|guard|while)\b[^\n]*?)\{[ \t]*\r?$"#,
+          of: #"(?m)^([ \t]*(?:\}[ \t]*else[ \t]+)?(?:if|guard|while)\b[^\n{]*?)\{[ \t]*\r?$"#,
           with: "$1", options: .regularExpression)
         : source
       let escaped = NSRegularExpression.escapedPattern(for: name)
@@ -210,6 +210,25 @@ final class MonetizationConfigTests: XCTestCase {
       guard i + hashes < chars.count, chars[i + hashes] == "\"" else { return nil }
       let triple = i + hashes + 2 < chars.count && chars[i + hashes + 1] == "\"" && chars[i + hashes + 2] == "\""
       return (hashes, triple)
+    }
+    /// The hash count of an extended regex literal (`#/.../#`) that opens at `i`, or nil.
+    func regexLiteralOpening() -> Int? {
+      var hashes = 0
+      while i + hashes < chars.count && chars[i + hashes] == "#" { hashes += 1 }
+      guard hashes > 0, i + hashes < chars.count, chars[i + hashes] == "/" else { return nil }
+      return hashes
+    }
+    /// A regex literal is opaque: `//` and quotes inside it are pattern text. Copied to its close.
+    func copyRegexLiteral(hashes: Int) {
+      let marks = String(repeating: "#", count: hashes)
+      out += marks + "/"
+      i += hashes + 1
+      let close = "/" + marks
+      while i < chars.count {
+        if at(close) { out += close; i += close.count; return }
+        out.append(chars[i])
+        i += 1
+      }
     }
     /// Copies a string literal through its closing delimiter. A one-line string stops at a newline.
     func copyString(hashes: Int, multiline: Bool) {
@@ -254,6 +273,10 @@ final class MonetizationConfigTests: XCTestCase {
             else if at("*/") { blockDepth -= 1; i += 2 }
             else { i += 1 }
           }
+          continue
+        }
+        if let hashes = regexLiteralOpening() {
+          copyRegexLiteral(hashes: hashes)
           continue
         }
         if let opening = stringOpening() {
@@ -359,6 +382,11 @@ final class MonetizationConfigTests: XCTestCase {
     XCTAssertTrue(hides("let p = \"a \\(x /* logIn(id) */) b\""), "a comment inside an interpolation is a comment")
     XCTAssertFalse(hides("let p = \"a \\(f(\"\\(g())\")) b\"; logIn(id)"), "nested interpolation")
 
+    // Regex literals: `//` inside `#/.../#` is part of the pattern, not a comment.
+    XCTAssertFalse(hides("let r = #/a//b/#; logIn(id)"), "// inside a regex literal is text")
+    XCTAssertFalse(hides("let r = ##/a/#b//c/##; logIn(id)"), "a regex literal ends only at its own hash count")
+    XCTAssertTrue(hides("let r = 1 // #/ logIn(id)\nlet s = 2"), "a #/ inside a comment is still a comment")
+
     // CRLF: Swift treats \r\n as ONE character, so a scan for \n alone never sees it.
     XCTAssertFalse(hides("let a = 1 // note\r\nlogIn(id)\r\n"), "a // comment ends at a CRLF line end")
     XCTAssertTrue(hides("let a = 1 // logIn(id)\r\nlet b = 2\r\n"), "the comment itself is still removed")
@@ -388,6 +416,10 @@ final class MonetizationConfigTests: XCTestCase {
       "guard let r = try await manager.purchase(product) else {\n}",
       "if let r = await manager.purchase { _ in } {\n}",
       "try await manager.purchase { _ in }",
+      // A real trailing-closure call on the same line as the condition's own brace.
+      "if ready { purchase {\n  done()\n} }",
+      "if ready { purchase {\n}}",
+      "while x { purchase {\n}}",
     ] {
       XCTAssertTrue(purchase.found(in: call), "a call: \(call)")
     }
