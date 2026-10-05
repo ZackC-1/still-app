@@ -6,7 +6,8 @@
 // Dormant: no fetch, storage or caller is wired to this module yet. It is deliberately not
 // re-exported from index.ts, so the Deno settings runtime graph is unchanged.
 //
-// Wire format: a deliberately restricted JSON. The body must be ASCII; strings contain no escape
+// Wire format: raw bytes of a deliberately restricted JSON. The body must be ASCII (so a byte-order
+// mark, invalid UTF-8 or Latin-1 byte is invalid) and at most 8192 bytes; strings contain no escape
 // sequences; numbers are non-negative integers within the safe-integer range; object keys are
 // unique; nesting is shallow. Anything else is invalid. These restrictions keep TypeScript and
 // Swift (StillKit `ProductPolicy`) giving byte-for-byte identical verdicts, pinned by the shared
@@ -62,8 +63,9 @@ interface PolicyEnvelope {
   readonly builds: readonly ProductPolicyBuild[];
 }
 export interface SalesPolicy extends PolicyEnvelope {
-  /** The remote sales master. It is only ever one of two keys: see the core evaluator. */
-  readonly paidTierEnabled: boolean;
+  /** The remote sales master. Deliberately not named like the compiled `PAID_TIER_ENABLED`:
+   * it is only ever the second key, and the core evaluator ANDs it with that constant itself. */
+  readonly salesEnabled: boolean;
   readonly channels: Readonly<Record<SalesChannel, { readonly enabled: boolean; readonly offer: SalesOffer }>>;
 }
 export interface RatingPolicy extends PolicyEnvelope {
@@ -83,90 +85,94 @@ const invalid = (): never => { throw new ProductPolicyGrammarError("invalid"); }
 // Restricted JSON tree. Objects are Maps so no key can reach a prototype.
 type Json = null | boolean | number | string | readonly Json[] | ReadonlyMap<string, Json>;
 
-function parseRestrictedJson(text: string): Json {
+const QUOTE = 0x22, BACKSLASH = 0x5c, COMMA = 0x2c, COLON = 0x3a;
+const OPEN_OBJECT = 0x7b, CLOSE_OBJECT = 0x7d, OPEN_ARRAY = 0x5b, CLOSE_ARRAY = 0x5d;
+const ZERO = 0x30, NINE = 0x39;
+const LITERALS: readonly (readonly [readonly number[], Json])[] = [
+  [[0x74, 0x72, 0x75, 0x65], true], [[0x66, 0x61, 0x6c, 0x73, 0x65], false], [[0x6e, 0x75, 0x6c, 0x6c], null],
+];
+
+/** Parses raw bytes, never decoded text: a byte-order mark, invalid UTF-8 or any byte above
+ * 0x7E is invalid exactly as in StillKit, because no legitimate policy byte is outside ASCII. */
+function parseRestrictedJson(bytes: Uint8Array): Json {
   let i = 0;
   const ws = () => {
-    while (i < text.length) {
-      const c = text.charCodeAt(i);
+    while (i < bytes.length) {
+      const c = bytes[i];
       if (c !== 0x20 && c !== 0x09 && c !== 0x0a && c !== 0x0d) break;
       i++;
     }
   };
-  const expect = (char: string) => { if (text[i] !== char) invalid(); i++; };
+  const expect = (byte: number) => { if (bytes[i] !== byte) invalid(); i++; };
   const string = (): string => {
-    expect('"');
-    const start = i;
+    expect(QUOTE);
+    let text = "";
     for (;;) {
-      if (i >= text.length) invalid();
-      const c = text.charCodeAt(i);
-      if (c === 0x22) break;
+      if (i >= bytes.length) invalid();
+      const c = bytes[i]!;
+      if (c === QUOTE) break;
       // No escapes, controls or non-ASCII: every legitimate key and value is plain ASCII.
-      if (c === 0x5c || c < 0x20 || c > 0x7e) invalid();
+      if (c === BACKSLASH || c < 0x20 || c > 0x7e) invalid();
+      text += String.fromCharCode(c);
       i++;
     }
-    return text.slice(start, i++);
+    i++;
+    return text;
   };
   const value = (depth: number): Json => {
     if (depth > PRODUCT_POLICY_MAX_DEPTH) invalid();
     ws();
-    const c = text[i];
-    if (c === "{") {
+    const c = bytes[i];
+    if (c === OPEN_OBJECT) {
       i++;
       const map = new Map<string, Json>();
       ws();
-      if (text[i] === "}") { i++; return map; }
+      if (bytes[i] === CLOSE_OBJECT) { i++; return map; }
       for (;;) {
         ws();
         const key = string();
         if (map.has(key)) invalid();
-        ws(); expect(":");
+        ws(); expect(COLON);
         map.set(key, value(depth + 1));
         ws();
-        if (text[i] === ",") { i++; continue; }
-        expect("}");
+        if (bytes[i] === COMMA) { i++; continue; }
+        expect(CLOSE_OBJECT);
         return map;
       }
     }
-    if (c === "[") {
+    if (c === OPEN_ARRAY) {
       i++;
       const items: Json[] = [];
       ws();
-      if (text[i] === "]") { i++; return items; }
+      if (bytes[i] === CLOSE_ARRAY) { i++; return items; }
       for (;;) {
         items.push(value(depth + 1));
         ws();
-        if (text[i] === ",") { i++; continue; }
-        expect("]");
+        if (bytes[i] === COMMA) { i++; continue; }
+        expect(CLOSE_ARRAY);
         return items;
       }
     }
-    if (c === '"') return string();
-    if (c !== undefined && c >= "0" && c <= "9") {
+    if (c === QUOTE) return string();
+    if (c !== undefined && c >= ZERO && c <= NINE) {
       const start = i;
-      if (c === "0") i++;
-      else while (i < text.length && text[i]! >= "0" && text[i]! <= "9") i++;
-      const digits = text.slice(start, i);
+      if (c === ZERO) i++;
+      else while (i < bytes.length && bytes[i]! >= ZERO && bytes[i]! <= NINE) i++;
       // A following '.', 'e' or digit after a leading zero fails at the caller's delimiter check.
-      if (digits.length > 16) invalid();
-      const number = Number(digits);
+      if (i - start > 16) invalid();
+      const number = Number(String.fromCharCode(...bytes.subarray(start, i)));
       if (!Number.isSafeInteger(number)) invalid();
       return number;
     }
-    for (const [word, literal] of [["true", true], ["false", false], ["null", null]] as const) {
-      if (text.startsWith(word, i)) { i += word.length; return literal; }
+    for (const [word, literal] of LITERALS) {
+      if (word.every((byte, offset) => bytes[i + offset] === byte)) { i += word.length; return literal; }
     }
     return invalid();
   };
   const result = value(0);
   ws();
-  if (i !== text.length) invalid();
+  if (i !== bytes.length) invalid();
   return result;
-}
-
-/** UTF-8 length without allocating for strings that are already too long. */
-function utf8Length(text: string): number {
-  if (text.length > PRODUCT_POLICY_MAX_BYTES) return text.length;
-  return new TextEncoder().encode(text).length;
 }
 
 // Table-driven field validators. Each returns the frozen, validated value or throws.
@@ -204,7 +210,7 @@ const envelope = {
 /** The complete closed sales grammar. Any other key anywhere is invalid. */
 export const SALES_POLICY_FIELDS: Readonly<Record<keyof SalesPolicy, Field>> = Object.freeze({
   ...envelope,
-  paidTierEnabled: boolean,
+  salesEnabled: boolean,
   channels: exactObject(Object.fromEntries(SALES_CHANNELS.map(channel =>
     [channel, exactObject({ enabled: boolean, offer: oneOf(SALES_OFFERS) })]))),
 });
@@ -215,13 +221,23 @@ export const RATING_POLICY_FIELDS: Readonly<Record<keyof RatingPolicy, Field>> =
   surfaces: exactObject(Object.fromEntries(PRODUCT_POLICY_SURFACES.map(surface => [surface, boolean]))),
 });
 
-/** Parse one namespace's body exactly. Throws ProductPolicyGrammarError; never returns a partial. */
-export function parseProductPolicy(namespace: "sales", body: string): SalesPolicy;
-export function parseProductPolicy(namespace: "rating", body: string): RatingPolicy;
-export function parseProductPolicy(namespace: ProductPolicyNamespace, body: string): SalesPolicy | RatingPolicy;
-export function parseProductPolicy(namespace: ProductPolicyNamespace, body: string): SalesPolicy | RatingPolicy {
-  if (typeof body !== "string") invalid();
-  if (utf8Length(body) > PRODUCT_POLICY_MAX_BYTES) throw new ProductPolicyGrammarError("oversized");
+/** Parse one namespace's raw body bytes exactly. Throws ProductPolicyGrammarError; never returns
+ * a partial. A decoded string is refused: decoding can hide a byte-order mark or invalid UTF-8. */
+export function parseProductPolicy(namespace: "sales", body: Uint8Array): SalesPolicy;
+export function parseProductPolicy(namespace: "rating", body: Uint8Array): RatingPolicy;
+export function parseProductPolicy(namespace: ProductPolicyNamespace, body: Uint8Array): SalesPolicy | RatingPolicy;
+export function parseProductPolicy(namespace: ProductPolicyNamespace, body: Uint8Array): SalesPolicy | RatingPolicy {
+  const bytes = byteView(body);
+  if (bytes.byteLength > PRODUCT_POLICY_MAX_BYTES) throw new ProductPolicyGrammarError("oversized");
   const fields = namespace === "sales" ? SALES_POLICY_FIELDS : namespace === "rating" ? RATING_POLICY_FIELDS : invalid();
-  return exactObject(fields)(parseRestrictedJson(body)) as SalesPolicy | RatingPolicy;
+  return exactObject(fields)(parseRestrictedJson(bytes)) as SalesPolicy | RatingPolicy;
+}
+
+/** Realm-independent: a Uint8Array from another realm (a frame, worker or test environment) fails
+ * `instanceof` but is still raw bytes. The result is a fresh view over the same bytes, so a
+ * subclass or spoofed tag cannot change how indexing reads them. */
+function byteView(body: unknown): Uint8Array {
+  if (!ArrayBuffer.isView(body) || Object.prototype.toString.call(body) !== "[object Uint8Array]") invalid();
+  const view = body as ArrayBufferView;
+  return new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
 }

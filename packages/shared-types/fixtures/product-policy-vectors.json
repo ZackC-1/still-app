@@ -1,9 +1,9 @@
 {
   "schema": 1,
-  "about": "Shared U6 product policy vectors. TypeScript (packages/core product-policy-vectors.test.ts) and Swift (StillKit ProductPolicyVectorTests) must give exactly these verdicts. When present, padTo appends ASCII spaces to body until it is that many UTF-8 bytes. Expectations are hand-authored, never generated from either implementation.",
+  "about": "Shared U6 product policy vectors. TypeScript (packages/core product-policy-vectors.test.ts) and Swift (StillKit ProductPolicyVectorTests) must give exactly these verdicts. Runners evaluate sales with the compiled switch on through a test-only seam; with the shipped switch off every sales vector is compiled_off (or context). A response body is either body (text, UTF-8 encoded by the runner) or bodyHex (raw bytes). When present, padTo appends ASCII spaces until the body is that many bytes. now is the injected clock value. Expectations are hand-authored, never generated from either implementation.",
   "cases": [
     {
-      "name": "two-key: compiled off with remote paidTierEnabled true stays off",
+      "name": "two-key: packaged context off with remote salesEnabled true stays off",
       "namespace": "sales",
       "context": {
         "paidTierEnabled": false,
@@ -12,10 +12,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -24,7 +24,7 @@
       }
     },
     {
-      "name": "two-key: compiled off never parses an invalid body",
+      "name": "two-key: packaged context off never parses an invalid body",
       "namespace": "sales",
       "context": {
         "paidTierEnabled": false,
@@ -33,10 +33,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{not json",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -45,7 +45,7 @@
       }
     },
     {
-      "name": "two-key: compiled off with no response",
+      "name": "two-key: packaged context off with no response",
       "namespace": "sales",
       "context": {
         "paidTierEnabled": false,
@@ -54,6 +54,7 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": null,
       "expect": {
         "allowed": false,
@@ -62,7 +63,7 @@
       }
     },
     {
-      "name": "two-key: compiled off on an Apple host",
+      "name": "two-key: packaged context off on an Apple host",
       "namespace": "sales",
       "context": {
         "paidTierEnabled": false,
@@ -71,10 +72,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -83,7 +84,7 @@
       }
     },
     {
-      "name": "compiled on, remote master on, web channel on, build listed",
+      "name": "both keys on, web channel on, build listed",
       "namespace": "sales",
       "context": {
         "paidTierEnabled": true,
@@ -92,10 +93,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": true,
@@ -104,7 +105,7 @@
       }
     },
     {
-      "name": "compiled on, remote master off",
+      "name": "remote salesEnabled off",
       "namespace": "sales",
       "context": {
         "paidTierEnabled": true,
@@ -113,10 +114,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":false,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":false,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -134,10 +135,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":false,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":false,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -155,10 +156,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":false,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":false,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": true,
@@ -176,10 +177,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":false,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":false,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -197,10 +198,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": true,
@@ -218,10 +219,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -239,10 +240,10 @@
         "build": "3.0.1"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -260,10 +261,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -281,10 +282,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -302,10 +303,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"production\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"production\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -323,10 +324,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"production\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"production\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": true,
@@ -344,10 +345,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"staging\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"staging\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -365,10 +366,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":0,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":0,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -386,10 +387,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":1,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":1,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": true,
@@ -407,10 +408,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":-1,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":-1,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -428,10 +429,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":1.5,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":1.5,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -449,10 +450,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3.0,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3.0,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -470,10 +471,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":1e2,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":1e2,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -491,10 +492,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":03,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":03,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -512,10 +513,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":\"3\",\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":\"3\",\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -533,10 +534,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":9007199254740991,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":9007199254740991,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": true,
@@ -554,10 +555,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":9007199254740992,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":9007199254740992,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -575,10 +576,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 4,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -596,10 +597,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 3,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": true,
@@ -617,10 +618,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":2,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":2,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -638,10 +639,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -659,10 +660,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}],\"note\":\"hello\"}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}],\"note\":\"hello\"}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -680,10 +681,52 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}],\"paidMode\":true}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}],\"paidMode\":true}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "remote key named like the compiled flag is not part of the grammar",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}],\"paidTierEnabled\":true}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "compiled-flag name alongside salesEnabled is an unknown key",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}],\"paidTierEnabled\":true}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -701,10 +744,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"__proto__\":{\"paidTierEnabled\":true},\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"__proto__\":{\"salesEnabled\":true},\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -722,10 +765,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\",\"price\":199},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\",\"price\":199},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -743,10 +786,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"android\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"android\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -764,10 +807,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -785,10 +828,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v4\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v4\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -806,10 +849,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"https://pay.example/checkout\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"https://pay.example/checkout\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -827,10 +870,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\",\"url\":\"x\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\",\"url\":\"x\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -848,10 +891,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"https://evil.example/3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"https://evil.example/3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -869,10 +912,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"a:b\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"a:b\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -890,10 +933,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"V3\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"V3\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -911,10 +954,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\".3\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\".3\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -932,10 +975,10 @@
         "build": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": true,
@@ -953,10 +996,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"chrome_desktop\",\"build\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"chrome_desktop\",\"build\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -974,10 +1017,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"safari\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"safari\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -995,10 +1038,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1016,10 +1059,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"chrome_desktop\",\"build\":\"b1\"},{\"surface\":\"chrome_desktop\",\"build\":\"b2\"},{\"surface\":\"chrome_desktop\",\"build\":\"b3\"},{\"surface\":\"chrome_desktop\",\"build\":\"b4\"},{\"surface\":\"chrome_desktop\",\"build\":\"b5\"},{\"surface\":\"chrome_desktop\",\"build\":\"b6\"},{\"surface\":\"chrome_desktop\",\"build\":\"b7\"},{\"surface\":\"chrome_desktop\",\"build\":\"b8\"},{\"surface\":\"chrome_desktop\",\"build\":\"b9\"},{\"surface\":\"chrome_desktop\",\"build\":\"b10\"},{\"surface\":\"chrome_desktop\",\"build\":\"b11\"},{\"surface\":\"chrome_desktop\",\"build\":\"b12\"},{\"surface\":\"chrome_desktop\",\"build\":\"b13\"},{\"surface\":\"chrome_desktop\",\"build\":\"b14\"},{\"surface\":\"chrome_desktop\",\"build\":\"b15\"},{\"surface\":\"chrome_desktop\",\"build\":\"b16\"},{\"surface\":\"chrome_desktop\",\"build\":\"b17\"},{\"surface\":\"chrome_desktop\",\"build\":\"b18\"},{\"surface\":\"chrome_desktop\",\"build\":\"b19\"},{\"surface\":\"chrome_desktop\",\"build\":\"b20\"},{\"surface\":\"chrome_desktop\",\"build\":\"b21\"},{\"surface\":\"chrome_desktop\",\"build\":\"b22\"},{\"surface\":\"chrome_desktop\",\"build\":\"b23\"},{\"surface\":\"chrome_desktop\",\"build\":\"b24\"},{\"surface\":\"chrome_desktop\",\"build\":\"b25\"},{\"surface\":\"chrome_desktop\",\"build\":\"b26\"},{\"surface\":\"chrome_desktop\",\"build\":\"b27\"},{\"surface\":\"chrome_desktop\",\"build\":\"b28\"},{\"surface\":\"chrome_desktop\",\"build\":\"b29\"},{\"surface\":\"chrome_desktop\",\"build\":\"b30\"},{\"surface\":\"chrome_desktop\",\"build\":\"b31\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"chrome_desktop\",\"build\":\"b1\"},{\"surface\":\"chrome_desktop\",\"build\":\"b2\"},{\"surface\":\"chrome_desktop\",\"build\":\"b3\"},{\"surface\":\"chrome_desktop\",\"build\":\"b4\"},{\"surface\":\"chrome_desktop\",\"build\":\"b5\"},{\"surface\":\"chrome_desktop\",\"build\":\"b6\"},{\"surface\":\"chrome_desktop\",\"build\":\"b7\"},{\"surface\":\"chrome_desktop\",\"build\":\"b8\"},{\"surface\":\"chrome_desktop\",\"build\":\"b9\"},{\"surface\":\"chrome_desktop\",\"build\":\"b10\"},{\"surface\":\"chrome_desktop\",\"build\":\"b11\"},{\"surface\":\"chrome_desktop\",\"build\":\"b12\"},{\"surface\":\"chrome_desktop\",\"build\":\"b13\"},{\"surface\":\"chrome_desktop\",\"build\":\"b14\"},{\"surface\":\"chrome_desktop\",\"build\":\"b15\"},{\"surface\":\"chrome_desktop\",\"build\":\"b16\"},{\"surface\":\"chrome_desktop\",\"build\":\"b17\"},{\"surface\":\"chrome_desktop\",\"build\":\"b18\"},{\"surface\":\"chrome_desktop\",\"build\":\"b19\"},{\"surface\":\"chrome_desktop\",\"build\":\"b20\"},{\"surface\":\"chrome_desktop\",\"build\":\"b21\"},{\"surface\":\"chrome_desktop\",\"build\":\"b22\"},{\"surface\":\"chrome_desktop\",\"build\":\"b23\"},{\"surface\":\"chrome_desktop\",\"build\":\"b24\"},{\"surface\":\"chrome_desktop\",\"build\":\"b25\"},{\"surface\":\"chrome_desktop\",\"build\":\"b26\"},{\"surface\":\"chrome_desktop\",\"build\":\"b27\"},{\"surface\":\"chrome_desktop\",\"build\":\"b28\"},{\"surface\":\"chrome_desktop\",\"build\":\"b29\"},{\"surface\":\"chrome_desktop\",\"build\":\"b30\"},{\"surface\":\"chrome_desktop\",\"build\":\"b31\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": true,
@@ -1037,10 +1080,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"chrome_desktop\",\"build\":\"b1\"},{\"surface\":\"chrome_desktop\",\"build\":\"b2\"},{\"surface\":\"chrome_desktop\",\"build\":\"b3\"},{\"surface\":\"chrome_desktop\",\"build\":\"b4\"},{\"surface\":\"chrome_desktop\",\"build\":\"b5\"},{\"surface\":\"chrome_desktop\",\"build\":\"b6\"},{\"surface\":\"chrome_desktop\",\"build\":\"b7\"},{\"surface\":\"chrome_desktop\",\"build\":\"b8\"},{\"surface\":\"chrome_desktop\",\"build\":\"b9\"},{\"surface\":\"chrome_desktop\",\"build\":\"b10\"},{\"surface\":\"chrome_desktop\",\"build\":\"b11\"},{\"surface\":\"chrome_desktop\",\"build\":\"b12\"},{\"surface\":\"chrome_desktop\",\"build\":\"b13\"},{\"surface\":\"chrome_desktop\",\"build\":\"b14\"},{\"surface\":\"chrome_desktop\",\"build\":\"b15\"},{\"surface\":\"chrome_desktop\",\"build\":\"b16\"},{\"surface\":\"chrome_desktop\",\"build\":\"b17\"},{\"surface\":\"chrome_desktop\",\"build\":\"b18\"},{\"surface\":\"chrome_desktop\",\"build\":\"b19\"},{\"surface\":\"chrome_desktop\",\"build\":\"b20\"},{\"surface\":\"chrome_desktop\",\"build\":\"b21\"},{\"surface\":\"chrome_desktop\",\"build\":\"b22\"},{\"surface\":\"chrome_desktop\",\"build\":\"b23\"},{\"surface\":\"chrome_desktop\",\"build\":\"b24\"},{\"surface\":\"chrome_desktop\",\"build\":\"b25\"},{\"surface\":\"chrome_desktop\",\"build\":\"b26\"},{\"surface\":\"chrome_desktop\",\"build\":\"b27\"},{\"surface\":\"chrome_desktop\",\"build\":\"b28\"},{\"surface\":\"chrome_desktop\",\"build\":\"b29\"},{\"surface\":\"chrome_desktop\",\"build\":\"b30\"},{\"surface\":\"chrome_desktop\",\"build\":\"b31\"},{\"surface\":\"chrome_desktop\",\"build\":\"b32\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"chrome_desktop\",\"build\":\"b1\"},{\"surface\":\"chrome_desktop\",\"build\":\"b2\"},{\"surface\":\"chrome_desktop\",\"build\":\"b3\"},{\"surface\":\"chrome_desktop\",\"build\":\"b4\"},{\"surface\":\"chrome_desktop\",\"build\":\"b5\"},{\"surface\":\"chrome_desktop\",\"build\":\"b6\"},{\"surface\":\"chrome_desktop\",\"build\":\"b7\"},{\"surface\":\"chrome_desktop\",\"build\":\"b8\"},{\"surface\":\"chrome_desktop\",\"build\":\"b9\"},{\"surface\":\"chrome_desktop\",\"build\":\"b10\"},{\"surface\":\"chrome_desktop\",\"build\":\"b11\"},{\"surface\":\"chrome_desktop\",\"build\":\"b12\"},{\"surface\":\"chrome_desktop\",\"build\":\"b13\"},{\"surface\":\"chrome_desktop\",\"build\":\"b14\"},{\"surface\":\"chrome_desktop\",\"build\":\"b15\"},{\"surface\":\"chrome_desktop\",\"build\":\"b16\"},{\"surface\":\"chrome_desktop\",\"build\":\"b17\"},{\"surface\":\"chrome_desktop\",\"build\":\"b18\"},{\"surface\":\"chrome_desktop\",\"build\":\"b19\"},{\"surface\":\"chrome_desktop\",\"build\":\"b20\"},{\"surface\":\"chrome_desktop\",\"build\":\"b21\"},{\"surface\":\"chrome_desktop\",\"build\":\"b22\"},{\"surface\":\"chrome_desktop\",\"build\":\"b23\"},{\"surface\":\"chrome_desktop\",\"build\":\"b24\"},{\"surface\":\"chrome_desktop\",\"build\":\"b25\"},{\"surface\":\"chrome_desktop\",\"build\":\"b26\"},{\"surface\":\"chrome_desktop\",\"build\":\"b27\"},{\"surface\":\"chrome_desktop\",\"build\":\"b28\"},{\"surface\":\"chrome_desktop\",\"build\":\"b29\"},{\"surface\":\"chrome_desktop\",\"build\":\"b30\"},{\"surface\":\"chrome_desktop\",\"build\":\"b31\"},{\"surface\":\"chrome_desktop\",\"build\":\"b32\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1058,10 +1101,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":\"true\",\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":\"true\",\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1079,10 +1122,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":1,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":1,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1100,10 +1143,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":null,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":null,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1121,10 +1164,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":false,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":false,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1142,10 +1185,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"paidTierEnabled\":false,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"salesEnabled\":false,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1163,10 +1206,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1184,10 +1227,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\n  \"builds\": [\n    {\n      \"surface\": \"chrome_desktop\",\n      \"build\": \"3.0.0\"\n    },\n    {\n      \"surface\": \"firefox_android\",\n      \"build\": \"3.0.0\"\n    },\n    {\n      \"surface\": \"apple_mobile_host\",\n      \"build\": \"3.0.0\"\n    },\n    {\n      \"surface\": \"apple_macos_host\",\n      \"build\": \"3.0.0\"\n    },\n    {\n      \"surface\": \"edge_desktop\",\n      \"build\": \"3.0.0\"\n    }\n  ],\n  \"channels\": {\n    \"apple\": {\n      \"enabled\": true,\n      \"offer\": \"still-pro-v3\"\n    },\n    \"web\": {\n      \"enabled\": true,\n      \"offer\": \"still-pro-v3\"\n    }\n  },\n  \"schema\": 1,\n  \"environment\": \"sandbox\",\n  \"revision\": 3,\n  \"paidTierEnabled\": true\n}\n",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\n  \"builds\": [\n    {\n      \"surface\": \"chrome_desktop\",\n      \"build\": \"3.0.0\"\n    },\n    {\n      \"surface\": \"firefox_android\",\n      \"build\": \"3.0.0\"\n    },\n    {\n      \"surface\": \"apple_mobile_host\",\n      \"build\": \"3.0.0\"\n    },\n    {\n      \"surface\": \"apple_macos_host\",\n      \"build\": \"3.0.0\"\n    },\n    {\n      \"surface\": \"edge_desktop\",\n      \"build\": \"3.0.0\"\n    }\n  ],\n  \"channels\": {\n    \"apple\": {\n      \"enabled\": true,\n      \"offer\": \"still-pro-v3\"\n    },\n    \"web\": {\n      \"enabled\": true,\n      \"offer\": \"still-pro-v3\"\n    }\n  },\n  \"schema\": 1,\n  \"environment\": \"sandbox\",\n  \"revision\": 3,\n  \"salesEnabled\": true\n}\n",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": true,
@@ -1205,10 +1248,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "﻿{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "﻿{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1226,10 +1269,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}],}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}],}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1247,10 +1290,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}x",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}x",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1268,10 +1311,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1289,10 +1332,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.\\u0030\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.\\u0030\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1310,10 +1353,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0é\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0é\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1331,10 +1374,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]} ",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]} ",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1352,10 +1395,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "[{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}]",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "[{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}]",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1373,10 +1416,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "null",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1394,10 +1437,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1415,10 +1458,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "   \n",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1436,10 +1479,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":Infinity,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":Infinity,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1457,10 +1500,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}],\"x\":[[[[[[1]]]]]]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}],\"x\":[[[[[[1]]]]]]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1478,10 +1521,220 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}],\"code\":\"fetch('https://x')\"}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}],\"code\":\"fetch('https://x')\"}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: plain ASCII body is accepted",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a332c2273616c6573456e61626c6564223a747275652c226368616e6e656c73223a7b226170706c65223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d2c22776562223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d7d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e30227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7d",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": true,
+        "reason": "on",
+        "revision": 3
+      }
+    },
+    {
+      "name": "bytes: UTF-8 byte-order mark",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "efbbbf7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a332c2273616c6573456e61626c6564223a747275652c226368616e6e656c73223a7b226170706c65223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d2c22776562223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d7d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e30227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7d",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: UTF-16 byte-order mark",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "fffe7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a332c2273616c6573456e61626c6564223a747275652c226368616e6e656c73223a7b226170706c65223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d2c22776562223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d7d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e30227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7d",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: invalid UTF-8 byte in a string",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a332c2273616c6573456e61626c6564223a747275652c226368616e6e656c73223a7b226170706c65223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d2c22776562223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d7d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e30ff227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7d",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: overlong UTF-8 slash in a string",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a332c2273616c6573456e61626c6564223a747275652c226368616e6e656c73223a7b226170706c65223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d2c22776562223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d7d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e30c0af227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7d",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: truncated UTF-8 sequence at the end",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a332c2273616c6573456e61626c6564223a747275652c226368616e6e656c73223a7b226170706c65223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d2c22776562223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d7d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e30227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7dc3",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: Latin-1 e-acute in a build",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a332c2273616c6573456e61626c6564223a747275652c226368616e6e656c73223a7b226170706c65223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d2c22776562223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d7d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e30e9227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7d",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: NUL inside a string",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a332c2273616c6573456e61626c6564223a747275652c226368616e6e656c73223a7b226170706c65223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d2c22776562223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d7d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e3000227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7d",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: trailing NUL",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a332c2273616c6573456e61626c6564223a747275652c226368616e6e656c73223a7b226170706c65223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d2c22776562223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d7d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e30227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7d00",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: DEL inside a string",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a332c2273616c6573456e61626c6564223a747275652c226368616e6e656c73223a7b226170706c65223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d2c22776562223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d7d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e307f227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7d",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1499,10 +1752,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
         "requestStartedAt": 1000,
-        "evaluatedAt": 1200,
         "padTo": 8192
       },
       "expect": {
@@ -1521,10 +1774,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
         "requestStartedAt": 1000,
-        "evaluatedAt": 1200,
         "padTo": 8193
       },
       "expect": {
@@ -1543,10 +1796,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{",
         "requestStartedAt": 1000,
-        "evaluatedAt": 1200,
         "padTo": 9000
       },
       "expect": {
@@ -1565,10 +1818,31 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "oversized",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: raw bytes over the cap",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a332c2273616c6573456e61626c6564223a747275652c226368616e6e656c73223a7b226170706c65223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d2c22776562223a7b22656e61626c6564223a747275652c226f66666572223a227374696c6c2d70726f2d7633227d7d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e30227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7de9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9e9",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1586,10 +1860,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": null,
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1607,6 +1881,7 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": null,
       "expect": {
         "allowed": false,
@@ -1615,7 +1890,7 @@
       }
     },
     {
-      "name": "consumed 4999 ms after request start",
+      "name": "clock 4999 ms after request start",
       "namespace": "sales",
       "context": {
         "paidTierEnabled": true,
@@ -1624,10 +1899,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 5999,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 5999
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": true,
@@ -1636,7 +1911,7 @@
       }
     },
     {
-      "name": "consumed 5000 ms after request start is late",
+      "name": "clock 5000 ms after request start is late",
       "namespace": "sales",
       "context": {
         "paidTierEnabled": true,
@@ -1645,10 +1920,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 6000,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 6000
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1657,7 +1932,7 @@
       }
     },
     {
-      "name": "consumed before the request started",
+      "name": "clock equal to request start",
       "namespace": "sales",
       "context": {
         "paidTierEnabled": true,
@@ -1666,10 +1941,31 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1000,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 999
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": true,
+        "reason": "on",
+        "revision": 3
+      }
+    },
+    {
+      "name": "request started after the clock",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 999,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1687,10 +1983,52 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": -1,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": -1
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "late",
+        "revision": null
+      }
+    },
+    {
+      "name": "negative clock",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": -5,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 0
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "late",
+        "revision": null
+      }
+    },
+    {
+      "name": "replayed stored response with its original start time",
+      "namespace": "sales",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 3601000,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1708,10 +2046,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 60000,
       "response": {
         "body": "{",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 60000
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1729,10 +2067,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1750,10 +2088,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1771,10 +2109,10 @@
         "build": "https://x"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1792,10 +2130,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": -1,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1813,10 +2151,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1834,10 +2172,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": true,
@@ -1855,10 +2193,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1876,10 +2214,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":false,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1897,10 +2235,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":false,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1918,10 +2256,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":false,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1939,10 +2277,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":false,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1960,10 +2298,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":false,\"surfaces\":{\"chrome_desktop\":false,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1981,10 +2319,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":false,\"surfaces\":{\"chrome_desktop\":false,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -1993,7 +2331,7 @@
       }
     },
     {
-      "name": "rating ignores the compiled paid flag",
+      "name": "rating ignores the paid flag",
       "namespace": "rating",
       "context": {
         "paidTierEnabled": false,
@@ -2002,10 +2340,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": true,
@@ -2023,10 +2361,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":false,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -2044,10 +2382,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": true,
@@ -2065,10 +2403,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": true,
@@ -2086,10 +2424,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": true,
@@ -2107,10 +2445,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":false},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -2128,10 +2466,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -2149,6 +2487,7 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": null,
       "expect": {
         "allowed": false,
@@ -2166,10 +2505,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true,\"safari\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -2187,10 +2526,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -2208,10 +2547,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":\"true\",\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -2229,10 +2568,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}],\"minimumDays\":1}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -2250,10 +2589,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}],\"reviewUrl\":\"https://chromewebstore.google.com/x\"}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -2271,10 +2610,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
-        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"paidTierEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":3,\"salesEnabled\":true,\"channels\":{\"apple\":{\"enabled\":true,\"offer\":\"still-pro-v3\"},\"web\":{\"enabled\":true,\"offer\":\"still-pro-v3\"}},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -2292,10 +2631,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -2313,10 +2652,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":0,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -2334,10 +2673,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": null,
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -2355,10 +2694,31 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 6000,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 6000
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "late",
+        "revision": null
+      }
+    },
+    {
+      "name": "replayed stored response",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 86401000,
+      "response": {
+        "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -2376,15 +2736,57 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
         "requestStartedAt": 1000,
-        "evaluatedAt": 1200,
         "padTo": 8193
       },
       "expect": {
         "allowed": false,
         "reason": "oversized",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: UTF-8 byte-order mark",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "efbbbf7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a372c226d6173746572223a747275652c227375726661636573223a7b226368726f6d655f6465736b746f70223a747275652c22656467655f6465736b746f70223a747275652c2266697265666f785f6465736b746f70223a747275652c2266697265666f785f616e64726f6964223a747275652c226170706c655f6d6f62696c655f686f7374223a747275652c226170706c655f6d61636f735f686f7374223a747275657d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e30227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7d",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
+        "revision": null
+      }
+    },
+    {
+      "name": "bytes: Latin-1 byte",
+      "namespace": "rating",
+      "context": {
+        "paidTierEnabled": true,
+        "environment": "sandbox",
+        "surface": "chrome_desktop",
+        "build": "3.0.0"
+      },
+      "highestSeenRevision": 0,
+      "now": 1200,
+      "response": {
+        "bodyHex": "7b22736368656d61223a312c22656e7669726f6e6d656e74223a2273616e64626f78222c227265766973696f6e223a372c226d6173746572223a74727565a02c227375726661636573223a7b226368726f6d655f6465736b746f70223a747275652c22656467655f6465736b746f70223a747275652c2266697265666f785f6465736b746f70223a747275652c2266697265666f785f616e64726f6964223a747275652c226170706c655f6d6f62696c655f686f7374223a747275652c226170706c655f6d61636f735f686f7374223a747275657d2c226275696c6473223a5b7b2273757266616365223a226368726f6d655f6465736b746f70222c226275696c64223a22332e302e30227d2c7b2273757266616365223a2266697265666f785f616e64726f6964222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d6f62696c655f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a226170706c655f6d61636f735f686f7374222c226275696c64223a22332e302e30227d2c7b2273757266616365223a22656467655f6465736b746f70222c226275696c64223a22332e302e30227d5d7d",
+        "requestStartedAt": 1000
+      },
+      "expect": {
+        "allowed": false,
+        "reason": "invalid",
         "revision": null
       }
     },
@@ -2398,10 +2800,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 8,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -2419,10 +2821,10 @@
         "build": "3.0.1"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,
@@ -2440,10 +2842,10 @@
         "build": "3.0.0"
       },
       "highestSeenRevision": 0,
+      "now": 1200,
       "response": {
         "body": "{\"schema\":1,\"environment\":\"sandbox\",\"revision\":7,\"master\":true,\"surfaces\":{\"chrome_desktop\":true,\"edge_desktop\":true,\"firefox_desktop\":true,\"firefox_android\":true,\"apple_mobile_host\":true,\"apple_macos_host\":true},\"builds\":[{\"surface\":\"chrome_desktop\",\"build\":\"3.0.0\"},{\"surface\":\"firefox_android\",\"build\":\"3.0.0\"},{\"surface\":\"apple_mobile_host\",\"build\":\"3.0.0\"},{\"surface\":\"apple_macos_host\",\"build\":\"3.0.0\"},{\"surface\":\"edge_desktop\",\"build\":\"3.0.0\"}]}",
-        "requestStartedAt": 1000,
-        "evaluatedAt": 1200
+        "requestStartedAt": 1000
       },
       "expect": {
         "allowed": false,

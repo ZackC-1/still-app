@@ -9,12 +9,20 @@ import Foundation
 /// the compiled `MonetizationConfig.paidTierEnabled`), and free blocking, free sync and Restore
 /// never consult it.
 ///
-/// Two keys for sales: the compiled flag (passed in from packaged code, never read from the
-/// payload) AND the remote sales policy AND an allowlisted packaged build. With the compiled flag
-/// false every remote value is inert. Missing, late, oversized, invalid, wrong-environment, stale
-/// or unknown input is Off. Nothing in a payload is ever evaluated as code.
+/// Two keys for sales. Key one is `MonetizationConfig.paidTierEnabled`, which the public evaluator
+/// reads itself and ANDs with the packaged context; no caller can supply it and the payload never
+/// can. Key two is the remote sales policy (`salesEnabled` plus the surface's channel) for an
+/// allowlisted packaged build. With the compiled flag false every remote value is inert. Missing,
+/// late, oversized, invalid, wrong-environment, stale or unknown input is Off. Freshness is judged
+/// by the injected clock at evaluation time, never a caller-supplied completion time. Nothing in a
+/// payload is ever evaluated as code.
 ///
-/// Wire format: a deliberately restricted JSON. ASCII only; strings without escapes; numbers are
+/// Revision fence: callers pass the highest revision they have accepted. After an accepted verdict
+/// (`revision` is non-nil and `reason` is not `.stale`, i.e. `.on`, `.off` or `.build`) they persist
+/// max(previous, verdict.revision); every other verdict leaves the stored value untouched.
+///
+/// Wire format: raw bytes (at most 8192) of a deliberately restricted JSON. ASCII only, so a
+/// byte-order mark, invalid UTF-8 or a Latin-1 byte is invalid; strings without escapes; numbers are
 /// non-negative safe integers; unique object keys; shallow nesting. Foundation's JSON parsers are
 /// not used for the body because they disagree with JavaScript on duplicate keys, byte-order
 /// marks, trailing commas and Boolean/number bridging.
@@ -70,12 +78,17 @@ public enum ProductPolicy {
   }
 
   /// Packaged identity only. No request, payload, cache or account may supply any of these.
+  /// Outside StillKit the compiled switch is the only possible `paidTierEnabled`; the internal
+  /// initializer exists for `@testable` tests, and the evaluator ANDs with the switch regardless.
   public struct Context: Sendable {
     public let paidTierEnabled: Bool
     public let environment: String
     public let surface: String
     public let build: String
-    public init(paidTierEnabled: Bool = MonetizationConfig.paidTierEnabled, environment: String, surface: String, build: String) {
+    public init(environment: String, surface: String, build: String) {
+      self.init(paidTierEnabled: MonetizationConfig.paidTierEnabled, environment: environment, surface: surface, build: build)
+    }
+    init(paidTierEnabled: Bool, environment: String, surface: String, build: String) {
       self.paidTierEnabled = paidTierEnabled
       self.environment = environment
       self.surface = surface
@@ -83,15 +96,13 @@ public enum ProductPolicy {
     }
   }
 
-  /// One fresh check: raw body (nil when absent) plus monotonic request-start/consumption times.
+  /// One fresh check: raw body bytes (nil when absent) and the monotonic time its request started.
   public struct Response: Sendable {
     public let body: Data?
     public let requestStartedAt: Int
-    public let evaluatedAt: Int
-    public init(body: Data?, requestStartedAt: Int, evaluatedAt: Int) {
+    public init(body: Data?, requestStartedAt: Int) {
       self.body = body
       self.requestStartedAt = requestStartedAt
-      self.evaluatedAt = evaluatedAt
     }
   }
 
@@ -105,8 +116,8 @@ public enum ProductPolicy {
     public let environment: String
     public let revision: Int
     public let builds: [Build]
-    /// Sales: the remote master. Rating: nil.
-    public let paidTierEnabled: Bool?
+    /// Sales: the remote master (deliberately not named like the compiled switch). Rating: nil.
+    public let salesEnabled: Bool?
     /// Sales: channel -> enabled. Rating: empty.
     public let channels: [String: Bool]
     /// Rating: the master. Sales: nil.
@@ -120,26 +131,35 @@ public enum ProductPolicy {
   // MARK: Evaluator
 
   /// May this packaged build start a purchase right now? Restore never calls this.
-  public static func evaluateSales(_ context: Context, _ response: Response?, highestSeenRevision: Int = 0) -> Verdict {
+  /// `now` returns monotonic milliseconds on the same clock as `requestStartedAt`.
+  public static func evaluateSales(_ context: Context, _ response: Response?, highestSeenRevision: Int, now: () -> Int) -> Verdict {
+    evaluateSales(context, response, highestSeenRevision: highestSeenRevision, now: now,
+                  compiledPaidTierEnabled: MonetizationConfig.paidTierEnabled)
+  }
+
+  /// Internal seam so `@testable` tests can run the shared vectors on the compiled-on path. No other
+  /// module can reach it, and `ProductPolicyTests` fails if any other StillKit source names it.
+  static func evaluateSales(_ context: Context, _ response: Response?, highestSeenRevision: Int, now: () -> Int,
+                            compiledPaidTierEnabled: Bool) -> Verdict {
     guard validContext(context, highestSeenRevision) else { return Verdict(.context) }
-    // Key one: the compiled constant from packaged code. The payload's flag is only key two.
-    guard context.paidTierEnabled else { return Verdict(.compiledOff) }
+    // Key one: the compiled switch itself, ANDed with the packaged context. Never the payload.
+    guard compiledPaidTierEnabled && context.paidTierEnabled else { return Verdict(.compiledOff) }
     guard let channel = salesChannelBySurface[context.surface], !deferredSurfaces.contains(context.surface) else {
       return Verdict(.deferredSurface)
     }
-    switch check(.sales, context, response, highestSeenRevision) {
+    switch check(.sales, context, response, highestSeenRevision, now) {
     case .verdict(let verdict): return verdict
     case .policy(let policy):
-      let on = policy.paidTierEnabled == true && policy.channels[channel] == true
+      let on = policy.salesEnabled == true && policy.channels[channel] == true
       return Verdict(on ? .on : .off, revision: policy.revision)
     }
   }
 
   /// May this packaged build request a review prompt right now? Master AND surface AND build.
-  public static func evaluateRating(_ context: Context, _ response: Response?, highestSeenRevision: Int = 0) -> Verdict {
+  public static func evaluateRating(_ context: Context, _ response: Response?, highestSeenRevision: Int, now: () -> Int) -> Verdict {
     guard validContext(context, highestSeenRevision) else { return Verdict(.context) }
     guard !deferredSurfaces.contains(context.surface) else { return Verdict(.deferredSurface) }
-    switch check(.rating, context, response, highestSeenRevision) {
+    switch check(.rating, context, response, highestSeenRevision, now) {
     case .verdict(let verdict): return verdict
     case .policy(let policy):
       let on = policy.master == true && policy.surfaces[context.surface] == true
@@ -149,10 +169,11 @@ public enum ProductPolicy {
 
   private enum Checked { case verdict(Verdict), policy(Policy) }
 
-  private static func check(_ namespace: Namespace, _ context: Context, _ response: Response?, _ highestSeenRevision: Int) -> Checked {
+  private static func check(_ namespace: Namespace, _ context: Context, _ response: Response?, _ highestSeenRevision: Int,
+                            _ now: () -> Int) -> Checked {
     guard let response, let body = response.body else { return .verdict(Verdict(.missing)) }
-    let start = response.requestStartedAt, at = response.evaluatedAt
-    guard safe(start), safe(at), at >= start, at - start < freshWindowMs else { return .verdict(Verdict(.late)) }
+    let start = response.requestStartedAt, at = now()
+    guard safe(start), safe(at), start <= at, at - start < freshWindowMs else { return .verdict(Verdict(.late)) }
     let policy: Policy
     do { policy = try parse(namespace, body) } catch GrammarError.oversized {
       return .verdict(Verdict(.oversized))
@@ -198,7 +219,7 @@ public enum ProductPolicy {
           case .int(let revision)? = object["revision"], revision >= 1 else { throw GrammarError.invalid }
     switch namespace {
     case .sales:
-      guard case .bool(let paid)? = object["paidTierEnabled"] else { throw GrammarError.invalid }
+      guard case .bool(let salesEnabled)? = object["salesEnabled"] else { throw GrammarError.invalid }
       let channelObject = try exactObject(object["channels"], keys: salesChannels)
       var channels: [String: Bool] = [:]
       for channel in salesChannels {
@@ -207,7 +228,7 @@ public enum ProductPolicy {
               case .string(let offer)? = entry["offer"], salesOffers.contains(offer) else { throw GrammarError.invalid }
         channels[channel] = enabled
       }
-      return Policy(environment: environment, revision: revision, builds: builds, paidTierEnabled: paid,
+      return Policy(environment: environment, revision: revision, builds: builds, salesEnabled: salesEnabled,
                     channels: channels, master: nil, surfaces: [:])
     case .rating:
       guard case .bool(let master)? = object["master"] else { throw GrammarError.invalid }
@@ -217,14 +238,14 @@ public enum ProductPolicy {
         guard case .bool(let value)? = surfaceObject[surface] else { throw GrammarError.invalid }
         allowed[surface] = value
       }
-      return Policy(environment: environment, revision: revision, builds: builds, paidTierEnabled: nil,
+      return Policy(environment: environment, revision: revision, builds: builds, salesEnabled: nil,
                     channels: [:], master: master, surfaces: allowed)
     }
   }
 
   /// The complete closed key sets. Any other key anywhere is invalid.
   static let envelopeFields = ["schema", "environment", "revision", "builds"]
-  static let salesFields = envelopeFields + ["paidTierEnabled", "channels"]
+  static let salesFields = envelopeFields + ["salesEnabled", "channels"]
   static let ratingFields = envelopeFields + ["master", "surfaces"]
 
   private static func exactObject(_ value: RestrictedJSON?, keys: [String]) throws -> [String: RestrictedJSON] {
