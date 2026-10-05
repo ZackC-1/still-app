@@ -6,6 +6,7 @@ on:
       - "scripts/backend/**"
       - "supabase/**"
       - ".github/workflows/supabase-deploy.yml"
+      - ".github/workflows/supabase-production-deploy.yml"
   workflow_dispatch:
     inputs:
       operation:
@@ -45,14 +46,14 @@ jobs:
       - name: Install existing workflow parser dependency
         run: pnpm install --frozen-lockfile --ignore-scripts --filter .
       - name: Verify exact-operation negative controls
-        run: node --test scripts/backend/plan.test.mjs scripts/backend/approved-operation.test.mjs scripts/backend/entrypoints.test.mjs
+        run: node --test scripts/backend/plan.test.mjs scripts/backend/approved-operation.test.mjs scripts/backend/entrypoints.test.mjs scripts/backend/deploy/deploy.test.mjs scripts/backend/deploy/deploy-workflow.test.mjs
       - name: Fail closed before scheduling any production environment
         id: authority
         env:
           REQUESTED_OPERATION: ${{ inputs.operation }}
         run: |
           echo 'production-ready=false' >> "$GITHUB_OUTPUT"
-          echo 'Production unavailable: no actual protected environment, reconciled content baseline, exact tested production operation or owner approval is supplied.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'This foundation workflow never deploys. Production changes go only through supabase-production-deploy.yml.' >> "$GITHUB_STEP_SUMMARY"
           if [ "$REQUESTED_OPERATION" = production-unavailable ]; then
             node scripts/backend/approved-operation.mjs production-unavailable
           fi
@@ -102,23 +103,3 @@ jobs:
           supabase stop --project-id still-app --no-backup
           test -z "$(docker ps -a --filter 'name=^/supabase_db_still-app$' --format '{{.ID}}')"
           test -z "$(docker volume ls --filter 'name=^supabase_db_still-app$' --format '{{.Name}}')"
-
-  protected-apply:
-    needs: preview
-    # Sealed unavailable. Naming an environment can auto-create it: never schedule until an
-    # integrated authority proves its actual existence/protection BEFORE reaching this job.
-    # This source slice cannot emit true and references no production secret at any scope.
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && needs.preview.outputs.production-ready == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    environment: supabase-production
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "22"
-      - name: Refuse missing exact production adapter and authority
-        run: node scripts/backend/approved-operation.mjs production-unavailable

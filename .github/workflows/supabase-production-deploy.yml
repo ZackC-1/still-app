@@ -1,0 +1,164 @@
+name: Supabase production deploy
+
+# The ONLY path for database changes to reach production (owner decision 9, CP-033).
+# Manual dispatch from main only; never runs on push, pull request or schedule.
+# One run deploys one exact change: a commit on main plus the exact list of pending migrations.
+#   plan  (no secrets): binds commit + file hashes + expected history into a digest and rehearses
+#                       the change on a throwaway database inside the runner; shows what changes.
+#   apply (environment supabase-production, owner approval required): re-derives the same digest,
+#                       refuses unexpected hosted history, applies only the listed migrations,
+#                       then runs read-only verification queries and fails loudly.
+# No automatic rollback. Failures stop and need a reviewed fix-forward (see deploy.mjs).
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "Full 40-character commit SHA on main to deploy"
+        required: true
+        type: string
+      migrations:
+        description: "Exact migration file names to apply, comma separated (e.g. 0014_server_rpc_privilege_hardening.sql)"
+        required: true
+        type: string
+      functions:
+        description: "Edge Functions to deploy (not supported yet; leave empty)"
+        required: false
+        default: ""
+        type: string
+      mode:
+        description: "plan-only shows the plan and rehearsal; apply also asks for owner approval and deploys"
+        required: true
+        default: plan-only
+        type: choice
+        options:
+          - plan-only
+          - apply
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-production-deploy
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      plan-digest: ${{ steps.plan.outputs.plan-digest }}
+      environment-ready: ${{ steps.protection.outputs.environment-ready }}
+    env:
+      DEPLOY_SHA: ${{ inputs.commit }}
+      DEPLOY_MIGRATIONS: ${{ inputs.migrations }}
+      DEPLOY_FUNCTIONS: ${{ inputs.functions }}
+      DEPLOY_MODE: ${{ inputs.mode }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Bind the exact change (commit on main, file hashes, expected history)
+        id: plan
+        run: node scripts/backend/deploy/deploy.mjs plan --out "$RUNNER_TEMP/deploy-plan.json" --summary
+      - name: Check the approval environment's protection (read-only)
+        id: protection
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$DEPLOY_MODE" = apply ]; then
+            node scripts/backend/deploy/deploy.mjs protection --phase plan --require
+          else
+            node scripts/backend/deploy/deploy.mjs protection --phase plan
+          fi
+      - name: Install pinned Supabase CLI (checksum verified)
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/supabase.tgz" \
+            https://github.com/supabase/cli/releases/download/v2.119.0/supabase_2.119.0_linux_amd64.tar.gz
+          echo "bf1c3ae93be98533eb8a3105dbf4564bd0b2d9dc24690d8a920f980ef975c1b4  $RUNNER_TEMP/supabase.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/supabase.tgz" -C "$RUNNER_TEMP/bin" supabase
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Verify pinned tools
+        run: |
+          test "$(supabase --version)" = '2.119.0'
+          psql --version
+      - name: Rehearse the exact change on a throwaway database (no production access)
+        run: bash scripts/backend/deploy/replay.sh "$RUNNER_TEMP/deploy-plan.json" "$RUNNER_TEMP/replay"
+      - name: Publish the plan
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: deploy-plan
+          path: ${{ runner.temp }}/deploy-plan.json
+          if-no-files-found: ignore
+          retention-days: 90
+
+  apply:
+    needs: plan
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.mode == 'apply' && needs.plan.outputs.environment-ready == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # Secrets live ONLY in this environment and are released only after the owner approves.
+    environment: supabase-production
+    permissions:
+      contents: read
+      actions: read
+    env:
+      DEPLOY_SHA: ${{ inputs.commit }}
+      DEPLOY_MIGRATIONS: ${{ inputs.migrations }}
+      DEPLOY_FUNCTIONS: ${{ inputs.functions }}
+      EXPECTED_PLAN_DIGEST: ${{ needs.plan.outputs.plan-digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Confirm owner approval and environment protection (read-only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/backend/deploy/deploy.mjs protection --phase apply --require
+      - name: Re-derive the plan and refuse if it differs from the approved one
+        run: node scripts/backend/deploy/deploy.mjs plan --out "$RUNNER_TEMP/deploy-plan.json" --expect-digest "$EXPECTED_PLAN_DIGEST"
+      - name: Install pinned Supabase CLI (checksum verified)
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/supabase.tgz" \
+            https://github.com/supabase/cli/releases/download/v2.119.0/supabase_2.119.0_linux_amd64.tar.gz
+          echo "bf1c3ae93be98533eb8a3105dbf4564bd0b2d9dc24690d8a920f980ef975c1b4  $RUNNER_TEMP/supabase.tgz" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/bin"
+          tar -xzf "$RUNNER_TEMP/supabase.tgz" -C "$RUNNER_TEMP/bin" supabase
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Verify pinned tools
+        run: |
+          test "$(supabase --version)" = '2.119.0'
+          psql --version
+      - name: Extract the exact commit and re-verify every hash
+        run: node scripts/backend/deploy/deploy.mjs workdir --plan "$RUNNER_TEMP/deploy-plan.json" --dir "$RUNNER_TEMP/deploy" --stage full
+      - name: Refuse if main moved and changed any planned file while approval was pending
+        run: |
+          git fetch --no-tags --prune origin +refs/heads/main:refs/remotes/origin/main
+          node scripts/backend/deploy/deploy.mjs freshness --plan "$RUNNER_TEMP/deploy-plan.json" --main-ref refs/remotes/origin/main
+      - name: Apply exactly the planned migrations, then verify read-only
+        id: apply
+        timeout-minutes: 10
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_PRODUCTION_DB_URL }}
+        run: node scripts/backend/deploy/deploy.mjs apply --plan "$RUNNER_TEMP/deploy-plan.json" --dir "$RUNNER_TEMP/deploy" --receipt "$RUNNER_TEMP/deploy-receipt.json"
+      - name: Closing record (always; no secret)
+        if: always()
+        env:
+          APPLY_OUTCOME: ${{ steps.apply.outcome }}
+          JOB_STATUS: ${{ job.status }}
+        run: node scripts/backend/deploy/deploy.mjs final-summary --receipt "$RUNNER_TEMP/deploy-receipt.json"

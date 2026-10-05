@@ -73,12 +73,12 @@ struct ReceiptRead: Sendable, Equatable {
 final class PurchaseManager {
   static let shared = PurchaseManager()
 
-  /// The single non-consumable product + its RevenueCat entitlement id (match Still.storekit, the
-  /// App Store Connect product, and the RevenueCat entitlement). The user-facing name is "Still
-  /// Pro"; these INTERNAL ids stay `still_sync` — the ASC product id is immutable and the deployed
+  /// The 2.x non-consumable product + its RevenueCat entitlement id, read from the single
+  /// `ApplePurchaseCatalog` (which `Still.storekit` mirrors). The user-facing name is "Still Pro";
+  /// these INTERNAL ids stay `still_sync` — the ASC product id is immutable and the deployed
   /// webhook/DB derive entitlement from this exact key (monetization-design §5: do NOT rename).
-  static let productID = "still_sync"
-  static let entitlementID = "still_sync"
+  static let productID = ApplePurchaseCatalog.historicalStillSync.productID
+  static let entitlementID = ApplePurchaseCatalog.historicalStillSync.entitlementID
 
   private(set) var isConfigured = false
 

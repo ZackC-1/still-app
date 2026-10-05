@@ -507,7 +507,8 @@ vi.mock("./ConfirmationDialog.svelte", async (importOriginal) => {
     await importOriginal<typeof import("./ConfirmationDialog.svelte")>();
   return {
     default: (...args: Parameters<typeof Dialog>) => {
-      dialogPort.current = args[1];
+      dialogPort.current =
+        args[1] as import("./extension-settings-presentation.js").ConfirmationDialogProps;
       return Dialog(...args);
     },
   };

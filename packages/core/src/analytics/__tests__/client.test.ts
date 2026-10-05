@@ -176,6 +176,10 @@ describe("AnalyticsClient", () => {
     expect(h.queue()).toHaveLength(0);
   });
 
+  // Reaching the cap takes MAX_QUEUE + 5 sequential tracks, and each one reads the whole stored queue
+  // twice and writes it once through the deep-copying harness store: ~250k event copies, about 0.6s of
+  // pure CPU alone and several seconds when the suite shares the CPU. There are no timers or polling
+  // here (scheduled flushes are captured, not run), so this explicit budget is only a hang detector.
   it("sends in batches and caps the stored queue", async () => {
     const failing = (async () => {
       throw new TypeError("offline");
@@ -188,7 +192,7 @@ describe("AnalyticsClient", () => {
     for (let i = 0; i < BATCH_SIZE + 3; i++) await ok.client.track("opened", { where: "popup" });
     await ok.client.flush();
     expect(ok.bodies.map((b) => b.batch.length)).toEqual([BATCH_SIZE, 3]);
-  });
+  }, 60_000);
 
   it("trackDaily fires once per local day", async () => {
     const h = harness();
