@@ -651,26 +651,31 @@ describe("Chromium popup when the worker dies before replying", () => {
 
   it("a newer choice saved before recovery is shown and kept; the lost choice is not replayed", async () => {
     const m = await mountMain("lost-then-newer");
+    const service = (name: string) =>
+      screen.getByRole("switch", { name }).getAttribute("aria-checked");
+    expect(service("Still on Instagram")).toBe("true");
+    expect(service("Still on YouTube")).toBe("true");
     m.f.withholdChangeEvents();
     m.f.loseNextIntentReply({
       when: "after-write",
-      // Another extension page turns Still back on after the lost Off was saved.
+      // Another extension page saves a different field after the lost Instagram Off was saved.
       between: async () => {
-        await m.f.authority.commitIntent({ path: "globalOn", value: true, updatedAt: 500 });
+        await m.f.authority.commitIntent({ path: "services.youtube", value: false, updatedAt: 500 });
       },
     });
-    await fireEvent.click(screen.getByRole("switch", { name: "Still" }));
-    await waitFor(() =>
-      expect(m.saved().atomic.sequence).toBe(m.before.atomic.sequence + 2),
-    );
-    for (let i = 0; i < 5; i += 1) await flush();
-    expect(m.saved().settings.globalOn).toBe(true);
-    expect(m.checked()).toBe("true");
-    expect(
-      m.saved().atomic.pending.map((p) => p.operations[0]),
-    ).toEqual([
-      expect.objectContaining({ value: false, localStep: 1 }),
-      expect.objectContaining({ value: true, localStep: 2 }),
+    await fireEvent.click(screen.getByRole("switch", { name: "Still on Instagram" }));
+    // Change events are withheld: only the recovery read can show either saved choice.
+    await waitFor(() => expect(service("Still on YouTube")).toBe("false"));
+    expect(service("Still on Instagram")).toBe("false");
+    const saved = m.f.store["still:settings"] as {
+      settings: { services: { instagram: boolean; youtube: boolean } };
+      atomic: { sequence: number; pending: { operations: { path: string; value: boolean }[] }[] };
+    };
+    expect(saved.settings.services).toMatchObject({ instagram: false, youtube: false });
+    expect(saved.atomic.sequence).toBe(m.before.atomic.sequence + 2);
+    expect(saved.atomic.pending.map((p) => p.operations[0])).toEqual([
+      expect.objectContaining({ path: "services.instagram", value: false }),
+      expect.objectContaining({ path: "services.youtube", value: false }),
     ]);
     expect(m.intents()).toHaveLength(1);
     expect(m.reported()).toEqual([]);

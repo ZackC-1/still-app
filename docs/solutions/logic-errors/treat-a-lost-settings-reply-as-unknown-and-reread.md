@@ -20,11 +20,11 @@ tags:
 
 ## Context
 
-Extension pages (popup, settings, first-run) do not write settings themselves. They send one
-committed-action message to the single writer: the background worker on Chrome and Firefox, the
-app's native handler on Safari and in the Apple app. The writer saves one complete record and only
-then replies. The worker or native host can be terminated in between, so the save is durable and
-the reply never arrives.
+Extension pages that change settings (popup, settings) do not write them themselves; the
+first-run page only observes them. A page sends one committed-action message to the single
+writer: the background worker on Chrome and Firefox, the app's native handler on Safari and in
+the Apple app. The writer saves one complete record and only then replies. The worker or native
+host can be terminated in between, so the save is durable and the reply never arrives.
 
 ## Root cause
 
@@ -32,9 +32,9 @@ The Safari and Apple paths already treated every missing or malformed reply as a
 `SettingsStorageRecovery`: the shared cache enters a hold, the popup's "a failed action permits one
 read" rule re-reads the saved record, and the screen shows what is really stored.
 
-The Chrome/Firefox page path did that only for a reply that said `unavailable`. When the worker died
-before replying, `chrome.runtime.sendMessage` rejected with a plain error ("message channel closed
-before a response was received"). The cache took no hold, the popup's re-read rule did not match
+The Chrome/Firefox page path did that only for a reply that said `unavailable`. In atomic-local
+mode, when the worker died before replying, `chrome.runtime.sendMessage` rejected with a plain
+error ("message channel closed before a response was received"). The cache took no hold, the popup's re-read rule did not match
 the plain `write-failed` outcome, and the switch kept showing the old value even though the new
 choice was saved. Only an incidental `storage.onChanged` event repaired it.
 
@@ -42,8 +42,15 @@ choice was saved. Only an incidental `storage.onChanged` event repaired it.
 
 `ChromeStorageAdapter.commitIntent` maps a rejected intent message to the same
 `SettingsStorageRecovery("authority-unavailable")` as an `unavailable` reply. The outcome is unknown,
-so the page holds, re-reads the stored record once, and returns to ready. It never resends the
-intent.
+so the page holds and never resends the intent.
+
+What happens next depends on the popup authority:
+
+- **Atomic-local mode** (the modern settings opt-in, atomic record): the popup automatically re-reads
+  the stored record once and returns to ready, showing whatever is saved.
+- **Legacy popup authority** (configured builds without the modern opt-in): unchanged from before.
+  The popup shows "Settings are unavailable." with Try again. Only Try again re-reads, once, and
+  nothing is replayed.
 
 ## Why it works
 
@@ -56,8 +63,16 @@ intent.
   with the same write ID and body.
 - The screen claims a save (the toggle report and analytics) only from a received `committed` reply.
 
+## Prevention
+
+- Every page-to-authority transport rejection must map to a typed `SettingsStorageRecovery`. A plain
+  error skips the hold and the recovery read.
+- Recovery after a failed or unanswered choice is a read, never a resend.
+
 ## Where it does not apply
 
+- The automatic recovery read is atomic-local only. Legacy mode recovers when the person taps Try
+  again.
 - It does not make blocking effects atomic with the saved choice. A Chromium worker killed before
   it updates the Shorts DNR rule leaves that rule stale until the next worker start. Safari tabs that
   are already open catch up at their next reconcile nudge.
@@ -67,15 +82,20 @@ intent.
 ## Verification
 
 - `packages/ext-chromium/entrypoints/popup/__tests__/committed-popup-mount.test.ts`, "Chromium popup
-  when the worker dies before replying" (change events withheld): after-write, before-write, and a
-  newer choice saved before recovery.
+  when the worker dies before replying" (change events withheld, atomic-local mode): after-write,
+  before-write, and a newer choice on a different field saved before recovery.
+- `packages/ext-chromium/entrypoints/popup/__tests__/legacy-popup-mount.test.ts`, "a reply lost
+  after the durable write holds until Try again re-reads once, with no replay" (legacy mode).
 - `packages/core/src/storage/__tests__/atomic-settings.test.ts`: compiled StillKit host killed
   (SIGKILL) after its App Group write and before its reply, plus a Safari page over that host.
+  These two-process tests run only on macOS (`describe.skipIf(process.platform !== "darwin")`). They
+  are local evidence and are skipped on Linux CI.
 - `packages/core/src/storage/__tests__/atomic-settings-lost-ack.test.ts` and
   `apps/apple/StillKit/Tests/StillKitTests/AtomicSettingsLostAckTests.swift`: restarted writer,
   pending-limit boundary, unknown-owner Off, and an unrenamed orphan file.
-- Negative controls: removing the mapping fails the after-write popup test (the switch stays on). An
-  injected replay fails all three popup tests. Removing either writer's same-value guard fails the
+- Negative controls: removing the mapping fails the after-write and newer-field popup tests (the
+  saved choices are not shown). An injected replay fails all three atomic popup tests and the legacy
+  test. Removing either writer's same-value guard fails the
   duplicate tests, and disabling the orphan cleanup fails the orphan test.
 
 Related: [recover-settings-uploads-without-losing-newer-edits](recover-settings-uploads-without-losing-newer-edits.md)
