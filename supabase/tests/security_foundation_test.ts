@@ -83,17 +83,23 @@ Deno.test({
       const inventory = (await sql.unsafe(await source("inventory")))[0]
         .still_security_inventory;
       assertEquals(inventory.server_version.length > 0, true);
-      assertEquals(inventory.migration_history.length, 14);
       assertEquals(
         JSON.stringify(inventory).includes("u1-a@example.invalid"),
         false,
       );
       // The CLI clean path has already applied actual checked-in migrations, including 0012-0014.
+      // Later migrations may follow; the inventory must report the complete applied history.
+      const applied =
+        (await sql`select version from supabase_migrations.schema_migrations order by version`)
+          .map((r) => r.version);
+      for (const required of ["0012", "0013", "0014"]) {
+        assert(applied.includes(required), `migration ${required} applied`);
+      }
       assertEquals(
-        (await sql`select count(*)::int as n from supabase_migrations.schema_migrations`)[
-          0
-        ].n,
-        14,
+        inventory.migration_history.map((m: { version: string }) => m.version)
+          .sort(),
+        applied,
+        "inventory reports the complete applied migration history",
       );
       await sql`insert into auth.users(id,email) values (${A}, 'u1-a@example.invalid'), (${B}, 'u1-b@example.invalid'), (${C}, 'u1-c@example.invalid')`;
       await sql`select public.set_entitlement(${B}::uuid,true,'historical','synthetic-sub')`;

@@ -195,8 +195,14 @@ Deno.test({
           const versions =
             (await admin`select version from supabase_migrations.schema_migrations order by version`)
               .map((r) => r.version);
-          assertEquals(versions.length, 14);
-          assertEquals(versions.at(-1), "0014");
+          // 0014 and its prerequisites must be applied. Later migrations may follow it; they must
+          // preserve the end state that the remaining steps assert.
+          for (const required of ["0012", "0013", "0014"]) {
+            assert(
+              versions.includes(required),
+              `migration ${required} applied`,
+            );
+          }
           if (mode === "clean") await admin.unsafe(await seedSource());
           await admin.unsafe(
             `alter role still_entitlement_writer login password '${WRITER_PASSWORD}'`,
