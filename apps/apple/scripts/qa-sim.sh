@@ -145,7 +145,7 @@ build_qa_web() {
   ensure_run_dir
   local atomic=true
   [[ "$QA_WEB_SCREENS" == "shipped" ]] && atomic=
-  echo "==> QA web bundle ($QA_WEB_SCREENS Apple screens, unconfigured) into $QA_WEBUI…"
+  echo "==> QA web bundle ($QA_WEB_SCREENS Apple screens, unconfigured) into ${QA_WEBUI}…"
   ( cd "$REPO" && VITE_APPLE_ATOMIC_SETTINGS=$atomic VITE_SUPABASE_URL= VITE_SUPABASE_ANON_KEY= \
       VITE_POSTHOG_KEY= VITE_POSTHOG_HOST= heavy pnpm --filter @still/app-webview exec \
       vite build --outDir "$QA_WEBUI" --emptyOutDir >/dev/null )
