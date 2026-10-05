@@ -4,6 +4,10 @@ import type {
 } from "./apple-onboarding-presentation.js";
 import type { SharingCardProps } from "./extension-settings-presentation.js";
 import {
+  APPLE_CONSENT_CONFIRM_DEADLINE_MS,
+  type AppleConsentCommitter,
+} from "../../analytics/apple-consent.js";
+import {
   boundedNativeRead,
   NATIVE_READ_DEADLINE_MS,
   type OnboardingStateReply,
@@ -21,10 +25,10 @@ import {
 //   • Completion calls `completeOnboarding` once per gesture and reports done only after the native
 //     gate confirmed it; a refusal, failure or timeout keeps onboarding visible so the user can retry.
 //   • Consent changes only from the user's Share / Don't share gesture; nothing here ever turns
-//     sharing on by itself. A choice is "Saved" only after the committed native consent was read
-//     back and matches it, because the switch's own result cannot tell a failed "Don't share" from
-//     a successful one. A build that cannot record a choice skips the question instead of
-//     pretending it was saved.
+//     sharing on by itself. The choice goes through the shared Apple consent committer
+//     (analytics/apple-consent.ts), which is "Saved" only when native confirmed it as an explicit
+//     answer, never from the on-by-default value. A build that cannot record a choice skips the
+//     question (and counts three steps) instead of pretending it was saved.
 
 export interface AppleOnboardingHostBridge {
   onboardingState(): Promise<OnboardingStateReply | null>;
@@ -42,21 +46,19 @@ export interface AppleOnboardingHostDeps {
     /** Approved combined purposes, supplied by the caller. Share needs them verified. */
     readonly purposes?: SharingCardProps["purposes"];
     readonly purposesVerified: boolean;
-    /** How this host records the choice. Absent when the build cannot record one: the consent
-     * step is then skipped (step 2 leads to step 4), never shown as a saved choice. */
-    readonly sharing?: {
-      /** The existing usage-sharing switch (e.g. `UiAnalytics.setSharing`). Called synchronously
-       * from the tap. Its resolved value is not trusted as proof of what was saved. */
-      readonly set: (enabled: boolean) => Promise<unknown>;
-      /** The committed native consent (e.g. `NativeBridge.observeAnalyticsConsent`), or null when
-       * it cannot be read. Bounded by the host's deadline. */
-      readonly readCommitted: () => Promise<boolean | null>;
-    };
+    /** How this host records the choice: the shared `createAppleConsentCommitter`. Absent when
+     * the build cannot record one: the consent step is then skipped, never shown as saved. */
+    readonly sharing?: Pick<AppleConsentCommitter, "commit"> &
+      Partial<Pick<AppleConsentCommitter, "warm">>;
   };
   /** Called once, only after the native gate confirmed completion. */
   readonly onDone: (destination: AppleOnboardingDestination) => void;
   readonly onChange?: (view: AppleOnboardingHostView) => void;
+  /** Native read/complete deadline. */
   readonly deadlineMs?: number;
+  /** Outer bound on a consent commit (the committer bounds its own steps; this only guarantees
+   * the step can never hang on a misbehaving port). */
+  readonly consentDeadlineMs?: number;
 }
 
 export type AppleOnboardingCompletion = "idle" | "saving" | "failed";
@@ -135,6 +137,9 @@ export function createAppleOnboardingHost(
   deps: AppleOnboardingHostDeps,
 ): AppleOnboardingHost {
   const deadline = deps.deadlineMs ?? NATIVE_READ_DEADLINE_MS;
+  const consentDeadline =
+    deps.consentDeadlineMs ??
+    NATIVE_READ_DEADLINE_MS + APPLE_CONSENT_CONFIRM_DEADLINE_MS + 1_000;
   let started = false;
   let disposed = false;
   let visible = false;
@@ -168,6 +173,7 @@ export function createAppleOnboardingHost(
 
   const goTo = (next: AppleOnboardingProps["step"]): void => {
     if (step === 2 && next !== 2) setupGeneration += 1; // a late read can't land on another step
+    if (next !== step) completion = "idle"; // a failure belongs to the attempt it reported
     step = next;
     if (next === 2) {
       observation = null;
@@ -224,29 +230,17 @@ export function createAppleOnboardingHost(
       consent = { status: saved ? "saved" : "failed", choice };
       emit();
     };
-    // Saved only when the committed native consent reads back as the choice. A timeout, an
-    // unreadable reply or a mismatch (a "Don't share" that left sharing on) is a failure.
-    const confirm = async (): Promise<void> => {
-      const committed = await boundedNativeRead(
-        () => sharing.readCommitted(),
-        null,
-        deadline,
-      );
-      settle(committed === (choice === "on"));
-    };
-    let pending: Promise<unknown>;
+    let pending: Promise<boolean>;
     try {
-      // Called synchronously from the tap so a host that must prompt keeps the user gesture.
-      pending = sharing.set(choice === "on");
+      // Called synchronously from the tap.
+      pending = sharing.commit(choice === "on");
     } catch {
       settle(false);
       return;
     }
-    void boundedNativeRead(
-      () => pending.then(() => true),
-      false,
-      deadline,
-    ).then((written) => (written ? confirm() : settle(false)));
+    void boundedNativeRead(() => pending, false, consentDeadline).then((ok) =>
+      settle(ok === true),
+    );
   }
 
   function shareOffered(): boolean {
@@ -311,6 +305,9 @@ export function createAppleOnboardingHost(
     const idle = !busy();
     return {
       step,
+      progress: sharing
+        ? { current: step, total: 4 }
+        : { current: step === 4 ? 3 : step, total: 3 },
       platform,
       onBack: step > 1 && idle ? back : undefined,
       onContinue: idle ? continueStep : undefined,
@@ -359,6 +356,7 @@ export function createAppleOnboardingHost(
       visible = true;
       step = 1;
       emit();
+      sharing?.warm?.(); // a first launch's native context read can be slow; start it before step 3
     },
     refreshSetup: readSetup,
     dispose() {

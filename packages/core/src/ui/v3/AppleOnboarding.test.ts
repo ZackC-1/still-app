@@ -261,6 +261,23 @@ describe("controlled D12 Apple onboarding", () => {
     view.unmount();
   });
 
+  it("announces the host's step count and defaults to four designed steps", async () => {
+    const props = fixture(2);
+    const view = render(AppleOnboarding, { props });
+    expect(screen.getByText("Step 2 of 4")).toBeTruthy();
+    props.progress = { current: 2, total: 3 };
+    await view.rerender(props);
+    expect(screen.getByText("Step 2 of 3")).toBeTruthy();
+    expect(screen.queryByText("Step 2 of 4")).toBeNull();
+    props.step = 4;
+    props.progress = { current: 3, total: 3 };
+    await view.rerender(props);
+    expect(screen.getByText("Step 3 of 3")).toBeTruthy();
+    expect(screen.getByText("Step 3 of 3").parentElement).toHaveClass("ob-top");
+    expect(screen.queryByText(/of 4/)).toBeNull();
+    view.unmount();
+  });
+
   it("shows a supplied step-4 completion failure as an alert whose Try again forwards once per tap", async () => {
     const props = fixture(4);
     const view = render(AppleOnboarding, { props });

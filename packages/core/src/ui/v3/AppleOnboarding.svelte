@@ -8,6 +8,7 @@
   import "./apple-onboarding-layout.css";
   let {
     step,
+    progress,
     platform,
     onBack,
     onContinue,
@@ -140,7 +141,7 @@
           disabled={!onBack}
           onclick={back}>Back</button
         >{:else}<span></span>{/if}
-      <span>Step {step} of 4</span>
+      <span>Step {progress?.current ?? step} of {progress?.total ?? 4}</span>
     </div>
     <div class="ob-main">
       {#if step === 1}

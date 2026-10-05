@@ -19,6 +19,9 @@ export type OnboardingConsent = Pick<
 
 export interface AppleOnboardingProps {
   step: 1 | 2 | 3 | 4;
+  /** The "Step N of M" label, when the host's flow differs from the four designed steps (e.g. no
+   * consent step). Defaults to `step` of 4. */
+  progress?: { current: number; total: number };
   platform: "ios" | "mac";
   onBack?: () => void;
   onContinue?: () => void;

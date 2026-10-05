@@ -13,6 +13,8 @@ import type {
   SafariSetupObservation,
 } from "../../native/bridge.js";
 import type { AppleOnboardingProps } from "./apple-onboarding-presentation.js";
+import { createAppleConsentCommitter } from "../../analytics/apple-consent.js";
+import { fakeAppleConsentHost } from "../../analytics/__tests__/apple-consent-native-fake.js";
 
 const iosState: OnboardingStateReply = {
   ok: true,
@@ -53,19 +55,15 @@ function deferred<T>() {
 
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-/** A real-shaped native consent store: Apple sharing starts ON, and like
- * `UiAnalytics.setSharing` the switch resolves false for every "Don't share", whether or not the
- * native write actually happened. `commits: false` models a write that silently did not land. */
-function nativeConsent(initial = true) {
-  const store = { consent: initial, commits: true };
-  const set = vi.fn(async (enabled: boolean): Promise<unknown> => {
-    if (store.commits) store.consent = enabled;
-    return enabled ? store.consent : false;
-  });
-  const readCommitted = vi.fn(
-    async (): Promise<boolean | null> => store.consent,
-  );
-  return { store, set, readCommitted };
+/** The shared committer over a real `NativeBridge` and a router-shaped native consent store whose
+ * unset default reads on. */
+function nativeConsent() {
+  const host = fakeAppleConsentHost();
+  const adopt = vi.fn();
+  const committer = createAppleConsentCommitter({ bridge: host.bridge, adopt });
+  const commit = vi.fn((enabled: boolean) => committer.commit(enabled));
+  const warm = vi.fn(() => committer.warm());
+  return { ...host, adopt, commit, warm };
 }
 
 function harness(
@@ -76,6 +74,7 @@ function harness(
     sharing?: ReturnType<typeof nativeConsent> | null;
     purposesVerified?: boolean;
     openSetup?: boolean;
+    consentDeadlineMs?: number;
   } = {},
 ) {
   const bridge = {
@@ -98,7 +97,7 @@ function harness(
   const consent: AppleOnboardingHostDeps["consent"] = {
     purposes,
     purposesVerified: options.purposesVerified ?? true,
-    sharing: sharing && { set: sharing.set, readCommitted: sharing.readCommitted },
+    sharing: sharing && { commit: sharing.commit, warm: sharing.warm },
   };
   const host = createAppleOnboardingHost({
     bridge,
@@ -107,6 +106,7 @@ function harness(
     onDone,
     onChange: (view) => views.push(view),
     deadlineMs: 50,
+    consentDeadlineMs: options.consentDeadlineMs,
   });
   const props = (): AppleOnboardingProps => {
     const view = host.view;
@@ -128,8 +128,7 @@ async function toStep(
   else h.props().onDoLater?.();
   if (step === 3 || !h.sharing) return;
   h.props().consent.onDecline?.();
-  await flush();
-  await flush();
+  for (let i = 0; i < 6; i++) await flush();
   h.props().onContinue?.();
 }
 
@@ -329,137 +328,132 @@ describe("step 2", () => {
   });
 });
 
+const settled = async () => {
+  for (let i = 0; i < 6; i++) await flush();
+};
+
 describe("consent never shares on its own", () => {
-  it("walking the whole flow without a choice never touches the switch", async () => {
+  it("walking the whole flow without a choice never writes consent", async () => {
     const h = harness();
     await toStep(h, 3);
     h.props().onContinue?.();
     expect(h.props().step).toBe(3);
     expect(h.props().consent.status).toBe("unasked");
-    expect(h.sharing?.set).not.toHaveBeenCalled();
+    expect(h.sharing?.commit).not.toHaveBeenCalled();
+    expect(h.sharing?.posted("setAnalyticsConsent")).toBe(0);
+    expect(h.sharing?.native.stored).toBeUndefined();
   });
 
-  it("Share calls the switch once and is saved only after the native consent reads back on", async () => {
-    const sharing = nativeConsent(false);
-    const h = harness({ sharing });
+  it("warms the native context read when onboarding starts, before step 3", async () => {
+    const h = harness();
+    await h.host.start();
+    await flush();
+    expect(h.props().step).toBe(1);
+    expect(h.sharing?.warm).toHaveBeenCalledOnce();
+    expect(h.sharing?.posted("analyticsContext")).toBe(1);
+    expect(h.sharing?.posted("setAnalyticsConsent")).toBe(0);
+  });
+
+  it("does not ask the native gate's hidden flow to warm anything", async () => {
+    const h = harness({ state: { ...iosState, shouldShow: false } });
+    await h.host.start();
+    expect(h.sharing?.warm).not.toHaveBeenCalled();
+  });
+
+  it("Share writes native once and is saved only when native confirms an explicit on", async () => {
+    const h = harness();
     await toStep(h, 3);
     h.props().consent.onShare?.();
     h.props().consent.onShare?.();
-    expect(sharing.set).toHaveBeenCalledExactlyOnceWith(true);
+    expect(h.sharing?.commit).toHaveBeenCalledExactlyOnceWith(true);
     expect(h.props().consent.status).toBe("saving");
-    await flush();
-    await flush();
-    expect(sharing.readCommitted).toHaveBeenCalledOnce();
+    await settled();
+    expect(h.sharing?.native.stored).toBe(true);
     expect(h.props().consent).toMatchObject({ status: "saved", choice: "on" });
+    expect(h.sharing?.adopt).toHaveBeenCalledExactlyOnceWith(true);
     h.props().onContinue?.();
     expect(h.props().step).toBe(4);
   });
 
-  it("Don't share is saved as off once the native consent reads back off", async () => {
-    const sharing = nativeConsent(true);
+  it("Share is never Saved from the on-by-default value when nothing was written", async () => {
+    const sharing = nativeConsent();
+    sharing.native.writes = false;
     const h = harness({ sharing });
     await toStep(h, 3);
+    h.props().consent.onShare?.();
+    await settled();
+    expect(sharing.native.stored).toBeUndefined();
+    expect(h.props().consent.status).toBe("failed");
+    expect(
+      h.views.some((v) => v.visible && v.props.consent.status === "saved"),
+    ).toBe(false);
+  });
+
+  it("Don't share is saved as off once native confirms it", async () => {
+    const h = harness();
+    await toStep(h, 3);
     h.props().consent.onDecline?.();
-    expect(sharing.set).toHaveBeenCalledExactlyOnceWith(false);
-    await flush();
-    await flush();
-    expect(sharing.store.consent).toBe(false);
+    expect(h.sharing?.commit).toHaveBeenCalledExactlyOnceWith(false);
+    await settled();
+    expect(h.sharing?.native.stored).toBe(false);
     expect(h.props().consent).toMatchObject({ status: "saved", choice: "off" });
   });
 
-  it("a Don't share that left native sharing on is a failure, never Saved", async () => {
-    const sharing = nativeConsent(true);
-    sharing.store.commits = false; // set(false) still resolves false, like UiAnalytics.setSharing
+  it("a Don't share that never reached native is a failure with the approved retry, never Saved", async () => {
+    const sharing = nativeConsent();
+    sharing.native.writesOff = false; // like a permission-gated writer that never writes off
     const h = harness({ sharing });
     await toStep(h, 3);
     h.props().consent.onDecline?.();
-    await flush();
-    await flush();
-    expect(await sharing.set.mock.results[0]!.value).toBe(false);
-    expect(sharing.store.consent).toBe(true);
+    await settled();
+    expect(sharing.native.stored).toBeUndefined();
     const consent = h.props().consent;
     expect(consent.status).toBe("failed");
-    expect(h.views.some((v) => v.visible && v.props.consent.status === "saved")).toBe(false);
+    expect(consent.operation).toMatchObject({
+      tone: "failed",
+      text: "We couldn't save your choice. Still works either way.",
+      actionLabel: "Try again",
+    });
+    expect(
+      h.views.some((v) => v.visible && v.props.consent.status === "saved"),
+    ).toBe(false);
     h.props().onContinue?.();
     expect(h.props().step).toBe(3);
-    // Retry the same choice; once the write lands the read-back confirms it.
-    sharing.store.commits = true;
+    sharing.native.writesOff = true;
     consent.operation?.onAction?.();
-    expect(sharing.set).toHaveBeenLastCalledWith(false);
-    await flush();
-    await flush();
+    expect(sharing.commit).toHaveBeenLastCalledWith(false);
+    await settled();
     expect(h.props().consent).toMatchObject({ status: "saved", choice: "off" });
   });
 
   it.each([
-    ["unreadable", async () => null],
-    ["rejected", async () => Promise.reject(new Error("x"))],
-  ])("a %s read-back is a failure", async (_label, impl) => {
-    const sharing = nativeConsent(true);
-    sharing.readCommitted.mockImplementation(impl);
+    ["refused write", (n: ReturnType<typeof nativeConsent>) => (n.native.refuseWrite = true)],
+    ["older native reply", (n: ReturnType<typeof nativeConsent>) => (n.native.replyAnswered = false)],
+  ])("a %s fails and Share can be retried", async (_label, breakIt) => {
+    const sharing = nativeConsent();
+    breakIt(sharing);
     const h = harness({ sharing });
     await toStep(h, 3);
-    h.props().consent.onDecline?.();
-    await flush();
-    await flush();
+    h.props().consent.onShare?.();
+    await settled();
     expect(h.props().consent.status).toBe("failed");
+    sharing.native.refuseWrite = false;
+    sharing.native.replyAnswered = true;
+    h.props().consent.operation?.onAction?.();
+    await settled();
+    expect(h.props().consent).toMatchObject({ status: "saved", choice: "on" });
   });
 
-  it("a read-back that never answers fails at the deadline", async () => {
-    const sharing = nativeConsent(true);
-    const h = harness({ sharing });
-    await toStep(h, 3);
-    vi.useFakeTimers();
-    sharing.readCommitted.mockImplementation(() => new Promise(() => {}));
-    h.props().consent.onDecline?.();
-    await vi.advanceTimersByTimeAsync(50);
-    expect(h.props().consent.status).toBe("failed");
-  });
-
-  it("a switch that never answers fails at the deadline without a read-back", async () => {
-    const sharing = nativeConsent(true);
-    const h = harness({ sharing });
+  it("a commit that never settles fails at the outer deadline", async () => {
+    const sharing = nativeConsent();
+    const h = harness({ sharing, consentDeadlineMs: 80 });
     await toStep(h, 3);
     vi.useFakeTimers();
-    sharing.set.mockImplementation(() => new Promise(() => {}));
+    sharing.commit.mockImplementation(() => new Promise(() => {}));
     h.props().consent.onDecline?.();
-    await vi.advanceTimersByTimeAsync(50);
+    await vi.advanceTimersByTimeAsync(80);
     expect(h.props().consent.status).toBe("failed");
-    expect(sharing.readCommitted).not.toHaveBeenCalled();
   });
-
-  it.each([
-    ["declined by the host", false],
-    ["rejected", "reject"],
-  ] as const)(
-    "a share %s shows the approved failure line with a retry and stays on step 3",
-    async (_label, outcome) => {
-      const sharing = nativeConsent(false);
-      sharing.store.commits = false;
-      if (outcome === "reject")
-        sharing.set.mockRejectedValueOnce(new Error("x"));
-      const h = harness({ sharing });
-      await toStep(h, 3);
-      h.props().consent.onShare?.();
-      await flush();
-      await flush();
-      const consent = h.props().consent;
-      expect(consent.status).toBe("failed");
-      expect(consent.operation).toMatchObject({
-        tone: "failed",
-        text: "We couldn't save your choice. Still works either way.",
-        actionLabel: "Try again",
-      });
-      h.props().onContinue?.();
-      expect(h.props().step).toBe(3);
-      sharing.store.commits = true;
-      consent.operation?.onAction?.();
-      expect(sharing.set).toHaveBeenLastCalledWith(true);
-      await flush();
-      await flush();
-      expect(h.props().consent).toMatchObject({ status: "saved", choice: "on" });
-    },
-  );
 
   it("Share is not offered without verified purposes", async () => {
     const h = harness({ purposesVerified: false });
@@ -473,7 +467,9 @@ describe("consent never shares on its own", () => {
     h.props().onAssertEnabled?.();
     expect(h.props().step).toBe(4);
     expect(h.views.some((v) => v.visible && v.props.step === 3)).toBe(false);
-    expect(h.views.some((v) => v.visible && v.props.consent.status === "saved")).toBe(false);
+    expect(
+      h.views.some((v) => v.visible && v.props.consent.status === "saved"),
+    ).toBe(false);
     expect(h.props().consent.onShare).toBeUndefined();
     expect(h.props().consent.onDecline).toBeUndefined();
     h.props().onBack?.();
@@ -481,10 +477,39 @@ describe("consent never shares on its own", () => {
   });
 
   it("a mac build that cannot record a choice also goes from setup to step 4", async () => {
-    const h = harness({ sharing: null, state: macState, observation: mac("enabled") });
+    const h = harness({
+      sharing: null,
+      state: macState,
+      observation: mac("enabled"),
+    });
     await toStep(h, 2);
     h.props().onContinue?.();
     expect(h.props().step).toBe(4);
+  });
+});
+
+describe("step labels follow the actual flow", () => {
+  it("counts four steps when consent is asked", async () => {
+    const h = harness();
+    await h.host.start();
+    const seen: string[] = [];
+    const label = () => `${h.props().progress?.current} of ${h.props().progress?.total}`;
+    seen.push(label());
+    await toStep(h, 4);
+    for (const view of h.views)
+      if (view.visible)
+        seen.push(`${view.props.progress?.current} of ${view.props.progress?.total}`);
+    expect([...new Set(seen)]).toEqual(["1 of 4", "2 of 4", "3 of 4", "4 of 4"]);
+  });
+
+  it("counts three steps without a consent step, never jumping 2 to 4", async () => {
+    const h = harness({ sharing: null });
+    await toStep(h, 2);
+    h.props().onAssertEnabled?.();
+    const labels = h.views
+      .filter((v) => v.visible)
+      .map((v) => `${v.props.progress?.current} of ${v.props.progress?.total}`);
+    expect([...new Set(labels)]).toEqual(["1 of 3", "2 of 3", "3 of 3"]);
   });
 });
 
@@ -555,6 +580,21 @@ describe("completion", () => {
     retry.resolve(true);
     await flush();
     expect(h.onDone).toHaveBeenCalledExactlyOnceWith("settings");
+  });
+
+  it("a failure from an earlier attempt is gone when step 4 is entered again", async () => {
+    const h = harness({ complete: false });
+    await toStep(h, 4);
+    h.props().onOpenSafari?.();
+    await flush();
+    expect(h.props().completion?.text).toBe("We couldn't finish setup.");
+    h.props().onBack?.();
+    expect(h.props().step).toBe(3);
+    h.props().onContinue?.();
+    expect(h.props().step).toBe(4);
+    expect(h.props().completion).toBeUndefined();
+    const view = h.host.view;
+    expect(view.visible && view.completion).toBe("idle");
   });
 
   it("a completion that never answers fails at the deadline instead of hanging", async () => {
