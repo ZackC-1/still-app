@@ -1,0 +1,3294 @@
+{
+  "synthetic": true,
+  "scenarios": [
+    {
+      "name": "rating-seven-day-boundary-exact-604800000ms",
+      "steps": [
+        {
+          "op": "create",
+          "installation": "install-a",
+          "anchorMs": 1790000000000
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790000000000,
+          "localDay": 20717
+        },
+        {
+          "op": "open",
+          "opening": "o2",
+          "ordinary": true,
+          "nowMs": 1790086400000,
+          "localDay": 20718
+        },
+        {
+          "op": "open",
+          "opening": "o3",
+          "ordinary": true,
+          "nowMs": 1790172800000,
+          "localDay": 20719
+        },
+        {
+          "op": "open",
+          "opening": "o4",
+          "ordinary": true,
+          "nowMs": 1790604799999,
+          "localDay": 20723
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o4",
+          "nowMs": 1790604799999,
+          "expect": {
+            "kind": null,
+            "reason": "none"
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o4",
+          "nowMs": 1790604800000,
+          "expect": {
+            "kind": "rating",
+            "reason": "card"
+          }
+        },
+        {
+          "op": "open",
+          "opening": "o5",
+          "ordinary": true,
+          "nowMs": 1790604800000,
+          "localDay": 20724
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o5",
+          "nowMs": 1790604800000,
+          "expect": {
+            "kind": "rating",
+            "reason": "card"
+          }
+        }
+      ],
+      "final": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790604800000,
+        "dayOrdinal": 20724,
+        "distinctDays": 3,
+        "milestones": 0,
+        "shown": 0,
+        "lastInvitationAt": null,
+        "lastRatingAt": null,
+        "lastOpening": "o5",
+        "lastCardOpening": null,
+        "generation": 0,
+        "sync": "idle",
+        "link": "idle",
+        "rating": "due",
+        "reservation": null
+      }
+    },
+    {
+      "name": "day-three-opening-earns-readiness-only",
+      "steps": [
+        {
+          "op": "create",
+          "installation": "install-a",
+          "anchorMs": 1787408000000
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790000000000,
+          "localDay": 20717
+        },
+        {
+          "op": "open",
+          "opening": "o2",
+          "ordinary": true,
+          "nowMs": 1790086400000,
+          "localDay": 20718
+        },
+        {
+          "op": "open",
+          "opening": "o3",
+          "ordinary": true,
+          "nowMs": 1790172800000,
+          "localDay": 20719
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "distinctDays": 3,
+            "rating": "earned"
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o3",
+          "nowMs": 1790172800000,
+          "expect": {
+            "kind": null,
+            "reason": "none"
+          }
+        },
+        {
+          "op": "reserve",
+          "kind": "rating",
+          "opening": "o3",
+          "nowMs": 1790172800000,
+          "expect": {
+            "ok": false,
+            "reason": "none"
+          }
+        },
+        {
+          "op": "open",
+          "opening": "o4",
+          "ordinary": true,
+          "nowMs": 1790172860000,
+          "localDay": 20719
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "rating": "due",
+            "distinctDays": 3
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o4",
+          "nowMs": 1790172860000,
+          "expect": {
+            "kind": "rating",
+            "reason": "card"
+          }
+        }
+      ],
+      "final": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1787408000000,
+        "highWaterMs": 1790172860000,
+        "dayOrdinal": 20719,
+        "distinctDays": 3,
+        "milestones": 0,
+        "shown": 0,
+        "lastInvitationAt": null,
+        "lastRatingAt": null,
+        "lastOpening": "o4",
+        "lastCardOpening": null,
+        "generation": 0,
+        "sync": "idle",
+        "link": "idle",
+        "rating": "due",
+        "reservation": null
+      }
+    },
+    {
+      "name": "day-ordinal-never-decreases-repeat-and-rollback-do-not-count",
+      "steps": [
+        {
+          "op": "create",
+          "installation": "install-a",
+          "anchorMs": 1790000000000
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790000000000,
+          "localDay": 20727
+        },
+        {
+          "op": "open",
+          "opening": "o2",
+          "ordinary": true,
+          "nowMs": 1790000001000,
+          "localDay": 20727
+        },
+        {
+          "op": "open",
+          "opening": "o3",
+          "ordinary": true,
+          "nowMs": 1790000002000,
+          "localDay": 20726
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "dayOrdinal": 20727,
+            "distinctDays": 1
+          }
+        },
+        {
+          "op": "open",
+          "opening": "o4",
+          "ordinary": true,
+          "nowMs": 1790000003000,
+          "localDay": null
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "dayOrdinal": 20727,
+            "distinctDays": 1
+          }
+        },
+        {
+          "op": "open",
+          "opening": "o5",
+          "ordinary": true,
+          "nowMs": 1790086400000,
+          "localDay": 20728
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "dayOrdinal": 20728,
+            "distinctDays": 2,
+            "rating": "idle"
+          }
+        },
+        {
+          "op": "open",
+          "opening": "o6",
+          "ordinary": true,
+          "nowMs": 1790172800000,
+          "localDay": 20729
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "dayOrdinal": 20729,
+            "distinctDays": 3,
+            "rating": "earned"
+          }
+        }
+      ],
+      "final": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790172800000,
+        "dayOrdinal": 20729,
+        "distinctDays": 3,
+        "milestones": 0,
+        "shown": 0,
+        "lastInvitationAt": null,
+        "lastRatingAt": null,
+        "lastOpening": "o6",
+        "lastCardOpening": null,
+        "generation": 0,
+        "sync": "idle",
+        "link": "idle",
+        "rating": "earned",
+        "reservation": null
+      }
+    },
+    {
+      "name": "same-opening-recorded-twice-is-idempotent",
+      "steps": [
+        {
+          "op": "create",
+          "installation": "install-a",
+          "anchorMs": 1790000000000
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790000000000,
+          "localDay": 20717
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790086400000,
+          "localDay": 20718
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "dayOrdinal": 20717,
+            "distinctDays": 1,
+            "highWaterMs": 1790000000000,
+            "lastOpening": "o1"
+          }
+        }
+      ],
+      "final": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000000000,
+        "dayOrdinal": 20717,
+        "distinctDays": 1,
+        "milestones": 0,
+        "shown": 0,
+        "lastInvitationAt": null,
+        "lastRatingAt": null,
+        "lastOpening": "o1",
+        "lastCardOpening": null,
+        "generation": 0,
+        "sync": "idle",
+        "link": "idle",
+        "rating": "idle",
+        "reservation": null
+      }
+    },
+    {
+      "name": "distinct-days-saturate-at-three",
+      "steps": [
+        {
+          "op": "create",
+          "installation": "install-a",
+          "anchorMs": 1790000000000
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790000000000,
+          "localDay": 20717
+        },
+        {
+          "op": "open",
+          "opening": "o2",
+          "ordinary": true,
+          "nowMs": 1790086400000,
+          "localDay": 20718
+        },
+        {
+          "op": "open",
+          "opening": "o3",
+          "ordinary": true,
+          "nowMs": 1790172800000,
+          "localDay": 20719
+        },
+        {
+          "op": "open",
+          "opening": "o4",
+          "ordinary": true,
+          "nowMs": 1790259200000,
+          "localDay": 20720
+        },
+        {
+          "op": "open",
+          "opening": "o5",
+          "ordinary": true,
+          "nowMs": 1790345600000,
+          "localDay": 20721
+        },
+        {
+          "op": "open",
+          "opening": "o6",
+          "ordinary": true,
+          "nowMs": 1790432000000,
+          "localDay": 20722
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "distinctDays": 3,
+            "dayOrdinal": 20722,
+            "rating": "due"
+          }
+        }
+      ],
+      "final": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790432000000,
+        "dayOrdinal": 20722,
+        "distinctDays": 3,
+        "milestones": 0,
+        "shown": 0,
+        "lastInvitationAt": null,
+        "lastRatingAt": null,
+        "lastOpening": "o6",
+        "lastCardOpening": null,
+        "generation": 0,
+        "sync": "idle",
+        "link": "idle",
+        "rating": "due",
+        "reservation": null
+      }
+    },
+    {
+      "name": "clock-rollback-pauses-and-never-resets",
+      "steps": [
+        {
+          "op": "create",
+          "installation": "install-a",
+          "anchorMs": 1790000000000
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790000000000,
+          "localDay": 20717
+        },
+        {
+          "op": "open",
+          "opening": "o2",
+          "ordinary": true,
+          "nowMs": 1790086400000,
+          "localDay": 20718
+        },
+        {
+          "op": "open",
+          "opening": "o3",
+          "ordinary": true,
+          "nowMs": 1790172800000,
+          "localDay": 20719
+        },
+        {
+          "op": "open",
+          "opening": "o4",
+          "ordinary": true,
+          "nowMs": 1790691200000,
+          "localDay": 20725
+        },
+        {
+          "op": "open",
+          "opening": "o5",
+          "ordinary": true,
+          "nowMs": 1790259200000,
+          "localDay": 20720
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "highWaterMs": 1790691200000,
+            "dayOrdinal": 20725,
+            "anchorMs": 1790000000000,
+            "rating": "due",
+            "distinctDays": 3
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o5",
+          "nowMs": 1790259200000,
+          "expect": {
+            "kind": null,
+            "reason": "clock-paused"
+          }
+        },
+        {
+          "op": "reserve",
+          "kind": "rating",
+          "opening": "o5",
+          "nowMs": 1790259200000,
+          "expect": {
+            "ok": false,
+            "reason": "clock-paused"
+          }
+        },
+        {
+          "op": "open",
+          "opening": "o6",
+          "ordinary": true,
+          "nowMs": 1790691200001,
+          "localDay": 20725
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o6",
+          "nowMs": 1790691200001,
+          "expect": {
+            "kind": "rating",
+            "reason": "card"
+          }
+        }
+      ],
+      "final": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790691200001,
+        "dayOrdinal": 20725,
+        "distinctDays": 3,
+        "milestones": 0,
+        "shown": 0,
+        "lastInvitationAt": null,
+        "lastRatingAt": null,
+        "lastOpening": "o6",
+        "lastCardOpening": null,
+        "generation": 0,
+        "sync": "idle",
+        "link": "idle",
+        "rating": "due",
+        "reservation": null
+      }
+    },
+    {
+      "name": "future-anchor-pauses-and-is-never-replaced",
+      "steps": [
+        {
+          "op": "create",
+          "installation": "install-a",
+          "anchorMs": 1790864000000
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790000000000,
+          "localDay": 20717
+        },
+        {
+          "op": "open",
+          "opening": "o2",
+          "ordinary": true,
+          "nowMs": 1790086400000,
+          "localDay": 20718
+        },
+        {
+          "op": "open",
+          "opening": "o3",
+          "ordinary": true,
+          "nowMs": 1790172800000,
+          "localDay": 20719
+        },
+        {
+          "op": "open",
+          "opening": "o4",
+          "ordinary": true,
+          "nowMs": 1790259200000,
+          "localDay": 20720
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o4",
+          "nowMs": 1790259200000,
+          "expect": {
+            "kind": null,
+            "reason": "none"
+          }
+        },
+        {
+          "op": "adoptAnchor",
+          "anchorMs": 1781360000000
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "anchorMs": 1790864000000
+          }
+        },
+        {
+          "op": "open",
+          "opening": "o5",
+          "ordinary": true,
+          "nowMs": 1791468799999,
+          "localDay": 20734
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o5",
+          "nowMs": 1791468799999,
+          "expect": {
+            "kind": null,
+            "reason": "none"
+          }
+        },
+        {
+          "op": "open",
+          "opening": "o6",
+          "ordinary": true,
+          "nowMs": 1791468800000,
+          "localDay": 20734
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o6",
+          "nowMs": 1791468800000,
+          "expect": {
+            "kind": "rating",
+            "reason": "card"
+          }
+        }
+      ],
+      "final": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790864000000,
+        "highWaterMs": 1791468800000,
+        "dayOrdinal": 20734,
+        "distinctDays": 3,
+        "milestones": 0,
+        "shown": 0,
+        "lastInvitationAt": null,
+        "lastRatingAt": null,
+        "lastOpening": "o6",
+        "lastCardOpening": null,
+        "generation": 0,
+        "sync": "idle",
+        "link": "idle",
+        "rating": "due",
+        "reservation": null
+      }
+    },
+    {
+      "name": "unknown-anchor-pauses-until-adopted-once",
+      "steps": [
+        {
+          "op": "create",
+          "installation": "install-a",
+          "anchorMs": null
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790000000000,
+          "localDay": 20717
+        },
+        {
+          "op": "open",
+          "opening": "o2",
+          "ordinary": true,
+          "nowMs": 1790086400000,
+          "localDay": 20718
+        },
+        {
+          "op": "open",
+          "opening": "o3",
+          "ordinary": true,
+          "nowMs": 1790172800000,
+          "localDay": 20719
+        },
+        {
+          "op": "open",
+          "opening": "o4",
+          "ordinary": true,
+          "nowMs": 1792592000000,
+          "localDay": 20747
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o4",
+          "nowMs": 1792592000000,
+          "expect": {
+            "kind": null,
+            "reason": "none"
+          }
+        },
+        {
+          "op": "adoptAnchor",
+          "anchorMs": 1792160000000
+        },
+        {
+          "op": "adoptAnchor",
+          "anchorMs": 1790000000000
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "anchorMs": 1792160000000
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o4",
+          "nowMs": 1792592000000,
+          "expect": {
+            "kind": null,
+            "reason": "none"
+          }
+        },
+        {
+          "op": "open",
+          "opening": "o5",
+          "ordinary": true,
+          "nowMs": 1792764800000,
+          "localDay": 20749
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o5",
+          "nowMs": 1792764800000,
+          "expect": {
+            "kind": "rating",
+            "reason": "card"
+          }
+        }
+      ],
+      "final": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1792160000000,
+        "highWaterMs": 1792764800000,
+        "dayOrdinal": 20749,
+        "distinctDays": 3,
+        "milestones": 0,
+        "shown": 0,
+        "lastInvitationAt": null,
+        "lastRatingAt": null,
+        "lastOpening": "o5",
+        "lastCardOpening": null,
+        "generation": 0,
+        "sync": "idle",
+        "link": "idle",
+        "rating": "due",
+        "reservation": null
+      }
+    },
+    {
+      "name": "sync-milestone-three-direct-controls-then-later-opening",
+      "steps": [
+        {
+          "op": "create",
+          "installation": "install-a",
+          "anchorMs": 1790000000000
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790000000000,
+          "localDay": 20717
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "feature",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "milestones": 3,
+            "sync": "earned"
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o1",
+          "nowMs": 1790000001000,
+          "expect": {
+            "kind": null,
+            "reason": "none"
+          }
+        },
+        {
+          "op": "open",
+          "opening": "o2",
+          "ordinary": true,
+          "nowMs": 1790000002000,
+          "localDay": 20717
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "sync": "due"
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o2",
+          "nowMs": 1790000002000,
+          "syncApplicable": false,
+          "expect": {
+            "kind": null,
+            "reason": "none"
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o2",
+          "nowMs": 1790000002000,
+          "expect": {
+            "kind": "sync",
+            "reason": "card"
+          }
+        },
+        {
+          "op": "reserve",
+          "kind": "sync",
+          "opening": "o2",
+          "nowMs": 1790000002000,
+          "expect": {
+            "ok": true,
+            "generation": 1
+          }
+        },
+        {
+          "op": "commit",
+          "kind": "sync",
+          "opening": "o2",
+          "generation": 1,
+          "nowMs": 1790000002000,
+          "expect": {
+            "ok": true
+          }
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "sync": "consumed",
+            "shown": 1,
+            "lastInvitationAt": 1790000002000,
+            "lastCardOpening": "o2",
+            "generation": 2,
+            "reservation": null
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o2",
+          "nowMs": 1790000003000,
+          "expect": {
+            "kind": null,
+            "reason": "session-used"
+          }
+        },
+        {
+          "op": "open",
+          "opening": "o3",
+          "ordinary": true,
+          "nowMs": 1792592000000,
+          "localDay": 20747
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o3",
+          "nowMs": 1792592000000,
+          "expect": {
+            "kind": null,
+            "reason": "none"
+          }
+        }
+      ],
+      "final": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1792592000000,
+        "dayOrdinal": 20747,
+        "distinctDays": 2,
+        "milestones": 3,
+        "shown": 1,
+        "lastInvitationAt": 1790000002000,
+        "lastRatingAt": null,
+        "lastOpening": "o3",
+        "lastCardOpening": "o2",
+        "generation": 2,
+        "sync": "consumed",
+        "link": "idle",
+        "rating": "idle",
+        "reservation": null
+      }
+    },
+    {
+      "name": "non-direct-failed-signed-in-and-unready-changes-never-count",
+      "steps": [
+        {
+          "op": "create",
+          "installation": "install-a",
+          "anchorMs": 1790000000000
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790000000000,
+          "localDay": 20717
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "sync-applied",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "restore",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "complimentary",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "browser-purchase",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "second-device",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "cascade",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "read",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "unknown",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "direct",
+          "outcome": "failed",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "direct",
+          "outcome": "refused",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": true,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": false
+        },
+        {
+          "op": "control",
+          "control": "global",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "milestones": 0,
+            "sync": "idle"
+          }
+        }
+      ],
+      "final": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000000000,
+        "dayOrdinal": 20717,
+        "distinctDays": 1,
+        "milestones": 0,
+        "shown": 0,
+        "lastInvitationAt": null,
+        "lastRatingAt": null,
+        "lastOpening": "o1",
+        "lastCardOpening": null,
+        "generation": 0,
+        "sync": "idle",
+        "link": "idle",
+        "rating": "idle",
+        "reservation": null
+      }
+    },
+    {
+      "name": "milestones-saturate-at-three",
+      "steps": [
+        {
+          "op": "create",
+          "installation": "install-a",
+          "anchorMs": 1790000000000
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790000000000,
+          "localDay": 20717
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "milestones": 3,
+            "sync": "earned"
+          }
+        }
+      ],
+      "final": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000000000,
+        "dayOrdinal": 20717,
+        "distinctDays": 1,
+        "milestones": 3,
+        "shown": 0,
+        "lastInvitationAt": null,
+        "lastRatingAt": null,
+        "lastOpening": "o1",
+        "lastCardOpening": null,
+        "generation": 0,
+        "sync": "earned",
+        "link": "idle",
+        "rating": "idle",
+        "reservation": null
+      }
+    },
+    {
+      "name": "link-only-from-new-verified-unlinked-apple-purchase",
+      "steps": [
+        {
+          "op": "create",
+          "installation": "install-a",
+          "anchorMs": 1790000000000
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790000000000,
+          "localDay": 20717
+        },
+        {
+          "op": "purchase",
+          "source": "restore",
+          "verified": true,
+          "unlinked": true
+        },
+        {
+          "op": "purchase",
+          "source": "complimentary",
+          "verified": true,
+          "unlinked": true
+        },
+        {
+          "op": "purchase",
+          "source": "browser-purchase",
+          "verified": true,
+          "unlinked": true
+        },
+        {
+          "op": "purchase",
+          "source": "second-device",
+          "verified": true,
+          "unlinked": true
+        },
+        {
+          "op": "purchase",
+          "source": "sync-applied",
+          "verified": true,
+          "unlinked": true
+        },
+        {
+          "op": "purchase",
+          "source": "unknown",
+          "verified": true,
+          "unlinked": true
+        },
+        {
+          "op": "purchase",
+          "source": "new-apple-purchase",
+          "verified": false,
+          "unlinked": true
+        },
+        {
+          "op": "purchase",
+          "source": "new-apple-purchase",
+          "verified": true,
+          "unlinked": false
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "link": "idle"
+          }
+        },
+        {
+          "op": "purchase",
+          "source": "new-apple-purchase",
+          "verified": true,
+          "unlinked": true
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "link": "earned"
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o1",
+          "nowMs": 1790000000000,
+          "expect": {
+            "kind": null,
+            "reason": "none"
+          }
+        },
+        {
+          "op": "open",
+          "opening": "o2",
+          "ordinary": true,
+          "nowMs": 1790000001000,
+          "localDay": 20717
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o2",
+          "nowMs": 1790000001000,
+          "linkApplicable": false,
+          "expect": {
+            "kind": null,
+            "reason": "none"
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o2",
+          "nowMs": 1790000001000,
+          "expect": {
+            "kind": "link",
+            "reason": "card"
+          }
+        }
+      ],
+      "final": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000001000,
+        "dayOrdinal": 20717,
+        "distinctDays": 1,
+        "milestones": 0,
+        "shown": 0,
+        "lastInvitationAt": null,
+        "lastRatingAt": null,
+        "lastOpening": "o2",
+        "lastCardOpening": null,
+        "generation": 0,
+        "sync": "idle",
+        "link": "due",
+        "rating": "idle",
+        "reservation": null
+      }
+    },
+    {
+      "name": "precedence-link-then-sync-then-rating-one-card-per-opening",
+      "steps": [
+        {
+          "op": "create",
+          "installation": "install-a",
+          "anchorMs": 1787408000000
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790000000000,
+          "localDay": 20717
+        },
+        {
+          "op": "open",
+          "opening": "o2",
+          "ordinary": true,
+          "nowMs": 1790086400000,
+          "localDay": 20718
+        },
+        {
+          "op": "open",
+          "opening": "o3",
+          "ordinary": true,
+          "nowMs": 1790172800000,
+          "localDay": 20719
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "feature",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "purchase",
+          "source": "new-apple-purchase",
+          "verified": true,
+          "unlinked": true
+        },
+        {
+          "op": "open",
+          "opening": "o4",
+          "ordinary": true,
+          "nowMs": 1790259200000,
+          "localDay": 20720
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "link": "due",
+            "sync": "due",
+            "rating": "due"
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o4",
+          "nowMs": 1790259200000,
+          "expect": {
+            "kind": "link",
+            "reason": "card"
+          }
+        },
+        {
+          "op": "reserve",
+          "kind": "sync",
+          "opening": "o4",
+          "nowMs": 1790259200000,
+          "expect": {
+            "ok": false,
+            "reason": "other-kind"
+          }
+        },
+        {
+          "op": "reserve",
+          "kind": "link",
+          "opening": "o4",
+          "nowMs": 1790259200000,
+          "expect": {
+            "ok": true,
+            "generation": 1
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o4",
+          "nowMs": 1790259200000,
+          "expect": {
+            "kind": null,
+            "reason": "in-flight"
+          }
+        },
+        {
+          "op": "commit",
+          "kind": "link",
+          "opening": "o4",
+          "generation": 1,
+          "nowMs": 1790259200000,
+          "expect": {
+            "ok": true
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o4",
+          "nowMs": 1790259200000,
+          "expect": {
+            "kind": null,
+            "reason": "session-used"
+          }
+        },
+        {
+          "op": "open",
+          "opening": "o5",
+          "ordinary": true,
+          "nowMs": 1790345600000,
+          "localDay": 20721
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o5",
+          "nowMs": 1790345600000,
+          "expect": {
+            "kind": "rating",
+            "reason": "card"
+          }
+        },
+        {
+          "op": "reserve",
+          "kind": "rating",
+          "opening": "o5",
+          "nowMs": 1790345600000,
+          "expect": {
+            "ok": true,
+            "generation": 3
+          }
+        },
+        {
+          "op": "commit",
+          "kind": "rating",
+          "opening": "o5",
+          "generation": 3,
+          "nowMs": 1790345600000,
+          "expect": {
+            "ok": true
+          }
+        },
+        {
+          "op": "open",
+          "opening": "o6",
+          "ordinary": true,
+          "nowMs": 1790432000000,
+          "localDay": 20722
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o6",
+          "nowMs": 1790432000000,
+          "expect": {
+            "kind": null,
+            "reason": "none"
+          }
+        },
+        {
+          "op": "open",
+          "opening": "o7",
+          "ordinary": true,
+          "nowMs": 1790864000000,
+          "localDay": 20727
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o7",
+          "nowMs": 1790864000000,
+          "expect": {
+            "kind": "sync",
+            "reason": "card"
+          }
+        },
+        {
+          "op": "reserve",
+          "kind": "sync",
+          "opening": "o7",
+          "nowMs": 1790864000000,
+          "expect": {
+            "ok": true,
+            "generation": 5
+          }
+        },
+        {
+          "op": "commit",
+          "kind": "sync",
+          "opening": "o7",
+          "generation": 5,
+          "nowMs": 1790864000000,
+          "expect": {
+            "ok": true
+          }
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "shown": 2,
+            "link": "consumed",
+            "sync": "consumed",
+            "rating": "consumed"
+          }
+        },
+        {
+          "op": "open",
+          "opening": "o8",
+          "ordinary": true,
+          "nowMs": 1798640000000,
+          "localDay": 20817
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "feature",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "purchase",
+          "source": "new-apple-purchase",
+          "verified": true,
+          "unlinked": true
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o8",
+          "nowMs": 1798640000000,
+          "expect": {
+            "kind": null,
+            "reason": "none"
+          }
+        }
+      ],
+      "final": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1787408000000,
+        "highWaterMs": 1798640000000,
+        "dayOrdinal": 20817,
+        "distinctDays": 3,
+        "milestones": 3,
+        "shown": 2,
+        "lastInvitationAt": 1790864000000,
+        "lastRatingAt": 1790345600000,
+        "lastOpening": "o8",
+        "lastCardOpening": "o7",
+        "generation": 6,
+        "sync": "consumed",
+        "link": "consumed",
+        "rating": "consumed",
+        "reservation": null
+      }
+    },
+    {
+      "name": "invitation-spacing-168h-boundary",
+      "steps": [
+        {
+          "op": "create",
+          "installation": "install-a",
+          "anchorMs": 1790000000000
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790000000000,
+          "localDay": 20717
+        },
+        {
+          "op": "purchase",
+          "source": "new-apple-purchase",
+          "verified": true,
+          "unlinked": true
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "feature",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "open",
+          "opening": "o2",
+          "ordinary": true,
+          "nowMs": 1790000001000,
+          "localDay": 20717
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o2",
+          "nowMs": 1790000001000,
+          "expect": {
+            "kind": "link",
+            "reason": "card"
+          }
+        },
+        {
+          "op": "reserve",
+          "kind": "link",
+          "opening": "o2",
+          "nowMs": 1790000001000,
+          "expect": {
+            "ok": true,
+            "generation": 1
+          }
+        },
+        {
+          "op": "commit",
+          "kind": "link",
+          "opening": "o2",
+          "generation": 1,
+          "nowMs": 1790000001000,
+          "expect": {
+            "ok": true
+          }
+        },
+        {
+          "op": "open",
+          "opening": "o3",
+          "ordinary": true,
+          "nowMs": 1790604800999,
+          "localDay": 20723
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o3",
+          "nowMs": 1790604800999,
+          "expect": {
+            "kind": null,
+            "reason": "none"
+          }
+        },
+        {
+          "op": "open",
+          "opening": "o4",
+          "ordinary": true,
+          "nowMs": 1790604801000,
+          "localDay": 20724
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o4",
+          "nowMs": 1790604801000,
+          "expect": {
+            "kind": "sync",
+            "reason": "card"
+          }
+        }
+      ],
+      "final": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790604801000,
+        "dayOrdinal": 20724,
+        "distinctDays": 3,
+        "milestones": 3,
+        "shown": 1,
+        "lastInvitationAt": 1790000001000,
+        "lastRatingAt": null,
+        "lastOpening": "o4",
+        "lastCardOpening": "o2",
+        "generation": 2,
+        "sync": "due",
+        "link": "consumed",
+        "rating": "earned",
+        "reservation": null
+      }
+    },
+    {
+      "name": "suppression-blocks-every-card",
+      "steps": [
+        {
+          "op": "create",
+          "installation": "install-a",
+          "anchorMs": 1790000000000
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790000000000,
+          "localDay": 20717
+        },
+        {
+          "op": "purchase",
+          "source": "new-apple-purchase",
+          "verified": true,
+          "unlinked": true
+        },
+        {
+          "op": "open",
+          "opening": "o2",
+          "ordinary": true,
+          "nowMs": 1790000001000,
+          "localDay": 20717
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o2",
+          "nowMs": 1790000001000,
+          "suppressed": "setup",
+          "expect": {
+            "kind": null,
+            "reason": "suppressed"
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o2",
+          "nowMs": 1790000001000,
+          "suppressed": "consent",
+          "expect": {
+            "kind": null,
+            "reason": "suppressed"
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o2",
+          "nowMs": 1790000001000,
+          "suppressed": "error",
+          "expect": {
+            "kind": null,
+            "reason": "suppressed"
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o2",
+          "nowMs": 1790000001000,
+          "suppressed": "purchase",
+          "expect": {
+            "kind": null,
+            "reason": "suppressed"
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o2",
+          "nowMs": 1790000001000,
+          "suppressed": "restore",
+          "expect": {
+            "kind": null,
+            "reason": "suppressed"
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o2",
+          "nowMs": 1790000001000,
+          "suppressed": "delete",
+          "expect": {
+            "kind": null,
+            "reason": "suppressed"
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o2",
+          "nowMs": 1790000001000,
+          "suppressed": "link",
+          "expect": {
+            "kind": null,
+            "reason": "suppressed"
+          }
+        },
+        {
+          "op": "reserve",
+          "kind": "link",
+          "opening": "o2",
+          "nowMs": 1790000001000,
+          "suppressed": "restore",
+          "expect": {
+            "ok": false,
+            "reason": "suppressed"
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o2",
+          "nowMs": 1790000001000,
+          "expect": {
+            "kind": "link",
+            "reason": "card"
+          }
+        }
+      ],
+      "final": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000001000,
+        "dayOrdinal": 20717,
+        "distinctDays": 1,
+        "milestones": 0,
+        "shown": 0,
+        "lastInvitationAt": null,
+        "lastRatingAt": null,
+        "lastOpening": "o2",
+        "lastCardOpening": null,
+        "generation": 0,
+        "sync": "idle",
+        "link": "due",
+        "rating": "idle",
+        "reservation": null
+      }
+    },
+    {
+      "name": "not-ordinary-opening-contributes-nothing-and-shows-nothing",
+      "steps": [
+        {
+          "op": "create",
+          "installation": "install-a",
+          "anchorMs": 1790000000000
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790000000000,
+          "localDay": 20717
+        },
+        {
+          "op": "purchase",
+          "source": "new-apple-purchase",
+          "verified": true,
+          "unlinked": true
+        },
+        {
+          "op": "open",
+          "opening": "o2",
+          "ordinary": false,
+          "nowMs": 1790086400000,
+          "localDay": 20718
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "lastOpening": "o1",
+            "distinctDays": 1,
+            "link": "earned",
+            "highWaterMs": 1790000000000
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o2",
+          "nowMs": 1790086400000,
+          "expect": {
+            "kind": null,
+            "reason": "not-ordinary"
+          }
+        }
+      ],
+      "final": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000000000,
+        "dayOrdinal": 20717,
+        "distinctDays": 1,
+        "milestones": 0,
+        "shown": 0,
+        "lastInvitationAt": null,
+        "lastRatingAt": null,
+        "lastOpening": "o1",
+        "lastCardOpening": null,
+        "generation": 0,
+        "sync": "idle",
+        "link": "earned",
+        "rating": "idle",
+        "reservation": null
+      }
+    },
+    {
+      "name": "crash-before-visibility-releases-on-next-opening",
+      "steps": [
+        {
+          "op": "create",
+          "installation": "install-a",
+          "anchorMs": 1790000000000
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790000000000,
+          "localDay": 20717
+        },
+        {
+          "op": "purchase",
+          "source": "new-apple-purchase",
+          "verified": true,
+          "unlinked": true
+        },
+        {
+          "op": "open",
+          "opening": "o2",
+          "ordinary": true,
+          "nowMs": 1790000001000,
+          "localDay": 20717
+        },
+        {
+          "op": "reserve",
+          "kind": "link",
+          "opening": "o2",
+          "nowMs": 1790000001000,
+          "expect": {
+            "ok": true,
+            "generation": 1
+          }
+        },
+        {
+          "op": "open",
+          "opening": "o3",
+          "ordinary": true,
+          "nowMs": 1790000002000,
+          "localDay": 20717
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "reservation": null,
+            "generation": 2,
+            "link": "due",
+            "shown": 0
+          }
+        },
+        {
+          "op": "commit",
+          "kind": "link",
+          "opening": "o2",
+          "generation": 1,
+          "nowMs": 1790000002000,
+          "expect": {
+            "ok": false
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o3",
+          "nowMs": 1790000002000,
+          "expect": {
+            "kind": "link",
+            "reason": "card"
+          }
+        },
+        {
+          "op": "reserve",
+          "kind": "link",
+          "opening": "o3",
+          "nowMs": 1790000002000,
+          "expect": {
+            "ok": true,
+            "generation": 3
+          }
+        },
+        {
+          "op": "commit",
+          "kind": "link",
+          "opening": "o3",
+          "generation": 3,
+          "nowMs": 1790000002000,
+          "expect": {
+            "ok": true
+          }
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "shown": 1,
+            "link": "consumed"
+          }
+        }
+      ],
+      "final": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000002000,
+        "dayOrdinal": 20717,
+        "distinctDays": 1,
+        "milestones": 0,
+        "shown": 1,
+        "lastInvitationAt": 1790000002000,
+        "lastRatingAt": null,
+        "lastOpening": "o3",
+        "lastCardOpening": "o3",
+        "generation": 4,
+        "sync": "idle",
+        "link": "consumed",
+        "rating": "idle",
+        "reservation": null
+      }
+    },
+    {
+      "name": "crash-after-visibility-consumes",
+      "steps": [
+        {
+          "op": "create",
+          "installation": "install-a",
+          "anchorMs": 1790000000000
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790000000000,
+          "localDay": 20717
+        },
+        {
+          "op": "purchase",
+          "source": "new-apple-purchase",
+          "verified": true,
+          "unlinked": true
+        },
+        {
+          "op": "open",
+          "opening": "o2",
+          "ordinary": true,
+          "nowMs": 1790000001000,
+          "localDay": 20717
+        },
+        {
+          "op": "reserve",
+          "kind": "link",
+          "opening": "o2",
+          "nowMs": 1790000001000,
+          "expect": {
+            "ok": true,
+            "generation": 1
+          }
+        },
+        {
+          "op": "commit",
+          "kind": "link",
+          "opening": "o2",
+          "generation": 1,
+          "nowMs": 1790000001000,
+          "expect": {
+            "ok": true
+          }
+        },
+        {
+          "op": "open",
+          "opening": "o3",
+          "ordinary": true,
+          "nowMs": 1792592000000,
+          "localDay": 20747
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o3",
+          "nowMs": 1792592000000,
+          "expect": {
+            "kind": null,
+            "reason": "none"
+          }
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "link": "consumed",
+            "shown": 1
+          }
+        }
+      ],
+      "final": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1792592000000,
+        "dayOrdinal": 20747,
+        "distinctDays": 2,
+        "milestones": 0,
+        "shown": 1,
+        "lastInvitationAt": 1790000001000,
+        "lastRatingAt": null,
+        "lastOpening": "o3",
+        "lastCardOpening": "o2",
+        "generation": 2,
+        "sync": "idle",
+        "link": "consumed",
+        "rating": "idle",
+        "reservation": null
+      }
+    },
+    {
+      "name": "release-returns-to-due-only-with-matching-fence",
+      "steps": [
+        {
+          "op": "create",
+          "installation": "install-a",
+          "anchorMs": 1790000000000
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790000000000,
+          "localDay": 20717
+        },
+        {
+          "op": "purchase",
+          "source": "new-apple-purchase",
+          "verified": true,
+          "unlinked": true
+        },
+        {
+          "op": "open",
+          "opening": "o2",
+          "ordinary": true,
+          "nowMs": 1790000001000,
+          "localDay": 20717
+        },
+        {
+          "op": "reserve",
+          "kind": "link",
+          "opening": "o2",
+          "nowMs": 1790000001000,
+          "expect": {
+            "ok": true,
+            "generation": 1
+          }
+        },
+        {
+          "op": "release",
+          "kind": "link",
+          "opening": "o2",
+          "generation": 0,
+          "expect": {
+            "ok": false
+          }
+        },
+        {
+          "op": "release",
+          "kind": "sync",
+          "opening": "o2",
+          "generation": 1,
+          "expect": {
+            "ok": false
+          }
+        },
+        {
+          "op": "release",
+          "kind": "link",
+          "opening": "o1",
+          "generation": 1,
+          "expect": {
+            "ok": false
+          }
+        },
+        {
+          "op": "release",
+          "kind": "link",
+          "opening": "o2",
+          "generation": 1,
+          "expect": {
+            "ok": true
+          }
+        },
+        {
+          "op": "release",
+          "kind": "link",
+          "opening": "o2",
+          "generation": 1,
+          "expect": {
+            "ok": false
+          }
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "link": "due",
+            "reservation": null,
+            "generation": 2
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o2",
+          "nowMs": 1790000001000,
+          "expect": {
+            "kind": "link",
+            "reason": "card"
+          }
+        },
+        {
+          "op": "reserve",
+          "kind": "link",
+          "opening": "o2",
+          "nowMs": 1790000001000,
+          "expect": {
+            "ok": true,
+            "generation": 3
+          }
+        },
+        {
+          "op": "commit",
+          "kind": "link",
+          "opening": "o2",
+          "generation": 2,
+          "nowMs": 1790000001000,
+          "expect": {
+            "ok": false
+          }
+        },
+        {
+          "op": "commit",
+          "kind": "link",
+          "opening": "o2",
+          "generation": 3,
+          "nowMs": 1790000001000,
+          "expect": {
+            "ok": true
+          }
+        },
+        {
+          "op": "commit",
+          "kind": "link",
+          "opening": "o2",
+          "generation": 3,
+          "nowMs": 1790000001000,
+          "expect": {
+            "ok": false
+          }
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "shown": 1
+          }
+        }
+      ],
+      "final": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000001000,
+        "dayOrdinal": 20717,
+        "distinctDays": 1,
+        "milestones": 0,
+        "shown": 1,
+        "lastInvitationAt": 1790000001000,
+        "lastRatingAt": null,
+        "lastOpening": "o2",
+        "lastCardOpening": "o2",
+        "generation": 4,
+        "sync": "idle",
+        "link": "consumed",
+        "rating": "idle",
+        "reservation": null
+      }
+    },
+    {
+      "name": "commit-after-rollback-stamps-high-water",
+      "steps": [
+        {
+          "op": "create",
+          "installation": "install-a",
+          "anchorMs": 1790000000000
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790000000000,
+          "localDay": 20717
+        },
+        {
+          "op": "purchase",
+          "source": "new-apple-purchase",
+          "verified": true,
+          "unlinked": true
+        },
+        {
+          "op": "open",
+          "opening": "o2",
+          "ordinary": true,
+          "nowMs": 1790086400000,
+          "localDay": 20718
+        },
+        {
+          "op": "reserve",
+          "kind": "link",
+          "opening": "o2",
+          "nowMs": 1790086400000,
+          "expect": {
+            "ok": true,
+            "generation": 1
+          }
+        },
+        {
+          "op": "commit",
+          "kind": "link",
+          "opening": "o2",
+          "generation": 1,
+          "nowMs": 1790000000000,
+          "expect": {
+            "ok": true
+          }
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "lastInvitationAt": 1790086400000,
+            "highWaterMs": 1790086400000
+          }
+        }
+      ],
+      "final": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790086400000,
+        "dayOrdinal": 20718,
+        "distinctDays": 2,
+        "milestones": 0,
+        "shown": 1,
+        "lastInvitationAt": 1790086400000,
+        "lastRatingAt": null,
+        "lastOpening": "o2",
+        "lastCardOpening": "o2",
+        "generation": 2,
+        "sync": "idle",
+        "link": "consumed",
+        "rating": "idle",
+        "reservation": null
+      }
+    },
+    {
+      "name": "invalid-context-offers-nothing",
+      "steps": [
+        {
+          "op": "create",
+          "installation": "install-a",
+          "anchorMs": 1790000000000
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790000000000,
+          "localDay": 20717
+        },
+        {
+          "op": "purchase",
+          "source": "new-apple-purchase",
+          "verified": true,
+          "unlinked": true
+        },
+        {
+          "op": "open",
+          "opening": "o2",
+          "ordinary": true,
+          "nowMs": 1790000001000,
+          "localDay": 20717
+        },
+        {
+          "op": "arbitrate",
+          "opening": "",
+          "nowMs": 1790000001000,
+          "expect": {
+            "kind": null,
+            "reason": "invalid"
+          }
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o2",
+          "nowMs": -1,
+          "expect": {
+            "kind": null,
+            "reason": "invalid"
+          }
+        }
+      ],
+      "final": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000001000,
+        "dayOrdinal": 20717,
+        "distinctDays": 1,
+        "milestones": 0,
+        "shown": 0,
+        "lastInvitationAt": null,
+        "lastRatingAt": null,
+        "lastOpening": "o2",
+        "lastCardOpening": null,
+        "generation": 0,
+        "sync": "idle",
+        "link": "due",
+        "rating": "idle",
+        "reservation": null
+      }
+    },
+    {
+      "name": "owner-parameter-rating-spaced-from-invitations",
+      "parameters": {
+        "spaceRatingFromInvitations": true,
+        "countedControls": [
+          "site",
+          "feature"
+        ]
+      },
+      "steps": [
+        {
+          "op": "create",
+          "installation": "install-a",
+          "anchorMs": 1787408000000
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790000000000,
+          "localDay": 20717
+        },
+        {
+          "op": "open",
+          "opening": "o2",
+          "ordinary": true,
+          "nowMs": 1790086400000,
+          "localDay": 20718
+        },
+        {
+          "op": "open",
+          "opening": "o3",
+          "ordinary": true,
+          "nowMs": 1790172800000,
+          "localDay": 20719
+        },
+        {
+          "op": "purchase",
+          "source": "new-apple-purchase",
+          "verified": true,
+          "unlinked": true
+        },
+        {
+          "op": "open",
+          "opening": "o4",
+          "ordinary": true,
+          "nowMs": 1790259200000,
+          "localDay": 20720
+        },
+        {
+          "op": "reserve",
+          "kind": "link",
+          "opening": "o4",
+          "nowMs": 1790259200000,
+          "expect": {
+            "ok": true,
+            "generation": 1
+          }
+        },
+        {
+          "op": "commit",
+          "kind": "link",
+          "opening": "o4",
+          "generation": 1,
+          "nowMs": 1790259200000,
+          "expect": {
+            "ok": true
+          }
+        },
+        {
+          "op": "open",
+          "opening": "o5",
+          "ordinary": true,
+          "nowMs": 1790863999999,
+          "localDay": 20726
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o5",
+          "nowMs": 1790863999999,
+          "expect": {
+            "kind": null,
+            "reason": "none"
+          }
+        },
+        {
+          "op": "open",
+          "opening": "o6",
+          "ordinary": true,
+          "nowMs": 1790864000000,
+          "localDay": 20727
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o6",
+          "nowMs": 1790864000000,
+          "expect": {
+            "kind": "rating",
+            "reason": "card"
+          }
+        },
+        {
+          "op": "reserve",
+          "kind": "rating",
+          "opening": "o6",
+          "nowMs": 1790864000000,
+          "expect": {
+            "ok": true,
+            "generation": 3
+          }
+        },
+        {
+          "op": "commit",
+          "kind": "rating",
+          "opening": "o6",
+          "generation": 3,
+          "nowMs": 1790864000000,
+          "expect": {
+            "ok": true
+          }
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "feature",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "site",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "open",
+          "opening": "o7",
+          "ordinary": true,
+          "nowMs": 1791468799999,
+          "localDay": 20733
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o7",
+          "nowMs": 1791468799999,
+          "expect": {
+            "kind": null,
+            "reason": "none"
+          }
+        },
+        {
+          "op": "open",
+          "opening": "o8",
+          "ordinary": true,
+          "nowMs": 1791468800000,
+          "localDay": 20734
+        },
+        {
+          "op": "arbitrate",
+          "opening": "o8",
+          "nowMs": 1791468800000,
+          "expect": {
+            "kind": "sync",
+            "reason": "card"
+          }
+        }
+      ],
+      "final": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1787408000000,
+        "highWaterMs": 1791468800000,
+        "dayOrdinal": 20734,
+        "distinctDays": 3,
+        "milestones": 3,
+        "shown": 1,
+        "lastInvitationAt": 1790259200000,
+        "lastRatingAt": 1790864000000,
+        "lastOpening": "o8",
+        "lastCardOpening": "o6",
+        "generation": 4,
+        "sync": "due",
+        "link": "consumed",
+        "rating": "consumed",
+        "reservation": null
+      }
+    },
+    {
+      "name": "owner-parameter-global-pause-counted",
+      "parameters": {
+        "spaceRatingFromInvitations": false,
+        "countedControls": [
+          "site",
+          "feature",
+          "global"
+        ]
+      },
+      "steps": [
+        {
+          "op": "create",
+          "installation": "install-a",
+          "anchorMs": 1790000000000
+        },
+        {
+          "op": "open",
+          "opening": "o1",
+          "ordinary": true,
+          "nowMs": 1790000000000,
+          "localDay": 20717
+        },
+        {
+          "op": "control",
+          "control": "global",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "global",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "control",
+          "control": "global",
+          "source": "direct",
+          "outcome": "succeeded",
+          "signedIn": false,
+          "ready": true
+        },
+        {
+          "op": "check",
+          "ledger": {
+            "milestones": 3,
+            "sync": "earned"
+          }
+        }
+      ],
+      "final": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000000000,
+        "dayOrdinal": 20717,
+        "distinctDays": 1,
+        "milestones": 3,
+        "shown": 0,
+        "lastInvitationAt": null,
+        "lastRatingAt": null,
+        "lastOpening": "o1",
+        "lastCardOpening": null,
+        "generation": 0,
+        "sync": "earned",
+        "link": "idle",
+        "rating": "idle",
+        "reservation": null
+      }
+    }
+  ],
+  "dayOrdinals": [
+    {
+      "name": "epoch-utc",
+      "epochMs": 0,
+      "timeZone": "UTC",
+      "ordinal": 0
+    },
+    {
+      "name": "epoch-last-ms-utc",
+      "epochMs": 86399999,
+      "timeZone": "UTC",
+      "ordinal": 0
+    },
+    {
+      "name": "before-epoch-in-los-angeles-is-unreadable",
+      "epochMs": 0,
+      "timeZone": "America/Los_Angeles",
+      "ordinal": null
+    },
+    {
+      "name": "dst-spring-forward-0030-pst",
+      "epochMs": 1772958600000,
+      "timeZone": "America/Los_Angeles",
+      "ordinal": 20520
+    },
+    {
+      "name": "dst-spring-forward-2330-pdt-same-day",
+      "epochMs": 1773037800000,
+      "timeZone": "America/Los_Angeles",
+      "ordinal": 20520
+    },
+    {
+      "name": "dst-fall-back-0030-pdt",
+      "epochMs": 1793518200000,
+      "timeZone": "America/Los_Angeles",
+      "ordinal": 20758
+    },
+    {
+      "name": "dst-fall-back-2330-pst-same-day",
+      "epochMs": 1793604600000,
+      "timeZone": "America/Los_Angeles",
+      "ordinal": 20758
+    },
+    {
+      "name": "same-instant-tokyo-is-next-day",
+      "epochMs": 1793604600000,
+      "timeZone": "Asia/Tokyo",
+      "ordinal": 20759
+    },
+    {
+      "name": "leap-day",
+      "epochMs": 1835438400000,
+      "timeZone": "UTC",
+      "ordinal": 21243
+    },
+    {
+      "name": "london-bst-midnight",
+      "epochMs": 1782862200000,
+      "timeZone": "Europe/London",
+      "ordinal": 20635
+    }
+  ],
+  "civilDates": [
+    {
+      "year": 1970,
+      "month": 1,
+      "day": 1,
+      "ordinal": 0
+    },
+    {
+      "year": 1969,
+      "month": 12,
+      "day": 31,
+      "ordinal": -1
+    },
+    {
+      "year": 2000,
+      "month": 2,
+      "day": 29,
+      "ordinal": 11016
+    },
+    {
+      "year": 2026,
+      "month": 3,
+      "day": 8,
+      "ordinal": 20520
+    },
+    {
+      "year": 2100,
+      "month": 3,
+      "day": 1,
+      "ordinal": 47541
+    },
+    {
+      "year": 1600,
+      "month": 1,
+      "day": 1,
+      "ordinal": -135140
+    }
+  ],
+  "parse": [
+    {
+      "name": "valid",
+      "value": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000000000,
+        "dayOrdinal": 20717,
+        "distinctDays": 3,
+        "milestones": 3,
+        "shown": 2,
+        "lastInvitationAt": 1790000000000,
+        "lastRatingAt": null,
+        "lastOpening": "o1",
+        "lastCardOpening": null,
+        "generation": 4,
+        "sync": "consumed",
+        "link": "due",
+        "rating": "earned",
+        "reservation": {
+          "kind": "link",
+          "opening": "o1",
+          "generation": 4
+        }
+      },
+      "valid": true
+    },
+    {
+      "name": "valid-no-reservation",
+      "value": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000000000,
+        "dayOrdinal": 20717,
+        "distinctDays": 3,
+        "milestones": 3,
+        "shown": 2,
+        "lastInvitationAt": 1790000000000,
+        "lastRatingAt": null,
+        "lastOpening": "o1",
+        "lastCardOpening": null,
+        "generation": 4,
+        "sync": "consumed",
+        "link": "due",
+        "rating": "earned",
+        "reservation": null
+      },
+      "valid": true
+    },
+    {
+      "name": "schema-2",
+      "value": {
+        "schema": 2,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000000000,
+        "dayOrdinal": 20717,
+        "distinctDays": 3,
+        "milestones": 3,
+        "shown": 2,
+        "lastInvitationAt": 1790000000000,
+        "lastRatingAt": null,
+        "lastOpening": "o1",
+        "lastCardOpening": null,
+        "generation": 4,
+        "sync": "consumed",
+        "link": "due",
+        "rating": "earned",
+        "reservation": {
+          "kind": "link",
+          "opening": "o1",
+          "generation": 4
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "extra-key",
+      "value": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000000000,
+        "dayOrdinal": 20717,
+        "distinctDays": 3,
+        "milestones": 3,
+        "shown": 2,
+        "lastInvitationAt": 1790000000000,
+        "lastRatingAt": null,
+        "lastOpening": "o1",
+        "lastCardOpening": null,
+        "generation": 4,
+        "sync": "consumed",
+        "link": "due",
+        "rating": "earned",
+        "reservation": {
+          "kind": "link",
+          "opening": "o1",
+          "generation": 4
+        },
+        "extra": true
+      },
+      "valid": false
+    },
+    {
+      "name": "missing-key",
+      "value": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000000000,
+        "dayOrdinal": 20717,
+        "distinctDays": 3,
+        "milestones": 3,
+        "shown": 2,
+        "lastInvitationAt": 1790000000000,
+        "lastOpening": "o1",
+        "lastCardOpening": null,
+        "generation": 4,
+        "sync": "consumed",
+        "link": "due",
+        "rating": "earned",
+        "reservation": {
+          "kind": "link",
+          "opening": "o1",
+          "generation": 4
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "distinct-days-4",
+      "value": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000000000,
+        "dayOrdinal": 20717,
+        "distinctDays": 4,
+        "milestones": 3,
+        "shown": 2,
+        "lastInvitationAt": 1790000000000,
+        "lastRatingAt": null,
+        "lastOpening": "o1",
+        "lastCardOpening": null,
+        "generation": 4,
+        "sync": "consumed",
+        "link": "due",
+        "rating": "earned",
+        "reservation": {
+          "kind": "link",
+          "opening": "o1",
+          "generation": 4
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "milestones-4",
+      "value": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000000000,
+        "dayOrdinal": 20717,
+        "distinctDays": 3,
+        "milestones": 4,
+        "shown": 2,
+        "lastInvitationAt": 1790000000000,
+        "lastRatingAt": null,
+        "lastOpening": "o1",
+        "lastCardOpening": null,
+        "generation": 4,
+        "sync": "consumed",
+        "link": "due",
+        "rating": "earned",
+        "reservation": {
+          "kind": "link",
+          "opening": "o1",
+          "generation": 4
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "milestones-negative",
+      "value": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000000000,
+        "dayOrdinal": 20717,
+        "distinctDays": 3,
+        "milestones": -1,
+        "shown": 2,
+        "lastInvitationAt": 1790000000000,
+        "lastRatingAt": null,
+        "lastOpening": "o1",
+        "lastCardOpening": null,
+        "generation": 4,
+        "sync": "consumed",
+        "link": "due",
+        "rating": "earned",
+        "reservation": {
+          "kind": "link",
+          "opening": "o1",
+          "generation": 4
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "shown-3",
+      "value": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000000000,
+        "dayOrdinal": 20717,
+        "distinctDays": 3,
+        "milestones": 3,
+        "shown": 3,
+        "lastInvitationAt": 1790000000000,
+        "lastRatingAt": null,
+        "lastOpening": "o1",
+        "lastCardOpening": null,
+        "generation": 4,
+        "sync": "consumed",
+        "link": "due",
+        "rating": "earned",
+        "reservation": {
+          "kind": "link",
+          "opening": "o1",
+          "generation": 4
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "fractional-generation",
+      "value": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000000000,
+        "dayOrdinal": 20717,
+        "distinctDays": 3,
+        "milestones": 3,
+        "shown": 2,
+        "lastInvitationAt": 1790000000000,
+        "lastRatingAt": null,
+        "lastOpening": "o1",
+        "lastCardOpening": null,
+        "generation": 4.5,
+        "sync": "consumed",
+        "link": "due",
+        "rating": "earned",
+        "reservation": {
+          "kind": "link",
+          "opening": "o1",
+          "generation": 4
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "boolean-as-count",
+      "value": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000000000,
+        "dayOrdinal": 20717,
+        "distinctDays": 3,
+        "milestones": true,
+        "shown": 2,
+        "lastInvitationAt": 1790000000000,
+        "lastRatingAt": null,
+        "lastOpening": "o1",
+        "lastCardOpening": null,
+        "generation": 4,
+        "sync": "consumed",
+        "link": "due",
+        "rating": "earned",
+        "reservation": {
+          "kind": "link",
+          "opening": "o1",
+          "generation": 4
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "string-anchor",
+      "value": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": "1790000000000",
+        "highWaterMs": 1790000000000,
+        "dayOrdinal": 20717,
+        "distinctDays": 3,
+        "milestones": 3,
+        "shown": 2,
+        "lastInvitationAt": 1790000000000,
+        "lastRatingAt": null,
+        "lastOpening": "o1",
+        "lastCardOpening": null,
+        "generation": 4,
+        "sync": "consumed",
+        "link": "due",
+        "rating": "earned",
+        "reservation": {
+          "kind": "link",
+          "opening": "o1",
+          "generation": 4
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "unknown-state",
+      "value": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000000000,
+        "dayOrdinal": 20717,
+        "distinctDays": 3,
+        "milestones": 3,
+        "shown": 2,
+        "lastInvitationAt": 1790000000000,
+        "lastRatingAt": null,
+        "lastOpening": "o1",
+        "lastCardOpening": null,
+        "generation": 4,
+        "sync": "shown",
+        "link": "due",
+        "rating": "earned",
+        "reservation": {
+          "kind": "link",
+          "opening": "o1",
+          "generation": 4
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "reservation-ahead-of-fence",
+      "value": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000000000,
+        "dayOrdinal": 20717,
+        "distinctDays": 3,
+        "milestones": 3,
+        "shown": 2,
+        "lastInvitationAt": 1790000000000,
+        "lastRatingAt": null,
+        "lastOpening": "o1",
+        "lastCardOpening": null,
+        "generation": 4,
+        "sync": "consumed",
+        "link": "due",
+        "rating": "earned",
+        "reservation": {
+          "kind": "link",
+          "opening": "o1",
+          "generation": 5
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "reservation-unknown-kind",
+      "value": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000000000,
+        "dayOrdinal": 20717,
+        "distinctDays": 3,
+        "milestones": 3,
+        "shown": 2,
+        "lastInvitationAt": 1790000000000,
+        "lastRatingAt": null,
+        "lastOpening": "o1",
+        "lastCardOpening": null,
+        "generation": 4,
+        "sync": "consumed",
+        "link": "due",
+        "rating": "earned",
+        "reservation": {
+          "kind": "promo",
+          "opening": "o1",
+          "generation": 4
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "empty-installation",
+      "value": {
+        "schema": 1,
+        "installation": "",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000000000,
+        "dayOrdinal": 20717,
+        "distinctDays": 3,
+        "milestones": 3,
+        "shown": 2,
+        "lastInvitationAt": 1790000000000,
+        "lastRatingAt": null,
+        "lastOpening": "o1",
+        "lastCardOpening": null,
+        "generation": 4,
+        "sync": "consumed",
+        "link": "due",
+        "rating": "earned",
+        "reservation": {
+          "kind": "link",
+          "opening": "o1",
+          "generation": 4
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "padded-opening",
+      "value": {
+        "schema": 1,
+        "installation": "install-a",
+        "anchorMs": 1790000000000,
+        "highWaterMs": 1790000000000,
+        "dayOrdinal": 20717,
+        "distinctDays": 3,
+        "milestones": 3,
+        "shown": 2,
+        "lastInvitationAt": 1790000000000,
+        "lastRatingAt": null,
+        "lastOpening": " o1",
+        "lastCardOpening": null,
+        "generation": 4,
+        "sync": "consumed",
+        "link": "due",
+        "rating": "earned",
+        "reservation": {
+          "kind": "link",
+          "opening": "o1",
+          "generation": 4
+        }
+      },
+      "valid": false
+    },
+    {
+      "name": "array",
+      "value": [],
+      "valid": false
+    },
+    {
+      "name": "null",
+      "value": null,
+      "valid": false
+    }
+  ]
+}
