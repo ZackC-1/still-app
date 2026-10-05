@@ -1,4 +1,4 @@
-// V3 store-image visual check (VD-8): renders the private Chrome store canvas renderer
+// V3 store-image visual check (VD-8): renders the private store canvas renderer
 // (docs/release/screenshots/source/v3/render-assets.mjs, comparison mode) and compares each canvas
 // with its approved 2x reference PNG using the design package's own compare script.
 //
@@ -8,7 +8,7 @@
 //
 // Same rules as tests/visual/run.mjs: deviceScaleFactor 2, pass only when differing pixels * 200
 // <= total pixels (0.5%, unrounded), no masks, no reference edits. Store canvases are fixed-pixel
-// (1280x800), so the 2x render is compared against the 2560x1600 reference at its native size; the
+// (per-frame size in assets.json), so the 2x render is compared against the 2560x1600 reference at its native size; the
 // store export itself is the 1x render of the same canvas (renderer "export" mode).
 //
 // LOCAL ONLY, not CI: the pixels depend on the machine's font rasteriser and the private, gitignored
@@ -73,23 +73,8 @@ const { PNG } = createRequire(join(PKG, "package.json"))("pngjs");
 const STORE_DIR = "d41-d43-d45-store-assets-and-icons";
 // Every reference in the store page, so nothing is silently omitted. Frames without a renderer say why.
 const NOT_MAPPED = {
-  "04-small-promo-tile-440-280.png":
-    "no renderer for the Chrome small promo tile (440x280)",
-  "05-marquee-1400-560.png":
-    "no renderer for the Chrome marquee tile (1400x560)",
-  "06-firefox-1-1280-800.png":
-    "no Firefox canvas renderer (only the Chrome renderer exists)",
-  "07-firefox-2-1280-800.png":
-    "no Firefox canvas renderer (only the Chrome renderer exists)",
-  "08-firefox-3-1280-800.png":
-    "no Firefox canvas renderer (only the Chrome renderer exists)",
   "09-firefox-android-illustrative-1280-800.png":
-    "no Firefox Android illustrative renderer",
-  "10-iphone-1-1320-2868.png": "no Apple App Store canvas renderer (iPhone)",
-  "11-iphone-2-1320-2868.png": "no Apple App Store canvas renderer (iPhone)",
-  "12-iphone-3-1320-2868.png": "no Apple App Store canvas renderer (iPhone)",
-  "13-ipad-1-2064-2752.png": "no Apple App Store canvas renderer (iPad)",
-  "14-mac-1-2880-1800.png": "no Apple App Store canvas renderer (Mac)",
+    "no renderer: an illustrative Android frame with no manifest entry",
 };
 
 function pngSize(file) {
@@ -209,7 +194,7 @@ for (const frame of MANIFEST.frames) {
     frame: frame.id,
     reference: frame.reference.split("/").pop(),
     scale: 2,
-    canvas: "1280x800",
+    canvas: `${(frame.canvas ?? MANIFEST.canvas).width}x${(frame.canvas ?? MANIFEST.canvas).height}`,
   };
   if (run.status !== 0 || !existsSync(rendered)) {
     rows.push({
