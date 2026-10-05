@@ -22,6 +22,8 @@ export async function installSafari(options: {
   signedIn?: boolean;
   /** Seed browser.storage.local with the app's current record (the background's projection). */
   projection?: boolean;
+  /** What the app's App Group answers to a `getEntitlement` pull (absent: no stamp, an empty reply). */
+  entitlement?: { entitled: boolean; updatedAt: number; installId?: string };
 }) {
   const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 1 });
   const writer = new AtomicSettingsWriter(storage);
@@ -62,6 +64,8 @@ export async function installSafari(options: {
             ? { accountId: ACCOUNT_ID, email: "person@example.invalid", lastSyncedAt: 5, pendingUpload: false, cloudReachable: true, updatedAt: 5 }
             : null,
         };
+      case "getEntitlement":
+        return { entitlement: options.entitlement ? JSON.stringify(options.entitlement) : "" };
       default:
         return {};
     }

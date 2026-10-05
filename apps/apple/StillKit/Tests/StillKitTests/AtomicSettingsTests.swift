@@ -25,7 +25,7 @@ final class AtomicSettingsTests: XCTestCase {
   func testNeverLinkedNullScopeRetainsRawOffRecordAtAllBounds() throws {
     let initial = try JSONEncoder().encode(StoredSettingsRecord(settings: StillSettings(globalOn: true, services: StillServices(), pauses: [], updatedAt: 1), syncMetadata: nil))
     let baseline = try AtomicSettingsRecord.initialize(initial, ownership: "never-linked")
-    let saved = try AtomicSettingsRecord.commit(baseline, path: "globalOn", value: false, updatedAt: 10).data
+    let saved = try XCTUnwrap(AtomicSettingsRecord.commit(baseline, path: "globalOn", value: false, updatedAt: 10).data)
     let nullScope = Data("{\"action\":\"scope\",\"accountId\":null}".utf8)
     for bound in ["ordinary", "generation", "sequence", "epoch"] {
       var record = try root(saved); var state = try XCTUnwrap(record["atomic"] as? [String: Any])
