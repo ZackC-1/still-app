@@ -34,7 +34,8 @@ function parseNativeSettings(reply: unknown): StoredSettingsRecord | null {
 
 export default defineBackground(() => {
   // The Safari host's packaged context, named explicitly. It equals the adapter's host-less
-  // default today (Safari implements no Still Pro extras), so behaviour is unchanged.
+  // default today (Safari implements only the extras every host implements), so behaviour is
+  // unchanged.
   const entitlements = new ChromeEntitlementAdapter(Date.now, { authority: true, context: () => packagedAccessContext("safari"), nativeObservation: async () => {
     const reply = await browser.runtime.sendNativeMessage(NATIVE_APP, { kind: "getBenefitAccess" });
     const envelope = reply && typeof reply === "object" ? (reply as { settings?: unknown }).settings : null;
