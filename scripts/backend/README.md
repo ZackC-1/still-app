@@ -234,7 +234,8 @@ object, the row is replaced, the version increments and database time is stamped
 write-id deduplication or timestamp arbitration on that path. 0015 adds one guard: the legacy RPC
 takes the same per-account lock as the writer path and then refuses, with
 `settings client upgrade required` (40001) and no change, an account that has saved through the
-per-field path or whose stored document carries a `schemaVersion` other than 1. The stricter
+per-field path, whose stored document carries a `schemaVersion` other than 1, or whose incoming
+document carries a `schemaVersion` other than 1. The stricter
 coarse-write grammar and timestamp arbitration in the earlier candidate were not adopted, because
 they would have refused writes that released apps make today (for example from a device whose
 clock runs ahead of the server).
@@ -252,7 +253,9 @@ any definer whose path does not end in `pg_temp`. Later migrations must use the 
 free-sync body, the limiter's grantees and the empty search_path, all of which 0015 deliberately
 changes, so a single run listing both would fail 0014's check after applying. The deploy planner
 (`deploy/deploy.mjs`) refuses any plan in which a later listed migration changes a routine that an
-earlier listed migration's post-apply check names (category `verification-overlap`). Deploy 0014
+earlier listed migration's post-apply check names (category `verification-overlap`). The check reads
+the SQL text, so it is best-effort: quoted identifiers, `ALTER ROUTINE`, dynamic SQL and similar forms are
+not recognised, and the earlier migration's post-apply check is still the final safeguard. Deploy 0014
 from its own commit, confirm it verified, then deploy 0015 alone. Re-running 0014's check after 0015
 reports those changes; that is expected and not a regression.
 
