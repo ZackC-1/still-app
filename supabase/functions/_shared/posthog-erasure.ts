@@ -64,9 +64,18 @@ export interface PostHogSubjectPort {
   setSubjectEmail(subject: string, email: string, options: SubjectEmailOptions): Promise<void>;
 }
 
+export interface DeleteOptions {
+  /**
+   * Whether an older-PostHog 400 may be followed by the delete_events:false check (#305). Only for
+   * one job's own ids: that check can delete matched persons without their events, so a combined
+   * request reports `bad_request` instead and the worker splits it into per-job calls.
+   */
+  readonly unmatchedCheck?: boolean;
+}
+
 export interface PostHogErasurePort {
   readonly canDelete: boolean;
-  deleteByDistinctIds(distinctIds: readonly string[]): Promise<ErasureOutcome>;
+  deleteByDistinctIds(distinctIds: readonly string[], options?: DeleteOptions): Promise<ErasureOutcome | "bad_request">;
 }
 
 /**
@@ -167,18 +176,23 @@ export class HttpPostHogErasure implements PostHogSubjectPort, PostHogErasurePor
     if (!res.ok) throw new Error(`PostHog identify failed: ${res.status}`);
   }
 
-  async deleteByDistinctIds(distinctIds: readonly string[]): Promise<ErasureOutcome> {
+  async deleteByDistinctIds(
+    distinctIds: readonly string[],
+    options: DeleteOptions = { unmatchedCheck: true },
+  ): Promise<ErasureOutcome | "bad_request"> {
     if (!this.canDelete) return "provider_unavailable";
     if (distinctIds.length === 0) return "none_found";
     const outcomes: ErasureOutcome[] = [];
     for (let i = 0; i < distinctIds.length; i += BULK_DELETE_LIMIT) {
-      outcomes.push(await this.bulkDelete(distinctIds.slice(i, i + BULK_DELETE_LIMIT)));
-      if (outcomes.at(-1) !== "queued" && outcomes.at(-1) !== "none_found") break;
+      const outcome = await this.bulkDelete(distinctIds.slice(i, i + BULK_DELETE_LIMIT), options.unmatchedCheck === true);
+      if (outcome === "bad_request") return outcome;
+      outcomes.push(outcome);
+      if (outcome !== "queued" && outcome !== "none_found") break;
     }
     return combineOutcomes(outcomes);
   }
 
-  private async bulkDelete(distinctIds: readonly string[]): Promise<ErasureOutcome> {
+  private async bulkDelete(distinctIds: readonly string[], unmatchedCheck: boolean): Promise<ErasureOutcome | "bad_request"> {
     const url = `${trimSlash(this.config.apiHost!)}/api/projects/${this.config.projectId}/persons/bulk_delete/`;
     let res: Response;
     try {
@@ -196,6 +210,7 @@ export class HttpPostHogErasure implements PostHogSubjectPort, PostHogErasurePor
     }
     const body = await readJson(res);
     if (res.status !== 400) return classifyBulkDelete(res.status, body);
+    if (!unmatchedCheck) return "bad_request";
     // Older PostHog behaviour (as in #305): with delete_events, ids that match no person were
     // refused with a 400. Ask again without event deletion, which reported the unmatched ids. Only
     // "none of these ids has a person" counts; anything else stays a failure. Caveat carried from

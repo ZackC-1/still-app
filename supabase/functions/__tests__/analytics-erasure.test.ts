@@ -457,6 +457,79 @@ Deno.test("the worker records one fixed outcome per job and reports overdue jobs
   );
 });
 
+/** A store holding pre-staged claimed jobs, recording each outcome. */
+function stagedStore(jobs: ClaimedErasureJob[]) {
+  const outcomes: Record<string, ErasureOutcome> = {};
+  const store: ErasureStore = {
+    issueSubject: () => Promise.reject(new Error("unused")),
+    subjectActive: () => Promise.reject(new Error("unused")),
+    beginDeviceErasure: () => Promise.reject(new Error("unused")),
+    erasureStatus: () => Promise.reject(new Error("unused")),
+    claimWork: () => Promise.resolve(jobs),
+    recordOutcome: (job, _lease, outcome) => {
+      outcomes[job] = outcome;
+      return Promise.resolve({ recorded: true, overdue: false });
+    },
+  };
+  return { store, outcomes };
+}
+const claimed = (job: string, stage: ErasureStage, targets: string[]): ClaimedErasureJob => ({
+  job,
+  stage,
+  lease: `${job}-lease`,
+  sweeps: 0,
+  attempts: 0,
+  targets,
+});
+
+Deno.test("NEGATIVE CONTROL: a check is never batched, so new found jobs cannot stall a confirmed job", async () => {
+  const found = new Set(["new-1", "new-2"]); // persons PostHog still finds: brand-new jobs
+  const calls: { ids: string[]; check?: boolean }[] = [];
+  const posthog: PostHogErasurePort = {
+    canDelete: true,
+    deleteByDistinctIds: (ids, options) => {
+      calls.push({ ids: [...ids], check: options?.unmatchedCheck });
+      return Promise.resolve(ids.some((id) => found.has(id)) ? "queued" : "none_found");
+    },
+  };
+  const { store, outcomes } = stagedStore([
+    claimed("a", "stop_recorded", ["new-1"]),
+    claimed("b", "stop_recorded", ["new-2"]),
+    claimed("c", "provider_delete_confirmed", ["gone-1"]), // past its floor; its person is gone
+    claimed("d", "provider_delete_accepted", ["gone-2"]),
+  ]);
+  const report = await runErasureWorker({ store, posthog, limit: 50, leaseSeconds: 300 });
+  assertEquals(outcomes, { a: "queued", b: "queued", c: "none_found", d: "none_found" });
+  assertEquals(calls.map((c) => c.ids), [["new-1", "new-2"], ["gone-1"], ["gone-2"]]);
+  assertEquals(report.batches, 3);
+});
+
+Deno.test("a combined first deletion never uses the 400 fallback: it splits into per-job calls", async () => {
+  const calls: { ids: string[]; check?: boolean }[] = [];
+  const posthog: PostHogErasurePort = {
+    canDelete: true,
+    deleteByDistinctIds: (ids, options) => {
+      calls.push({ ids: [...ids], check: options?.unmatchedCheck });
+      return Promise.resolve(options?.unmatchedCheck ? "none_found" : "bad_request");
+    },
+  };
+  const { store, outcomes } = stagedStore([
+    claimed("a", "stop_recorded", ["x-1"]),
+    claimed("b", "stop_recorded", ["x-2"]),
+  ]);
+  await runErasureWorker({ store, posthog, limit: 50, leaseSeconds: 300 });
+  assertEquals(calls, [
+    { ids: ["x-1", "x-2"], check: false },
+    { ids: ["x-1"], check: true },
+    { ids: ["x-2"], check: true },
+  ]);
+  assertEquals(outcomes, { a: "none_found", b: "none_found" });
+  // The adapter itself: without the check a 400 is reported, and no second request is made.
+  const { ph, sent } = scriptedPostHog([{ status: 400, body: {} }, { status: 200, body: { unmatched_distinct_ids: [A] } }]);
+  assertEquals(await ph.deleteByDistinctIds([A], { unmatchedCheck: false }), "bad_request");
+  assertEquals(sent.length, 1);
+});
+
 Deno.test("jobs are combined into bulk_delete batches of at most 1,000 distinct ids", () => {
   const ids = (prefix: string, n: number) =>
     Array.from({ length: n }, (_, i) => `${prefix}-${String(i).padStart(4, "0")}`);
