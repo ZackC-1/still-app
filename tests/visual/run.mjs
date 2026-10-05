@@ -196,6 +196,15 @@ for (const c of cases) {
       document.fonts.check('16px "InterVariable"'),
     );
     await page.waitForTimeout(800);
+    // Real input only (mouse clicks, key presses) to reach states such as an open dialog.
+    for (const action of c.actions ?? []) {
+      if ("click" in action) await page.locator(action.click).first().click();
+      else await page.keyboard.press(action.press);
+    }
+    if (c.actions?.length) {
+      await page.mouse.move(0, 0); // no lingering :hover in the capture
+      await page.waitForTimeout(800);
+    }
     if (c.focus) {
       // Real keyboard focus (Tab from the top of the document), never a simulated outline.
       let reached = false;
