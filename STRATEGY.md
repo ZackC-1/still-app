@@ -49,8 +49,9 @@ Still is not:
    into repository knowledge so each iteration starts smarter.
 
 Raw install volume must never be optimized by hiding the mobile boundary (websites in Safari on
-iPhone and iPad, and in Firefox on Android) or implying native-app blocking. A smaller group of correctly informed users is more valuable than mismatched
-downloads that generate refunds and negative reviews.
+iPhone and iPad, and in Firefox on Android) or implying native-app blocking. A smaller group of
+correctly informed users is more valuable than mismatched downloads that generate refunds and
+negative reviews.
 
 ## Commercial model
 

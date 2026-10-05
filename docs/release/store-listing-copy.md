@@ -219,7 +219,7 @@ FREE
 Blocking needs no account and no purchase. Sign-in is optional and only adds sync.
 
 WHERE IT WORKS
-This extension works in Chrome on desktop. Still is also available for Firefox, and for Safari on iPhone, iPad and Mac. On phones, Still works in Safari on iPhone and iPad; it doesn't work in mobile Chrome or Firefox, or inside the YouTube, Instagram, Facebook or TikTok apps.
+This extension works in Chrome on desktop. Still is also available for Firefox, and for Safari on iPhone, iPad and Mac. On phones, Still works in Safari on iPhone and iPad; it doesn't work in mobile Chrome, or inside the YouTube, Instagram, Facebook or TikTok apps.
 
 PRIVATE BY DESIGN
 Blocking runs on your device. Still doesn't collect your browsing history or show ads, and it only has access to YouTube, Instagram, Facebook and TikTok. Still shares usage data to help improve the extension; you can turn it off in settings.
@@ -287,7 +287,7 @@ FREE
 Blocking needs no account and no purchase. Sign-in is optional and only adds sync.
 
 WHERE IT WORKS
-This extension works in Firefox on desktop. Still is also available for Chrome, and for Safari on iPhone, iPad and Mac. On phones, Still works in Safari on iPhone and iPad; it doesn't work in mobile Chrome or Firefox, or inside the YouTube, Instagram, Facebook or TikTok apps.
+This extension works in Firefox on desktop. Still is also available for Chrome, and for Safari on iPhone, iPad and Mac. Works in Safari on iPhone and iPad, and in Firefox on Android. It doesn't work in mobile Chrome, or inside the YouTube, Instagram, Facebook or TikTok apps.
 
 PRIVATE BY DESIGN
 Blocking runs on your device. Still doesn't collect your browsing history or show ads, and it only has access to YouTube, Instagram, Facebook and TikTok. You can choose to share usage data to help improve Still; it stays off unless you allow it.
@@ -299,7 +299,7 @@ Privacy: https://stillapp.fit/privacy/
 **Notes to reviewer:**
 
 ```
-All blocking and optional settings sync are free. No account or purchase is needed for blocking. Sign-in uses an emailed six-digit code. Host permissions are limited to YouTube, Instagram, Facebook and TikTok. This release works in desktop Firefox and in Firefox on Android (142 or newer).
+All blocking and optional settings sync are free. No account or purchase is needed for blocking. Sign-in uses an emailed six-digit code. Host permissions are limited to YouTube, Instagram, Facebook and TikTok. This release works in desktop Firefox. Works in Safari on iPhone and iPad, and in Firefox on Android (Firefox for Android 142 or newer).
 
 New in 2.1: optional usage analytics declared as the optional "technicalAndInteraction" data collection permission. Nothing is sent unless the user grants it (at install or later from Still's settings). It records product events only, never page addresses, videos, searches or page content.
 
