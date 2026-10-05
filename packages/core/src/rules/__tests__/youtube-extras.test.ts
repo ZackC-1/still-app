@@ -6,6 +6,7 @@ import {
   accessCapabilities,
   accessCapabilitiesForTest,
   initialAccessSnapshot,
+  packagedAccessContext,
   type AccessHost,
 } from "../../entitlement/access-policy.js";
 import { createEnginePageSession, type EngineOptions, type EnginePageSession } from "../engine.js";
@@ -149,8 +150,11 @@ describe("YouTube Still Pro hide controls, paid on through the test seams", () =
       const engine = session();
       const url = new URL(c.url);
       const all = settings(YT_PRO);
+      // Exactly what a shipped host hands the engine: its content entry's capabilities and the
+      // access snapshot its background resolves from the same host's packaged context.
       for (const opts of [{}, ...[undefined, ...ACCESS_HOSTS].map((host): EngineOptions => ({
-        capabilities: accessCapabilities({ paidMode: PAID_TIER_ENABLED, host }) }))]) {
+        capabilities: accessCapabilities({ paidMode: PAID_TIER_ENABLED, host }),
+        access: initialAccessSnapshot(packagedAccessContext(host)) }))]) {
         engine.applyDom(all, url, document, opts);
         expect(engine.effectiveFeatures!()).toEqual(["youtube.shorts"]);
         for (const id of [...ids("target-"), ...ids("keep-")]) expect(shown(byId(id)), id).toBe(true);
