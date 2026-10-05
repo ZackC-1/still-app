@@ -1,13 +1,12 @@
 import {
   deviceErasureState,
-  ErasureCapacity,
   ErasureStorageUnavailable,
   type ErasureStore,
   isAnonIndex,
   isErasureKey,
 } from "../_shared/erasure-store.ts";
 import type { PostHogErasurePort } from "../_shared/posthog-erasure.ts";
-import { clientIp, type RateLimiter, tooManyRequests } from "../_shared/rate-limit.ts";
+import { clientIp, limiterAddress, type RateLimiter, tooManyRequests } from "../_shared/rate-limit.ts";
 import { jsonResponse, optionsResponse } from "../_shared/store.ts";
 import { constantTimeEqual } from "../_shared/token.ts";
 import { runErasureWorker } from "./worker.ts";
@@ -34,10 +33,8 @@ export const MAX_BODY_BYTES = 1024;
 /** Per client address, per 10 minutes, in separate buckets: polling never spends the submit budget. */
 export const SUBMIT_IP_LIMIT = 30;
 export const STATUS_IP_LIMIT = 120;
-export const WORKER_BATCH = 10;
+export const WORKER_BATCH = 50;
 export const WORKER_LEASE_SECONDS = 300;
-/** Retry-After for the global new-job cap (the cap's window). */
-export const CAPACITY_RETRY_SECONDS = 600;
 
 export interface AnalyticsErasureDeps {
   /** Null when this deployment has no eraser credential: every route answers 503. */
@@ -96,7 +93,7 @@ async function limited(
   const ip = clientIp(req);
   if (ip === null) return jsonResponse(400, { error: "invalid_request" });
   if (!deps.limiter) return unavailable();
-  const wait = await deps.limiter.consume(`${surface}:ip:${ip}`, max, 600);
+  const wait = await deps.limiter.consume(`${surface}:ip:${limiterAddress(ip)}`, max, 600);
   return wait > 0 ? tooManyRequests(wait) : null;
 }
 
@@ -144,12 +141,6 @@ export async function handleAnalyticsErasure(req: Request, deps: AnalyticsErasur
         return invalid();
     }
   } catch (error) {
-    if (error instanceof ErasureCapacity) {
-      return jsonResponse(503, { error: "busy", retry_after: CAPACITY_RETRY_SECONDS }, {
-        "retry-after": String(CAPACITY_RETRY_SECONDS),
-        "access-control-expose-headers": "retry-after",
-      });
-    }
     // Fixed categories only: no proof, id or driver text reaches the log.
     console.error(
       "analytics-erasure failed:",

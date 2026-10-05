@@ -2,7 +2,7 @@
 // PostHog adapter, against an in-memory store and a fake PostHog. No network, no database.
 import { assert, assertEquals } from "@std/assert";
 import { handleAnalyticsErasure } from "../analytics-erasure/handler.ts";
-import { runErasureWorker } from "../analytics-erasure/worker.ts";
+import { batchJobs, runErasureWorker } from "../analytics-erasure/worker.ts";
 import { handleAnalyticsIdentify } from "../analytics-identify/handler.ts";
 import {
   type ClaimedErasureJob,
@@ -20,9 +20,10 @@ import {
   HttpPostHogErasure,
   type PostHogErasurePort,
   type PostHogSubjectPort,
+  subjectEventId,
 } from "../_shared/posthog-erasure.ts";
 import { accountCreatedEventId, type PostHogPort } from "../_shared/posthog.ts";
-import type { RateLimiter } from "../_shared/rate-limit.ts";
+import { limiterAddress, type RateLimiter } from "../_shared/rate-limit.ts";
 import { mintHs256, TEST_EXPECTED_CLAIMS } from "../_shared/test-helpers.ts";
 import {
   anonymousIdFromKey,
@@ -48,7 +49,7 @@ class FakeStore implements ErasureStore {
   subjects: { subject: string; user: string; proof: string; retired: boolean }[] = [];
   jobs: { job: string; proof: string; stage: ErasureStage; targets: string[]; lease: string | null }[] = [];
   retireAfterIssue = false;
-  capacityReached = false;
+  dailyLimitReached = false;
   private seq = 0;
   private id() {
     return `00000000-0000-4000-9000-${String(++this.seq).padStart(12, "0")}`;
@@ -58,6 +59,7 @@ class FakeStore implements ErasureStore {
     if (this.jobs.some((j) => j.proof === proof)) return Promise.resolve({ state: "stopped" });
     let row = this.subjects.find((s) => s.user === user && s.proof === proof);
     if (row?.retired) return Promise.resolve({ state: "stopped" });
+    if (!row && this.dailyLimitReached) return Promise.resolve({ state: "limited" });
     if (!row) this.subjects.push(row = { subject: this.id(), user, proof, retired: false });
     if (this.retireAfterIssue) row.retired = true;
     return Promise.resolve({ state: "active", subject: row.subject });
@@ -68,10 +70,6 @@ class FakeStore implements ErasureStore {
   }
   async beginDeviceErasure(key: string, anonIndex: number): Promise<ErasureJobRef> {
     this.calls.push(`begin:${anonIndex}`);
-    if (this.capacityReached) {
-      const { ErasureCapacity } = await import("../_shared/erasure-store.ts");
-      throw new ErasureCapacity();
-    }
     const bytes = fromHex(key);
     const proof = await proofFromKey(bytes);
     const ids = await Promise.all(Array.from({ length: anonIndex + 1 }, (_, k) => anonymousIdFromKey(bytes, k)));
@@ -233,6 +231,20 @@ Deno.test("an older-PostHog 400 gets #305's check: only all-unmatched is none_fo
   assertEquals(await down.ph.deleteByDistinctIds(ids), "provider_unavailable");
 });
 
+Deno.test("the account_created event id is keyed by a server secret, or random without one", async () => {
+  const secret = ["synthetic", "event", "id", "secret", "for", "tests", "only", "x"].join("-");
+  const keyed = await subjectEventId(A, secret);
+  assertEquals(keyed, await subjectEventId(A, secret), "repeatable with the secret, so PostHog keeps it once");
+  assert(keyed !== await subjectEventId(A, `${secret}-other`));
+  assert(keyed !== await accountCreatedEventId(A));
+  const random = await subjectEventId(A, undefined);
+  assert(random !== await subjectEventId(A, undefined), "without a secret: random");
+  assert(random !== await accountCreatedEventId(A));
+  assert(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(keyed));
+  // A short secret is not used as a key.
+  assert(await subjectEventId(A, "short") !== await subjectEventId(A, "short"));
+});
+
 Deno.test("setSubjectEmail sets the email on the device's subject, never the account id", async () => {
   const sent: { batch: { event: string; uuid?: string; properties: Record<string, unknown> }[] }[] = [];
   const ph = new HttpPostHogErasure(
@@ -246,7 +258,8 @@ Deno.test("setSubjectEmail sets the email on the device's subject, never the acc
   assertEquals(set!.properties.$set, { email: "a@b.co" });
   assertEquals(created!.event, "account_created");
   assertEquals(created!.properties.distinct_id, subject);
-  assertEquals(created!.uuid, await accountCreatedEventId(A));
+  // Not the unsalted per-account hash: nobody holding an account UUID can find this event by it.
+  assert(created!.uuid !== await accountCreatedEventId(A));
   assert(!JSON.stringify(sent).includes(`"distinct_id":"${A}"`));
   let refused = false;
   await ph.setSubjectEmail(A, "a@b.co", { accountId: A }).catch(() => (refused = true));
@@ -357,15 +370,6 @@ Deno.test("submit and status have separate limits, and no client address means n
   assertEquals((await handleAnalyticsErasure(new Request("http://x", { method: "GET" }), deps)).status, 405);
 });
 
-Deno.test("the global cap on new jobs answers busy with Retry-After", async () => {
-  const store = new FakeStore();
-  store.capacityReached = true;
-  const res = await handleAnalyticsErasure(erasureRequest({ action: "device", erasureKey: KEY_1, anonIndex: 0 }), erasureDeps(store));
-  assertEquals(res.status, 503);
-  assertEquals((await res.json()).error, "busy");
-  assertEquals(res.headers.get("retry-after"), "600");
-});
-
 Deno.test("status: only complete reads as deleted; a confirmed person deletion is still verifying", async () => {
   const store = new FakeStore();
   const status = async (key: string) =>
@@ -410,7 +414,7 @@ Deno.test("the worker route needs its token; a blank configured token refuses ev
   assertEquals(store.outcomes, []);
   const ok = await work(WORKER_TOKEN);
   assertEquals(ok.status, 200);
-  assertEquals(await ok.json(), { claimed: 1, advanced: 1, failed: 0, lost: 0, overdue: 0 });
+  assertEquals(await ok.json(), { claimed: 1, advanced: 1, failed: 0, lost: 0, overdue: 0, batches: 1 });
   assertEquals(store.jobs[0]!.stage, "provider_delete_accepted");
 });
 
@@ -422,8 +426,8 @@ Deno.test("the worker records one fixed outcome per job and reports overdue jobs
   const { value: report, logs } = await captureLogs(() =>
     runErasureWorker({ store, posthog: port, limit: 10, leaseSeconds: 300 })
   );
-  assertEquals(report, { claimed: 2, advanced: 0, failed: 2, lost: 0, overdue: 0 });
-  assertEquals(deleted.length, 2);
+  assertEquals(report, { claimed: 2, advanced: 0, failed: 2, lost: 0, overdue: 0, batches: 1 });
+  assertEquals(deleted.length, 1, "two small jobs share one bulk_delete");
   assertEquals(store.jobs.map((j) => j.stage), ["stop_recorded", "stop_recorded"]);
   assert(!logs.includes("overdue"));
   for (let i = 0; i < 2; i++) await runErasureWorker({ store, posthog: port, limit: 10, leaseSeconds: 300 });
@@ -449,8 +453,25 @@ Deno.test("the worker records one fixed outcome per job and reports overdue jobs
   stale.recordOutcome = () => Promise.resolve({ recorded: false, overdue: false });
   assertEquals(
     await runErasureWorker({ store: stale, posthog: fakeDeleter().port, limit: 10, leaseSeconds: 300 }),
-    { claimed: 1, advanced: 0, failed: 0, lost: 1, overdue: 0 },
+    { claimed: 1, advanced: 0, failed: 0, lost: 1, overdue: 0, batches: 1 },
   );
+});
+
+Deno.test("jobs are combined into bulk_delete batches of at most 1,000 distinct ids", () => {
+  const ids = (prefix: string, n: number) =>
+    Array.from({ length: n }, (_, i) => `${prefix}-${String(i).padStart(4, "0")}`);
+  const job = (name: string, targets: string[]) => ({ name, targets });
+  const batches = batchJobs([
+    job("a", ids("a", 600)),
+    job("b", ids("b", 300)),
+    job("c", ids("c", 200)), // does not fit with a+b (1,100)
+    job("d", [...ids("a", 600), ...ids("d", 50)]), // shares a's ids: 950 distinct with a
+    job("e", ids("e", 1500)), // bigger than a batch: alone
+  ]);
+  assertEquals(batches.map((b) => b.map((j) => j.name)), [["a", "b", "d"], ["c"], ["e"]]);
+  for (const batch of batches.slice(0, 2)) {
+    assert(new Set(batch.flatMap((j) => j.targets)).size <= 1000);
+  }
 });
 
 // ── analytics-identify: per-device subjects ──────────────────────────────────────────────────
@@ -574,6 +595,49 @@ Deno.test("the per-device path is strict, rate limited and unavailable without i
   const none = identifyDeps(store, { subjects: null });
   assertEquals((await handleAnalyticsIdentify(identifyRequest(jwt, { originProof: PROOF_1 }), none.deps)).status, 503);
   assertEquals((await handleAnalyticsIdentify(identifyRequest(null, { originProof: PROOF_1 }), none.deps)).status, 401);
+});
+
+Deno.test("an account past its daily limit of new devices is told to try later; nothing is written", async () => {
+  const store = new FakeStore();
+  store.dailyLimitReached = true;
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  const { deps, subject } = identifyDeps(store);
+  const res = await handleAnalyticsIdentify(identifyRequest(jwt, { originProof: PROOF_1 }), deps);
+  assertEquals(res.status, 429);
+  assertEquals(res.headers.get("retry-after"), "3600");
+  assertEquals([store.subjects.length, subject.length], [0, 0]);
+});
+
+Deno.test("IPv6 clients are limited per /64; IPv4 and mapped addresses per address", async () => {
+  assertEquals(limiterAddress("2001:db8:1:2:aaaa:bbbb:cccc:dddd"), "2001:db8:1:2::/64");
+  assertEquals(limiterAddress("2001:DB8:1:2::1"), "2001:db8:1:2::/64");
+  assertEquals(limiterAddress("[2001:db8:0:0:1::5]"), "2001:db8:0:0::/64");
+  assertEquals(limiterAddress("2001:db8::"), "2001:db8:0:0::/64");
+  assertEquals(limiterAddress("fe80::1%en0"), "fe80:0:0:0::/64");
+  assertEquals(limiterAddress("::ffff:198.51.100.7"), "198.51.100.7");
+  assertEquals(limiterAddress("198.51.100.7"), "198.51.100.7");
+  assertEquals(limiterAddress("not:an:address::x::y"), "not:an:address::x::y");
+  const store = new FakeStore();
+  const { port, keys } = limiter();
+  for (const ip of ["2001:db8:1:2::a", "2001:db8:1:2:ffff::b"]) {
+    await handleAnalyticsErasure(
+      erasureRequest({ action: "status", erasureKey: KEY_1 }, { "cf-connecting-ip": ip }),
+      erasureDeps(store, { limiter: port }),
+    );
+  }
+  assertEquals(keys, ["analytics-erasure-status:ip:2001:db8:1:2::/64", "analytics-erasure-status:ip:2001:db8:1:2::/64"]);
+  const identifyLimiter = limiter();
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  const { deps } = identifyDeps(store, { subjects: { store, limiter: identifyLimiter.port, posthog: subjectPostHog().port } });
+  await handleAnalyticsIdentify(
+    new Request("http://x", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${jwt}`, "cf-connecting-ip": "2001:db8:9:9::42" },
+      body: JSON.stringify({ originProof: PROOF_1 }),
+    }),
+    deps,
+  );
+  assertEquals(identifyLimiter.keys, [`analytics-identify:user:${A}`, "analytics-identify:ip:2001:db8:9:9::/64"]);
 });
 
 Deno.test("released 2.1 bodies keep the account-person path, unchanged", async () => {

@@ -25,7 +25,7 @@ const subjects = eraserSql
   ? {
     store: new PgErasureStore(eraserSql),
     limiter: new PgRateLimiter(eraserSql),
-    posthog: new HttpPostHogErasure(postHogConfig),
+    posthog: new HttpPostHogErasure(postHogConfig, fetch, Deno.env.get("ANALYTICS_EVENT_ID_SECRET")),
   }
   : null;
 

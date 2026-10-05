@@ -2,7 +2,7 @@ import { type AuthDeps, withAuthenticatedUser } from "../_shared/auth.ts";
 import { type ErasureStore, isOriginProof } from "../_shared/erasure-store.ts";
 import type { PostHogPort } from "../_shared/posthog.ts";
 import type { PostHogSubjectPort } from "../_shared/posthog-erasure.ts";
-import { enforceRateLimit, type RateLimiter, type RateLimitPolicy } from "../_shared/rate-limit.ts";
+import { enforceRateLimit, type RateLimiter, type RateLimitPolicy, tooManyRequests } from "../_shared/rate-limit.ts";
 import { jsonResponse } from "../_shared/store.ts";
 
 // Attach the signed-in account's email to analytics, and count a new account exactly once.
@@ -36,6 +36,8 @@ export const ACCOUNTS_COUNTED_SINCE = "2026-09-23T00:00:00Z";
 /** Per verified account and per client address, per 10 minutes, for the subject path only. */
 export const SUBJECT_RATE_LIMIT: RateLimitPolicy = { maxPerUser: 30, maxPerIp: 120, windowSeconds: 600 };
 const MAX_BODY_BYTES = 1024;
+/** Retry-After once an account has reached its daily limit of new devices. */
+export const SUBJECT_DAILY_RETRY_SECONDS = 3600;
 
 export interface AnalyticsAccount {
   readonly email: string | null;
@@ -125,10 +127,14 @@ async function identifySubject(
   if (deps.subjectsEnabled !== true || !subjects || !subjects.posthog.canIdentify) {
     return jsonResponse(503, { error: "unavailable" });
   }
-  const limited = await enforceRateLimit(subjects.limiter, "analytics-identify", userId, req, SUBJECT_RATE_LIMIT);
+  const limited = await enforceRateLimit(subjects.limiter, "analytics-identify", userId, req, SUBJECT_RATE_LIMIT, {
+    network: true,
+  });
   if (limited) return limited;
   const issue = await subjects.store.issueSubject(userId, proof);
   if (issue.state === "stopped") return jsonResponse(200, { state: "stopped" });
+  // Five new devices per account per day (0017); the device simply tries again later.
+  if (issue.state === "limited") return tooManyRequests(SUBJECT_DAILY_RETRY_SECONDS);
   const account = await deps.accounts.account(userId);
   let accountCreated = false;
   if (account?.email) {

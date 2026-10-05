@@ -38,6 +38,36 @@ export function clientIp(req: Request): string | null {
   return hops.length > 0 ? hops[hops.length - 1]! : null;
 }
 
+/**
+ * The limiter key for a client address. An IPv6 client usually controls a whole /64, so every
+ * address in it shares one key (`2001:db8:1:2::/64`); an IPv4-mapped address is its IPv4 address;
+ * IPv4 and anything unparseable are used as given. Used by the account-free erasure routes and the
+ * per-device identify path.
+ */
+export function limiterAddress(ip: string): string {
+  const raw = ip.trim().replace(/^\[|\]$/g, "").split("%")[0]!.toLowerCase();
+  if (!raw.includes(":")) return raw;
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(raw);
+  if (mapped) return mapped[1]!;
+  const halves = raw.split("::");
+  if (halves.length > 2) return raw;
+  const split = (part: string | undefined) => (part ? part.split(":") : []);
+  const expand = (groups: string[]) =>
+    groups.flatMap((g) => {
+      const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(g);
+      if (!v4) return [g];
+      const b = v4.slice(1).map(Number);
+      return [((b[0]! << 8) | b[1]!).toString(16), ((b[2]! << 8) | b[3]!).toString(16)];
+    });
+  const head = expand(split(halves[0]));
+  const tail = expand(split(halves[1]));
+  const missing = 8 - head.length - tail.length;
+  if (halves.length === 1 ? head.length !== 8 : missing < 1) return raw;
+  const groups = [...head, ...Array<string>(halves.length === 2 ? missing : 0).fill("0"), ...tail];
+  if (groups.length !== 8 || !groups.every((g) => /^[0-9a-f]{1,4}$/.test(g))) return raw;
+  return `${groups.slice(0, 4).map((g) => parseInt(g, 16).toString(16)).join(":")}::/64`;
+}
+
 /** The one 429 shape: retry_after in the JSON body plus a browser-readable Retry-After header. */
 export function tooManyRequests(waitSeconds: number): Response {
   return jsonResponse(
@@ -59,13 +89,15 @@ export async function enforceRateLimit(
   userId: string,
   req: Request,
   policy: RateLimitPolicy,
+  options: { readonly network?: boolean } = {},
 ): Promise<Response | null> {
   const userWait = await limiter.consume(`${surface}:user:${userId}`, policy.maxPerUser, policy.windowSeconds);
   if (userWait > 0) return tooManyRequests(userWait);
 
   const ip = clientIp(req);
   if (ip !== null) {
-    const ipWait = await limiter.consume(`${surface}:ip:${ip}`, policy.maxPerIp, policy.windowSeconds);
+    const key = options.network ? limiterAddress(ip) : ip;
+    const ipWait = await limiter.consume(`${surface}:ip:${key}`, policy.maxPerIp, policy.windowSeconds);
     if (ipWait > 0) return tooManyRequests(ipWait);
   }
   return null;

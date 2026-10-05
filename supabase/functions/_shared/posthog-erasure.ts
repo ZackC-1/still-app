@@ -16,11 +16,40 @@
 // batch), which is why a device is not told "deleted" until 8 days after acceptance (0017).
 // Configuration is the same function secrets as posthog.ts.
 
-import { accountCreatedEventId, type PostHogConfig } from "./posthog.ts";
+import type { PostHogConfig } from "./posthog.ts";
 import type { ErasureOutcome } from "./erasure-store.ts";
 
 /** PostHog accepts at most this many distinct ids per bulk_delete call. */
 export const BULK_DELETE_LIMIT = 1000;
+
+/**
+ * The account_created event's uuid on the per-device path. Never an unsalted hash of the account id
+ * (that would let anyone holding an account UUID find its event): an HMAC keyed by a server secret
+ * (function secret ANALYTICS_EVENT_ID_SECRET) when one is configured, so a retry or a racing request
+ * repeats the same uuid and PostHog keeps the event once; otherwise a random uuid (a rare race can
+ * then count twice, which only affects a count).
+ */
+export async function subjectEventId(accountId: string, secret: string | undefined): Promise<string> {
+  let bytes: Uint8Array;
+  if (secret && secret.trim().length >= 32) {
+    const key = await crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(secret.trim()),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    bytes = new Uint8Array(
+      await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`still:account_created:${accountId}`)),
+    );
+  } else {
+    bytes = crypto.getRandomValues(new Uint8Array(16));
+  }
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = [...bytes.slice(0, 16)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+}
 
 export interface SubjectEmailOptions {
   readonly accountCreated?: boolean;
@@ -98,6 +127,8 @@ export class HttpPostHogErasure implements PostHogSubjectPort, PostHogErasurePor
   constructor(
     private readonly config: PostHogConfig,
     private readonly fetchImpl: typeof fetch = fetch,
+    /** ANALYTICS_EVENT_ID_SECRET (see subjectEventId). Never hardcoded. */
+    private readonly eventIdSecret?: string,
   ) {}
 
   get canIdentify(): boolean {
@@ -122,7 +153,7 @@ export class HttpPostHogErasure implements PostHogSubjectPort, PostHogErasurePor
         : timestamp;
       batch.push({
         event: "account_created",
-        uuid: await accountCreatedEventId(options.accountId),
+        uuid: await subjectEventId(options.accountId, this.eventIdSecret),
         properties: common,
         timestamp: created,
       });

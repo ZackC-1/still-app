@@ -14,7 +14,9 @@ import postgres from "postgres";
 /** The issued PostHog identity for one account on one device, or "stopped" for an erased device. */
 export type SubjectIssue =
   | { readonly state: "active"; readonly subject: string }
-  | { readonly state: "stopped" };
+  | { readonly state: "stopped" }
+  /** The account reached its daily limit of new devices: try again later. */
+  | { readonly state: "limited" };
 
 export const ERASURE_STAGES = [
   "stop_recorded",
@@ -58,7 +60,7 @@ export interface ErasureStore {
   issueSubject(userId: string, originProof: string): Promise<SubjectIssue>;
   subjectActive(subject: string): Promise<boolean>;
   /** From the erasure key and the last anonymous index the device used; the database derives the
-   * targets. Throws ErasureCapacity when the global cap on new jobs is reached. */
+   * targets. Never refused for volume: past the global cap a job is recorded at the lowest priority. */
   beginDeviceErasure(erasureKey: string, anonIndex: number): Promise<ErasureJobRef>;
   erasureStatus(erasureKey: string): Promise<ErasureJobRef | null>;
   claimWork(limit: number, leaseSeconds: number): Promise<ClaimedErasureJob[]>;
@@ -89,14 +91,6 @@ function isStage(value: unknown): value is ErasureStage {
   return (ERASURE_STAGES as readonly unknown[]).includes(value);
 }
 
-/** The global cap on new device jobs per 10 minutes was reached: try again later. */
-export class ErasureCapacity extends Error {
-  constructor() {
-    super("Analytics erasure capacity reached");
-    this.name = "ErasureCapacity";
-  }
-}
-
 /** Storage failures carry no driver detail: driver errors can include bind parameters. */
 export class ErasureStorageUnavailable extends Error {
   constructor() {
@@ -115,11 +109,7 @@ export class PgErasureStore implements ErasureStore {
       const rows = await query();
       if (rows.length !== 1) throw new Error("row");
       return rows[0]!.value;
-    } catch (error) {
-      if (error instanceof postgres.PostgresError && error.code === "53400" &&
-        error.message === "analytics erasure capacity") {
-        throw new ErasureCapacity();
-      }
+    } catch {
       throw new ErasureStorageUnavailable();
     }
   }
@@ -130,6 +120,7 @@ export class PgErasureStore implements ErasureStore {
         select private.analytics_issue_subject(${userId}::uuid, pg_catalog.decode(${originProof}, 'hex')) as value`
     ) as Record<string, unknown> | null;
     if (value?.state === "stopped") return { state: "stopped" };
+    if (value?.state === "limited") return { state: "limited" };
     if (value?.state === "active" && isLowerUuid(value.subject)) return { state: "active", subject: value.subject };
     throw new ErasureStorageUnavailable();
   }

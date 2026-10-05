@@ -1,5 +1,5 @@
 import type { ErasureOutcome, ErasureStore } from "../_shared/erasure-store.ts";
-import type { PostHogErasurePort } from "../_shared/posthog-erasure.ts";
+import { BULK_DELETE_LIMIT, type PostHogErasurePort } from "../_shared/posthog-erasure.ts";
 
 // The deletion worker: lease due jobs (those deleting issued subjects first), ask PostHog to delete
 // every target with its events, record one fixed outcome per job. The database owns the stage
@@ -21,7 +21,28 @@ export interface WorkerReport {
   readonly lost: number;
   /** Jobs that have now failed five or more times in a row (alert; retried with backoff). */
   readonly overdue: number;
+  /** PostHog bulk_delete batches this run made (several jobs share one, up to 1,000 ids). */
+  readonly batches?: number;
   readonly skipped?: "provider_unconfigured";
+}
+
+/** Group jobs so each batch names at most `limit` distinct ids; a larger job goes alone (the
+ * adapter splits it). Exported for tests. */
+export function batchJobs<T extends { readonly targets: readonly string[] }>(jobs: readonly T[], limit = BULK_DELETE_LIMIT): T[][] {
+  const batches: { jobs: T[]; ids: Set<string> }[] = [];
+  for (const job of jobs) {
+    const fit = batches.find((b) => {
+      const extra = job.targets.filter((id) => !b.ids.has(id)).length;
+      return b.ids.size + extra <= limit;
+    });
+    if (fit) {
+      fit.jobs.push(job);
+      for (const id of job.targets) fit.ids.add(id);
+    } else {
+      batches.push({ jobs: [job], ids: new Set(job.targets) });
+    }
+  }
+  return batches.map((b) => b.jobs);
 }
 
 export async function runErasureWorker(deps: {
@@ -39,20 +60,26 @@ export async function runErasureWorker(deps: {
   let failed = 0;
   let lost = 0;
   let overdue = 0;
-  for (const job of jobs) {
+  const batches = batchJobs(jobs);
+  for (const batch of batches) {
+    // One call for the batch. Its outcome is recorded for every job in it: "none_found" only when
+    // no id of any job matched, so a job is never advanced on another job's evidence; a person
+    // found for one job makes every job in the batch re-check a day later (conservative).
     let outcome: ErasureOutcome;
     try {
-      outcome = await deps.posthog.deleteByDistinctIds(job.targets);
+      outcome = await deps.posthog.deleteByDistinctIds([...new Set(batch.flatMap((job) => job.targets))]);
     } catch {
       outcome = "provider_unavailable";
     }
-    const result = await deps.store.recordOutcome(job.job, job.lease, outcome);
-    if (!result.recorded) lost += 1;
-    else if (outcome === "queued" || outcome === "none_found") advanced += 1;
-    else failed += 1;
-    if (result.recorded && result.overdue) overdue += 1;
+    for (const job of batch) {
+      const result = await deps.store.recordOutcome(job.job, job.lease, outcome);
+      if (!result.recorded) lost += 1;
+      else if (outcome === "queued" || outcome === "none_found") advanced += 1;
+      else failed += 1;
+      if (result.recorded && result.overdue) overdue += 1;
+    }
   }
   // A fixed, identifier-free line the operator can alert on.
   if (overdue > 0) console.error(`analytics erasure overdue jobs: ${overdue}`);
-  return { claimed: jobs.length, advanced, failed, lost, overdue };
+  return { claimed: jobs.length, advanced, failed, lost, overdue, batches: batches.length };
 }
