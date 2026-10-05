@@ -15,9 +15,12 @@ import {
 import type { EntitlementCache } from "../entitlement/cache.js";
 import type { SettingsCache } from "../storage/cache.js";
 import {
+  createNavigationIntentTracker,
+  createUrlChangeWatch,
   installNavigationHooks,
   locationRedirectPort,
   type NavigationIntent,
+  type NavigationIntentTracker,
   type RedirectPort,
   type StillWindow,
 } from "./redirect.js";
@@ -63,6 +66,8 @@ export interface ContentScriptDeps {
    * navigation — wasted work, and a regression from the old shared-lastRedirect invariant).
    */
   readonly redirectDedupe?: RedirectDedupe;
+  /** Test seam: the deliberate-link tracker shared by the navigation hooks and the URL watch. */
+  readonly navigationIntents?: NavigationIntentTracker;
   /**
    * True when the packaged manifest CSS was generated from THIS rule set (source === "bundled"),
    * so every `hide` surface is already owned by the CSS engine and the per-frame reapply only
@@ -185,6 +190,8 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     target: URL,
     mode: "push" | "replace" = "replace",
     intent: NavigationIntent = "deliberate",
+    /** The URL being left, when the page already committed `target` (URL-watch fallback). */
+    from?: URL,
   ): boolean => {
     // Synchronous committed state only. A pre-hydration or stopped host never guesses On.
     if (!modern || stopped || !hydrated) return false;
@@ -194,7 +201,7 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     // A Reel viewer advancing on its own into a different Reel is stopped (sent home); a
     // deliberately opened or activated Reel, and Back/forward, are never treated as continuing.
     const continuation = intent === "page"
-      ? pageSession.reelContinuation?.(currentUrl(), target) ?? null : null;
+      ? pageSession.reelContinuation?.(from ?? currentUrl(), target) ?? null : null;
     const decision: ReturnType<typeof pageSession.evaluate> = continuation
       ? { kind: "redirect", url: continuation } : evaluated;
     // Destination classification must not replace the plan backing the current DOM/media.
@@ -246,6 +253,28 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     reapply();
   };
 
+  // Without the Navigation API (Safari before 26.2, Firefox ESR) the page's own pushState is
+  // invisible to this isolated world. A short URL poll stands in, only on Instagram/Facebook
+  // while their Reels core is effective and the tab is visible. YouTube keeps its own
+  // yt-navigate-finish path (plus the link-click guard), which already reapplies after moves.
+  const intents = deps.navigationIntents ?? createNavigationIntentTracker();
+  const urlWatch = modern && !win.navigation ? createUrlChangeWatch({
+    win,
+    doc,
+    onChange: (from, to, traverse) => {
+      if (stopped || !hydrated) return;
+      const intent: NavigationIntent = traverse ? "deliberate" : intents.intentFor(to);
+      cancelChipRechecks();
+      if (!consumeModernNavigation(to, "replace", intent, from)) reapply();
+    },
+  }) : null;
+  if (urlWatch) teardowns.push(() => urlWatch.stop());
+  const urlWatchWanted = (): boolean => {
+    const service = pageSession.activeServiceId();
+    return !stopped && hydrated && (service === "instagram" || service === "facebook")
+      && pageSession.effectiveFeatures?.().includes(`${service}.reels`) === true;
+  };
+
   const reapply = (): void => {
     // Never act on optimistic defaults: until hydration we don't know the user's real toggles, so
     // we add nothing (off/paused users must not see content hidden-then-revealed).
@@ -263,6 +292,7 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       }
       mediaQuieting?.reconcile();
       consumeModernNavigation(url);
+      urlWatch?.sync(urlWatchWanted());
       return;
     }
     // The paid tier is dormant behind PAID_TIER_ENABLED, so every surface applies for everyone.
@@ -312,7 +342,7 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       // Install hooks synchronously at document_start; their reapply calls are no-ops until hydrated.
       teardowns.push(installNavigationHooks(
         win, modern ? navigationReapply : reapply, modern ? consumeModernNavigation : undefined,
-        modern ? doc : undefined,
+        modern ? doc : undefined, intents,
       ));
       if (!modern) {
         const observer = createReapplyObserver(win, doc, reapply, deps.schedule);
@@ -461,9 +491,13 @@ export async function earlyFormat2ShortsRedirect(deps: EarlyFormat2ShortsRedirec
 }
 
 export {
+  createNavigationIntentTracker,
+  createUrlChangeWatch,
   installNavigationHooks,
   locationRedirectPort,
   type NavigationIntent,
+  type NavigationIntentTracker,
+  type UrlChangeWatch,
   type RedirectPort,
   type StillWindow,
 } from "./redirect.js";

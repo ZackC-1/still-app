@@ -312,20 +312,20 @@ test("format-2 facebook: in-app navigation into the Watch Reels feed goes home; 
 // ── Reel viewers (plural feed viewer goes home; a shared Reel opens but does not continue) ─────
 
 /** A hand-written single-page viewer: the page itself pushes the next Reel, like a swipe. */
-const viewer = (next: string) => `<!doctype html><html><head><title>viewer</title></head><body>
+const viewer = (next: string, pushed = next, delayMs = 0) => `<!doctype html><html><head><title>viewer</title></head><body>
   <main id="keep-viewer">One Reel playing</main>
   <a id="deliberate" href="${next}">Open another Reel</a>
   <script>
     document.getElementById("deliberate").addEventListener("click", (event) => {
       event.preventDefault(); // the site routes the click itself, as single-page apps do
-      history.pushState(null, "", event.currentTarget.getAttribute("href"));
+      setTimeout(() => history.pushState(null, "", ${JSON.stringify(pushed)}), ${delayMs});
     });
     window.swipe = (to) => history.pushState(null, "", to);
   </script></body></html>`;
 
-async function serveViewer(page: Page, domainGlob: string, next: string) {
+async function serveViewer(page: Page, domainGlob: string, next: string, pushed = next, delayMs = 0) {
   await page.route(domainGlob, (route) =>
-    route.fulfill({ contentType: "text/html; charset=utf-8", body: viewer(next) }),
+    route.fulfill({ contentType: "text/html; charset=utf-8", body: viewer(next, pushed, delayMs) }),
   );
 }
 
@@ -414,6 +414,26 @@ for (const [service, origin, swipe] of [
       await page.evaluate((to) => (window as unknown as { swipe(to: string): void }).swipe(to), swipe);
       await expect(page).toHaveURL(new URL("/", origin).href); // On again: continuation stopped
     });
+
+test("format-2 instagram: a link click still counts when the site pushes its route 2 s later", async ({ context }) => {
+  const page = await context.newPage();
+  await serveViewer(page, "**://*.instagram.com/**", "/reel/B2/", "/reel/B2/", 2_000);
+  await page.goto("https://www.instagram.com/reel/A1/");
+  await expect(page.locator("html")).toHaveClass(/still-feature-\d+-instagram-reels/);
+  await page.locator("#deliberate").click();
+  await expect(page).toHaveURL("https://www.instagram.com/reel/B2/", { timeout: 5_000 });
+  await page.waitForTimeout(500);
+  await expect(page).toHaveURL("https://www.instagram.com/reel/B2/");
+});
+
+test("format-2 instagram: a link click to one Reel does not cover the page pushing a different one", async ({ context }) => {
+  const page = await context.newPage();
+  await serveViewer(page, "**://*.instagram.com/**", "/reel/B2/", "/reel/C3/", 100);
+  await page.goto("https://www.instagram.com/reel/A1/");
+  await expect(page.locator("html")).toHaveClass(/still-feature-\d+-instagram-reels/);
+  await page.locator("#deliberate").click();
+  await expect(page).toHaveURL("https://www.instagram.com/");
+});
 
 test("format-2 instagram: moving between Reels inside one profile's modal is allowed", async ({ context }) => {
   const page = await context.newPage();
