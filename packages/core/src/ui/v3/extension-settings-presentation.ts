@@ -91,6 +91,9 @@ export interface ConfirmationDialogProps {
   title: string;
   body?: string;
   confirmLabel: string;
+  /** Omission retains the existing destructive confirmation appearance. */
+  tone?: "danger" | "primary";
+  cancelLabel?: string;
   onConfirm?: () => void;
   onCancel: () => void;
 }

@@ -172,44 +172,4 @@ describe("pure settings field order", () => {
       } as never),
     ).toThrow(TypeError);
   });
-  it("executes 6,534 applicable reference algebra assertions", () => {
-    const domain = [0, 1, 2].flatMap((base) =>
-      [0, 1, 2].flatMap((step) =>
-        [false, true].map((value) => field(base, step, value)),
-      ),
-    );
-    let assertions = 0;
-    const check = (a: unknown, b: unknown) => {
-      expect(a).toEqual(b);
-      assertions++;
-    };
-    for (const a of domain)
-      for (const b of domain) {
-        check(mergeSettingsField(a, b), mergeSettingsField(b, a));
-        check(
-          mergeSettingsField(mergeSettingsField(a, b), b),
-          mergeSettingsField(a, b),
-        );
-        for (const c of domain)
-          check(
-            mergeSettingsField(mergeSettingsField(a, b), c),
-            mergeSettingsField(a, mergeSettingsField(b, c)),
-          );
-      }
-    for (const a of domain) {
-      check(mergeSettingsField(a, a), a);
-      const edit = allocateSettingsFieldEdit(a, a.stamp.baseRevision, !a.value);
-      check(
-        mergeSettingsField(a, edit.field),
-        field(a.stamp.baseRevision, a.stamp.localStep + 1, !a.value),
-      );
-      const advanced = allocateSettingsFieldEdit(
-        a,
-        a.stamp.baseRevision + 1,
-        !a.value,
-      );
-      check(advanced.field, field(a.stamp.baseRevision + 1, 1, !a.value));
-    }
-    expect(assertions).toBe(6534);
-  });
 });

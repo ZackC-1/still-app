@@ -6,6 +6,8 @@
     title,
     body,
     confirmLabel,
+    tone = "danger",
+    cancelLabel = "Cancel",
     onConfirm,
     onCancel,
   }: ConfirmationDialogProps = $props();
@@ -40,7 +42,7 @@
     <div class="dialog-actions">
       <button
         type="button"
-        class="danger-solid"
+        class={tone === "danger" ? "danger-solid" : "primary"}
         disabled={!onConfirm}
         onclick={onConfirm}>{confirmLabel}</button
       >
@@ -49,7 +51,7 @@
         type="button"
         class="secondary"
         data-autofocus=""
-        onclick={onCancel}>Cancel</button
+        onclick={onCancel}>{cancelLabel}</button
       >
     </div>
   </div>
