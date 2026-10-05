@@ -256,6 +256,35 @@ describe("Videos and Watch: the four Reels/Videos combinations (fb-videos.html)"
     expect(page.ownsHiddenMedia!(document.querySelector("#keep-direct-player video")!)).toBe(false);
   });
 
+  it("a post linking to an outside site's /videos/ page, playing a GIF-style video, stays", () => {
+    render("fb-videos.html");
+    document.getElementById("keep-feed")!.insertAdjacentHTML("beforeend",
+      '<div role="article" id="keep-external-gif"><a href="https://gifs.invented.example/videos/900000000120">An invented GIF</a>'
+      + '<video autoplay loop muted></video></div>');
+    session().applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
+    expect(visible("keep-external-gif")).toBe(true);
+    expect(visible("target-feed-video")).toBe(false);
+  });
+
+  it("a comment (an article inside a post's article) with a video is never hidden as a feed video", () => {
+    render("fb-videos.html");
+    document.getElementById("keep-feed")!.insertAdjacentHTML("beforeend",
+      '<div role="article" id="keep-post-with-comment"><a href="/inventedpage/posts/900000000121">An invented post</a>'
+      + '<div role="article" id="keep-video-comment"><a href="/inventedpage/videos/900000000122">An invented video reply</a><video></video></div>'
+      + '<div role="article" id="keep-watch-comment"><a href="/watch/?v=900000000123">An invented Watch reply</a><video></video></div></div>');
+    session().applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
+    for (const id of ["keep-post-with-comment", "keep-video-comment", "keep-watch-comment"]) expect(visible(id), id).toBe(true);
+    expect(visible("target-feed-video")).toBe(false);
+  });
+
+  it("a feed video with an absolute Facebook link is still a feed video", () => {
+    render("fb-videos.html");
+    document.getElementById("keep-feed")!.insertAdjacentHTML("beforeend",
+      '<div role="article" id="target-absolute-video"><a href="https://www.facebook.com/inventedpage/videos/900000000124">Invented</a><video></video></div>');
+    session().applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
+    expect(visible("target-absolute-video")).toBe(false);
+  });
+
   it("a text post that only links to a video, without a player, stays", () => {
     render("fb-videos.html");
     document.getElementById("keep-feed")!.insertAdjacentHTML("beforeend",

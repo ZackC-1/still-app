@@ -192,8 +192,9 @@
           "feature": "facebook.videos",
           "action": "hide",
           "selectors": [
-            "[role=\"feed\"] [role=\"article\"]:has(> a[href*=\"/videos/\"]):has(video):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"]))",
-            "[role=\"feed\"] [role=\"article\"]:has(> a[href^=\"/watch/?v=\"]):has(video):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"]))"
+            "[role=\"feed\"] [role=\"article\"]:not([role=\"article\"] [role=\"article\"]):has(> a[href^=\"/\"][href*=\"/videos/\"]):has(video):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"]))",
+            "[role=\"feed\"] [role=\"article\"]:not([role=\"article\"] [role=\"article\"]):has(> a[href^=\"https://www.facebook.com/\"][href*=\"/videos/\"]):has(video):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"]))",
+            "[role=\"feed\"] [role=\"article\"]:not([role=\"article\"] [role=\"article\"]):has(> a[href^=\"/watch/?v=\"]):has(video):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"]))"
           ]
         },
         {
@@ -233,6 +234,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "75229189aa38553558894847987272aba78fbc1c39cb0ce823de5371044e5708a1057a6226acc17e6bbd2ab7a99e043ba32ac783b1e99b483788bc449211d807"
+    "value": "1766f60d3fdef75df09d3e39c77047a072951fdfb280fc7c2e76bbabdea200025988c2fd500d88031d5eba3c63aac03d66a7b6d8fa3de03cf9a78e4b3d2c6003"
   }
 }

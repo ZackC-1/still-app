@@ -36,13 +36,16 @@ const STORIES_TRAY = Object.freeze([
 
 /**
  * Videos and Watch (CP-082): non-Reel and live feed-video units inside the feed, positively
- * identified by a video player plus their own direct link to a video, and the Watch navigation
- * entries. Direct players outside the feed (Watch links, a Page's video, a shared Reel) are
- * never matched.
+ * identified by a video player plus their own direct link to a FACEBOOK video, and the Watch
+ * navigation entries. A link to another site's /videos/ page (a GIF, a shared clip) never counts,
+ * and a comment (an article inside a post's article) is never a feed unit. Direct players
+ * outside the feed (Watch links, a Page's video, a shared Reel) are never matched.
  */
+const FEED_UNIT = '[role="feed"] [role="article"]:not([role="article"] [role="article"])';
 const VIDEOS_FEED = Object.freeze([
-  `[role="feed"] [role="article"]:has(> a[href*="/videos/"]):has(video)${NOT_A_REEL}`,
-  `[role="feed"] [role="article"]:has(> a[href^="/watch/?v="]):has(video)${NOT_A_REEL}`,
+  `${FEED_UNIT}:has(> a[href^="/"][href*="/videos/"]):has(video)${NOT_A_REEL}`,
+  `${FEED_UNIT}:has(> a[href^="https://www.facebook.com/"][href*="/videos/"]):has(video)${NOT_A_REEL}`,
+  `${FEED_UNIT}:has(> a[href^="/watch/?v="]):has(video)${NOT_A_REEL}`,
 ]);
 const VIDEOS_WATCH_NAV = Object.freeze([
   'nav a[href="/watch/"]',
