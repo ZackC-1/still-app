@@ -57,9 +57,8 @@
   <div class="grip" aria-hidden="true"></div>
   <button
     type="button"
-    class="dismiss"
+    class="dismiss sheet-close"
     aria-label="Close"
-    style="position:absolute;inset-block-start:var(--space-2);inset-inline-end:var(--space-2);display:inline-flex;align-items:center;justify-content:center;min-inline-size:var(--tap-target);min-block-size:var(--tap-target);padding:0;"
     onclick={() => onDismiss()}><Glyph name="close" size={18} /></button
   >
   {@render children()}

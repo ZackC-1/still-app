@@ -172,15 +172,24 @@ describe.each(HOSTS)("decision 41, paid on: $name", (host) => {
     unmount();
   });
 
-  it("only the sheet's explicit Buy reaches the purchase port, once per press", async () => {
+  it("Tab wraps inside the sheet, and only its explicit Buy reaches the purchase port, once per press", async () => {
     const { buy, unmount } = await host.mount();
     const { dialog } = await open();
     expect(buy).not.toHaveBeenCalled();
-    // Tab stays inside the sheet.
-    const controls = within(dialog).getAllByRole("button");
-    controls.at(-1)!.focus();
-    await fireEvent.keyDown(controls.at(-1)!, { key: "Tab" });
-    expect(dialog).toContainElement(document.activeElement as HTMLElement);
+    // Tab wraps inside the sheet: from the last control to the X, and Shift+Tab from the X back
+    // to the last control. (jsdom never moves focus on Tab by itself, so only the trap can.)
+    const controls = within(dialog)
+      .getAllByRole("button")
+      .filter((control) => !control.hasAttribute("disabled"));
+    const close = within(dialog).getByRole("button", { name: "Close" });
+    const last = controls.at(-1)!;
+    expect(controls[0]).toBe(close);
+    expect(last).not.toBe(close);
+    last.focus();
+    await fireEvent.keyDown(last, { key: "Tab" });
+    expect(close).toHaveFocus();
+    await fireEvent.keyDown(close, { key: "Tab", shiftKey: true });
+    expect(last).toHaveFocus();
     await fireEvent.click(
       within(dialog).getByRole("button", { name: host.buyLabel }),
     );
