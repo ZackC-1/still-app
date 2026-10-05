@@ -1,5 +1,5 @@
 import { ChromeStorageAdapter, createSettingsIntentRouter, parseStoredSettingsRecord, type StoredSettingsRecord } from "@still/core/storage";
-import { ChromeEntitlementAdapter, createEntitlementMessageRouter, parseBenefitAccessSnapshot } from "@still/core/entitlement";
+import { ChromeEntitlementAdapter, createEntitlementMessageRouter, packagedAccessContext, parseBenefitAccessSnapshot } from "@still/core/entitlement";
 import { createRuleSetRefresher } from "@still/core/rules";
 import { createAppGroupReconciler } from "../lib/app-group-reconcile.js";
 import { BrowserInstallGenerationStore, createEntitlementPull } from "../lib/entitlement-pull.js";
@@ -33,7 +33,9 @@ function parseNativeSettings(reply: unknown): StoredSettingsRecord | null {
 }
 
 export default defineBackground(() => {
-  const entitlements = new ChromeEntitlementAdapter(Date.now, { authority: true, nativeObservation: async () => {
+  // The Safari host's packaged context, named explicitly. It equals the adapter's host-less
+  // default today (Safari implements no Still Pro extras), so behaviour is unchanged.
+  const entitlements = new ChromeEntitlementAdapter(Date.now, { authority: true, context: () => packagedAccessContext("safari"), nativeObservation: async () => {
     const reply = await browser.runtime.sendNativeMessage(NATIVE_APP, { kind: "getBenefitAccess" });
     const envelope = reply && typeof reply === "object" ? (reply as { settings?: unknown }).settings : null;
     const value: unknown = typeof envelope === "string" ? JSON.parse(envelope) : envelope;

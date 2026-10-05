@@ -302,6 +302,13 @@ describe("YouTube extras capability table and selector boundaries", () => {
     for (const id of unchanged) expect(on("chromium").has(id)).toBe(false);
   });
 
+  it("naming the Safari host changes nothing today: same context, snapshot and paid-on capabilities as no host", () => {
+    expect(packagedAccessContext("safari")).toEqual(packagedAccessContext());
+    expect(initialAccessSnapshot(packagedAccessContext("safari"))).toEqual(initialAccessSnapshot());
+    expect([...accessCapabilitiesForTest({ paidMode: true, host: "safari" }, IMPLEMENTED_PRO_FEATURES)].sort())
+      .toEqual([...accessCapabilitiesForTest({ paidMode: true }, IMPLEMENTED_PRO_FEATURES)].sort());
+  });
+
   it("no selector names a wrapper that also holds the playlist, live chat, comments or player controls", () => {
     const wrappers = /#secondary\b|#related\b|#primary\b|#columns\b|#below\b|ytd-watch-flexy|ytm-app|#movie_player|html5-video-player|ytp-chrome|ytp-player-content|html5-endscreen|ytp-autonav|ytd-watch-metadata|ytd-item-section-renderer|ytd-engagement-panel-section-list-renderer(?!\[target-id=)|ytm-item-section-renderer(?!\[section-identifier=)|:has\(/;
     for (const surface of YOUTUBE_EXTRAS.surfaces) for (const selector of surface.selectors) expect(selector, surface.id).not.toMatch(wrappers);
