@@ -377,19 +377,32 @@ public enum AtomicSettingsRecord {
     }
   }
 
-  /// `writeId` is injectable only so shared parity vectors can replay the reference writer's
-  /// identities; production always allocates a fresh random UUID.
-  public static func commit(_ raw: Data?, path: String, value: Bool, updatedAt: Int,
-    writeId: () -> String = { UUID().uuidString.lowercased() }) throws -> (data: Data, changed: Bool) {
+  /// AtomicSettingsWriter.commit's view of an absent record: defaults, no sync metadata, never
+  /// repointed. It is what a no-op answer reports, never something saved on its own.
+  public static func absentRecord() throws -> Data {
+    try encoder.encode(absentRoot())
+  }
+  private static func absentRoot() throws -> [String: SettingsJSONValue] {
+    ["settings": try JSONDecoder().decode(SettingsJSONValue.self, from: encoder.encode(StillSettings.default)),
+      "syncMetadata": .null, "syncEpoch": .number(0)]
+  }
+
+  /// `data` is the record the locked backing must hold afterwards. It is nil only when the record
+  /// was absent and the intent changed nothing: as in the TypeScript writer, a no-op never turns
+  /// startup defaults into a saved record.
+  public static func commit(_ raw: Data?, path: String, value: Bool, updatedAt: Int) throws -> (data: Data?, changed: Bool) {
+    try commit(raw, path: path, value: value, updatedAt: updatedAt, writeId: { UUID().uuidString.lowercased() })
+  }
+
+  /// Internal so only shared parity vectors (via @testable) can replay the reference writer's
+  /// request identities. Every identity must still be a canonical lowercase UUID.
+  static func commit(_ raw: Data?, path: String, value: Bool, updatedAt: Int,
+    writeId: () -> String) throws -> (data: Data?, changed: Bool) {
     guard PackagedFeatureRegistry.settingsFields.contains(path) else { throw Failure.unknownField }
     guard updatedAt > 0, Double(updatedAt) <= SettingsV2Migration.maxRevision else { throw Failure.invalidIntent }
     var root: [String: SettingsJSONValue]
     if let raw { root = try decode(raw) }
-    else {
-      // AtomicSettingsWriter.commit's absent record: defaults, no sync metadata, never repointed.
-      root = ["settings": try JSONDecoder().decode(SettingsJSONValue.self, from: encoder.encode(StillSettings.default)),
-        "syncMetadata": .null, "syncEpoch": .number(0)]
-    }
+    else { root = try absentRoot() }
     var settings = root["settings"]?.object ?? root
     guard let priorValue = field(settings, path) else { throw Failure.unreadable }
     if var atomic = root["atomic"]?.object {
@@ -405,7 +418,7 @@ public enum AtomicSettingsRecord {
         // is queued, so there is no pending limit. Any other unknown null-scope shape is refused.
         guard permitsUnknownLocalEdit(atomic, settings: root["settings"]?.object, legacyPause: true) else { throw Failure.unavailable }
         // A matching overlay alone is not a saved field; persist the person's deliberate choice.
-        if priorValue == value && held[path] == nil { return (try raw ?? encoder.encode(root), false) }
+        if priorValue == value && held[path] == nil { return (raw, false) }
         held.removeValue(forKey: path)
         switch SettingsFieldOrder.edit(prior, acknowledgedRevision: 0, requestedValue: value) {
         case .edited(let next):
@@ -428,7 +441,7 @@ public enum AtomicSettingsRecord {
         return (result, true)
       }
       let effective = held[path] ?? .bool(priorValue)
-      if effective == .bool(value) { return (try raw ?? encoder.encode(root), false) }
+      if effective == .bool(value) { return (raw, false) }
       pending = compactNeverLinkedPending(root, state: atomic).filter { sameScope($0.object?["scope"]?.object, scope) }
       let anchor = atomic["anchor"]?.object
       let revision: Double
@@ -445,7 +458,7 @@ public enum AtomicSettingsRecord {
         held.removeValue(forKey: path)
         resolvePause(&atomic, held: held)
         let id = writeId()
-        guard !pending.contains(where: { $0.object?["writeId"] == .string(id) }) else { throw Failure.unavailable }
+        guard canonicalUUID(.string(id)), !pending.contains(where: { $0.object?["writeId"] == .string(id) }) else { throw Failure.unavailable }
         pending.append(.object([
           "writeId": .string(id), "scope": .object(scope),
           "receipt": atomic["anchor"] ?? .null,
@@ -473,7 +486,7 @@ public enum AtomicSettingsRecord {
         path == "globalOn" || path.hasPrefix("services."),
         (try? JSONDecoder().decode(StillSettings.self, from: encoder.encode(settings))) != nil
       else { throw Failure.unreadable }
-      if priorValue == value { return (try raw ?? encoder.encode(root), false) }
+      if priorValue == value { return (raw, false) }
       setField(&settings, path, value)
       // As AtomicSettingsWriter.commit: watched legacy peers reject equal or older stamps, so the
       // stamp is allocated from this locked durable read and a same-millisecond or backward clock

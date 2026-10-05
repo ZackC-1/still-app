@@ -74,6 +74,23 @@ final class AtomicSettingsWriterVectorTests: XCTestCase {
     }
   }
 
+  /// The replay-only identity hook still admits nothing but a fresh canonical lowercase UUID.
+  func testInjectedRequestIdentityMustBeAFreshCanonicalUUID() throws {
+    let vector = try XCTUnwrap(try cases().first { $0["name"] == .string("compaction/never-linked-journal-stays-bounded") })
+    let fresh = try encoder.encode(try XCTUnwrap(vector["initial"]))
+    let valid = "abcdef00-0000-4000-8000-000000000001"
+    for malformed in ["not-a-uuid", "", valid.uppercased(), valid + "\n", " " + valid, "abcdef00000040008000000000000001", valid + "0"] {
+      XCTAssertThrowsError(try AtomicSettingsRecord.commit(fresh, path: "globalOn", value: false, updatedAt: 10, writeId: { malformed }), malformed)
+    }
+    let saved = try AtomicSettingsRecord.commit(fresh, path: "globalOn", value: false, updatedAt: 10, writeId: { valid })
+    XCTAssertTrue(saved.changed)
+    let state = try XCTUnwrap(try JSONDecoder().decode(SettingsJSONValue.self, from: XCTUnwrap(saved.data)).object?["atomic"]?.object)
+    XCTAssertEqual(state["pending"], .array([.object(["writeId": .string(valid), "scope": state["scope"]!, "receipt": .null,
+      "operations": .array([.object(["path": .string("globalOn"), "value": .bool(false), "baseRevision": .number(0), "localStep": .number(1)])])])]))
+    // An identity already queued in this record is refused rather than duplicated.
+    XCTAssertThrowsError(try AtomicSettingsRecord.commit(saved.data, path: "services.youtube", value: false, updatedAt: 11, writeId: { valid }))
+  }
+
   func testEveryVectorStepReachesTheReferenceRecord() throws {
     var replayed = 0
     for vector in try cases() {
