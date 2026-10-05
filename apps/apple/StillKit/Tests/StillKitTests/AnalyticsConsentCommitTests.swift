@@ -44,23 +44,36 @@ final class AnalyticsConsentCommitTests: XCTestCase {
   func testConcurrentLaunchReadsShareOneComputation() async {
     let once = LaunchValue<Int>()
     var runs = 0
+    var secondArrived = false
     let gate = AsyncStream<Void>.makeStream()
-    async let first = once.get {
-      runs += 1
-      for await _ in gate.stream { break } // held, like the first-launch iCloud wait
-      return 1
+
+    let first = Task { @MainActor in
+      await once.get {
+        runs += 1
+        for await _ in gate.stream { break } // held, like the first-launch iCloud wait
+        return 1
+      }
     }
-    async let second = once.get {
-      runs += 1
-      return 2
+    // Deterministic order: the first computation has started before the second caller arrives.
+    while runs == 0 { await Task.yield() }
+
+    let second = Task { @MainActor in
+      secondArrived = true
+      // Same actor, no suspension before `get` checks for the in-flight task.
+      return await once.get {
+        runs += 1
+        return 2
+      }
     }
-    // Let both callers arrive while the first computation is still waiting.
-    for _ in 0..<5 { await Task.yield() }
+    while !secondArrived { await Task.yield() }
+    XCTAssertEqual(runs, 1, "the second caller is waiting, not computing")
+
     gate.continuation.yield(())
     gate.continuation.finish()
-    let values = await [first, second]
+    let values = [await first.value, await second.value]
     XCTAssertEqual(values, [1, 1], "both callers get the first computation's value")
     XCTAssertEqual(runs, 1, "a second caller must not run the computation again")
+
     let later = await once.get {
       runs += 1
       return 3
