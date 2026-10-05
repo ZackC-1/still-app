@@ -578,9 +578,10 @@ describe("sync-settings paused (kill switch rehearsal at the client)", () => {
     const coarseWrite = vi.spyOn(h.backend, "writeProfile");
     const coarseRead = vi.spyOn(h.backend, "readProfile");
     const callTimes: number[] = [];
+    const calledFunctions = new Set<string>();
     const paused = vi.fn(async (name: string) => {
       callTimes.push(Date.now());
-      expect(name).toBe("sync-settings"); // never a coarse write_profile_settings fallback
+      calledFunctions.add(name);
       return { data: null, error: Object.assign(new Error("Edge Function returned a non-2xx status code"), { name: "FunctionsHttpError" }) };
     });
     h.invoke.mockImplementation(paused as unknown as typeof serving);
@@ -597,6 +598,7 @@ describe("sync-settings paused (kill switch rehearsal at the client)", () => {
       const gaps = callTimes.slice(1).map((t, i) => t - callTimes[i]!);
       expect(Math.max(...gaps)).toBeLessThanOrEqual(30_000);
       expect(callTimes.length).toBeLessThanOrEqual(40); // about one exchange per 30 s over 5 minutes
+      expect([...calledFunctions]).toEqual(["sync-settings"]); // only the per-field function is called while paused
       expect(h.settings().globalOn).toBe(true); // nothing reached the server while paused
       expect(coarseWrite).not.toHaveBeenCalled();
       expect(coarseRead).not.toHaveBeenCalled();
