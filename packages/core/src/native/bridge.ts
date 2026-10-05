@@ -18,6 +18,9 @@ import { parseAccessCacheRecord, type AccessCacheRecord } from "../entitlement/a
 //   configurePurchases → { ok: true }
 //   purchase           → { outcome, entitled, error? }
 //   restore / status   → { entitled }
+//   safariSetupState   → SafariSetupObservation (read-only; see observeSafariSetup)
+//   onboardingState    → { ok: true, shouldShow, platform, osMajorVersion }
+//   completeOnboarding → { ok: true } | rejected when the web view is not the onboarding presenter
 
 export interface AppleCredential {
   readonly identityToken: string;
@@ -59,8 +62,45 @@ export type SafariSetupObservation =
       readonly enableLocation: "safariExtensionSettings";
     };
 
+/** The one native onboarding gate, as the web view sees it (OnboardingGatePresenter.swift).
+ * `shouldShow` is true only when the app hands onboarding to the web view and it is not complete. */
+export interface OnboardingStateReply {
+  readonly ok: true;
+  readonly shouldShow: boolean;
+  readonly platform: "ios" | "macos";
+  /** The OS major version from the host (iOS 18 moved Safari's settings under Apps). */
+  readonly osMajorVersion: number;
+}
+
+/** Deadline for a native read whose caller must never hang (onboarding, Safari setup). */
+export const NATIVE_READ_DEADLINE_MS = 3_000;
+
+/** Resolve `read()` or `fallback`, whichever comes first: a rejection, a throw or a reply slower
+ * than `deadlineMs` all become `fallback`, so a silent native host can never stall the caller. */
+export function boundedNativeRead<T>(
+  read: () => Promise<T>,
+  fallback: T,
+  deadlineMs: number = NATIVE_READ_DEADLINE_MS,
+): Promise<T> {
+  return new Promise<T>((resolve) => {
+    let settled = false;
+    const finish = (value: T): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    const timer = setTimeout(() => finish(fallback), deadlineMs);
+    Promise.resolve()
+      .then(read)
+      .then(finish, () => finish(fallback));
+  });
+}
+
 export type NativeMessage =
   | { readonly kind: "safariSetupState" }
+  | { readonly kind: "onboardingState" }
+  | { readonly kind: "completeOnboarding" }
   | { readonly kind: "signInWithApple" }
   | { readonly kind: "configurePurchases"; readonly appUserID: string }
   | { readonly kind: "purchase" }
@@ -100,6 +140,8 @@ export interface AnalyticsContextReply {
 
 export class NativeBridge {
   private safariSetupReadGeneration = 0;
+  private onboardingStateReadGeneration = 0;
+  private onboardingCompletionGeneration = 0;
   constructor(
     private readonly win: StillBridgeWindow = globalThis as unknown as StillBridgeWindow,
   ) {}
@@ -157,6 +199,45 @@ export class NativeBridge {
       return null;
     }
   }
+  /** Ask the one native onboarding gate whether the web view should show onboarding. Null (never
+   * a guessed `shouldShow`) outside the app, on any malformed reply, on a failed post, after a port
+   * swap, or when a newer read was started. Callers bound it with `boundedNativeRead`. */
+  async onboardingState(): Promise<OnboardingStateReply | null> {
+    const generation = ++this.onboardingStateReadGeneration;
+    const port = this.port;
+    if (!port) return null;
+    try {
+      const reply = await port.postMessage({ kind: "onboardingState" });
+      if (generation !== this.onboardingStateReadGeneration || port !== this.port) return null;
+      const obj = asObject(reply);
+      if (!obj || Array.isArray(obj) || obj.ok !== true) return null;
+      if (typeof obj.shouldShow !== "boolean") return null;
+      if (obj.platform !== "ios" && obj.platform !== "macos") return null;
+      const major = obj.osMajorVersion;
+      if (typeof major !== "number" || !Number.isInteger(major) || major < 1) return null;
+      return { ok: true, shouldShow: obj.shouldShow, platform: obj.platform, osMajorVersion: major };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Mark the one native onboarding gate complete. True only for an explicit `{ ok: true }` from
+   * the port this call posted to, while no newer completion was started; anything else (no host,
+   * refusal, malformed reply, port swap) is false so the caller keeps onboarding visible. */
+  async completeOnboarding(): Promise<boolean> {
+    const generation = ++this.onboardingCompletionGeneration;
+    const port = this.port;
+    if (!port) return false;
+    try {
+      const reply = await port.postMessage({ kind: "completeOnboarding" });
+      if (generation !== this.onboardingCompletionGeneration || port !== this.port) return false;
+      const obj = asObject(reply);
+      return !!obj && !Array.isArray(obj) && obj.ok === true;
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Present native Sign in with Apple. Returns the identity token + raw nonce to exchange via Supabase
    * `signInWithIdToken({ provider: "apple", token, nonce })`. Throws on cancel/failure with the
