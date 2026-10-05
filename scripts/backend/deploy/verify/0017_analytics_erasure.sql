@@ -20,10 +20,13 @@
 --      every column the routes use with its exact type and NOT NULL, the primary keys, one subject
 --      per (account, device, epoch) for all time, at most one open job per device, subjects
 --      cascading from auth.users, jobs referencing nothing, targets cascading from their job;
---  (5) the seven 0017 routines and the retained limiter: owned by postgres, search_path
---      pg_temp-last, SECURITY DEFINER exactly for the six routes and the limiter, EXECUTE only for
---      the owner plus the eraser on each route (none on the helper; the three server roles on the
---      limiter), bodies byte-identical to the migration;
+--  (4b) the account-deletion snapshot trigger on analytics_subjects: present, ALWAYS enabled,
+--      unconditional, after delete for each row;
+--  (5) the nine 0017 routines and the retained limiter: owned by postgres, search_path
+--      pg_temp-last, SECURITY DEFINER exactly for the six routes, the snapshot trigger function and
+--      the limiter, EXECUTE only for the owner plus the eraser on each route (nobody on the two
+--      helpers or the trigger function; the three server roles on the limiter), bodies
+--      byte-identical to the migration;
 --  (6) the eraser reaches no other SECURITY DEFINER routine and no table in public or private;
 --  (7) no SECURITY DEFINER in public or private executable by a client role (closure over every
 --      membership edge) except the two client RPCs, and nothing in private for service_role;
@@ -86,15 +89,17 @@ relations as (
 -- Routine, whether SECURITY DEFINER, its grantees besides the owner, and the md5 of its body.
 expected_routines(sig, definer, grantees, body_md5) as (
   values
+    ('private.analytics_anonymous_ids(bytea,integer)', false, null::text[], '802d9ff62ba093a50ca0daaaf3d79d87'),
+    ('private.analytics_snapshot_deleted_subject()', true, null::text[], '6f22d7e7bdefbd04143dad6149b7b8e6'),
     ('private.analytics_origin_key(bytea)', false, null::text[], 'ac796e926ecfc284200f0cf1938a5590'),
     ('private.analytics_issue_subject(uuid,bytea)', true, array['still_analytics_eraser'], '582be9980419fba06e58ec2be9b1f78f'),
     ('private.analytics_subject_active(uuid)', true, array['still_analytics_eraser'], '2c8ec961a28dca52ed1fac79154ed5d3'),
-    ('private.analytics_begin_device_erasure(bytea,uuid[])', true, array['still_analytics_eraser'], 'f13827b024d4aeb3d6dc4031a8b3d94c'),
-    ('private.analytics_erasure_status(bytea)', true, array['still_analytics_eraser'], '883e959a518639ea7c1cdd11a8c0804d'),
-    ('private.analytics_claim_erasure_work(integer,integer)', true, array['still_analytics_eraser'], '3b2406d6ceb8c7931d123dd04ef141d5'),
-    ('private.analytics_record_erasure_outcome(uuid,uuid,text)', true, array['still_analytics_eraser'], '8b0cf1a19f0715c6d51a989cc647c232'),
+    ('private.analytics_begin_device_erasure(bytea,integer)', true, array['still_analytics_eraser'], '55d057d77baf7f6541ea43ff1eabfbbb'),
+    ('private.analytics_erasure_status(bytea)', true, array['still_analytics_eraser'], '326f30ea0193051673fedd681e647299'),
+    ('private.analytics_claim_erasure_work(integer,integer)', true, array['still_analytics_eraser'], '783661928f3fffb56a03a8e621f1f2e1'),
+    ('private.analytics_record_erasure_outcome(uuid,uuid,text)', true, array['still_analytics_eraser'], 'df1bcbcf879ce239064a0be1b5c028b0'),
     ('public.consume_rate_limit(text,integer,integer)', true,
-     array['still_analytics_eraser', 'still_entitlement_writer', 'still_settings_writer'], 'a9404db73e76fedab3e04df077b8de5c')
+     array['still_analytics_eraser', 'still_entitlement_writer', 'still_settings_writer'], '45da64e1167f825c831bbdf05b7b09be')
 ),
 routines as (
   select e.sig, e.definer, e.grantees, e.body_md5, pg_catalog.to_regprocedure(e.sig)::oid as oid
@@ -262,6 +267,17 @@ issues(issue) as (
                     where k.conrelid = x.oid and k.contype = 'f'
                       and k.confrelid = pg_catalog.to_regclass('private.analytics_erasure_jobs')::oid
                       and k.confdeltype = 'c' and k.convalidated)
+  union all
+  -- (4b) the account-deletion snapshot trigger: ALWAYS enabled, unconditional, row level after
+  -- delete (tgtype 9), calling the snapshot function.
+  select 'subject_snapshot_trigger'
+  from relations x
+  where x.relname = 'analytics_subjects' and x.oid is not null
+    and not exists (select 1 from pg_catalog.pg_trigger g
+                    where g.tgrelid = x.oid and g.tgname = 'analytics_subjects_snapshot' and g.tgtype = 9
+                      and g.tgenabled = 'A' and not g.tgisinternal and g.tgqual is null
+                      and g.tgattr = ''::pg_catalog.int2vector
+                      and g.tgfoid = pg_catalog.to_regprocedure('private.analytics_snapshot_deleted_subject()'))
   union all
   -- (5) the routines and the limiter.
   select 'erasure_function_missing:' || s.sig from routine_state s where s.oid is null

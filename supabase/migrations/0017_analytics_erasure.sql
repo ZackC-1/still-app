@@ -1,38 +1,54 @@
 -- Per-device analytics identities and device-slice erasure (U5-W2, part 1). Dormant: no client
 -- sends anything to these routes until V3 analytics is switched on, and nothing here calls PostHog.
 --
+-- HARD GATE. The per-device identity path in analytics-identify stays behind its own switch
+-- (ANALYTICS_SUBJECTS_ENABLED, off by default). It must not be switched on until account deletion
+-- has been reordered so the analytics fence is recorded before the account is deleted (the
+-- delete-user change planned for part 2) and the subject snapshot below has been verified on the
+-- deployed database. Until then no subject is ever issued, so there is nothing for an account
+-- deletion to leave behind.
+--
 -- What this adds. One narrow role, `still_analytics_eraser`, that the analytics-identify and
--- analytics-erasure functions log in as, and four owner-only tables in schema `private`:
+-- analytics-erasure functions log in as, and three owner-only tables in schema `private`:
 --   * private.analytics_subjects        one PostHog identity ("subject") per signed-in account per
---                                        device. A device is known only by the SHA-256 of the
---                                        origin proof it sends (the proof is itself a one-way hash
---                                        of the device's private consent handle, which never leaves
---                                        the device). One row per (account, device, epoch), ever:
---                                        a subject retired by an erasure is never reissued and the
---                                        pair never receives another;
---   * private.analytics_erasure_jobs    device erasure jobs and their provider-deletion stage. No
+--                                        device. The server knows a device only by the SHA-256 of
+--                                        the origin proof it sends when it signs in; it never sees
+--                                        the device's private consent handle or its erasure key.
+--                                        One row per (account, device, epoch), ever: a subject
+--                                        retired by an erasure is never reissued and the pair never
+--                                        receives another;
+--   * private.analytics_erasure_jobs    erasure jobs and their provider-deletion stage. No
 --                                        reference to auth.users, so a job survives account deletion;
 --   * private.analytics_erasure_targets the distinct ids a job deletes. This is also the fence list
---                                        the worker re-sweeps for late-arriving events;
+--                                        the worker re-sweeps for late-arriving events.
 -- The subject is a random UUID. The account UUID is never a subject.
 --
--- What a device erasure deletes. Only what that device sent: the anonymous ids it derived itself
--- (supplied by the device; they are random-looking ids only it can compute) and every subject issued
--- for its origin proof under any account. An id that is an account UUID, or a subject issued to a
--- different device, is refused, so one device can never point erasure at another device's data.
--- No account is needed (D144: no signup wall to stop sharing).
+-- Device keys. On the device, a private origin handle O (never sent anywhere) gives an erasure key
+-- E = HMAC-SHA256(O, "still:analytics:erasure"), the origin proof P = SHA-256(E), and the anonymous
+-- ids anon(k) = UUID(HMAC-SHA256(E, "still:analytics:anon:0:" || k)). Signing in sends only P. A
+-- device erasure sends E and the last index k it used; this database computes P from E, finds the
+-- device's subjects by SHA-256(P), and derives anon(0..k) itself. The request names no id at all,
+-- so knowing someone's anonymous id or account id gives no power to delete it, and P (which crosses
+-- the network at every sign-in) does not either: deleting needs E, its preimage. E reaches the
+-- server only when that device asks to erase itself; it is a bearer value for that one device's
+-- erasure and is never stored (bind parameters are kept out of the logs).
+--
+-- Account deletion. Deleting an account cascades to its subjects; a trigger snapshots each deleted
+-- subject into an `account_deleted` job first, so its PostHog persons are still deleted afterwards.
 --
 -- Routes (SECURITY DEFINER, EXECUTE only for still_analytics_eraser):
 --   analytics_issue_subject           issue or return the subject for (account, device); "stopped"
 --                                     once the device has been erased;
 --   analytics_subject_active          whether a subject may still receive writes (identify's
 --                                     post-check);
---   analytics_begin_device_erasure    retire the device's subjects and open (or reuse) its job;
---   analytics_erasure_status          the stage of the device's latest job;
---   analytics_claim_erasure_work      lease due jobs to the worker (per-claim token);
+--   analytics_begin_device_erasure    from the erasure key: retire the device's subjects and open
+--                                     (or reuse) its job; refuses new jobs past a global cap;
+--   analytics_erasure_status          the stage of the device's latest job, from the erasure key;
+--   analytics_claim_erasure_work      lease due jobs to the worker (per-claim token), jobs that
+--                                     delete issued subjects first;
 --   analytics_record_erasure_outcome  advance or back off a leased job by a fixed outcome word.
--- The limiter learns two buckets, `analytics-erasure` and `analytics-identify`, and the eraser may
--- call it. Its body is otherwise byte-identical to 0015's.
+-- The limiter learns three buckets, `analytics-erasure-submit`, `analytics-erasure-status` and
+-- `analytics-identify`, and the eraser may call it. Its body is otherwise byte-identical to 0015's.
 --
 -- Deploy order. 0016 must be deployed and verified on its own before 0017. 0016's post-apply check
 -- enumerates schema private and its grants exactly, and 0015's pins the limiter body; section 5
@@ -108,13 +124,13 @@ create index if not exists analytics_subjects_origin on private.analytics_subjec
 
 create table if not exists private.analytics_erasure_jobs (
   job_id uuid primary key,
-  scope text not null check (scope in ('device')),
+  scope text not null check (scope in ('device', 'account_deleted')),
   scope_key bytea not null check (pg_catalog.octet_length(scope_key) = 32),
   stage text not null check (stage in ('stop_recorded', 'provider_delete_accepted',
                                         'provider_delete_confirmed', 'complete')),
   sweeps integer not null check (sweeps >= 0 and sweeps <= 3),
   attempts integer not null check (attempts >= 0),
-  next_attempt_at timestamptz not null,
+  next_attempt_at timestamptz,
   lease_token uuid,
   lease_until timestamptz,
   last_error text check (last_error in ('provider_unavailable', 'provider_rejected',
@@ -127,13 +143,15 @@ create table if not exists private.analytics_erasure_jobs (
   check ((lease_token is null) = (lease_until is null)),
   check ((stage = 'complete') = (completed_at is not null)),
   check ((completed_at is null) = (fence_until is null)),
-  check ((stage = 'stop_recorded') = (accepted_at is null))
+  check ((stage = 'stop_recorded') = (accepted_at is null)),
+  check (next_attempt_at is not null or stage = 'complete')
 );
 -- At most one open job per device: two tabs, a retry after a lost reply, or both, reach one job.
 create unique index if not exists analytics_erasure_jobs_open
   on private.analytics_erasure_jobs(scope, scope_key) where completed_at is null;
 create index if not exists analytics_erasure_jobs_due
-  on private.analytics_erasure_jobs(next_attempt_at) where completed_at is null;
+  on private.analytics_erasure_jobs(next_attempt_at) where next_attempt_at is not null;
+create index if not exists analytics_erasure_jobs_created on private.analytics_erasure_jobs(created_at);
 create index if not exists analytics_erasure_jobs_key
   on private.analytics_erasure_jobs(scope_key, created_at);
 
@@ -162,6 +180,32 @@ begin
     raise exception 'analytics origin proof shape' using errcode = '22023';
   end if;
   return extensions.digest(p_proof, 'sha256');
+end $$;
+
+-- anon(0..p_last) from the erasure key, exactly as the device derives them (derive.ts): the first
+-- 16 bytes of HMAC-SHA256(E, "still:analytics:anon:0:" || k) with the RFC 9562 version-4 and
+-- variant bits set. Reference vectors shared with the client: analytics_erasure_migration_test.ts
+-- and packages/core/src/analytics/__tests__/derive.test.ts.
+create or replace function private.analytics_anonymous_ids(p_key bytea, p_last integer) returns uuid[]
+language plpgsql immutable set search_path = pg_catalog, pg_temp as $$
+declare
+  ids uuid[] := '{}';
+  h bytea;
+  i integer;
+begin
+  if p_key is null or pg_catalog.octet_length(p_key) <> 32
+     or p_last is null or p_last < 0 or p_last > 255 then
+    raise exception 'analytics erasure request shape' using errcode = '22023';
+  end if;
+  for i in 0 .. p_last loop
+    h := pg_catalog.substring(
+      extensions.hmac(pg_catalog.convert_to('still:analytics:anon:0:' || i::text, 'UTF8'), p_key, 'sha256')
+      from 1 for 16);
+    h := pg_catalog.set_byte(h, 6, (pg_catalog.get_byte(h, 6) & 15) | 64);
+    h := pg_catalog.set_byte(h, 8, (pg_catalog.get_byte(h, 8) & 63) | 128);
+    ids := ids || pg_catalog.encode(h, 'hex')::uuid;
+  end loop;
+  return ids;
 end $$;
 
 -- Issue (or return) the subject for one account on one device. "stopped" once that device has asked
@@ -212,30 +256,22 @@ begin
                  where s.subject_id = p_subject and s.retired_at is null);
 end $$;
 
--- Device erasure: retire every subject of the device, then open (or reuse) its job with the
--- device's anonymous ids and those subjects as targets. Idempotent per device.
-create or replace function private.analytics_begin_device_erasure(p_proof bytea, p_anonymous uuid[])
+-- Device erasure from the erasure key E and the last anonymous index k the device used. The
+-- database derives every target itself: anon(0..k) from E, and every subject issued for this
+-- device (found by SHA-256(SHA-256(E))). It retires those subjects, then opens (or reuses) the
+-- device's job. A job that gains targets after its first provider call starts again from the top,
+-- so nothing reads as deleted before the new targets are. New jobs are capped per 10 minutes.
+create or replace function private.analytics_begin_device_erasure(p_key bytea, p_anon_index integer)
 returns jsonb language plpgsql volatile security definer set search_path = pg_catalog, pg_temp as $$
 declare
-  k bytea := private.analytics_origin_key(p_proof);
+  ids uuid[] := private.analytics_anonymous_ids(p_key, p_anon_index);
+  k bytea := private.analytics_origin_key(extensions.digest(p_key, 'sha256'));
   moment timestamptz := pg_catalog.now();
   job private.analytics_erasure_jobs%rowtype;
+  added integer := 0;
+  n integer;
 begin
-  if p_anonymous is null or pg_catalog.cardinality(p_anonymous) < 1 or pg_catalog.cardinality(p_anonymous) > 256
-     or pg_catalog.array_position(p_anonymous, null) is not null
-     or (select pg_catalog.count(distinct a) from pg_catalog.unnest(p_anonymous) a)
-        <> pg_catalog.cardinality(p_anonymous) then
-    raise exception 'analytics erasure request shape' using errcode = '22023';
-  end if;
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(pg_catalog.encode(k, 'hex'), 170017));
-  -- A device may only name its own ids: never an account id, never another device's subject.
-  if exists (select 1 from pg_catalog.unnest(p_anonymous) a join auth.users u on u.id = a)
-     or exists (select 1 from pg_catalog.unnest(p_anonymous) a
-                join private.analytics_subjects s on s.subject_id = a
-                where s.origin_key <> k) then
-    raise exception 'analytics erasure target refused' using errcode = '42501';
-  end if;
-
   update private.analytics_subjects set retired_at = moment, retired_reason = 'device_erasure'
     where origin_key = k and retired_at is null;
 
@@ -247,7 +283,7 @@ begin
       where j.scope = 'device' and j.scope_key = k
       order by j.created_at desc limit 1;
     if found and not exists (
-         select 1 from pg_catalog.unnest(p_anonymous) a
+         select 1 from pg_catalog.unnest(ids) a
          where not exists (select 1 from private.analytics_erasure_targets t
                            where t.job_id = job.job_id and t.distinct_id = a))
        and not exists (
@@ -256,31 +292,46 @@ begin
                                                 where t.job_id = job.job_id and t.distinct_id = s.subject_id)) then
       return pg_catalog.jsonb_build_object('job', job.job_id, 'stage', job.stage);
     end if;
+    -- The global cap on new device jobs: a flood of made-up keys cannot grow the queue without bound.
+    perform pg_catalog.pg_advisory_xact_lock(170018);
+    if (select pg_catalog.count(*) from private.analytics_erasure_jobs j
+        where j.scope = 'device' and j.created_at > moment - interval '10 minutes') >= 200 then
+      raise exception 'analytics erasure capacity' using errcode = '53400';
+    end if;
     insert into private.analytics_erasure_jobs(job_id, scope, scope_key, stage, sweeps, attempts,
                                                next_attempt_at, created_at)
       values (pg_catalog.gen_random_uuid(), 'device', k, 'stop_recorded', 0, 0, moment, moment)
       returning * into job;
   end if;
   insert into private.analytics_erasure_targets(job_id, distinct_id, kind)
-    select job.job_id, a, 'anonymous' from pg_catalog.unnest(p_anonymous) a
-    where not exists (select 1 from private.analytics_subjects s where s.subject_id = a)
+    select job.job_id, a, 'anonymous' from pg_catalog.unnest(ids) a
     on conflict do nothing;
+  get diagnostics n = row_count;
+  added := added + n;
   insert into private.analytics_erasure_targets(job_id, distinct_id, kind)
     select job.job_id, s.subject_id, 'subject' from private.analytics_subjects s where s.origin_key = k
     on conflict do nothing;
-  -- New targets on a job past its first provider call are deleted at the next run, not in a day.
-  if job.stage <> 'stop_recorded' then
-    update private.analytics_erasure_jobs set next_attempt_at = moment where job_id = job.job_id;
+  get diagnostics n = row_count;
+  added := added + n;
+  if added > 0 and job.stage <> 'stop_recorded' then
+    update private.analytics_erasure_jobs set stage = 'stop_recorded', sweeps = 0, accepted_at = null,
+      confirmed_at = null, next_attempt_at = moment
+      where job_id = job.job_id;
+    job.stage := 'stop_recorded';
   end if;
   return pg_catalog.jsonb_build_object('job', job.job_id, 'stage', job.stage);
 end $$;
 
-create or replace function private.analytics_erasure_status(p_proof bytea)
+create or replace function private.analytics_erasure_status(p_key bytea)
 returns jsonb language plpgsql stable security definer set search_path = pg_catalog, pg_temp as $$
 declare
-  k bytea := private.analytics_origin_key(p_proof);
+  k bytea;
   job private.analytics_erasure_jobs%rowtype;
 begin
+  if p_key is null or pg_catalog.octet_length(p_key) <> 32 then
+    raise exception 'analytics erasure request shape' using errcode = '22023';
+  end if;
+  k := private.analytics_origin_key(extensions.digest(p_key, 'sha256'));
   select * into job from private.analytics_erasure_jobs j
     where j.scope = 'device' and j.scope_key = k order by j.created_at desc limit 1;
   if not found then
@@ -289,7 +340,43 @@ begin
   return pg_catalog.jsonb_build_object('job', job.job_id, 'stage', job.stage);
 end $$;
 
+-- A deleted subject (an account deletion cascades here) is snapshotted into that account's
+-- `account_deleted` job before the row goes, so its PostHog persons are still deleted. The job is
+-- keyed by a hash of the account id and references nothing, so it survives the account.
+create or replace function private.analytics_snapshot_deleted_subject()
+returns trigger language plpgsql security definer set search_path = pg_catalog, pg_temp as $$
+declare
+  k bytea := extensions.digest(pg_catalog.convert_to('still:analytics:account:' || old.user_id::text, 'UTF8'), 'sha256');
+  moment timestamptz := pg_catalog.now();
+  job_ref uuid;
+  n integer;
+begin
+  select j.job_id into job_ref from private.analytics_erasure_jobs j
+    where j.scope = 'account_deleted' and j.scope_key = k and j.completed_at is null for update;
+  if not found then
+    insert into private.analytics_erasure_jobs(job_id, scope, scope_key, stage, sweeps, attempts,
+                                               next_attempt_at, created_at)
+      values (pg_catalog.gen_random_uuid(), 'account_deleted', k, 'stop_recorded', 0, 0, moment, moment)
+      returning job_id into job_ref;
+  end if;
+  insert into private.analytics_erasure_targets(job_id, distinct_id, kind)
+    values (job_ref, old.subject_id, 'subject')
+    on conflict do nothing;
+  get diagnostics n = row_count;
+  if n > 0 then
+    update private.analytics_erasure_jobs set stage = 'stop_recorded', sweeps = 0, accepted_at = null,
+      confirmed_at = null, next_attempt_at = moment
+      where job_id = job_ref and stage <> 'stop_recorded';
+  end if;
+  return null;
+end $$;
+create or replace trigger analytics_subjects_snapshot
+  after delete on private.analytics_subjects
+  for each row execute function private.analytics_snapshot_deleted_subject();
+alter table private.analytics_subjects enable always trigger analytics_subjects_snapshot;
+
 -- Lease up to p_limit due jobs. Each claim gets a fresh token; only its holder records the outcome.
+-- Jobs that delete issued subjects (identifiable history) go before anonymous-only jobs.
 create or replace function private.analytics_claim_erasure_work(p_limit integer, p_lease_seconds integer)
 returns jsonb language plpgsql volatile security definer set search_path = pg_catalog, pg_temp as $$
 declare
@@ -304,9 +391,11 @@ begin
   end if;
   for job in
     select * from private.analytics_erasure_jobs j
-    where j.completed_at is null and j.next_attempt_at <= moment
+    where j.next_attempt_at is not null and j.next_attempt_at <= moment
       and (j.lease_until is null or j.lease_until < moment)
-    order by j.next_attempt_at, j.job_id
+    order by exists (select 1 from private.analytics_erasure_targets t
+                     where t.job_id = j.job_id and t.kind = 'subject') desc,
+             j.next_attempt_at, j.job_id
     limit p_limit
     for update skip locked
   loop
@@ -315,7 +404,7 @@ begin
       set lease_token = token, lease_until = moment + p_lease_seconds * interval '1 second'
       where job_id = job.job_id;
     claimed := claimed || pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
-      'job', job.job_id, 'lease', token, 'stage', job.stage, 'sweeps', job.sweeps,
+      'job', job.job_id, 'lease', token, 'stage', job.stage, 'sweeps', job.sweeps, 'attempts', job.attempts,
       'targets', (select pg_catalog.jsonb_agg(t.distinct_id order by t.distinct_id)
                   from private.analytics_erasure_targets t where t.job_id = job.job_id)));
   end loop;
@@ -323,9 +412,19 @@ begin
 end $$;
 
 -- One outcome for a leased job, by fixed word: `queued` (persons queued for deletion with their
--- events), `none_found` (no person matched), or a failure category. Stages advance only on the
--- documented provider signals; a failure never advances anything and backs off from 1 minute,
--- doubling, to 24 hours. Sweeps re-delete at +1 day, +7 days and +35 days after acceptance.
+-- events), `none_found` (no person matched), or a failure category. A failure never advances
+-- anything and backs off from 1 minute, doubling, to 24 hours; from the fifth failure in a row the
+-- job is reported overdue. Stages:
+--   stop_recorded             -> provider_delete_accepted  on the first accepted deletion;
+--   provider_delete_accepted  -> provider_delete_confirmed when the +1 day sweep finds nobody;
+--   provider_delete_confirmed -> complete                  when a sweep at least 8 days after
+--                                acceptance finds nobody. PostHog deletes events in a later batch
+--                                (weekends on PostHog Cloud), and a person that is gone says nothing
+--                                about its events, so 8 days covers one full weekly batch before a
+--                                device is told its data is deleted;
+--   complete                  -> no more work               after a last sweep 35 days after
+--                                acceptance finds nobody.
+-- A sweep that finds someone again (a late event) deletes again and re-checks a day later.
 create or replace function private.analytics_record_erasure_outcome(p_job uuid, p_lease uuid, p_outcome text)
 returns jsonb language plpgsql volatile security definer set search_path = pg_catalog, pg_temp as $$
 declare
@@ -337,7 +436,7 @@ begin
     raise exception 'analytics erasure outcome shape' using errcode = '22023';
   end if;
   select * into job from private.analytics_erasure_jobs j where j.job_id = p_job for update;
-  if not found or job.lease_token is distinct from p_lease or job.completed_at is not null then
+  if not found or job.lease_token is distinct from p_lease then
     return pg_catalog.jsonb_build_object('recorded', false);
   end if;
   if p_outcome not in ('queued', 'none_found') then
@@ -348,7 +447,7 @@ begin
                                        interval '1 minute' * pg_catalog.power(2, least(job.attempts, 11))),
       lease_token = null, lease_until = null
       where job_id = job.job_id;
-    return pg_catalog.jsonb_build_object('recorded', true, 'stage', job.stage);
+    return pg_catalog.jsonb_build_object('recorded', true, 'stage', job.stage, 'overdue', job.attempts + 1 >= 5);
   end if;
   if job.stage = 'stop_recorded' then
     update private.analytics_erasure_jobs set stage = 'provider_delete_accepted', accepted_at = moment,
@@ -356,31 +455,34 @@ begin
       where job_id = job.job_id;
     job.stage := 'provider_delete_accepted';
   elsif p_outcome = 'queued' then
-    -- A sweep found a person again (a late event): deleted again, re-checked in a day.
     update private.analytics_erasure_jobs set next_attempt_at = moment + interval '1 day'
       where job_id = job.job_id;
   elsif job.stage = 'provider_delete_accepted' then
     update private.analytics_erasure_jobs set stage = 'provider_delete_confirmed', confirmed_at = moment,
-      sweeps = 1, next_attempt_at = greatest(moment, job.accepted_at + interval '7 days')
+      sweeps = 1, next_attempt_at = greatest(moment, job.accepted_at + interval '8 days')
       where job_id = job.job_id;
     job.stage := 'provider_delete_confirmed';
-  elsif job.sweeps >= 2 then
-    update private.analytics_erasure_jobs set stage = 'complete', sweeps = 3, completed_at = moment,
-      fence_until = moment + interval '13 months'
-      where job_id = job.job_id;
-    job.stage := 'complete';
+  elsif job.stage = 'provider_delete_confirmed' then
+    if moment < job.accepted_at + interval '8 days' then
+      update private.analytics_erasure_jobs set next_attempt_at = job.accepted_at + interval '8 days'
+        where job_id = job.job_id;
+    else
+      update private.analytics_erasure_jobs set stage = 'complete', sweeps = 2, completed_at = moment,
+        fence_until = moment + interval '13 months',
+        next_attempt_at = greatest(moment, job.accepted_at + interval '35 days')
+        where job_id = job.job_id;
+      job.stage := 'complete';
+    end if;
   else
-    update private.analytics_erasure_jobs set sweeps = job.sweeps + 1,
-      next_attempt_at = greatest(moment, job.accepted_at + interval '35 days')
-      where job_id = job.job_id;
+    update private.analytics_erasure_jobs set sweeps = 3, next_attempt_at = null where job_id = job.job_id;
   end if;
   update private.analytics_erasure_jobs set attempts = 0, last_error = null,
     lease_token = null, lease_until = null
     where job_id = job.job_id;
-  return pg_catalog.jsonb_build_object('recorded', true, 'stage', job.stage);
+  return pg_catalog.jsonb_build_object('recorded', true, 'stage', job.stage, 'overdue', false);
 end $$;
 
--- ── 4. The retained limiter: 0015's body plus two bucket names ────────────────────────────────
+-- ── 4. The retained limiter: 0015's body plus three bucket names ────────────────────────────────
 create or replace function public.consume_rate_limit(
   p_bucket_key text, p_max_requests integer, p_window_seconds integer
 ) returns integer
@@ -402,7 +504,7 @@ begin
     raise exception 'Invalid rate limit policy';
   end if;
   parts := regexp_match(p_bucket_key, '^(.+):(user|ip):(.+)$');
-  if parts is null or parts[1] not in ('checkout', 'reconcile', 'review-signin:request', 'review-signin:verify', 'settings-sync', 'analytics-erasure', 'analytics-identify') then
+  if parts is null or parts[1] not in ('checkout', 'reconcile', 'review-signin:request', 'review-signin:verify', 'settings-sync', 'analytics-erasure-submit', 'analytics-erasure-status', 'analytics-identify') then
     raise exception 'Invalid rate limit bucket';
   end if;
   perform public.cleanup_rate_limit_counters();
@@ -446,9 +548,11 @@ revoke all on function public.consume_rate_limit(text,integer,integer)
 -- ── 5. Grants: explicit, and nothing else ─────────────────────────────────────────────────────
 revoke all on all functions in schema private from public, anon, authenticated, service_role;
 revoke all on function private.analytics_origin_key(bytea),
+  private.analytics_anonymous_ids(bytea, integer),
+  private.analytics_snapshot_deleted_subject(),
   private.analytics_issue_subject(uuid, bytea),
   private.analytics_subject_active(uuid),
-  private.analytics_begin_device_erasure(bytea, uuid[]),
+  private.analytics_begin_device_erasure(bytea, integer),
   private.analytics_erasure_status(bytea),
   private.analytics_claim_erasure_work(integer, integer),
   private.analytics_record_erasure_outcome(uuid, uuid, text)
@@ -456,7 +560,7 @@ revoke all on function private.analytics_origin_key(bytea),
        still_policy_reader, still_policy_admin, still_analytics_eraser;
 grant execute on function private.analytics_issue_subject(uuid, bytea),
   private.analytics_subject_active(uuid),
-  private.analytics_begin_device_erasure(bytea, uuid[]),
+  private.analytics_begin_device_erasure(bytea, integer),
   private.analytics_erasure_status(bytea),
   private.analytics_claim_erasure_work(integer, integer),
   private.analytics_record_erasure_outcome(uuid, uuid, text)
@@ -485,7 +589,7 @@ declare
   routes text[] := array[
     'private.analytics_issue_subject(uuid,bytea)',
     'private.analytics_subject_active(uuid)',
-    'private.analytics_begin_device_erasure(bytea,uuid[])',
+    'private.analytics_begin_device_erasure(bytea,integer)',
     'private.analytics_erasure_status(bytea)',
     'private.analytics_claim_erasure_work(integer,integer)',
     'private.analytics_record_erasure_outcome(uuid,uuid,text)'];
@@ -662,14 +766,27 @@ begin
     issues := issues || 'erasure_target_job_link'::text;
   end if;
 
+  -- The account-deletion snapshot: present, ALWAYS enabled (replica mode cannot skip it),
+  -- unconditional, row level after delete (tgtype 9), calling the snapshot function.
+  if not exists (
+       select 1 from pg_catalog.pg_trigger t
+       where t.tgrelid = pg_catalog.to_regclass('private.analytics_subjects')
+         and t.tgname = 'analytics_subjects_snapshot' and t.tgtype = 9 and t.tgenabled = 'A'
+         and not t.tgisinternal and t.tgqual is null and t.tgattr = ''::pg_catalog.int2vector
+         and t.tgfoid = pg_catalog.to_regprocedure('private.analytics_snapshot_deleted_subject()')) then
+    issues := issues || 'subject_snapshot_trigger'::text;
+  end if;
+
   -- The 0017 routines: present, owned by postgres, pg_temp-last, SECURITY DEFINER exactly for the
   -- routes, EXECUTE for the owner plus exactly the eraser on each route, nobody on the helper.
   for routine in
     select x.sig, x.definer, x.grantee, pg_catalog.to_regprocedure(x.sig) as oid from (values
       ('private.analytics_origin_key(bytea)', false, null::oid),
+      ('private.analytics_anonymous_ids(bytea,integer)', false, null::oid),
+      ('private.analytics_snapshot_deleted_subject()', true, null::oid),
       ('private.analytics_issue_subject(uuid,bytea)', true, eraser_oid),
       ('private.analytics_subject_active(uuid)', true, eraser_oid),
-      ('private.analytics_begin_device_erasure(bytea,uuid[])', true, eraser_oid),
+      ('private.analytics_begin_device_erasure(bytea,integer)', true, eraser_oid),
       ('private.analytics_erasure_status(bytea)', true, eraser_oid),
       ('private.analytics_claim_erasure_work(integer,integer)', true, eraser_oid),
       ('private.analytics_record_erasure_outcome(uuid,uuid,text)', true, eraser_oid)

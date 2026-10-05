@@ -361,12 +361,14 @@ test("0017 post-apply verification pins the migration's exact routine bodies", a
       .map((m) => [m[1], m[2]]),
   );
   assert.deepEqual([...pinned.keys()].sort(), [
+    "private.analytics_anonymous_ids",
     "private.analytics_begin_device_erasure",
     "private.analytics_claim_erasure_work",
     "private.analytics_erasure_status",
     "private.analytics_issue_subject",
     "private.analytics_origin_key",
     "private.analytics_record_erasure_outcome",
+    "private.analytics_snapshot_deleted_subject",
     "private.analytics_subject_active",
     "public.consume_rate_limit",
   ]);
@@ -379,7 +381,7 @@ test("0017 post-apply verification pins the migration's exact routine bodies", a
   assert.doesNotMatch(migration, /search_path = ''/);
 });
 
-test("0017 keeps 0015's limiter body and adds only two bucket names", async () => {
+test("0017 keeps 0015's limiter body and adds only three bucket names", async () => {
   const root = fileURLToPath(new URL("../../", import.meta.url));
   const limiter = async (file) => {
     const source = await readFile(join(root, "supabase/migrations", file), "utf8");
@@ -392,7 +394,7 @@ test("0017 keeps 0015's limiter body and adds only two bucket names", async () =
     await limiter("0017_analytics_erasure.sql"),
     (await limiter("0015_settings_sync_per_field.sql")).replace(
       "'review-signin:verify', 'settings-sync')",
-      "'review-signin:verify', 'settings-sync', 'analytics-erasure', 'analytics-identify')",
+      "'review-signin:verify', 'settings-sync', 'analytics-erasure-submit', 'analytics-erasure-status', 'analytics-identify')",
     ),
   );
 });

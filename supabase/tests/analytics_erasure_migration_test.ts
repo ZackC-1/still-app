@@ -25,6 +25,13 @@ import type { ErasureOutcome } from "../functions/_shared/erasure-store.ts";
 import { PgRateLimiter } from "../functions/_shared/pg-store.ts";
 import type { PostHogErasurePort, PostHogSubjectPort } from "../functions/_shared/posthog-erasure.ts";
 import { signHs256 } from "../functions/_shared/jwt.ts";
+import { deviceErasureState, ErasureCapacity } from "../functions/_shared/erasure-store.ts";
+import {
+  anonymousIdFromKey,
+  fromHex,
+  proofFromKey,
+  toHex,
+} from "../../packages/core/src/analytics/derive.ts";
 
 const databaseUrl = Deno.env.get("STILL_U5W2_ERASURE_TEST_DATABASE_URL");
 const mode = Deno.env.get("STILL_U5W2_ERASURE_TEST_MODE");
@@ -37,17 +44,26 @@ const U1 = "b6b6b6b6-0000-4000-8000-000000000061";
 const U2 = "b6b6b6b6-0000-4000-8000-000000000062";
 const U3 = "b6b6b6b6-0000-4000-8000-000000000063";
 const SEEDED = ["b5b5b5b5-0000-4000-8000-000000000051", "b5b5b5b5-0000-4000-8000-000000000052"];
-const P1 = "1".repeat(64);
-const P2 = "2".repeat(64);
-const P3 = "3".repeat(64);
-const N1 = "a0000000-0000-4000-8000-000000000001";
-const N2 = "a0000000-0000-4000-8000-000000000002";
-const N3 = "a0000000-0000-4000-8000-000000000003";
+// Synthetic devices: erasure keys built at runtime; each device's identify proof is SHA-256(key).
+const deviceKey = (n: number) => toHex(new Uint8Array(32).map((_, i) => (i * 7 + n * 31) % 256));
+const K1 = deviceKey(1);
+const K2 = deviceKey(2);
+const K3 = deviceKey(3);
+const K4 = deviceKey(4);
+const proof = async (key: string) => await proofFromKey(fromHex(key));
+const anon = async (key: string, k: number) => await anonymousIdFromKey(fromHex(key), k);
+/** Shared with packages/core/src/analytics/__tests__/derive.test.ts: the key 0x00..0x1f. */
+const SHARED_KEY = toHex(new Uint8Array(32).map((_, i) => i));
+const SHARED_ANON: Record<number, string> = {
+  0: "0dabc01d-ecd0-4609-ba4e-3e6042fc943d",
+  1: "4014f145-283a-46f9-a903-62884494004e",
+  7: "b183e157-7bab-4097-ba43-d08a5a62d8bc",
+};
 
 const ROUTES = [
   "private.analytics_issue_subject(uuid,bytea)",
   "private.analytics_subject_active(uuid)",
-  "private.analytics_begin_device_erasure(bytea,uuid[])",
+  "private.analytics_begin_device_erasure(bytea,integer)",
   "private.analytics_erasure_status(bytea)",
   "private.analytics_claim_erasure_work(integer,integer)",
   "private.analytics_record_erasure_outcome(uuid,uuid,text)",
@@ -162,7 +178,11 @@ Deno.test({
       assertEquals(await verify(admin), [
         "erasure_function_body_changed:public.consume_rate_limit(text,integer,integer)",
         "erasure_function_grant:public.consume_rate_limit(text,integer,integer)",
-        ...ROUTES.concat("private.analytics_origin_key(bytea)").sort().map((r) => `erasure_function_missing:${r}`),
+        ...ROUTES.concat(
+          "private.analytics_origin_key(bytea)",
+          "private.analytics_anonymous_ids(bytea,integer)",
+          "private.analytics_snapshot_deleted_subject()",
+        ).sort().map((r) => `erasure_function_missing:${r}`),
         ...["analytics_erasure_jobs", "analytics_erasure_targets", "analytics_subjects"]
           .map((t) => `erasure_relation_missing:${t}`),
         "migration_missing:0017",
@@ -248,9 +268,9 @@ Deno.test({
         })();
         const cases: [string, string[], string][] = [
           [
-            "grant execute on function private.analytics_begin_device_erasure(bytea,uuid[]) to authenticated",
+            "grant execute on function private.analytics_begin_device_erasure(bytea,integer) to authenticated",
             [schemaRevoke, routeRevoke],
-            "client_execute:authenticated:private.analytics_begin_device_erasure(bytea,uuid[])",
+            "client_execute:authenticated:private.analytics_begin_device_erasure(bytea,integer)",
           ],
           [
             "grant execute on function private.analytics_issue_subject(uuid,bytea) to service_role",
@@ -279,6 +299,20 @@ Deno.test({
               "create unique index if not exists analytics_subjects_one_per_device\n  on private.analytics_subjects(user_id, origin_key, epoch);",
             ],
             "subject_reissue_guard",
+          ],
+          [
+            // Without the snapshot an account deletion would drop its subjects without deleting them.
+            "drop trigger analytics_subjects_snapshot on private.analytics_subjects",
+            [
+              "create or replace trigger analytics_subjects_snapshot\n  after delete on private.analytics_subjects\n  for each row execute function private.analytics_snapshot_deleted_subject();",
+              "alter table private.analytics_subjects enable always trigger analytics_subjects_snapshot;",
+            ],
+            "subject_snapshot_trigger",
+          ],
+          [
+            "alter table private.analytics_subjects enable trigger analytics_subjects_snapshot",
+            ["alter table private.analytics_subjects enable always trigger analytics_subjects_snapshot;"],
+            "subject_snapshot_trigger",
           ],
           [
             "drop index private.analytics_erasure_jobs_open",
@@ -313,13 +347,13 @@ Deno.test({
         // refused by the self-check, and so is a pinned path that searches pg_temp first.
         for (const path of ["''", "public, pg_temp", "pg_temp, pg_catalog"]) {
           const mutant = await replacing(
-            "create or replace function private.analytics_begin_device_erasure(p_proof bytea, p_anonymous uuid[])\nreturns jsonb language plpgsql volatile security definer set search_path = pg_catalog, pg_temp as $$",
-            `create or replace function private.analytics_begin_device_erasure(p_proof bytea, p_anonymous uuid[])\nreturns jsonb language plpgsql volatile security definer set search_path = ${path} as $$`,
+            "create or replace function private.analytics_begin_device_erasure(p_key bytea, p_anon_index integer)\nreturns jsonb language plpgsql volatile security definer set search_path = pg_catalog, pg_temp as $$",
+            `create or replace function private.analytics_begin_device_erasure(p_key bytea, p_anon_index integer)\nreturns jsonb language plpgsql volatile security definer set search_path = ${path} as $$`,
           );
           const error = await rejection(() => admin.begin((tx) => tx.unsafe(mutant)));
           assertEquals(error.code, "42501", path);
           assert(
-            error.message.includes("unsafe_search_path:private.analytics_begin_device_erasure(bytea,uuid[])"),
+            error.message.includes("unsafe_search_path:private.analytics_begin_device_erasure(bytea,integer)"),
             error.message,
           );
         }
@@ -403,7 +437,7 @@ Deno.test({
         }
         for (const role of ["anon", "authenticated", "service_role"]) {
           const denied = await rejection(() =>
-            asClient(role, (tx) => tx`select private.analytics_issue_subject(${U1}::uuid, pg_catalog.decode(${P1}, 'hex'))`)
+            asClient(role, (tx) => tx`select private.analytics_issue_subject(${U1}::uuid, pg_catalog.decode(${K1}, 'hex'))`)
           );
           assertEquals(denied.code, "42501", role);
         }
@@ -415,13 +449,15 @@ Deno.test({
       await admin.unsafe(`alter role still_analytics_eraser login password '${ERASER_PASSWORD}'`);
       eraser = connect("still_analytics_eraser", ERASER_PASSWORD);
       const store = new PgErasureStore(eraser);
-      const subjects = async (proof: string) =>
+      const subjectsOf = async (key: string) =>
         (await admin`select subject_id::text as subject, user_id::text as user, retired_reason
-          from private.analytics_subjects where origin_key = extensions.digest(pg_catalog.decode(${proof}, 'hex'), 'sha256')
+          from private.analytics_subjects
+          where origin_key = extensions.digest(pg_catalog.decode(${await proof(key)}, 'hex'), 'sha256')
           order by user_id`).map((r) => ({ ...r }));
       const targets = async (job: string) =>
         (await admin`select distinct_id::text as id, kind from private.analytics_erasure_targets where job_id = ${job}::uuid order by distinct_id`)
           .map((r) => ({ ...r }));
+      const byId = (a: { id: string }, b: { id: string }) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
 
       await t.step("the eraser holds only its routes: no table, no other routine", async () => {
         assertEquals((await eraser!`select session_user::text as login, current_user::text as role`)[0], {
@@ -431,24 +467,44 @@ Deno.test({
         for (const table of TABLES) {
           assertEquals((await rejection(() => eraser!.unsafe(`select * from ${table}`))).code, "42501", table);
         }
-        assertEquals(
-          (await rejection(() => eraser!`select private.read_product_policy('sales', 'production')`)).code,
-          "42501",
-        );
+        for (
+          const sql of [
+            "select private.read_product_policy('sales', 'production')",
+            "select private.analytics_anonymous_ids(pg_catalog.decode(pg_catalog.repeat('00', 32), 'hex'), 0)",
+          ]
+        ) {
+          assertEquals((await rejection(() => eraser!.unsafe(sql))).code, "42501", sql);
+        }
         const limiter = new PgRateLimiter(eraser!);
-        assertEquals(await limiter.consume("analytics-erasure:ip:198.51.100.1", 2, 600), 0);
+        assertEquals(await limiter.consume("analytics-erasure-submit:ip:198.51.100.1", 2, 600), 0);
+        assertEquals(await limiter.consume("analytics-erasure-status:ip:198.51.100.1", 2, 600), 0);
         assertEquals(await limiter.consume(`analytics-identify:user:${U1}`, 2, 600), 0);
-        await assertRejects(() => limiter.consume("analytics-other:ip:198.51.100.1", 2, 600));
+        await assertRejects(() => limiter.consume("analytics-erasure:ip:198.51.100.1", 2, 600));
+      });
+
+      await t.step("the SQL derivation equals the client's: shared vectors and random keys", async () => {
+        const shared = (await admin`select private.analytics_anonymous_ids(pg_catalog.decode(${SHARED_KEY}, 'hex'), 7)::text[] as ids`)[0]
+          .ids as string[];
+        for (const [k, id] of Object.entries(SHARED_ANON)) assertEquals(shared[Number(k)], id, `index ${k}`);
+        for (const key of [K1, K2, deviceKey(99)]) {
+          const ids = (await admin`select private.analytics_anonymous_ids(pg_catalog.decode(${key}, 'hex'), 20)::text[] as ids`)[0]
+            .ids as string[];
+          assertEquals(ids, await Promise.all(Array.from({ length: 21 }, (_, k) => anon(key, k))));
+        }
+        assertEquals(
+          (await admin`select pg_catalog.encode(extensions.digest(pg_catalog.decode(${SHARED_KEY}, 'hex'), 'sha256'), 'hex') as p`)[0].p,
+          await proof(SHARED_KEY),
+        );
       });
 
       let s1 = "";
       let s2 = "";
       let s3 = "";
       await t.step("one subject per account per device, never the account id", async () => {
-        const a = await store.issueSubject(U1, P1);
-        const again = await store.issueSubject(U1, P1);
-        const otherDevice = await store.issueSubject(U1, P2);
-        const otherAccount = await store.issueSubject(U2, P1);
+        const a = await store.issueSubject(U1, await proof(K1));
+        const again = await store.issueSubject(U1, await proof(K1));
+        const otherDevice = await store.issueSubject(U1, await proof(K2));
+        const otherAccount = await store.issueSubject(U2, await proof(K1));
         assert(a.state === "active" && again.state === "active" && otherDevice.state === "active" &&
           otherAccount.state === "active");
         assertEquals(again.subject, a.subject);
@@ -464,142 +520,200 @@ Deno.test({
         // The database stores a hash of the proof, never the proof.
         assertEquals(
           (await admin`select pg_catalog.count(*)::int as n from private.analytics_subjects
-            where origin_key = pg_catalog.decode(${P1}, 'hex')`)[0].n,
+            where origin_key = pg_catalog.decode(${await proof(K1)}, 'hex')`)[0].n,
           0,
         );
+      });
+
+      await t.step("NEGATIVE CONTROL: an id someone knows, or a proof seen at identify, erases nothing of theirs", async () => {
+        // Device 2's identify proof crosses the network at every sign-in; used as a key it names a
+        // different, empty device, so device 2's subject and anonymous ids stay untouched.
+        const misuse = await store.beginDeviceErasure(await proof(K2), 255);
+        const misused = (await targets(misuse.job)).map((t) => t.id);
+        const victim = [s2, ...(await Promise.all(Array.from({ length: 256 }, (_, k) => anon(K2, k))))];
+        assert(victim.every((id) => !misused.includes(id)), "no target of device 2");
+        assert(![U1, U2, U3, s1, s3].some((id) => misused.includes(id)));
+        assertEquals((await subjectsOf(K2)).map((s) => s.retired_reason), [null]);
+        assertEquals(await store.subjectActive(s2), true);
+        // The route takes no id at all: an id or an account can only be passed as the key itself.
+        const noIds = await rejection(() =>
+          eraser!`select private.analytics_begin_device_erasure(pg_catalog.decode(${K1}, 'hex'), ${`{${s2}}`}::uuid[])`
+        );
+        assert(["42883", "42804", "22P02"].includes(String(noIds.code)), String(noIds.code));
+        for (const [key, index] of [["ab", 0], [K1, -1], [K1, 256]] as const) {
+          await assertRejects(() =>
+            eraser!`select private.analytics_begin_device_erasure(pg_catalog.decode(${key}, 'hex'), ${index}::integer)`
+          );
+        }
+        await admin`delete from private.analytics_erasure_jobs where job_id = ${misuse.job}::uuid`;
       });
 
       let job = "";
-      await t.step("NEGATIVE CONTROL: a device erasure cannot name another device's id or an account id", async () => {
-        assertEquals(await store.beginDeviceErasure(P1, [N1, s2]), "refused");
-        assertEquals(await store.beginDeviceErasure(P1, [U3]), "refused");
-        assertEquals(await store.beginDeviceErasure(P1, [N1, SEEDED[0]!]), "refused");
-        assertEquals(
-          (await admin`select pg_catalog.count(*)::int as n from private.analytics_erasure_jobs`)[0].n,
-          0,
-          "a refused request leaves nothing behind",
-        );
-        assertEquals((await subjects(P1)).every((s) => s.retired_reason === null), true);
-        // Malformed requests are refused by shape.
-        for (const ids of [[], [N1, N1], [N1, null]]) {
-          await assertRejects(() =>
-            eraser!`select private.analytics_begin_device_erasure(pg_catalog.decode(${P1}, 'hex'), ${
-              `{${ids.map((x) => x ?? "NULL").join(",")}}`
-            }::uuid[])`
-          );
-        }
-        await assertRejects(() =>
-          eraser!`select private.analytics_begin_device_erasure(pg_catalog.decode(${"ab"}, 'hex'), ${`{${N1}}`}::uuid[])`
-        );
-      });
-
-      await t.step("device erasure retires only this device's subjects and targets only its ids", async () => {
-        const ref = await store.beginDeviceErasure(P1, [N1, N2]);
-        assert(ref !== "refused");
+      await t.step("device erasure derives this device's targets, retires only its subjects, and is idempotent", async () => {
+        const ref = await store.beginDeviceErasure(K1, 1);
         assertEquals(ref.stage, "stop_recorded");
         job = ref.job;
         assertEquals(
           await targets(job),
           [
-            { id: N1, kind: "anonymous" },
-            { id: N2, kind: "anonymous" },
-            ...[{ id: s1, kind: "subject" }, { id: s3, kind: "subject" }].sort((a, b) => (a.id < b.id ? -1 : 1)),
-          ].sort((a, b) => (a.id < b.id ? -1 : 1)),
+            { id: await anon(K1, 0), kind: "anonymous" },
+            { id: await anon(K1, 1), kind: "anonymous" },
+            { id: s1, kind: "subject" },
+            { id: s3, kind: "subject" },
+          ].sort(byId),
         );
-        assertEquals((await subjects(P1)).map((s) => s.retired_reason), ["device_erasure", "device_erasure"]);
-        assertEquals((await subjects(P2)).map((s) => s.retired_reason), [null], "the other device is untouched");
+        assertEquals((await subjectsOf(K1)).map((s) => s.retired_reason), ["device_erasure", "device_erasure"]);
+        assertEquals((await subjectsOf(K2)).map((s) => s.retired_reason), [null], "the other device is untouched");
         assertEquals(await store.subjectActive(s1), false);
         assertEquals(await store.subjectActive(s2), true);
-        // Idempotent: a retry after a lost reply, or a second tab, reaches the same job.
-        const retry = await store.beginDeviceErasure(P1, [N1, N2]);
-        assert(retry !== "refused");
-        assertEquals(retry.job, job);
-        const more = await store.beginDeviceErasure(P1, [N3]);
-        assert(more !== "refused");
-        assertEquals(more.job, job);
-        assertEquals((await targets(job)).length, 5);
-        assertEquals((await admin`select pg_catalog.count(*)::int as n from private.analytics_erasure_jobs`)[0].n, 1);
-        assertEquals(await store.erasureStatus(P1), { job, stage: "stop_recorded" });
-        assertEquals(await store.erasureStatus(P3), null);
+        assertEquals((await store.beginDeviceErasure(K1, 1)).job, job);
+        assertEquals((await targets(job)).length, 4);
+        assertEquals(await store.erasureStatus(K1), { job, stage: "stop_recorded" });
+        assertEquals(await store.erasureStatus(K3), null);
+        // Status also needs the key: the identify proof reads nothing.
+        assertEquals(await store.erasureStatus(await proof(K1)), null);
       });
 
       await t.step("NEGATIVE CONTROL: a retired subject is never reissued, under any account", async () => {
-        assertEquals(await store.issueSubject(U1, P1), { state: "stopped" });
-        assertEquals(await store.issueSubject(U3, P1), { state: "stopped" });
-        assertEquals((await subjects(P1)).length, 2, "no new subject for the erased device");
-        // The all-rows unique index is what makes reissue impossible, even for the owner.
+        assertEquals(await store.issueSubject(U1, await proof(K1)), { state: "stopped" });
+        assertEquals(await store.issueSubject(U3, await proof(K1)), { state: "stopped" });
+        assertEquals((await subjectsOf(K1)).length, 2, "no new subject for the erased device");
+        const p1 = await proof(K1);
         const duplicate = await rejection(() =>
           admin`insert into private.analytics_subjects(subject_id, user_id, origin_key, epoch, created_at, last_activity_month)
-            values (gen_random_uuid(), ${U1}::uuid, extensions.digest(pg_catalog.decode(${P1}, 'hex'), 'sha256'), 0, now(), current_date)`
+            values (gen_random_uuid(), ${U1}::uuid,
+                    extensions.digest(pg_catalog.decode(${p1}, 'hex'), 'sha256'), 0, now(), current_date)`
         );
         assertEquals(duplicate.code, "23505");
       });
 
+      const due = () => admin`update private.analytics_erasure_jobs set next_attempt_at = now() - interval '1 second'
+        where job_id = ${job}::uuid`;
+      type JobRow = {
+        stage: string;
+        sweeps: number;
+        attempts: number;
+        last_error: string | null;
+        fenced: boolean;
+        finished: boolean;
+      };
+      const row = async (): Promise<JobRow> =>
+        ({ ...(await admin`select stage, sweeps, attempts, last_error, fence_until is not null as fenced,
+            next_attempt_at is null as finished from private.analytics_erasure_jobs where job_id = ${job}::uuid`)[0] }) as JobRow;
+      const step = async (outcome: ErasureOutcome) => {
+        await due();
+        const [c] = (await store.claimWork(20, 60)).filter((x) => x.job === job);
+        assert(c, "due job claimed");
+        const result = await store.recordOutcome(c.job, c.lease, outcome);
+        assertEquals(result.recorded, true);
+        return { ...(await row()), overdue: result.overdue };
+      };
+
       await t.step("the worker lease and the stage machine advance only on provider outcomes", async () => {
         const claimed = await store.claimWork(5, 60);
-        assertEquals(claimed.length, 1);
-        assertEquals(claimed[0]!.job, job);
-        assertEquals(claimed[0]!.targets.length, 5);
+        assertEquals(claimed.map((c) => c.job), [job]);
+        assertEquals(claimed[0]!.targets.length, 4);
         assertEquals(await store.claimWork(5, 60), [], "a leased job is not claimed twice");
-        assertEquals(await store.recordOutcome(job, crypto.randomUUID(), "queued"), false, "only the lease holder");
-        // A failure never advances, and backs off.
-        assertEquals(await store.recordOutcome(job, claimed[0]!.lease, "provider_unavailable"), true);
-        const failed = (await admin`select stage, attempts, last_error, lease_token, next_attempt_at > now() as later
-          from private.analytics_erasure_jobs where job_id = ${job}::uuid`)[0];
-        assertEquals({ ...failed }, {
-          stage: "stop_recorded",
-          attempts: 1,
-          last_error: "provider_unavailable",
-          lease_token: null,
-          later: true,
-        });
-        const step = async (outcome: ErasureOutcome) => {
-          await admin`update private.analytics_erasure_jobs set next_attempt_at = now() - interval '1 second' where job_id = ${job}::uuid`;
-          const [c] = await store.claimWork(5, 60);
-          assert(c, "due job claimed");
-          assertEquals(await store.recordOutcome(c.job, c.lease, outcome), true);
-          return (await admin`select stage, sweeps, attempts, last_error, fence_until is not null as fenced
-            from private.analytics_erasure_jobs where job_id = ${job}::uuid`)[0];
-        };
-        assertEquals({ ...await step("queued") }, {
-          stage: "provider_delete_accepted",
-          sweeps: 0,
-          attempts: 0,
-          last_error: null,
-          fenced: false,
-        });
+        assertEquals((await store.recordOutcome(job, crypto.randomUUID(), "queued")).recorded, false, "only the lease holder");
+        assertEquals((await store.recordOutcome(job, claimed[0]!.lease, "provider_unavailable")).recorded, true);
+        const failed = await row();
+        assertEquals([failed.stage, failed.attempts, failed.last_error], ["stop_recorded", 1, "provider_unavailable"]);
+        // Overdue from the fifth failure in a row, and still never advanced.
+        assertEquals((await step("provider_shape")).overdue, false);
+        assertEquals((await step("provider_partial")).overdue, false);
+        assertEquals((await step("provider_rejected")).overdue, false);
+        const fifth = await step("provider_unavailable");
+        assertEquals([fifth.stage, fifth.attempts, fifth.overdue], ["stop_recorded", 5, true]);
+        const accepted = await step("queued");
+        assertEquals([accepted.stage, accepted.sweeps, accepted.attempts, accepted.overdue], [
+          "provider_delete_accepted",
+          0,
+          0,
+          false,
+        ]);
+        assertEquals(deviceErasureState(await store.erasureStatus(K1)), "verifying");
         // A sweep that finds someone again (a late event) re-deletes and stays where it is.
         assertEquals((await step("queued")).stage, "provider_delete_accepted");
-        assertEquals({ ...await step("none_found") }, {
-          stage: "provider_delete_confirmed",
-          sweeps: 1,
-          attempts: 0,
-          last_error: null,
-          fenced: false,
-        });
-        assertEquals((await step("provider_partial")).stage, "provider_delete_confirmed");
-        assertEquals((await step("none_found")).sweeps, 2);
-        assertEquals({ ...await step("none_found") }, {
-          stage: "complete",
-          sweeps: 3,
-          attempts: 0,
-          last_error: null,
-          fenced: true,
-        });
-        assertEquals(await store.erasureStatus(P1), { job, stage: "complete" });
-        assertEquals(await store.claimWork(5, 60), []);
-        // The same request after completion reaches the finished job; nothing restarts.
-        const done = await store.beginDeviceErasure(P1, [N1, N2]);
-        assert(done !== "refused");
-        assertEquals(done, { job, stage: "complete" });
-        await assertRejects(() => eraser!`select private.analytics_record_erasure_outcome(${job}::uuid, ${crypto.randomUUID()}::uuid, 'done')`);
+        assertEquals((await step("none_found")).stage, "provider_delete_confirmed");
+        // NEGATIVE CONTROL (shown too early): persons gone, events maybe not; still "verifying".
+        assertEquals(deviceErasureState(await store.erasureStatus(K1)), "verifying");
+        // A clean sweep before 8 days after acceptance does not complete.
+        assertEquals((await step("none_found")).stage, "provider_delete_confirmed");
+        await admin`update private.analytics_erasure_jobs set accepted_at = accepted_at - interval '9 days'
+          where job_id = ${job}::uuid`;
+        const done = await step("none_found");
+        assertEquals([done.stage, done.fenced, done.finished], ["complete", true, false]);
+        assertEquals(deviceErasureState(await store.erasureStatus(K1)), "deleted");
+        // The +35 day fence sweep still runs after "deleted", then the work ends.
+        const last = await step("none_found");
+        assertEquals([last.stage, last.sweeps, last.finished], ["complete", 3, true]);
+        assertEquals((await store.claimWork(20, 60)).filter((c) => c.job === job), []);
+        await assertRejects(() =>
+          eraser!`select private.analytics_record_erasure_outcome(${job}::uuid, ${crypto.randomUUID()}::uuid, 'done')`
+        );
       });
 
-      await t.step("account deletion removes its subjects but keeps every erasure target", async () => {
+      await t.step("new targets restart a job that had advanced; a finished job is reused only when nothing is new", async () => {
+        assertEquals(await store.beginDeviceErasure(K1, 1), { job, stage: "complete" });
+        // A higher index after completion opens a fresh job with every target.
+        const fresh = await store.beginDeviceErasure(K1, 2);
+        assertNotEquals(fresh.job, job);
+        assertEquals((await targets(fresh.job)).length, 5);
+        // On an open job that has advanced, new targets send it back to the start.
+        const [c] = (await store.claimWork(20, 60)).filter((x) => x.job === fresh.job);
+        await store.recordOutcome(fresh.job, c!.lease, "queued");
+        assertEquals((await store.erasureStatus(K1))!.stage, "provider_delete_accepted");
+        assertEquals((await store.beginDeviceErasure(K1, 3)).stage, "stop_recorded");
+        assertEquals((await admin`select accepted_at is null as reset from private.analytics_erasure_jobs
+          where job_id = ${fresh.job}::uuid`)[0].reset, true);
+        await admin`delete from private.analytics_erasure_jobs where job_id = ${fresh.job}::uuid`;
+      });
+
+      await t.step("jobs deleting issued subjects are claimed before anonymous-only jobs", async () => {
+        const anonOnly = await store.beginDeviceErasure(K4, 0); // created first, no subject
+        const withSubject = await store.issueSubject(U3, await proof(K3));
+        assert(withSubject.state === "active");
+        const subjectJob = await store.beginDeviceErasure(K3, 0);
+        await admin`update private.analytics_erasure_jobs set next_attempt_at = now() - interval '1 hour'
+          where job_id = ${anonOnly.job}::uuid`;
+        const [first] = await store.claimWork(1, 60);
+        assertEquals(first!.job, subjectJob.job);
+        await admin`delete from private.analytics_erasure_jobs where job_id in (${anonOnly.job}::uuid, ${subjectJob.job}::uuid)`;
+      });
+
+      await t.step("a global cap stops a flood of new device jobs", async () => {
+        await admin`insert into private.analytics_erasure_jobs(job_id, scope, scope_key, stage, sweeps, attempts,
+            next_attempt_at, created_at)
+          select gen_random_uuid(), 'device', extensions.gen_random_bytes(32), 'stop_recorded', 0, 0, now(), now()
+          from generate_series(1, 200)`;
+        await assertRejects(() => store.beginDeviceErasure(deviceKey(77), 0), ErasureCapacity);
+        // The cap counts new jobs only: an existing device's job is still reached.
+        assertEquals((await store.beginDeviceErasure(K1, 1)).job, job);
+        await admin`delete from private.analytics_erasure_jobs j
+          where not exists (select 1 from private.analytics_erasure_targets t where t.job_id = j.job_id)`;
+      });
+
+      await t.step("account deletion snapshots its subjects into a job that survives the account", async () => {
         const before = await targets(job);
         await admin`delete from auth.users where id = ${U2}::uuid`;
-        assertEquals((await subjects(P1)).map((s) => s.user), [U1]);
-        assertEquals(await targets(job), before, "the fence list survives account deletion");
+        assertEquals((await subjectsOf(K1)).map((s) => s.user), [U1]);
+        assertEquals(await targets(job), before, "the device job's fence list survives");
+        const snapshot = await admin`select j.job_id::text as job, j.scope, j.stage, t.distinct_id::text as id
+          from private.analytics_erasure_jobs j join private.analytics_erasure_targets t on t.job_id = j.job_id
+          where j.scope = 'account_deleted'`;
+        assertEquals(snapshot.map((r) => [r.scope, r.stage, r.id]), [["account_deleted", "stop_recorded", s3]]);
+        // NEGATIVE CONTROL: without the trigger the same deletion leaves no job behind.
+        const without = await rejection(() =>
+          admin.begin(async (tx) => {
+            await tx`alter table private.analytics_subjects disable trigger analytics_subjects_snapshot`;
+            await tx`delete from auth.users where id = ${U3}::uuid`;
+            const jobs = await tx`select pg_catalog.count(*)::int as n from private.analytics_erasure_jobs
+              where scope = 'account_deleted'`;
+            throw new Error(`jobs:${jobs[0].n}`);
+          })
+        );
+        assertEquals(without.message, "jobs:1", "only U2's snapshot; U3's subject went unrecorded");
+        await admin`delete from private.analytics_erasure_jobs where scope = 'account_deleted'`;
       });
 
       await t.step("the real handlers run through the eraser's store end to end", async () => {
@@ -614,26 +728,29 @@ Deno.test({
           setSubjectEmail: (subject, email) => (emails.push(`${subject}:${email}`), Promise.resolve()),
         };
         const limiter = new PgRateLimiter(eraser!);
-        const identify = async (proof: string) =>
+        const K5 = deviceKey(5);
+        const identify = async (originProof: string) =>
           await (await handleAnalyticsIdentify(
             new Request("http://x", {
               method: "POST",
-              headers: { Authorization: `Bearer ${await jwt(U3)}`, "cf-connecting-ip": "198.51.100.20" },
-              body: JSON.stringify({ originProof: proof }),
+              headers: { Authorization: `Bearer ${await jwt(U1)}`, "cf-connecting-ip": "198.51.100.20" },
+              body: JSON.stringify({ originProof }),
             }),
             {
               jwtSecret: JWT_SECRET,
               accounts: {
-                account: () => Promise.resolve({ email: "u5w2-three@example.invalid", createdAt: null, analyticsSeen: true }),
+                account: () => Promise.resolve({ email: "u5w2-one@example.invalid", createdAt: null, analyticsSeen: true }),
                 markAnalyticsSeen: () => Promise.resolve(),
               },
               posthog: { canIdentify: true, canDelete: true, setPersonEmail: () => Promise.reject(new Error("legacy")), deletePerson: () => Promise.resolve() },
+              subjectsEnabled: true,
               subjects: { store, limiter, posthog: subjectPort },
             },
           )).json();
-        const issued = await identify(P3);
+        const issued = await identify(await proof(K5));
         assertEquals(issued.state, "active");
-        assertEquals(emails, [`${issued.subject}:u5w2-three@example.invalid`]);
+        assertEquals(emails, [`${issued.subject}:u5w2-one@example.invalid`]);
+        const workerToken = ["u5w2", "worker", "token"].join("-");
         const erase = (body: unknown, headers: Record<string, string> = {}) =>
           handleAnalyticsErasure(
             new Request("http://x", {
@@ -641,21 +758,24 @@ Deno.test({
               headers: { "cf-connecting-ip": "198.51.100.21", ...headers },
               body: JSON.stringify(body),
             }),
-            { store, limiter, posthog, workerToken: "u5w2-worker-token" },
+            { store, limiter, posthog, workerToken },
           );
-        const res = await erase({ action: "device", originProof: P3, anonymousIds: [N3] });
+        const res = await erase({ action: "device", erasureKey: K5, anonIndex: 0 });
         assertEquals([res.status, await res.json()], [202, { state: "requested" }]);
-        assertEquals(await identify(P3), { state: "stopped" });
-        const work = await erase({ action: "work" }, { Authorization: "u5w2-worker-token" });
-        assertEquals(await work.json(), { claimed: 1, advanced: 1, failed: 0, lost: 0 });
-        assertEquals(deleted, [[N3, issued.subject].sort()]);
-        assertEquals(await (await erase({ action: "status", originProof: P3 })).json(), { state: "verifying" });
+        assertEquals(await identify(await proof(K5)), { state: "stopped" });
+        const work = await erase({ action: "work" }, { Authorization: workerToken });
+        const report = await work.json();
+        assertEquals([report.claimed >= 1, report.failed, report.lost], [true, 0, 0]);
+        const expected = JSON.stringify([await anon(K5, 0), issued.subject].sort());
+        assert(deleted.some((ids) => JSON.stringify(ids) === expected));
+        assertEquals(await (await erase({ action: "status", erasureKey: K5 })).json(), { state: "verifying" });
       });
     } finally {
       await eraser?.end();
       // Synthetic rows out, and the role back to the migration's state: no LOGIN, no password.
-      await admin`delete from private.analytics_erasure_jobs`;
+      // Subjects first: deleting one snapshots it into a job, which the next statement removes.
       await admin`delete from private.analytics_subjects`;
+      await admin`delete from private.analytics_erasure_jobs`;
       await admin`delete from auth.users where id in (${U1}::uuid, ${U2}::uuid, ${U3}::uuid)`;
       await admin.unsafe("alter role still_analytics_eraser nologin password null");
       await gateway.end();
