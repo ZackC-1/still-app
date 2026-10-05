@@ -114,12 +114,14 @@ lists Ubuntu 24.04. The rehearsal records the actual CLI binary SHA-256 before e
 
 ## Exact-operation source foundation
 
-`supabase-deploy.yml` adds a credential-free preview and cloud synthetic lifecycle alongside a
-sealed `protected-apply` source job. Its readiness output is always `false`, its production command
-always refuses, and it references no production secret. The environment name in the skipped job is
-a source placeholder, not evidence an environment exists. Never enable it just by changing that
-output: the actual target, protection, historical-content baseline, tested operation and authority
-integration below are still missing. A skipped protected job is unavailable, not successful approval.
+`supabase-deploy.yml` runs a credential-free preview and cloud synthetic lifecycle on pull requests.
+It names no environment, references no production secret and never deploys; its former sealed
+`protected-apply` placeholder job was removed. The only production path is the manual-dispatch
+`supabase-production-deploy.yml` (`scripts/backend/deploy/`): a secret-free plan job binds one exact
+commit and migration list and rehearses it on a throwaway database, then the `supabase-production`
+environment's owner approval releases the database URL to an apply job that re-derives the plan,
+refuses stale main, unexpected history or a differing dry run, applies, and verifies read-only.
+Failures stop and need a reviewed fix-forward; there is no automatic rollback.
 
 The existing rehearsal remains unchanged. The new workflow first runs its real migrations,
 SQL assertions, pgTAP and handler controls against synthetic data in a disposable cloud runtime.

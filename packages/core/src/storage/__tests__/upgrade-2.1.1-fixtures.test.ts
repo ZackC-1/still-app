@@ -7,6 +7,8 @@ import { promisify } from "node:util";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { FEATURE_REGISTRY, SERVICE_IDS, SETTINGS_FIELDS } from "@still/shared-types";
 import { ChromeStorageAdapter } from "../chrome-adapter.js";
+import { AtomicSettingsWriter } from "../atomic-settings.js";
+import { InMemoryStorageAdapter, type StoredSettingsRecord } from "../adapter.js";
 import { SettingsCache } from "../cache.js";
 import { WKWebViewStorageAdapter } from "../wkwebview-adapter.js";
 import { migrateSettingsV2 } from "../settings-v2.js";
@@ -49,11 +51,6 @@ const present = cases.filter((c): c is UpgradeCase & { expected: Expected } => c
 const absent = cases.filter((c) => !c.present);
 const browserPresent = present.filter((c) => c.surface === "browser-storage");
 const appGroup = cases.filter((c) => c.surface === "app-group");
-// Current StillKit AtomicSettingsRecord.initialize accepts a zero clock only for "never-linked", so
-// it holds these synced never-edited records under "unknown" while TypeScript migrates them.
-// Recorded divergence; another change is aligning Swift with TypeScript. Keyed by case name on
-// purpose: when that lands, these names move out of the set and the tests below must be updated.
-const SWIFT_HOLDS_UNKNOWN = new Set(["browser-defaults-synced", "app-group-defaults-synced"]);
 
 /** The stored record as the reader receives it: browser storage hands over an object, the native
  * bridge hands the Safari extension and WKWebView the App Group bytes as a JSON string. */
@@ -187,8 +184,7 @@ describe.each(browserPresent.map((c) => [c.name, c] as const))("Chrome/Firefox s
   it("atomic local builds migrate in place, keeping choices, sync state and unknown members", async () => {
     const h = browser(c);
     const authority = new ChromeStorageAdapter({ authority: true });
-    // Includes the synced never-edited record (updatedAt 0), which StillKit holds instead; see
-    // SWIFT_HOLDS_UNKNOWN.
+    // Includes the synced never-edited record (updatedAt 0), which StillKit migrates the same way.
     await authority.initializeAtomic("unknown");
     const saved = h.area()[KEY] as Record<string, any>;
     expectLegacyChoices(saved.settings, e);
@@ -332,13 +328,6 @@ describe.skipIf(process.platform !== "darwin")("Apple atomic startup through the
       const e = c.expected!;
       expectLegacyChoices(cache.current(), e);
 
-      if (SWIFT_HOLDS_UNKNOWN.has(name)) {
-        // Current behavior, asserted deliberately: Swift holds rather than migrates, and the
-        // shipped bytes stay exactly as 2.1.0 left them.
-        await expect(native.adapter.initializeAtomic("unknown")).rejects.toThrow("native-atomic-unavailable");
-        expect(await native.post({ kind: "get" })).toBe(shipped);
-        return;
-      }
       const migrated = await native.adapter.initializeAtomic("unknown");
       const saved = JSON.parse(await native.post({ kind: "get" })) as Record<string, any>;
       for (const record of [migrated as unknown as Record<string, any>, saved]) {
@@ -355,6 +344,15 @@ describe.skipIf(process.platform !== "darwin")("Apple atomic startup through the
       for (const [key, value] of Object.entries(e.retained?.root ?? {})) expect(saved[key], key).toEqual(value);
       for (const [key, value] of Object.entries(e.retained?.settings ?? {})) expect(saved.settings[key], key).toEqual(value);
       for (const [key, value] of Object.entries(e.retained?.services ?? {})) expect(saved.settings.services[key], key).toEqual(value);
+
+      // StillKit writes exactly the record the reviewed TypeScript writer migrates from the same
+      // shipped bytes (key order aside), including the synced never-edited records.
+      const shippedRecord = new InMemoryStorageAdapter(null);
+      await shippedRecord.set(JSON.parse(c.rawJSON!) as StoredSettingsRecord);
+      const reference = await new AtomicSettingsWriter(shippedRecord).initialize("unknown");
+      const sorted = (value: unknown): unknown => Array.isArray(value) ? value.map(sorted)
+        : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, sorted((value as Record<string, unknown>)[key])])) : value;
+      expect(JSON.stringify(sorted(saved))).toBe(JSON.stringify(sorted(reference)));
 
       // A later wake leaves the migrated record alone.
       const bytes = await native.post({ kind: "get" });

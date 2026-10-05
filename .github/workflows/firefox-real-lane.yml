@@ -1,0 +1,63 @@
+name: Real Firefox lane
+
+# Optional. Loads the built Firefox extension into a real Firefox and checks the main blocking
+# scenarios against the same local fixture pages the Chromium tests use. It is NOT a required check
+# and uses no secrets. Run it by hand from the Actions tab, or it runs on pull requests that touch
+# the Firefox lane or the extension.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - "tests/firefox/**"
+      - "tests/fixtures/**"
+      - "packages/ext-chromium/**"
+      - "packages/core/**"
+      - ".github/workflows/firefox-real-lane.yml"
+
+concurrency:
+  group: firefox-real-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NPM_CONFIG_MINIMUM_RELEASE_AGE: "0"
+
+jobs:
+  firefox:
+    name: real Firefox scenarios
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v6.1.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the Firefox extension
+        env:
+          VITE_SUPABASE_URL: ""
+          VITE_SUPABASE_ANON_KEY: ""
+          VITE_POSTHOG_KEY: ""
+          VITE_POSTHOG_HOST: ""
+        run: pnpm --filter @still/ext-chromium build:firefox
+
+      # The runner image ships a regular Firefox. Print its version so a failure can be matched to a
+      # browser release; the extension requires Firefox 140 or newer.
+      - name: Show Firefox version
+        run: firefox --version
+
+      - name: Run the real Firefox lane
+        run: pnpm test:firefox

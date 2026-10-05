@@ -11,8 +11,10 @@
     "build": "pnpm -r --if-present build && pnpm --filter @still/ext-chromium build:firefox",
     "test": "pnpm -r --if-present test",
     "typecheck": "pnpm -r --if-present typecheck",
+    "test:firefox": "playwright test -c tests/firefox/playwright.config.ts",
     "lint": "eslint .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "visual": "node tests/visual/run.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

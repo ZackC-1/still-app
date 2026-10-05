@@ -9,6 +9,27 @@
 //        { kind:"get" }                       → "<settings json>" | ""
 //        { kind:"set", settings:"<json>" }    → "<resolved settings json>"
 //
+//    • Safari setup (read-only; SafariSetupObservation.swift is the contract):
+//        { kind:"safariSetupState" }          → { ok:true, platform:"ios", extensionStatus:"unknown",
+//                                               enableLocation:"settingsAppStillPage" }
+//                                             | { ok:true, platform:"macos",
+//                                               extensionStatus:"enabled"|"disabled"|"unknown",
+//                                               enableLocation:"safariExtensionSettings" }
+//      Opens nothing and writes nothing. iOS is always "unknown" (a containing app cannot read the
+//      extension's state on the iPhone versions this build targets), so only a macOS "enabled" is a
+//      positive signal. Callers bound the read with a deadline and treat a timeout, a malformed reply
+//      or "unknown" as not confirmed.
+//
+//    • Onboarding (the one OnboardingGate; OnboardingGatePresenter.swift is the contract):
+//        { kind:"onboardingState" }           → { ok:true, shouldShow:Bool, platform:"ios"|"macos",
+//                                               osMajorVersion:Int }
+//        { kind:"completeOnboarding" }        → { ok:true }  | error "still: onboarding not presented
+//                                                                 by the web view"
+//      `shouldShow` is true only when the Info.plist presenter flag selects the web flow AND the gate
+//      is not complete; with the shipped (absent) flag the SwiftUI OnboardingPresenter owns the gate,
+//      `shouldShow` is always false and completion is refused, so the two flows can never both show.
+//      platform/osMajorVersion are host facts for choosing the approved setup steps.
+//
 //    • U19 auth + purchase (reply a small JSON object; purchase-first — plan 2026-07-15-001):
 //        { kind:"signInWithApple" }           → { identityToken, nonce, email?, fullName? } | { error }
 //        { kind:"configurePurchases", appUserID } → { ok:true }   (KTD5 — RC re-keyed to the Supabase UUID)
@@ -34,9 +55,13 @@
 //
 //    • Product analytics (AnalyticsIdentity.swift is the contract; the web layer sends events):
 //        { kind:"analyticsContext" }          → { platform, appVersion, installId, anchorId, created,
-//                                               returning, previousVersion|null, consent, noticeSeen,
+//                                               returning, previousVersion|null, consent,
+//                                               consentAnswered, noticeSeen,
 //                                               extensionEnabled: Bool|null }
-//        { kind:"setAnalyticsConsent", enabled } → { ok:true, enabled }
+//        { kind:"setAnalyticsConsent", enabled } → { ok:true, enabled, answered }
+//      `consent` reads on until a choice is written, so `consentAnswered` / `answered` say whether
+//      it is an explicit choice; only an answered value may be shown as a saved choice. Concurrent
+//      first-launch analyticsContext reads share one computation (LaunchValue).
 //        { kind:"acknowledgeAnalyticsNotice" } → { ok:true }
 //      Consent lives in the App Group so the Safari extension follows the app's switch.
 //
@@ -56,8 +81,9 @@ final class WebBridgeRouter {
   private let accountSyncStatus: AccountSyncStatusStore
   private let analytics = AnalyticsIdentityStore.appGroup()
   /// Read once per launch: `appContext` records the version it ran, so a second read in the same
-  /// launch would lose the update it just reported.
-  private var analyticsContextThisLaunch: AnalyticsAppContext?
+  /// launch would lose the update it just reported. Callers that arrive while the first read is
+  /// still waiting for iCloud share that same read.
+  private let analyticsContextThisLaunch = LaunchValue<AnalyticsAppContext>()
   private let purchases = PurchaseManager.shared
   private let siwa = SignInWithAppleCoordinator()
 
@@ -121,6 +147,23 @@ final class WebBridgeRouter {
         let observation = await SafariExtensionBridge.observeSetup()
         reply(Self.json(observation.bridgeReply), nil)
       }
+
+    case "onboardingState":
+      reply(Self.json(OnboardingGate.webStateReply(
+        presenter: OnboardingPresenter.selected,
+        defaults: OnboardingGate.appGroupDefaults(),
+        platform: Self.setupPlatform,
+        osMajorVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+      )), nil)
+
+    case "completeOnboarding":
+      guard OnboardingGate.completeFromWeb(
+        presenter: OnboardingPresenter.selected, defaults: OnboardingGate.appGroupDefaults())
+      else {
+        reply(nil, "still: onboarding not presented by the web view")
+        return
+      }
+      reply(Self.json(["ok": true]), nil)
 
     case "signInWithApple":
       Task { await self.handleSignIn(reply: reply) }
@@ -225,8 +268,7 @@ final class WebBridgeRouter {
         reply(nil, "still: setAnalyticsConsent missing enabled")
         return
       }
-      analytics.setConsent(enabled)
-      reply(Self.json(["ok": true, "enabled": analytics.consent]), nil)
+      reply(Self.json(analytics.commitConsent(enabled)), nil)
 
     case "acknowledgeAnalyticsNotice":
       analytics.acknowledgeNotice()
@@ -285,33 +327,7 @@ final class WebBridgeRouter {
   /// whole of the free era, so the method stops at the local write and this app asks Apple nothing
   /// at launch. The path below stays here, unchanged, for the day paid access returns.
   private func handleAnalyticsContext(reply: @escaping (Any?, String?) -> Void) async {
-    let context: AnalyticsAppContext
-    if let cached = analyticsContextThisLaunch {
-      context = cached
-    } else {
-      // iCloud key-value storage carries only the anonymous person anchor (see AnalyticsIdentity).
-      let cloud = NSUbiquitousKeyValueStore.default
-      cloud.synchronize()
-      // On a fresh install iCloud's key-value store starts empty and fills asynchronously; deciding
-      // before then would call a person's second device a first install.
-      if !analytics.appHasReadRecord, cloud.string(forKey: AnalyticsIdentityStore.iCloudAnchorKey) == nil {
-        await Self.waitForICloudChange(timeoutSeconds: 5)
-      }
-      // An update is recognised by the original-install record from an earlier version, or, for
-      // versions from before that record existed, by App Group state present when this launch began.
-      let recorded = OriginalInstall.current(InstallGeneration.appGroupDefaults())?.firstRecordedAppVersion
-      let earlier: String?
-      if let recorded, recorded != Self.marketingVersion {
-        earlier = recorded
-      } else if AnalyticsIdentityStore.earlierInstallAtLaunch {
-        earlier = AnalyticsIdentityStore.unknownEarlierVersion
-      } else {
-        earlier = nil
-      }
-      context = analytics.appContext(
-        appVersion: Self.marketingVersion, ubiquitous: cloud, earlierInstallVersion: earlier)
-      analyticsContextThisLaunch = context
-    }
+    let context = await analyticsContextThisLaunch.get { await self.readAnalyticsContext() }
     let extensionEnabled: Any
     switch await SafariExtensionBridge.currentStatus() {
     case .enabled: extensionEnabled = true
@@ -332,10 +348,36 @@ final class WebBridgeRouter {
       "returning": context.returning,
       "previousVersion": context.previousVersion ?? NSNull(),
       "consent": analytics.consent,
+      "consentAnswered": analytics.consentAnswered,
       "noticeSeen": context.noticeSeen,
       "extensionEnabled": extensionEnabled,
       "device": Self.analyticsDeviceClass,
     ]), nil)
+  }
+
+  /// The launch's analytics context, computed once (see `analyticsContextThisLaunch`).
+  private func readAnalyticsContext() async -> AnalyticsAppContext {
+    // iCloud key-value storage carries only the anonymous person anchor (see AnalyticsIdentity).
+    let cloud = NSUbiquitousKeyValueStore.default
+    cloud.synchronize()
+    // On a fresh install iCloud's key-value store starts empty and fills asynchronously; deciding
+    // before then would call a person's second device a first install.
+    if !analytics.appHasReadRecord, cloud.string(forKey: AnalyticsIdentityStore.iCloudAnchorKey) == nil {
+      await Self.waitForICloudChange(timeoutSeconds: 5)
+    }
+    // An update is recognised by the original-install record from an earlier version, or, for
+    // versions from before that record existed, by App Group state present when this launch began.
+    let recorded = OriginalInstall.current(InstallGeneration.appGroupDefaults())?.firstRecordedAppVersion
+    let earlier: String?
+    if let recorded, recorded != Self.marketingVersion {
+      earlier = recorded
+    } else if AnalyticsIdentityStore.earlierInstallAtLaunch {
+      earlier = AnalyticsIdentityStore.unknownEarlierVersion
+    } else {
+      earlier = nil
+    }
+    return analytics.appContext(
+      appVersion: Self.marketingVersion, ubiquitous: cloud, earlierInstallVersion: earlier)
   }
 
   /// Wait for iCloud key-value storage to report a change from the server (its initial sync), or
@@ -389,6 +431,14 @@ final class WebBridgeRouter {
     return AnalyticsIdentityStore.deviceClass(isPad: UIDevice.current.userInterfaceIdiom == .pad)
     #else
     return AnalyticsIdentityStore.deviceClass(isPad: false)
+    #endif
+  }
+
+  private static var setupPlatform: SafariSetupObservation.Platform {
+    #if os(macOS)
+    return .macos
+    #else
+    return .ios
     #endif
   }
 
