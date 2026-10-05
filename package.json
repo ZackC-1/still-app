@@ -15,7 +15,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "visual": "node tests/visual/run.mjs",
-    "version:check": "node scripts/release/version.mjs check",
+    "visual:real": "node tests/visual/real/run.mjs",    "version:check": "node scripts/release/version.mjs check",
     "version:sync": "node scripts/release/version.mjs sync",
     "package:release": "node scripts/release/package.mjs",
     "test:release": "node --test scripts/release/release.test.mjs"
