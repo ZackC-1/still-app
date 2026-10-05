@@ -10,7 +10,9 @@ import type { NavigationIntent } from "./redirect.js";
 // recommended video never loads. The ended state starts on the player video's `ended` event and
 // lasts until that video plays again (Replay, a new video), the page moves, or the control turns
 // Off. There is no time window: a countdown that appears late in the same ended state is
-// cancelled too.
+// cancelled too. Cancel is pressed at most MAX_CANCELS_PER_END times per ended state, so a page
+// that keeps re-showing its countdown can never make Still click in a loop; after that the
+// countdown is left to YouTube.
 //
 // Deliberate playlists continue (D263): a playlist the person started on purpose (a full page
 // load, a link they activated, or Back/forward, landing on a `list=` URL) advances to its next
@@ -47,6 +49,9 @@ const isCancelButton = (cancel: Element, countdown: Element): cancel is HTMLButt
   return true;
 };
 
+/** Cancel presses allowed in one ended state (one countdown plus one re-shown countdown). */
+export const MAX_CANCELS_PER_END = 2;
+
 export interface YouTubeAutoplayGuard {
   /** Records who started a navigation the content script saw; "deliberate" sets the chosen playlist. */
   navigated(target: URL, intent: NavigationIntent): void;
@@ -78,7 +83,7 @@ export function createYouTubeAutoplayGuard(doc: Document, initialUrl: URL): YouT
   let currentHref = initialUrl.href;
   let currentList: string | null = listOf(initialUrl);
   /** The ended state: the player video that ended, and the countdown already cancelled in it. */
-  let ended: { readonly video: HTMLMediaElement; readonly player: Element; cancelled: Element | null } | null = null;
+  let ended: { readonly video: HTMLMediaElement; readonly player: Element; cancelled: Element | null; presses: number } | null = null;
   let observer: MutationObserver | null = null;
 
   const leaveEnded = (): void => {
@@ -107,10 +112,11 @@ export function createYouTubeAutoplayGuard(doc: Document, initialUrl: URL): YouT
       if (ended.cancelled && (!countdown || countdown === ended.cancelled)) ended.cancelled = null;
       return;
     }
-    if (ended.cancelled === countdown || continuesChosenPlaylist(countdown)) return;
+    if (ended.cancelled === countdown || ended.presses >= MAX_CANCELS_PER_END || continuesChosenPlaylist(countdown)) return;
     const cancel = countdown.querySelector(AUTOPLAY_CANCEL);
     if (!cancel || !isCancelButton(cancel, countdown)) return;
     ended.cancelled = countdown;
+    ended.presses++;
     cancel.click();
   };
 
@@ -122,7 +128,7 @@ export function createYouTubeAutoplayGuard(doc: Document, initialUrl: URL): YouT
     // A repeated end of the same video, with no playback between, is the same ended state.
     if (ended?.video === video) return cancelCountdown();
     leaveEnded();
-    ended = { video, player, cancelled: null };
+    ended = { video, player, cancelled: null, presses: 0 };
     // YouTube shows its countdown from its own `ended` handler, after this capture listener, or
     // later still: watch only this player, only while it stays ended.
     observer = new (doc.defaultView?.MutationObserver ?? MutationObserver)(cancelCountdown);

@@ -249,6 +249,26 @@ describe("the Autoplay guard", () => {
     }
   });
 
+  it("presses Cancel at most twice in one ended state, however often the countdown comes back", async () => {
+    const counts = counters();
+    const g = guard();
+    g.reconcile(true, new URL(WATCH));
+    end();
+    await settle();
+    for (let cycle = 0; cycle < 4; cycle++) {
+      overlay().style.display = "none";
+      await settle();
+      overlay().style.display = "";
+      await settle();
+    }
+    expect(counts.cancel).toBe(2);
+    // A new ended state (after the video played again) gets its own two.
+    video().dispatchEvent(new Event("play"));
+    end();
+    await settle();
+    expect(counts.cancel).toBe(3);
+  });
+
   it("stop removes every listener and observer", async () => {
     const counts = counters();
     overlay().style.display = "none";
