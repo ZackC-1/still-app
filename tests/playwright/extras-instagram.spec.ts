@@ -120,6 +120,38 @@ test.describe("Instagram extras, paid on", () => {
       }
     });
 
+  test("Explore: language and other non-search parameters carry over to search", async ({ page }) => {
+    await serveInstagram(page, explorePage);
+    await page.goto("https://www.instagram.com/explore/?hl=fr");
+    await expect(page).toHaveURL("https://www.instagram.com/explore/search/?hl=fr");
+    await settled(page);
+    expect(page.url()).toBe("https://www.instagram.com/explore/search/?hl=fr");
+    await expect(page.locator("#target-mobile-explore-grid")).toBeHidden();
+  });
+
+  test("Explore: deliberate keyword and hashtag results keep their post and Reel grid", async ({ page }) => {
+    const results = () => extrasFixture("ig-explore-results.html");
+    await serveInstagram(page, (url) => (url.searchParams.has("q") ? results() : explorePage(url)));
+    for (const path of ["/explore/search/keyword/?q=%23inventedtag", "/explore/search/?q=inventedtag"]) {
+      const url = `https://www.instagram.com${path}`;
+      await page.goto(url);
+      await settled(page);
+      expect(page.url()).toBe(url);
+      await expect(page.locator("html")).not.toHaveAttribute("data-still-instagram-search-entry", /.*/);
+      for (const id of fixtureIds(results(), "keep-")) await expect(page.locator(`#${id}`), `${path} ${id}`).toBeVisible();
+    }
+  });
+
+  test("Explore: an in-page move from the search entry to results shows the results grid", async ({ page }) => {
+    await serveInstagram(page, () => extrasFixture("ig-explore-results.html"));
+    await page.goto("https://www.instagram.com/explore/search/");
+    await settled(page);
+    await expect(page.locator("#keep-results-grid"), "unrequested grid on the empty entry").toBeHidden();
+    await page.evaluate(() => history.pushState(null, "", "/explore/search/keyword/?q=%23inventedtag"));
+    await expect(page.locator("#keep-results-grid"), "requested results").toBeVisible();
+    await expect(page.locator("html")).not.toHaveAttribute("data-still-instagram-search-entry", /.*/);
+  });
+
   test("Explore: an in-page move to the hub also opens search (SPA navigation)", async ({ page }) => {
     await serveInstagram(page, explorePage);
     await page.goto("https://www.instagram.com/explore/tags/inventedtag/");

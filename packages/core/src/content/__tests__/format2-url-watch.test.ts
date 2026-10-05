@@ -7,6 +7,9 @@ import { createContentScript, type ContentScriptHandle } from "../index.js";
 import { createNavigationIntentTracker, URL_WATCH_INTERVAL_MS, type NavigationIntentTracker } from "../redirect.js";
 import { ruleSet } from "../../rules/__tests__/format2-fixtures.js";
 import seed from "../../../rules/seed.json";
+import { PACKAGED_RULE_SET_V2, admitPackagedRuleSetV2 } from "../../rules/packaged.js";
+import { ACCESS_BENEFITS, accessCapabilities, initialAccessSnapshot } from "../../entitlement/access-policy.js";
+import type { EntitlementCache } from "../../entitlement/cache.js";
 
 // Browsers without the Navigation API (Safari before 26.2, Firefox ESR). The content script
 // lives in an isolated world: it can wrap ITS view of history.pushState, but the page's own
@@ -43,7 +46,18 @@ afterEach(() => {
 });
 
 /** `intents: null` leaves the script's own tracker in place (no test seam). */
-async function host(href: string, intents: NavigationIntentTracker | null = createNavigationIntentTracker()) {
+/** Paid ON inside the test only: the real packaged set and implementation table, Instagram extras purchased. */
+function paidOnDeps() {
+  const base = initialAccessSnapshot({ paidMode: true, supported: new Set(ACCESS_BENEFITS) });
+  const snapshot = { ...base, states: { ...base.states, "instagram.explore": "purchased", "instagram.stories": "purchased", "instagram.suggested": "purchased", "instagram.threads": "purchased" } } as typeof base;
+  const entitlement = {
+    current: () => true, currentAccessSnapshot: () => snapshot, subscribeAccess: () => () => {}, subscribe: () => () => {},
+    watch: () => () => {}, refreshAccess: async () => {}, hydrate: async () => {},
+  } as unknown as EntitlementCache;
+  return { ruleSetV2: admitPackagedRuleSetV2(PACKAGED_RULE_SET_V2)!, capabilities: accessCapabilities({ paidMode: true, host: "firefox" }), entitlement };
+}
+
+async function host(href: string, intents: NavigationIntentTracker | null = createNavigationIntentTracker(), paid?: ReturnType<typeof paidOnDeps>) {
   const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 1 });
   const writer = new AtomicSettingsWriter(storage);
   await writer.initialize("never-linked");
@@ -71,8 +85,9 @@ async function host(href: string, intents: NavigationIntentTracker | null = crea
     win,
     doc: document,
     ruleSet: seed as unknown as SignedRuleSet,
-    ruleSetV2: allCores,
-    capabilities: cores,
+    ruleSetV2: paid?.ruleSetV2 ?? allCores,
+    capabilities: paid?.capabilities ?? cores,
+    entitlement: paid?.entitlement,
     cache,
     navigationIntents: intents ?? undefined,
   });
@@ -307,6 +322,33 @@ describe("format-2 URL watch fallback (no Navigation API)", () => {
     h.script.reapply();
     await tickWatch();
     expect(h.replace).not.toHaveBeenCalled();
+  });
+
+  it("a Still Pro extra alone (Reels Off) still follows in-page moves: Explore routes and the search-entry mark tracks the address", async () => {
+    fake();
+    window.history.replaceState(null, "", "/");
+    const h = await host("https://www.instagram.com/", createNavigationIntentTracker(), paidOnDeps());
+    await h.writer.commit({ path: "sites.instagram.reels", value: false, updatedAt: 2 });
+    await h.writer.commit({ path: "sites.instagram.explore", value: true, updatedAt: 3 });
+    await h.cache.rereadAuthority?.();
+    h.script.reapply();
+    const move = async (path: string) => {
+      h.pagePush(path);
+      window.history.replaceState(null, "", path); // the document's own address, which the marker reads
+      await tickWatch();
+    };
+    const marked = () => document.documentElement.hasAttribute("data-still-instagram-search-entry");
+    await move("/explore/?hl=fr");
+    expect(h.replace).toHaveBeenCalledWith("https://www.instagram.com/explore/search/?hl=fr");
+    await move("/explore/search/");
+    expect(marked(), "the no-query search entry is marked").toBe(true);
+    await move("/explore/search/keyword/?q=%23cats");
+    expect(marked(), "a deliberate results page is never marked, even after an in-page move").toBe(false);
+    await move("/explore/search/");
+    expect(marked()).toBe(true);
+    h.script.stop();
+    expect(marked(), "stop removes the mark").toBe(false);
+    window.history.replaceState(null, "", "/");
   });
 
   it("hashchange reports the move at once while the tab is visible", async () => {

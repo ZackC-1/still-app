@@ -11,6 +11,12 @@ import type { ExtrasRoute, ServiceExtras } from "./extras.js";
  * fixtures in tests/fixtures/extras/ig-*.html, not a contract with Instagram's markup. The live
  * structural checks (E0) gate each control's release, not this dormant code.
  *
+ * ACTIVATION GATE (E0): the Stories tray and Suggested accounts selectors depend on English
+ * aria-labels ("Stories", "Suggested accounts", "Similar accounts") and on the sidebar being an
+ * <aside> that links straight to /explore/people/. Before paid activation, live signed-in checks
+ * must confirm these shapes (and decide what to do for other interface languages, which these
+ * labels do not match); until then these surfaces are candidates only.
+ *
  * Every route is silent (no notice, no sub-line) and the predicates never overlap, because
  * resolveExtrasRoute stops at the first matching entry. Like every per-service extras module this
  * file has only type imports (sign-format2.mjs loads it directly in Node), so its path checks are
@@ -33,6 +39,23 @@ const SUGGESTED_PATH = /^\/explore\/people(\/|$)/;
 
 const home = (url: URL): URL => new URL("/", url.origin);
 
+/** The no-query search entry itself: /explore/search/ (or without the slash) and no q parameter. */
+const SEARCH_ENTRY_PATH = /^\/explore\/search\/?$/;
+export function isSearchEntryWithoutQuery(location: Pick<URL, "pathname" | "search">): boolean {
+  return SEARCH_ENTRY_PATH.test(location.pathname) && !new URLSearchParams(location.search).has("q");
+}
+
+/**
+ * Address scope for the Explore recommendation hide. CSS cannot see the address, and the same
+ * "search form, then a grid of posts" structure is also a deliberate keyword or hashtag RESULTS
+ * page (/explore/search/keyword/?q=..., where tag pages land per V3-D-045). So the content script
+ * marks the document root only while the page is the no-query search entry, and the hide selector
+ * requires that mark. On every other address the root is unmarked and the grid stays.
+ */
+const SEARCH_ENTRY_MARKER = "data-still-instagram-search-entry" as const;
+const EXPLORE_RECOMMENDATIONS =
+  `[${SEARCH_ENTRY_MARKER}] form:has(input[type="search"]) ~ div:has(> a[href^="/p/"], > a[href^="/reel/"])`;
+
 const routes: readonly ExtrasRoute[] = Object.freeze([
   Object.freeze({
     feature: "instagram.explore",
@@ -40,7 +63,13 @@ const routes: readonly ExtrasRoute[] = Object.freeze([
     // locations, /popular/ and every other nested path stay usable (D048, D057, V3-D-248). A hub
     // address that carries a search query is a deliberate search and is left alone.
     matches: (url: URL) => EXPLORE_HUB.test(url.pathname) && !url.searchParams.has("q"),
-    destination: (url: URL) => new URL(INSTAGRAM_SEARCH_ENTRY, url.origin),
+    // Only the path changes: language and other non-search parameters (hl=fr) and any fragment
+    // carry over. A matched hub never has q, so no search query is invented.
+    destination: (url: URL) => {
+      const destination = new URL(url.href);
+      destination.pathname = INSTAGRAM_SEARCH_ENTRY;
+      return destination;
+    },
   }),
   Object.freeze({
     feature: "instagram.stories",
@@ -75,9 +104,7 @@ export const INSTAGRAM_EXTRAS: ServiceExtras = Object.freeze({
       action: "hide",
       // Recommendation tiles beneath the search field only. The search field, its results list,
       // tag and location grids and the combined phone Search/Explore tab are never targets.
-      selectors: Object.freeze([
-        'form:has(input[type="search"]) ~ div:has(> a[href^="/p/"], > a[href^="/reel/"])',
-      ]),
+      selectors: Object.freeze([EXPLORE_RECOMMENDATIONS]),
     }),
     Object.freeze({
       id: "instagram-stories-highlights",
@@ -111,5 +138,18 @@ export const INSTAGRAM_EXTRAS: ServiceExtras = Object.freeze({
     }),
   ]),
   routes,
-  markers: Object.freeze([]),
+  markers: Object.freeze([
+    Object.freeze({
+      feature: "instagram.explore",
+      attribute: SEARCH_ENTRY_MARKER,
+      // The document root: the mark scopes the whole page by address, so grids rendered later
+      // (Instagram renders after load) are covered by CSS without any per-node work.
+      candidates: "html",
+      ruleSelector: EXPLORE_RECOMMENDATIONS,
+      owns: (root: Element) => {
+        const location = root.ownerDocument.defaultView?.location;
+        return !!location && isSearchEntryWithoutQuery(location);
+      },
+    }),
+  ]),
 });

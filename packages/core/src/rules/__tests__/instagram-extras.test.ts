@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { FEATURE_REGISTRY, type BenefitAccessSnapshot, type BenefitId, type SettingsV2 } from "@still/shared-types";
 import { ACCESS_BENEFITS, ACCESS_HOSTS, IMPLEMENTED_PRO_FEATURES, accessCapabilities, initialAccessSnapshot } from "../../entitlement/access-policy.js";
 import { createEnginePageSession, type EnginePageSession } from "../engine.js";
-import { INSTAGRAM_EXTRAS, INSTAGRAM_SEARCH_ENTRY } from "../instagram-extras.js";
+import { INSTAGRAM_EXTRAS, INSTAGRAM_SEARCH_ENTRY, isSearchEntryWithoutQuery } from "../instagram-extras.js";
+import { admittedMarkers, createMarkerHook, type MarkerHook } from "../../content/markers.js";
 import { PACKAGED_RULE_SET_V2, admitPackagedRuleSetV2 } from "../packaged.js";
 import { DEFAULT_SETTINGS_V2 } from "./format2-fixtures.js";
 import { extrasFixture, fixtureIds } from "./extras-fixtures.js";
@@ -67,8 +68,13 @@ describe("Instagram extras: implementation table and dormancy gate", () => {
 describe("Instagram extras routes (paid on through the real implementation table)", () => {
   it("Explore: the exact hub opens the intentional search entry, silently", () => {
     expect(INSTAGRAM_SEARCH_ENTRY).toBe("/explore/search/");
-    for (const path of ["/explore/", "/explore", "/explore/?hl=en", "/explore/#grid"])
-      expect(route(`${IG}${path}`), path).toEqual(redirect("/explore/search/"));
+    for (const path of ["/explore/", "/explore", "/explore/#grid"])
+      expect(route(`${IG}${path}`), path).toEqual(redirect(`/explore/search/${path.includes("#") ? "#grid" : ""}`));
+    // Non-search parameters (language, referral) carry over unchanged.
+    expect(route(`${IG}/explore/?hl=fr`)).toEqual(redirect("/explore/search/?hl=fr"));
+    expect(route(`${IG}/explore/?hl=fr&utm_source=invented`)).toEqual(redirect("/explore/search/?hl=fr&utm_source=invented"));
+    // The landing page is never routed again.
+    expect(route(`${IG}/explore/search/?hl=fr`)).toEqual(APPLY);
   });
 
   it("Explore: search, results, /popular/, tags, locations and every nested path stay usable", () => {
@@ -173,14 +179,25 @@ describe("Instagram extras routes (paid on through the real implementation table
   });
 });
 
-/** Render a synthetic fixture's body and apply the packaged session at `path`. */
+const hooks: MarkerHook[] = [];
+afterEach(() => { for (const hook of hooks.splice(0)) hook.stop(); window.history.replaceState(null, "", "/"); });
+
+/**
+ * Render a synthetic fixture's body at `path` and run what the content script runs there: the
+ * packaged session plus the packaged marker hook, which reads the document's own address.
+ */
 function render(file: string, path: string, settings: SettingsV2 = ALL_ON, opts: ReturnType<typeof paidOn> | Record<string, never> = paidOn()) {
   // One live session per page, as in a tab: the previous one stops and removes what it owned.
   for (const created of sessions.splice(0)) created.stop?.();
+  for (const hook of hooks.splice(0)) hook.stop();
+  window.history.replaceState(null, "", path);
   expect(document.head.querySelector("style"), "the previous session removed its owned style").toBeNull();
   document.body.innerHTML = new DOMParser().parseFromString(extrasFixture(file), "text/html").body.innerHTML;
   const engine = session();
   engine.applyDom(settings, new URL(path, IG), document, opts);
+  const hook = createMarkerHook(document, admittedMarkers(packaged));
+  hooks.push(hook);
+  hook.reconcile(engine.effectiveFeatures!());
   return engine;
 }
 const shown = (id: string) => {
@@ -196,6 +213,10 @@ describe("Instagram extras hide surfaces on the synthetic fixtures", () => {
     { feature: "instagram.explore", file: "ig-explore-mobile.html", path: "/explore/search/", hidden: ["target-mobile-explore-grid"] },
     // A tag page's own grid and the search panel are deliberate content: nothing on it is hidden.
     { feature: "instagram.explore", file: "ig-explore.html", path: "/explore/tags/inventedtag/", hidden: [], visible: ["target-explore-grid", "target-nav-explore"] },
+    // Deliberate keyword and hashtag results share the entry's shape (search form, then a post and
+    // Reel grid) but are never hidden: the hide is scoped to the no-query search entry address.
+    { feature: "instagram.explore", file: "ig-explore-results.html", path: "/explore/search/keyword/?q=%23inventedtag", hidden: [] },
+    { feature: "instagram.explore", file: "ig-explore-results.html", path: "/explore/search/?q=inventedtag", hidden: [] },
     { feature: "instagram.stories", file: "ig-stories.html", path: "/", hidden: ["target-home-tray", "target-highlights"] },
     { feature: "instagram.suggested", file: "ig-suggested.html", path: "/", hidden: ["target-sidebar-suggestions", "target-infeed-carousel", "target-profile-similar"] },
     { feature: "instagram.threads", file: "ig-threads.html", path: "/inventeduser/", hidden: ["target-threads-badge-com-www", "target-threads-badge-com", "target-threads-badge-net-www", "target-threads-badge-net"] },
@@ -229,6 +250,42 @@ describe("Instagram extras hide surfaces on the synthetic fixtures", () => {
       render(file, path, onlyPro(feature));
       for (const id of hidden) expect(shown(id), `${feature} must leave ${owner}'s #${id}`).toBe(true);
     }
+  });
+});
+
+describe("Explore recommendation hide: address-scoped by the search-entry mark", () => {
+  it("marks only the no-query search entry", () => {
+    for (const path of ["/explore/search/", "/explore/search", "/explore/search/?hl=fr"])
+      expect(isSearchEntryWithoutQuery(new URL(path, IG)), path).toBe(true);
+    for (const path of ["/explore/search/?q=x", "/explore/search/keyword/?q=%23cats", "/explore/search/keyword/", "/explore/", "/explore/tags/x/", "/", "/explore/searchx/"])
+      expect(isSearchEntryWithoutQuery(new URL(path, IG)), path).toBe(false);
+  });
+
+  it("the same grid is hidden on the search entry and kept on its results page", () => {
+    render("ig-explore-results.html", "/explore/search/");
+    expect(document.documentElement.hasAttribute("data-still-instagram-search-entry")).toBe(true);
+    expect(shown("keep-results-grid"), "an unrequested grid under the empty search entry hides").toBe(false);
+    render("ig-explore-results.html", "/explore/search/keyword/?q=%23inventedtag");
+    expect(document.documentElement.hasAttribute("data-still-instagram-search-entry")).toBe(false);
+    expect(shown("keep-results-grid"), "deliberate results stay").toBe(true);
+    expect(shown("keep-results-search-input")).toBe(true);
+  });
+
+  it("the mark exists only while Explore is effective, and goes on Off and teardown", () => {
+    render("ig-explore-mobile.html", "/explore/search/", ALL_ON, {});
+    expect(document.documentElement.hasAttribute("data-still-instagram-search-entry"), "paid off").toBe(false);
+    render("ig-explore-mobile.html", "/explore/search/", savedOff("instagram.explore"));
+    expect(document.documentElement.hasAttribute("data-still-instagram-search-entry"), "saved Off").toBe(false);
+    render("ig-explore-mobile.html", "/explore/search/");
+    expect(document.documentElement.hasAttribute("data-still-instagram-search-entry")).toBe(true);
+    for (const hook of hooks.splice(0)) hook.stop();
+    expect(document.documentElement.hasAttribute("data-still-instagram-search-entry"), "teardown").toBe(false);
+  });
+
+  it("the packaged rule set consumes the marker (admitted), so it is ever set at all", () => {
+    expect(admittedMarkers(packaged).map((marker) => marker.attribute)).toContain("data-still-instagram-search-entry");
+    const selector = INSTAGRAM_EXTRAS.surfaces.find((surface) => surface.feature === "instagram.explore")!.selectors;
+    expect(selector.every((value) => value.startsWith("[data-still-instagram-search-entry] "))).toBe(true);
   });
 });
 

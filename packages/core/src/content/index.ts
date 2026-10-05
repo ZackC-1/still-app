@@ -273,10 +273,14 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     },
   }) : null;
   if (urlWatch) teardowns.push(() => urlWatch.stop());
+  // Any effective feature of the service counts, not only its Reels core: a Still Pro extra's
+  // routes and address-scoped markers (Instagram's search-entry mark) must follow in-page moves
+  // too, even with Reels Off. While the paid tier is off no extra is ever effective, so this is
+  // exactly the Reels-only condition for everyone today.
   const urlWatchWanted = (): boolean => {
     const service = pageSession.activeServiceId();
     return !stopped && hydrated && (service === "instagram" || service === "facebook")
-      && pageSession.effectiveFeatures?.().includes(`${service}.reels`) === true;
+      && (pageSession.effectiveFeatures?.() ?? []).length > 0;
   };
 
   const reapply = (): void => {

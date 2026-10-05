@@ -67,7 +67,7 @@
           "feature": "instagram.explore",
           "action": "hide",
           "selectors": [
-            "form:has(input[type=\"search\"]) ~ div:has(> a[href^=\"/p/\"], > a[href^=\"/reel/\"])"
+            "[data-still-instagram-search-entry] form:has(input[type=\"search\"]) ~ div:has(> a[href^=\"/p/\"], > a[href^=\"/reel/\"])"
           ]
         },
         {
@@ -160,6 +160,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "965eca9b0a5324d0974a416e7eba5a383b9fe6d5cadf86aaa0ab009bc87fd0c2ffc4b9ee3aa118873222601a7a7025e07966fffa27ff2bd50a8a646b6feed60e"
+    "value": "4548051b8185372272f7ae1481886d20f8207cafb46c6acdff5f2241610491570daf0d5a35f7d353c2a2985f0e9fcbd8467fc7bf96fed1b4aa7d74651313b50e"
   }
 }
