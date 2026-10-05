@@ -309,11 +309,14 @@ describe("one living top-level TikTok tab authority", () => {
     else expect(h.records.size).toBe(0);
     await owner.stop(); expect(await h.create(false).isAllowed(context)).toBe(false);
   });
-  it("known owner-accepted limitation: lost finalization acknowledgment with both cleanup writes failing denies now but a reopened owner sees the allowance", async () => {
-    // Characterization only (owner decision 2026-10-05): finalization really removed the intent,
-    // its acknowledgment was lost, and intent restoration plus grant removal both failed. The
-    // current owner keeps its in-memory fence and denies; a reopened owner cannot tell the
-    // surviving grant from a completed one-tab allowance. Saved/synced settings are never touched.
+  it("known owner-accepted limitation: lost finalization acknowledgment (cleanup writes failing, or worker death/expired reply after the commit) denies now but a reopened owner sees the allowance", async () => {
+    // Characterization only (owner decision 2 of 2026-10-05 and its addendum): finalization
+    // really removed the intent, its acknowledgment was lost, and intent restoration plus grant
+    // removal both failed. The current owner keeps its in-memory fence and denies; a reopened
+    // owner cannot tell the surviving grant from a completed one-tab allowance. The same outcome
+    // class is reached without any storage failure when the worker is terminated, or the host's
+    // bounded reply expires, after the finalization commit and before the page hears back.
+    // The person genuinely confirmed for this living tab. Saved/synced settings are never touched.
     const h = host(), owner = h.create();
     h.store.removePending.mockImplementationOnce(async id => {
       h.pending.delete(id);
