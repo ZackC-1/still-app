@@ -341,27 +341,71 @@ describe("TikTok blocked page route over the real one-tab authority", () => {
     await route.stop();
   });
 
-  it("an answer whose budget has expired writes no redirect, even though the tab is still on TikTok", async () => {
+  it("an answer whose budget expires during the address write never redirects, though the tab is still on TikTok", async () => {
     vi.useFakeTimers();
-    const h = host({ limits: { contentAnswerMs: 5_000, waitMs: 3_000 } });
+    const h = host({ limits: { contentAnswerMs: 5_000, waitMs: 4_000 } });
     const route = h.create();
     h.open(7, TIKTOK);
     const read = h.readCommitted.getMockImplementation()!;
     const set = h.sessionArea.set.getMockImplementation()!;
-    // Each wait stays inside its own bound; together they outlast the whole answer.
+    // Two settings reads (allowance check, blocked check) end at 2 s, so the pre-write check
+    // passes inside the budget. The write itself (inside its own 4 s bound) then ends at 5.5 s:
+    // only the deadline of the post-write re-check stands between it and a late redirect.
     h.readCommitted.mockImplementation(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 2_500));
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
       return read();
     });
+    let wroteAt = -1;
     h.sessionArea.set.mockImplementationOnce(async (items) => {
-      await new Promise((resolve) => setTimeout(resolve, 2_600));
+      await new Promise((resolve) => setTimeout(resolve, 3_500));
+      wroteAt = Date.now();
       await set(items);
     });
+    const started = Date.now();
     const reply = send(route, { kind: TIKTOK_ROUTE.blocked }, h.content(7));
     await vi.advanceTimersByTimeAsync(20_000);
     expect(await reply).toEqual({ status: "held" });
+    expect(wroteAt - started).toBeGreaterThan(5_000);
     expect(h.tabs.get(7)!.url).toBe(TIKTOK);
     expect(h.update).not.toHaveBeenCalled();
+    expect(h.session.has("still:tiktok-origin:7")).toBe(false);
+    await route.stop();
+  });
+
+  it("an unreadable tab after the address write, or a failed or stalled redirect, keeps no address", async () => {
+    // The post-write tab read fails.
+    let h = host();
+    let route = h.create();
+    h.open(7, TIKTOK);
+    const set = h.sessionArea.set.getMockImplementation()!;
+    h.sessionArea.set.mockImplementationOnce(async (items) => {
+      await set(items);
+      h.tabs.delete(7); // tabs.get now rejects ("No tab")
+    });
+    expect(await send(route, { kind: TIKTOK_ROUTE.blocked }, h.content(7))).toEqual({ status: "held" });
+    expect(h.update).not.toHaveBeenCalled();
+    expect(h.session.has("still:tiktok-origin:7")).toBe(false);
+    await route.stop();
+
+    // tabs.update rejects.
+    h = host();
+    route = h.create();
+    h.open(7, TIKTOK);
+    h.update.mockRejectedValueOnce(new Error("Tab navigation refused"));
+    expect(await send(route, { kind: TIKTOK_ROUTE.blocked }, h.content(7))).toEqual({ status: "held" });
+    expect(h.session.has("still:tiktok-origin:7")).toBe(false);
+    await route.stop();
+
+    // tabs.update never answers.
+    vi.useFakeTimers();
+    h = host({ limits: { waitMs: 1_000 } });
+    route = h.create();
+    h.open(7, TIKTOK);
+    h.update.mockImplementationOnce(() => new Promise(() => {}));
+    const reply = send(route, { kind: TIKTOK_ROUTE.blocked }, h.content(7));
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(await reply).toEqual({ status: "held" });
+    expect(h.update).toHaveBeenCalledTimes(1);
     expect(h.session.has("still:tiktok-origin:7")).toBe(false);
     await route.stop();
   });

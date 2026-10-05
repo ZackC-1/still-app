@@ -264,9 +264,17 @@ export default defineBackground(() => {
   // ── TikTok blocked page (D29) ───────────────────────────────────────────────────────────────────
   // Same release gate as the other V3 screens: builds that show the V3 popup/settings send blocked
   // TikTok tabs to the extension's own page; configured 2.x builds keep the in-page block. The
-  // content script reads this same gate (tiktok-blocked/gate.ts), pinned to `atomicLocal` by test. Constructed in this
-  // first synchronous pass so the tab owner's onRemoved/onReplaced listeners are top-level.
-  if (tiktokBlockedPageEnabled(import.meta.env)) wireTiktokBlockedPage(settingsAuthority, entitlements);
+  // content script reads this same gate (tiktok-blocked/gate.ts), pinned to `atomicLocal` by test.
+  // Constructed in this first synchronous pass so the tab owner's onRemoved/onReplaced listeners
+  // are top-level.
+  const tiktokEnabled = tiktokBlockedPageEnabled({
+    // Name each input (never import.meta.env whole, which inlines every VITE_* value), reduced
+    // exactly as the content script reduces them so the two entrypoints cannot decide differently.
+    VITE_SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL?.trim() ? "set" : "",
+    VITE_SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ? "set" : "",
+    VITE_MODERN_SETTINGS_SYNC_ENABLED: import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED,
+  });
+  if (tiktokEnabled) wireTiktokBlockedPage(settingsAuthority, entitlements);
 
   // Resume on EVERY background start (R2 hard rule): restart the sync write-through from the
   // CACHED entitlement, with no purchase-service query. A worker that wakes on a settings edit

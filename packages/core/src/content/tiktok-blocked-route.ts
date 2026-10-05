@@ -314,10 +314,14 @@ export function createTiktokBlockedRoute(deps: TiktokBlockedRouteDeps) {
     settlePending(tabId);
     const deadline = Date.now() + (deps.limits?.contentAnswerMs ?? TIKTOK_CONTENT_ANSWER_MS);
     // Before each browser-visible write: the answer is still wanted and the tab still shows the
-    // exact document this request validated. A late or moved request writes nothing.
+    // exact document this request validated. A late, moved or unreadable tab writes nothing.
     const current = async (): Promise<boolean> => {
-      if (stopped || Date.now() >= deadline) return false;
-      const tab = await bound(() => tabs!.get(tabId));
+      let tab: Awaited<ReturnType<TiktokRouteTabs["get"]>>;
+      try {
+        tab = await bound(() => tabs!.get(tabId));
+      } catch {
+        return false;
+      }
       return (
         !stopped &&
         Date.now() < deadline &&
@@ -332,17 +336,33 @@ export function createTiktokBlockedRoute(deps: TiktokBlockedRouteDeps) {
     if (traversal || !(await blockedHere(sender.url!)) || !(await current())) return { status: "held" };
     const request = deps.randomId();
     if (!REQUEST_ID.test(request)) return { status: "held" };
-    await session!.set({ [originKey(tabId)]: { request, target: sender.url } });
-    if (!(await current())) {
-      // Never leave an address behind for a redirect that will not happen.
-      await session!.remove(originKey(tabId)).catch(() => {});
+    // Never leave an address behind for a redirect that did not happen. Only this request's own
+    // record is removed, so a newer redirect of the same tab keeps its binding.
+    const forget = async () => {
+      try {
+        const stored = (await session!.get(originKey(tabId)))[originKey(tabId)];
+        if ((stored as { request?: unknown } | undefined)?.request === request)
+          await session!.remove(originKey(tabId));
+      } catch {
+        // Session storage is unavailable; the record still ends with the tab or the browser.
+      }
+    };
+    try {
+      await session!.set({ [originKey(tabId)]: { request, target: sender.url } });
+      if (!(await current())) {
+        await forget();
+        return { status: "held" };
+      }
+      const url = new URL(deps.pageUrl);
+      url.searchParams.set("r", request);
+      await bound(() =>
+        tabs!.update(tabId, deps.replaceHistory ? { url: url.href, loadReplace: true } : { url: url.href }),
+      );
+    } catch {
+      // A failed or timed-out write or redirect may still have stored the address.
+      await forget();
       return { status: "held" };
     }
-    const url = new URL(deps.pageUrl);
-    url.searchParams.set("r", request);
-    await bound(() =>
-      tabs!.update(tabId, deps.replaceHistory ? { url: url.href, loadReplace: true } : { url: url.href }),
-    );
     return { status: "redirected" };
   }
 

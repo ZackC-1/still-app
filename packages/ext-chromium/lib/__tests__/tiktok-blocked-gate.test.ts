@@ -35,17 +35,25 @@ describe("TikTok blocked page release gate", () => {
     expect(tiktokBlockedPageEnabled({})).toBe(true);
   });
 
-  it("both entrypoints read the one shared gate, with no hand-copied expression", () => {
+  it("both entrypoints read the one shared gate with the same three named, reduced inputs", () => {
     const content = readFileSync(resolve(process.cwd(), "entrypoints/content/index.ts"), "utf8");
     const background = readFileSync(resolve(process.cwd(), "entrypoints/background.ts"), "utf8");
+    const inputs = [
+      'VITE_SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL?.trim() ? "set" : "",',
+      'VITE_SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ? "set" : "",',
+      "VITE_MODERN_SETTINGS_SYNC_ENABLED: import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED,",
+    ];
     expect(content).toContain('import { tiktokBlockedPageEnabled } from "../tiktok-blocked/gate.js";');
-    expect(content).toContain("tiktokBlockedPageEnabled(import.meta.env) && window.top === window");
-    for (const copied of ["VITE_SUPABASE_URL", "VITE_SUPABASE_ANON_KEY", "VITE_MODERN_SETTINGS_SYNC_ENABLED"])
-      expect(content, copied).not.toContain(copied);
     expect(background).toContain('import { tiktokBlockedPageEnabled } from "./tiktok-blocked/gate.js";');
-    expect(background).toContain(
-      "if (tiktokBlockedPageEnabled(import.meta.env)) wireTiktokBlockedPage(settingsAuthority, entitlements);",
-    );
+    for (const [name, source] of [["content", content], ["background", background]] as const) {
+      expect(source.match(/tiktokBlockedPageEnabled\(/g), name).toHaveLength(1);
+      expect(source, name).toContain("tiktokBlockedPageEnabled({");
+      // Never the whole env object: that inlines every VITE_* value into the bundle.
+      expect(source, name).not.toMatch(/tiktokBlockedPageEnabled\(\s*import\.meta\.env\s*\)/);
+      for (const input of inputs) expect(source, `${name}: ${input}`).toContain(input);
+    }
+    expect(content).toContain("const tiktokBlockedPage = tiktokEnabled && window.top === window");
+    expect(background).toContain("if (tiktokEnabled) wireTiktokBlockedPage(settingsAuthority, entitlements);");
     expect(background.match(/wireTiktokBlockedPage\(/g)).toHaveLength(2); // the call and the definition
   });
 });
