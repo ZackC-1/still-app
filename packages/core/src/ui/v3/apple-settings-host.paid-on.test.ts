@@ -24,6 +24,7 @@ import { UiController, type UiAnalytics } from "../controller.svelte.js";
 import AppleSettings from "./AppleSettings.svelte";
 import {
   appleSettingsCacheOptions,
+  appleRestoreBridge,
   appleSettingsHelp,
   createAppleSettingsAuthority,
 } from "./apple-settings-host.js";
@@ -72,7 +73,7 @@ async function compose() {
     setSharing: vi.fn(async (next: boolean) => next),
   };
   const controller = new UiController({ cache, host: { canPurchase: true }, analytics });
-  return { messages, authority, controller, bridge, hydrated, cache };
+  return { messages, authority, controller, bridge, hydrated, cache, win };
 }
 
 afterEach(() => {
@@ -97,7 +98,7 @@ describe("paid flag on, no paid producer (the free-period Restore link is withhe
         authority: f.authority,
         observeSetup: async () => null,
         help: appleSettingsHelp(vi.fn()),
-        restoreBridge: f.bridge,
+        restoreBridge: appleRestoreBridge(f.bridge, f.win),
       },
     });
     expect(await screen.findByText("Still is active")).toBeInTheDocument();

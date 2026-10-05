@@ -5,6 +5,7 @@ import {
   App,
   SAFARI_SURFACE_GUIDANCE,
   UiController,
+  appleRestoreBridge,
   appleSettingsCacheOptions,
   appleSettingsHelp,
   appleSettingsToggleReporter,
@@ -308,7 +309,7 @@ async function mountAppleSettings(adapter: WKWebViewStorageAdapter): Promise<voi
         authority,
         observeSetup: () => bridge.observeSafariSetup(),
         help: appleSettingsHelp((url) => openExternalLink(url)),
-        restoreBridge: bridge,
+        restoreBridge: appleRestoreBridge(bridge),
         onCommittedToggle: appleSettingsToggleReporter(analytics.ui),
       },
     });

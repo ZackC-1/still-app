@@ -61,7 +61,7 @@
   }
   const freeRestore = createAppleSettingsRestore({
     bridge: {
-      restore: () => nativeRestore().restore(),
+      restoreCheck: () => nativeRestore().restoreCheck(),
       receiptStatus: () => nativeRestore().receiptStatus(),
     },
     refreshAccess: () => authority.entitlement.refreshAccess(),
