@@ -10,11 +10,18 @@
 //   supabase/templates/qa-code.html
 //   packages/core/src/**, packages/shared-types/{src,fixtures}/**
 //                               copied, because functions import them by relative path
+//   .qa-owner                   a random token; only the caller holding it may stop this stack
+//
+// Only git-tracked files are copied (git ls-files), so untracked secrets such as functions/.env
+// never reach the mirror. The mirror may only be /private/tmp/still-qa-backend or
+// /private/tmp/still-qa-<name>, and every CLI call first re-reads the mirror's config and refuses
+// unless it declares exactly one project_id, "still-qa".
 //
 // Only three Supabase CLI commands ever run, each checked by guard.assertAllowedCli:
 //   supabase start  --workdir <mirror> --exclude <services QA does not need>
 //   supabase status --workdir <mirror> -o json
 //   supabase stop   --workdir <mirror> --no-backup
+import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, statfsSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -25,6 +32,12 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO = resolve(HERE, "../../..");
 export const QA_PROJECT_ID = "still-qa";
 export const DEFAULT_MIRROR = "/private/tmp/still-qa-backend";
+/** Any other mirror must sit directly under /private/tmp with this prefix (tests use it). */
+export const MIRROR_PREFIX = "/private/tmp/still-qa-";
+/** Written by buildMirror; stop() refuses unless the caller holds the same token. */
+export const OWNER_FILE = ".qa-owner";
+/** The checkout paths the mirror copies, git-tracked files only. */
+export const MIRRORED_PATHS = Object.freeze(["supabase/migrations", "supabase/functions", "packages/core/src", "packages/shared-types/src", "packages/shared-types/fixtures"]);
 /** Services QA never needs. Auth (gotrue), the API gateway, PostgREST, Edge Functions and Mailpit stay. */
 export const EXCLUDE = "studio,imgproxy,logflare,vector,realtime,storage-api,supavisor,postgres-meta";
 export const MIN_FREE_BYTES = 10 * 1024 ** 3;
@@ -53,31 +66,59 @@ export function qaConfig(source) {
   return lines.map(line => /^project_id\s*=/.test(line) ? `project_id = "${QA_PROJECT_ID}"` : line).join("\n") + QA_TEMPLATE_TOML;
 }
 
-/** Build (or rebuild) the mirror from `root`. */
-export function buildMirror({ root = REPO, mirror = DEFAULT_MIRROR } = {}) {
-  assertNotLinked(root);
-  if (resolve(mirror) === resolve(root) || resolve(mirror).startsWith(resolve(root) + "/")) {
-    throw new LocalOnlyRefusal("the mirror must live outside the checkout");
+/** The only places a mirror may be created or deleted: DEFAULT_MIRROR, or a directory directly
+ * under /private/tmp named still-qa-*, and never the checkout, inside it or above it. */
+export function assertMirrorPath(mirror, root = REPO) {
+  const m = resolve(mirror);
+  const r = resolve(root);
+  const allowed = m === DEFAULT_MIRROR || (m.startsWith(MIRROR_PREFIX) && !m.slice(MIRROR_PREFIX.length).includes("/") && m.length > MIRROR_PREFIX.length);
+  if (!allowed) throw new LocalOnlyRefusal(`mirror ${m} is not ${DEFAULT_MIRROR} or ${MIRROR_PREFIX}<name>`);
+  if (m === r || r.startsWith(m + "/") || m.startsWith(r + "/")) throw new LocalOnlyRefusal("the mirror must not be the checkout, inside it or above it");
+  return m;
+}
+
+/** Refuse unless the mirror's config declares exactly one project_id, and it is the QA one. */
+export function assertQaMirrorConfig(mirror) {
+  const file = join(mirror, "supabase/config.toml");
+  if (!existsSync(file)) throw new LocalOnlyRefusal(`no QA mirror config at ${file}`);
+  const ids = readFileSync(file, "utf8").split("\n").filter(line => /^\s*project_id\s*=/.test(line));
+  if (ids.length !== 1 || ids[0].trim() !== `project_id = "${QA_PROJECT_ID}"`) {
+    throw new LocalOnlyRefusal(`the mirror config at ${file} is not the QA project (${QA_PROJECT_ID})`);
   }
+}
+
+/** Git-tracked files under the mirrored paths (relative to root). Refuses outside a git checkout. */
+export function trackedFiles(root, spawn = spawnSync) {
+  const result = spawn("git", ["-C", root, "ls-files", "-z", "--", ...MIRRORED_PATHS], { encoding: "utf8" });
+  if (result.error || result.status !== 0) throw new LocalOnlyRefusal("the checkout is not a git repository; the mirror copies tracked files only");
+  return String(result.stdout).split("\0").filter(Boolean);
+}
+
+/** Build (or rebuild) the mirror from `root`. Returns the owner token stop() will require. */
+export function buildMirror({ root = REPO, mirror = DEFAULT_MIRROR, git = spawnSync } = {}) {
+  assertNotLinked(root);
+  mirror = assertMirrorPath(mirror, root);
+  const files = trackedFiles(root, git);
   rmSync(mirror, { recursive: true, force: true });
-  const copy = (from, to = from) => cpSync(join(root, from), join(mirror, to), {
-    recursive: true,
-    filter: path => !/\/(\.temp|\.branches|node_modules)(\/|$)/.test(path) && !/\/\.env(\.|$)/.test(path),
-  });
-  for (const part of ["supabase/migrations", "supabase/functions", "packages/core/src", "packages/shared-types/src", "packages/shared-types/fixtures"]) {
-    copy(part);
+  for (const file of files) {
+    mkdirSync(dirname(join(mirror, file)), { recursive: true });
+    cpSync(join(root, file), join(mirror, file));
   }
   mkdirSync(join(mirror, "supabase/templates"), { recursive: true });
   cpSync(TEMPLATE, join(mirror, "supabase/templates/qa-code.html"));
   writeFileSync(join(mirror, "supabase/config.toml"), qaConfig(readFileSync(join(root, "supabase/config.toml"), "utf8")));
+  const token = randomUUID();
+  writeFileSync(join(mirror, OWNER_FILE), token);
   assertNotLinked(mirror);
-  return mirror;
+  assertQaMirrorConfig(mirror);
+  return token;
 }
 
 /** Run one allowed Supabase CLI command with a scrubbed environment. */
 export function runCli(args, { mirror = DEFAULT_MIRROR, env = process.env, spawn = spawnSync } = {}) {
   assertAllowedCli(args, mirror, EXCLUDE);
   assertNotLinked(mirror);
+  assertQaMirrorConfig(mirror);
   const clean = Object.fromEntries(Object.entries(env).filter(([name]) => !/^SUPABASE_/i.test(name)));
   const result = spawn("supabase", args, { cwd: mirror, env: clean, encoding: "utf8" });
   if (result.error) throw result.error;
@@ -140,30 +181,36 @@ export function parseStatus(json) {
 }
 
 /** Start the QA stack. Refuses on a linked checkout, a non-local environment, another running
- * Supabase stack, or less than 10 GB free. Returns the validated status. */
+ * Supabase stack, or less than 10 GB free. Returns the validated status plus the owner token that
+ * stop() requires, so only the invocation that started the stack can tear it down. */
 export function start({ root = REPO, mirror = DEFAULT_MIRROR, env = process.env, spawn = spawnSync, free = freeBytes } = {}) {
   assertLocalOnly({ root, env });
   const others = runningSupabaseContainers(spawn);
   if (others.length) throw new LocalOnlyRefusal(`another Supabase stack is running (${others.slice(0, 3).join(", ")}); not starting a second one`);
   const bytes = free(dirname(resolve(mirror)));
   if (bytes < MIN_FREE_BYTES) throw new LocalOnlyRefusal(`only ${(bytes / 1024 ** 3).toFixed(1)} GB free; the floor is 10 GB`);
-  buildMirror({ root, mirror });
+  const token = buildMirror({ root, mirror });
   runCli(["start", "--workdir", mirror, "--exclude", EXCLUDE], { mirror, env, spawn });
-  return status({ root, mirror, env, spawn });
+  return { ...status({ root, mirror, env, spawn }), token };
 }
 
 export function status({ root = REPO, mirror = DEFAULT_MIRROR, env = process.env, spawn = spawnSync } = {}) {
   assertLocalOnly({ root, env });
-  if (!existsSync(join(mirror, "supabase/config.toml"))) throw new Error(`no QA mirror at ${mirror}; run start first`);
+  assertQaMirrorConfig(mirror);
   return parseStatus(runCli(["status", "--workdir", mirror, "-o", "json"], { mirror, env, spawn }));
 }
 
-/** Stop with --no-backup, then prove nothing of the QA stack is left, then delete the mirror. */
-export function stop({ root = REPO, mirror = DEFAULT_MIRROR, env = process.env, spawn = spawnSync } = {}) {
+/** Stop with --no-backup, then prove nothing of the QA stack is left, then delete the mirror.
+ * Only the holder of the mirror's owner token (returned by start) may stop it. */
+export function stop({ root = REPO, mirror = DEFAULT_MIRROR, env = process.env, spawn = spawnSync, token } = {}) {
   assertLocalOnly({ root, env });
-  if (existsSync(join(mirror, "supabase/config.toml"))) {
-    runCli(["stop", "--workdir", mirror, "--no-backup"], { mirror, env, spawn });
+  mirror = assertMirrorPath(mirror, root);
+  const ownerFile = join(mirror, OWNER_FILE);
+  const owner = existsSync(ownerFile) ? readFileSync(ownerFile, "utf8").trim() : null;
+  if (typeof token !== "string" || !token || owner !== token) {
+    throw new LocalOnlyRefusal("this caller did not start the QA stack in that mirror (owner token mismatch); not stopping it");
   }
+  runCli(["stop", "--workdir", mirror, "--no-backup"], { mirror, env, spawn });
   const left = leftovers(spawn);
   if (left.containers.length || left.volumes.length) {
     throw new Error(`teardown incomplete: ${JSON.stringify(left)}`);

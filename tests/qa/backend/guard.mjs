@@ -6,7 +6,7 @@
 //   * any SUPABASE_* variable is set (the CLI reads SUPABASE_ACCESS_TOKEN, SUPABASE_DB_PASSWORD,
 //     SUPABASE_PROJECT_ID and config overrides from them);
 //   * any environment value names a hosted Supabase address, or a database/API URL variable points
-//     anywhere but this machine;
+//     anywhere but this machine, or DOCKER_HOST is not a unix socket or loopback address;
 //   * a Supabase CLI command is anything other than the three exact local shapes below.
 //
 // Background: STANDING-AGENT-RULES §3 and the 2026-10-05 incident, where a CLI command ran in the
@@ -46,6 +46,18 @@ export function isLocalUrl(value) {
   return LOCAL_HOSTS.has(url.hostname);
 }
 
+/** A Docker endpoint on this machine: a unix socket, or tcp to loopback. */
+export function isLocalDockerHost(value) {
+  const text = String(value).trim();
+  if (/^unix:\/\/\/[^\s]+$/.test(text)) return true;
+  try {
+    const url = new URL(text);
+    return url.protocol === "tcp:" && LOCAL_HOSTS.has(url.hostname) && !url.username && !url.password;
+  } catch {
+    return false;
+  }
+}
+
 /** Throws unless `value` is a local URL. */
 export function assertLocalUrl(value, label = "URL") {
   if (!isLocalUrl(value)) throw new LocalOnlyRefusal(`${label} is not a localhost address`);
@@ -71,6 +83,9 @@ export function assertLocalEnv(env = process.env) {
     }
     if (HOSTED.test(value)) {
       throw new LocalOnlyRefusal(`environment variable ${name} names a hosted Supabase address`);
+    }
+    if (name === "DOCKER_HOST" && value.trim() !== "" && !isLocalDockerHost(value)) {
+      throw new LocalOnlyRefusal("DOCKER_HOST is not a unix socket or loopback address");
     }
     if (URLISH_NAME.test(name.toUpperCase()) && value.trim() !== "") {
       const local = isLocalUrl(value) || LOCAL_HOSTS.has(value.trim());

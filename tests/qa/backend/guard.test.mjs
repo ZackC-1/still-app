@@ -1,12 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   LocalOnlyRefusal, assertAllowedCli, assertLocalEnv, assertLocalOnly, assertLocalUrl, assertNotLinked, isLocalUrl,
 } from "./guard.mjs";
-import { EXCLUDE, QA_PROJECT_ID, buildMirror, parseStatus, qaConfig, runCli, start, stop } from "./local-stack.mjs";
+import { DEFAULT_MIRROR, EXCLUDE, OWNER_FILE, QA_PROJECT_ID, assertMirrorPath, buildMirror, parseStatus, qaConfig, runCli, start, status, stop } from "./local-stack.mjs";
 
 const refused = fn => assert.throws(fn, LocalOnlyRefusal);
 
@@ -17,11 +18,39 @@ function fakeRepo({ linked = null } = {}) {
   }
   writeFileSync(join(root, "supabase/config.toml"), 'project_id = "still-app"\n[auth.email]\notp_length = 6\n');
   writeFileSync(join(root, "supabase/migrations/0001_x.sql"), "select 1;\n");
+  writeFileSync(join(root, "supabase/functions/handler.ts"), "export {};\n");
+  const git = (...args) => assert.equal(spawnSync("git", ["-C", root, ...args], { encoding: "utf8" }).status, 0, `git ${args.join(" ")}`);
+  git("init", "-q");
+  git("add", "-A");
   if (linked) {
     mkdirSync(join(root, "supabase/.temp"), { recursive: true });
     writeFileSync(join(root, linked), "abcdefghijklmnopqrst\n");
   }
   return root;
+}
+
+/** A test mirror path inside the allowed prefix. */
+const testMirror = label => `/private/tmp/still-qa-test-${label}-${process.pid}-${Date.now()}`;
+
+/** A mirror as start() leaves it: QA config plus an owner token. */
+function fakeMirror({ projectId = QA_PROJECT_ID, token = "owner-token-1" } = {}) {
+  const mirror = testMirror("m");
+  mkdirSync(join(mirror, "supabase"), { recursive: true });
+  writeFileSync(join(mirror, "supabase/config.toml"), `project_id = "${projectId}"\n`);
+  if (token) writeFileSync(join(mirror, OWNER_FILE), token);
+  return mirror;
+}
+
+/** A fake spawn that records every call; docker answers from `docker`, supabase from `supabase`. */
+function recorder({ docker = () => "", supabase = () => "" } = {}) {
+  const calls = [];
+  const spawn = (cmd, args, options) => {
+    calls.push({ cmd, args, env: options?.env });
+    if (cmd === "docker") return { status: 0, stdout: docker(args) };
+    if (cmd === "supabase") return { status: 0, stdout: supabase(args) };
+    return assert.fail(`spawned ${cmd}`);
+  };
+  return { spawn, calls };
 }
 
 test("a linked checkout is refused, whichever link marker is present", () => {
@@ -30,8 +59,8 @@ test("a linked checkout is refused, whichever link marker is present", () => {
     try {
       refused(() => assertNotLinked(root));
       refused(() => assertLocalOnly({ root, env: {} }));
-      refused(() => buildMirror({ root, mirror: join(root, "..", `mirror-${Date.now()}`) }));
-      refused(() => start({ root, mirror: join(tmpdir(), `qa-never-${Date.now()}`), env: {}, spawn: () => assert.fail("spawned"), free: () => 99e9 }));
+      refused(() => buildMirror({ root, mirror: testMirror("linked") }));
+      refused(() => start({ root, mirror: testMirror("never"), env: {}, spawn: () => assert.fail("spawned"), free: () => 99e9 }));
     } finally { rmSync(root, { recursive: true, force: true }); }
   }
 });
@@ -108,10 +137,15 @@ test("buildMirror copies outside the checkout and leaves no link marker or secre
   const root = fakeRepo();
   mkdirSync(join(root, "supabase/functions/.temp"), { recursive: true });
   writeFileSync(join(root, "supabase/functions/.env"), "SECRET=1\n");
-  const mirror = join(tmpdir(), `qa-mirror-${Date.now()}`);
+  writeFileSync(join(root, "supabase/functions/untracked.ts"), "export const local = 1;\n");
+  const mirror = testMirror("build");
   try {
     refused(() => buildMirror({ root, mirror: join(root, "inside") }));
-    buildMirror({ root, mirror });
+    const token = buildMirror({ root, mirror });
+    assert.match(token, /^[0-9a-f-]{36}$/);
+    assert.equal(readFileSync(join(mirror, OWNER_FILE), "utf8"), token);
+    assert.ok(existsSync(join(mirror, "supabase/functions/handler.ts")), "tracked files are copied");
+    assert.equal(existsSync(join(mirror, "supabase/functions/untracked.ts")), false, "untracked files are not");
     assert.ok(existsSync(join(mirror, "supabase/migrations/0001_x.sql")));
     assert.ok(existsSync(join(mirror, "supabase/templates/qa-code.html")));
     assert.equal(existsSync(join(mirror, "supabase/functions/.env")), false);
@@ -126,7 +160,7 @@ test("buildMirror copies outside the checkout and leaves no link marker or secre
 
 test("start refuses while another Supabase stack runs, or under 10 GB free, before touching anything", () => {
   const root = fakeRepo();
-  const mirror = join(tmpdir(), `qa-start-${Date.now()}`);
+  const mirror = testMirror("start");
   const spawned = [];
   const docker = names => (cmd, args) => {
     spawned.push([cmd, ...args]);
@@ -150,26 +184,74 @@ test("parseStatus requires every value and refuses non-local URLs", () => {
   assert.throws(() => parseStatus(JSON.stringify({ ...ok, SERVICE_ROLE_KEY: "" })));
 });
 
-test("stop runs --no-backup and fails when QA containers or volumes remain", () => {
+test("stop needs the owner token, runs --no-backup and fails when QA containers or volumes remain", () => {
   const root = fakeRepo();
-  const mirror = join(tmpdir(), `qa-stop-${Date.now()}`);
-  mkdirSync(join(mirror, "supabase"), { recursive: true });
-  writeFileSync(join(mirror, "supabase/config.toml"), 'project_id = "still-qa"\n');
-  const calls = [];
-  const spawn = remaining => (cmd, args) => {
-    calls.push([cmd, ...args]);
-    if (cmd === "supabase") return { status: 0, stdout: "" };
-    if (args[0] === "volume") return { status: 0, stdout: remaining.join("\n") };
-    return { status: 0, stdout: "" };
-  };
+  const mirror = fakeMirror();
+  const leftover = names => recorder({ docker: args => args[0] === "volume" ? names.join("\n") : "" });
   try {
-    assert.throws(() => stop({ root, mirror, env: {}, spawn: spawn(["supabase_db_still-qa"]) }), /teardown incomplete/);
-    assert.deepEqual(calls[0], ["supabase", "stop", "--workdir", mirror, "--no-backup"]);
+    for (const token of [undefined, "", "someone-else"]) {
+      const r = leftover([]);
+      refused(() => stop({ root, mirror, env: {}, spawn: r.spawn, token }));
+      assert.deepEqual(r.calls, [], "nothing is spawned without the owner token");
+    }
+    const incomplete = leftover(["supabase_db_still-qa"]);
+    assert.throws(() => stop({ root, mirror, env: {}, spawn: incomplete.spawn, token: "owner-token-1" }), /teardown incomplete/);
+    assert.deepEqual([incomplete.calls[0].cmd, ...incomplete.calls[0].args], ["supabase", "stop", "--workdir", mirror, "--no-backup"]);
     assert.ok(existsSync(mirror), "the mirror is kept when teardown is incomplete");
-    stop({ root, mirror, env: {}, spawn: spawn(["supabase_db_still-app"]) });
+    stop({ root, mirror, env: {}, spawn: leftover(["supabase_db_still-app"]).spawn, token: "owner-token-1" });
     assert.equal(existsSync(mirror), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
     rmSync(mirror, { recursive: true, force: true });
+  }
+});
+
+test("status, stop and runCli refuse a mirror whose config is not the QA project, before spawning", () => {
+  const root = fakeRepo();
+  const cases = [fakeMirror({ projectId: "still-app" }), fakeMirror({ projectId: "still-qa\"\nproject_id = \"still-app" })];
+  try {
+    for (const mirror of cases) {
+      const r = recorder();
+      refused(() => status({ root, mirror, env: {}, spawn: r.spawn }));
+      refused(() => stop({ root, mirror, env: {}, spawn: r.spawn, token: "owner-token-1" }));
+      refused(() => runCli(["status", "--workdir", mirror, "-o", "json"], { mirror, env: {}, spawn: r.spawn }));
+      assert.deepEqual(r.calls, []);
+      assert.ok(existsSync(mirror), "a refused stop deletes nothing");
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    for (const mirror of cases) rmSync(mirror, { recursive: true, force: true });
+  }
+});
+
+test("mirrors may only be the default or /private/tmp/still-qa-<name>, never the checkout or above it", () => {
+  const root = "/private/tmp/still-qa-repo/checkout";
+  assertMirrorPath(DEFAULT_MIRROR, root);
+  assertMirrorPath("/private/tmp/still-qa-test-1", root);
+  for (const bad of ["/", "/private/tmp", "/private/tmp/still-qa-", "/private/tmp/still-qa-a/b", "/tmp/still-qa-x", "/Users/zack", "/private/tmp/other",
+    "/private/tmp/still-qa-repo", root]) {
+    refused(() => assertMirrorPath(bad, root));
+  }
+  const r = recorder();
+  refused(() => stop({ root: "/private/tmp/still-qa-repo/checkout", mirror: "/private/tmp", env: {}, spawn: r.spawn, token: "t" }));
+  assert.deepEqual(r.calls, []);
+});
+
+test("runCli strips every SUPABASE_* variable from the spawned environment", () => {
+  const mirror = fakeMirror();
+  try {
+    const r = recorder({ supabase: () => "{}" });
+    runCli(["status", "--workdir", mirror, "-o", "json"], { mirror, spawn: r.spawn,
+      env: { SUPABASE_ACCESS_TOKEN: "sbp_x", supabase_db_password: "p", PATH: "/usr/bin", HOME: "/Users/x" } });
+    assert.equal(r.calls.length, 1);
+    assert.deepEqual(Object.keys(r.calls[0].env).sort(), ["HOME", "PATH"]);
+  } finally { rmSync(mirror, { recursive: true, force: true }); }
+});
+
+test("DOCKER_HOST must be a unix socket or loopback", () => {
+  assertLocalEnv({ DOCKER_HOST: "unix:///Users/x/.orbstack/run/docker.sock" });
+  assertLocalEnv({ DOCKER_HOST: "tcp://127.0.0.1:2375" });
+  for (const bad of ["tcp://docker.example.com:2376", "ssh://user@host", "tcp://10.0.0.5:2375", "unix://relative.sock"]) {
+    refused(() => assertLocalEnv({ DOCKER_HOST: bad }));
   }
 });
