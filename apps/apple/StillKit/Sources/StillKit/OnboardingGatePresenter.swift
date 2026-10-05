@@ -8,7 +8,9 @@ import Foundation
 /// The choice is a host fact read once per launch from the app's Info.plist key
 /// `StillOnboardingPresenter` (see `OnboardingGate.presenter(fromInfoValue:)`). Only the exact
 /// string `"web"` selects the web flow; a missing key, any other value, or a different type keeps
-/// SwiftUI, so the shipped configuration (no key) is unchanged.
+/// SwiftUI, so the shipped configuration (no key) is unchanged. The web flow also needs the bundled
+/// web UI to contain the D12 onboarding (`presenter(fromInfoValue:webUIIndexHTML:)`), so a legacy
+/// web build under a "web" key falls back to SwiftUI instead of showing no onboarding.
 public enum OnboardingPresenterChoice: String, Equatable, Sendable, CaseIterable {
   case swiftUI = "swiftui"
   case web = "web"
@@ -64,5 +66,29 @@ extension OnboardingGate {
       "platform": platform.rawValue,
       "osMajorVersion": osMajorVersion,
     ]
+  }
+}
+
+extension OnboardingGate {
+  /// Present only in a web bundle that contains the D12 onboarding wiring
+  /// (packages/app-webview/src/apple-onboarding.ts). Every default build drops that module, so its
+  /// bundle never contains this string. A StillKit test pins it to the TypeScript constant.
+  public static let webD12Marker = "still-onboarding-presenter:web-d12"
+
+  /// Whether the bundled web UI (`WebUI/index.html`) can present the D12 onboarding.
+  public static func webUISupportsD12(indexHTML: String?) -> Bool {
+    indexHTML?.contains(webD12Marker) ?? false
+  }
+
+  /// The presenter for this launch. The web flow is chosen only when the Info.plist asks for it
+  /// AND the bundled web UI reports D12 support; otherwise SwiftUI keeps the gate. This is what
+  /// stops an app whose Info.plist says "web" but which bundles a legacy web build (no D12) from
+  /// showing no onboarding at all. `indexHTML` is read only when the Info.plist asks for the web
+  /// flow, so shipped builds (no key) never read it.
+  public static func presenter(
+    fromInfoValue value: Any?, webUIIndexHTML indexHTML: () -> String?
+  ) -> OnboardingPresenterChoice {
+    guard presenter(fromInfoValue: value) == .web else { return .swiftUI }
+    return webUISupportsD12(indexHTML: indexHTML()) ? .web : .swiftUI
   }
 }

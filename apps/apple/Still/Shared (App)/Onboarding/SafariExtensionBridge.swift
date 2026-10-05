@@ -82,4 +82,48 @@ enum SafariExtensionBridge {
     }
     #endif
   }
+
+  /// Open one fixed destination for the web view's `openDestination` message, after
+  /// `NativeOpenRequest.authorize` accepted it. The enable locations use the same calls as
+  /// `openEnableLocation()` above; `safari` launches Safari by its bundle id. `completion` reports
+  /// whether the system accepted the open and is always called once, on the main actor.
+  @MainActor static func open(
+    _ destination: NativeOpenDestination, completion: @escaping @MainActor (Bool) -> Void
+  ) {
+    let finish: (Bool) -> Void = { ok in Task { @MainActor in completion(ok) } }
+    #if os(macOS)
+    switch destination {
+    case .safariExtensionSettings:
+      SFSafariApplication.showPreferencesForExtension(withIdentifier: extensionBundleID) { error in
+        finish(error == nil)
+      }
+    case .safari:
+      guard let safari = NSWorkspace.shared.urlForApplication(
+        withBundleIdentifier: NativeOpenDestination.safariBundleIdentifier)
+      else { return finish(false) }
+      NSWorkspace.shared.openApplication(
+        at: safari, configuration: NSWorkspace.OpenConfiguration()
+      ) { _, error in finish(error == nil) }
+    case .settingsAppStillPage:
+      finish(false)
+    }
+    #elseif os(iOS)
+    switch destination {
+    case .settingsAppStillPage:
+      guard let url = URL(string: UIApplication.openSettingsURLString) else { return finish(false) }
+      UIApplication.shared.open(url, options: [:]) { ok in finish(ok) }
+    case .safariExtensionSettings, .safari:
+      finish(false)
+    }
+    #endif
+  }
+
+  /// Whether the app is the active app right now (a tap in it is possible).
+  @MainActor static var appIsActive: Bool {
+    #if os(macOS)
+    return NSApplication.shared.isActive
+    #else
+    return UIApplication.shared.applicationState == .active
+    #endif
+  }
 }

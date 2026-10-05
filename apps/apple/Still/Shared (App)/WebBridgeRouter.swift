@@ -28,7 +28,17 @@
 //      `shouldShow` is true only when the Info.plist presenter flag selects the web flow AND the gate
 //      is not complete; with the shipped (absent) flag the SwiftUI OnboardingPresenter owns the gate,
 //      `shouldShow` is always false and completion is refused, so the two flows can never both show.
-//      platform/osMajorVersion are host facts for choosing the approved setup steps.
+//      platform/osMajorVersion are host facts for choosing the approved setup steps. The Info.plist
+//      "web" flag takes effect only when the bundled web UI contains the D12 onboarding; a legacy
+//      web build keeps SwiftUI (OnboardingGate.presenter(fromInfoValue:webUIIndexHTML:)).
+//
+//    • Open a fixed destination (NativeOpenDestination.swift is the contract):
+//        { kind:"openDestination", destination:"safariExtensionSettings"|"settingsAppStillPage"|"safari" }
+//                                             → { ok:true, destination } | error "still: open refused
+//                                               (<reason>)" | error "still: open failed"
+//      Exactly those two keys; no URL ever comes from the page. Native re-checks the bundled main
+//      frame, accepts only a destination this platform supports (macOS: Safari's Extensions settings
+//      and Safari; iOS: Still's page in the Settings app) and only while the app is active.
 //
 //    • U19 auth + purchase (reply a small JSON object; purchase-first — plan 2026-07-15-001):
 //        { kind:"signInWithApple" }           → { identityToken, nonce, email?, fullName? } | { error }
@@ -127,7 +137,7 @@ final class WebBridgeRouter {
     Task { await self.captureOriginalInstall() }
   }
 
-  func handle(_ body: Any, reply: @escaping (Any?, String?) -> Void) {
+  func handle(_ body: Any, frame: BridgeFrame, reply: @escaping (Any?, String?) -> Void) {
     guard let dict = body as? [String: Any], let kind = dict["kind"] as? String else {
       reply(nil, "still: malformed message")
       return
@@ -164,6 +174,23 @@ final class WebBridgeRouter {
         return
       }
       reply(Self.json(["ok": true]), nil)
+
+    case NativeOpenRequest.messageKind:
+      switch NativeOpenRequest.authorize(
+        body: body, frame: frame, platform: Self.setupPlatform,
+        appIsActive: SafariExtensionBridge.appIsActive)
+      {
+      case .failure(let refusal):
+        reply(nil, "still: open refused (\(refusal.rawValue))")
+      case .success(let destination):
+        SafariExtensionBridge.open(destination) { opened in
+          if opened {
+            reply(Self.json(NativeOpenRequest.reply(destination)), nil)
+          } else {
+            reply(nil, "still: open failed")
+          }
+        }
+      }
 
     case "signInWithApple":
       Task { await self.handleSignIn(reply: reply) }
