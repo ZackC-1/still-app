@@ -43,8 +43,14 @@ if (
           supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
           supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
         },
-        legacy: init,
       }),
+    )
+    // Exactly one legacy start for every outcome that is not a mounted V3 popup, including a
+    // failed module load or an unexpected rejection.
+    .then(
+      (mode) => {
+        if (mode !== "v3") init();
+      },
       () => init(),
     );
 else init();

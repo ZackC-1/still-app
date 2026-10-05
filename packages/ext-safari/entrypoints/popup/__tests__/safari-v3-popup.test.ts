@@ -33,9 +33,9 @@ async function open(saved: SavedShape, options: { platform?: string; signedIn?: 
   const f = await installSafari({ saved, ...options });
   if (options.down) f.setNativeDown(true);
   document.body.innerHTML = '<div id="app"></div>';
-  const legacy = vi.fn();
-  const mode = await startSafariV3Popup({ env: ENV, legacy });
-  return { f, legacy, mode };
+  const load = vi.fn(() => import("../v3-mount.js"));
+  const mode = await startSafariV3Popup({ env: ENV, load });
+  return { f, load, mode };
 }
 
 const writes = (kinds: unknown[]) => kinds.filter((kind) => UNPROMPTED_WRITES.includes(kind as string));
@@ -47,18 +47,19 @@ describe("Safari V3 popup: runtime record gate", () => {
     ["nothing saved", "absent", {}],
     ["app unreachable and no atomic copy in browser storage", "atomic", { down: true }],
   ] as const)("%s keeps today's legacy popup and writes nothing", async (_name, saved, options) => {
-    const { f, legacy, mode } = await open(saved, options);
+    const { f, load, mode } = await open(saved, options);
     expect(mode).toBe("legacy");
-    expect(legacy).toHaveBeenCalledOnce();
+    // The V3 components and their global stylesheet are never even loaded.
+    expect(load).not.toHaveBeenCalled();
     expect(document.querySelector(".still-ui")).toBeNull();
     expect(writes(f.nativeKinds())).toEqual([]);
     expect(f.store["still:settings"]).toBeUndefined();
   });
 
   it("the app's atomic record mounts V3, also from the retained copy while the app is unreachable", async () => {
-    const { legacy, mode } = await open("atomic", { projection: true, down: true });
+    const { load, mode } = await open("atomic", { projection: true, down: true });
     expect(mode).toBe("v3");
-    expect(legacy).not.toHaveBeenCalled();
+    expect(load).toHaveBeenCalledOnce();
     // Last-known choices, held: never a fresh confirmation, and recovery is offered.
     await waitFor(() => expect(screen.getByText("Settings are unavailable.")).toBeTruthy());
     expect(screen.getByRole("switch", { name: "Still" }).getAttribute("aria-disabled")).toBe("true");
@@ -89,7 +90,7 @@ describe("Safari V3 popup: surfaces", () => {
   it("an unreadable platform falls back to the mobile popup", async () => {
     const f = await installSafari({ saved: "atomic" });
     document.body.innerHTML = '<div id="app"></div>';
-    await startSafariV3Popup({ env: ENV, legacy: vi.fn(), platform: () => Promise.reject(new Error("no")) });
+    await startSafariV3Popup({ env: ENV, platform: () => Promise.reject(new Error("no")) });
     await waitFor(() => expect(screen.getByRole("button", { name: "Settings. Opens Still settings." })).toBeTruthy());
     expect(writes(f.nativeKinds())).toEqual([]);
   });
@@ -134,7 +135,8 @@ describe("Safari V3 popup: saving", () => {
     await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(screen.queryByText("Settings are unavailable.")).toBeNull());
     expect(f.nativeKinds().filter((k) => k === "settingsIntent")).toHaveLength(intents);
-    expect(f.nativeKinds().filter((k) => k === "get").length).toBe(gets + 1);
+    // At least the one recovery read; account-status polling may add its own reads meanwhile.
+    expect(f.nativeKinds().filter((k) => k === "get").length).toBeGreaterThanOrEqual(gets + 1);
     expect(screen.getByRole("switch", { name: "Still on Instagram" }).getAttribute("aria-checked")).toBe("true");
   });
 });
@@ -151,5 +153,47 @@ describe("Safari V3 popup: what is never offered", () => {
     await open("atomic", { platform });
     await screen.findByRole("switch", { name: "Still on Instagram" });
     for (const word of ["$", "Purchase", "Still Pro", "Open the Still app", "Restore"]) expect(text()).not.toContain(word);
+  });
+});
+
+describe("Safari V3 popup: a failed mount", () => {
+  const tracked = (f: Awaited<ReturnType<typeof installSafari>>, name: string) =>
+    f.messages.filter((m) => m.action === "track" && m.name === name);
+
+  it("a mounted popup reports opened exactly once", async () => {
+    const { f } = await open("atomic");
+    await screen.findByRole("switch", { name: "Still on Instagram" });
+    await waitFor(() => expect(tracked(f, "opened")).toHaveLength(1));
+  });
+
+  it("stops everything it started, clears the page and hands over to legacy", async () => {
+    const f = await installSafari({ saved: "atomic", signedIn: true });
+    document.body.innerHTML = '<div id="app"></div>';
+    const mode = await startSafariV3Popup({
+      env: ENV,
+      load: async () => ({
+        mountSafariV3Popup(target: HTMLElement) {
+          target.append(document.createElement("section"));
+          throw new Error("mount failed");
+        },
+      }),
+    });
+    expect(mode).toBe("legacy");
+    expect(document.getElementById("app")!.childNodes).toHaveLength(0);
+    const polls = f.nativeKinds().filter((k) => k === "getAccountSyncStatus").length;
+    await new Promise((resolve) => setTimeout(resolve, 2_300));
+    // Account polling (every 2s) was stopped, no opened event was sent, nothing was written.
+    expect(f.nativeKinds().filter((k) => k === "getAccountSyncStatus")).toHaveLength(polls);
+    expect(tracked(f, "opened")).toHaveLength(0);
+    expect(writes(f.nativeKinds())).toEqual([]);
+  });
+
+  it("a component module that fails to load hands over to legacy before anything starts", async () => {
+    const f = await installSafari({ saved: "atomic" });
+    document.body.innerHTML = '<div id="app"></div>';
+    const mode = await startSafariV3Popup({ env: ENV, load: () => Promise.reject(new Error("chunk")) });
+    expect(mode).toBe("legacy");
+    expect(f.messages.filter((m) => m.kind === "reconcile")).toHaveLength(0);
+    expect(f.nativeKinds().filter((k) => k === "getAccountSyncStatus")).toHaveLength(0);
   });
 });

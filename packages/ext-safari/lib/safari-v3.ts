@@ -96,12 +96,12 @@ export function appManagedPopupAccount(
 }
 
 export interface SettingsSyncDisplay {
-  readonly account?: {
+  readonly account: {
     readonly address?: string;
-    readonly identity: string;
-    readonly revision: number;
+    readonly identity?: string;
+    readonly revision?: number;
     readonly confirmed: false;
-    readonly status: PopupAccountDisplay["status"];
+    readonly status?: PopupAccountDisplay["status"];
   };
 }
 
@@ -109,12 +109,18 @@ export interface SettingsSyncDisplay {
  * Settings-page sync card for Safari. As with the popup, there is no onSignIn, onSignOut,
  * onDeleteAccount or retry: the card hides every account action whose callback is absent, so the
  * extension never offers an action the Apple app owns.
+ *
+ * Signed out is an empty account, not "no account". With no account at all, SyncCard renders its
+ * signed-out invitation with a Sign in button, which this build can never enable, so it would be a
+ * permanently dead control. An empty account leaves only the card's "Settings sync" heading (plus
+ * any host action slot). Omitting the card itself would need a change to ExtensionSettings, which
+ * ships in the default Chrome and Firefox bundles and would break their byte identity.
  */
 export function appManagedSettingsSync(
   source: AppManagedAccountSource,
   text: AccountStatusText,
 ): SettingsSyncDisplay {
-  if (!source.userId) return {};
+  if (!source.userId) return { account: { confirmed: false } };
   return {
     account: {
       address: source.accountEmail ?? undefined,

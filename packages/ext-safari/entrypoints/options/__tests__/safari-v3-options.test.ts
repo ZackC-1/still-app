@@ -33,16 +33,16 @@ afterEach(async () => {
 async function open(saved: SavedShape, signedIn = false) {
   const f = await installSafari({ saved, signedIn });
   document.body.innerHTML = '<div id="app"></div>';
-  const legacy = vi.fn();
-  const mode = await startSafariV3Options({ env: ENV, legacy });
-  return { f, legacy, mode };
+  const load = vi.fn(() => import("../v3-mount.js"));
+  const mode = await startSafariV3Options({ env: ENV, load });
+  return { f, load, mode };
 }
 
 describe("Safari V3 settings page", () => {
   it.each(["legacy", "absent"] as const)("a %s record keeps today's settings page and writes nothing", async (saved) => {
-    const { f, legacy, mode } = await open(saved);
+    const { f, load, mode } = await open(saved);
     expect(mode).toBe("legacy");
-    expect(legacy).toHaveBeenCalledOnce();
+    expect(load).not.toHaveBeenCalled();
     expect(writes(f.nativeKinds())).toEqual([]);
   });
 
@@ -62,6 +62,32 @@ describe("Safari V3 settings page", () => {
     const saved = requireModernSettings((await f.nativeRecord())!);
     expect(saved.services.facebook).toBe(false);
     expect(saved.services.tiktok).toBe(false);
+  });
+
+  it("signed out: no Sign in button (this build cannot sign in; the app owns the account)", async () => {
+    await open("atomic");
+    await screen.findByRole("switch", { name: "Still on Facebook" });
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Settings sync" })).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+  });
+
+  it("a failed mount stops what it started, clears the page and hands over to legacy", async () => {
+    const f = await installSafari({ saved: "atomic", signedIn: true });
+    document.body.innerHTML = '<div id="app"></div>';
+    const mode = await startSafariV3Options({
+      env: ENV,
+      load: async () => ({
+        mountSafariV3Options() {
+          throw new Error("mount failed");
+        },
+      }),
+    });
+    expect(mode).toBe("legacy");
+    expect(document.getElementById("app")!.childNodes).toHaveLength(0);
+    const polls = f.nativeKinds().filter((k) => k === "getAccountSyncStatus").length;
+    await new Promise((resolve) => setTimeout(resolve, 2_300));
+    expect(f.nativeKinds().filter((k) => k === "getAccountSyncStatus")).toHaveLength(polls);
+    expect(f.messages.filter((m) => m.action === "track" && m.name === "opened")).toHaveLength(0);
   });
 
   it("signed in: the account is shown, but no sign-out, delete or sign-in (the app owns them)", async () => {

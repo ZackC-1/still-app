@@ -51,6 +51,18 @@ describe("Safari V3 build gate (mirrors the Apple app's D04 gate)", () => {
   });
 });
 
+describe("V3 styles load only after the record gate chose V3", () => {
+  it.each(["popup", "options"])("%s gate module imports no component or stylesheet; only its mount module does", (page) => {
+    const read = (file: string) => readFileSync(resolve(import.meta.dirname, `../../entrypoints/${page}/${file}`), "utf8");
+    const gate = read("v3.ts");
+    expect(gate).not.toMatch(/^import[^;]*(\.svelte|\.css)/m);
+    expect(gate).toContain('import("./v3-mount.js")');
+    expect(read("v3-mount.ts")).toMatch(/^import SafariV3\w+ from "\.\/SafariV3\w+\.svelte";$/m);
+    // The deciding call comes before the component module is requested.
+    expect(gate.indexOf("decideSafariV3(")).toBeLessThan(gate.indexOf('import("./v3-mount.js")'));
+  });
+});
+
 describe("Safari V3 runtime record gate", () => {
   it("only the app's atomic record selects V3", async () => {
     const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, globalOn: false, updatedAt: 1 });
@@ -97,8 +109,9 @@ describe("the Apple app owns the account on Safari", () => {
     expect(appManagedPopupAccount({ ...signedIn, lastSyncedAt: null }, TEXT)?.status).toEqual({ tone: "pending", text: "c" });
   });
 
-  it("signed out: nothing, and in particular no sign-in", () => {
+  it("signed out: no account display and, in particular, no sign-in", () => {
     expect(appManagedPopupAccount({ ...signedIn, userId: null }, TEXT)).toBeUndefined();
-    expect(appManagedSettingsSync({ ...signedIn, userId: null }, TEXT)).toEqual({});
+    // An empty account: SyncCard then shows neither its Sign in button nor any account action.
+    expect(appManagedSettingsSync({ ...signedIn, userId: null }, TEXT)).toEqual({ account: { confirmed: false } });
   });
 });

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   // Safari V3 settings page host: prop plumbing only, over the one committed binding
   // (lib/safari-v3-runtime). Reached only through a dynamic import that default builds fold away.
   //
@@ -15,19 +16,22 @@
   import {
     STRINGS,
     createPopupViewBinding,
-    type CommittedPopupBinding,
-    type CommittedPopupToggle,
-    type UiController,
   } from "@still/core/ui";
   import { SERVICE_IDS, type ServiceId } from "@still/shared-types";
   import { appManagedSettingsSync } from "../../lib/safari-v3.js";
+  import type { SafariV3Composition } from "../../lib/safari-v3-runtime.js";
 
   interface Props {
-    controller: UiController;
-    binding: CommittedPopupBinding;
-    onCommittedToggle?: (toggle: CommittedPopupToggle) => void;
+    /** The one composition (lib/safari-v3-runtime); stopped when this view is destroyed. */
+    composition: SafariV3Composition;
   }
-  let { controller: c, binding, onCommittedToggle }: Props = $props();
+  let { composition }: Props = $props();
+  // One composition per mount; it never changes for this view's lifetime.
+  const {
+    controller: c,
+    binding,
+    report: onCommittedToggle,
+  } = untrack(() => composition);
 
   const view = createPopupViewBinding(
     () => binding,
@@ -39,6 +43,19 @@
       }
     },
   );
+  $effect(() => () => composition.stop());
+  // Until the first settings read settles, a hold is "checking", not "unavailable".
+  let reading = $state(true);
+  $effect(() => {
+    let live = true;
+    void composition.settled.then(() => {
+      if (live) reading = false;
+    });
+    return () => {
+      live = false;
+    };
+  });
+  let unavailable = $derived(!reading && view.settingsUnavailable);
   let sync = $derived(appManagedSettingsSync(c, STRINGS.sync));
   let ready = $derived(
     view.settings && view.state && view.commands
@@ -82,7 +99,7 @@
 </script>
 
 {#snippet recovery()}
-  {#if view.settingsUnavailable}
+  {#if unavailable}
     <p class="muted" role="status">Settings are unavailable.</p>
     <button
       type="button"
@@ -105,11 +122,11 @@
       {sectionMemory}
       sync={{
         ...sync,
-        accountActions: view.settingsUnavailable ? recovery : undefined,
+        accountActions: unavailable ? recovery : undefined,
       }}
       {help}
     />
-  {:else if view.settingsUnavailable}
+  {:else if unavailable}
     {@render recovery()}
   {:else}
     <p class="muted" role="status">{STRINGS.sync.checking}</p>

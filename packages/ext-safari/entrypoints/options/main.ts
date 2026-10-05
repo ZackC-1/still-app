@@ -17,8 +17,13 @@ if (
           supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
           supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
         },
-        legacy,
       }),
+    )
+    // Exactly one legacy mount for every outcome that is not a mounted V3 settings page.
+    .then(
+      (mode) => {
+        if (mode !== "v3") legacy();
+      },
       () => legacy(),
     );
 } else mount(OptionsApp, { target: document.getElementById("app")! });

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   // Safari V3 popup host: prop plumbing only. DesktopPopup on macOS, MobilePopup on iOS and
   // iPadOS, both over the one committed binding (lib/safari-v3-runtime). Reached only through a
   // dynamic import that default builds fold away, so these components and their global stylesheet
@@ -18,11 +19,9 @@
     PRIVACY_POLICY_URL,
     STRINGS,
     createPopupViewBinding,
-    type CommittedPopupBinding,
-    type CommittedPopupToggle,
-    type UiController,
   } from "@still/core/ui";
   import { SERVICE_IDS, type ServiceId } from "@still/shared-types";
+  import type { SafariV3Composition } from "../../lib/safari-v3-runtime.js";
   import {
     SAFARI_DESKTOP_POPUP_BROWSER,
     appManagedPopupAccount,
@@ -30,19 +29,18 @@
   } from "../../lib/safari-v3.js";
 
   interface Props {
-    controller: UiController;
-    binding: CommittedPopupBinding;
+    /** The one composition (lib/safari-v3-runtime); stopped when this view is destroyed. */
+    composition: SafariV3Composition;
     surface: SafariPopupSurface;
     onSettings: () => void;
-    onCommittedToggle?: (toggle: CommittedPopupToggle) => void;
   }
-  let {
+  let { composition, surface, onSettings }: Props = $props();
+  // One composition per mount; it never changes for this view's lifetime.
+  const {
     controller: c,
     binding,
-    surface,
-    onSettings,
-    onCommittedToggle,
-  }: Props = $props();
+    report: onCommittedToggle,
+  } = untrack(() => composition);
 
   const view = createPopupViewBinding(
     () => binding,
@@ -54,6 +52,19 @@
       }
     },
   );
+  $effect(() => () => composition.stop());
+  // Until the first settings read settles, a hold is "checking", not "unavailable".
+  let reading = $state(true);
+  $effect(() => {
+    let live = true;
+    void composition.settled.then(() => {
+      if (live) reading = false;
+    });
+    return () => {
+      live = false;
+    };
+  });
+  let unavailable = $derived(!reading && view.settingsUnavailable);
   let account = $derived(appManagedPopupAccount(c, STRINGS.sync));
   let ready = $derived(
     view.settings && view.state && view.commands
@@ -86,7 +97,7 @@
 </script>
 
 {#snippet recovery()}
-  {#if view.settingsUnavailable}
+  {#if unavailable}
     <p class="muted" role="status">Settings are unavailable.</p>
     <button
       type="button"
@@ -111,7 +122,7 @@
       privacyUrl={PRIVACY_POLICY_URL}
       {account}
       {sectionMemory}
-      accountActions={view.settingsUnavailable ? recovery : undefined}
+      accountActions={unavailable ? recovery : undefined}
     />
   {:else if ready}
     <MobilePopup
@@ -126,9 +137,9 @@
       privacyUrl={PRIVACY_POLICY_URL}
       {account}
       {sectionMemory}
-      accountActions={view.settingsUnavailable ? recovery : undefined}
+      accountActions={unavailable ? recovery : undefined}
     />
-  {:else if view.settingsUnavailable}
+  {:else if unavailable}
     {@render recovery()}
   {:else}
     <p class="muted" role="status">{STRINGS.sync.checking}</p>

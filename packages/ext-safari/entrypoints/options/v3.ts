@@ -1,31 +1,52 @@
-import { mount } from "svelte";
 import type { StoredSettingsRecord } from "@still/core/storage";
-import { composeSafariV3 } from "../../lib/safari-v3-runtime.js";
+import {
+  composeSafariV3,
+  decideSafariV3,
+  type SafariV3Composition,
+} from "../../lib/safari-v3-runtime.js";
 import type { SafariV3BuildInput } from "../../lib/safari-v3.js";
-import SafariV3Options from "./SafariV3Options.svelte";
+
+// The V3 settings-page gate. Like the popup's, it imports no component or stylesheet; those live in
+// ./v3-mount and load only after the record gate has chosen V3.
+
+export interface SafariV3OptionsView {
+  mountSafariV3Options(target: HTMLElement, composition: SafariV3Composition): void;
+}
 
 export interface SafariV3OptionsDeps {
   readonly env: SafariV3BuildInput;
-  /** The legacy settings page, exactly as default builds mount it. */
-  readonly legacy: () => void;
   readonly probe?: () => Promise<StoredSettingsRecord | null>;
+  /** The component module; injectable so a test can make mounting fail. */
+  readonly load?: () => Promise<SafariV3OptionsView>;
 }
 
-/** V3 settings page over the app's atomic record; otherwise the legacy page unchanged. */
+/** "v3" once the V3 settings page has mounted; otherwise "legacy" (see the popup's gate). */
 export async function startSafariV3Options(deps: SafariV3OptionsDeps): Promise<"v3" | "legacy"> {
-  // A composition failure is never a blank page: it is the legacy screen.
-  const composition = await composeSafariV3("options", deps.env, deps.probe).catch(() => null);
-  if (!composition) {
-    deps.legacy();
+  if (!(await decideSafariV3(deps.env, deps.probe).catch(() => false))) return "legacy";
+  let view: SafariV3OptionsView;
+  try {
+    view = await (deps.load ?? (() => import("./v3-mount.js")))();
+  } catch {
     return "legacy";
   }
-  mount(SafariV3Options, {
-    target: document.getElementById("app")!,
-    props: {
-      controller: composition.controller,
-      binding: composition.binding,
-      onCommittedToggle: composition.report,
-    },
-  });
+  const target = document.getElementById("app")!;
+  let composition: SafariV3Composition;
+  try {
+    composition = composeSafariV3("options");
+  } catch {
+    return "legacy";
+  }
+  try {
+    view.mountSafariV3Options(target, composition);
+  } catch {
+    composition.stop();
+    target.replaceChildren();
+    return "legacy";
+  }
+  try {
+    composition.opened();
+  } catch {
+    /* Telemetry never decides which screen shows. */
+  }
   return "v3";
 }
