@@ -606,3 +606,208 @@ describe("actual options sync and auth operations", () => {
     }
   });
 });
+
+describe("options current deletion through sync status refreshes", () => {
+  it.each(["cloudReachable", "pendingUpload", "lastSyncedAt"] as const)(
+    "keeps the real confirmation actionable through a %s refresh and deletes once",
+    async (field) => {
+      await browser();
+      const p = purchase();
+      const state = capture({ purchase: p.deps });
+      await flush();
+      state.controller.userId = "synthetic-account";
+      state.controller.accountEmail = "synthetic@example.invalid";
+      state.controller.cloudReachable = true;
+      state.controller.pendingUpload = false;
+      state.controller.lastSyncedAt = null;
+      const held = gate();
+      p.auth.deleteAccount.mockImplementationOnce(() => held.promise);
+      await options(state);
+      await fireEvent.click(
+        screen.getByRole("button", { name: "Delete account" }),
+      );
+      const dialog = screen.getByRole("dialog");
+      const confirm = within(dialog).getByRole("button", {
+        name: "Delete account",
+      });
+      if (field === "cloudReachable") state.controller.cloudReachable = false;
+      else if (field === "pendingUpload") state.controller.pendingUpload = true;
+      else state.controller.lastSyncedAt = 1000;
+      await tick();
+      expect(screen.queryByRole("dialog")).toBe(dialog);
+      expect(confirm).not.toBeDisabled();
+      expect(p.auth.deleteAccount).not.toHaveBeenCalled();
+      expect(
+        screen.getByText(
+          field === "cloudReachable"
+            ? STRINGS.sync.unreachable
+            : field === "pendingUpload"
+              ? STRINGS.sync.syncing
+              : STRINGS.sync.synced,
+        ),
+      ).toBeTruthy();
+      try {
+        await fireEvent.click(confirm);
+        await fireEvent.click(confirm);
+        await waitFor(() =>
+          expect(p.auth.deleteAccount).toHaveBeenCalledOnce(),
+        );
+        expect(screen.queryByRole("dialog")).toBeNull();
+        expect(screen.getByText(STRINGS.account.deleting)).toBeTruthy();
+        expect(
+          screen.queryByRole("button", { name: "Delete account" }),
+        ).toBeNull();
+        held.open();
+        await waitFor(() => expect(state.controller.userId).toBeNull());
+        expect(p.auth.deleteAccount).toHaveBeenCalledOnce();
+      } finally {
+        held.open();
+      }
+    },
+  );
+});
+
+describe("options deletion attachment replacement safeguards", () => {
+  it.each([
+    "address",
+    "revision",
+    "batched A-B-A",
+    "controller",
+    "host",
+    "loader",
+    "binding",
+    "stopped binding",
+    "unmount",
+  ] as const)(
+    "denies the obsolete confirmation after %s and requires a fresh current choice",
+    async (replacement) => {
+      await browser();
+      const p = purchase();
+      const state = capture({ purchase: p.deps });
+      await flush();
+      state.controller.userId = "synthetic-account";
+      state.controller.accountEmail = null;
+      let controller = state.controller;
+      const host = presentation();
+      const props = {
+        controller,
+        committedPopupBinding: state.binding,
+        settingsPresentation: host,
+      };
+      let attachment = props;
+      const signal = () => {
+        let notify = () => {};
+        const subscribe = createSubscriber((update) => {
+          notify = update;
+          return () => {
+            notify = () => {};
+          };
+        });
+        return { subscribe, update: () => notify() };
+      };
+      const signals = [signal(), signal(), signal()] as const;
+      const component = mount(App, {
+        target: document.body,
+        props: {
+          get controller() {
+            signals[0].subscribe();
+            return attachment.controller;
+          },
+          get committedPopupBinding() {
+            signals[1].subscribe();
+            return attachment.committedPopupBinding;
+          },
+          get settingsPresentation() {
+            signals[2].subscribe();
+            return attachment.settingsPresentation;
+          },
+        },
+      });
+      const close = () =>
+        flushSync(() => {
+          void unmount(component);
+        });
+      flushSync();
+      try {
+        await waitFor(() =>
+          expect(
+            screen.getByRole("button", { name: "YouTube Blocker" }),
+          ).toBeTruthy(),
+        );
+        await fireEvent.click(
+          screen.getByRole("button", { name: "Delete account" }),
+        );
+        const obsoleteConfirm = within(screen.getByRole("dialog")).getByRole(
+          "button",
+          { name: "Delete account" },
+        );
+        if (replacement === "address")
+          controller.accountEmail = "synthetic@example.invalid";
+        else if (replacement === "revision") {
+          controller.accountRevision += 1;
+          // The maintained controller publishes its non-reactive epoch with sync status.
+          controller.cloudReachable = false;
+        } else if (replacement === "batched A-B-A") {
+          controller.userId = "synthetic-replacement";
+          controller.accountRevision += 1;
+          controller.userId = "synthetic-account";
+          controller.accountRevision += 1;
+        } else if (replacement === "controller") {
+          const next = capture({ purchase: p.deps });
+          await flush();
+          controller = next.controller;
+          controller.userId = "synthetic-account";
+          controller.accountEmail = null;
+          attachment = { ...props, controller };
+          signals[0].update();
+        } else if (replacement === "host" || replacement === "loader") {
+          attachment = {
+            ...props,
+            settingsPresentation:
+              replacement === "host"
+                ? presentation()
+                : {
+                    ...host,
+                    loadSettings: async () =>
+                      import("../v3/ExtensionSettings.svelte"),
+                  },
+          };
+          signals[2].update();
+        } else if (replacement === "binding") {
+          const next = capture();
+          await flush();
+          attachment = { ...props, committedPopupBinding: next.binding };
+          signals[1].update();
+        } else if (replacement === "stopped binding") state.binding.stop();
+        else close();
+        await tick();
+        await fireEvent.click(obsoleteConfirm);
+        await flush();
+        expect(p.auth.deleteAccount).not.toHaveBeenCalled();
+        expect(screen.queryByRole("dialog")).toBeNull();
+        if (replacement === "unmount" || replacement === "stopped binding")
+          return;
+        await waitFor(() =>
+          expect(
+            screen.getByRole("button", { name: "YouTube Blocker" }),
+          ).toBeTruthy(),
+        );
+        await fireEvent.click(
+          screen.getByRole("button", { name: "Delete account" }),
+        );
+        // Even a reopened same-account dialog cannot revive the previous click target.
+        await fireEvent.click(obsoleteConfirm);
+        expect(p.auth.deleteAccount).not.toHaveBeenCalled();
+        await fireEvent.click(
+          within(screen.getByRole("dialog")).getByRole("button", {
+            name: "Delete account",
+          }),
+        );
+        await waitFor(() => expect(controller.userId).toBeNull());
+        expect(p.auth.deleteAccount).toHaveBeenCalledOnce();
+      } finally {
+        close();
+      }
+    },
+  );
+});

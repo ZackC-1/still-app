@@ -190,10 +190,22 @@
       SettingsPresentation,
     ),
   );
-  let optionsSync = $derived.by((): ExtensionSettingsProps["sync"] => {
+  // The controller epoch is not reactive; re-read it with account/status notifications.
+  // Equal epoch values keep the operation callbacks stable through routine polling.
+  let optionsAccountRevision = $derived.by(() => {
+    void c.userId;
+    void c.accountEmail;
+    void c.cloudReachable;
+    void c.pendingUpload;
+    void c.lastSyncedAt;
+    return c.accountRevision;
+  });
+  // Account operations belong to the current attachment, independently of sync polling.
+  let optionsOperations = $derived.by(() => {
     const controller = c;
     const identity = controller.userId;
-    const revision = controller.accountRevision;
+    const revision = optionsAccountRevision;
+    const address = controller.accountEmail;
     const lifetime = syncRetryLifetime;
     const host = settingsHost;
     const binding = committedPopupBinding;
@@ -204,23 +216,49 @@
       c === controller &&
       controller.userId === identity &&
       controller.accountRevision === revision &&
+      controller.accountEmail === address &&
       syncRetryLifetime === lifetime &&
       settingsHost === host &&
       committedPopupBinding === binding &&
       binding?.current().reason !== "stopped";
-    if (!identity)
-      return {
-        onSignIn: controller.canSignIn
+    return {
+      onSignIn:
+        !identity && controller.canSignIn
           ? () => {
               if (current()) controller.openSignIn();
             }
           : undefined,
-      };
+      onRetry: controller.retrySync
+        ? () => {
+            if (current()) runSyncRetry();
+          }
+        : undefined,
+      onSignOut: () => {
+        if (current()) void controller.signOut();
+      },
+      onDeleteAccount:
+        controller.canDeleteAccount && controller.deleteFlow !== "deleting"
+          ? () => {
+              if (
+                current() &&
+                controller.canDeleteAccount &&
+                controller.deleteFlow !== "deleting"
+              )
+                void controller.confirmDeleteAccount();
+            }
+          : undefined,
+    };
+  });
+  let optionsSync = $derived.by((): ExtensionSettingsProps["sync"] => {
+    const controller = c;
+    const operations = optionsOperations;
+    const identity = controller.userId;
+    if (!identity) return { onSignIn: operations.onSignIn };
     return {
       account: {
         address: controller.accountEmail ?? undefined,
         identity,
-        revision,
+        revision: optionsAccountRevision,
         confirmed: false,
         status: !controller.cloudReachable
           ? {
@@ -229,31 +267,15 @@
               actionLabel: controller.retrySync
                 ? STRINGS.sync.retry
                 : undefined,
-              onAction: controller.retrySync
-                ? () => {
-                    if (current()) runSyncRetry();
-                  }
-                : undefined,
+              onAction: operations.onRetry,
             }
           : controller.pendingUpload
             ? { tone: "pending", text: STRINGS.sync.syncing }
             : controller.lastSyncedAt !== null
               ? { tone: "success", text: STRINGS.sync.synced }
               : { tone: "pending", text: STRINGS.sync.checking },
-        onSignOut: () => {
-          if (current()) void controller.signOut();
-        },
-        onDeleteAccount:
-          controller.canDeleteAccount && controller.deleteFlow !== "deleting"
-            ? () => {
-                if (
-                  current() &&
-                  controller.canDeleteAccount &&
-                  controller.deleteFlow !== "deleting"
-                )
-                  void controller.confirmDeleteAccount();
-              }
-            : undefined,
+        onSignOut: operations.onSignOut,
+        onDeleteAccount: operations.onDeleteAccount,
       },
     };
   });
