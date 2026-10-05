@@ -128,14 +128,15 @@ test("paid on: hidden related continuation never keeps loading (no request loop)
           if (!entry.isIntersecting || window.loads >= 8) continue;
           window.loads++;
           observer.unobserve(entry.target);
-          // A "network" round trip, then the new items and a fresh continuation item.
+          // A 300 ms "network" round trip, then the new items and a fresh continuation item. So
+          // at most one load can start per round trip, which bounds the pre-hydration window.
           setTimeout(() => {
             entry.target.remove();
             const item = document.createElement("ytd-compact-video-renderer");
             item.textContent = "Invented continuation " + window.loads;
             items.append(item);
             addSentinel();
-          }, 100);
+          }, 300);
         }
       });
       function addSentinel() {
@@ -154,9 +155,11 @@ test("paid on: hidden related continuation never keeps loading (no request loop)
   await only(authority, ["youtube.related"]);
   await page.goto("https://www.youtube.com/watch?v=inv000011");
   await expect(page.locator("#target-related")).toBeHidden();
-  await page.waitForTimeout(300); // let a request that started before hydration finish
+  await page.waitForTimeout(400); // let a request that started before hydration finish
   const settled = await loads();
-  expect(settled, "far fewer loads than the visible loop").toBeLessThan(8);
+  // One load in the pre-hydration window, two at most if hydration outlasts a round trip; the
+  // visible loop reaches the cap of 8.
+  expect(settled, "only the pre-hydration window's load(s), not the loop").toBeLessThanOrEqual(2);
   await page.waitForTimeout(1_200);
   expect(await loads(), "no further continuation while hidden").toBe(settled);
   await expect(page.locator("#keep-playlist")).toBeVisible();
