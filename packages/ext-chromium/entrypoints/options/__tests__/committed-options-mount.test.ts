@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import {
   cleanup,
   fireEvent,
@@ -26,6 +26,13 @@ vi.mock("wxt/browser", () => ({
 }));
 import OptionsApp from "../OptionsApp.svelte";
 
+// OptionsApp loads its settings page lazily. In a fresh worker that first import pays Vite's on-demand
+// Svelte transform (0.3-0.6s, far more under CPU contention), which used to land inside the first
+// test's 1s `waitFor` window and time it out. Resolve the same module here so every `waitFor` measures
+// only the app; the app still performs its own dynamic import, which now resolves from the module cache.
+beforeAll(async () => {
+  await import("../../../../core/src/ui/v3/ExtensionSettings.svelte");
+});
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -135,7 +142,7 @@ async function installBrowser(atomic = true) {
     },
     runtime: {
       id: "synthetic",
-      getURL: () => origin,
+      getURL: (path = "") => origin + path.replace(/^\//, ""),
       sendMessage,
       openOptionsPage,
     },
@@ -283,7 +290,8 @@ describe("real options help and local disclosure memory", () => {
       );
       const config = await import("../../../../core/src/ui/config.js");
       expect(open.mock.calls).toEqual([
-        [config.SETUP_GUIDE_URL, "_blank", "noopener,noreferrer"],
+        // Setup guide reopens the extension's own first-run page, not the website.
+        ["chrome-extension://synthetic/first-run.html", "_blank", "noopener,noreferrer"],
         [config.PRIVACY_POLICY_URL, "_blank", "noopener,noreferrer"],
       ]);
       expect(
