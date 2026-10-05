@@ -1,10 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import FirstRun from "./FirstRun.svelte";
-import type { FirstRunProps } from "./first-run-presentation.js";
+import type {
+  FirstRunConsent,
+  FirstRunProps,
+} from "./first-run-presentation.js";
+import type { OnboardingConsent } from "./apple-onboarding-presentation.js";
 
-function fixture(): FirstRunProps {
+function fixture(): FirstRunProps & { consent: FirstRunConsent } {
   return {
     browser: "firefox",
     permission: {
@@ -273,6 +277,89 @@ describe("controlled extension first-run", () => {
     expect(initial).not.toHaveBeenCalled();
     expect(after).toHaveBeenCalledOnce();
     expect(props.privacy.onOpen).not.toHaveBeenCalled();
+    view.unmount();
+  });
+});
+
+describe("first-run consent contract", () => {
+  it("is the Apple onboarding consent acknowledgement, not a parallel copy", () => {
+    // Checked by the core typecheck: any divergence between the two contracts fails here.
+    expectTypeOf<FirstRunConsent>().toEqualTypeOf<OnboardingConsent>();
+    expectTypeOf<
+      NonNullable<FirstRunProps["consent"]>
+    >().toEqualTypeOf<OnboardingConsent>();
+  });
+});
+
+describe("first-run privacy slot without a combined-consent producer", () => {
+  const combinedWording = /email and usage data/i;
+  async function privacySlot(onAction = vi.fn()) {
+    const { createRawSnippet } = await import("svelte");
+    return createRawSnippet(() => ({
+      render: () =>
+        '<div data-testid="privacy-actions"><button type="button">Supplied privacy action</button></div>',
+      setup: (node) => {
+        node.addEventListener("click", onAction);
+        return () => node.removeEventListener("click", onAction);
+      },
+    }));
+  }
+  function withoutConsent(): FirstRunProps {
+    const { consent: _consent, ...rest } = fixture();
+    return rest;
+  }
+  function footer(container: HTMLElement) {
+    return container.querySelector(".fr-foot")!;
+  }
+
+  it("renders supplied privacy actions in the consent slot and no combined consent wording", async () => {
+    const onAction = vi.fn();
+    const privacyActions = await privacySlot(onAction);
+    const view = render(FirstRun, {
+      props: { ...withoutConsent(), privacyActions },
+    });
+    const slot = screen.getByTestId("privacy-actions");
+    expect(footer(view.container).previousElementSibling).toBe(slot);
+    expect(slot.previousElementSibling).toBe(
+      view.container.querySelector("ol.steps")!.closest("section"),
+    );
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Supplied privacy action" }),
+    );
+    expect(onAction).toHaveBeenCalledOnce();
+    expect(screen.queryByText(combinedWording)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Share" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Don't share" })).toBeNull();
+    view.unmount();
+  });
+
+  it("fabricates nothing in the consent slot when neither consent nor privacy actions are supplied", () => {
+    const view = render(FirstRun, { props: withoutConsent() });
+    expect(footer(view.container).previousElementSibling).toBe(
+      view.container.querySelector("ol.steps")!.closest("section"),
+    );
+    expect(screen.queryByText(combinedWording)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Share" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Don't share" })).toBeNull();
+    expect(
+      screen.queryByText("Change this any time in Still settings."),
+    ).toBeNull();
+    view.unmount();
+  });
+
+  it("keeps supplied consent unchanged and in the same slot, ahead of any privacy actions", async () => {
+    const props = fixture();
+    const privacyActions = await privacySlot();
+    const view = render(FirstRun, { props: { ...props, privacyActions } });
+    const consentCard = screen
+      .getByRole("heading", {
+        name: "Share your email and usage data with Still?",
+      })
+      .closest("section")!;
+    expect(footer(view.container).previousElementSibling).toBe(consentCard);
+    expect(screen.queryByTestId("privacy-actions")).toBeNull();
+    await fireEvent.click(screen.getByRole("button", { name: "Don't share" }));
+    expect(props.consent.onDecline).toHaveBeenCalledOnce();
     view.unmount();
   });
 });
