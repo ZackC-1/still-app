@@ -308,6 +308,7 @@ async function mountAppleSettings(adapter: WKWebViewStorageAdapter): Promise<voi
         authority,
         observeSetup: () => bridge.observeSafariSetup(),
         help: appleSettingsHelp((url) => openExternalLink(url)),
+        restoreBridge: bridge,
         onCommittedToggle: appleSettingsToggleReporter(analytics.ui),
       },
     });

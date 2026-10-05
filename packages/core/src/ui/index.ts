@@ -65,6 +65,7 @@ export {
   watchAppleSetup,
   createAppleSettingsSync,
   appleSettingsRestore,
+  createAppleSettingsRestore,
   appleSettingsHelp,
   appleSettingsToggleReporter,
   openExternalLink,
@@ -73,5 +74,6 @@ export {
   type AppleSettingsAccountSource,
   type AppleSettingsAuthority,
   type AppleSetupView,
+  type AppleRestoreBridge,
 } from "./v3/apple-settings-host.js";
 export type { AppleSettingsProps } from "./v3/apple-settings-presentation.js";
