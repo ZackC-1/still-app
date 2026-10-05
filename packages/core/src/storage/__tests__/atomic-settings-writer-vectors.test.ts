@@ -1,26 +1,32 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { A, LINEAGE, SESSION } from "./atomic-settings-test-fixtures.js";
 import { digest, formatVectors, generateVectors, VECTORS_FILE, type ParityCase, type ParityRule, type ParityVectors } from "./support/atomic-settings-writer-vectors.js";
 
 // The fixture is shared with StillKit (AtomicSettingsWriterVectorTests.swift) and the compiled-host
 // replay in atomic-settings.test.ts. This file pins it to the reference TypeScript writer and
-// checks that each case still demonstrates the rule it is named for.
+// checks each case against independent expectations of the rule it is named for, so a
+// regeneration cannot silently bless a writer regression.
 const file = resolve(import.meta.dirname, "../../../../..", VECTORS_FILE);
 
 describe("shared atomic settings writer vectors", () => {
   let vectors: ParityVectors;
+  let generated: ParityVectors;
   const byName = (name: string): ParityCase => {
     const found = vectors.cases.find(c => c.name === name);
     if (!found) throw new Error(`missing case ${name}`);
     return found;
   };
-
-  it("the checked-in fixture is exactly what the reference TypeScript writer produces", async () => {
-    const generated = await generateVectors();
+  // Every assertion block reads the checked-in fixture loaded here, never state from another test.
+  beforeAll(async () => {
+    generated = JSON.parse(JSON.stringify(await generateVectors())) as ParityVectors;
     if (process.env.STILL_UPDATE_ATOMIC_VECTORS === "1") await writeFile(file, formatVectors(generated));
     vectors = JSON.parse(await readFile(file, "utf8")) as ParityVectors;
-    expect(vectors).toStrictEqual(JSON.parse(JSON.stringify(generated)));
+  });
+
+  it("the checked-in fixture is exactly what the reference TypeScript writer produces", () => {
+    expect(vectors).toStrictEqual(generated);
   });
 
   it("covers every parity rule and ends every case with a complete record", () => {
@@ -89,6 +95,16 @@ describe("shared atomic settings writer vectors", () => {
     for (const step of generation.steps) expect(step.digest).toBe(digest(generation.initial));
   });
 
+  it("legacy-commit: a no-op on an absent record writes nothing; the first real change does", () => {
+    const noop = byName("legacy-commit/no-op-on-absent-record-writes-nothing");
+    expect(noop.steps.map(s => s.outcome)).toEqual(["applied", "applied", "refused", "applied"]);
+    for (const step of noop.steps.slice(0, 3)) {
+      expect(step.digest).toBe(digest(null)); expect(step.summary).toBeNull();
+    }
+    expect(noop.steps.slice(0, 2).map(s => s.changed)).toEqual([false, false]);
+    expect(noop.steps[3]).toMatchObject({ changed: true, record: { syncMetadata: null, syncEpoch: 0, settings: { globalOn: false, updatedAt: 13 } } });
+  });
+
   it("legacy-commit: absent records are never repointed and stamps never move backward", () => {
     const absent = byName("legacy-commit/absent-record-saves-a-never-repointed-record");
     expect(absent.steps[0]!.summary).toMatchObject({ syncEpoch: 0, updatedAt: 10, sequence: null });
@@ -96,5 +112,64 @@ describe("shared atomic settings writer vectors", () => {
     expect(absent.steps.map(s => s.outcome)).toEqual(["applied", "applied", "refused", "applied", "applied"]);
     const backward = byName("legacy-commit/stamps-never-move-backward");
     expect(backward.steps.map(s => s.summary!.updatedAt)).toEqual([5_001, 5_002, 9_000, 9_000, 9_000]);
+  });
+
+  it("compaction first link: the compacted journal transfers with original identities and clears once acknowledged", () => {
+    const c = byName("compaction/first-link-transfers-the-compacted-journal");
+    const [w1, w2, w3, w4, w5, w6, w7] = c.writeIds as string[];
+    expect(c.writeIds).toHaveLength(7);
+    // Six alternating globalOn edits then one YouTube edit: only the newest globalOn request survives.
+    expect(c.steps.slice(0, 7).map(s => s.summary!.newestPending)).toEqual([w1, w2, w3, w4, w5, w6, w7]);
+    expect(c.steps[6]!.summary).toMatchObject({ pendingCount: 2, paused: null, held: {}, syncEpoch: 0 });
+    // First link from never-linked: one repoint, both requests carried, no ownership pause.
+    expect(c.steps[7]!.summary).toMatchObject({ pendingCount: 2, newestPending: w7, paused: null, held: {}, syncEpoch: 1,
+      sequence: c.steps[6]!.summary!.sequence! + 1 });
+    // A baseline account answer at revision 0 cannot outrank local intent: both requests remain.
+    expect(c.steps[8]!.summary).toMatchObject({ pendingCount: 2, paused: null, held: {} });
+    const final = c.steps[9]!.record!;
+    expect(final.atomic).toMatchObject({ ownership: "previous-account", scope: { accountId: A, sessionId: SESSION, generation: 1 },
+      anchor: { lineage: LINEAGE, revision: 1 }, pending: [], held: {}, paused: null });
+    expect(final.settings).toMatchObject({ globalOn: true, services: { youtube: false } });
+  });
+
+  it("baseline: an older acknowledgement keeps newer queued intent; a stale-scope answer is ignored", () => {
+    const c = byName("baseline/acknowledgement-keeps-newer-local-intent");
+    const [sent, newer, youtube] = c.writeIds;
+    expect(c.writeIds).toHaveLength(3);
+    expect(c.steps[1]!.summary).toMatchObject({ pendingCount: 2, newestPending: newer });
+    expect(c.steps[2]!.summary).toMatchObject({ pendingCount: 1, newestPending: newer, paused: null });
+    expect(sent).not.toBe(newer);
+    expect(c.steps[3]!.summary).toMatchObject({ pendingCount: 2, newestPending: youtube });
+    // Signing in to another account retires queued requests and waits for its first answer.
+    expect(c.steps[4]!.summary).toMatchObject({ pendingCount: 0, paused: "ownership-unconfirmed", syncEpoch: c.steps[3]!.summary!.syncEpoch! + 1 });
+    expect(c.steps[5]!.summary).toMatchObject({ pendingCount: 0, paused: "ownership-unconfirmed" });
+    expect(c.steps[6]!.digest).toBe(c.steps[5]!.digest);
+    expect(c.steps[6]!.record!.settings).toMatchObject({ globalOn: true, services: { youtube: false } });
+    expect(c.steps[6]!.record!.atomic).toMatchObject({ scope: { accountId: A, sessionId: SESSION }, anchor: null });
+  });
+
+  it("baseline: an account switch retires queued intent and adopts the non-empty account", () => {
+    const c = byName("baseline/account-switch-retires-pending-and-adopts-the-account");
+    expect(c.steps[1]!.summary).toMatchObject({ pendingCount: 2 });
+    expect(c.steps[2]!.summary).toMatchObject({ pendingCount: 0, paused: "ownership-unconfirmed" });
+    expect(c.steps[3]!.summary).toMatchObject({ pendingCount: 0, paused: null, held: {} });
+    expect(c.steps[4]!.summary).toMatchObject({ pendingCount: 1, newestPending: c.writeIds[2], paused: null });
+    const final = c.steps[5]!.record!;
+    // The account's On replaced the local Off for globalOn; the later Facebook Off stays on the device.
+    expect(final.settings).toMatchObject({ globalOn: true, services: { facebook: false } });
+    expect(final.atomic).toMatchObject({ ownership: "previous-account", scope: { accountId: null }, anchor: null, pending: [], held: {} });
+  });
+
+  it("baseline: a never-linked first link into an empty account keeps local choices as bound requests", () => {
+    const c = byName("baseline/never-linked-empty-account-first-link");
+    expect(c.steps[2]!.summary).toMatchObject({ pendingCount: 2, paused: null });
+    expect(c.steps[3]!.summary).toMatchObject({ pendingCount: 2, paused: null, held: {} });
+    const final = c.steps[4]!.record!;
+    expect(final.settings).toMatchObject({ globalOn: false, services: { instagram: false }, sites: { "youtube.shorts": false } });
+    expect(final.syncMetadata).toBeNull();
+    expect(final.atomic!.pending.map(p => p.writeId)).toEqual(c.writeIds);
+    for (const request of final.atomic!.pending) expect(request.receipt).toMatchObject({ lineage: LINEAGE, revision: 0 });
+    expect(final.atomic!.pending.slice(0, 2).map(p => p.originScope)).toEqual([{ accountId: null, generation: 0 }, { accountId: null, generation: 0 }]);
+    expect(final.atomic!.pending[2]!.originScope).toBeUndefined();
   });
 });

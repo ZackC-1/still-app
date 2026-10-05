@@ -415,6 +415,19 @@
       ]
     },
     {
+      "name": "legacy-commit/no-op-on-absent-record-writes-nothing",
+      "rule": "legacy-commit",
+      "about": "Choices that match the startup defaults on an absent record write nothing, so defaults never become a saved record; the first real change does.",
+      "initial": null,
+      "writeIds": [],
+      "steps": [
+        {"command":{"kind":"commit","path":"globalOn","value":true,"updatedAt":10},"outcome":"applied","changed":false,"summary":null,"digest":"74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"},
+        {"command":{"kind":"commit","path":"services.youtube","value":true,"updatedAt":11},"outcome":"applied","changed":false,"summary":null,"digest":"74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"},
+        {"command":{"kind":"commit","path":"sites.youtube.shorts","value":true,"updatedAt":12},"outcome":"refused","summary":null,"digest":"74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"},
+        {"command":{"kind":"commit","path":"globalOn","value":false,"updatedAt":13},"outcome":"applied","changed":true,"summary":{"syncEpoch":0,"updatedAt":13,"sequence":null,"paused":null,"held":null,"pendingCount":null,"newestPending":null},"digest":"85f97d4479144464a325a0cf584fac1d1940f14e309348cdf22262f7a67d7da6","record":{"settings":{"globalOn":false,"services":{"youtube":true,"instagram":true,"tiktok":true,"facebook":true},"pauses":[],"updatedAt":13},"syncMetadata":null,"syncEpoch":0}}
+      ]
+    },
+    {
       "name": "legacy-commit/stamps-never-move-backward",
       "rule": "legacy-commit",
       "about": "A legacy choice is stamped after the saved updatedAt even when the device clock is behind it.",
