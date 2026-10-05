@@ -122,8 +122,9 @@ const iphone15 = (scale?: number): FrameSpec => ({
 });
 const base = { screen, component: "AppleSettings", textScale: 1 } as const;
 const signedOut = [OWNER_SYNC_COPY];
+// d04-06's reference keeps the review-only label; only d04-07 was re-captured without it.
 const demoMark =
-  'reference shows the review-only DemoMark ("Demonstration only: no real sync"), which HANDOFF §6 forbids shipping';
+  "reference draws the review-only demonstration label that the shipped screen never renders";
 
 const cases: VisualCase[] = [
   {
@@ -135,6 +136,8 @@ const cases: VisualCase[] = [
     width: 393,
     frame: iphone15(),
     render: settingsPage({ access: accessAll("locked"), setup: true }),
+    callerCopy:
+      "proves layout with the supplied setup copy (title, detail, steps from owner decision 3, button label), not production caller wiring",
     deviations: signedOut,
   },
   {
@@ -248,7 +251,6 @@ const cases: VisualCase[] = [
       link: "confirm",
       signedIn: true,
     }),
-    deviations: [demoMark],
   },
   {
     ...base,
@@ -271,6 +273,8 @@ const cases: VisualCase[] = [
     textScale: 1.35,
     frame: iphone15(1.35),
     render: settingsPage({ access: accessAll("locked"), setup: true }),
+    callerCopy:
+      "proves layout with the supplied setup copy (title, detail, steps from owner decision 3, button label), not production caller wiring",
     deviations: signedOut,
   },
   {

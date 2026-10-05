@@ -168,8 +168,14 @@ const cases: VisualCase[] = [
   },
 ];
 
+// Every D12 frame receives its wording from the caller: the Safari setup steps (owner decision 3),
+// the setup button labels, and the consent purposes, which are the reference's bracketed
+// placeholders (the owner-approved purposes of decision 8 are not what these references show).
+const CALLER_COPY =
+  "proves layout with the supplied copy (setup steps and button labels; placeholder consent purposes from the reference), not production caller wiring";
+
 export const D12: ScreenCases = {
   screen,
   page: "ui_kits/still-app/d12-apple-onboarding.html",
-  cases,
+  cases: cases.map((c) => ({ ...c, callerCopy: CALLER_COPY })),
 };

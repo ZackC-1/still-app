@@ -206,8 +206,13 @@ const cases: VisualCase[] = [
   },
 ];
 
+// Every D14 frame receives its wording from the caller: the setup lede, the permission and pin
+// guidance, and (when consent is unasked) the reference's bracketed placeholder purposes.
+const CALLER_COPY =
+  "proves layout with the supplied copy (setup lede, permission and pin guidance, placeholder consent purposes from the reference), not production caller wiring";
+
 export const D14: ScreenCases = {
   screen,
   page: "ui_kits/still-app/d14-first-run.html",
-  cases,
+  cases: cases.map((c) => ({ ...c, callerCopy: CALLER_COPY })),
 };

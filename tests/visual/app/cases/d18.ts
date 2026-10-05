@@ -9,7 +9,13 @@ import type {
 } from "../../../../packages/core/src/ui/v3/purchase-signin-presentation.js";
 import type { CheckoutReturnProps } from "../../../../packages/core/src/ui/v3/checkout-return-presentation.js";
 import { noop } from "../fixtures.js";
-import type { FrameSpec, Rendered, ScreenCases, VisualCase } from "../types.js";
+import type {
+  FrameSpec,
+  Rendered,
+  ScreenCases,
+  VisualCase,
+  Deviation,
+} from "../types.js";
 
 const screen = "d18-d20-d24-d25-purchase-and-restore";
 
@@ -192,10 +198,25 @@ function frame(
   };
 }
 
-const SIGN_IN_NOTES =
-  "measured differences: missing DemoMark makes the bottom-anchored sheet shorter so its content sits lower; the shipped sheet auto-focuses the email field (focus ring) where the reference has none; the inert background's Back to settings renders disabled (grey) where the reference link is blue";
+// Owner decision 16 keeps the sheet's accessible behaviour: the email field takes focus when the
+// sheet opens, and the Still Pro view behind the sheet is inert. The references draw neither.
+const SIGN_IN_DEVIATIONS: Deviation[] = [
+  {
+    reason:
+      "owner decision 16: email field autofocus ring (the reference draws no focus)",
+    selector: 'input[type="email"]',
+    pad: 6,
+  },
+  {
+    reason:
+      "owner decision 16: inert background, so Back to settings renders disabled (grey) where the reference link is blue",
+    selector: ".ob-top .link",
+  },
+];
+// The return pages' references keep the review-only demonstration label (only the sign-in and
+// account frames were re-captured without it); the shipped page never draws it.
 const DEMO_MARK =
-  "reference draws a DemoMark (demonstration-only label) that the shipped component must never render";
+  "reference draws the review-only demonstration label that the shipped page never renders";
 
 const cases: VisualCase[] = [
   frame(
@@ -278,7 +299,7 @@ const cases: VisualCase[] = [
     "light",
     proTab(420, 820),
     signIn("purchase"),
-    { deviations: [DEMO_MARK], notes: SIGN_IN_NOTES },
+    { deviations: SIGN_IN_DEVIATIONS },
   ),
   frame(
     11,
@@ -435,7 +456,7 @@ const cases: VisualCase[] = [
     "dark",
     proTab(420, 820),
     signIn("restore"),
-    { deviations: [DEMO_MARK], notes: SIGN_IN_NOTES },
+    { deviations: SIGN_IN_DEVIATIONS },
   ),
   frame(
     23,

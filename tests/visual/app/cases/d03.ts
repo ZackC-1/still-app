@@ -9,7 +9,7 @@ import SettingsSiteList from "../../../../packages/core/src/ui/v3/SettingsSiteLi
 import type { ExtensionSettingsProps } from "../../../../packages/core/src/ui/v3/extension-settings-presentation.js";
 import type { ServiceId } from "@still/shared-types";
 import { accessAll, noop, settingsFor } from "../fixtures.js";
-import type { Rendered, ScreenCases, VisualCase } from "../types.js";
+import type { Deviation, Rendered, ScreenCases, VisualCase } from "../types.js";
 import { OWNER_SYNC_COPY } from "./shared.js";
 
 const screen = "d03-extension-settings";
@@ -122,6 +122,16 @@ const tab = (
 
 const base = { screen, component: "ExtensionSettings", textScale: 1 } as const;
 
+/**
+ * SharingCard holds (greys) its switch until approved purposes are supplied as verified props;
+ * the reference SharingSetting has no purposes concept and draws the switch enabled.
+ */
+const HELD_SHARING_SWITCH: Deviation = {
+  reason:
+    "sharing switch held (greyed) without supplied purposes; the reference draws it enabled",
+  selector: '[aria-labelledby="share-t"]',
+};
+
 const cases: VisualCase[] = [
   {
     ...base,
@@ -151,8 +161,6 @@ const cases: VisualCase[] = [
       open: "instagram",
       values: { values: { ig_stories: true } },
     }),
-    notes:
-      "Reference draws review-only DemoMark 'Demonstration only: no real sync or deletion', which the shipping component never renders.",
   },
   {
     ...base,
@@ -184,8 +192,7 @@ const cases: VisualCase[] = [
       consent: "off",
     }),
     actions: [{ click: "button.link.danger" }],
-    notes:
-      "dialog opened with a real click on Delete account; the reference page also draws the review-only DemoMark, so its scrolled content is taller and the centred dialog and account links sit about 18px lower",
+    notes: "dialog opened with a real click on Delete account",
   },
   {
     ...base,
@@ -215,9 +222,16 @@ const cases: VisualCase[] = [
     focus: {
       selector: "section.card:has(> h2.section-label) > button.primary.block",
     },
-    deviations: [OWNER_SYNC_COPY],
-    notes:
-      "the reference's simulated .kbd-signin outline rings every primary block button (Get Still Pro too) while real Tab focus rings only Sign in; the sharing switch is held without approved purposes",
+    deviations: [
+      OWNER_SYNC_COPY,
+      {
+        reason:
+          "reference review artefact: its simulated .kbd-signin outline rings every primary block button (Get Still Pro too); real Tab focus rings only Sign in",
+        selector: ".card button.primary.block:not(:focus)",
+        pad: 6,
+      },
+      HELD_SHARING_SWITCH,
+    ],
   },
 ];
 
@@ -348,9 +362,15 @@ const CARD_RENDERS: Record<
   },
 };
 
+const CARD_DEVIATIONS: Record<string, Deviation[]> = {
+  "08-sharing-off-deletion-requested.png": [HELD_SHARING_SWITCH],
+};
+// Measured 2026-10-05: supplying the owner-approved purposes (owner decision 8) as verified props
+// enables the switch but also draws the purpose list, which the reference frame has no place for.
+// The reference state is "no purposes shown", so the fixture keeps purposes absent.
 const CARD_NOTES: Record<string, string> = {
   "08-sharing-off-deletion-requested.png":
-    "SharingCard holds (greys) the sharing switch when no approved purposes are supplied; the reference page wires no purposes yet draws the switch enabled",
+    "reference state shows no purpose list; with the owner-approved purposes supplied the card grows to 480 device px tall against the reference's 292, so purposes stay absent",
 };
 
 cases.push(
@@ -369,6 +389,7 @@ cases.push(
         frame: { kind: "card", w: 432 },
         render,
         notes: CARD_NOTES[reference],
+        deviations: CARD_DEVIATIONS[reference],
       };
     },
   ),
