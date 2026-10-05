@@ -223,19 +223,23 @@ Until then no per-device identity is ever created, so an account deletion cannot
 
 **Deploy order.** Deploy and verify 0016 on its own first, then 0017 on its own. The deploy planner
 refuses to list them together. Then the owner sets the database login and the function secrets
-(`ANALYTICS_ERASER_DB_URL` and `ANALYTICS_ERASURE_WORKER_TOKEN`), and deploys `analytics-erasure`
-and `analytics-identify`. Each is a separate approved step. Nothing runs the deletion worker on a
+(`ANALYTICS_ERASER_DB_URL`, `ANALYTICS_ERASURE_WORKER_TOKEN`, and `ANALYTICS_EVENT_ID_SECRET`, a
+random value of at least 32 characters that keeps the "new account" event from being counted twice;
+without it that event gets a random id), and deploys `analytics-erasure` and `analytics-identify`. Each is a separate approved step. Nothing runs the deletion worker on a
 schedule yet.
 
 **When a device shows "deleted".** PostHog deletes a person quickly but deletes that person's events
 later, in a batch (on weekends for PostHog Cloud). A device is therefore shown "Your shared data has
-been deleted." only after a check at least 8 days after PostHog accepted the deletion still finds
-no one. Until then it shows "Confirming deletion with our providers…". Checks continue for 35 days
+been deleted." only after a check at least 8 days after PostHog last queued a deletion for it still
+finds no one. Until then it shows "Confirming deletion with our providers…". Checks continue for 35 days
 in case late events arrive.
 
-**Watching the queue.** Each worker run reports how many jobs it handled. It also logs the line
-`analytics erasure overdue jobs: N` when any job has failed five times in a row; jobs keep retrying,
-at most once a day. A sudden rise in new device jobs is limited: the server accepts at most 200 new
-device deletion jobs in any 10 minutes and asks devices to try again later beyond that. Jobs that
-delete signed-in history are worked first. If the queue of due jobs keeps growing, check the PostHog
-key and project settings before anything else.
+**Watching the queue.** Each worker run claims up to 50 due jobs and deletes them in combined
+PostHog requests of up to 1,000 ids, and reports how many jobs and requests it handled. It logs the
+line `analytics erasure overdue jobs: N` when any job has failed five times in a row; jobs keep
+retrying, at most once a day. A deletion request is never refused for volume. Jobs that delete
+signed-in history are worked first; past 200 new device jobs in any 10 minutes, a job with no
+signed-in history is still recorded but worked after everything else. Requests are limited per
+address (per /64 for IPv6), and each account can add at most five new devices a day, so signed-in
+priority cannot be manufactured at scale. If the number of due jobs keeps growing, check the PostHog
+key and project settings first, then whether the worker runs often enough.
