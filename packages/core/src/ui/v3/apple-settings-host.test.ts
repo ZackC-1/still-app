@@ -60,35 +60,37 @@ interface SettingsBackend {
   close(): Promise<void>;
 }
 
-// A user who already saved choices (YouTube Off). Native fresh-install initialization (absent or
-// updatedAt 0) is being repaired separately in StillKit; these tests use an actual saved record.
+// A user who already saved choices (YouTube Off). Fresh installs (no record, or an unedited
+// zero-stamp record) are covered by their own cases below.
 const SAVED: StillSettings = { ...DEFAULT_SETTINGS, updatedAt: 21, services: { ...DEFAULT_SETTINGS.services, youtube: false } };
 
-async function tsBackend(seed: StillSettings): Promise<SettingsBackend> {
+async function tsBackend(seed: StillSettings | null): Promise<SettingsBackend> {
   const storage = new InMemoryStorageAdapter(seed);
   const writer = new AtomicSettingsWriter(storage);
   return {
     name: "TS writer",
-    async post(message) {
-      switch (message.kind) {
-        case "get":
-          return (await storage.get()) ?? "";
-        case "settingsAtomic": {
-          const command = JSON.parse(message.command!) as { action: string; ownership?: "unknown" };
-          return command.action === "initialize" ? writer.initialize(command.ownership!) : null;
-        }
-        case "settingsIntent": {
-          const committed = await writer.commit({ path: message.path as never, value: message.value!, updatedAt: message.updatedAt! });
-          const { intentCommitted, ...record } = committed as typeof committed & { intentCommitted?: boolean };
-          return { changed: intentCommitted === true, record };
-        }
-        default:
-          return null;
-      }
-    },
+    // Like the native bridge, a refused command is a reply without a record, never a thrown error.
+    post: (message) => answer(message).catch(() => ({ ok: false })),
     read: async () => storage.get(),
     close: async () => {},
   };
+  async function answer(message: NativeMessage): Promise<unknown> {
+    switch (message.kind) {
+      case "get":
+        return (await storage.get()) ?? "";
+      case "settingsAtomic": {
+        const command = JSON.parse(message.command!) as { action: string; ownership?: "unknown" };
+        return command.action === "initialize" ? writer.initialize(command.ownership!) : null;
+      }
+      case "settingsIntent": {
+        const committed = await writer.commit({ path: message.path as never, value: message.value!, updatedAt: message.updatedAt! });
+        const { intentCommitted, ...record } = committed as typeof committed & { intentCommitted?: boolean };
+        return { changed: intentCommitted === true, record };
+      }
+      default:
+        return null;
+    }
+  }
 }
 
 // The compiled StillKit host used by storage/__tests__/atomic-settings.test.ts. CI runs on Linux,
@@ -115,7 +117,7 @@ afterAll(async () => {
   if (swift.temporary) await rm(swift.temporary, { recursive: true, force: true });
 });
 
-async function swiftBackend(seed: StillSettings): Promise<SettingsBackend> {
+async function swiftBackend(seed: StillSettings | null): Promise<SettingsBackend> {
   const child = spawn(swift.binary, [join(swift.temporary, `host-${++swift.count}`)], { stdio: ["pipe", "pipe", "pipe"] });
   const queue: { resolve: (value: string) => void; reject: (e: Error) => void }[] = [];
   const lines = createInterface({ input: child.stdout });
@@ -125,7 +127,7 @@ async function swiftBackend(seed: StillSettings): Promise<SettingsBackend> {
     queue.push({ resolve: resolveReply, reject });
     child.stdin.write((typeof message === "string" ? message : JSON.stringify(message)) + "\n");
   });
-  await raw("replace:" + JSON.stringify({ settings: seed, syncMetadata: null }));
+  if (seed) await raw("replace:" + JSON.stringify({ settings: seed, syncMetadata: null }));
   const settingsKinds = ["get", "set", "settingsAtomic", "settingsIntent"];
   return {
     name: "compiled Swift",
@@ -141,7 +143,7 @@ async function swiftBackend(seed: StillSettings): Promise<SettingsBackend> {
   };
 }
 
-const BACKENDS: readonly (readonly [string, (seed: StillSettings) => Promise<SettingsBackend>])[] = [
+const BACKENDS: readonly (readonly [string, (seed: StillSettings | null) => Promise<SettingsBackend>])[] = [
   ["TS writer", tsBackend],
   ...(darwin ? [["compiled Swift", swiftBackend] as const] : []),
 ];
@@ -180,10 +182,10 @@ function analyticsDouble(enabled = true) {
 
 const opened: SettingsBackend[] = [];
 async function composeAtomic(
-  factory: (seed: StillSettings) => Promise<SettingsBackend> = tsBackend,
-  options: Parameters<typeof port>[1] & { seed?: StillSettings } = {},
+  factory: (seed: StillSettings | null) => Promise<SettingsBackend> = tsBackend,
+  options: Parameters<typeof port>[1] & { seed?: StillSettings | null } = {},
 ) {
-  const backend = await factory(options.seed ?? SAVED);
+  const backend = await factory(options.seed === undefined ? SAVED : options.seed);
   opened.push(backend);
   const native = port(backend, options);
   const adapter = new WKWebViewStorageAdapter(native.win);
@@ -382,6 +384,54 @@ describe.each(BACKENDS)("native settings authority (%s)", (_name, factory) => {
   });
 });
 
+describe.each(BACKENDS)("native first install and local edits (%s)", (_name, factory) => {
+  it("fresh install with no saved record: initialization refuses, nothing is written, the screen holds, Try again re-attempts", async () => {
+    const f = await composeAtomic(factory, { seed: null });
+    await expect(f.hydrated).rejects.toMatchObject({ reason: "native-atomic-unavailable" });
+    expect(await f.backend.read()).toBeNull();
+    await renderHost(f);
+    expect(await screen.findByText("Settings are unavailable.")).toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "Still" })).toBeNull();
+    expect(screen.queryByText("Still is active")).toBeNull();
+    const before = f.native.messages.length;
+    await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled());
+    const retried = f.native.messages.slice(before);
+    expect(retried[0]).toMatchObject({ kind: "settingsAtomic" });
+    expect(JSON.parse(retried[0]!.command!)).toEqual({ action: "initialize", ownership: "unknown" });
+    expect(await f.backend.read()).toBeNull();
+    expect(screen.getByText("Settings are unavailable.")).toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "Still" })).toBeNull();
+    f.authority.stop();
+  });
+
+  it("an unedited zero-stamp record (an install that never changed a setting) initializes", async () => {
+    const f = await composeAtomic(factory, { seed: DEFAULT_SETTINGS });
+    await f.hydrated;
+    const stored = (await f.backend.read())!;
+    expect(stored.atomic?.ownership).toBe("unknown");
+    expect(requireModernSettings(stored).globalOn).toBe(true);
+    await renderHost(f);
+    expect(await screen.findByText("Still is active")).toBeInTheDocument();
+    f.authority.stop();
+  });
+
+  it("saves more than 64 local edits under unknown ownership directly, with no pause", async () => {
+    const f = await composeAtomic(factory);
+    await f.hydrated;
+    for (let edit = 1; edit <= 70; edit++) {
+      const outcome = await f.authority.binding.setGlobalOn(edit % 2 === 0);
+      expect(outcome, `edit ${edit}`).toEqual({ status: "committed" });
+    }
+    const stored = (await f.backend.read())!;
+    expect(stored.atomic?.ownership).toBe("unknown");
+    expect(stored.atomic?.paused).toBeNull();
+    expect(requireModernSettings(stored).globalOn).toBe(true);
+    expect(f.authority.binding.current()).toMatchObject({ commandAvailability: "ready", reason: null });
+    f.authority.stop();
+  });
+});
+
 describe("no native port", () => {
   it("is never presented as saved defaults", async () => {
     const empty: StillBridgeWindow = {};
@@ -476,6 +526,15 @@ describe("D04 host", () => {
     f.authority.stop();
   });
 
+  it("signed out with no Still Pro producer, the caption names blocking only", async () => {
+    const f = await composeAtomic();
+    await f.hydrated;
+    await renderHost(f);
+    expect(await screen.findByText("Optional. Blocking works without an account.")).toBeInTheDocument();
+    expect(screen.queryByText(/Blocking and Still Pro work without an account/)).toBeNull();
+    f.authority.stop();
+  });
+
   it("opens the existing code sign-in sheet when the controller has a sign-in path", async () => {
     const f = await composeAtomic();
     await f.hydrated;
@@ -522,7 +581,21 @@ describe("D04 host", () => {
     f.authority.stop();
   });
 
-  it("a sign-out and sign-in to the same account (new revision) still invalidates the confirmation", async () => {
+  it("a new account revision with the same account still present kills the open confirmation", async () => {
+    const { f, controller, confirm } = await signedIn();
+    controller.accountRevision += 1;
+    // Any routine reactive change re-derives the props; the revision is read at that moment.
+    controller.lastSyncedAt = 7;
+    flushSync();
+    const dialog = screen.getByRole("dialog");
+    const button = within(dialog).getByRole("button", { name: "Delete account" });
+    expect(button).toBeDisabled();
+    await fireEvent.click(button);
+    expect(confirm).not.toHaveBeenCalled();
+    f.authority.stop();
+  });
+
+  it("a sign-out and sign-in to the same account kills the open confirmation", async () => {
     const { f, controller, confirm } = await signedIn();
     controller.userId = null;
     controller.accountRevision += 1;
@@ -530,11 +603,10 @@ describe("D04 host", () => {
     controller.userId = "user-1";
     controller.accountRevision += 1;
     flushSync();
-    const dialog = screen.queryByRole("dialog");
-    if (dialog) {
-      const button = within(dialog).queryByRole("button", { name: "Delete account" });
-      if (button) await fireEvent.click(button);
-    }
+    const dialog = screen.getByRole("dialog");
+    const button = within(dialog).getByRole("button", { name: "Delete account" });
+    expect(button).toBeDisabled();
+    await fireEvent.click(button);
     expect(confirm).not.toHaveBeenCalled();
     f.authority.stop();
   });
