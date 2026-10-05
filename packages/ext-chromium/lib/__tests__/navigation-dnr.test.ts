@@ -1,11 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS, type ServiceId, type SettingsV2, type StillSettings } from "@still/shared-types";
-import {
-  admitPackagedRuleSetV2,
-  planNavigationDnr,
-  PACKAGED_RULE_SET_V2,
-  type NavigationDnrRule,
-} from "@still/core/rules";
+import { admitPackagedRuleSetV2, PACKAGED_RULE_SET_V2 } from "../../../core/src/rules/packaged.js";
+import { planNavigationDnr, type NavigationDnrRule } from "../../../core/src/rules/navigation-dnr.js";
 import { migrateSettingsV2 } from "@still/core/storage";
 import { createNavigationDnrSync, type NavigationDnrApi } from "../navigation-dnr.js";
 import { KEY, start, retainedDnrRecord } from "./settings-bootstrap.fixtures.js";

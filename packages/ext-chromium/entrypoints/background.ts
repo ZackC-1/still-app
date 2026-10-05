@@ -5,9 +5,8 @@ import { ChromeEntitlementAdapter, createEntitlementMessageRouter, packagedAcces
 import {
   isServiceEnabledGlobally,
   createRuleSetRefresher,
-  admitPackagedRuleSetV2,
-  PACKAGED_RULE_SET_V2,
 } from "@still/core/rules";
+import { admitPackagedRuleSetV2, PACKAGED_RULE_SET_V2 } from "../../core/src/rules/packaged.js";
 import {
   SupabaseAuthPort,
   SupabaseBackendPort,

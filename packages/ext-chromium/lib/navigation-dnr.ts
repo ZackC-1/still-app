@@ -1,10 +1,12 @@
 import type { ServiceId, SignedRuleSetV2, StillSettings } from "@still/shared-types";
+import { isServiceEnabledGlobally } from "@still/core/rules";
+// Imported by path, never through the rules index: content scripts import that index, and this
+// background-only compiler must not reach their bundles.
 import {
-  isServiceEnabledGlobally,
   planNavigationDnr,
   NAVIGATION_DNR_RULE_IDS,
   type NavigationDnrRule,
-} from "@still/core/rules";
+} from "../../core/src/rules/navigation-dnr.js";
 
 /**
  * The declarativeNetRequest calls the navigation sync uses. Session rules, never dynamic ones: they
