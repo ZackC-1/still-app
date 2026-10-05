@@ -13,6 +13,7 @@ import {
 } from "./controller.svelte.js";
 import type { EmailConsent } from "./email-consent.js";
 import { createDesktopPopupBinding } from "./v3/desktop-popup-binding.js";
+import type { LegacyPopupAuthority } from "./v3/legacy-popup-view-binding.svelte.js";
 
 // The ONE popup/options wiring every extension build shares (Safari maps the WebExtension storage
 // API — Safari 16+ exposes the `chrome` namespace, so the Chrome adapters serve both). The optional
@@ -50,6 +51,8 @@ export interface ExtensionUiOptions {
    * binding.stop(): it ends binding observation/new commands, not an admitted write or this
    * factory's page-lifetime legacy watchers. Existing entrypoints do not opt in implicitly. */
   readonly onCommittedPopupBinding?: (binding: ReturnType<typeof createDesktopPopupBinding>) => void;
+  /** Explicit legacy popup opt-in over this same cache; the view owns only its own observer. */
+  readonly onLegacyPopupAuthority?: (authority: LegacyPopupAuthority) => void;
   readonly readAccountStatus?: (local: StoredSettingsRecord) => Promise<AccountStatusSnapshot | null>;
   readonly accountManagedByApp?: boolean;
   /** What this browser's add-on store requires before an email address may be collected. Declared
@@ -74,7 +77,11 @@ export function createExtensionUiController(
   options?: ExtensionUiOptions,
 ): UiController {
   const cache = new SettingsCache(new ChromeStorageAdapter());
-  void cache.hydrate();
+  const hydration = cache.hydrate();
+  if (options?.onLegacyPopupAuthority)
+    void hydration.catch(() => {
+      /* The producer exposes this current failed read; only an explicit view retry rereads it. */
+    });
   cache.watch();
   if (options?.onLocalSettingsCommit) {
     const onCommit = options.onLocalSettingsCommit;
@@ -156,5 +163,6 @@ export function createExtensionUiController(
       throw error;
     }
   }
+  options?.onLegacyPopupAuthority?.(cache);
   return controller;
 }

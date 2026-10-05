@@ -1,75 +1,11 @@
 import { describe, it, expect, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { render, screen, fireEvent, within } from "@testing-library/svelte";
-import {
-  DEFAULT_SETTINGS,
-  FEATURE_REGISTRY,
-  type AccessState,
-  type FeatureId,
-  type ServiceId,
-} from "@still/shared-types";
-import {
-  AtomicSettingsWriter,
-  requireModernSettings,
-} from "../../storage/atomic-settings.js";
-import { InMemoryStorageAdapter } from "../../storage/adapter.js";
-import { SettingsCache } from "../../storage/cache.js";
-import {
-  ACCESS_BENEFITS,
-  initialAccessSnapshot,
-} from "../../entitlement/access-policy.js";
+import { FEATURE_REGISTRY, type ServiceId } from "@still/shared-types";
+import { requireModernSettings } from "../../storage/atomic-settings.js";
+import { fixture } from "./ExtensionSettings.test-fixtures.js";
 import ExtensionSettings from "./ExtensionSettings.svelte";
 import SharingCard from "./SharingCard.svelte";
-import type { ExtensionSettingsProps } from "./extension-settings-presentation.js";
-
-async function fixture(state: AccessState = "purchased") {
-  const storage = new InMemoryStorageAdapter(DEFAULT_SETTINGS);
-  const writer = new AtomicSettingsWriter(storage);
-  await writer.initialize("never-linked");
-  const cache = new SettingsCache({
-    get: storage.get.bind(storage),
-    set: storage.set.bind(storage),
-    subscribe: storage.subscribe.bind(storage),
-    commitIntent: writer.commit.bind(writer),
-  });
-  await cache.hydrate();
-  const access = initialAccessSnapshot({
-    paidMode: false,
-    supported: new Set(ACCESS_BENEFITS),
-  });
-  const states = { ...access.states };
-  for (const row of FEATURE_REGISTRY)
-    if (row.tier === "pro") states[row.id] = state;
-  let pending: Promise<unknown> = Promise.resolve();
-  const props: ExtensionSettingsProps = {
-    settings: requireModernSettings(cache.currentRecord()),
-    access: { ...access, states },
-    onGlobalChange: vi.fn((next: boolean) => {
-      pending = cache.setGlobalOn(next);
-    }),
-    onServiceChange: vi.fn((id: ServiceId, next: boolean) => {
-      pending = cache.setService(id, next);
-    }),
-    onFeatureChange: vi.fn((id: FeatureId, next: boolean) => {
-      pending = cache.setFeature(id, next);
-    }),
-    sync: { onSignIn: vi.fn() },
-    pro: { ownership: "none", channel: "unverified" },
-    sharing: {
-      state: "off",
-      onChange: vi.fn(),
-      purposesVerified: true,
-      purposes: [
-        {
-          name: "Fixture email plus usage",
-          text: "Fixture purpose disclosure.",
-        },
-      ],
-    },
-    help: { onGuide: vi.fn(), onSupport: vi.fn(), onPrivacy: vi.fn() },
-  };
-  return { storage, cache, props, settled: () => pending };
-}
 
 describe("controlled D03 extension settings", () => {
   it("invalidates deletion when only the account address changes with the same handler", async () => {

@@ -2,6 +2,7 @@ import type {
   PopupInvitationPresentation,
   InvitationIntentPort,
 } from "./invitation-presentation.js";
+import type { Snippet } from "svelte";
 import {
   FEATURE_REGISTRY,
   type FeatureId,
@@ -43,10 +44,14 @@ export interface DesktopPopupProps {
   onSignIn?: () => void;
   onSettings: () => void;
   privacyUrl: string;
+  /** Current committed authority can hold commands without changing saved choices. */
+  commandsDisabled?: boolean;
+  /** Existing host-owned account operations, rendered once in this sync card. */
+  accountActions?: Snippet;
   /** Trusted caller supplies this only when an actual eligible purchase flow exists. */
   onPurchase?: () => void;
   account?: {
-    address: string;
+    address?: string;
     status?: {
       tone: "pending" | "success" | "failed" | "caution" | "info";
       text: string;

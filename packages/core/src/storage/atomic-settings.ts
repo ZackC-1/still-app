@@ -91,6 +91,17 @@ export function requireModernSettings(record: StoredSettingsRecord): SettingsV2 
   if (result.status !== "ready") throw new SettingsStorageRecovery(result.reason);
   return result.settings;
 }
+/** Local edit capability is separate from eligibility to transfer intent into an account. */
+export function permitsUnknownLocalEdit(record: StoredSettingsRecord): boolean {
+  if (!("schemaVersion" in record.settings) || record.settings.schemaVersion !== 2) return false;
+  const state = readAtomicSettingsState(record.atomic);
+  if (!state || state.ownership !== "unknown" || state.scope.accountId !== null ||
+    state.scope.sessionId !== undefined || state.anchor !== null || state.paused !== null ||
+    state.sequence === Number.MAX_SAFE_INTEGER || state.pending.some(p => p.receipt !== null ||
+      p.originScope !== undefined || !sameSettingsScope(p.scope, state.scope))) return false;
+  try { requireModernSettings(record); return true; }
+  catch { return false; }
+}
 function projection(settings: SettingsV2): StoredSettingsRecord["settings"] {
   return { ...settings, pauses: [] };
 }
@@ -98,6 +109,25 @@ function resolvedPause(state: AtomicSettingsState, held: AtomicSettingsState["he
   if (Object.keys(held).length === 0 && (state.scope.accountId === null || state.anchor !== null) &&
     ["awaiting-anchor", "ownership-hold", "pending-limit", "ordering-hold"].includes(state.paused ?? "")) return null;
   return state.paused;
+}
+// Only an initial, wholly unsubmitted local journal may discard superseded requests.
+// Keep entire winning requests (including multi-field bodies and ties), never rewrite them.
+function compactNeverLinkedPending(record: StoredSettingsRecord): readonly PendingSettingsIntent[] {
+  const state = record.atomic!;
+  if (state.ownership !== "never-linked" || state.scope.accountId !== null || state.scope.generation !== 0 ||
+    state.scope.sessionId !== undefined || record.syncEpoch !== 0 || record.syncMetadata !== null || state.anchor !== null ||
+    !readAtomicSettingsState(state) || state.pending.some(p => p.receipt !== null || p.originScope !== undefined ||
+      !sameSettingsScope(p.scope, state.scope))) return state.pending;
+  const latest = new Map<SettingsField, UntrustedSettingsFieldOperation>();
+  for (const pending of state.pending) for (const operation of pending.operations) {
+    const prior = latest.get(operation.path);
+    if (!prior || operation.baseRevision > prior.baseRevision ||
+      operation.baseRevision === prior.baseRevision && operation.localStep > prior.localStep) latest.set(operation.path, operation);
+  }
+  return state.pending.filter(p => p.operations.some(operation => {
+    const winner = latest.get(operation.path)!;
+    return operation.baseRevision === winner.baseRevision && operation.localStep === winner.localStep;
+  }));
 }
 // Legacy projections and snapshot imports use the same existing account-epoch/row ordering.
 // Device timestamps decide only when both records have the same epoch and metadata version.
@@ -112,11 +142,32 @@ function canReplaceLegacyRecord(current: StoredSettingsRecord, incoming: StoredS
 /** One serialized writer around the EXISTING storage value. Hosts never allocate from a cache. */
 export class AtomicSettingsWriter {
   private tail: Promise<unknown> = Promise.resolve();
+  // Even a failed/removed account-history write is not affirmative pristine evidence in this
+  // worker. A later wake has no install-event authority, so this is never a persisted reset flag.
+  private localHistoryObserved = false;
   constructor(private readonly adapter: StorageAdapter, private readonly uuid: () => string = () => crypto.randomUUID()) {}
   private transaction<T>(body: () => Promise<T>): Promise<T> {
     const run = this.tail.then(body, body);
     this.tail = run.catch(() => undefined);
     return run;
+  }
+  /** Background-owned account/history mutations share the settings admission order. */
+  serializeLocalMutation<T>(body: () => Promise<T>): Promise<T> {
+    return this.transaction(async () => { this.localHistoryObserved = true; return body(); });
+  }
+  /** The host checks raw absence inside this same queue; parsed null is not fresh provenance. */
+  initializeFresh(isPristine: () => Promise<boolean>): Promise<StoredSettingsRecord> {
+    return this.transaction(async () => {
+      if (this.localHistoryObserved || !await isPristine()) throw new SettingsStorageRecovery("fresh-provenance-conflict");
+      const migrated = migrateSettingsV2(null, { kind: "proven-fresh" });
+      if (migrated.status !== "ready") throw new SettingsStorageRecovery(migrated.reason);
+      const next: StoredSettingsRecord = { settings: projection(migrated.settings), syncMetadata: null, syncEpoch: 0, atomic: {
+        format: 1, sequence: 0, ownership: "never-linked", scope: { accountId: null, generation: 0 },
+        anchor: null, pending: [], held: {}, paused: null,
+      } };
+      await this.adapter.set(structuredClone(next));
+      return next;
+    });
   }
   initialize(ownership: AtomicSettingsState["ownership"]): Promise<StoredSettingsRecord> {
     return this.transaction(async () => {
@@ -137,17 +188,39 @@ export class AtomicSettingsWriter {
         throw new TypeError("Invalid settings intent");
       const current = await this.adapter.get() ?? { settings: DEFAULT_SETTINGS, syncMetadata: null, syncEpoch: 0 };
       if (!current.atomic) {
-        if ("schemaVersion" in current.settings) throw new SettingsStorageRecovery("missing-provenance");
+        if ("schemaVersion" in current.settings && current.settings.schemaVersion !== 1) throw new SettingsStorageRecovery("missing-provenance");
         if (intent.path.startsWith("sites.")) throw new SettingsStorageRecovery("rollout-held");
         const prior = intent.path === "globalOn" ? current.settings.globalOn : current.settings.services[intent.path.slice(9) as keyof typeof current.settings.services];
         if (prior === intent.value) return { ...current, intentCommitted: false };
-        const settings = intent.path === "globalOn" ? { ...current.settings, globalOn: intent.value, updatedAt: intent.updatedAt }
-          : { ...current.settings, services: { ...current.settings.services, [intent.path.slice(9)]: intent.value }, updatedAt: intent.updatedAt };
+        // Watched legacy peers reject equal/older stamps. Allocate from this serialized durable
+        // read so same-millisecond or backward clocks cannot hide a genuine later choice.
+        const updatedAt = Math.max(intent.updatedAt, Math.floor(current.settings.updatedAt) + 1);
+        if (!integer(updatedAt)) throw new SettingsStorageRecovery("ordering-hold");
+        const settings = intent.path === "globalOn" ? { ...current.settings, globalOn: intent.value, updatedAt }
+          : { ...current.settings, services: { ...current.settings.services, [intent.path.slice(9)]: intent.value }, updatedAt };
         const next = { ...current, settings };
         await this.adapter.set(structuredClone(next));
         return { ...next, intentCommitted: true };
       }
-      const state = { ...current.atomic, pending: current.atomic.pending.filter(p => sameSettingsScope(p.scope, current.atomic!.scope)) };
+      if (current.atomic.ownership === "unknown" && current.atomic.scope.accountId === null) {
+        if (current.atomic.sequence === Number.MAX_SAFE_INTEGER) throw new SettingsStorageRecovery("sequence-saturated");
+        if (!permitsUnknownLocalEdit(current)) throw new SettingsStorageRecovery("atomic-command-unavailable");
+        const state = current.atomic;
+        let settings = requireModernSettings(current);
+        const priorValue = settingsFieldValue(settings, intent.path);
+        // A matching overlay alone is not a saved field; persist the person's deliberate choice.
+        if (priorValue === intent.value && state.held[intent.path] === undefined)
+          return { ...current, intentCommitted: false };
+        const edit = allocateSettingsFieldEdit({ value: priorValue, stamp: settings.clocks[intent.path] }, 0, intent.value);
+        if (edit.status !== "edited" && edit.status !== "unchanged") throw new SettingsStorageRecovery("ordering-hold");
+        const held = { ...state.held }; delete held[intent.path];
+        if (edit.status === "edited") settings = { ...withField(settings, intent.path, intent.value),
+          clocks: { ...settings.clocks, [intent.path]: edit.field.stamp }, updatedAt: intent.updatedAt };
+        const next = { ...current, settings: projection(settings), atomic: { ...state, sequence: state.sequence + 1, held } };
+        await this.adapter.set(structuredClone(next));
+        return { ...next, intentCommitted: true };
+      }
+      const state = { ...current.atomic, pending: compactNeverLinkedPending(current).filter(p => sameSettingsScope(p.scope, current.atomic!.scope)) };
       if (state.sequence === Number.MAX_SAFE_INTEGER) throw new SettingsStorageRecovery("sequence-saturated");
       let settings = requireModernSettings(current);
       const priorValue = settingsFieldValue(settings, intent.path);

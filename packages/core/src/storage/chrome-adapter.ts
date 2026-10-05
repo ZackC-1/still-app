@@ -4,6 +4,10 @@ import { AtomicSettingsWriter, SettingsStorageRecovery, type AtomicSettingsState
 import { settingsIntentMessage } from "./settings-messages.js";
 
 const STORAGE_KEY = "still:settings";
+// Raw key presence, including null/corruption, rules out pristine history. The startup cohort
+// record is deliberately separate: its own write neither grants nor denies installation proof.
+const FRESH_HISTORY_KEYS = [STORAGE_KEY, "still:auth", "still:auth-code-verifier", "still:last-identity",
+  "still:entitlement", "still:pending-otp", "still:checkout-pending", "still:nudge-stamp"];
 // Reuse the existing mirror transaction for auxiliary replies in this host. It never allocates
 // intent; only native records can enter this projection, and Safari reads remain authoritative.
 const nativeProjections = new WeakMap<object, AtomicSettingsWriter>();
@@ -76,9 +80,11 @@ export class ChromeStorageAdapter implements StorageAdapter {
     return record;
   }
   private async getProjection(): Promise<StoredSettingsRecord | null> {
-    const value = (await chrome.storage.local.get(STORAGE_KEY))[STORAGE_KEY];
+    const raw = await chrome.storage.local.get(STORAGE_KEY);
+    const value = raw[STORAGE_KEY];
     const parsed = parseStoredSettingsRecord(value);
-    if (value !== undefined && value !== null && !parsed) throw new SettingsStorageRecovery("unreadable");
+    // Only actual key absence is empty history; keyed null/undefined is retained unreadable data.
+    if (Object.hasOwn(raw, STORAGE_KEY) && !parsed) throw new SettingsStorageRecovery("unreadable");
     // Preserve opaque legacy members too; the validated projection alone is never write authority.
     if (!parsed || !value || typeof value !== "object") return parsed;
     const root = value as Record<string, unknown>;
@@ -122,6 +128,20 @@ export class ChromeStorageAdapter implements StorageAdapter {
     if (!this.writer) return Promise.reject(new SettingsStorageRecovery("authority-unavailable"));
     return this.writer.initialize(ownership);
   }
+  /** Called only by the maintained background's actual browser install-event closure. */
+  initializeFreshAtomic(): Promise<StoredSettingsRecord> {
+    if (!this.writer || this.options.nativeMirror || this.options.nativeIntent || this.isSafari())
+      return Promise.reject(new SettingsStorageRecovery("authority-unavailable"));
+    return this.writer.initializeFresh(async () => {
+      const raw = await chrome.storage.local.get(FRESH_HISTORY_KEYS);
+      return FRESH_HISTORY_KEYS.every(key => !Object.hasOwn(raw, key));
+    });
+  }
+  serializeLocalMutation<T>(body: () => Promise<T>): Promise<T> {
+    if (!this.writer || this.options.nativeMirror || this.options.nativeIntent || this.isSafari())
+      return Promise.reject(new SettingsStorageRecovery("authority-unavailable"));
+    return this.writer.serializeLocalMutation(body);
+  }
   enterScope(accountId: string | null, sessionId?: string): Promise<StoredSettingsRecord> {
     if (!this.writer) return Promise.reject(new SettingsStorageRecovery("authority-unavailable"));
     return this.writer.enterScope(accountId, sessionId);
@@ -152,6 +172,47 @@ export class ChromeStorageAdapter implements StorageAdapter {
       this.projectionRetry ??= this.bounded(this.readNativeAuthority()).then(async latest => { if (latest) await this.mirrorNative(latest); })
         .catch(() => undefined).finally(() => { this.projectionRetry = null; });
     }
+  }
+  subscribeInvalidation(listener: () => void): () => void {
+    if (this.options.nativeMirror || this.options.nativeIntent) return () => {};
+    const isBrowser = (): boolean => {
+      try {
+        const url = new URL(chrome.runtime?.getURL?.(""));
+        return (
+          !!url.hostname &&
+          (url.protocol === "chrome-extension:" ||
+            url.protocol === "moz-extension:")
+        );
+      } catch {
+        return false;
+      }
+    };
+    if (!isBrowser()) return () => {};
+    let active = true;
+    const handler = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      areaName: string,
+    ): void => {
+      if (
+        !active ||
+        areaName !== "local" ||
+        !Object.hasOwn(changes, STORAGE_KEY) ||
+        !isBrowser()
+      )
+        return;
+      if (parseStoredSettingsRecord(changes[STORAGE_KEY]?.newValue)) return;
+      // Only an observation: the caller must reread the actual slot to decide its current state.
+      try {
+        listener();
+      } catch {
+        /* one consumer cannot interrupt storage event dispatch */
+      }
+    };
+    chrome.storage.onChanged.addListener(handler);
+    return () => {
+      active = false;
+      chrome.storage.onChanged.removeListener(handler);
+    };
   }
   subscribe(listener: (record: StoredSettingsRecord) => void): () => void {
     let active = true;

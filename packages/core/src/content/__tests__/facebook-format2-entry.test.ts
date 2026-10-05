@@ -35,7 +35,7 @@ describe("captured Facebook Reels through maintained extension entry and atomic 
     expect(h.listeners.size).toBe(2);
     release();
     await tick();
-    expect(h.listeners.size).toBe(3);
+    expect(h.listeners.size).toBe(4);
     expect(document.getElementById("keep-sponsored-post")).toBe(player);
     script.stop();
     expect(h.listeners.size).toBe(0);

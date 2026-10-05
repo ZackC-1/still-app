@@ -54,16 +54,33 @@ export interface ApplyResult {
 
 /**
  * The URL-free half of `isServiceActive`: "this service is on globally" — the master switch AND the
- * service toggle. The ONE predicate the engine and the ext-chromium background's DNR gate share
+ * service toggle, plus the registry's free-core choice for admitted schema2 projections. The ONE
+ * predicate the engine and the ext-chromium background's DNR gate share
  * (R2), so the two can't drift. Pauses are deliberately NOT consulted here: they are host-scoped
  * (URL-dependent), and dropping them from the background gate — which used to check
  * `pauses.includes("youtube.com")` inline — is behavior-preserving in production, because
  * parseSettings normalizes stored `pauses` to [] on every reparse (the pause UI was removed
  * 2026-07-06; per-URL pauses remain isServiceActive's concern below).
  */
-export function isServiceEnabledGlobally(settings: StillSettings, serviceId: ServiceId): boolean {
-  if (!settings.globalOn) return false;
-  return settings.services[serviceId] === true; // absent/brand-new service ⇒ off
+export function isServiceEnabledGlobally(
+  settings: StillSettings,
+  serviceId: ServiceId,
+): boolean {
+  if (!settings.globalOn || settings.services[serviceId] !== true) return false;
+  if (!("schemaVersion" in settings) || settings.schemaVersion !== 2)
+    return true;
+  const core = FEATURE_REGISTRY.find(
+    (feature) => feature.service === serviceId && feature.tier === "free",
+  );
+  // TikTok is a service alias, not a sites choice; its existing service gate remains sufficient.
+  if (!core) return true;
+  const sites = (settings as StillSettings & Partial<SettingsV2>).sites;
+  return (
+    !!sites &&
+    typeof sites === "object" &&
+    !Array.isArray(sites) &&
+    sites[core.id] === true
+  );
 }
 
 /** True when the current host's service is on: global on, service toggle on, and host not paused. */

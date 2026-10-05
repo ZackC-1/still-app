@@ -1,7 +1,10 @@
 // @still/core/ui — the one shared settings/paywall UI (KTD4), host-agnostic via UiController.
 
 export { UiController } from "./controller.svelte.js";
-export { createExtensionUiController, type ExtensionPurchaseDeps } from "./extension-setup.js";
+export {
+  createExtensionUiController,
+  type ExtensionPurchaseDeps,
+} from "./extension-setup.js";
 export type {
   UiHost,
   UiAuth,
@@ -38,3 +41,12 @@ export { default as OpenSettingsButton } from "./components/OpenSettingsButton.s
 export { default as Placeholder } from "./components/Placeholder.svelte";
 
 export type { AccountStatusSnapshot } from "./account-status.js";
+
+export type CommittedPopupBinding = ReturnType<
+  typeof import("./v3/desktop-popup-binding.js").createDesktopPopupBinding
+>;
+export type CommittedPopupToggle = {
+  readonly enabled: boolean;
+  readonly service?: import("@still/shared-types").ServiceId;
+};
+export type { LegacyPopupAuthority } from "./v3/legacy-popup-view-binding.svelte.js";

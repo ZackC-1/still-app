@@ -3,10 +3,10 @@ import { DEFAULT_SETTINGS } from "@still/shared-types";
 import { AtomicSettingsWriter, ChromeStorageAdapter, InMemoryStorageAdapter, SettingsCache,
   type SettingsIntent, type StoredSettingsRecord, SettingsStorageRecovery } from "@still/core/storage";
 
-async function fixture(modern = true) {
+async function fixture(modern = true, ownership: "unknown" | "never-linked" = "unknown") {
   const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, globalOn: modern, updatedAt: 1 });
   const writer = new AtomicSettingsWriter(storage);
-  let projection = modern ? await writer.initialize("unknown") : (await storage.get())!;
+  let projection = modern ? await writer.initialize(ownership) : (await storage.get())!;
   const listeners = new Set<(changes: Record<string, chrome.storage.StorageChange>, area: string) => void>();
   const sendNativeMessage = vi.fn(async (_app: string, message: { kind: string } & SettingsIntent) => {
     if (message.kind === "get") return { settings: JSON.stringify(await storage.get()) };
@@ -56,7 +56,7 @@ describe("Safari authoritative native settings failure boundaries", () => {
     expect(h.listeners.size).toBe(0); expect(vi.getTimerCount()).toBe(0);
   });
   it("actual background nativeMirror retries direct native authority after transient projection failure", async () => {
-    const h = await fixture(); const report = vi.fn(); vi.useFakeTimers();
+    const h = await fixture(true, "never-linked"); const report = vi.fn(); vi.useFakeTimers();
     const adapter = new ChromeStorageAdapter({ authority: true, nativeMirror: true, onProjectionFailure: report });
     h.set.mockRejectedValueOnce(new Error("quota"));
     const reply = await adapter.commitIntent({ path: "globalOn", value: false, updatedAt: 10 });
@@ -71,7 +71,7 @@ describe("Safari authoritative native settings failure boundaries", () => {
     expect(h.listeners.size).toBe(0); expect(vi.getTimerCount()).toBe(0);
   });
   it("background projection retries singleflight latest durable state and cannot overwrite concurrent success", async () => {
-    const h = await fixture(); vi.useFakeTimers(); let release!: () => void; let began!: () => void;
+    const h = await fixture(true, "never-linked"); vi.useFakeTimers(); let release!: () => void; let began!: () => void;
     const gate = new Promise<void>(r => { release = r; }); const started = new Promise<void>(r => { began = r; });
     const native = h.sendNativeMessage.getMockImplementation()!;
     h.sendNativeMessage.mockImplementation(async (app, message) => {
@@ -90,7 +90,7 @@ describe("Safari authoritative native settings failure boundaries", () => {
     expect((await h.storage.get())!.atomic!.pending).toHaveLength(3); expect(vi.getTimerCount()).toBe(0); expect(h.listeners.size).toBe(0);
   });
   it("an older successful native reply and stale retry read cannot reduce a later durable projection", async () => {
-    const h = await fixture(); vi.useFakeTimers(); let releaseIntent!: () => void; let releaseRead!: () => void;
+    const h = await fixture(true, "never-linked"); vi.useFakeTimers(); let releaseIntent!: () => void; let releaseRead!: () => void;
     let began!: () => void; const started = new Promise<void>(r => { began = r; });
     const intentGate = new Promise<void>(r => { releaseIntent = r; }); const readGate = new Promise<void>(r => { releaseRead = r; });
     const native = h.sendNativeMessage.getMockImplementation()!; let first = true;
@@ -148,7 +148,7 @@ describe("Safari authoritative native settings failure boundaries", () => {
   });
 
   it.each([false, true])("accepted native commit survives rejected auxiliary projection (injected=%s)", async injected => {
-    const h = await fixture(); const report = vi.fn();
+    const h = await fixture(true, "never-linked"); const report = vi.fn();
     if (injected) report.mockImplementation(() => { throw new Error("diagnostic failed"); });
     const cache = new SettingsCache(new ChromeStorageAdapter({ onProjectionFailure: report,
       ...(injected ? { nativeIntent: h.writer.commit.bind(h.writer) } : {}) }), { now: () => 10 });
@@ -219,5 +219,80 @@ describe("Safari authoritative native settings failure boundaries", () => {
     if (ending === "late") release({ settings: JSON.stringify(await h.storage.get()) });
     else await vi.advanceTimersByTimeAsync(8_000);
     await vi.advanceTimersByTimeAsync(0); expect(delivery).not.toHaveBeenCalled(); expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("unknown ownership saves local choices and retries nativeMirror without inventing cloud authority", async () => {
+    const h = await fixture();
+    vi.useFakeTimers();
+    const report = vi.fn();
+    const adapter = new ChromeStorageAdapter({
+      authority: true,
+      nativeMirror: true,
+      onProjectionFailure: report,
+    });
+    const localAuthority = {
+      format: 1,
+      ownership: "unknown",
+      scope: { accountId: null, generation: 0 },
+      anchor: null,
+      pending: [],
+      held: {},
+      paused: null,
+    };
+    expect((await h.storage.get())!.atomic).toEqual({
+      ...localAuthority,
+      sequence: 0,
+    });
+
+    const global = await adapter.commitIntent({
+      path: "globalOn",
+      value: false,
+      updatedAt: 10,
+    });
+    expect(global.intentCommitted).toBe(true);
+    expect(global.settings).toMatchObject({ globalOn: false, updatedAt: 10 });
+    expect((await h.storage.get())!.atomic).toEqual({
+      ...localAuthority,
+      sequence: 1,
+    });
+    expect(h.projection().settings).toEqual(global.settings);
+    expect(h.projection().atomic).toEqual({ ...localAuthority, sequence: 1 });
+
+    h.set.mockRejectedValueOnce(new Error("quota"));
+    const service = await adapter.commitIntent({
+      path: "services.youtube",
+      value: false,
+      updatedAt: 11,
+    });
+    expect(service.intentCommitted).toBe(true);
+    const saved = structuredClone((await h.storage.get())!);
+    expect(saved.settings).toMatchObject({
+      globalOn: false,
+      services: { youtube: false, instagram: true, tiktok: true, facebook: true },
+      updatedAt: 11,
+      clocks: {
+        globalOn: { baseRevision: 0, localStep: 1 },
+        "services.youtube": { baseRevision: 0, localStep: 1 },
+      },
+    });
+    expect(saved.atomic).toEqual({ ...localAuthority, sequence: 2 });
+    expect(saved.syncMetadata).toBeNull();
+    // The failed auxiliary write has not yet projected the service choice.
+    expect(h.projection().settings.services.youtube).toBe(true);
+    expect(h.projection().atomic).toEqual({ ...localAuthority, sequence: 1 });
+
+    await vi.advanceTimersByTimeAsync(0);
+    expect(await h.storage.get()).toEqual(saved);
+    expect(h.projection().settings).toEqual(saved.settings);
+    expect(h.projection().atomic).toEqual({ ...localAuthority, sequence: 2 });
+    expect(h.sendNativeMessage.mock.calls.map((c) => c[1].kind)).toEqual([
+      "settingsIntent",
+      "settingsIntent",
+      "get",
+    ]);
+    expect(h.set).toHaveBeenCalledTimes(3);
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(h.listeners.size).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
   });
 });

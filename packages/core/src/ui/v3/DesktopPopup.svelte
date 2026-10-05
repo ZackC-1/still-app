@@ -24,6 +24,8 @@
     onSignIn,
     onSettings,
     privacyUrl,
+    commandsDisabled = false,
+    accountActions,
     onPurchase,
     account,
     sectionMemory,
@@ -150,7 +152,10 @@
     </div>
     <Toggle
       checked={settings.globalOn}
-      onChange={onGlobalChange}
+      disabled={commandsDisabled}
+      onChange={(next) => {
+        if (!commandsDisabled) onGlobalChange(next);
+      }}
       label="Still"
       onBlue={settings.globalOn}
     />
@@ -218,8 +223,11 @@
             </div>{/if}
           <Toggle
             checked={settings.services[service]}
-            onChange={(next) => onServiceChange(service, next)}
-            disabled={!settings.globalOn}
+            onChange={(next) => {
+              if (!commandsDisabled && settings.globalOn)
+                onServiceChange(service, next);
+            }}
+            disabled={commandsDisabled || !settings.globalOn}
             label={serviceLabels[service]}
           />
         </div>
@@ -233,23 +241,34 @@
           >
             <div class="inner">
               <div class="list">
-                {#each rows as row (row.id)}
-                  <FeatureRow
-                    id={row.id}
-                    label={labels[row.id] ?? row.label}
-                    state={access.states[row.id]}
-                    checked={settings.sites[row.id]}
-                    inactive={!settings.globalOn || !settings.services[service]}
-                    unsupportedText="Not available in this browser. Your choice is saved."
-                    onChange={(next) => onFeatureChange(row.id, next)}
-                    onLock={offer
-                      ? () => {
-                          if (offer) onPurchase?.();
-                        }
-                      : undefined}
-                    lockLabel={`${labels[row.id] ?? row.label}. Included in Still Pro. See Still Pro`}
-                  />
-                {/each}
+                {#if open === service}
+                  {#each rows as row (row.id)}
+                    <FeatureRow
+                      id={row.id}
+                      label={labels[row.id] ?? row.label}
+                      state={access.states[row.id]}
+                      checked={settings.sites[row.id]}
+                      inactive={commandsDisabled ||
+                        !settings.globalOn ||
+                        !settings.services[service]}
+                      unsupportedText="Not available in this browser. Your choice is saved."
+                      onChange={(next) => {
+                        if (
+                          !commandsDisabled &&
+                          settings.globalOn &&
+                          settings.services[service]
+                        )
+                          onFeatureChange(row.id, next);
+                      }}
+                      onLock={offer
+                        ? () => {
+                            if (offer) onPurchase?.();
+                          }
+                        : undefined}
+                      lockLabel={`${labels[row.id] ?? row.label}. Included in Still Pro. See Still Pro`}
+                    />
+                  {/each}
+                {/if}
               </div>
             </div>
           </div>
@@ -265,11 +284,11 @@
     <div class="sync-row">
       <div class="sync-row-text">
         <h2 class="sync-row-title">Settings sync</h2>
-        <p class="muted sync-row-sub">
-          {account
-            ? account.address
-            : "Free. Keep your settings updated across every supported surface."}
-        </p>
+        {#if !account || account.address}<p class="muted sync-row-sub">
+            {account
+              ? account.address
+              : "Free. Keep your settings updated across every supported surface."}
+          </p>{/if}
       </div>
       {#if !account && onSignIn}<button
           type="button"
@@ -295,6 +314,7 @@
         </div>
       </div>
     {/if}
+    {#if accountActions}{@render accountActions()}{/if}
   </section>
   <footer class="popup-footer">
     <button

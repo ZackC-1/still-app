@@ -432,7 +432,7 @@ describe("createExtensionUiController — committed popup handoff", () => {
     expect(await f.authority.get()).toEqual(saved);
   });
 
-  it.each(["paused", "unknown"] as const)("observes external %s authority without claiming a local commit or rewriting choices", async kind => {
+  it.each(["paused", "previous-account"] as const)("observes external %s authority without claiming a local commit or rewriting choices", async kind => {
     const f = await installCommittedChrome();
     const commits = vi.fn();
     const { binding } = captureCommittedFactory({ onLocalSettingsCommit: commits });
@@ -443,8 +443,8 @@ describe("createExtensionUiController — committed popup handoff", () => {
       ...saved,
       atomic: {
         ...saved.atomic!, sequence: saved.atomic!.sequence + 1,
-        paused: kind === "paused" ? "ordering-hold" : null,
-        ownership: kind === "unknown" ? "unknown" : "never-linked",
+        paused: kind === "paused" ? "ordering-hold" : "ownership-unconfirmed",
+        ownership: kind === "previous-account" ? "previous-account" : "never-linked",
       },
     };
     const states: string[] = [];
@@ -548,5 +548,21 @@ describe("createExtensionUiController — committed popup handoff", () => {
     await f.external({ ...saved, atomic: { ...saved.atomic!, sequence: saved.atomic!.sequence + 1, paused: "ordering-hold" } });
     expect(listener).not.toHaveBeenCalled();
     expect(f.sendMessage).not.toHaveBeenCalled();
+  });
+});
+describe("retained local-only authority observation in the maintained factory", () => {
+  it("accepts readable unknown local choices without claiming an observer edit, then commits once", async () => {
+    const f = await installCommittedChrome(); const commits = vi.fn();
+    const { binding } = captureCommittedFactory({ onLocalSettingsCommit: commits }); await flush();
+    const saved = (await f.authority.get())!;
+    await f.external({ ...saved, settings: { ...saved.settings, globalOn: false }, atomic: {
+      ...saved.atomic!, sequence: saved.atomic!.sequence + 1, ownership: "unknown", pending: [], paused: null } });
+    expect(binding.current().commandAvailability).toBe("ready");
+    expect(binding.current().settings!.globalOn).toBe(false);
+    expect(commits).not.toHaveBeenCalled();
+    expect(await binding.setGlobalOn(true)).toEqual({ status: "committed" });
+    expect(commits).toHaveBeenCalledOnce();
+    expect(await f.authority.get()).toMatchObject({ settings: { globalOn: true, clocks: { globalOn: { localStep: 1 } } },
+      atomic: { ownership: "unknown", sequence: saved.atomic!.sequence + 2, pending: [], paused: null } });
   });
 });

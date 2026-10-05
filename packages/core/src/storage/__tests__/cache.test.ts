@@ -57,7 +57,7 @@ describe("newer legacy hydration after delayed command receipts", () => {
     cache.subscribeAuthority(() => authority.push(structuredClone(cache.currentRecord())));
     const writes = vi.spyOn(storage, "set");
     const stop = scenario.watch ? cache.watch() : () => {};
-    const old = { ...saved, settings: settings({ globalOn: false, updatedAt: scenario.changed ? 5000 : 9000 }) };
+    const old = { ...saved, settings: settings({ globalOn: false, updatedAt: scenario.changed ? 9001 : 9000 }) };
     const newer = record(true, 1, scenario.authority === "epoch" ? 2 : 1, scenario.authority === "epoch" ? 1 : 6);
     try {
       const command = cache.setGlobalOn(false);
@@ -107,9 +107,9 @@ describe("newer legacy hydration after delayed command receipts", () => {
     const hydration = cache.hydrate(); const settled = cache.whenHydrated();
     await readCaptured.promise;
     const stop = cache.watch();
-    const committed = { ...saved, settings: settings({ globalOn: false, updatedAt: 5000 }) };
+    const committed = { ...saved, settings: settings({ globalOn: false, updatedAt: 9001 }) };
     try {
-      // A real same-authority write moves the device clock backwards while the older get is held.
+      // A backward injected clock still advances the durable authority stamp while the older get is held.
       await expect(writer.commit({ path: "globalOn", value: false, updatedAt: 5000 }))
         .resolves.toEqual({ ...committed, intentCommitted: true });
       const receipt = await writer.commit({ path: "globalOn", value: false, updatedAt: 5000 });
@@ -193,7 +193,8 @@ describe("legacy hydration arbitration", () => {
     const set = vi.fn();
     const sendMessage = vi.fn();
     const sendNativeMessage = vi.fn();
-    const addListener = vi.fn(listener => { changed = listener; });
+    const registered: (typeof changed)[] = [];
+    const addListener = vi.fn(listener => { registered.push(listener); changed = listener; });
     const removeListener = vi.fn();
     vi.stubGlobal("chrome", {
       storage: { local: { get, set }, onChanged: { addListener, removeListener } },
@@ -209,7 +210,8 @@ describe("legacy hydration arbitration", () => {
     const stop = cache.watch();
     try {
       expect(get).toHaveBeenCalledExactlyOnceWith("still:settings");
-      changed({ "still:settings": { newValue: record(true, 0) } }, "local");
+      for (const handler of registered)
+        handler({ "still:settings": { newValue: record(true, 0) } }, "local");
       expect(cache.current()).toEqual(DEFAULT_SETTINGS);
       expect(legacy).not.toHaveBeenCalled();
       release({ "still:settings": saved });
@@ -224,7 +226,9 @@ describe("legacy hydration arbitration", () => {
       expect(sendMessage).not.toHaveBeenCalled(); expect(sendNativeMessage).not.toHaveBeenCalled();
     } finally {
       release({ "still:settings": saved }); stop();
-      expect(removeListener).toHaveBeenCalledExactlyOnceWith(changed);
+      expect(removeListener).toHaveBeenCalledTimes(2);
+      expect(removeListener).toHaveBeenCalledWith(changed);
+      expect(new Set(removeListener.mock.calls.map(([listener]) => listener)).size).toBe(2);
       vi.unstubAllGlobals();
     }
   });
@@ -255,7 +259,7 @@ describe("hydration after accepted legacy commands", () => {
     const settled = cache.whenHydrated();
     await reached;
     const stop = cache.watch();
-    const committed = { ...saved, settings: settings({ globalOn: true, updatedAt: 5000 }) };
+    const committed = { ...saved, settings: settings({ globalOn: true, updatedAt: 9001 }) };
     try {
       await expect(cache.setGlobalOn(true)).resolves.toEqual(committed.settings);
       expect(cache.currentRecord()).toEqual(committed);
@@ -796,7 +800,7 @@ describe("explicit atomic command receipts", () => {
     const { storage } = await atomicCache();
     const record = (await storage.get())!;
     const settings = kind === "legacy" ? DEFAULT_SETTINGS : kind === "future" ? { ...record.settings, schemaVersion: 3 } : record.settings;
-    await storage.set({ ...record, settings, atomic: { ...record.atomic!, paused: kind === "paused" ? "ownership-hold" : null, ownership: kind === "unknown" ? "unknown" : "never-linked" } });
+    await storage.set({ ...record, settings, atomic: { ...record.atomic!, paused: kind === "paused" ? "ownership-hold" : null, ownership: kind === "unknown" ? "unknown" : "never-linked", anchor: kind === "unknown" ? { version: 1 as const, lineage: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", revision: 0, mac: "A".repeat(43) } : record.atomic!.anchor } });
     const commitIntent = vi.fn();
     const cache = new SettingsCache({ get: storage.get.bind(storage), set: storage.set.bind(storage), subscribe: storage.subscribe.bind(storage), commitIntent });
     await cache.hydrate();

@@ -17,6 +17,7 @@
     onGlobalChange,
     onServiceChange,
     onFeatureChange,
+    commandsDisabled = false,
     sectionMemory,
     services,
     features,
@@ -26,15 +27,21 @@
     restore,
     link,
     sharing,
+    privacyActions,
     setup,
     help,
   }: ExtensionSettingsProps = $props();
-  let deleteTarget = $state<{ address: string; handler: () => void } | null>(
-    null,
-  );
+  let deleteTarget = $state<{
+    address?: string;
+    identity?: string;
+    revision?: number;
+    handler: () => void;
+  } | null>(null);
   let deleteTargetCurrent = $derived(
     deleteTarget !== null &&
       deleteTarget.address === sync.account?.address &&
+      deleteTarget.identity === sync.account?.identity &&
+      deleteTarget.revision === sync.account?.revision &&
       deleteTarget.handler === sync.account?.onDeleteAccount,
   );
   $effect(() => {
@@ -79,7 +86,8 @@
       restore?.state === "failed",
   );
   let proActionReady = $derived(
-    knownMissing &&
+    pro !== undefined &&
+      knownMissing &&
       pro.ownership === "none" &&
       !restoreHeld &&
       pro.channel === "ready" &&
@@ -90,16 +98,27 @@
       pro.state !== "success",
   );
   function requestPro() {
-    if (!proActionReady) return;
+    if (!proActionReady || !pro) return;
     if (sync.account?.confirmed) pro.onBuy?.();
     else pro.onSignIn?.();
   }
-  function confirmDelete() {
+  $effect(() => () => {
+    deleteTarget = null;
+  });
+  let deleteConfirmation = $derived.by(() => {
     const target = deleteTarget;
+    return target && deleteTargetCurrent
+      ? () => confirmDelete(target)
+      : undefined;
+  });
+  function confirmDelete(target: NonNullable<typeof deleteTarget>) {
+    if (target !== deleteTarget) return;
     deleteTarget = null;
     if (
       target &&
       target.address === sync.account?.address &&
+      target.identity === sync.account?.identity &&
+      target.revision === sync.account?.revision &&
       target.handler === sync.account?.onDeleteAccount
     )
       target.handler();
@@ -109,6 +128,8 @@
     if (account?.onDeleteAccount) {
       deleteTarget = {
         address: account.address,
+        identity: account.identity,
+        revision: account.revision,
         handler: account.onDeleteAccount,
       };
     }
@@ -122,7 +143,10 @@
     </div>
     <Toggle
       checked={settings.globalOn}
-      onChange={onGlobalChange}
+      onChange={(next) => {
+        if (!commandsDisabled) onGlobalChange(next);
+      }}
+      disabled={commandsDisabled}
       label="Still"
       onBlue={settings.globalOn}
     />
@@ -153,6 +177,7 @@
     {access}
     {onServiceChange}
     {onFeatureChange}
+    {commandsDisabled}
     {sectionMemory}
     {services}
     {features}
@@ -160,8 +185,9 @@
     onProAction={proActionReady ? requestPro : undefined}
   />
   <SyncCard
-    owned={pro.ownership === "owned"}
+    owned={pro?.ownership === "owned"}
     onSignIn={sync.onSignIn}
+    accountActions={sync.accountActions}
     account={sync.account
       ? {
           ...sync.account,
@@ -171,7 +197,7 @@
         }
       : undefined}
   />
-  {#if pro.ownership !== "owned" && (pro.ownership !== "none" || knownMissing || accessHeld || (pro.state && pro.state !== "idle"))}
+  {#if pro && pro.ownership !== "owned" && (pro.ownership !== "none" || knownMissing || accessHeld || (pro.state && pro.state !== "idle"))}
     <ProOfferCard
       {...pro}
       confirmedAccount={sync.account?.confirmed ?? false}
@@ -184,7 +210,9 @@
   {/if}
   {#if restore}<RestoreStatusCard {...restore} />{/if}
   {#if link}<AccountLinkCard {...link} />{/if}
-  <SharingCard {...sharing} />
+  {#if sharing}<SharingCard
+      {...sharing}
+    />{:else if privacyActions}{@render privacyActions()}{/if}
   <section class="card card-stack">
     <h2 class="section-label">Help</h2>
     <div class="account">
@@ -217,7 +245,7 @@
     title="Delete your account?"
     body="This deletes your account and the settings synced to it. Settings on this device stay. A Still Pro purchase made in the Still app keeps working on that device."
     confirmLabel="Delete account"
-    onConfirm={deleteTargetCurrent ? confirmDelete : undefined}
+    onConfirm={deleteConfirmation}
     onCancel={() => {
       deleteTarget = null;
     }}
