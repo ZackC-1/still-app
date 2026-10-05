@@ -44,7 +44,23 @@ export interface PurchaseResult {
  * offline, no native host) and never downgrades anything. */
 export type ReceiptStatusValue = "entitled" | "verifiedNotEntitled" | "noSignal";
 
+/** Native extension state only; this never proves site permission or onboarding completion. */
+export type SafariSetupObservation =
+  | {
+      readonly ok: true;
+      readonly platform: "ios";
+      readonly extensionStatus: "unknown";
+      readonly enableLocation: "settingsAppStillPage";
+    }
+  | {
+      readonly ok: true;
+      readonly platform: "macos";
+      readonly extensionStatus: "enabled" | "disabled" | "unknown";
+      readonly enableLocation: "safariExtensionSettings";
+    };
+
 export type NativeMessage =
+  | { readonly kind: "safariSetupState" }
   | { readonly kind: "signInWithApple" }
   | { readonly kind: "configurePurchases"; readonly appUserID: string }
   | { readonly kind: "purchase" }
@@ -83,6 +99,7 @@ export interface AnalyticsContextReply {
 }
 
 export class NativeBridge {
+  private safariSetupReadGeneration = 0;
   constructor(
     private readonly win: StillBridgeWindow = globalThis as unknown as StillBridgeWindow,
   ) {}
@@ -96,6 +113,50 @@ export class NativeBridge {
     return this.port !== null;
   }
 
+  /** Read the current host without opening settings. Unobserved A-B-A port swaps
+   * cannot be distinguished by identity; overlapping observed reads are fenced. */
+  async observeSafariSetup(): Promise<SafariSetupObservation | null> {
+    const generation = ++this.safariSetupReadGeneration;
+    const port = this.port;
+    if (!port) return null;
+    try {
+      const reply = await port.postMessage({ kind: "safariSetupState" });
+      if (generation !== this.safariSetupReadGeneration || port !== this.port)
+        return null;
+      const obj = asObject(reply);
+      if (!obj || Array.isArray(obj) || obj.ok !== true) return null;
+      if (
+        obj.platform === "ios" &&
+        obj.extensionStatus === "unknown" &&
+        obj.enableLocation === "settingsAppStillPage"
+      ) {
+        return {
+          ok: true,
+          platform: "ios",
+          extensionStatus: "unknown",
+          enableLocation: "settingsAppStillPage",
+        };
+      }
+      if (
+        obj.platform === "macos" &&
+        ["enabled", "disabled", "unknown"].includes(
+          obj.extensionStatus as string,
+        ) &&
+        obj.enableLocation === "safariExtensionSettings"
+      ) {
+        return {
+          ok: true,
+          platform: "macos",
+          extensionStatus: obj.extensionStatus as
+            "enabled" | "disabled" | "unknown",
+          enableLocation: "safariExtensionSettings",
+        };
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
   /**
    * Present native Sign in with Apple. Returns the identity token + raw nonce to exchange via Supabase
    * `signInWithIdToken({ provider: "apple", token, nonce })`. Throws on cancel/failure with the
