@@ -20,11 +20,25 @@ vi.mock("svelte", async (importOriginal) => {
   };
 });
 
+// Lets one test make the composition itself throw (the binding is its last step).
+const composeGate = vi.hoisted(() => ({ failBinding: false }));
+vi.mock("../../../../core/src/ui/v3/desktop-popup-binding.js", async (importOriginal) => {
+  const real = await importOriginal<typeof import("../../../../core/src/ui/v3/desktop-popup-binding.js")>();
+  return {
+    ...real,
+    createDesktopPopupBinding: (...args: Parameters<typeof real.createDesktopPopupBinding>) => {
+      if (composeGate.failBinding) throw new Error("binding failed");
+      return real.createDesktopPopupBinding(...args);
+    },
+  };
+});
+
 const ENV = { atomicSettingsFlag: "true", supabaseUrl: undefined, supabaseAnonKey: undefined };
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 const writes = (kinds: unknown[]) => kinds.filter((kind) => UNPROMPTED_WRITES.includes(kind as string));
 
 afterEach(async () => {
+  composeGate.failBinding = false;
   for (const instance of mounted.instances.splice(0)) await unmount(instance);
   cleanup();
   document.body.innerHTML = "";
@@ -233,5 +247,32 @@ describe("startSafariV3Options: a failed mount stops every watcher", () => {
     expect(stops.entitlement).toHaveBeenCalledOnce();
     expect(stops.binding).toHaveBeenCalledOnce();
     expect(f.storageListenerCount()).toBe(0);
+  });
+});
+
+describe("startSafariV3Options: the composition itself throws", () => {
+  it("hands over to legacy, stops what it started and leaves only the page's own stylesheet", async () => {
+    const f = await installSafari({ saved: "atomic", signedIn: true });
+    document.body.innerHTML = '<div id="app"></div>';
+    document.head.innerHTML = '<link rel="stylesheet" href="legacy.css">';
+    composeGate.failBinding = true;
+    const mount = vi.fn();
+    const mode = await startSafariV3Options({
+      env: ENV,
+      load: async () => {
+        const link = document.createElement("link");
+        link.rel = "stylesheet";
+        link.href = "v3-components.css";
+        document.head.append(link);
+        return { mountSafariV3Options: mount };
+      },
+    });
+    expect(mode).toBe("legacy");
+    expect(mount).not.toHaveBeenCalled();
+    expect([...document.head.querySelectorAll('link[rel="stylesheet"]')].map((l) => l.getAttribute("href"))).toEqual([
+      "legacy.css",
+    ]);
+    expect(f.storageListenerCount()).toBe(0);
+    document.head.innerHTML = "";
   });
 });
