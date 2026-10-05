@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "3.0.2",
+  "version": "3.0.3",
   "services": {
     "youtube": {
       "matches": [
@@ -196,6 +196,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "705a1dc76b834026da6516e9735851f4ae13d3b661b724d86aa65e7b4af51f2934a769040f4b152cc8eea4c28e7938d57dbb18273b31c5eecac4bcc860700c0e"
+    "value": "16ed6d3b6e1703cd539ca53c60cb1c62471578a79f26f903ce80c5b569eaa3331904b1d7c44390b30b26d97a2036d8f49d991aa44c9838bb6e3e7763cd075800"
   }
 }
