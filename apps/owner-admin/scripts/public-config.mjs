@@ -21,20 +21,38 @@ export function jwtPayload(token) {
   }
 }
 
-/** Why a key may not ship in a public page, or null when it may. Refuses every server key shape
- * Supabase issues (a secret key, or a JWT whose role isn't anon). An opaque value that is neither,
- * such as CI's synthetic placeholder, is not a credential and may build. */
-export function refuseKey(key) {
+/** Hosts that can never be a real project: CI's synthetic `.invalid` URL and loopback stacks. */
+export function isPlaceholderHost(url) {
+  try {
+    const { hostname } = new URL(url);
+    return hostname.endsWith(".invalid") || hostname === "127.0.0.1" || hostname === "localhost";
+  } catch {
+    return false;
+  }
+}
+
+/** A synthetic stand-in such as CI's "public-audit-placeholder": lowercase words and hyphens that
+ * say "placeholder". No real credential has that shape. */
+const PLACEHOLDER = /^[a-z0-9-]*placeholder[a-z0-9-]*$/;
+
+/** Why a key may not ship in a public page, or null when it may. Accepted, and nothing else:
+ *  - a publishable key (sb_publishable_…);
+ *  - a JWT whose role claim is "anon";
+ *  - an obvious placeholder, and only when the project URL is a placeholder host (`.invalid` or
+ *    loopback), so it can never pair with a real project.
+ * Everything else is refused: secret keys, personal access tokens (sbp_…), raw JWT signing
+ * secrets, database URLs, other providers' keys (sk_live_…) and any other opaque value. */
+export function refuseKey(key, url = "") {
   if (typeof key !== "string" || key.length === 0) return "missing";
-  if (/\s/.test(key)) return "malformed";
+  if (key.startsWith("sb_publishable_")) return /^sb_publishable_[A-Za-z0-9_-]+$/.test(key) ? null : "a malformed publishable key";
   if (key.startsWith("sb_secret_")) return "a Supabase secret key";
-  if (key.startsWith("sb_")) return /^sb_publishable_[A-Za-z0-9_-]+$/.test(key) ? null : "not a publishable key";
   if (JWT.test(key)) {
     const payload = jwtPayload(key);
     if (!payload) return "an unreadable JWT";
-    if (payload.role !== "anon") return `a "${String(payload.role)}" key`;
+    return payload.role === "anon" ? null : `a "${String(payload.role)}" key`;
   }
-  return null;
+  if (key.length <= 64 && PLACEHOLDER.test(key) && isPlaceholderHost(url)) return null;
+  return "not a publishable or anon key";
 }
 
 /** The URL's origin when it is an acceptable project URL: https, or plain http on loopback only
@@ -62,7 +80,7 @@ export function resolvePublicConfig(env) {
   if (!url || !anonKey) throw new Error("owner-admin: set both VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY, or neither");
   const origin = projectOrigin(url);
   if (!origin) throw new Error("owner-admin: VITE_SUPABASE_URL must be an https project URL with no path");
-  const refusal = refuseKey(anonKey);
+  const refusal = refuseKey(anonKey, origin);
   if (refusal) throw new Error(`owner-admin: VITE_SUPABASE_ANON_KEY is ${refusal}; only the public anon key may ship`);
   return { url: origin, anonKey, origin };
 }

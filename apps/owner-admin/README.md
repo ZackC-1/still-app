@@ -42,15 +42,22 @@ From the repository root:
 
 Configuration is read from the environment at build time, exactly like the extensions:
 `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (both public). With neither set the page builds and
-shows "Not available here". A service key, a half configuration or a non-https URL fails the build.
+shows "Not available here". The key must be a publishable key (`sb_publishable_…`) or a JWT whose
+role is `anon`; the only other value accepted is an obvious placeholder (for example CI's
+`public-audit-placeholder`) paired with a placeholder URL (`*.invalid` or loopback). Anything else
+(a secret key, a personal access token, a JWT signing secret, a database URL, another provider's
+key), a half configuration or a non-https URL fails the build.
 
 ### Bundle guard
 
 `scripts/bundle-guard.mjs` scans the finished file and fails the build when:
 
-- a Supabase secret key or any JWT whose role isn't `anon` is in it;
+- a Supabase secret key or personal access token, any JWT whose role isn't `anon`, another
+  provider's secret key or a database URL with a password is in it, or `VITE_SUPABASE_ANON_KEY`
+  itself isn't a key the page may ship;
 - the value of any other sensitive-looking environment variable (from this process or the app's
-  `.env` files) is in it; only variable names are ever printed;
+  `.env` files) is in it; only variable names are ever printed. A credential-named variable is never
+  excused for repeating the shipped value, unless it is the anon key under another name;
 - the CSP meta, the robots `noindex, nofollow` meta or the no-referrer meta is missing, the CSP is
   looser than the fixed policy, or an inline script or style isn't covered by its hash;
 - anything loads from a file or another site, or an analytics or tracking reference appears;

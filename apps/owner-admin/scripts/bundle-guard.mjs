@@ -1,6 +1,8 @@
 // Post-build guard for the owner page. The finished file is scanned, not the source, so a leak
 // through any dependency, define or plugin is caught too. It fails the build (exit 1) when:
-//   - any server key reaches the page (a Supabase secret key, or any JWT whose role isn't anon);
+//   - any server key reaches the page (a Supabase secret key or personal access token, any JWT
+//     whose role isn't anon, another provider's secret key, a database URL with a password), or
+//     VITE_SUPABASE_ANON_KEY itself is not a key the page may ship;
 //   - the value of ANY environment variable other than VITE_SUPABASE_URL and
 //     VITE_SUPABASE_ANON_KEY appears in it (values are never printed, only variable names);
 //   - the strict CSP meta, the noindex robots meta or the single-file shape is missing;
@@ -9,9 +11,11 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { ALLOWED_ENV, jwtPayload } from "./public-config.mjs";
+import { ALLOWED_ENV, jwtPayload, refuseKey } from "./public-config.mjs";
 
 const SENSITIVE_NAME = /KEY|SECRET|TOKEN|PASSWORD|PASSWD|PRIVATE|SERVICE|JWT|DB_URL|DATABASE|CREDENTIAL|^VITE_|^SUPABASE_|^POSTHOG|^REVENUECAT|^STRIPE/i;
+const CREDENTIAL_NAME = /KEY|SECRET|TOKEN|PASSWORD|PASSWD|PRIVATE|CREDENTIAL|JWT|DB_URL|DATABASE/i;
+const ANON_ALIAS = /(?:^|_)(?:ANON|PUBLISHABLE)_KEY$/i;
 const MIN_SECRET_LENGTH = 12;
 const TRACKERS = /posthog|google-analytics|googletagmanager|gtag\(|plausible\.io|segment\.com|mixpanel|amplitude|hotjar|sentry\.io|clarity\.ms/i;
 
@@ -46,11 +50,29 @@ export function scanBundle(html, { env = {}, files = ["index.html"], origin = nu
     }
   }
 
-  // A variable that merely repeats an allowed value (say SUPABASE_URL beside VITE_SUPABASE_URL)
-  // is not a leak; any other value is.
+  // Credential shapes that must never ship, whichever variable carried them.
+  const SHAPES = [
+    [/\bsbp_[A-Za-z0-9]{20,}/, "a Supabase personal access token (sbp_…)"],
+    [/\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{8,}/, "a secret API key (sk_/rk_…)"],
+    [/postgres(?:ql)?:\/\/[^\s"'`:@/]+:[^\s"'`@/]+@/, "a database URL with a password"],
+  ];
+  for (const [shape, what] of SHAPES) if (shape.test(html)) problems.push(`${what} is in the page`);
+
+  // The anon key variable itself must still be a key the page may ship.
+  const anon = (env.VITE_SUPABASE_ANON_KEY ?? "").trim();
+  const keyRefusal = anon ? refuseKey(anon, (env.VITE_SUPABASE_URL ?? "").trim()) : null;
+  if (keyRefusal) problems.push(`VITE_SUPABASE_ANON_KEY is ${keyRefusal}`);
+
+  // A plainly named variable that only repeats an allowed value (SUPABASE_URL beside
+  // VITE_SUPABASE_URL) is not a leak. A credential-named one gets that exemption only when it is
+  // the anon key under another name (…ANON_KEY / …PUBLISHABLE_KEY) and the key itself is one the
+  // page may ship. Any other token or secret with the shipped value is a credential: it fails.
   const allowedValues = new Set(ALLOWED_ENV.map((name) => (env[name] ?? "").trim()).filter(Boolean));
   for (const [name, value] of Object.entries(env)) {
-    if (ALLOWED_ENV.includes(name) || typeof value !== "string" || allowedValues.has(value.trim())) continue;
+    if (ALLOWED_ENV.includes(name) || typeof value !== "string") continue;
+    const repeatsAllowed = allowedValues.has(value.trim());
+    const anonAlias = ANON_ALIAS.test(name) && value.trim() === anon && !keyRefusal;
+    if (repeatsAllowed && (!CREDENTIAL_NAME.test(name) || anonAlias)) continue;
     if (!SENSITIVE_NAME.test(name) || value.trim().length < MIN_SECRET_LENGTH) continue;
     if (html.includes(value.trim())) problems.push(`the value of ${name} is in the page; only ${ALLOWED_ENV.join(" and ")} may reach it`);
   }

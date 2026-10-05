@@ -57,8 +57,41 @@ describe("bundle guard", () => {
     expect(problems.join()).not.toContain(leaked); // names only, never values
   });
 
-  it("does not flag a variable that only repeats an allowed value", () => {
-    expect(scanBundle(page(), { origin: ORIGIN, env: { VITE_SUPABASE_ANON_KEY: ANON, SUPABASE_ANON_KEY: ANON } })).toEqual([]);
+  it("exempts only plain names and anon-key aliases that repeat an allowed value", () => {
+    const env = { VITE_SUPABASE_URL: ORIGIN, VITE_SUPABASE_ANON_KEY: ANON, SUPABASE_URL: ORIGIN, SUPABASE_ANON_KEY: ANON };
+    expect(scanBundle(page(), { origin: ORIGIN, env })).toEqual([]);
+  });
+
+  it("never exempts a token or secret that has the shipped value", () => {
+    const placeholderScript = `const k="public-audit-placeholder";`;
+    const env = {
+      VITE_SUPABASE_URL: "https://still-audit.invalid",
+      VITE_SUPABASE_ANON_KEY: "public-audit-placeholder",
+      SUPABASE_ACCESS_TOKEN: "public-audit-placeholder",
+    };
+    const problems = scanBundle(page({ script: placeholderScript }), { origin: ORIGIN, env }).join();
+    expect(problems).toMatch(/SUPABASE_ACCESS_TOKEN/);
+  });
+
+  it("fails when the anon key variable is not a shippable key, whatever the page holds", () => {
+    const sbp = ("sbp" + "_0123456789abcdef0123456789abcdef01234567");
+    const problems = scanBundle(page({ script: `const k="${sbp}";` }), {
+      origin: ORIGIN,
+      env: { VITE_SUPABASE_URL: ORIGIN, VITE_SUPABASE_ANON_KEY: sbp, SUPABASE_ACCESS_TOKEN: sbp },
+    }).join();
+    expect(problems).toMatch(/personal access token/);
+    expect(problems).toMatch(/VITE_SUPABASE_ANON_KEY is not a publishable or anon key/);
+    expect(problems).toMatch(/SUPABASE_ACCESS_TOKEN/);
+  });
+
+  it("fails on other credential shapes in the page", () => {
+    for (const [secret, what] of [
+      [("sk" + "_live_51Habcdefghijklmnop"), /sk_\/rk_/],
+      ["postgres://postgres:hunter2pass@db.example.co:5432/postgres", /database URL/],
+      [("sbp" + "_0123456789abcdef0123456789abcdef01234567"), /personal access token/],
+    ] as const) {
+      expect(scanBundle(page({ script: `const k="${ANON}";const s="${secret}";` }), { origin: ORIGIN }).join(), secret).toMatch(what);
+    }
   });
 
   it("fails without the CSP, with an unlisted inline script, or with a loose directive", () => {
@@ -85,11 +118,35 @@ describe("public config", () => {
     expect(refuseKey("sb_publishable_abc123")).toBeNull();
     expect(refuseKey(SERVICE)).toMatch(/service_role/);
     expect(refuseKey("sb_secret_abc")).toMatch(/secret/);
-    expect(refuseKey("sb_temp_abc")).toMatch(/not a publishable key/);
-    expect(refuseKey("eyJhbGciOiJIUzI1NiJ9.!!!.sig")).toBeNull(); // not JWT-shaped at all: opaque
+    expect(refuseKey("sb_publishable_has space")).toMatch(/malformed/);
     expect(refuseKey(`${ANON.split(".")[0]}.bm90LWpzb24.c2ln`)).toMatch(/unreadable JWT/);
-    // CI builds every package with a synthetic opaque placeholder; it is not a credential.
-    expect(refuseKey("public-audit-placeholder")).toBeNull();
+  });
+
+  it("refuses every credential that isn't a publishable or anon key", () => {
+    for (const secret of [
+      ("sbp" + "_0123456789abcdef0123456789abcdef01234567"), // Supabase personal access token
+      ("sk" + "_live_51Habcdefghijklmnop"), // another provider's secret key
+      "super-secret-jwt-token-with-at-least-32-characters-long", // a raw JWT signing secret
+      "postgres://postgres:hunter2pass@db.example.co:5432/postgres", // a database URL
+      "sb_temp_abc",
+      "eyJhbGciOiJIUzI1NiJ9.!!!.sig",
+      "anything-opaque",
+    ]) {
+      expect(refuseKey(secret, ORIGIN), secret).not.toBeNull();
+      expect(refuseKey(secret, "https://still-audit.invalid"), secret).not.toBeNull();
+      expect(() => resolvePublicConfig({ VITE_SUPABASE_URL: ORIGIN, VITE_SUPABASE_ANON_KEY: secret }), secret).toThrow();
+    }
+  });
+
+  it("accepts an obvious placeholder only with a placeholder host", () => {
+    // CI builds every package with this synthetic pair; neither can reach a real project.
+    expect(refuseKey("public-audit-placeholder", "https://still-audit.invalid")).toBeNull();
+    expect(refuseKey("public-audit-placeholder", "http://127.0.0.1:54321")).toBeNull();
+    expect(refuseKey("public-audit-placeholder", ORIGIN)).not.toBeNull();
+    expect(refuseKey("public-audit-placeholder")).not.toBeNull();
+    expect(resolvePublicConfig({ VITE_SUPABASE_URL: "https://still-audit.invalid", VITE_SUPABASE_ANON_KEY: "public-audit-placeholder" }).origin)
+      .toBe("https://still-audit.invalid");
+    expect(() => resolvePublicConfig({ VITE_SUPABASE_URL: ORIGIN, VITE_SUPABASE_ANON_KEY: "public-audit-placeholder" })).toThrow();
   });
 
   it("refuses a half or non-project configuration and a service key at build time", () => {
