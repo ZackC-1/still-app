@@ -6,6 +6,7 @@
 import { assertEquals, assertRejects } from "@std/assert";
 import { PgEntitlementStore, PgRateLimiter } from "./pg-store.ts";
 import { MissingUserError } from "./store.ts";
+import type { CodedError } from "./coded-error.ts";
 
 const USER = "11111111-1111-1111-1111-111111111111";
 
@@ -58,7 +59,9 @@ Deno.test("rate limiter fails closed without copying driver parameters into hand
   );
   assertEquals(error.message, "Rate limiter unavailable");
   assertEquals(error.cause, undefined);
-  assertEquals(Object.keys(error), []);
+  // Only the fixed operator code is attached; no driver detail, query or parameter.
+  assertEquals(Object.keys(error), ["code"]);
+  assertEquals((error as CodedError).code, "rate_limiter_unavailable");
 });
 
 Deno.test("rate limiter rejects a missing RPC result instead of allowing traffic", async () => {
