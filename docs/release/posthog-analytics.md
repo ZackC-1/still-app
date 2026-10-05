@@ -69,7 +69,7 @@ settings are missing. Deployed 2026-09-23 (analytics-identify v1, delete-user v1
 
 **Deletion follow-up.** If PostHog is down during an account deletion, the account is still deleted
 and the function logs `ANALYTICS DELETION FAILED` with a fixed reason code (`http_5xx`, `http_4xx`,
-`network`, `deletion_errors`, `not_queued`, `events_not_queued` or `unknown`). The log never names
+`http_other`, `network`, `deletion_errors`, `not_queued`, `events_not_queued` or `unknown`). The log never names
 the account. An account that never shared usage has no PostHog person: PostHog answers with
 `persons_found: 0`, which counts as done, and the function logs the fixed line
 `analytics deletion: no person`.
@@ -77,17 +77,21 @@ the account. An account that never shared usage has no PostHog person: PostHog a
 When a failure appears, match it to the account by time, not by searching PostHog for ids:
 
 1. Note the time of the `ANALYTICS DELETION FAILED` line.
-2. In the Supabase Auth audit log, find the account-deletion entry at the same moment. It gives the
-   deleted account's id. (Check the first time that the hosted project records these entries.)
-3. In PostHog, open Persons and search for exactly that id. Delete the person, with events, only if
-   the person was found by that id and carries the `email` property, which only the server sets
-   (through `analytics-identify`) on a signed-in account's person.
+2. In the Supabase Auth audit log, find the nearest account-deletion entry at or before the time of
+   that line. (Deleting an account can be retried, so the failure line can come later than the
+   deletion entry.) The entry gives the deleted account's id. (Check the first time that the hosted
+   project records these entries.)
+3. In PostHog, open Persons and search for exactly that id. If a person is found by that id, delete
+   it, with events. The id itself is the test: account ids are never reused, and an id taken from an
+   account-deletion entry can never be someone's live anonymous id. The person may or may not carry
+   the `email` property. A person re-created by late events after the deletion, or one whose email
+   was never attached, has none, so a missing email is not a reason to keep it. An email that matches
+   is only extra confirmation.
 
 > **Warning.** Anonymous analytics ids are random UUIDs too, and most people never sign in. Never
 > decide that a person belongs to a deleted account because its id is missing from the accounts
 > table: that would delete live, anonymous usage, including ids that current accounts still use.
-> Only an id taken from an account-deletion entry, on a person that carries the server-set email,
-> is a candidate.
+> Only an exact id taken from an account-deletion entry is a candidate.
 
 A person can also reappear shortly after a successful deletion: events already on their way when the
 account was deleted (an offline device, or PostHog's own ingestion delay) can arrive afterwards. The
@@ -205,8 +209,9 @@ different surfaces, so label every insight with the definition it uses.
 - The `code_failed` reason mix: a jump in `network` means the backend.
 - The `delete-user` logs for `ANALYTICS DELETION FAILED` and `analytics deletion: no person`, and,
   for every account-deletion entry in the Auth audit log from the past week, the three steps under
-  "Deletion follow-up" (exact id from the audit entry, person must carry the server-set email; never
-  infer a deleted account from an id missing from the accounts table): a device that was offline during the deletion can
+  "Deletion follow-up" (search for the exact id from the audit entry and delete any person found by
+  it, with or without an email; never infer a deleted account from an id missing from the accounts
+  table): a device that was offline during the deletion can
   send events under it until it learns the session ended, and an extension background that receives
   the popup's forget request late (deletion waits at most 5 s for it) can send whatever it had
   queued in between. A forget also cannot survive process termination before storage accepts any
