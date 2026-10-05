@@ -3,7 +3,7 @@ import { ChromeEntitlementAdapter, createEntitlementMessageRouter, parseBenefitA
 import { createRuleSetRefresher } from "@still/core/rules";
 import { createAppGroupReconciler } from "../lib/app-group-reconcile.js";
 import { BrowserInstallGenerationStore, createEntitlementPull } from "../lib/entitlement-pull.js";
-import { NATIVE_APP, pushSettingsToApp } from "../lib/native-settings.js";
+import { adoptIntoApp, NATIVE_APP, pushSettingsToApp } from "../lib/native-settings.js";
 import { createIndexedDbKeyValue, QUIET_FLUSH_ALARM, requestQuietFlush } from "@still/core/analytics";
 import { createSafariBackgroundAnalytics } from "../lib/analytics.js";
 
@@ -90,7 +90,7 @@ export default defineBackground(() => {
   // The reconcile + value-based echo guard live in a tested module (lib/app-group-reconcile); it owns
   // the storage subscription that mirrors in-extension edits out to the App Group, suppressing the
   // echo of its own app→local writes by `updatedAt`.
-  const reconciler = createAppGroupReconciler({ pullFromApp, pushToApp: pushSettingsToApp, local: adapter });
+  const reconciler = createAppGroupReconciler({ pullFromApp, pushToApp: pushSettingsToApp, adoptIntoApp, local: adapter });
 
   // Entitlement pull: the app mirrors its server-reconciled entitlement into the App Group; we copy
   // it into browser.storage so the content scripts' EntitlementCache gates Pro blocking on it. A

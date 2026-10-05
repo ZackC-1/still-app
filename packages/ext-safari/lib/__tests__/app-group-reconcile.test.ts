@@ -2,7 +2,10 @@ import { describe, it, expect, vi } from "vitest";
 import { DEFAULT_SETTINGS } from "@still/shared-types";
 import type { StillSettings } from "@still/shared-types";
 import type { StoredSettingsRecord } from "@still/core/storage";
-import { createAppGroupReconciler, type LocalSettingsStore } from "../app-group-reconcile.js";
+import { createAppGroupReconciler, isUntouchedFirstRecord, type LeftoverAdoption, type LocalSettingsStore } from "../app-group-reconcile.js";
+
+/** Legacy-only scenarios never reach the reinstall adoption; reaching it here would be a bug. */
+const noAdoption = (): Promise<LeftoverAdoption | null> => Promise.reject(new Error("unexpected adoption"));
 
 function settings(updatedAt: number): StillSettings {
   return { ...DEFAULT_SETTINGS, updatedAt };
@@ -86,7 +89,7 @@ describe("createAppGroupReconciler", () => {
   it("app newer → applies down to local; the resulting echo is NOT pushed back", async () => {
     const local = fakeLocal(record(100));
     const pushToApp = vi.fn((_record: StoredSettingsRecord) => Promise.resolve());
-    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(record(200)), pushToApp, local: local.store });
+    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(record(200)), pushToApp, adoptIntoApp: noAdoption, local: local.store });
     await r.reconcile();
     expect(local.value?.settings.updatedAt).toBe(200); // applied
     local.emit(local.value!); // the async onChanged echo of our own write
@@ -97,7 +100,7 @@ describe("createAppGroupReconciler", () => {
   it("local newer → pushes up to app; local unchanged", async () => {
     const local = fakeLocal(record(300));
     const pushToApp = vi.fn((_record: StoredSettingsRecord) => Promise.resolve());
-    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(record(100)), pushToApp, local: local.store });
+    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(record(100)), pushToApp, adoptIntoApp: noAdoption, local: local.store });
     await r.reconcile();
     expect(pushToApp).toHaveBeenCalledTimes(1);
     expect(pushToApp.mock.calls[0]![0].settings.updatedAt).toBe(300);
@@ -108,7 +111,7 @@ describe("createAppGroupReconciler", () => {
   it("guard is by value: the applied value's echo is suppressed, a later real edit IS pushed", async () => {
     const local = fakeLocal(record(100));
     const pushToApp = vi.fn((_record: StoredSettingsRecord) => Promise.resolve());
-    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(record(200)), pushToApp, local: local.store });
+    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(record(200)), pushToApp, adoptIntoApp: noAdoption, local: local.store });
     await r.reconcile(); // applies 200
     local.emit(record(200)); // echo → suppressed
     expect(pushToApp).not.toHaveBeenCalled();
@@ -122,7 +125,7 @@ describe("createAppGroupReconciler", () => {
     const local = fakeLocal(record(100));
     const pushToApp = vi.fn((_record: StoredSettingsRecord) => Promise.resolve());
     let appAt = 200;
-    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(record(appAt)), pushToApp, local: local.store });
+    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(record(appAt)), pushToApp, adoptIntoApp: noAdoption, local: local.store });
     await Promise.all([
       r.reconcile(),
       (async () => {
@@ -140,7 +143,7 @@ describe("createAppGroupReconciler", () => {
     const local = fakeLocal(record(100));
     const pushToApp = vi.fn((_record: StoredSettingsRecord) => Promise.resolve());
     const setSpy = vi.spyOn(local.store, "set");
-    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(record(100)), pushToApp, local: local.store });
+    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(record(100)), pushToApp, adoptIntoApp: noAdoption, local: local.store });
     await r.reconcile();
     expect(pushToApp).not.toHaveBeenCalled();
     expect(setSpy).not.toHaveBeenCalled();
@@ -150,7 +153,7 @@ describe("createAppGroupReconciler", () => {
   it("app null + local present → seeds the app (push), no local set", async () => {
     const local = fakeLocal(record(100));
     const pushToApp = vi.fn((_record: StoredSettingsRecord) => Promise.resolve());
-    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(null), pushToApp, local: local.store });
+    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(null), pushToApp, adoptIntoApp: noAdoption, local: local.store });
     await r.reconcile();
     expect(pushToApp).toHaveBeenCalledTimes(1);
     r.stop();
@@ -159,7 +162,7 @@ describe("createAppGroupReconciler", () => {
   it("metadata version beats old updatedAt ordering", async () => {
     const local = fakeLocal(record(9_999, 3));
     const pushToApp = vi.fn((_record: StoredSettingsRecord) => Promise.resolve());
-    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(record(10_000, 2)), pushToApp, local: local.store });
+    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(record(10_000, 2)), pushToApp, adoptIntoApp: noAdoption, local: local.store });
     await r.reconcile();
     expect(local.value?.syncMetadata?.version).toBe(3);
     expect(pushToApp).toHaveBeenCalledTimes(1);
@@ -174,6 +177,7 @@ describe("createAppGroupReconciler", () => {
     const r = createAppGroupReconciler({
       pullFromApp: () => Promise.resolve(recordWithMetadata(200, 22, baseServerTime)),
       pushToApp,
+      adoptIntoApp: noAdoption,
       local: local.store,
     });
     await r.reconcile();
@@ -192,7 +196,7 @@ describe("createAppGroupReconciler", () => {
     const bob = personRecord({ writeId: "bob", version: 3, updatedAt: 12, globalOn: true, repoints: 2 });
     const local = fakeLocal(alice);
     const pushToApp = vi.fn((_record: StoredSettingsRecord) => Promise.resolve());
-    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(bob), pushToApp, local: local.store });
+    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(bob), pushToApp, adoptIntoApp: noAdoption, local: local.store });
 
     await r.reconcile();
 
@@ -211,7 +215,7 @@ describe("createAppGroupReconciler", () => {
     const bob = personRecord({ writeId: "bob", version: 3, updatedAt: 12, globalOn: true, repoints: 1 });
     const local = fakeLocal(alice);
     const pushToApp = vi.fn((_record: StoredSettingsRecord) => Promise.resolve());
-    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(bob), pushToApp, local: local.store });
+    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(bob), pushToApp, adoptIntoApp: noAdoption, local: local.store });
 
     await r.reconcile();
 
@@ -235,7 +239,7 @@ describe("createAppGroupReconciler", () => {
     });
     const local = fakeLocal(older);
     const pushToApp = vi.fn((_record: StoredSettingsRecord) => Promise.resolve());
-    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(newer), pushToApp, local: local.store });
+    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(newer), pushToApp, adoptIntoApp: noAdoption, local: local.store });
 
     await r.reconcile();
 
@@ -259,7 +263,7 @@ describe("createAppGroupReconciler", () => {
     });
     const local = fakeLocal(held);
     const pushToApp = vi.fn((_record: StoredSettingsRecord) => Promise.resolve());
-    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(arriving), pushToApp, local: local.store });
+    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(arriving), pushToApp, adoptIntoApp: noAdoption, local: local.store });
 
     await r.reconcile();
 
@@ -275,6 +279,7 @@ describe("createAppGroupReconciler", () => {
     const r = createAppGroupReconciler({
       pullFromApp: () => Promise.resolve(recordWithMetadata(200, 22, baseServerTime)),
       pushToApp,
+      adoptIntoApp: noAdoption,
       local: local.store,
     });
     await r.reconcile();
@@ -282,5 +287,98 @@ describe("createAppGroupReconciler", () => {
     expect(pushToApp.mock.calls[0]![0].settings.updatedAt).toBe(300);
     expect(local.value?.settings.updatedAt).toBe(300);
     r.stop();
+  });
+});
+
+// Owner decision 30. These records are shaped exactly as the Apple app's native writer saves them
+// (byte parity with that writer is pinned in packages/core's compiled StillKit tests).
+function firstRecord(ownership: "never-linked" | "unknown" = "never-linked"): StoredSettingsRecord {
+  return {
+    settings: { ...DEFAULT_SETTINGS, updatedAt: 0 },
+    syncMetadata: null,
+    syncEpoch: 0,
+    atomic: { format: 1, sequence: 0, ownership, scope: { accountId: null, generation: 0 }, anchor: null, pending: [], held: {}, paused: null },
+  };
+}
+const retainedOff: StoredSettingsRecord = {
+  settings: { ...DEFAULT_SETTINGS, globalOn: false, services: { ...DEFAULT_SETTINGS.services, instagram: false }, updatedAt: 42 },
+  syncMetadata: { version: 4, serverUpdatedAt: "2026-09-01T00:00:00.000Z", lastWriteId: null },
+  syncEpoch: 2,
+};
+function adopted(from: StoredSettingsRecord): StoredSettingsRecord {
+  return { ...from, atomic: { ...firstRecord("unknown").atomic!, sequence: 1 } };
+}
+
+describe("reinstall: Safari's retained copy wins over the app's untouched first record (decision 30)", () => {
+  it("offers the retained copy instead of applying the first record over it, then mirrors what the app adopted", async () => {
+    const local = fakeLocal(retainedOff);
+    const pushToApp = vi.fn((_record: StoredSettingsRecord) => Promise.resolve());
+    const adoptIntoApp = vi.fn((_record: StoredSettingsRecord): Promise<LeftoverAdoption | null> =>
+      Promise.resolve({ status: "adopted", record: adopted(retainedOff) }));
+    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(firstRecord()), pushToApp, adoptIntoApp, local: local.store });
+    await r.reconcile();
+    expect(adoptIntoApp).toHaveBeenCalledWith(retainedOff);
+    // Safari's Off choices are what this extension keeps blocking with, now as the app's record.
+    expect(local.value).toEqual(adopted(retainedOff));
+    expect(local.value?.settings.globalOn).toBe(false);
+    expect(pushToApp).not.toHaveBeenCalled();
+    r.stop();
+  });
+
+  it.each(["never-linked", "unknown"] as const)("never lets a %s first record overwrite the copy when the app cannot take it", async ownership => {
+    for (const outcome of [null, { status: "refused", record: firstRecord(ownership) }] as const) {
+      const local = fakeLocal(retainedOff);
+      const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(firstRecord(ownership)), pushToApp: () => Promise.resolve(),
+        adoptIntoApp: () => Promise.resolve(outcome), local: local.store });
+      await r.reconcile();
+      expect(local.value).toBe(retainedOff);
+      r.stop();
+    }
+  });
+
+  it("an app record that is no longer untouched is reconciled as usual", async () => {
+    const touched = { ...firstRecord(), atomic: { ...firstRecord().atomic!, sequence: 1 } };
+    const local = fakeLocal(retainedOff);
+    const adoptIntoApp = vi.fn(noAdoption);
+    const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(touched), pushToApp: () => Promise.resolve(), adoptIntoApp, local: local.store });
+    await r.reconcile();
+    expect(adoptIntoApp).not.toHaveBeenCalled();
+    expect(local.value).toBe(touched);
+    // And when the app's record moved on between the read and the offer, its answer is what lands.
+    const raced = fakeLocal(retainedOff);
+    const r2 = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(firstRecord()), pushToApp: () => Promise.resolve(),
+      adoptIntoApp: () => Promise.resolve({ status: "kept", record: touched }), local: raced.store });
+    await r2.reconcile();
+    expect(raced.value).toBe(touched);
+    r.stop(); r2.stop();
+  });
+
+  it("a genuine new install (nothing retained) or an already mirrored first record needs no offer", async () => {
+    for (const initial of [null, firstRecord(), { ...firstRecord(), intentCommitted: true } as StoredSettingsRecord]) {
+      const local = fakeLocal(initial);
+      const adoptIntoApp = vi.fn(noAdoption);
+      const r = createAppGroupReconciler({ pullFromApp: () => Promise.resolve(firstRecord()), pushToApp: () => Promise.resolve(), adoptIntoApp, local: local.store });
+      await r.reconcile();
+      expect(adoptIntoApp).not.toHaveBeenCalled();
+      expect(local.value).toEqual(initial ?? firstRecord());
+      r.stop();
+    }
+  });
+
+  it("recognizes only an untouched first record", () => {
+    expect(isUntouchedFirstRecord(firstRecord())).toBe(true);
+    expect(isUntouchedFirstRecord(firstRecord("unknown"))).toBe(true);
+    const base = firstRecord();
+    const state = base.atomic!;
+    for (const changed of [
+      retainedOff,
+      { ...base, atomic: { ...state, ownership: "previous-account" as const } },
+      { ...base, atomic: { ...state, sequence: 1 } },
+      { ...base, atomic: { ...state, scope: { accountId: null, generation: 1 } } },
+      { ...base, atomic: { ...state, held: { globalOn: false } } },
+      { ...base, atomic: { ...state, paused: "ordering-hold" } },
+      { ...base, syncEpoch: 1 },
+      { ...base, syncMetadata: retainedOff.syncMetadata },
+    ]) expect(isUntouchedFirstRecord(changed as StoredSettingsRecord)).toBe(false);
   });
 });
