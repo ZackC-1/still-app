@@ -1,7 +1,8 @@
 // Generates and signs packages/core/rules/format2.json, the packaged format-2 rule set the shipping
 // content entry admits. The authored source of truth stays in the per-service TypeScript rule
-// modules (src/rules/youtube.ts, instagram.ts, facebook.ts); this script copies their surfaces,
-// adds the packaged TikTok service alias, and signs the canonical format-2 payload with the DEV
+// modules (src/rules/youtube.ts, instagram.ts, facebook.ts, then each service's Still Pro extras
+// module, *-extras.ts); this script copies their surfaces, free surfaces first, adds the packaged
+// TikTok service alias, and signs the canonical format-2 payload with the DEV
 // key, exactly like sign-seed.mjs does for the format-1 seed. Packaged data is admitted by shape
 // validation at runtime (the existing format-2 bundled contract); the signature lets tests and
 // `--check` prove the committed bytes are the generated ones. It never fetches or publishes.
@@ -29,14 +30,25 @@ const outPath = join(here, "..", "rules", "format2.json");
 const { YOUTUBE_SHORTS_RULES } = await import(join(here, "..", "src", "rules", "youtube.ts"));
 const { INSTAGRAM_REELS_RULES } = await import(join(here, "..", "src", "rules", "instagram.ts"));
 const { FACEBOOK_REELS_RULES } = await import(join(here, "..", "src", "rules", "facebook.ts"));
+const { YOUTUBE_EXTRAS } = await import(join(here, "..", "src", "rules", "youtube-extras.ts"));
+const { INSTAGRAM_EXTRAS } = await import(join(here, "..", "src", "rules", "instagram-extras.ts"));
+const { FACEBOOK_EXTRAS } = await import(join(here, "..", "src", "rules", "facebook-extras.ts"));
 
 /** Plain JSON copy of a frozen rule module (no prototypes, getters or freezing in the artifact). */
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
+/**
+ * A service's packaged rules: its free surfaces exactly as authored, then its Still Pro extras
+ * surfaces. Extras never edit the free surface; routes and markers stay compiled engine code.
+ * Validity of the result is a CI gate (rules/__tests__/extras-free-protection.test.ts), because
+ * the runtime admits the whole packaged set or none of it.
+ */
+const withExtras = (rules, extras) => ({ ...plain(rules), surfaces: [...plain(rules).surfaces, ...plain(extras.surfaces)] });
+
 const services = {
-  youtube: plain(YOUTUBE_SHORTS_RULES),
-  instagram: plain(INSTAGRAM_REELS_RULES),
-  facebook: plain(FACEBOOK_REELS_RULES),
+  youtube: withExtras(YOUTUBE_SHORTS_RULES, YOUTUBE_EXTRAS),
+  instagram: withExtras(INSTAGRAM_REELS_RULES, INSTAGRAM_EXTRAS),
+  facebook: withExtras(FACEBOOK_REELS_RULES, FACEBOOK_EXTRAS),
   // The packaged TikTok service alias. Its whole-site decision is consumed only through a trusted
   // blocked-screen host port; without one the shipping entry keeps TikTok on the legacy block.
   tiktok: {

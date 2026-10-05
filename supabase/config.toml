@@ -455,3 +455,14 @@ enabled = true
 [functions.sync-settings]
 verify_jwt = true
 import_map = "./functions/sync-settings/deno.json"
+
+[functions.product-policy]
+# verify_jwt=false is deliberate: a public, identity-free read of the current product policy body
+# (or 404 = Off). Clients never send a session token or any identifier; the function reaches the
+# database only as still_policy_reader, which can call nothing but private.read_product_policy.
+verify_jwt = false
+
+[functions.product-policy-admin]
+# verify_jwt=true: owner-only. The function also verifies the user JWT itself (exp required, role
+# authenticated, project issuer) and the database checks the subject against its owner allowlist.
+verify_jwt = true
