@@ -57,8 +57,9 @@ export async function withAuthenticatedUser(
 
 /** An error class name: letters only (AuthApiError, PostgresError). */
 const SAFE_NAME = /^[A-Z][A-Za-z]{0,39}$/;
-/** A SQLSTATE (23503) or a snake_case word code (user_not_found, http_5xx). */
-const SAFE_CODE = /^(?:[0-9A-Z]{5}|[a-z]+(?:_[a-z0-9]{1,8}){0,5})$/;
+/** A SQLSTATE (23503), a PostgREST code (PGRST116), or a snake_case code made of letter words with
+ * at most one short trailing segment (settings_unavailable, user_not_found, http_5xx). */
+const SAFE_CODE = /^(?:[0-9A-Z]{5}|PGRST[0-9]{3}|[a-z]+(?:_[a-z]+){0,5}(?:_[a-z0-9]{1,4})?)$/;
 
 /**
  * A loggable category for a thrown value, built only from fields with a fixed vocabulary: the

@@ -2,7 +2,10 @@ import { assertEquals, assertRejects } from "@std/assert";
 import { handleAnalyticsIdentify } from "../analytics-identify/handler.ts";
 import { handleDeleteUser } from "../delete-user/handler.ts";
 import { failureCategory } from "../_shared/auth.ts";
-import { HttpPostHog, nothingToDelete, PostHogDeletionError } from "../_shared/posthog.ts";
+import { HttpPostHog, NO_PERSON_LOG, nothingToDelete, PostHogDeletionError } from "../_shared/posthog.ts";
+import { CodedError } from "../_shared/coded-error.ts";
+import { HttpRevenueCatClient } from "../_shared/revenuecat.ts";
+import { RevenueCatWebPurchaseLink } from "../_shared/web-billing.ts";
 import { mintHs256, TEST_EXPECTED_CLAIMS } from "../_shared/test-helpers.ts";
 import type { UserStore } from "../_shared/user-store.ts";
 
@@ -98,7 +101,25 @@ Deno.test("an account that never shared usage has no PostHog person: PostHog's 2
   const { result, logs } = await captureLogs(() => deleteAccount(ph));
   assertEquals(result, { status: 200, body: { deleted: true, analyticsDeleted: true } });
   assertEquals(calls, [{ distinct_ids: [A], delete_events: true }]); // no retry, no second request
-  assertEquals(logs, []); // nothing to follow up, so nothing is logged
+  // Nothing to follow up, so no failure; one fixed, identifier-free line makes a run of zero
+  // matches (a wrong project id) visible.
+  assertEquals(logs, [[NO_PERSON_LOG]]);
+});
+
+Deno.test("a first attempt that deleted the person but reported a failed later step, then a retry that finds nobody, is done", async () => {
+  const partial = { persons_found: 1, persons_deleted: 1, deletion_errors: [{ person_uuid: "p", step: "log_activity" }] };
+  const { ph, calls } = scripted([[202, partial], [202, NO_PERSON]]);
+  const { logs } = await captureLogs(() => ph.deletePerson(A));
+  assertEquals(calls.length, 2);
+  assertEquals(logs, [[NO_PERSON_LOG]]);
+});
+
+Deno.test("a first attempt with deletion errors that deleted nothing, then a 5xx retry, is a failure", async () => {
+  const failed = { persons_found: 1, persons_deleted: 0, persons_queued_for_deletion: 0, deletion_errors: [{ person_uuid: "p", step: "delete" }] };
+  const { ph, calls } = scripted([[202, failed], [503, {}]]);
+  const { logs } = await captureLogs(() => assertRejects(() => ph.deletePerson(A), PostHogDeletionError, "http_5xx"));
+  assertEquals(calls.length, 2);
+  assertEquals(logs, []);
 });
 
 Deno.test("the older 400 answer for an unknown person, followed by the current persons_found 0, is also done", async () => {
@@ -198,4 +219,43 @@ Deno.test("failureCategory keeps only fixed-vocabulary fields", () => {
   assertEquals(failureCategory(Object.assign(new Error("x"), { code: "a1b2c3d4e5f60718293a4b5c6d7e8f90" })), "Error");
   assertEquals(failureCategory(`thrown ${A}`), "unknown");
   assertEquals(failureCategory(null), "unknown");
+});
+
+Deno.test("fixed-message server errors keep a stable code in the gate's log, and never their message", async () => {
+  const cases: [Error, string][] = [
+    [new CodedError("settings_unavailable", "Settings storage unavailable"), "CodedError:code_settings_unavailable"],
+    [new CodedError("rate_limiter_unavailable", "Rate limiter unavailable"), "CodedError:code_rate_limiter_unavailable"],
+    [new CodedError("missing_locked_settings", "Missing locked settings state"), "CodedError:code_missing_locked_settings"],
+    [new CodedError("web_billing_unconfigured", "RevenueCat Web Billing is not configured"), "CodedError:code_web_billing_unconfigured"],
+    [new CodedError("posthog_identify_failed", `PostHog identify failed: 503 ${A}`, 503), "CodedError:status_503:code_posthog_identify_failed"],
+    [Object.assign(new Error(`JSON object requested, ${A}`), { code: "PGRST116" }), "Error:code_PGRST116"],
+  ];
+  for (const [thrown, expected] of cases) {
+    const { result, logs } = await captureLogs(() => deleteAccount(scripted([]).ph, { deleteUser: () => Promise.reject(thrown) }));
+    assertEquals(result.status, 500);
+    assertEquals(logs, [["authenticated handler failed", { reason: expected }]]);
+    assertNoIdentifier(logs);
+    assertEquals(JSON.stringify(logs).includes(thrown.message), false);
+  }
+});
+
+Deno.test("the fixed-message throw sites carry their codes", async () => {
+  const identify = new HttpPostHog(
+    { projectKey: "phc_x", host: "https://us.i.posthog.com" },
+    () => Promise.resolve(new Response("{}", { status: 503 })),
+  );
+  const posthogError = await assertRejects(() => identify.setPersonEmail(A, EMAIL), CodedError);
+  assertEquals([posthogError.code, posthogError.status], ["posthog_identify_failed", 503]);
+
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = () => Promise.resolve(new Response("{}", { status: 502 }));
+  try {
+    const rcError = await assertRejects(() => new HttpRevenueCatClient("sk_x").getSubscriber(A), CodedError);
+    assertEquals([rcError.code, rcError.status], ["revenuecat_lookup_failed", 502]);
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+
+  const billing = await assertRejects(() => new RevenueCatWebPurchaseLink("").createCheckout(A), CodedError);
+  assertEquals(billing.code, "web_billing_unconfigured");
 });

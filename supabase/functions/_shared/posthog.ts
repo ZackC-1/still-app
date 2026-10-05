@@ -1,3 +1,4 @@
+import { CodedError } from "./coded-error.ts";
 // Server-side PostHog calls. Two jobs, both keyed by the Supabase user UUID the verified JWT proved:
 //
 //   * Put the account's email on its PostHog person. The apps and extensions never send an email
@@ -93,7 +94,7 @@ export class HttpPostHog implements PostHogPort {
       body: JSON.stringify({ api_key: this.config.projectKey!.trim(), batch }),
     });
     await res.body?.cancel();
-    if (!res.ok) throw new Error(`PostHog identify failed: ${res.status}`);
+    if (!res.ok) throw new CodedError("posthog_identify_failed", `PostHog identify failed: ${res.status}`, res.status);
   }
 
   async deletePerson(userId: string): Promise<void> {
@@ -104,9 +105,13 @@ export class HttpPostHog implements PostHogPort {
       // queued nothing is not a deletion either. Retry once, then report. A 202 that matched no
       // person at all (someone who never shared usage, or whose person is already gone) is done:
       // there is nothing to delete (see nothingToDelete).
-      if (deletionAccepted(first.body) || nothingToDelete(first.body)) return;
+      if (deletionAccepted(first.body)) return;
+      if (nothingToDelete(first.body)) return logNoPerson();
       const retry = await this.bulkDelete(userId, true);
-      if (retry.ok && (deletionAccepted(retry.body) || nothingToDelete(retry.body))) return;
+      if (retry.ok && deletionAccepted(retry.body)) return;
+      // The first attempt can delete the person and still report a failed later step; the retry
+      // then finds nobody, which means the deletion stands.
+      if (retry.ok && nothingToDelete(retry.body)) return logNoPerson();
       throw new PostHogDeletionError(retry.ok ? notQueuedReason(retry.body) : statusReason(retry.status));
     }
     if (first.status !== 400) throw new PostHogDeletionError(statusReason(first.status));
@@ -115,9 +120,9 @@ export class HttpPostHog implements PostHogPort {
     // "no such person" counts as done; anything else is a real failure to log.
     const check = await this.bulkDelete(userId, false);
     if (check.ok) {
-      if (nothingToDelete(check.body)) return;
+      if (nothingToDelete(check.body)) return logNoPerson();
       const unmatched = (check.body as { unmatched_distinct_ids?: unknown } | null)?.unmatched_distinct_ids;
-      if (Array.isArray(unmatched) && unmatched.includes(userId)) return;
+      if (Array.isArray(unmatched) && unmatched.includes(userId)) return logNoPerson();
       // It matched after all (and is now deleted), but its events were not queued for deletion.
       throw new PostHogDeletionError("events_not_queued");
     }
@@ -198,6 +203,16 @@ export function nothingToDelete(body: unknown): boolean {
   }
   const none = (value: unknown) => value === undefined || value === 0;
   return none(b.persons_queued_for_deletion) && none(b.persons_deleted);
+}
+
+/** The fixed, identifier-free line written when PostHog matched no person. One now and then is an
+ * account that never shared usage. Every deletion answering this way points at a wrong project id
+ * or environment, which PostHog also answers with persons_found 0 when the personal key can reach
+ * that other project (the operations guide requires a key scoped to the one ingesting project). */
+export const NO_PERSON_LOG = "analytics deletion: no person";
+
+function logNoPerson(): void {
+  console.info(NO_PERSON_LOG);
 }
 
 /** Why an account's analytics deletion did not complete. A fixed vocabulary that is safe to log:
