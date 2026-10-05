@@ -66,9 +66,14 @@ unauthenticated POST to each returns 401. Either function skips its PostHog step
 settings are missing. Deployed 2026-09-23 (analytics-identify v1, delete-user v18), verified as above.
 
 **Deletion follow-up.** If PostHog is down during an account deletion, the account is still deleted
-and the function logs `ANALYTICS DELETION FAILED for account <uuid>`. Check the `delete-user` logs
-weekly while monitoring is manual, and delete any logged person in PostHog (Persons → search the
-id → Delete person, with events).
+and the function logs `ANALYTICS DELETION FAILED` with a fixed reason code (`http_5xx`, `http_4xx`,
+`network`, `deletion_errors`, `not_queued`, `events_not_queued` or `unknown`). The log never names
+the account. An account that never shared usage has no PostHog person; PostHog answers its deletion
+with `persons_found: 0`, which counts as done and logs nothing. Check the `delete-user` logs weekly
+while monitoring is manual. When a failure appears, find the leftover person by reconciliation
+rather than by a logged id: in PostHog, list persons whose distinct id is an account UUID, then check
+those ids in the Supabase SQL editor (read-only `select id from auth.users where id = any(...)`).
+An id with no account row belongs to a deleted account: Delete person, with events.
 
 **Existing accounts.** Accounts created before 2.1 get their email attached the next time a 2.1
 surface identifies them. A one-time backfill (list auth users, set each email on its person) needs
@@ -169,7 +174,7 @@ different surfaces, so label every insight with the definition it uses.
 - Persons whose distinct id is an account UUID but have no email (a stuck identify).
 - The `code_failed` reason mix: a jump in `network` means the backend.
 - The `delete-user` logs for `ANALYTICS DELETION FAILED`, and, a week after any account deletion,
-  a Persons search for the deleted account id: a device that was offline during the deletion can
+  the reconciliation above (account-UUID persons with no account row): a device that was offline during the deletion can
   send events under it until it learns the session ended, and an extension background that receives
   the popup's forget request late (deletion waits at most 5 s for it) can send whatever it had
   queued in between. A forget also cannot survive process termination before storage accepts any
