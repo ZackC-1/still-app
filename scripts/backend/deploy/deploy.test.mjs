@@ -1042,6 +1042,184 @@ test("the apply command exits 0 with a warning when only the row counts moved", 
   assert.ok(!out.text.includes("98765"));
 });
 
+const APPLY_ENV = {
+  GITHUB_ACTIONS: "true",
+  RUNNER_ENVIRONMENT: "github-hosted",
+  GITHUB_EVENT_NAME: "workflow_dispatch",
+  GITHUB_REF: "refs/heads/main",
+};
+const COUNT_READ_FAILED =
+  /^The change was applied and the end-state checks passed, but the second row-count read failed, so the data-loss cross-check did not run\. Do not re-run the apply\. Check the counts privately in the Supabase SQL editor by running scripts\/backend\/deploy\/verify\/0002_harden\.invariant\.sql; never post the counts publicly\.$/;
+
+test("an unreadable second row-count read fails the run: the data-loss cross-check did not run", async (t) => {
+  const { root, p, dir } = await deployFixture(t);
+  const cases = {
+    "psql error": {
+      psqlFailure: (file, st) =>
+        st.pushed && file.endsWith(".invariant.sql")
+          ? `psql:${file}:3: ERROR:  57P01\n`
+          : null,
+    },
+    "invalid output": { countsAfterPush: "garbled" },
+    "empty object": { countsAfterPush: {} },
+  };
+  for (const [name, options] of Object.entries(cases)) {
+    const logs = [];
+    const receipt = await runDeploy({
+      exec: fakeDb(p, options).exec,
+      plan: p,
+      dir,
+      conn: parseDbUrl(PROD_URL),
+      target: "production",
+      cwd: root,
+      log: (l) => logs.push(l),
+    });
+    assert.equal(receipt.status, "verification-failed", name);
+    assert.equal(receipt.applied, true, name);
+    assert.deepEqual(receipt.issues, ["row-count-unreadable:0002_harden.sql"]);
+    assert.deepEqual(receipt.warnings, [], name);
+    assert.match(receipt.recovery, COUNT_READ_FAILED, name);
+    assert.doesNotMatch(receipt.recovery, /likely live/, name);
+    const row = receipt.steps.find(
+      (x) => x.name === "row counts 0002_harden.sql",
+    );
+    assert.equal(row.outcome, "failed", name);
+    assert.match(row.detail, /data-loss cross-check did not run/, name);
+    assert.match(
+      renderReceipt(receipt),
+      /❌ Production deploy: verification-failed/,
+    );
+    const text = `${logs.join("\n")}${JSON.stringify(receipt)}${renderReceipt(receipt)}${renderFinal(receipt, {})}`;
+    assert.ok(!text.includes('"public.profiles":3'), name);
+  }
+
+  // Another verification failure as well: still fix-forward, and the count gap is named.
+  const both = await runDeploy({
+    exec: fakeDb(p, {
+      countsAfterPush: "garbled",
+      verify: (st) => (st.pushed ? '["client_execute:anon:x"]' : "[]"),
+    }).exec,
+    plan: p,
+    dir,
+    conn: parseDbUrl(PROD_URL),
+    target: "production",
+    cwd: root,
+  });
+  assert.equal(both.status, "verification-failed");
+  assert.match(both.recovery, /write a new forward migration/);
+  assert.match(
+    both.recovery,
+    /second row-count read also failed, so the data-loss cross-check did not run\. Do not re-run the apply\./,
+  );
+});
+
+test("the apply command exits 1 with an error, never a warning, when the second count read fails", async (t) => {
+  const { root, p, dir } = await deployFixture(t);
+  const planFile = join(root, ".plan.json");
+  await writeFile(planFile, JSON.stringify(p));
+  const out = {
+    text: "",
+    write(x) {
+      this.text += x;
+    },
+  };
+  const code = await main(
+    ["apply", "--plan", planFile, "--dir", dir],
+    { ...APPLY_ENV, EXPECTED_PLAN_DIGEST: p.digest, SUPABASE_DB_URL: PROD_URL },
+    {
+      exec: fakeDb(p, {
+        psqlFailure: (file, st) =>
+          st.pushed && file.endsWith(".invariant.sql")
+            ? `psql:${file}:3: ERROR:  08006\n`
+            : null,
+      }).exec,
+      cwd: root,
+      out,
+      platform: "linux",
+    },
+  );
+  assert.equal(code, 1);
+  assert.match(
+    out.text,
+    /::error title=Production deploy verification-failed::row-count-unreadable:0002_harden\.sql\. The change was applied and the end-state checks passed, but the second row-count read failed, so the data-loss cross-check did not run\. Do not re-run the apply\. Check the counts privately in the Supabase SQL editor/,
+  );
+  assert.doesNotMatch(out.text, /::warning/);
+  assert.doesNotMatch(out.text, /likely live/);
+  assert.ok(!out.text.includes('"public.profiles":3'));
+});
+
+test("an unreadable baseline row-count read refuses before any write", async (t) => {
+  const { root, p, dir } = await deployFixture(t);
+  const cases = {
+    "psql error": {
+      psqlFailure: (file) =>
+        file.endsWith(".invariant.sql")
+          ? `psql:${file}:3: ERROR:  57014\n`
+          : null,
+    },
+    "invalid output": {},
+  };
+  for (const [name, options] of Object.entries(cases)) {
+    const db = fakeDb(p, options);
+    if (name === "invalid output") db.state.counts = ["not", "counts"];
+    const receipt = await runDeploy({
+      exec: db.exec,
+      plan: p,
+      dir,
+      conn: parseDbUrl(PROD_URL),
+      target: "production",
+      cwd: root,
+    });
+    assert.equal(receipt.status, "refused", name);
+    assert.equal(receipt.writeAttempted, false, name);
+    assert.equal(pushes(db.state).length, 0, name);
+    assert.deepEqual(
+      receipt.issues,
+      [name === "psql error" ? "sql-failed" : "row-count-output-invalid"],
+      name,
+    );
+    assert.equal(receipt.recovery, "none needed: nothing was written");
+  }
+});
+
+test("an interruption right after a successful push says applied, never result unknown", async (t) => {
+  const { root, p, dir } = await deployFixture(t);
+  const db = fakeDb(p);
+  let persisted = null;
+  let atSecondRead = null;
+  // The receipt on disk when the first post-push read starts is what an interruption leaves.
+  const exec = async (cmd, args, opts) => {
+    if (cmd === "psql" && db.state.pushed && atSecondRead === null)
+      atSecondRead = structuredClone(persisted);
+    return db.exec(cmd, args, opts);
+  };
+  const receipt = await runDeploy({
+    exec,
+    plan: p,
+    dir,
+    conn: parseDbUrl(PROD_URL),
+    target: "production",
+    cwd: root,
+    onProgress: async (r) => {
+      persisted = structuredClone(r);
+    },
+  });
+  assert.equal(receipt.status, "verified");
+  assert.ok(atSecondRead, "a post-push read happened");
+  assert.equal(atSecondRead.applied, true);
+  assert.equal(atSecondRead.status, "in-progress");
+  const text = renderFinal(atSecondRead, {
+    applyOutcome: "cancelled",
+    jobStatus: "cancelled",
+  });
+  assert.match(
+    text,
+    /applied; verification not completed \(interrupted: cancelled\)/,
+  );
+  assert.match(text, /Recovery: do not re-run the apply\./);
+  assert.doesNotMatch(text, /result unknown/);
+});
+
 test("SQLSTATE is extracted from psql's script-prefixed and the CLI's formats, nothing else", () => {
   for (const [text, code] of [
     ["psql:/tmp/x/migration-history.sql:12: ERROR:  42501\n", "42501"],
@@ -1223,6 +1401,7 @@ test("closing record reports only what steps actually recorded when a run is int
   );
   assert.match(pushText, /Migration history: UNKNOWN/);
   assert.match(pushText, /fix forward only/);
+  assert.match(pushText, /do not re-run the apply until history is checked/);
 
   // Interrupted after the push but before history-after: applied, history still unknown.
   const afterApply = snapshots.find(last("apply"));
@@ -1264,7 +1443,7 @@ test("closing record reports only what steps actually recorded when a run is int
   );
   assert.match(
     renderFinal(null, { applyOutcome: "", jobStatus: "failure" }),
-    /did not leave a record.*UNKNOWN/s,
+    /did not leave a record.*UNKNOWN.*do not re-run the apply until history is checked/s,
   );
   const done = snapshots.at(-1);
   assert.equal(done.status, "verified");

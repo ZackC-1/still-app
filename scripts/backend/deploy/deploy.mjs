@@ -750,6 +750,28 @@ export function parseJsonArray(line, category) {
   return value;
 }
 
+/** Row-count output must be a JSON object of non-negative integer counts; never printed. */
+export function parseRowCounts(line) {
+  let value;
+  try {
+    value = JSON.parse(line);
+  } catch {
+    value = null;
+  }
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    Object.keys(value).length === 0 ||
+    !Object.values(value).every((n) => Number.isInteger(n) && n >= 0)
+  )
+    throw new Refusal(
+      "row-count-output-invalid",
+      "Row-count output was not the expected JSON object",
+    );
+  return line;
+}
+
 export function parseHistory(line) {
   const value = parseJsonArray(line, "history-unreadable");
   for (const entry of value) {
@@ -891,7 +913,9 @@ export function issueCounts(list) {
 /**
  * Applies exactly the planned migrations to `conn`. Never throws: always returns a receipt.
  * status: verified | refused (nothing written) | stopped (write attempted, needs review) |
- * verification-failed (write done, end state wrong). While running the status is in-progress;
+ * verification-failed (write done; end state wrong, or a post-push check, including the second
+ * row-count read, could not run) | applied-verified-counts-changed (everything passed; only the
+ * row counts moved, likely live traffic). While running the status is in-progress;
  * `onProgress` receives the receipt after every step so an interrupted run leaves a record.
  */
 export async function runDeploy({
@@ -961,13 +985,15 @@ export async function runDeploy({
       ),
     );
   const invariant = async (m) =>
-    runReadOnlySql({
-      exec,
-      conn,
-      target,
-      cwd,
-      file: join(dir, m.invariant.path),
-    });
+    parseRowCounts(
+      await runReadOnlySql({
+        exec,
+        conn,
+        target,
+        cwd,
+        file: join(dir, m.invariant.path),
+      }),
+    );
   const invariantsBefore = new Map();
   try {
     await verifyWorkdir({ plan, dir, stage: "full" });
@@ -1059,9 +1085,13 @@ export async function runDeploy({
   await onProgress(receipt);
   const windowStart = Date.now();
   const pushed = await supabasePush({ exec, conn, target, dir, dryRun: false });
-  // Second row-count read immediately after the push, before anything else.
   const invariantsAfter = new Map();
   if (pushed.code === 0) {
+    // Record "applied" the moment the push succeeds, so an interruption from here on produces
+    // "applied, not yet verified: do not re-run the apply" rather than "result unknown".
+    receipt.applied = true;
+    await onProgress(receipt);
+    // Second row-count read immediately after the push, before any other read.
     for (const m of plan.migrations.filter((x) => x.invariant)) {
       invariantsAfter.set(
         m.file,
@@ -1108,7 +1138,6 @@ export async function runDeploy({
     }
     return receipt;
   }
-  receipt.applied = true;
   await step("apply", "ok");
 
   receipt.status = "in-progress";
@@ -1167,11 +1196,12 @@ export async function runDeploy({
       const now = invariantsAfter.get(m.file);
       const window = `${receipt.countWindowMs} ms window around the push`;
       if (typeof now !== "string") {
-        receipt.warnings.push(`row-count-unreadable:${m.file}`);
+        // The data-loss cross-check did not run, so this can never pass as a warning.
+        receipt.issues.push(`row-count-unreadable:${m.file}`);
         await step(
           `row counts ${m.file}`,
-          "warning",
-          `second read failed (${now?.error ?? "missing"}); ${window}`,
+          "failed",
+          `second read failed (${now?.error ?? "missing"}); the data-loss cross-check did not run; ${window}`,
         );
       } else if (now !== invariantsBefore.get(m.file)) {
         receipt.warnings.push(`row-count-changed:${m.file}`);
@@ -1190,8 +1220,28 @@ export async function runDeploy({
         );
     }
   }
+  const countReadFailed = receipt.issues.some((i) =>
+    i.startsWith("row-count-unreadable:"),
+  );
+  const countCheck = `Check the counts privately in the Supabase SQL editor by running ${plan.migrations
+    .filter((m) => m.invariant)
+    .map((m) => m.invariant.path)
+    .join(", ")}; never post the counts publicly.`;
   if (receipt.issues.length > 0) {
     receipt.status = "verification-failed";
+    if (
+      countReadFailed &&
+      receipt.issues.every((i) => i.startsWith("row-count-unreadable:"))
+    )
+      receipt.recovery =
+        "The change was applied and the end-state checks passed, but the second row-count read " +
+        "failed, so the data-loss cross-check did not run. Do not re-run the apply. " +
+        countCheck;
+    else if (countReadFailed)
+      receipt.recovery +=
+        ". The second row-count read also failed, so the data-loss cross-check did not run. " +
+        "Do not re-run the apply. " +
+        countCheck;
   } else if (receipt.warnings.length === 0) {
     receipt.status = "verified";
     receipt.recovery = "none needed";
@@ -1527,7 +1577,7 @@ export function renderFinal(receipt, { applyOutcome, jobStatus }) {
   if (!receipt) {
     lines.push(
       `- The apply step did not leave a record (step outcome: ${applyOutcome || "not run"}, job: ${jobStatus || "unknown"}).`,
-      "- Nothing reached the database unless the step started; treat migration history as UNKNOWN and inspect it privately before any new deploy.",
+      "- Nothing reached the database unless the step started; treat migration history as UNKNOWN and do not re-run the apply until history is checked privately.",
     );
   } else {
     const interrupted = receipt.status === "in-progress";
@@ -1544,7 +1594,7 @@ export function renderFinal(receipt, { applyOutcome, jobStatus }) {
     } else if (interrupted && receipt.writeAttempted) {
       outcome = `apply started; result unknown (interrupted: ${how})`;
       recovery =
-        "inspect migration history privately before anything else; fix forward only, never restore removed grants.";
+        "do not re-run the apply until history is checked: inspect migration history privately before anything else; fix forward only, never restore removed grants.";
     } else if (interrupted) {
       outcome = `interrupted before any write (${how})`;
       recovery = "nothing was written; plan and approve again.";
