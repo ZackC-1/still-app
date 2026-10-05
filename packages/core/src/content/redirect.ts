@@ -26,8 +26,20 @@ export interface NavigationEventLike {
   readonly defaultPrevented?: boolean;
   readonly isTrusted?: boolean;
   readonly navigationType?: "push" | "replace" | "reload" | "traverse";
+  /** True when the person activated a link (or similar), false when page script navigated. */
+  readonly userInitiated?: boolean;
   preventDefault?(): void;
 }
+
+/**
+ * Who asked for a prospective navigation. "deliberate": the person activated a link (trusted
+ * click/Enter, or a Navigation API event marked userInitiated), or moved through history.
+ * "page": page script changed the URL on its own, e.g. a viewer advancing to its next item.
+ */
+export type NavigationIntent = "deliberate" | "page";
+
+/** A deliberate link activation still counts for the page's own pushState within this window. */
+const DELIBERATE_WINDOW_MS = 1_000;
 
 /**
  * Exactly the window surface the content script depends on. Declared explicitly (rather than the
@@ -74,7 +86,7 @@ export function locationRedirectPort(win: StillWindow): RedirectPort {
 export function installNavigationHooks(
   win: StillWindow,
   onNavigate: () => void,
-  beforeNavigate?: (target: URL, mode: "push" | "replace") => boolean,
+  beforeNavigate?: (target: URL, mode: "push" | "replace", intent: NavigationIntent) => boolean,
   doc?: Document,
 ): () => void {
   const history = win.history;
@@ -96,6 +108,13 @@ export function installNavigationHooks(
       return null;
     }
   };
+  // The last link the person deliberately activated. Single-page sites intercept the click and
+  // push the URL themselves, so that push carries the person's intent, not the page's.
+  let deliberate: { readonly key: string; readonly at: number } | null = null;
+  const routeKey = (url: URL) => `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+  const intentFor = (url: URL): NavigationIntent =>
+    deliberate && deliberate.key === routeKey(url) && Date.now() - deliberate.at <= DELIBERATE_WINDOW_MS
+      ? "deliberate" : "page";
   const historyConsumed = (
     value: string | URL | null | undefined,
     mode: "push" | "replace",
@@ -105,7 +124,7 @@ export function installNavigationHooks(
     return (
       !!url &&
       url.origin === new URL(win.location.href).origin &&
-      beforeNavigate?.(url, mode) === true
+      beforeNavigate?.(url, mode, intentFor(url)) === true
     );
   };
 
@@ -139,6 +158,11 @@ export function installNavigationHooks(
         !event.navigationType || event.navigationType === "push"
           ? "push"
           : "replace",
+        event.userInitiated === true ||
+          event.navigationType === "traverse" ||
+          event.navigationType === "reload"
+          ? "deliberate"
+          : intentFor(url),
       )
     ) {
       event.preventDefault();
@@ -181,7 +205,8 @@ export function installNavigationHooks(
     )
       return;
     const url = targetUrl(anchor.href);
-    if (url && beforeNavigate(url, "push")) {
+    if (url) deliberate = { key: routeKey(url), at: Date.now() };
+    if (url && beforeNavigate(url, "push", "deliberate")) {
       event.preventDefault();
       event.stopImmediatePropagation();
     }

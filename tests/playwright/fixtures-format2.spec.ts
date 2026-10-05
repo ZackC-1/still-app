@@ -308,3 +308,107 @@ test("format-2 facebook: in-app navigation into the Watch Reels feed goes home; 
   await page.goto("https://www.facebook.com/watch/reels/").catch(() => {});
   await expect(page).toHaveURL("https://www.facebook.com/");
 });
+
+// ── Reel viewers (plural feed viewer goes home; a shared Reel opens but does not continue) ─────
+
+/** A hand-written single-page viewer: the page itself pushes the next Reel, like a swipe. */
+const viewer = (next: string) => `<!doctype html><html><head><title>viewer</title></head><body>
+  <main id="keep-viewer">One Reel playing</main>
+  <a id="deliberate" href="${next}">Open another Reel</a>
+  <script>
+    document.getElementById("deliberate").addEventListener("click", (event) => {
+      event.preventDefault(); // the site routes the click itself, as single-page apps do
+      history.pushState(null, "", event.currentTarget.getAttribute("href"));
+    });
+    window.swipe = (to) => history.pushState(null, "", to);
+  </script></body></html>`;
+
+async function serveViewer(page: Page, domainGlob: string, next: string) {
+  await page.route(domainGlob, (route) =>
+    route.fulfill({ contentType: "text/html; charset=utf-8", body: viewer(next) }),
+  );
+}
+
+async function commitIntent(context: BrowserContext, extensionId: string, path: string, value: boolean) {
+  const options = await context.newPage();
+  await options.goto(`chrome-extension://${extensionId}/options.html`);
+  const reply = await options.evaluate(
+    ({ path, value }) =>
+      (globalThis as unknown as { chrome: { runtime: { sendMessage(m: unknown): Promise<unknown> } } }).chrome.runtime
+        .sendMessage({ kind: "still:settings-intent", path, value, updatedAt: Date.now() }),
+    { path, value },
+  );
+  expect(reply).toMatchObject({ status: "committed" });
+  await options.close();
+}
+
+test("format-2 instagram: the plural /reels/<code>/ viewer goes home; a shared /reel/<code>/ opens", async ({ context }) => {
+  const page = await context.newPage();
+  await serveViewer(page, "**://*.instagram.com/**", "/reel/B2/");
+  await page.goto("https://www.instagram.com/reels/C0de1/").catch(() => {}); // replaced while loading
+  await expect(page).toHaveURL("https://www.instagram.com/");
+  for (const shared of ["/reel/A1/", "/some.user/reel/A1/"]) {
+    await page.goto(`https://www.instagram.com${shared}`);
+    await expect(page.locator("html")).toHaveClass(/still-feature-\d+-instagram-reels/);
+    await expect(page).toHaveURL(`https://www.instagram.com${shared}`);
+    await expect(page.locator("#keep-viewer")).toBeVisible();
+  }
+});
+
+for (const [service, origin, swipes, home] of [
+  ["instagram", "https://www.instagram.com/reel/A1/", ["/reels/B2/", "/reel/B2/"], "https://www.instagram.com/"],
+  ["facebook", "https://www.facebook.com/reel/111", ["/reel/222"], "https://www.facebook.com/"],
+] as const)
+  test(`format-2 ${service}: a shared Reel opens, but the viewer continuing into another Reel is stopped`, async ({ context }) => {
+    for (const swipe of swipes) {
+      const page = await context.newPage();
+      await serveViewer(page, `**://*.${service}.com/**`, swipe);
+      await page.goto(origin);
+      await expect(page.locator("html")).toHaveClass(new RegExp(`still-feature-\\d+-${service}-reels`));
+      await expect(page).toHaveURL(origin); // the deliberately opened Reel stays
+      await page.evaluate((to) => (window as unknown as { swipe(to: string): void }).swipe(to), swipe);
+      await expect(page, swipe).toHaveURL(home);
+      await page.goBack();
+      await expect(page).toHaveURL(origin); // Back returns to the Reel that was opened
+      await page.close();
+    }
+  });
+
+for (const [service, origin, next] of [
+  ["instagram", "https://www.instagram.com/reel/A1/", "/reel/B2/"],
+  ["facebook", "https://www.facebook.com/reel/111", "/reel/222"],
+] as const)
+  test(`format-2 ${service}: deliberately clicking another Reel opens it`, async ({ context }) => {
+    const page = await context.newPage();
+    await serveViewer(page, `**://*.${service}.com/**`, next);
+    await page.goto(origin);
+    await expect(page.locator("html")).toHaveClass(new RegExp(`still-feature-\\d+-${service}-reels`));
+    await page.locator("#deliberate").click(); // a trusted click; the site pushes the URL itself
+    await expect(page).toHaveURL(new URL(next, origin).href);
+    await expect(page.locator("#keep-viewer")).toBeVisible();
+  });
+
+for (const [service, origin, swipe] of [
+  ["instagram", "https://www.instagram.com/reel/A1/", "/reel/B2/"],
+  ["facebook", "https://www.facebook.com/reel/111", "/reel/222"],
+] as const)
+  for (const level of ["globalOn", `services.${service}`, `sites.${service}.reels`])
+    test(`format-2 ${service}: Off at ${level} leaves Reel viewers alone`, async ({ context, extensionId }) => {
+      await commitIntent(context, extensionId, level, false);
+      const page = await context.newPage();
+      await serveViewer(page, `**://*.${service}.com/**`, swipe);
+      if (service === "instagram") {
+        await page.goto("https://www.instagram.com/reels/C0de1/");
+        await expect(page).toHaveURL("https://www.instagram.com/reels/C0de1/");
+      }
+      await page.goto(origin);
+      await expect(page.locator("html")).not.toHaveClass(/still-feature-/);
+      await page.evaluate((to) => (window as unknown as { swipe(to: string): void }).swipe(to), swipe);
+      await expect(page).toHaveURL(new URL(swipe, origin).href);
+      await expect(page.locator("#still-placeholder")).toHaveCount(0);
+      await commitIntent(context, extensionId, level, true);
+      await page.goto(origin);
+      await expect(page.locator("html")).toHaveClass(new RegExp(`still-feature-\\d+-${service}-reels`));
+      await page.evaluate((to) => (window as unknown as { swipe(to: string): void }).swipe(to), swipe);
+      await expect(page).toHaveURL(new URL("/", origin).href); // On again: continuation stopped
+    });

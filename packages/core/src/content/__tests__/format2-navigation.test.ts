@@ -421,3 +421,105 @@ describe("Facebook's own Reels feed under Watch (category browsing)", () => {
     expect(h.assign).not.toHaveBeenCalled();
   });
 });
+
+describe("Reel viewers: plural feed viewer goes home, a shared Reel opens but does not continue", () => {
+  const evaluate = (href: string, settings = on) => {
+    const session = createEnginePageSession(allCores);
+    const decision = session.evaluate(settings, new URL(href), { access, capabilities: cores });
+    session.stop?.();
+    return decision;
+  };
+  it.each([
+    "https://www.instagram.com/reels/C0de_1/",
+    "https://www.instagram.com/reels/C0de_1",
+    "https://www.instagram.com/reels/C0de_1/?igsh=share#part",
+  ])("Instagram plural viewer %s goes home", (href) => {
+    expect(evaluate(href)).toEqual({ kind: "redirect", url: "https://www.instagram.com/" });
+  });
+  it.each([
+    "https://www.instagram.com/reel/C0de_1/",
+    "https://www.instagram.com/some.user/reel/C0de_1/",
+    "https://www.instagram.com/reels/audio/123/",
+    "https://www.facebook.com/reel/123456",
+    "https://www.facebook.com/reel/123456/?s=share",
+  ])("a directly opened single Reel or audio page stays: %s", (href) => {
+    expect(evaluate(href).kind).toBe("apply");
+  });
+  it.each([
+    ["https://www.instagram.com/reel/A1/", "https://www.instagram.com/reel/B2/", "https://www.instagram.com/"],
+    ["https://www.instagram.com/some.user/reel/A1/", "https://www.instagram.com/reel/B2/", "https://www.instagram.com/"],
+    ["https://www.facebook.com/reel/111", "https://www.facebook.com/reel/222", "https://www.facebook.com/"],
+    ["https://www.instagram.com/reel/A1/", "https://www.instagram.com/reel/A1/?igsh=x", null],
+    ["https://www.facebook.com/reel/111", "https://www.facebook.com/reel/111/", null],
+    ["https://www.instagram.com/p/post/", "https://www.instagram.com/reel/B2/", null],
+    ["https://www.facebook.com/reel/111", "https://www.facebook.com/watch/?v=222", null],
+    ["https://www.facebook.com/reel/111", "https://m.facebook.com/reel/222", null],
+  ] as const)("continuation %s -> %s is %s", (from, to, expected) => {
+    const session = createEnginePageSession(allCores);
+    session.evaluate(on, new URL(to), { access, capabilities: cores });
+    expect(session.reelContinuation?.(new URL(from), new URL(to))).toBe(expected);
+    session.stop?.();
+  });
+  it("continuation is only answered for the inputs just prepared", () => {
+    const session = createEnginePageSession(allCores);
+    session.evaluate(on, new URL("https://www.facebook.com/"), { access, capabilities: cores });
+    expect(
+      session.reelContinuation?.(new URL("https://www.facebook.com/reel/1"), new URL("https://www.facebook.com/reel/2")),
+    ).toBeNull();
+    session.stop?.();
+  });
+
+  it.each([
+    ["Instagram scroll push to the plural viewer", "https://www.instagram.com/reel/A1/", "/reels/B2/", "https://www.instagram.com/"],
+    ["Instagram push to another Reel", "https://www.instagram.com/reel/A1/", "/reel/B2/", "https://www.instagram.com/"],
+    ["Facebook in-viewer move", "https://www.facebook.com/reel/111", "/reel/222", "https://www.facebook.com/"],
+  ])("%s is stopped and Back returns to the opened Reel", async (_name, origin, next, home) => {
+    const h = await host(origin);
+    expect(h.replace).not.toHaveBeenCalled(); // the shared Reel itself opened
+    h.win.history.pushState({}, "", next);
+    expect(h.push).not.toHaveBeenCalled();
+    expect(h.entries).toEqual([origin, home]);
+    expect(h.back()).toBe(origin);
+  });
+  it("a page-driven replaceState into another Reel is replaced by home", async () => {
+    const h = await host("https://www.facebook.com/reel/111");
+    h.win.history.replaceState({}, "", "/reel/222");
+    expect(h.replaceState).not.toHaveBeenCalled();
+    expect(h.replace).toHaveBeenCalledWith("https://www.facebook.com/");
+  });
+  it.each([
+    ["a user-initiated navigation", { userInitiated: true }],
+    ["Back/forward", { navigationType: "traverse" }],
+    ["a reload", { navigationType: "reload" }],
+  ] as const)("%s into another Reel is deliberate and not stopped", async (_name, options) => {
+    const h = await host("https://www.facebook.com/reel/111");
+    const prevent = h.navigate("https://www.facebook.com/reel/222", options);
+    expect(prevent).not.toHaveBeenCalled();
+    expect(h.assign).not.toHaveBeenCalled();
+    expect(h.replace).not.toHaveBeenCalled();
+  });
+  it("a page-driven Navigation API move into another Reel is prevented and sent home", async () => {
+    const h = await host("https://www.instagram.com/reel/A1/");
+    const prevent = h.navigate("https://www.instagram.com/reel/B2/", { userInitiated: false });
+    expect(prevent).toHaveBeenCalledOnce();
+    expect(h.assign).toHaveBeenCalledWith("https://www.instagram.com/");
+  });
+  it.each([
+    ["sites.instagram.reels", "https://www.instagram.com/reel/A1/", "/reels/B2/"],
+    ["services.instagram", "https://www.instagram.com/reel/A1/", "/reel/B2/"],
+    ["globalOn", "https://www.instagram.com/reel/A1/", "/reels/B2/"],
+    ["sites.facebook.reels", "https://www.facebook.com/reel/111", "/reel/222"],
+    ["services.facebook", "https://www.facebook.com/reel/111", "/reel/222"],
+    ["globalOn", "https://www.facebook.com/reel/111", "/reel/222"],
+  ] as const)("Off at %s leaves %s -> %s alone", async (path, origin, next) => {
+    const h = await host(origin);
+    await h.writer.commit({ path, value: false, updatedAt: Date.now() });
+    await h.cache.hydrate();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    h.win.history.pushState({}, "", next);
+    expect(h.push).toHaveBeenCalledOnce();
+    expect(h.assign).not.toHaveBeenCalled();
+    expect(h.replace).not.toHaveBeenCalled();
+    expect(h.win.location.href).toBe(new URL(next, origin).href);
+  });
+});

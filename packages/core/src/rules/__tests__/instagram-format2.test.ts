@@ -187,7 +187,6 @@ describe("captured Instagram through the maintained format2 compiler", () => {
     const s = session();
     for (const href of [
       "/reel/shared/?igsh=chosen#part",
-      "/reels/shared/?igsh=chosen#part",
       "/p/ordinary/?img_index=2",
       "/direct/inbox/",
       "/explore/?q=chosen",
@@ -202,5 +201,13 @@ describe("captured Instagram through the maintained format2 compiler", () => {
         href,
       ).toBe("apply");
     }
+    // The plural /reels/<code>/ viewer keeps pushing the next Reel, so it is category browsing
+    // and goes home (no post-view destination is proven yet); the singular shared Reel stays.
+    expect(
+      s.evaluate(
+        DEFAULT_SETTINGS_V2,
+        new URL("/reels/shared/?igsh=chosen#part", "https://www.instagram.com"),
+      ),
+    ).toEqual({ kind: "redirect", url: "https://www.instagram.com/" });
   });
 });

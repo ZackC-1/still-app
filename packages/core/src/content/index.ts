@@ -17,6 +17,7 @@ import type { SettingsCache } from "../storage/cache.js";
 import {
   installNavigationHooks,
   locationRedirectPort,
+  type NavigationIntent,
   type RedirectPort,
   type StillWindow,
 } from "./redirect.js";
@@ -183,12 +184,19 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
   const consumeModernNavigation = (
     target: URL,
     mode: "push" | "replace" = "replace",
+    intent: NavigationIntent = "deliberate",
   ): boolean => {
     // Synchronous committed state only. A pre-hydration or stopped host never guesses On.
     if (!modern || stopped || !hydrated) return false;
     const settings = cache.current();
     const options = modernOptions();
-    const decision = pageSession.evaluate(settings, target, options);
+    const evaluated = pageSession.evaluate(settings, target, options);
+    // A Reel viewer advancing on its own into a different Reel is stopped (sent home); a
+    // deliberately opened or activated Reel, and Back/forward, are never treated as continuing.
+    const continuation = intent === "page"
+      ? pageSession.reelContinuation?.(currentUrl(), target) ?? null : null;
+    const decision: ReturnType<typeof pageSession.evaluate> = continuation
+      ? { kind: "redirect", url: continuation } : evaluated;
     // Destination classification must not replace the plan backing the current DOM/media.
     // A consumed, canceled or failed navigation may never commit its prospective URL.
     pageSession.evaluate(settings, currentUrl(), options);
@@ -420,6 +428,7 @@ export async function earlyFormat2ShortsRedirect(deps: EarlyFormat2ShortsRedirec
 export {
   installNavigationHooks,
   locationRedirectPort,
+  type NavigationIntent,
   type RedirectPort,
   type StillWindow,
 } from "./redirect.js";

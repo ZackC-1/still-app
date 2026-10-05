@@ -122,6 +122,24 @@ export interface EnginePageSession {
   activeMediaKey?(): string;
   /** Format-2 only: the features the last prepared inputs effectively hide (empty unless applying). */
   effectiveFeatures?(): readonly BenefitId[];
+  /**
+   * Format-2 only, after evaluate(settings, to): the same-origin home when moving from one Reel
+   * viewer item to a DIFFERENT one while that service's Reels core is effective (the viewer
+   * continuing into the next Reel), else null. Callers apply it only to page-driven moves,
+   * never to a deliberate link activation or Back/forward.
+   */
+  reelContinuation?(from: URL, to: URL): string | null;
+}
+
+/** Instagram's plural Reels feed viewer: /reels/<code>/ (the audio hub /reels/audio/<id>/ is not). */
+const INSTAGRAM_REELS_VIEWER = /^\/reels\/(?!audio\/?$)[\w-]+\/?$/;
+
+/** The item a Reel viewer shows: Instagram /reel(s)/<code>/ or /<user>/reel/<code>/; Facebook /reel/<digits>. */
+function reelViewerId(serviceId: "instagram" | "facebook", url: URL): string | null {
+  const match = serviceId === "instagram"
+    ? /^\/(?:reels?|[\w.-]+\/reel)\/([\w-]+)\/?$/.exec(url.pathname)
+    : /^\/reel\/(\d+)\/?$/.exec(url.pathname);
+  return match?.[1] && match[1] !== "audio" ? match[1] : null;
 }
 
 /**
@@ -513,6 +531,7 @@ function createFormat2PageSession(input: unknown): EnginePageSession {
   let previousAccess: BenefitAccessSnapshot | null = null;
   let previousCapabilities = "";
   let serviceId: ServiceId | null = null;
+  let coreEffective = false;
   let effective: readonly BenefitId[] = [];
   let decision: Decision = { kind: "noop" };
   let ownedRoot: Element | null = null;
@@ -529,7 +548,7 @@ function createFormat2PageSession(input: unknown): EnginePageSession {
     const capabilityKey = [...plans.values()].flatMap(plan => [...plan.keys()]).map(benefit => `${benefit}:${capabilities.has(benefit)}`).join("|");
     if (settings === previousSettings && url.href === previousHref && access === previousAccess && capabilityKey === previousCapabilities) return;
     previousSettings = settings; previousHref = url.href; previousAccess = access; previousCapabilities = capabilityKey;
-    serviceResolutions++; serviceId = null; effective = []; decision = { kind: "noop" };
+    serviceResolutions++; serviceId = null; coreEffective = false; effective = []; decision = { kind: "noop" };
     // No feature defaults/migration are invented by the engine. It consumes only the writer's
     // current schema2 projection; a legacy/unresolved model leaves this dormant lane held.
     if (!("schemaVersion" in settings) || settings.schemaVersion !== 2 || !settings.sites) return;
@@ -543,7 +562,8 @@ function createFormat2PageSession(input: unknown): EnginePageSession {
     // Routing semantics are compiled here, never accepted from downloaded selector data.
     // Use the same committed predicate and registry core ownership as reversible hides.
     const core = FEATURE_REGISTRY.find(feature => feature.service === serviceId && feature.tier === "free")?.id;
-    if (core && isBenefitEffective(settings as SettingsV2, core, access.states[core], capabilities.has(core))) {
+    coreEffective = !!core && isBenefitEffective(settings as SettingsV2, core, access.states[core], capabilities.has(core));
+    if (coreEffective) {
       let destination: URL | null = null;
       if (serviceId === "youtube") {
         const id = /^\/shorts\/([\w-]+)\/?$/.exec(url.pathname)?.[1];
@@ -554,10 +574,14 @@ function createFormat2PageSession(input: unknown): EnginePageSession {
           destination.searchParams.set("v", id);
         }
       } else if (((serviceId === "instagram" || serviceId === "facebook") && /^\/reels\/?$/.test(url.pathname))
-        || (serviceId === "facebook" && /^\/watch\/reels\/?$/.test(url.pathname))) {
-        // Category browsing only: the bare Reels feeds, and Facebook's own Reels feed under Watch.
-        // Direct/shared individual /reel/<id>, a Page's or profile's own Reels tab, normal/live
-        // videos, people/groups/search/messages and their query-bearing routes stay usable.
+        || (serviceId === "facebook" && /^\/watch\/reels\/?$/.test(url.pathname))
+        || (serviceId === "instagram" && INSTAGRAM_REELS_VIEWER.test(url.pathname))) {
+        // Category browsing only: the bare Reels feeds, Facebook's own Reels feed under Watch,
+        // and Instagram's plural /reels/<code>/ feed viewer (it keeps pushing the next Reel).
+        // The plural viewer goes home rather than to a post view: no post-view destination has
+        // been proven on the live site yet. Direct/shared singular /reel/<id>, a Page's or
+        // profile's own Reels tab, normal/live videos, people/groups/search/messages and their
+        // query-bearing routes stay usable.
         destination = new URL("/", url.origin);
       }
       if (destination && destination.href !== url.href) decision = { kind: "redirect", url: destination.href };
@@ -590,6 +614,14 @@ function createFormat2PageSession(input: unknown): EnginePageSession {
     applyRemovals(settings, url, doc, opts = {}) { return apply(settings, url, doc, opts); },
     activeServiceId: () => stopped ? null : serviceId,
     effectiveFeatures: () => stopped || decision.kind !== "apply" ? [] : effective,
+    reelContinuation(from, to) {
+      // Valid only for the inputs just prepared for `to`, while that service's Reels core is on.
+      if (stopped || !coreEffective || previousHref !== to.href || from.origin !== to.origin) return null;
+      if (serviceId !== "instagram" && serviceId !== "facebook") return null;
+      const current = reelViewerId(serviceId, from);
+      const next = reelViewerId(serviceId, to);
+      return current && next && current !== next ? new URL("/", to.origin).href : null;
+    },
     activeMediaKey: () => !stopped && decision.kind === "apply" && ownedStyle?.isConnected && ownedStyle.sheet && !ownedStyle.sheet.disabled && serviceId
       ? `${serviceId}:${effective.filter(benefit => (plans.get(serviceId!)?.get(benefit)?.length ?? 0) > 0).join("|")}` : "",
     ownsHiddenMedia(media) {
