@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/svelte";
 import { unmount } from "svelte";
 import { requireModernSettings } from "@still/core/storage";
+import { SettingsCache } from "@still/core/storage";
+import { EntitlementCache } from "@still/core/entitlement";
 import { startSafariV3Options } from "../v3.js";
 import { installSafari, UNPROMPTED_WRITES, type SavedShape } from "../../popup/__tests__/safari-native.fixture.js";
 
@@ -104,5 +106,132 @@ describe("Safari V3 settings page", () => {
     expect(opened).toHaveBeenCalledWith("https://stillapp.fit/setup/", "_blank", "noopener,noreferrer");
     const text = document.body.textContent ?? "";
     for (const word of ["$", "Purchase", "Still Pro", "Restore"]) expect(text).not.toContain(word);
+  });
+});
+
+describe("Safari V3 settings page: stylesheets and the first read", () => {
+  const links = () => [...document.head.querySelectorAll('link[rel="stylesheet"]')].map((l) => l.getAttribute("href"));
+  const v3Link = () => {
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "v3-components.css";
+    document.head.append(link);
+  };
+  afterEach(() => {
+    document.head.innerHTML = "";
+  });
+
+  it("a failed mount removes the V3 stylesheets Vite preloaded and keeps the page's own", async () => {
+    await installSafari({ saved: "atomic" });
+    document.body.innerHTML = '<div id="app"></div>';
+    document.head.innerHTML = '<link rel="stylesheet" href="legacy.css">';
+    const mode = await startSafariV3Options({
+      env: ENV,
+      load: async () => {
+        v3Link(); // what the dynamic import does before the components exist
+        return {
+          mountSafariV3Options() {
+            throw new Error("mount failed");
+          },
+        };
+      },
+    });
+    expect(mode).toBe("legacy");
+    expect(links()).toEqual(["legacy.css"]);
+  });
+
+  it("a component module that fails to load also leaves no V3 stylesheet behind", async () => {
+    await installSafari({ saved: "atomic" });
+    document.body.innerHTML = '<div id="app"></div>';
+    document.head.innerHTML = '<link rel="stylesheet" href="legacy.css">';
+    const mode = await startSafariV3Options({
+      env: ENV,
+      load: async () => {
+        v3Link();
+        throw new Error("chunk");
+      },
+    });
+    expect(mode).toBe("legacy");
+    expect(links()).toEqual(["legacy.css"]);
+  });
+
+  it("a mounted V3 screen keeps its stylesheets", async () => {
+    await installSafari({ saved: "atomic" });
+    document.body.innerHTML = '<div id="app"></div>';
+    const real = await import("../v3-mount.js");
+    const mode = await startSafariV3Options({
+      env: ENV,
+      load: async () => {
+        v3Link();
+        return real;
+      },
+    });
+    expect(mode).toBe("v3");
+    expect(links()).toEqual(["v3-components.css"]);
+  });
+
+  it("shows \"Checking sync…\" until the first read answers, never \"Settings are unavailable.\"", async () => {
+    const f = await installSafari({ saved: "atomic" });
+    const record = await f.nativeRecord();
+    f.holdReads();
+    document.body.innerHTML = '<div id="app"></div>';
+    const mode = await startSafariV3Options({
+      env: ENV,
+      probe: async () => record,
+      load: () => import("../v3-mount.js"),
+    });
+    expect(mode).toBe("v3");
+    expect(screen.getByText("Checking sync…")).toBeTruthy();
+    expect(screen.queryByText("Settings are unavailable.")).toBeNull();
+    for (let i = 0; i < 5; i++) await flush();
+    expect(screen.getByText("Checking sync…")).toBeTruthy();
+    f.releaseReads();
+    await screen.findByRole("switch", { name: "Still on Instagram" });
+    expect(screen.queryByText("Checking sync…")).toBeNull();
+  });
+});
+
+describe("startSafariV3Options: a failed mount stops every watcher", () => {
+  it("stops the settings watch, the entitlement watch and the binding, and leaves no storage listener", async () => {
+    const f = await installSafari({ saved: "atomic", signedIn: true });
+    document.body.innerHTML = '<div id="app"></div>';
+    const stops = { settings: vi.fn(), entitlement: vi.fn(), binding: vi.fn() };
+    const watchSettings = SettingsCache.prototype.watch;
+    vi.spyOn(SettingsCache.prototype, "watch").mockImplementation(function (this: SettingsCache) {
+      const stop = watchSettings.call(this);
+      return () => {
+        stops.settings();
+        stop();
+      };
+    });
+    const watchEntitlement = EntitlementCache.prototype.watch;
+    vi.spyOn(EntitlementCache.prototype, "watch").mockImplementation(function (this: EntitlementCache) {
+      const stop = watchEntitlement.call(this);
+      return () => {
+        stops.entitlement();
+        stop();
+      };
+    });
+    let listenersWhileMounting = 0;
+    const mode = await startSafariV3Options({
+      env: ENV,
+      load: async () => ({
+        mountSafariV3Options(_target: HTMLElement, composition: { binding: { stop(): void } }) {
+          const stop = composition.binding.stop.bind(composition.binding);
+          composition.binding.stop = () => {
+            stops.binding();
+            stop();
+          };
+          listenersWhileMounting = f.storageListenerCount();
+          throw new Error("mount failed");
+        },
+      }),
+    });
+    expect(mode).toBe("legacy");
+    expect(listenersWhileMounting).toBeGreaterThan(0); // they really were running
+    expect(stops.settings).toHaveBeenCalledOnce();
+    expect(stops.entitlement).toHaveBeenCalledOnce();
+    expect(stops.binding).toHaveBeenCalledOnce();
+    expect(f.storageListenerCount()).toBe(0);
   });
 });

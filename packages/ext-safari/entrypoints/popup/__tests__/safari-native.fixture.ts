@@ -38,11 +38,15 @@ export async function installSafari(options: {
   const listeners = new Set<(changes: Record<string, chrome.storage.StorageChange>, area: string) => void>();
   const native: Record<string, unknown>[] = [];
   let nativeDown = false;
+  // While held, every settings read waits (a first read that has not answered yet).
+  let readGate: Promise<void> | null = null;
+  let releaseGate: () => void = () => {};
   const sendNativeMessage = vi.fn(async (_app: string, message: Record<string, unknown>) => {
     native.push(structuredClone(message));
     if (nativeDown) throw new Error("native host unavailable");
     switch (message.kind) {
       case "get": {
+        if (readGate) await readGate;
         const record = await nativeRecord();
         return { settings: record ? JSON.stringify(record) : "" };
       }
@@ -70,6 +74,7 @@ export async function installSafari(options: {
     // native record and logged as a native `get`; on a real Safari page it IS a direct native get.
     if (message.kind === "still:settings-read") {
       native.push({ kind: "get" });
+      if (readGate) await readGate;
       if (nativeDown) return { status: "unavailable" };
       return { status: "ready", record: await nativeRecord() };
     }
@@ -123,6 +128,18 @@ export async function installSafari(options: {
     setNativeDown(down: boolean) {
       nativeDown = down;
     },
+    /** Make every settings read wait until `releaseReads()`. */
+    holdReads() {
+      readGate = new Promise<void>((resolve) => {
+        releaseGate = resolve;
+      });
+    },
+    releaseReads() {
+      readGate = null;
+      releaseGate();
+    },
+    /** How many `chrome.storage.onChanged` listeners are attached right now. */
+    storageListenerCount: () => listeners.size,
   };
 }
 
