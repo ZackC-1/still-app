@@ -553,9 +553,11 @@ function createFormat2PageSession(input: unknown): EnginePageSession {
           // Preserve deliberate playlist, time and share context; normalize only the video ID.
           destination.searchParams.set("v", id);
         }
-      } else if ((serviceId === "instagram" || serviceId === "facebook") && /^\/reels\/?$/.test(url.pathname)) {
-        // Category browsing only. Direct/shared individual /reel/<id>, normal/live videos,
-        // people/groups/profile/search/messages and their query-bearing routes stay usable.
+      } else if (((serviceId === "instagram" || serviceId === "facebook") && /^\/reels\/?$/.test(url.pathname))
+        || (serviceId === "facebook" && /^\/watch\/reels\/?$/.test(url.pathname))) {
+        // Category browsing only: the bare Reels feeds, and Facebook's own Reels feed under Watch.
+        // Direct/shared individual /reel/<id>, a Page's or profile's own Reels tab, normal/live
+        // videos, people/groups/search/messages and their query-bearing routes stay usable.
         destination = new URL("/", url.origin);
       }
       if (destination && destination.href !== url.href) decision = { kind: "redirect", url: destination.href };

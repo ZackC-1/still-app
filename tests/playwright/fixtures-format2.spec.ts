@@ -244,12 +244,14 @@ test("format-2 facebook people directory: profiles of people named Reels keep th
   );
 });
 
-test("format-2 facebook routes: the Reels feed goes home; sections, Pages and their tabs stay usable", async ({ context }) => {
+test("format-2 facebook routes: the Reels feeds go home; sections, Pages and their tabs stay usable", async ({ context }) => {
   const page = await context.newPage();
   await serve(page, "**://*.facebook.com/**", fixture("facebook.html"));
-  await page.goto("https://www.facebook.com/reels/");
-  await expect(page).toHaveURL("https://www.facebook.com/");
-  for (const path of ["/groups/reels", "/hashtag/reels", "/public/reels", "/stillapp/reels/", "/100064860875397/reels", "/watch/reels"]) {
+  for (const feed of ["/reels/", "/watch/reels", "/watch/reels/", "/watch/reels/?ref=bookmarks"]) {
+    await page.goto(`https://www.facebook.com${feed}`).catch(() => {}); // replaced while loading
+    await expect(page, feed).toHaveURL("https://www.facebook.com/");
+  }
+  for (const path of ["/groups/reels", "/hashtag/reels", "/public/reels", "/stillapp/reels/", "/100064860875397/reels", "/reel/123/"]) {
     await page.goto(`https://www.facebook.com${path}`);
     await expect(page).toHaveURL(`https://www.facebook.com${path}`);
     await expect(page.locator("#still-placeholder")).toHaveCount(0);
@@ -280,4 +282,29 @@ test("format-2 lane never adds a legacy placeholder or root marker without an ac
   await page.goto("https://www.instagram.com/");
   await expectFormat2Lane(page);
   await expect(page.locator("#reel-post")).toBeHidden();
+});
+
+test("format-2 facebook: in-app navigation into the Watch Reels feed goes home; Still Off leaves it alone", async ({ context, extensionId }) => {
+  const page = await context.newPage();
+  await serve(page, "**://*.facebook.com/**", fixture("facebook.html"));
+  await page.goto("https://www.facebook.com/stillapp");
+  await expectFormat2Lane(page);
+  await page.evaluate(() => history.pushState(null, "", "/watch/reels/?ref=nav"));
+  await expect(page).toHaveURL("https://www.facebook.com/");
+  await page.goto("https://m.facebook.com/watch/reels/");
+  await expect(page).toHaveURL("https://m.facebook.com/");
+
+  const toggle = await stillSwitch(context, extensionId);
+  await toggle();
+  await page.goto("https://www.facebook.com/watch/reels/");
+  await expect(page.locator("html")).not.toHaveClass(/still-feature-/);
+  await expect(page).toHaveURL("https://www.facebook.com/watch/reels/");
+  await page.goto("https://www.facebook.com/stillapp");
+  await page.evaluate(() => history.pushState(null, "", "/watch/reels/"));
+  await expect(page).toHaveURL("https://www.facebook.com/watch/reels/");
+  await expect(page.locator("#still-placeholder")).toHaveCount(0);
+  await toggle();
+  // The content script replaces this navigation while it loads, so goto may report it aborted.
+  await page.goto("https://www.facebook.com/watch/reels/").catch(() => {});
+  await expect(page).toHaveURL("https://www.facebook.com/");
 });

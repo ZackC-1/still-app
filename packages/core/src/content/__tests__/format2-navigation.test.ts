@@ -357,3 +357,67 @@ describe("actual modern content navigation consumer", () => {
     expect(h.replace).not.toHaveBeenCalled();
   });
 });
+
+describe("Facebook's own Reels feed under Watch (category browsing)", () => {
+  it.each([
+    "https://www.facebook.com/watch/reels",
+    "https://www.facebook.com/watch/reels/",
+    "https://www.facebook.com/watch/reels/?ref=bookmarks",
+    "https://www.facebook.com/watch/reels?s=tab#top",
+    "https://m.facebook.com/watch/reels/",
+  ])("%s goes to the same-origin home", (href) => {
+    const session = createEnginePageSession(allCores);
+    expect(
+      session.evaluate(on, new URL(href), { access, capabilities: cores }),
+    ).toEqual({ kind: "redirect", url: `${new URL(href).origin}/` });
+    session.stop?.();
+  });
+  it.each([
+    "https://www.facebook.com/stillapp/reels",
+    "https://www.facebook.com/stillapp/reels/",
+    "https://www.facebook.com/100064860875397/reels",
+    "https://www.facebook.com/reel/123",
+    "https://www.facebook.com/watch/",
+    "https://www.facebook.com/watch/?v=live",
+    "https://www.facebook.com/watch/reels/123",
+    "https://www.facebook.com/groups/watch/reels",
+    "https://www.instagram.com/someuser/reels/",
+    "https://www.instagram.com/reel/shared/",
+    "https://www.instagram.com/watch/reels/",
+  ])("%s stays reachable", (href) => {
+    const session = createEnginePageSession(allCores);
+    expect(
+      session.evaluate(on, new URL(href), { access, capabilities: cores }).kind,
+    ).toBe("apply");
+    session.stop?.();
+  });
+  it.each([
+    { ...on, sites: { ...on.sites, "facebook.reels": false } },
+    { ...on, services: { ...on.services, facebook: false } },
+    { ...on, globalOn: false },
+  ])("a committed Off leaves /watch/reels alone", (settings) => {
+    const session = createEnginePageSession(allCores);
+    expect(
+      session.evaluate(settings, new URL("https://www.facebook.com/watch/reels/"), {
+        access,
+        capabilities: cores,
+      }).kind,
+    ).toBe("noop");
+    session.stop?.();
+  });
+  it("an in-app push into /watch/reels is consumed and Back returns to the origin", async () => {
+    const origin = "https://www.facebook.com/profile.php?id=chosen";
+    const h = await host(origin);
+    h.win.history.pushState({ keep: true }, "", "/watch/reels/?ref=nav");
+    expect(h.entries).toEqual([origin, "https://www.facebook.com/"]);
+    expect(h.push).not.toHaveBeenCalled();
+    expect(h.replace).not.toHaveBeenCalled();
+    expect(h.back()).toBe(origin);
+  });
+  it("an initial /watch/reels load is replaced by home exactly once", async () => {
+    const h = await host("https://www.facebook.com/watch/reels/");
+    expect(h.replace).toHaveBeenCalledTimes(1);
+    expect(h.replace).toHaveBeenCalledWith("https://www.facebook.com/");
+    expect(h.assign).not.toHaveBeenCalled();
+  });
+});
