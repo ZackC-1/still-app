@@ -9,6 +9,7 @@ supported websites in Safari, not native social apps.
 | `build.sh [ios-sim\|ios-device\|macos]` | Rebuilds the webview and Safari bundles, then builds the chosen app. Device/macOS commands allow provisioning updates; obtain approval before an external provisioning change. |
 | `test.sh` | Runs real StillKit tests and workspace checks. It does not certify physical devices. |
 | `archive.sh` | Rebuilds web resources, archives iOS and exports an App Store IPA with an ASC API key. It permits provisioning updates; `UPLOAD=1` additionally uploads. Both external actions require explicit approval. |
+| `release-env-guard.sh`, `modern-sync-shipped` | Sourced by `archive.sh` before any build. Refuses to archive when the web and Safari-extension builds disagree about cloud-sync configuration or the modern settings-sync flag (presence and equality only; never prints a value). `modern-sync-shipped` says `not-shipped` today; the owner-approved change that ships the flag sets it to `shipped`, after which every archive must keep the flag. Tested by `release-env-guard.test.mjs` (part of `pnpm test:release`, no Xcode). |
 | `ExportOptions.plist` | Existing App Store export configuration. |
 
 Use [current release status](../../../docs/release/history/2026-09-14-release-status.md) for submitted
