@@ -90,6 +90,23 @@ function isShortsHref(href: string): boolean {
 }
 
 /**
+ * A necessary condition for a core route, cheap enough for document_start on every page: the
+ * service host plus the one path prefix its core routes can start with. It only rules pages OUT;
+ * the packaged engine (below) still decides every page it lets through, so it never widens
+ * anything. Building that engine session costs milliseconds cold, so ordinary pages never pay it.
+ * A test checks that every route the engine sends elsewhere passes this filter.
+ */
+export function mayBeCoreRoute(url: URL): boolean {
+  const host = url.hostname;
+  const on = (service: string) => host === `${service}.com` || host.endsWith(`.${service}.com`);
+  const path = url.pathname;
+  if (on("youtube")) return path.startsWith("/shorts/");
+  if (on("instagram")) return path.startsWith("/reels");
+  if (on("facebook")) return path.startsWith("/reels") || path.startsWith("/watch/reels");
+  return false;
+}
+
+/**
  * The compiled core destination for `url` under fresh-install settings, or null. This asks the
  * same packaged engine the page runs, with the settings a fresh install starts with, so only the
  * routes of the default-on core controls qualify (V3-D-052): optional extras are off by default
@@ -252,7 +269,9 @@ export function createModernShippingContentEntry(
     return admitted;
   };
   let classifier: ((url: URL) => string | null) | undefined;
-  const classify = (url: URL): string | null => (classifier ??= createCoreRouteClassifier(packaged()!))(url);
+  // The engine-backed classifier is built only for a page that could be a core route.
+  const classify = (url: URL): string | null =>
+    mayBeCoreRoute(url) ? (classifier ??= createCoreRouteClassifier(packaged()!))(url) : null;
   let continuation: ((url: URL) => string | null) | undefined;
   const routes: CoreRedirectRoutes = {
     destination: classify,
