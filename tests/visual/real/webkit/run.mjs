@@ -149,7 +149,14 @@ async function capture(c, file, { perturb = 0 } = {}) {
   const reference = join(REFERENCES, c.reference);
   const { width: pw, height: ph } = pngSize(reference);
   const box = boxOf(c);
-  const lane = await harness.openLane(browser, { state: c.state, colorScheme: c.theme, viewport: { width: 1600, height: 1100 } });
+  const lane = await harness.openLane(browser, {
+    state: c.state,
+    colorScheme: c.theme,
+    viewport: { width: 1600, height: 1100 },
+    // The device the frame depicts: pages that read window.screen see that device, not the
+    // framing page's large viewport.
+    ...(c.screen ? { screen: c.screen } : {}),
+  });
   const errors = [];
   try {
     const page = await lane.context.newPage();

@@ -21,6 +21,11 @@ export interface BoundaryShimConfig {
   readonly platform: "ios" | "mac";
   /** browser.storage.local as the extension background left it (its projection of the App Group). */
   readonly storage: Record<string, unknown>;
+  /**
+   * The device screen the page sees (window.screen). Playwright's own screen emulation reaches only
+   * the top-level page, and the visual runner frames the page under test in an iframe.
+   */
+  readonly screen?: { readonly width: number; readonly height: number };
 }
 
 export const BOUNDARY_SHIM_MARKER = "__STILL_QA_BOUNDARY_SHIM__";
@@ -32,6 +37,11 @@ export function installBoundaryShim(config: BoundaryShimConfig): void {
   const origin = location.origin;
   if (origin !== config.extensionOrigin && origin !== config.appOrigin) return;
   w[config.marker] = true;
+  if (config.screen) {
+    const device = config.screen;
+    for (const [name, value] of [["width", device.width], ["height", device.height], ["availWidth", device.width], ["availHeight", device.height]] as const)
+      Object.defineProperty(screen, name, { configurable: true, get: () => value });
+  }
   const clone = (value: unknown): unknown => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
   const call = (surface: string, message: unknown): Promise<unknown> => w.__stillQaBoundary(surface, clone(message));
 

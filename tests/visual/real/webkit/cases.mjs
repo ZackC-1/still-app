@@ -10,6 +10,7 @@
 //   surface    "safari-popup" | "safari-options" | "app" (the built bundle under test)
 //   state      the recorded native state
 //   recipe     how the frame's state is reached on the page (./recipes.mjs)
+//   screen     the device screen the page sees (window.screen), for frames depicting a phone/tablet
 //   twin       set when the frame is not a Safari/Apple reference but the closest one (evidence,
 //              reported like any other row, never counted as a required T2 frame)
 //   blocked    the state cannot be reached on this lane; reported BLOCKED with the reason
@@ -20,6 +21,11 @@ const D02 = "d02-mobile-popup";
 const D04 = "d04-apple-app-settings";
 const D12 = "d12-apple-onboarding";
 const D18 = "d18-d20-d24-d25-purchase-and-restore";
+
+// Device screens (window.screen, portrait points) for the frames that depict a phone or tablet.
+const SE_SCREEN = { width: 375, height: 667 };
+const IPHONE15_SCREEN = { width: 393, height: 852 };
+const IPAD_SCREEN = { width: 820, height: 1180 };
 
 const iphoneSE = { kind: "device", device: "iphone", w: 375, h: 667, safeTop: 20 };
 const iphone15 = { kind: "device", device: "iphone", w: 393, h: 852, safeTop: 59, safeBottom: 34 };
@@ -52,9 +58,9 @@ const PRO_PAGE =
 
 export const cases = [
   // ---- D02 Safari popup, iOS and iPadOS (MobilePopup) --------------------------------------
-  { id: "d02-01", reference: `${D02}/01-iphone-se-fresh-install-375-667.png`, page: PAGES.d02, theme: "light", frame: iphoneSE, surface: "safari-popup", state: "ios-fresh", recipe: "ready" },
-  { id: "d02-03", reference: `${D02}/03-iphone-15-safari-pro-not-owned-393-852.png`, page: PAGES.d02, theme: "light", frame: iphone15, surface: "safari-popup", state: "ios-fresh", recipe: "expand-facebook" },
-  { id: "d02-08", reference: `${D02}/08-ipad-safari-popover-380-600.png`, page: PAGES.d02, theme: "light", frame: popover, surface: "safari-popup", state: "ipad-fresh", recipe: "expand-youtube" },
+  { id: "d02-01", reference: `${D02}/01-iphone-se-fresh-install-375-667.png`, page: PAGES.d02, theme: "light", frame: iphoneSE, surface: "safari-popup", state: "ios-fresh", recipe: "ready", screen: SE_SCREEN },
+  { id: "d02-03", reference: `${D02}/03-iphone-15-safari-pro-not-owned-393-852.png`, page: PAGES.d02, theme: "light", frame: iphone15, surface: "safari-popup", state: "ios-fresh", recipe: "expand-facebook", screen: IPHONE15_SCREEN },
+  { id: "d02-08", reference: `${D02}/08-ipad-safari-popover-380-600.png`, page: PAGES.d02, theme: "light", frame: popover, surface: "safari-popup", state: "ipad-fresh", recipe: "expand-youtube", screen: IPAD_SCREEN },
   { id: "d02-04", reference: `${D02}/04-safari-permission-needed-375-667.png`, theme: "light", blocked: NO_SETUP },
   { id: "d02-07", reference: `${D02}/07-still-off-signed-in-sync-failed-393-852.png`, theme: "dark", blocked: NO_SIGN_IN },
   { id: "d02-02", reference: `${D02}/02-iphone-15-pro-bought-in-the-still-app-393-852.png`, theme: "dark", blocked: PAID },
@@ -73,10 +79,10 @@ export const cases = [
   { id: "d03-01", twin: "Safari settings page vs the Chrome D03 reference", reference: "d03-extension-settings/01-signed-out-pro-not-owned-consent-not-asked-560-1180.png", page: PAGES.d03, theme: "light", frame: { kind: "device", device: "tab", w: 560, h: 1180, url: "Still · Settings" }, surface: "safari-options", state: "mac-fresh", recipe: "expand-youtube" },
 
   // ---- D04 Apple app settings (app-webview, AppleSettings) ----------------------------------
-  { id: "d04-01", reference: `${D04}/01-iphone-15-safari-extension-off-393-852.png`, page: PAGES.d04, theme: "light", frame: app15, surface: "app", state: "app-iphone", recipe: "ready", evidenceOnly: NO_IOS_OBSERVATION },
-  { id: "d04-04", reference: `${D04}/04-ipad-restore-couldn-t-finish-820-760.png`, page: PAGES.d04, theme: "light", frame: ipadApp, surface: "app", state: "app-ipad-restore-failed", recipe: "restore-then-expand-instagram" },
+  { id: "d04-01", reference: `${D04}/01-iphone-15-safari-extension-off-393-852.png`, page: PAGES.d04, theme: "light", frame: app15, surface: "app", state: "app-iphone", recipe: "ready", evidenceOnly: NO_IOS_OBSERVATION, screen: IPHONE15_SCREEN },
+  { id: "d04-04", reference: `${D04}/04-ipad-restore-couldn-t-finish-820-760.png`, page: PAGES.d04, theme: "light", frame: ipadApp, surface: "app", state: "app-ipad-restore-failed", recipe: "restore-then-expand-instagram", screen: IPAD_SCREEN },
   { id: "d04-06", reference: `${D04}/06-mac-keyboard-focus-on-the-still-switch-520-680.png`, page: PAGES.d04, theme: "light", frame: mac(520, 680, { title: "Still", cls: "kbd-hero" }), surface: "app", state: "app-mac", recipe: "focus-still-switch" },
-  { id: "d04-08", reference: `${D04}/08-restore-nothing-found-393-852.png`, page: PAGES.d04, theme: "dark", frame: app15, surface: "app", state: "app-iphone-restore-none", recipe: "restore" },
+  { id: "d04-08", reference: `${D04}/08-restore-nothing-found-393-852.png`, page: PAGES.d04, theme: "dark", frame: app15, surface: "app", state: "app-iphone-restore-none", recipe: "restore", screen: IPHONE15_SCREEN },
   { id: "d04-03", reference: `${D04}/03-iphone-15-waiting-for-apple-393-852.png`, theme: "light", blocked: PAID },
   { id: "d04-07", reference: `${D04}/07-link-confirm-account-393-852.png`, theme: "light", blocked: `${NO_SIGN_IN}; also needs a purchase to link (${PAID})` },
   { id: "d04-02", reference: `${D04}/02-iphone-15-pro-bought-link-invitation-393-852.png`, theme: "dark", blocked: PAID },
@@ -85,11 +91,11 @@ export const cases = [
   { id: "d04-10", reference: `${D04}/10-iphone-15-accessibility-size-393-852-text-2.png`, theme: "dark", blocked: TEXT_SCALE },
 
   // ---- D12 Apple onboarding (app-webview, AppleOnboarding) ----------------------------------
-  { id: "d12-01", reference: `${D12}/01-iphone-15-step-1-393-852.png`, page: PAGES.d12, theme: "light", frame: app15, surface: "app", state: "app-iphone-onboarding", recipe: "onboarding-step-1" },
-  { id: "d12-02", reference: `${D12}/02-iphone-15-step-2-393-852.png`, page: PAGES.d12, theme: "light", frame: app15, surface: "app", state: "app-iphone-onboarding", recipe: "onboarding-step-2" },
-  { id: "d12-04", reference: `${D12}/04-iphone-15-step-4-393-852.png`, page: PAGES.d12, theme: "light", frame: app15, surface: "app", state: "app-iphone-onboarding", recipe: "onboarding-last-step" },
-  { id: "d12-05", reference: `${D12}/05-iphone-15-step-1-393-852.png`, page: PAGES.d12, theme: "dark", frame: app15, surface: "app", state: "app-iphone-onboarding", recipe: "onboarding-step-1" },
-  { id: "d12-08", reference: `${D12}/08-ipad-step-2-820-760.png`, page: PAGES.d12, theme: "light", frame: ipadApp, surface: "app", state: "app-ipad-onboarding", recipe: "onboarding-step-2" },
+  { id: "d12-01", reference: `${D12}/01-iphone-15-step-1-393-852.png`, page: PAGES.d12, theme: "light", frame: app15, surface: "app", state: "app-iphone-onboarding", recipe: "onboarding-step-1", screen: IPHONE15_SCREEN },
+  { id: "d12-02", reference: `${D12}/02-iphone-15-step-2-393-852.png`, page: PAGES.d12, theme: "light", frame: app15, surface: "app", state: "app-iphone-onboarding", recipe: "onboarding-step-2", screen: IPHONE15_SCREEN },
+  { id: "d12-04", reference: `${D12}/04-iphone-15-step-4-393-852.png`, page: PAGES.d12, theme: "light", frame: app15, surface: "app", state: "app-iphone-onboarding", recipe: "onboarding-last-step", screen: IPHONE15_SCREEN },
+  { id: "d12-05", reference: `${D12}/05-iphone-15-step-1-393-852.png`, page: PAGES.d12, theme: "dark", frame: app15, surface: "app", state: "app-iphone-onboarding", recipe: "onboarding-step-1", screen: IPHONE15_SCREEN },
+  { id: "d12-08", reference: `${D12}/08-ipad-step-2-820-760.png`, page: PAGES.d12, theme: "light", frame: ipadApp, surface: "app", state: "app-ipad-onboarding", recipe: "onboarding-step-2", screen: IPAD_SCREEN },
   { id: "d12-09", reference: `${D12}/09-mac-step-2-waiting-640-600.png`, page: PAGES.d12, theme: "light", frame: mac(640, 600), surface: "app", state: "app-mac-onboarding-off", recipe: "onboarding-step-2" },
   { id: "d12-10", reference: `${D12}/10-mac-step-2-on-640-600.png`, page: PAGES.d12, theme: "dark", frame: mac(640, 600), surface: "app", state: "app-mac-onboarding-on", recipe: "onboarding-step-2" },
   { id: "d12-03", reference: `${D12}/03-iphone-15-step-3-393-852.png`, theme: "light", blocked: NO_CONSENT },
@@ -97,9 +103,9 @@ export const cases = [
   { id: "d12-07", reference: `${D12}/07-iphone-15-step-1-accessibility-size-393-852-text-2.png`, theme: "dark", blocked: TEXT_SCALE },
 
   // ---- D18 Apple purchase and Restore, paid tier off ----------------------------------------
-  { id: "d18-17", reference: `${D18}/17-apple-checking-393-852.png`, page: PAGES.d04, theme: "light", frame: app15, surface: "app", state: "app-iphone-restore-pending", recipe: "restore", evidenceOnly: PRO_PAGE },
-  { id: "d18-18", reference: `${D18}/18-apple-restored-393-852.png`, page: PAGES.d04, theme: "dark", frame: app15, surface: "app", state: "app-iphone-restore-restored", recipe: "restore", evidenceOnly: PRO_PAGE },
-  { id: "d18-19", reference: `${D18}/19-apple-nothing-found-393-852.png`, page: PAGES.d04, theme: "light", frame: app15, surface: "app", state: "app-iphone-restore-none", recipe: "restore", evidenceOnly: PRO_PAGE },
+  { id: "d18-17", reference: `${D18}/17-apple-checking-393-852.png`, page: PAGES.d04, theme: "light", frame: app15, surface: "app", state: "app-iphone-restore-pending", recipe: "restore", evidenceOnly: PRO_PAGE, screen: IPHONE15_SCREEN },
+  { id: "d18-18", reference: `${D18}/18-apple-restored-393-852.png`, page: PAGES.d04, theme: "dark", frame: app15, surface: "app", state: "app-iphone-restore-restored", recipe: "restore", evidenceOnly: PRO_PAGE, screen: IPHONE15_SCREEN },
+  { id: "d18-19", reference: `${D18}/19-apple-nothing-found-393-852.png`, page: PAGES.d04, theme: "light", frame: app15, surface: "app", state: "app-iphone-restore-none", recipe: "restore", evidenceOnly: PRO_PAGE, screen: IPHONE15_SCREEN },
   { id: "d18-02", reference: `${D18}/02-iphone-still-app-393-852.png`, theme: "light", blocked: PAID },
   { id: "d18-03", reference: `${D18}/03-mac-still-app-560-760.png`, theme: "light", blocked: PAID },
   { id: "d18-05", reference: `${D18}/05-waiting-for-apple-393-852.png`, theme: "light", blocked: PAID },

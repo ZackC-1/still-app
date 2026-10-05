@@ -102,6 +102,8 @@ export interface LaneOptions {
   readonly colorScheme?: "light" | "dark";
   readonly viewport?: { width: number; height: number };
   readonly reducedMotion?: "reduce" | "no-preference";
+  /** The device screen (window.screen) the pages see; defaults to the viewport. */
+  readonly screen?: { width: number; height: number };
 }
 
 export type AppEntry = "shipped" | "emitted-chunk";
@@ -173,6 +175,7 @@ export async function openLane(browser: Browser, options: LaneOptions): Promise<
     extensionHost: EXTENSION_HOST,
     platform: state.platform,
     storage: record ? { "still:settings": record } : {},
+    ...(options.screen ? { screen: options.screen } : {}),
   });
   return {
     context,
