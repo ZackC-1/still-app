@@ -1,0 +1,55 @@
+name: StillKit Swift
+
+# Optional check: runs StillKit's Swift tests on a macOS runner. It is not a required check.
+on:
+  pull_request:
+    paths:
+      - 'apps/apple/StillKit/**'
+      - 'apps/apple/Still/**'
+      - 'packages/core/src/ui/config.ts'
+      - 'packages/shared-types/src/entitlement.ts'
+      - 'packages/shared-types/fixtures/**'
+      - 'tests/access-proof/**'
+      - '.github/workflows/stillkit-swift.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'apps/apple/StillKit/**'
+      - 'apps/apple/Still/**'
+      - 'packages/core/src/ui/config.ts'
+      - 'packages/shared-types/src/entitlement.ts'
+      - 'packages/shared-types/fixtures/**'
+      - 'tests/access-proof/**'
+      - '.github/workflows/stillkit-swift.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stillkit-swift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  swift-test:
+    name: StillKit swift test
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # No SwiftPM cache: the package has no dependencies, so there is nothing worth caching.
+      # macos-15 preinstalls several Xcodes; 16.4 ships Swift 6.1, which supports
+      # swift-tools-version: 6.0 (the package's requirement).
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_16.4.app
+          swift --version
+
+      - name: swift test
+        run: swift test --package-path apps/apple/StillKit
+
+      - name: swift build
+        run: swift build --package-path apps/apple/StillKit
