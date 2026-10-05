@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "@still/shared-types": ["../../packages/shared-types/src/index.ts"]
+    }
+  },
+  "include": ["app", "../../packages/core/src/ui/v3/styles.d.ts"]
+}
