@@ -8,3 +8,4 @@ export declare function resolvePublicConfig(env: Record<string, string | undefin
   anonKey: string;
   origin: string | null;
 };
+export declare function hostedProjectRef(url: string): string | null;

@@ -45,7 +45,7 @@ describe("bundle guard", () => {
   });
 
   it("fails on a Supabase secret key", () => {
-    const script = `const k="sb_secret_abcdefghijklmnop";`;
+    const script = `const k="${"sb_" + "secret_abcdefghijklmnop"}";`;
     expect(scanBundle(page({ script }), { origin: ORIGIN }).join()).toMatch(/sb_secret_/);
   });
 
@@ -87,7 +87,7 @@ describe("bundle guard", () => {
   it("fails on other credential shapes in the page", () => {
     for (const [secret, what] of [
       [("sk" + "_live_51Habcdefghijklmnop"), /sk_\/rk_/],
-      ["postgres://postgres:hunter2pass@db.example.co:5432/postgres", /database URL/],
+      [("postgres" + "://postgres:" + "hunter2pass@db.example.co:5432/postgres"), /database URL/],
       [("sbp" + "_0123456789abcdef0123456789abcdef01234567"), /personal access token/],
     ] as const) {
       expect(scanBundle(page({ script: `const k="${ANON}";const s="${secret}";` }), { origin: ORIGIN }).join(), secret).toMatch(what);
@@ -117,7 +117,7 @@ describe("public config", () => {
     expect(refuseKey(ANON)).toBeNull();
     expect(refuseKey("sb_publishable_abc123")).toBeNull();
     expect(refuseKey(SERVICE)).toMatch(/service_role/);
-    expect(refuseKey("sb_secret_abc")).toMatch(/secret/);
+    expect(refuseKey("sb_" + "secret_abc")).toMatch(/secret/);
     expect(refuseKey("sb_publishable_has space")).toMatch(/malformed/);
     expect(refuseKey(`${ANON.split(".")[0]}.bm90LWpzb24.c2ln`)).toMatch(/unreadable JWT/);
   });
@@ -127,7 +127,7 @@ describe("public config", () => {
       ("sbp" + "_0123456789abcdef0123456789abcdef01234567"), // Supabase personal access token
       ("sk" + "_live_51Habcdefghijklmnop"), // another provider's secret key
       "super-secret-jwt-token-with-at-least-32-characters-long", // a raw JWT signing secret
-      "postgres://postgres:hunter2pass@db.example.co:5432/postgres", // a database URL
+      ("postgres" + "://postgres:" + "hunter2pass@db.example.co:5432/postgres"), // a database URL
       "sb_temp_abc",
       "eyJhbGciOiJIUzI1NiJ9.!!!.sig",
       "anything-opaque",
@@ -136,6 +136,21 @@ describe("public config", () => {
       expect(refuseKey(secret, "https://still-audit.invalid"), secret).not.toBeNull();
       expect(() => resolvePublicConfig({ VITE_SUPABASE_URL: ORIGIN, VITE_SUPABASE_ANON_KEY: secret }), secret).toThrow();
     }
+  });
+
+  it("on a hosted project, refuses another project's anon key (ref claim must match the host)", () => {
+    const keyFor = (claims: object) => `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ iss: "supabase", role: "anon", ...claims })}.c2lnbmF0dXJl`;
+    expect(refuseKey(keyFor({ ref: "abcdefghij" }), "https://abcdefghij.supabase.co")).toBeNull();
+    expect(refuseKey(keyFor({ ref: "otherproject" }), "https://abcdefghij.supabase.co")).toMatch(/another project/);
+    expect(() => resolvePublicConfig({ VITE_SUPABASE_URL: "https://abcdefghij.supabase.co", VITE_SUPABASE_ANON_KEY: keyFor({ ref: "otherproject" }) }))
+      .toThrow(/another project/);
+  });
+
+  it("on a hosted project, refuses an anon key not issued by supabase", () => {
+    const foreign = `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ iss: "supabase-demo", role: "anon", ref: "abcdefghij" })}.c2lnbmF0dXJl`;
+    expect(refuseKey(foreign, "https://abcdefghij.supabase.co")).toMatch(/another issuer/);
+    // Local stacks issue "supabase-demo" keys; on loopback that stays accepted.
+    expect(refuseKey(foreign, "http://127.0.0.1:54321")).toBeNull();
   });
 
   it("accepts an obvious placeholder only with a placeholder host", () => {

@@ -50,7 +50,8 @@ From the repository root:
 Configuration is read from the environment at build time, exactly like the extensions:
 `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` (both public). With neither set the page builds and
 shows "Not available here". The key must be a publishable key (`sb_publishable_…`) or a JWT whose
-role is `anon`; the only other value accepted is an obvious placeholder (for example CI's
+role is `anon` (for a hosted `https://<ref>.supabase.co` URL, issued by `supabase` and, when it names
+a project ref, naming that same project); the only other value accepted is an obvious placeholder (for example CI's
 `public-audit-placeholder`) paired with a placeholder URL (`*.invalid` or loopback). Anything else
 (a secret key, a personal access token, a JWT signing secret, a database URL, another provider's
 key), a half configuration or a non-https URL fails the build.

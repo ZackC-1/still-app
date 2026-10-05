@@ -31,13 +31,24 @@ export function isPlaceholderHost(url) {
   }
 }
 
+/** The project ref of a hosted Supabase URL (https://<ref>.supabase.co), or null. */
+export function hostedProjectRef(url) {
+  try {
+    const match = /^([a-z0-9]+)\.supabase\.co$/.exec(new URL(url).hostname);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+
 /** A synthetic stand-in such as CI's "public-audit-placeholder": lowercase words and hyphens that
  * say "placeholder". No real credential has that shape. */
 const PLACEHOLDER = /^[a-z0-9-]*placeholder[a-z0-9-]*$/;
 
 /** Why a key may not ship in a public page, or null when it may. Accepted, and nothing else:
  *  - a publishable key (sb_publishable_…);
- *  - a JWT whose role claim is "anon";
+ *  - a JWT whose role claim is "anon" (on a hosted <ref>.supabase.co URL it must also be issued by
+ *    "supabase" and, when it names a project ref, name that same project);
  *  - an obvious placeholder, and only when the project URL is a placeholder host (`.invalid` or
  *    loopback), so it can never pair with a real project.
  * Everything else is refused: secret keys, personal access tokens (sbp_…), raw JWT signing
@@ -49,7 +60,14 @@ export function refuseKey(key, url = "") {
   if (JWT.test(key)) {
     const payload = jwtPayload(key);
     if (!payload) return "an unreadable JWT";
-    return payload.role === "anon" ? null : `a "${String(payload.role)}" key`;
+    if (payload.role !== "anon") return `a "${String(payload.role)}" key`;
+    // On a hosted project (<ref>.supabase.co) the key must be that project's own anon key.
+    const hosted = hostedProjectRef(url);
+    if (hosted) {
+      if (payload.iss !== "supabase") return `an anon key from another issuer ("${String(payload.iss)}")`;
+      if (payload.ref !== undefined && payload.ref !== hosted) return `the anon key of another project ("${String(payload.ref)}")`;
+    }
+    return null;
   }
   if (key.length <= 64 && PLACEHOLDER.test(key) && isPlaceholderHost(url)) return null;
   return "not a publishable or anon key";
