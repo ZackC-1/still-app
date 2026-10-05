@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createExtensionContentEntry } from "../extension-entry.js";
+import { createExtensionContentEntry, createShippingContentEntry, type ShippingContentLane } from "../extension-entry.js";
 import type { ContentScriptHandle } from "../index.js";
 import {
   createTikTokBlockedNavigation,
@@ -237,5 +237,35 @@ describe("legacy content lane with the TikTok blocked page host", () => {
     expect(h.win.location.href).toBe("https://www.tiktok.com/@fixture/video/456");
     expect(feed()).not.toBeNull();
     expect(h.replace).not.toHaveBeenCalled();
+  });
+});
+
+describe("shipping content entry keeps TikTok on the legacy lane with the blocked page host", () => {
+  it.each([
+    ["default shipping services", undefined, "service-held"],
+    ["TikTok activated without an explicit port", new Set(["tiktok"] as const), "tiktok-port-absent"],
+  ] as const)("%s: the TikTok hook still runs", async (_name, format2Services, reason) => {
+    const a = adapter();
+    const h = await createFormat2EntryHost(ruleSet, "tiktok.html", target, scripts);
+    const lanes: ShippingContentLane[] = [];
+    await createShippingContentEntry({
+      storage: { get: async () => ({}) },
+      prod: false,
+      earlyRedirect: false,
+      win: h.win,
+      doc: document,
+      tiktokBlockedPage: a.navigation,
+      ...(format2Services ? { format2Services } : {}),
+      onLane: (lane) => lanes.push(lane),
+      onScriptCreated: (script) => scripts.push(script),
+    })();
+    await tick();
+    expect(lanes).toEqual([{ kind: "legacy", reason }]);
+    expect(a.send).toHaveBeenCalledTimes(1);
+    expect(placeholder()).toBeNull();
+    a.reply.resolve({ status: "held" });
+    await tick();
+    scripts.at(-1)!.reapply();
+    expect(document.body.textContent).toContain("This site is blocked.");
   });
 });
