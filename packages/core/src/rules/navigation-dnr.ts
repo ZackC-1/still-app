@@ -27,7 +27,8 @@ import { etldPlusOne } from "./match.js";
 // - Facebook Reels (`facebook.reels`): the bare /reels feed and Watch's /watch/reels feed go home.
 //   Profile and Page Reels tabs, shared /reel/<id> links and everything else stay reachable.
 // No rule matches a URL with a fragment, a port, user info or an unusual host character, so those
-// stay with the content script too. Reel-viewer continuation (the viewer advancing on its own) is
+// stay with the content script too. (Real Chromium matches the request URL including its fragment,
+// pinned in tests/playwright/navigation-dnr.spec.ts, so a fragment URL is never redirected here.) Reel-viewer continuation (the viewer advancing on its own) is
 // a page-driven move, never a top-level request, so it remains the content script's alone.
 //
 // Never compiled: the Still Pro extras routes (engine code behind accessCapabilities, dormant while
@@ -118,7 +119,13 @@ function escapeRegex(value: string): string {
 }
 
 export interface NavigationDnrInput {
-  /** The admitted packaged format-2 set, or null when it failed admission (legacy lane). */
+  /**
+   * The admitted packaged format-2 set, or null when it failed admission (legacy lane).
+   * Today the content script always uses this packaged set for format-2 pages. When a format-2
+   * cache refresher ships, these rules must compile from the same set the content script chooses
+   * (the newer of the cached and bundled sets), or the two could disagree about the service
+   * patterns and covered features the rules are built from.
+   */
   readonly packaged: SignedRuleSetV2 | null;
   /** Services whose pages run the format-2 lane once settings are schema 2. */
   readonly shippingServices: ReadonlySet<ServiceId>;

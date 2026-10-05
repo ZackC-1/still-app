@@ -123,6 +123,25 @@ test.describe("format-2 build", () => {
       expect(seen.requested).toEqual([url]);
     });
 
+  // Fragments, pinned on real Chromium: declarativeNetRequest matches the request URL WITH its
+  // fragment, so the rules (which never match a "#") leave these to the content script. The
+  // original document commits (without its fragment on the wire) and the content script then
+  // makes the classifier's own redirect: Shorts keep the fragment, the Reels feed goes home
+  // without it. So no rule can ever carry a fragment somewhere the classifier would not.
+  for (const [from, to] of [
+    ["https://www.youtube.com/shorts/abc123#t=10", "https://www.youtube.com/watch?v=abc123#t=10"],
+    ["https://www.instagram.com/reels/#x", "https://www.instagram.com/"],
+  ] as const)
+    test(`${from} is left to the content script`, async ({ context }) => {
+      const page = await context.newPage();
+      const seen = await watch(page, new URL(from).hostname.split(".").slice(-2)[0]!);
+      await page.goto(from).catch(() => {}); // replaced while loading
+      await expect(page).toHaveURL(to);
+      const wire = (url: string) => url.replace(/#.*$/, "");
+      expect(seen.requested).toEqual([wire(from), wire(to)]);
+      expect(seen.committed[0]).toBe(from);
+    });
+
   test("a saved Off removes that service's rule before the reply, and On restores it", async ({ context, extensionId }) => {
     await commit(context, extensionId, "sites.instagram.reels", false);
     // No polling: the reply already means the rules match the saved choice.
