@@ -15,6 +15,7 @@
     pin,
     sync,
     consent,
+    privacyActions,
     settings,
     privacy,
   }: FirstRunProps = $props();
@@ -32,7 +33,7 @@
       Boolean(permission.onRequest),
   );
   let canChoose = $derived(
-    consent.status === "unasked" || consent.status === "failed",
+    consent?.status === "unasked" || consent?.status === "failed",
   );
   function requestPermission() {
     if (
@@ -44,6 +45,7 @@
   }
   function share() {
     if (
+      consent &&
       (consent.status === "unasked" || consent.status === "failed") &&
       consent.purposesVerified &&
       consent.purposes?.length
@@ -51,7 +53,7 @@
       consent.onShare?.();
   }
   function decline() {
-    if (consent.status === "unasked" || consent.status === "failed")
+    if (consent?.status === "unasked" || consent?.status === "failed")
       consent.onDecline?.();
   }
 </script>
@@ -200,29 +202,33 @@
         </li>
       </ol>
     </section>
-    {#if consent.status === "saved"}
-      <section class="card card-stack">
-        {@render status({
-          tone: "info",
-          text:
-            consent.choice === "on"
-              ? "You chose to share your email and usage data."
-              : "You chose not to share your email and usage data.",
-          detail: "Change this any time in Still settings.",
-        })}
-      </section>
-    {:else}
-      <SharingCard
-        state="unasked"
-        purposes={consent.purposes}
-        purposesVerified={consent.purposesVerified}
-        onShare={canChoose && consent.onShare ? share : undefined}
-        onDecline={canChoose && consent.onDecline ? decline : undefined}
-      />
+    {#if consent}
+      {#if consent.status === "saved"}
+        <section class="card card-stack">
+          {@render status({
+            tone: "info",
+            text:
+              consent.choice === "on"
+                ? "You chose to share your email and usage data."
+                : "You chose not to share your email and usage data.",
+            detail: "Change this any time in Still settings.",
+          })}
+        </section>
+      {:else}
+        <SharingCard
+          state="unasked"
+          purposes={consent.purposes}
+          purposesVerified={consent.purposesVerified}
+          onShare={canChoose && consent.onShare ? share : undefined}
+          onDecline={canChoose && consent.onDecline ? decline : undefined}
+        />
+      {/if}
+      {#if consent.operation}<section class="card card-stack">
+          {@render status(consent.operation)}
+        </section>{/if}
+    {:else if privacyActions}
+      {@render privacyActions()}
     {/if}
-    {#if consent.operation}<section class="card card-stack">
-        {@render status(consent.operation)}
-      </section>{/if}
     <footer class="fr-foot">
       <button
         type="button"
