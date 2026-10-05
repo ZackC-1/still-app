@@ -68,11 +68,13 @@ async function installBrowser(
     ) => void
   >();
   const origin = "chrome-extension://synthetic/";
+  // U3-W3: change events can be withheld so recovery cannot depend on their delivery.
+  let changeEvents = true;
   const set = async (items: Record<string, unknown>) => {
     for (const [key, value] of Object.entries(items)) {
       const oldValue = store[key];
       store[key] = structuredClone(value);
-      for (const listener of [...listeners])
+      if (changeEvents) for (const listener of [...listeners])
         listener(
           { [key]: { oldValue, newValue: structuredClone(value) } },
           "local",
@@ -123,12 +125,12 @@ async function installBrowser(
         checkoutPending: null,
       });
     if (message.action === "getSyncStatus") return Promise.resolve(null);
-    return new Promise<unknown>((resolve) => {
+    return new Promise<unknown>((resolve, reject) => {
       router(
         message,
         { id: "synthetic", url: origin + "popup.html" },
         (reply) => {
-          void delivery(reply).then(resolve);
+          void delivery(reply).then(resolve, reject);
         },
       );
     });
@@ -189,6 +191,9 @@ async function installBrowser(
     openOptionsPage,
     port(next: typeof commit) {
       commit = next;
+    },
+    withholdChangeEvents() {
+      changeEvents = false;
     },
   };
 }
@@ -390,6 +395,58 @@ describe("actual legacy factory recovery and preserved host operations", () => {
       f.messages.filter((m) => m.kind === "still:settings-intent"),
     ).toHaveLength(commands);
     expect(f.local.set).toHaveBeenCalledTimes(1);
+  });
+  // U3-W3: legacy mode keeps the existing manual recovery. A reply lost after the durable write
+  // shows "Settings are unavailable."; only Try again re-reads, once, and nothing is replayed.
+  it("a reply lost after the durable write holds until Try again re-reads once, with no replay", async () => {
+    const f = await installBrowser();
+    configured();
+    await main("lost-reply");
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("switch", { name: "Still on/off" })
+          .getAttribute("aria-checked"),
+      ).toBe("false"),
+    );
+    f.withholdChangeEvents();
+    f.delayReply(async () => {
+      throw new Error(
+        "A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received",
+      );
+    });
+    await fireEvent.click(screen.getByRole("switch", { name: "Still on/off" }));
+    await waitFor(() =>
+      expect(screen.getByText("Settings are unavailable.")).toBeTruthy(),
+    );
+    expect(
+      (f.store["still:settings"] as { settings: { globalOn: boolean } })
+        .settings.globalOn,
+    ).toBe(true);
+    const intents = () =>
+      f.messages.filter((m) => m.kind === "still:settings-intent");
+    expect(intents()).toHaveLength(1);
+    expect(toggles(f)).toHaveLength(0);
+    for (let i = 0; i < 5; i += 1) await flush();
+    // No automatic read: the hold stays until the person asks.
+    expect(screen.getByText("Settings are unavailable.")).toBeTruthy();
+    const reads = () =>
+      f.local.get.mock.calls.filter((c) => c[0] === "still:settings").length;
+    const readsBefore = reads();
+    const writesBefore = f.local.set.mock.calls.length;
+    await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("switch", { name: "Still on/off" })
+          .getAttribute("aria-checked"),
+      ).toBe("true"),
+    );
+    expect(screen.queryByText("Settings are unavailable.")).toBeNull();
+    expect(reads()).toBe(readsBefore + 1);
+    expect(f.local.set.mock.calls.length).toBe(writesBefore);
+    expect(intents()).toHaveLength(1);
+    expect(toggles(f)).toHaveLength(0);
   });
   it("closing the actual main view suppresses the late event while its durable write survives", async () => {
     const f = await installBrowser();
