@@ -54,8 +54,10 @@ const WATCHDOG = `
 const [parent, child, profile] = process.argv.slice(1);
 const alive = (pid) => { try { process.kill(Number(pid), 0); return true; } catch { return false; } };
 const timer = setInterval(() => {
-  if (alive(parent) && alive(child)) return;
-  try { process.kill(Number(child), "SIGKILL"); } catch {}
+  const childAlive = alive(child);
+  if (alive(parent) && childAlive) return;
+  // Only a still-running Firefox is killed; once it has exited its process ID may be reused.
+  if (childAlive) { try { process.kill(Number(child), "SIGKILL"); } catch {} }
   require("node:fs").rmSync(profile, { recursive: true, force: true });
   clearInterval(timer);
 }, 1000);
@@ -248,16 +250,18 @@ export async function launchFirefox(binary: string): Promise<FirefoxSession> {
       stop: async () => {
         bidi.close();
         child.kill("SIGTERM");
-        await new Promise<void>((resolve) => {
-          const force = setTimeout(() => {
-            child.kill("SIGKILL");
-            resolve();
-          }, 5_000);
-          child.once("exit", () => {
-            clearTimeout(force);
-            resolve();
+        // A signal handler may already have killed Firefox; its exit event will not fire again.
+        if (child.exitCode === null && child.signalCode === null)
+          await new Promise<void>((resolve) => {
+            const force = setTimeout(() => {
+              child.kill("SIGKILL");
+              resolve();
+            }, 5_000);
+            child.once("exit", () => {
+              clearTimeout(force);
+              resolve();
+            });
           });
-        });
         rmSync(profile, { recursive: true, force: true });
         live.delete(entry);
       },

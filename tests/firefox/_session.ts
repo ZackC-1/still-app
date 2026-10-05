@@ -31,7 +31,8 @@ const SERVICE_HOST = /(^|\.)(youtube|instagram|facebook|tiktok)\.com$/;
 
 // A configured build carries real Supabase or PostHog addresses. The unconfigured build only has a
 // bare "*.supabase.co" host-pattern string, which is not a URL and does not match.
-const CONFIGURED_SERVER = /https?:\/\/[^"'`\s]*(supabase\.(co|in)|posthog)/i;
+const CONFIGURED_SERVER =
+  /https?:\/\/[^"'`\s]*(supabase\.(co|in)(?![a-z])|posthog)/i;
 
 function assertUnconfiguredBuild(): void {
   const background = readFileSync(
