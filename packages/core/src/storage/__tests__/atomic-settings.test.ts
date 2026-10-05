@@ -22,6 +22,7 @@ import { initialAccessSnapshot } from "../../entitlement/access-policy.js";
 import { createDesktopPopupBinding } from "../../ui/v3/desktop-popup-binding.js";
 import type { AtomicSettingsState } from "../atomic-settings.js";
 import { A, B, SESSION, authority, canonical } from "./atomic-settings-test-fixtures.js";
+import { VECTORS_FILE, digest, type ParityVectors } from "./support/atomic-settings-writer-vectors.js";
 
 describe("fresh initialization in the existing writer transaction", () => {
   it("waits for prior history persistence and denies fresh provenance without writes", async () => {
@@ -898,6 +899,73 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
         expect((await storage.get())!.atomic).toMatchObject({ paused: null, held: {}, pending: legacy.atomic!.pending });
       } finally { await native.close(); }
     });
+  });
+
+  // U3-W4 P1: the shared writer vectors (generated from the TS writer) replayed through the real
+  // compiled App Group store, file lock and bridge. Native request identities are random, so each
+  // newly allocated one maps to the reference identity allocated at the same point.
+  it("every shared writer vector step reaches the reference record through the compiled StillKit bridge", async () => {
+    const vectors = JSON.parse(await readFile(resolve(import.meta.dirname, "../../../../..", VECTORS_FILE), "utf8")) as ParityVectors;
+    const failures: string[] = []; let replayed = 0;
+    for (const [n, vector] of vectors.cases.entries()) {
+      const native = host(join(temporary, `vector-${n}`));
+      try {
+        if (vector.initial) expect(await native.post("replace:" + JSON.stringify(vector.initial))).toBe("replaced");
+        const known = new Set(vector.initial?.atomic?.pending.map(p => p.writeId) ?? []); const mapped = new Map<string, string>();
+        for (const [i, step] of vector.steps.entries()) {
+          const label = `${vector.rule} | ${vector.name} | step ${i}`;
+          const before = await native.post({ kind: "get" });
+          let refused: boolean; let changed: boolean | undefined;
+          if (step.command.kind === "commit") {
+            const { path, value, updatedAt } = step.command;
+            const reply = await native.post({ kind: "settingsIntent", path, value, updatedAt });
+            refused = reply === ""; if (!refused) changed = (JSON.parse(reply) as { changed: boolean }).changed;
+          } else {
+            refused = await native.post({ kind: "settingsAtomic", command: JSON.stringify(step.command.command) }) === "{\"status\":\"unavailable\"}";
+          }
+          const raw = await native.post({ kind: "get" });
+          const record = raw === "" ? null : JSON.parse(raw) as StoredSettingsRecord;
+          for (const pending of record?.atomic?.pending ?? []) {
+            if (!known.has(pending.writeId) && !mapped.has(pending.writeId)) mapped.set(pending.writeId, vector.writeIds[mapped.size] ?? "unallocated");
+            (pending as { writeId: string }).writeId = mapped.get(pending.writeId) ?? pending.writeId;
+          }
+          if (refused !== (step.outcome === "refused")) failures.push(`${label}: native ${refused ? "refused" : "applied"}, reference ${step.outcome}`);
+          if (refused && raw !== before) failures.push(`${label}: native refusal wrote`);
+          if (step.changed !== undefined && changed !== step.changed) failures.push(`${label}: changed ${String(changed)}, reference ${String(step.changed)}`);
+          if (digest(record) !== step.digest) { failures.push(`${label}: stored record differs from the reference writer`); break; }
+          replayed++;
+        }
+        if (mapped.size !== vector.writeIds.length) failures.push(`${vector.rule} | ${vector.name}: ${mapped.size} identities allocated, reference ${vector.writeIds.length}`);
+      } finally { await native.close(); }
+    }
+    expect(failures).toEqual([]);
+    expect(replayed).toBe(vectors.cases.reduce((n, c) => n + c.steps.length, 0));
+  }, 120_000);
+
+  // A held `sites.*` choice is not in the native StillSettings projection (peekRecord overlays core
+  // fields only, and no native consumer reads sites). Every sites consumer is a TS SettingsCache over
+  // the raw record: the app WebView through the bridge, and Safari pages/content scripts through
+  // the browser.storage.local projection. Both must show the held choice, never the stored value.
+  it("held sites.* choices on a native record reach the app WebView and the Safari projection", async () => {
+    const fresh = await new AtomicSettingsWriter(new InMemoryStorageAdapter(null)).initializeFresh(async () => true);
+    const native = host(join(temporary, "held-sites"));
+    try {
+      await native.post("replace:" + JSON.stringify(fresh));
+      await native.adapter.enterScope(A, SESSION);
+      const held = await native.adapter.commitIntent({ path: "sites.youtube.shorts", value: false, updatedAt: 10 });
+      expect(held.atomic).toMatchObject({ paused: "awaiting-anchor", held: { "sites.youtube.shorts": false }, pending: [] });
+      expect((held.settings as unknown as SettingsV2).sites["youtube.shorts"]).toBe(true);
+      const app = new SettingsCache(native.adapter); await app.hydrate();
+      expect((app.current() as unknown as SettingsV2).sites["youtube.shorts"]).toBe(false);
+      const projection = (await native.adapter.get())!;
+      vi.stubGlobal("chrome", { storage: { local: { get: async (key: string) => ({ [key]: projection }), set: async () => {} },
+        onChanged: { addListener() {}, removeListener() {} } } });
+      try {
+        const page = new SettingsCache(new ChromeStorageAdapter()); await page.hydrate();
+        expect((page.current() as unknown as SettingsV2).sites["youtube.shorts"]).toBe(false);
+        expect((page.current() as unknown as SettingsV2).sites["instagram.reels"]).toBe(true);
+      } finally { vi.unstubAllGlobals(); }
+    } finally { await native.close(); }
   });
 });
 
