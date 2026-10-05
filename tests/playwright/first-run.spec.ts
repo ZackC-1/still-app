@@ -51,6 +51,9 @@ async function launchWithExtensionLoader(profile: string) {
     chromium.executablePath(),
     [
       "--headless=new",
+      // Playwright's own launcher passes this by default; Linux CI runners refuse to start
+      // Chromium's sandbox without it.
+      "--no-sandbox",
       "--remote-debugging-port=0",
       `--user-data-dir=${profile}`,
       "--enable-unsafe-extension-debugging",
