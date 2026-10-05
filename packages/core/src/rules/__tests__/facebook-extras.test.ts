@@ -192,12 +192,20 @@ describe("Facebook Stories tray (fb-stories.html)", () => {
     expect(document.body.innerHTML).toBe(before);
   });
 
-  it("a feed post that merely links to a Story is not a tray card", () => {
+  it("a virtualised feed post whose own direct link opens a Story is not a tray card", () => {
     render("fb-stories.html");
+    // The feed's own virtualiser shape: [role=feed] > [data-virtualized] > post, the Story link a
+    // direct child of the post, exactly the shape a tray card has outside the feed.
     document.getElementById("keep-feed")!.insertAdjacentHTML("beforeend",
-      '<div role="article" id="keep-story-link-post"><a href="/stories/900000000009/">An invented shared Story</a></div>');
+      '<div data-virtualized="false" id="keep-feed-virtualizer">'
+      + '<div id="keep-story-link-post"><a href="/stories/900000000009/">An invented shared Story</a></div>'
+      + '<div id="keep-story-link-post-absolute"><a href="https://www.facebook.com/stories/900000000010/">Another invented shared Story</a></div>'
+      + "</div>");
     session().applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
     expect(visible("keep-story-link-post")).toBe(true);
+    expect(visible("keep-story-link-post-absolute")).toBe(true);
+    // The tray itself is still hidden.
+    expect(visible("target-story-card-1")).toBe(false);
   });
 });
 

@@ -183,8 +183,8 @@
           "feature": "facebook.stories",
           "action": "hide",
           "selectors": [
-            "[role=\"main\"] [data-virtualized] > div:has(> a[href^=\"/stories/\"])",
-            "[role=\"main\"] [data-virtualized] > div:has(> a[href^=\"https://www.facebook.com/stories/\"])"
+            "[role=\"main\"] [data-virtualized] > div:has(> a[href^=\"/stories/\"]):not([role=\"feed\"] *)",
+            "[role=\"main\"] [data-virtualized] > div:has(> a[href^=\"https://www.facebook.com/stories/\"]):not([role=\"feed\"] *)"
           ]
         },
         {
@@ -233,6 +233,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "40d7d8f6a3b9c143c5732e300f3a7f0a68f53bbf3bb6e01369a1bd025ff83ce58360645e216ec39bcd2bc889ef554999c422a3e0bcc0e823aa383b8f64a88d02"
+    "value": "75229189aa38553558894847987272aba78fbc1c39cb0ce823de5371044e5708a1057a6226acc17e6bbd2ab7a99e043ba32ac783b1e99b483788bc449211d807"
   }
 }

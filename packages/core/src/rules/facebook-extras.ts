@@ -25,11 +25,13 @@ const NOT_A_REEL = ':not(:has(a[href*="/reel/"])):not(:has(a[href*="/reels/"]))'
 /**
  * Facebook Stories (CP-081): the story cards in the tray, never the virtualiser wrapper that
  * holds them (its geometry stays), "People you may know", posts or messages. A card is a direct
- * child of a virtualised wrapper whose own direct child link opens a Story.
+ * child of a virtualised wrapper whose own direct child link opens a Story, OUTSIDE the feed: the
+ * feed virtualises its posts with the same wrapper shape, so a post sharing a Story stays.
  */
+const NOT_IN_FEED = ':not([role="feed"] *)';
 const STORIES_TRAY = Object.freeze([
-  '[role="main"] [data-virtualized] > div:has(> a[href^="/stories/"])',
-  '[role="main"] [data-virtualized] > div:has(> a[href^="https://www.facebook.com/stories/"])',
+  `[role="main"] [data-virtualized] > div:has(> a[href^="/stories/"])${NOT_IN_FEED}`,
+  `[role="main"] [data-virtualized] > div:has(> a[href^="https://www.facebook.com/stories/"])${NOT_IN_FEED}`,
 ]);
 
 /**
