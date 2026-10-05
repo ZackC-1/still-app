@@ -20,7 +20,12 @@ import {
 } from "../../entitlement/access-policy.js";
 import AppleSettings from "./AppleSettings.svelte";
 import SyncCard from "./SyncCard.svelte";
+import ProOfferCard from "./ProOfferCard.svelte";
 import type { AppleSettingsProps } from "./apple-settings-presentation.js";
+
+/** Existing paid/consent fixtures supply both producers; absence is tested separately. */
+type SuppliedProducerProps = AppleSettingsProps &
+  Required<Pick<AppleSettingsProps, "pro" | "sharing">>;
 
 async function fixture(state: AccessState = "purchased") {
   const storage = new InMemoryStorageAdapter(DEFAULT_SETTINGS);
@@ -41,7 +46,7 @@ async function fixture(state: AccessState = "purchased") {
   for (const row of FEATURE_REGISTRY)
     if (row.tier === "pro") states[row.id] = state;
   let pending: Promise<unknown> = Promise.resolve();
-  const props: AppleSettingsProps = {
+  const props: SuppliedProducerProps = {
     platform: "ios",
     settings: requireModernSettings(cache.currentRecord()),
     access: { ...access, states },
@@ -502,7 +507,8 @@ vi.mock("./ConfirmationDialog.svelte", async (importOriginal) => {
     await importOriginal<typeof import("./ConfirmationDialog.svelte")>();
   return {
     default: (...args: Parameters<typeof Dialog>) => {
-      dialogPort.current = args[1];
+      dialogPort.current =
+        args[1] as import("./extension-settings-presentation.js").ConfirmationDialogProps;
       return Dialog(...args);
     },
   };
@@ -1173,4 +1179,420 @@ it("requires explicit account/session tokens only for the typed deletion-enabled
   expect(tokenless.onDeleteAccount).toBe(remove);
   expect(identityOnly.onDeleteAccount).toBe(remove);
   expect(remove).not.toHaveBeenCalled();
+});
+
+const PRO_LOCK = "Comments. Included in Still Pro. See Still Pro";
+
+/** Present controls report "disabled" only through aria-disabled="true". */
+function rowControl(role: "button" | "switch", name: string) {
+  const control = screen.queryByRole(role, { name });
+  if (control === null) return "absent";
+  return control.getAttribute("aria-disabled") === "true"
+    ? "disabled"
+    : "enabled";
+}
+
+describe("D04 optional paid and combined-consent producers", () => {
+  it.each([
+    { state: "locked", row: { lock: "disabled", toggle: "absent" } },
+    { state: "checking", row: { lock: "absent", toggle: "disabled" } },
+    {
+      state: "verification_required",
+      row: { lock: "absent", toggle: "disabled" },
+    },
+    { state: "purchased", row: { lock: "absent", toggle: "enabled" } },
+  ] as const)(
+    "omits every paid offer surface without a paid producer while supplied Restore stays operational ($state access)",
+    async ({ state, row }) => {
+      const { props, storage } = await fixture(state);
+      const recover = vi.fn();
+      const link = vi.fn();
+      const saved = await storage.get();
+      const view = render(AppleSettings, {
+        props: {
+          ...props,
+          pro: undefined,
+          restore: { state: "failed", onAction: recover },
+          linkInvitation: { eligibleLaterVisit: true, onLink: link },
+        },
+      });
+      expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: "Get Still Pro" }),
+      ).toBeNull();
+      expect(screen.queryByText("Checking your Still Pro access…")).toBeNull();
+      expect(
+        screen.queryByText("Still Pro needs to be verified again."),
+      ).toBeNull();
+      expect(
+        screen.queryByText("No account needed. Payment is handled by Apple."),
+      ).toBeNull();
+      expect(screen.getByText("Settings sync")).toBeVisible();
+      expect(screen.queryByText("Still Pro and sync")).toBeNull();
+      expect(screen.queryByText("Purchased")).toBeNull();
+      expect(screen.queryByText("Link Still Pro to an account")).toBeNull();
+      await fireEvent.click(
+        screen.getByRole("button", { name: "YouTube Blocker" }),
+      );
+      expect({
+        lock: rowControl("button", PRO_LOCK),
+        toggle: rowControl("switch", "Comments"),
+      }).toEqual(row);
+      expect(
+        screen.getByText("We couldn't finish checking. Nothing changed."),
+      ).toBeVisible();
+      await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+      expect(recover).toHaveBeenCalledOnce();
+      expect(link).not.toHaveBeenCalled();
+      expect(props.sync.onSignIn).not.toHaveBeenCalled();
+      expect(await storage.get()).toEqual(saved);
+      view.unmount();
+    },
+  );
+
+  it("keeps a known-missing lock row inert to purchase without a paid producer", async () => {
+    const { props, storage } = await fixture("locked");
+    const saved = await storage.get();
+    const view = render(AppleSettings, { props: { ...props, pro: undefined } });
+    await fireEvent.click(
+      screen.getByRole("button", { name: "YouTube Blocker" }),
+    );
+    const lock = screen.getByRole("button", { name: PRO_LOCK });
+    expect(lock).toHaveAttribute("aria-disabled", "true");
+    await fireEvent.click(lock);
+    expect(screen.queryByRole("button", { name: "Get Still Pro" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull();
+    expect(props.onFeatureChange).not.toHaveBeenCalled();
+    expect(props.sync.onSignIn).not.toHaveBeenCalled();
+    expect(await storage.get()).toEqual(saved);
+    view.unmount();
+  });
+
+  it.each(["off", "absent"] as const)(
+    "never shows the link invitation without a paid producer, even when every other gate is open (sharing %s)",
+    async (sharingState) => {
+      const { props } = await fixture("purchased");
+      const onLink = vi.fn();
+      const onDismiss = vi.fn();
+      const view = render(AppleSettings, {
+        props: {
+          ...props,
+          pro: undefined,
+          restore: undefined,
+          setup: undefined,
+          link: undefined,
+          sharing:
+            sharingState === "off"
+              ? { state: "off", onChange: vi.fn() }
+              : undefined,
+          linkInvitation: { eligibleLaterVisit: true, onLink, onDismiss },
+        },
+      });
+      expect(screen.queryByText("Link Still Pro to an account")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Link" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Not now" })).toBeNull();
+      expect(onLink).not.toHaveBeenCalled();
+      expect(onDismiss).not.toHaveBeenCalled();
+      view.unmount();
+    },
+  );
+
+  it("shows an owner's eligible invitation alongside supplied privacy actions when no combined-consent producer is supplied", async () => {
+    const { createRawSnippet } = await import("svelte");
+    const privacyActions = createRawSnippet(() => ({
+      render: () =>
+        '<button type="button">Keep legacy usage sharing off</button>',
+    }));
+    const { props } = await fixture("purchased");
+    const onLink = vi.fn();
+    const onDismiss = vi.fn();
+    const view = render(AppleSettings, {
+      props: {
+        ...props,
+        pro: { ownership: "owned", channel: "unverified" },
+        restore: undefined,
+        setup: undefined,
+        link: undefined,
+        sharing: undefined,
+        privacyActions,
+        linkInvitation: { eligibleLaterVisit: true, onLink, onDismiss },
+      },
+    });
+    // HANDOFF.md §6: invitations "Never during setup, consent, errors, purchase or Restore"; no consent card is shown.
+    expect(
+      screen.queryByText("Share your email and usage data with Still?"),
+    ).toBeNull();
+    expect(screen.getByText("Link Still Pro to an account")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Keep legacy usage sharing off" }),
+    ).toBeVisible();
+    await fireEvent.click(screen.getByRole("button", { name: "Link" }));
+    expect(onLink).toHaveBeenCalledOnce();
+    expect(onDismiss).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it("renders supplied privacy actions in the sharing position only when no combined-consent producer is supplied", async () => {
+    const { createRawSnippet } = await import("svelte");
+    const optOut = vi.fn();
+    const privacyActions = createRawSnippet(() => ({
+      render: () =>
+        '<button type="button">Keep legacy usage sharing off</button>',
+      setup: (node) => {
+        node.addEventListener("click", optOut);
+        return () => node.removeEventListener("click", optOut);
+      },
+    }));
+    const { props } = await fixture("free");
+    const restore = { state: "nothing" as const };
+    const helpSection = () =>
+      screen.getByRole("heading", { name: "Help" }).closest("section");
+    const view = render(AppleSettings, {
+      props: { ...props, pro: undefined, restore, sharing: undefined },
+    });
+    expect(
+      screen.queryByText("Share your email and usage data with Still?"),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("switch", { name: "Share email and usage data" }),
+    ).toBeNull();
+    const restoreCard = screen
+      .getByText("No Still Pro purchase was found for this account.")
+      .closest("section");
+    expect(helpSection()?.previousElementSibling).toBe(restoreCard);
+    await view.rerender({
+      ...props,
+      pro: undefined,
+      restore,
+      sharing: undefined,
+      privacyActions,
+    });
+    const action = screen.getByRole("button", {
+      name: "Keep legacy usage sharing off",
+    });
+    expect(restoreCard?.nextElementSibling).toBe(action);
+    expect(helpSection()?.previousElementSibling).toBe(action);
+    await fireEvent.click(action);
+    expect(optOut).toHaveBeenCalledOnce();
+    expect(
+      screen.queryByRole("switch", { name: "Share email and usage data" }),
+    ).toBeNull();
+    await view.rerender({ ...props, restore, privacyActions });
+    expect(
+      screen.getByRole("switch", { name: "Share email and usage data" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", { name: "Keep legacy usage sharing off" }),
+    ).toBeNull();
+    expect(props.sharing.onChange).not.toHaveBeenCalled();
+    view.unmount();
+  });
+});
+
+describe("D04 optional-account caption follows the paid producer (owner decision 7)", () => {
+  const SHORT = "Optional. Blocking works without an account.";
+  const DESIGN = "Optional. Blocking and Still Pro work without an account.";
+
+  it.each(["locked", "free", "purchased"] as const)(
+    "reads the blocking-only line while Still Pro is not offered and the design line once it is (%s access)",
+    async (state) => {
+      const { props } = await fixture(state);
+      const view = render(AppleSettings, {
+        props: { ...props, pro: undefined },
+      });
+      expect(screen.getByText(SHORT)).toBeVisible();
+      expect(screen.getByText(SHORT).textContent?.trim()).toBe(SHORT);
+      expect(screen.queryByText(DESIGN)).toBeNull();
+      expect(document.body.textContent).not.toContain("Still Pro work");
+      await view.rerender(props);
+      expect(screen.getByText(DESIGN)).toBeVisible();
+      expect(screen.getByText(DESIGN).textContent?.trim()).toBe(DESIGN);
+      expect(screen.queryByText(SHORT)).toBeNull();
+      await view.rerender({
+        ...props,
+        pro: undefined,
+        sync: {
+          ...props.sync,
+          account: { address: "actual-supplied@still.test", confirmed: true },
+        },
+      });
+      expect(screen.queryByText(SHORT)).toBeNull();
+      expect(screen.queryByText(DESIGN)).toBeNull();
+      view.unmount();
+    },
+  );
+});
+
+describe("D04 native offer card follows the supplied Pro access states", () => {
+  const offer = (buy = vi.fn()) => ({
+    ownership: "none" as const,
+    channel: "ready" as const,
+    offer: { price: "fixture native offer" },
+    onBuy: buy,
+    onRestore: vi.fn(),
+  });
+  const card = () => screen.getByRole("region", { name: "Still Pro" });
+  const statusText = (region: HTMLElement) =>
+    region.querySelector(".status-line")?.textContent?.replace(/\s+/g, " ");
+
+  it("shows the shared verify presentation, never Buy, when a Pro row needs verification and ownership is none", async () => {
+    const shared = render(ProOfferCard, {
+      props: {
+        ownership: "verify",
+        channel: "ready",
+        confirmedAccount: false,
+        knownMissing: false,
+      },
+    });
+    const sharedVerify = statusText(card());
+    shared.unmount();
+    expect(sharedVerify).toContain("Still Pro needs to be verified again.");
+    const { props } = await fixture("locked");
+    const buy = vi.fn();
+    props.pro = offer(buy);
+    props.access = {
+      ...props.access,
+      states: {
+        ...props.access.states,
+        "youtube.comments": "verification_required",
+      },
+    };
+    const view = render(AppleSettings, { props });
+    expect(statusText(card())).toBe(sharedVerify);
+    expect(within(card()).getByRole("status")).toHaveAttribute(
+      "data-tone",
+      "caution",
+    );
+    expect(screen.queryByText("Checking your Still Pro access…")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Get Still Pro" })).toBeNull();
+    expect(
+      screen.queryByText("No account needed. Payment is handled by Apple."),
+    ).toBeNull();
+    await fireEvent.click(
+      screen.getByRole("button", { name: "YouTube Blocker" }),
+    );
+    expect(rowControl("switch", "Comments")).toBe("disabled");
+    const lock = screen.getByRole("button", {
+      name: "Related videos. Included in Still Pro. See Still Pro",
+    });
+    expect(lock).toHaveAttribute("aria-disabled", "true");
+    await fireEvent.click(lock);
+    expect(buy).not.toHaveBeenCalled();
+    view.unmount();
+  });
+
+  it.each([
+    { label: "checking", states: ["checking"] },
+    {
+      label: "checking and verification",
+      states: ["checking", "verification_required"],
+    },
+  ] as const)(
+    "shows the checking spinner, never Buy or verify, while a Pro row is $label",
+    async ({ states }) => {
+      const { props } = await fixture("locked");
+      const buy = vi.fn();
+      props.pro = offer(buy);
+      const rows = ["youtube.comments", "youtube.related"] as const;
+      props.access = {
+        ...props.access,
+        states: {
+          ...props.access.states,
+          ...Object.fromEntries(states.map((state, i) => [rows[i], state])),
+        },
+      };
+      const view = render(AppleSettings, { props });
+      expect(
+        within(card()).getByText("Checking your Still Pro access…"),
+      ).toBeVisible();
+      expect(within(card()).getByRole("status")).toHaveAttribute(
+        "data-tone",
+        "pending",
+      );
+      expect(
+        screen.queryByText("Still Pro needs to be verified again."),
+      ).toBeNull();
+      expect(
+        screen.queryByRole("button", { name: "Get Still Pro" }),
+      ).toBeNull();
+      expect(
+        screen.queryByText("No account needed. Payment is handled by Apple."),
+      ).toBeNull();
+      expect(buy).not.toHaveBeenCalled();
+      view.unmount();
+    },
+  );
+
+  it("derives the held flags from access states instead of accepting them from the paid producer", () => {
+    const pro: NonNullable<AppleSettingsProps["pro"]> = {
+      ownership: "none",
+      channel: "ready",
+      // @ts-expect-error Checking is derived from the supplied Pro access states.
+      accessChecking: false,
+    };
+    const verify: NonNullable<AppleSettingsProps["pro"]> = {
+      ownership: "none",
+      channel: "ready",
+      // @ts-expect-error Verification is derived from the supplied Pro access states.
+      accessVerify: false,
+    };
+    expect([pro.ownership, verify.ownership]).toEqual(["none", "none"]);
+  });
+});
+
+describe("D04 native purchase entry requires a non-blank offer price", () => {
+  it.each(["", " ", "   ", "\t\n "])(
+    "offers no Buy, lock action or Apple caption for a blank price %j",
+    async (price) => {
+      const { props } = await fixture("locked");
+      const buy = vi.fn();
+      props.pro = {
+        ownership: "none",
+        channel: "ready",
+        offer: { price },
+        onBuy: buy,
+        onRestore: vi.fn(),
+      };
+      const view = render(AppleSettings, { props });
+      expect(
+        screen.queryByRole("button", { name: "Get Still Pro" }),
+      ).toBeNull();
+      expect(
+        screen.queryByText("No account needed. Payment is handled by Apple."),
+      ).toBeNull();
+      await fireEvent.click(
+        screen.getByRole("button", { name: "YouTube Blocker" }),
+      );
+      const lock = screen.getByRole("button", { name: PRO_LOCK });
+      expect(lock).toHaveAttribute("aria-disabled", "true");
+      await fireEvent.click(lock);
+      expect(buy).not.toHaveBeenCalled();
+      view.unmount();
+    },
+  );
+
+  it("still offers Buy, the lock action and the Apple caption for a padded real price", async () => {
+    const { props } = await fixture("locked");
+    const buy = vi.fn();
+    props.pro = {
+      ownership: "none",
+      channel: "ready",
+      offer: { price: "  fixture native offer  " },
+      onBuy: buy,
+      onRestore: vi.fn(),
+    };
+    const view = render(AppleSettings, { props });
+    expect(
+      screen.getByText("No account needed. Payment is handled by Apple."),
+    ).toBeVisible();
+    await fireEvent.click(
+      screen.getByRole("button", { name: "Get Still Pro" }),
+    );
+    await fireEvent.click(
+      screen.getByRole("button", { name: "YouTube Blocker" }),
+    );
+    await fireEvent.click(screen.getByRole("button", { name: PRO_LOCK }));
+    expect(buy).toHaveBeenCalledTimes(2);
+    view.unmount();
+  });
 });

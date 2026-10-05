@@ -1,4 +1,5 @@
 import { render, screen, fireEvent, cleanup } from "@testing-library/svelte";
+import { readFileSync } from "node:fs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import PurchaseView from "./PurchaseView.svelte";
 import type { PurchaseViewProps } from "./purchase-presentation.js";
@@ -318,5 +319,90 @@ describe("controlled D18 purchase view", () => {
     expect(screen.getByText("Facebook Blocking Options")).toBeTruthy();
     expect(screen.queryByText("YouTube Blocking Options")).toBeNull();
     expect(screen.queryByText("Desktop sidebar ads")).toBeNull();
+  });
+});
+
+describe("D18 screen layout", () => {
+  // The view keeps its own scoped `.ob*` copy (Svelte-scoped specificity, no global leak), so it
+  // must stay value-for-value identical to the shared D12 layout sheet it was copied from.
+  const clean = (text: string) => text.trim().replace(/\s+/g, " ");
+  /** Last key segment is the selector; earlier segments are enclosing at-rule preludes. */
+  const selectorOf = (key: string) => key.split(" { ").at(-1)!;
+  /**
+   * Keys each rule by its enclosing at-rule preludes plus its selector, and keeps every
+   * occurrence of a repeated key in source order, so wrapping a rule in an at-rule or adding a
+   * duplicate selector block is drift rather than a silent overwrite.
+   */
+  function rules(css: string) {
+    const result = new Map<string, string[][]>();
+    const wrappers: string[] = [];
+    const add = (key: string, occurrence: string[]) =>
+      result.set(key, [...(result.get(key) ?? []), occurrence]);
+    let rest = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    for (
+      let match = /^([^{};]*)([{};])/.exec(rest);
+      match;
+      match = /^([^{};]*)([{};])/.exec(rest)
+    ) {
+      const [whole, prelude, token] = match;
+      rest = rest.slice(whole.length);
+      if (token === "}") {
+        expect(clean(prelude!), "stray text before }").toBe("");
+        expect(wrappers.pop(), "unbalanced }").toBeDefined();
+      } else if (token === ";") {
+        // Statement at-rules (e.g. @import) are part of the sheet too.
+        add([...wrappers, clean(prelude!)].join(" { "), []);
+      } else {
+        const close = rest.indexOf("}");
+        const open = rest.indexOf("{");
+        expect(close, "unclosed block").toBeGreaterThanOrEqual(0);
+        if (open !== -1 && open < close) wrappers.push(clean(prelude!));
+        else {
+          add(
+            [...wrappers, clean(prelude!)].join(" { "),
+            rest.slice(0, close).split(";").map(clean).filter(Boolean),
+          );
+          rest = rest.slice(close + 1);
+        }
+      }
+    }
+    expect(clean(rest), "trailing text").toBe("");
+    expect(wrappers, "unclosed at-rule").toEqual([]);
+    return result;
+  }
+  const read = (file: string) =>
+    readFileSync(new URL(file, import.meta.url), "utf8");
+  const sharedLayout = (css: string) =>
+    new Map(
+      [...rules(css)].filter(([key]) => selectorOf(key).startsWith(".ob")),
+    );
+
+  it("matches the shared onboarding layout sheet value for value", () => {
+    const view = read("./PurchaseView.svelte");
+    const scoped = rules(
+      view.slice(view.indexOf("<style>") + 7, view.indexOf("</style>")),
+    );
+    const shared = sharedLayout(read("./apple-onboarding-layout.css"));
+    expect(shared.size).toBeGreaterThan(0);
+    expect(scoped).toEqual(shared);
+  });
+
+  it("treats an at-rule wrapper or a duplicate selector block as layout drift", () => {
+    const base = ".ob { gap: 16px; }\n.ob-top { display: flex; }";
+    expect(rules(base)).toEqual(sharedLayout(base));
+    const wrapped =
+      ".ob { gap: 16px; }\n@media (min-width: 400px) { .ob-top { display: flex; } }";
+    expect(rules(wrapped)).not.toEqual(rules(base));
+    expect([...rules(wrapped).keys()]).toEqual([
+      ".ob",
+      "@media (min-width: 400px) { .ob-top",
+    ]);
+    const duplicated = `${base}\n.ob { gap: 12px; }`;
+    expect(rules(duplicated)).not.toEqual(rules(base));
+    expect(rules(duplicated).get(".ob")).toEqual([
+      ["gap: 16px"],
+      ["gap: 12px"],
+    ]);
+    expect(rules("@import url(x.css);\n" + base).size).toBe(3);
   });
 });

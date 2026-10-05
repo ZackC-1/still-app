@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { promisify } from "node:util";
 import { DEFAULT_SETTINGS, MAX_SETTINGS_LOCAL_STEP, type SettingsV2 } from "@still/shared-types";
-import { AtomicSettingsWriter, pendingSettingsRequest } from "../atomic-settings.js";
+import { AtomicSettingsWriter, pendingSettingsRequest, permitsUnknownLocalEdit } from "../atomic-settings.js";
 import { InMemoryStorageAdapter, type StoredSettingsRecord } from "../adapter.js";
 import { SettingsCache } from "../cache.js";
 import { WKWebViewStorageAdapter } from "../wkwebview-adapter.js";
@@ -439,7 +439,8 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
   it("two independent native hosts allocate distinct steps and preserve peer fields immediately", async () => {
     const directory = join(temporary, "parallel"); const first = host(directory), peer = host(directory);
     try {
-      await first.post("seed");
+      // Queued requests belong to account-capable journals; unknown account-free edits are local-only.
+      await first.post("seed:previous-account");
       const left = new SettingsCache(first.adapter, { now: () => 10 });
       const right = new SettingsCache(peer.adapter, { now: () => 10 });
       await left.hydrate(); await right.hydrate();
@@ -456,7 +457,8 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
     const directory = join(temporary, "native-latency"); const native = host(directory);
     let holder: ReturnType<typeof spawn> | undefined;
     try {
-      await native.post("seed"); const record = (await native.adapter.get())!;
+      // A queueing journal keeps every commit a growing complete-record replacement.
+      await native.post("seed:previous-account"); const record = (await native.adapter.get())!;
       const padded = { ...record, padding: Object.fromEntries(Array.from({ length: 15 }, (_, i) => [`p${i}`, "x".repeat(8_192)])) };
       const bytes = JSON.stringify(padded); expect(Buffer.byteLength(bytes)).toBeGreaterThan(120_000);
       expect(Buffer.byteLength(bytes)).toBeLessThan(131_072); await native.post("replace:" + bytes);
@@ -724,6 +726,148 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
       expect((await first.adapter.get())!.settings.services.youtube).toBe(false);
       expect((await readdir(directory)).filter(name => name.endsWith(".tmp"))).toEqual([]);
     } finally { await first.close(); if (interrupted) await interrupted.close(); }
+  });
+
+  // U3 parity: the same scenario runs through the reviewed TS writer and the compiled StillKit host
+  // from identical stored bytes, and both must reach the same records (or both refuse, writing nothing).
+  describe("TS and compiled StillKit unknown account-free parity", () => {
+    const sorted = (value: unknown): unknown => Array.isArray(value) ? value.map(sorted)
+      : value && typeof value === "object" ? Object.fromEntries(Object.keys(value).sort().map(key => [key, sorted((value as Record<string, unknown>)[key])])) : value;
+    /** Complete stored record, key-ordered; the per-call `intentCommitted` reply flag is not stored. */
+    const bytes = (record: unknown) => {
+      const copy = structuredClone(record) as { intentCommitted?: unknown };
+      delete copy.intentCommitted;
+      return JSON.stringify(sorted(copy));
+    };
+    async function pair(name: string, record: StoredSettingsRecord | null) {
+      const storage = new InMemoryStorageAdapter(null); if (record) await storage.set(structuredClone(record));
+      const writer = new AtomicSettingsWriter(storage, () => { throw new Error("unknown local-only edits never allocate a request"); });
+      const native = host(join(temporary, name));
+      if (record) await native.post("replace:" + JSON.stringify(record));
+      const nativeBytes = async () => { const raw = await native.post({ kind: "get" }); return raw === "" ? null : JSON.parse(raw); };
+      return { storage, writer, native, nativeBytes };
+    }
+    async function unknownSeed(): Promise<StoredSettingsRecord> {
+      const h = authority(); return h.writer.initialize("unknown");
+    }
+    /** The shape earlier StillKit builds persisted after 64 queued unknown edits and one more. */
+    async function retiredPendingLimit(count: number): Promise<StoredSettingsRecord> {
+      const seed = await unknownSeed(); const settings = seed.settings as unknown as SettingsV2;
+      return { ...seed, settings: { ...settings, globalOn: count % 2 === 0, updatedAt: 10 + count,
+        clocks: { ...settings.clocks, globalOn: { baseRevision: 0, localStep: count } } } as unknown as StoredSettingsRecord["settings"],
+      atomic: { ...seed.atomic!, sequence: count + 2, paused: "pending-limit", held: { globalOn: count % 2 === 1, "sites.youtube.related": true },
+        pending: Array.from({ length: count }, (_, i) => ({ writeId: `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`,
+          scope: seed.atomic!.scope, receipt: null, operations: [{ path: "globalOn" as const, value: i % 2 === 1, baseRevision: 0, localStep: i + 1 }] })) } };
+    }
+
+    it.each([0, 64])("D1: 130 deliberate edits save in place with %i retained requests and never pause", async count => {
+      const seed = await unknownSeed();
+      const start = count === 0 ? seed : { ...(await retiredPendingLimit(count)), atomic: { ...(await retiredPendingLimit(count)).atomic!, paused: null, held: {} } };
+      const { storage, writer, native, nativeBytes } = await pair(`d1-${count}`, start);
+      try {
+        expect(bytes(await nativeBytes())).toBe(bytes(await storage.get()));
+        const paths = ["globalOn", "services.youtube", "sites.youtube.shorts", "sites.instagram.explore", "services.facebook"] as const;
+        let saved = 0;
+        for (let i = 0; i < 130; i++) {
+          const intent = { path: paths[i % paths.length]!, value: Math.floor(i / paths.length) % 2 === 1, updatedAt: 1_000 + i };
+          const ts = await writer.commit(intent); const swift = await native.adapter.commitIntent(intent);
+          expect(swift.intentCommitted, `edit ${i}`).toBe(ts.intentCommitted);
+          expect(bytes(await nativeBytes()), `edit ${i}`).toBe(bytes(await storage.get()));
+          expect(ts.atomic).toMatchObject({ ownership: "unknown", paused: null, held: {}, pending: start.atomic!.pending });
+          if (ts.intentCommitted) saved++;
+        }
+        // Well past the 64 requests that used to pause StillKit; matching requests are not edits.
+        expect(saved).toBe(129);
+        expect((await storage.get())!.atomic!.sequence).toBe(start.atomic!.sequence + saved);
+      } finally { await native.close(); }
+    }, 60_000); // ~400 locked native round trips; the default 5s is a load budget, not a behavior bound
+
+    it("D1: ineligible unknown account-free records refuse in both without writing", async () => {
+      const seed = await unknownSeed();
+      const receipt = { version: 1 as const, lineage: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", revision: 1, mac: "A".repeat(43) };
+      const request = { writeId: "dddddddd-dddd-dddd-dddd-dddddddddddd", scope: seed.atomic!.scope, receipt: null,
+        operations: [{ path: "globalOn" as const, value: false, baseRevision: 0, localStep: 1 }] };
+      const settings = seed.settings as unknown as SettingsV2;
+      const shapes: [string, StoredSettingsRecord][] = [
+        ["anchor", { ...seed, atomic: { ...seed.atomic!, anchor: receipt } }],
+        ["ordering-hold", { ...seed, atomic: { ...seed.atomic!, paused: "ordering-hold" } }],
+        ["bound-request", { ...seed, atomic: { ...seed.atomic!, pending: [{ ...request, receipt }] } }],
+        ["transferred-request", { ...seed, atomic: { ...seed.atomic!, pending: [{ ...request, originScope: seed.atomic!.scope }] } }],
+        ["sequence", { ...seed, atomic: { ...seed.atomic!, sequence: Number.MAX_SAFE_INTEGER } }],
+        ["ordering", { ...seed, settings: { ...settings, pauses: [], clocks: { ...settings.clocks,
+          globalOn: { baseRevision: 0, localStep: MAX_SETTINGS_LOCAL_STEP } } } as unknown as StoredSettingsRecord["settings"] }],
+      ];
+      for (const [name, record] of shapes) {
+        const { storage, writer, native, nativeBytes } = await pair(`d1-refuse-${name}`, record);
+        try {
+          const before = bytes(await storage.get());
+          await expect(writer.commit({ path: "globalOn", value: false, updatedAt: 10 }), name).rejects.toThrow();
+          await expect(native.adapter.commitIntent({ path: "globalOn", value: false, updatedAt: 10 }), name).rejects.toThrow();
+          expect(bytes(await storage.get()), name).toBe(before); expect(bytes(await nativeBytes()), name).toBe(before);
+        } finally { await native.close(); }
+      }
+    });
+
+    it("D2: initialization of an absent record refuses in both and stays absent", async () => {
+      for (const ownership of ["unknown", "previous-account", "never-linked"] as const) {
+        const { storage, writer, native, nativeBytes } = await pair(`d2-${ownership}`, null);
+        try {
+          await expect(writer.initialize(ownership)).rejects.toThrow("missing-provenance");
+          await expect(native.adapter.initializeAtomic(ownership)).rejects.toThrow("native-atomic-unavailable");
+          expect(await storage.get()).toBeNull(); expect(await nativeBytes()).toBeNull();
+        } finally { await native.close(); }
+      }
+    });
+
+    it.each(["unknown", "previous-account", "never-linked"] as const)("D3: a never-edited 2.1.x record (updatedAt 0, synced) initializes identically as %s", async ownership => {
+      for (const syncMetadata of [{ version: 7, serverUpdatedAt: "2026-09-01T00:00:00Z", lastWriteId: null }, null]) {
+        const legacy = { settings: { ...DEFAULT_SETTINGS, globalOn: false, services: { ...DEFAULT_SETTINGS.services, instagram: false }, updatedAt: 0 },
+          syncMetadata, syncEpoch: 2, futureRoot: { keep: true } } as StoredSettingsRecord;
+        const { storage, writer, native, nativeBytes } = await pair(`d3-${ownership}-${syncMetadata ? "synced" : "local"}`, legacy);
+        try {
+          const ts = await writer.initialize(ownership); const swift = await native.adapter.initializeAtomic(ownership);
+          expect(bytes(swift)).toBe(bytes(ts)); expect(bytes(await nativeBytes())).toBe(bytes(await storage.get()));
+          expect(ts).toMatchObject({ syncMetadata, syncEpoch: 2, futureRoot: { keep: true }, atomic: { ownership, pending: [], paused: null },
+            settings: { schemaVersion: 2, globalOn: false, updatedAt: 0, services: { instagram: false, youtube: true },
+              sites: { "youtube.shorts": true, "instagram.reels": false, "youtube.related": false } } });
+          // Future and unreadable records still refuse in both, untouched.
+          for (const damaged of [{ ...legacy, settings: { ...legacy.settings, schemaVersion: 99 } }, { ...legacy, settings: { ...legacy.settings, globalOn: 1 } }]) {
+            const other = await pair(`d3-damaged-${ownership}-${syncMetadata ? "s" : "l"}-${"schemaVersion" in damaged.settings ? "future" : "malformed"}`, damaged as StoredSettingsRecord);
+            try {
+              const before = bytes(await other.storage.get());
+              await expect(other.writer.initialize(ownership)).rejects.toThrow();
+              await expect(other.native.adapter.initializeAtomic(ownership)).rejects.toThrow();
+              expect(bytes(await other.storage.get())).toBe(before); expect(bytes(await other.nativeBytes())).toBe(before);
+            } finally { await other.native.close(); }
+          }
+        } finally { await native.close(); }
+      }
+    });
+
+    it.each([64, 0])("recovery: StillKit clears a retired pending-limit pause (%i requests) into a record the TS writer admits", async count => {
+      const legacy = await retiredPendingLimit(count);
+      const { storage, writer, native, nativeBytes } = await pair(`recovery-${count}`, legacy);
+      try {
+        // The TS writer never produced this shape and refuses edits on it without writing.
+        expect(bytes(await writer.initialize("unknown"))).toBe(bytes(legacy));
+        await expect(writer.commit({ path: "globalOn", value: true, updatedAt: 900 })).rejects.toThrow("atomic-command-unavailable");
+        expect(bytes(await storage.get())).toBe(bytes(legacy));
+        // A StillKit wake clears only the pause: settings, clocks, held choices and requests are kept.
+        const recovered = await native.adapter.initializeAtomic("unknown");
+        expect(bytes(recovered)).toBe(bytes({ ...legacy, atomic: { ...legacy.atomic!, paused: null, sequence: legacy.atomic!.sequence + 1 } }));
+        expect(permitsUnknownLocalEdit(recovered)).toBe(true);
+        expect(bytes(await native.adapter.initializeAtomic("unknown"))).toBe(bytes(recovered));
+        // From the recovered bytes both writers continue identically.
+        await storage.set(structuredClone(recovered));
+        for (const intent of [{ path: "globalOn" as const, value: count % 2 === 0, updatedAt: 901 },
+          { path: "sites.youtube.related" as const, value: false, updatedAt: 902 }, { path: "globalOn" as const, value: count % 2 === 1, updatedAt: 903 }]) {
+          const ts = await writer.commit(intent); const swift = await native.adapter.commitIntent(intent);
+          expect(swift.intentCommitted).toBe(ts.intentCommitted);
+          expect(bytes(await nativeBytes())).toBe(bytes(await storage.get()));
+        }
+        expect((await storage.get())!.atomic).toMatchObject({ paused: null, held: {}, pending: legacy.atomic!.pending });
+      } finally { await native.close(); }
+    });
   });
 });
 

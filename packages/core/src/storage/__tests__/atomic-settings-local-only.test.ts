@@ -1,18 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { DEFAULT_SETTINGS, MAX_SETTINGS_LOCAL_STEP, type SettingsV2 } from "@still/shared-types";
 import { AtomicSettingsWriter } from "../atomic-settings.js";
 import { type StoredSettingsRecord } from "../adapter.js";
 import { SettingsCache } from "../cache.js";
 import { parseStoredSettingsRecord } from "../settings-validation.js";
-// This is a JSON disk snapshot/reopen boundary, not a crash-atomic filesystem claim.
-import { readFile, writeFile } from "node:fs/promises";
 import { EntitlementCache } from "../../entitlement/cache.js";
 import { initialAccessSnapshot } from "../../entitlement/access-policy.js";
 import { createDesktopPopupBinding } from "../../ui/v3/desktop-popup-binding.js";
 import { A, SESSION, authority, canonical } from "./atomic-settings-test-fixtures.js";
+
+// The 196-edit soak drives every edit through the real popup binding, cache and writer, each of which
+// revalidates the full atomic journal (up to 64 old requests). That is roughly 1-3s of pure CPU per case
+// on an idle machine and several times that when the suite shares the CPU with other workers. The work is
+// deterministic (no timers, no polling), so the default 5s wall-clock budget only measured machine load;
+// this explicit budget remains a hang detector for that known workload.
+const SOAK_BUDGET_MS = 60_000;
 
 describe("retained unknown local-only authority", () => {
   it("adopts a nonempty account without uploading or promoting unknown local choices", async () => {
@@ -38,14 +40,21 @@ describe("retained unknown local-only authority", () => {
   });
 
   it.each([0, 63, 64])("keeps 196 deliberate edits and reopened choices local with %i old requests", async count => {
-    const dir = await mkdtemp(join(tmpdir(), "still-retained-local-only-"));
-    const file = join(dir, "settings.json");
+    // A serialized JSON snapshot/reopen boundary: every read parses fresh bytes and every write replaces
+    // them, exactly as a temp file would, without filesystem latency. Not a crash-atomicity claim.
+    let snapshot: string | null = null;
+    const savedBytes = () => snapshot;
     const storage = {
       get: async (): Promise<StoredSettingsRecord | null> => {
-        try { const raw = JSON.parse(await readFile(file, "utf8")); return parseStoredSettingsRecord(raw) ? raw : null; }
-        catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return null; throw error; }
+        if (snapshot === null) return null;
+        const raw = JSON.parse(snapshot); return parseStoredSettingsRecord(raw) ? raw : null;
       },
-      set: async (record: StoredSettingsRecord) => { await writeFile(file, JSON.stringify(record)); },
+      // Serialize at call time, then yield before the bytes land, as an awaited file write would.
+      set: async (record: StoredSettingsRecord) => {
+        const bytes = JSON.stringify(record);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        snapshot = bytes;
+      },
       subscribe: () => () => {},
     };
     const uuid = vi.fn(() => "dddddddd-dddd-dddd-dddd-dddddddddddd");
@@ -103,17 +112,17 @@ describe("retained unknown local-only authority", () => {
         await change("sites.youtube.shorts", false); await change("sites.youtube.shorts", true);
         await change("services.instagram", false); await change("services.instagram", true);
         if (round === 11) {
-          const bytes = await readFile(file, "utf8"); host.binding.stop(); host = await makeHost();
-          expect(await readFile(file, "utf8")).toBe(bytes);
+          const bytes = savedBytes(); host.binding.stop(); host = await makeHost();
+          expect(savedBytes()).toBe(bytes);
           expect(host.binding.current().commandAvailability).toBe("ready");
         }
       }
       await change("sites.youtube.shorts", false); await change("services.youtube", false); await change("globalOn", false);
       expect(commits).toBe(196);
-      const bytes = await readFile(file, "utf8"); host.binding.stop(); host = await makeHost();
+      const bytes = savedBytes(); host.binding.stop(); host = await makeHost();
       expect(host.cache.current()).toMatchObject({ globalOn: false, services: { youtube: false, facebook: false, tiktok: false }, sites: { "youtube.shorts": false } });
       expect(await host.binding.setGlobalOn(false)).toEqual({ status: "not-committed" });
-      expect(await readFile(file, "utf8")).toBe(bytes); expect(uuid).not.toHaveBeenCalled();
+      expect(savedBytes()).toBe(bytes); expect(uuid).not.toHaveBeenCalled();
       const entered = await host.writer.enterScope(A, SESSION);
       expect(entered.atomic).toMatchObject({ ownership: "previous-account", pending: [], paused: "ownership-unconfirmed" });
       const account = await authority().writer.initialize("unknown");
@@ -121,8 +130,8 @@ describe("retained unknown local-only authority", () => {
       expect(adopted.atomic!.pending).toEqual([]);
       expect(adopted.atomic!.held).toMatchObject({ globalOn: false, "services.youtube": false, "sites.youtube.shorts": false });
       expect(uuid).not.toHaveBeenCalled();
-    } finally { for (const stop of stops) stop(); await rm(dir, { recursive: true, force: true }); }
-  });
+    } finally { for (const stop of stops) stop(); }
+  }, SOAK_BUDGET_MS);
 
   it("saves only the deliberate held field and preserves unrelated overlays and opaque state", async () => {
     const h = authority(); const record = await h.writer.initialize("unknown");
