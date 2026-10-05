@@ -61,9 +61,26 @@ export interface VisualCase {
   focus?: { selector: string; maxTabs?: number };
   /** Real input applied by the runner after mount, before focus/capture (e.g. open a dialog). */
   actions?: ({ click: string } | { press: string })[];
-  /** Known, owner-approved reasons this frame cannot match its reference. Never a mask. */
-  deviations?: string[];
+  /**
+   * Known differences from the reference (owner-approved copy, owner-accepted behaviour, reference
+   * review artefacts). Never a mask and never the verdict: a failing frame always reports the
+   * measured pixel difference, then each deviation with the differing pixels found inside its
+   * region, then whatever remains outside every declared region.
+   */
+  deviations?: (string | Deviation)[];
+  /** The frame proves layout with this caller-supplied copy, not production caller wiring. */
+  callerCopy?: string;
   notes?: string;
+}
+
+export interface Deviation {
+  reason: string;
+  /** Implementation elements that carry the difference (CSS selector inside the frame)... */
+  selector?: string;
+  /** ...or the elements whose own text contains this string. */
+  text?: string;
+  /** CSS px added around each matched element (focus rings sit outside the box). Default 2. */
+  pad?: number;
 }
 
 export interface ScreenCases {

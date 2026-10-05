@@ -91,6 +91,13 @@ async function run(id: string) {
     props: { spec: c.frame, theme: c.theme, x, y, component, props },
   });
   await tick();
+  // Self-test only (`run.mjs --self-test`): shift the rendered screen to prove the gate fails.
+  const perturb = Number(params.get("perturb") ?? 0);
+  if (perturb) {
+    const frame = document.querySelector<HTMLElement>("[data-visual-frame]");
+    const root = frame?.querySelector<HTMLElement>(".still-ui") ?? frame;
+    if (root) root.style.translate = `0 ${perturb}px`;
+  }
   await document.fonts.ready;
   window.__visualReady = true;
 }
