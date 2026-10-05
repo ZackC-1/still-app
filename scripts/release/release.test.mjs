@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
+import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { delimiter, dirname, join } from "node:path";
 import { test } from "node:test";
-import { buildPackages, PUBLIC_ENV_KEYS, sourceEntries, treeEntries, unlistedViteReferences } from "./package.mjs";
+import { buildPackages, cleanEnv, PUBLIC_ENV_KEYS, sourceEntries, treeEntries, unlistedViteReferences } from "./package.mjs";
 import { assertBuildHistory, bumpBuild, compareSemver, findMismatches, isShallow, parseVersions, readVersions, ROOT, setVersion, sync } from "./version.mjs";
 import { createZip } from "./zip.mjs";
 
@@ -167,9 +167,27 @@ test("unlisted VITE_ variables read by shipped source stop the build, and the re
     writeFileSync(join(root, "packages/ext-chromium/entrypoints/new.ts"), "const x = import.meta.env.VITE_BRAND_NEW_FLAG;\nconst y = import.meta.env.VITE_SUPABASE_URL;\n");
     mkdirSync(join(root, "packages/ext-chromium/entrypoints/__tests__"), { recursive: true });
     writeFileSync(join(root, "packages/ext-chromium/entrypoints/__tests__/t.test.ts"), "VITE_ONLY_IN_TESTS");
-    assert.deepEqual(unlistedViteReferences(root), ["VITE_BRAND_NEW_FLAG"]);
+    writeFileSync(join(root, "packages/ext-chromium/entrypoints/page.html"), "<title>%VITE_FROM_HTML%</title>");
+    writeFileSync(join(root, "packages/ext-chromium/entrypoints/view.tsx"), "export const a = import.meta.env.WXT_TSX_FLAG;");
+    for (const ext of ["jsx", "mts", "cts", "cjs"]) writeFileSync(join(root, `packages/ext-chromium/entrypoints/f.${ext}`), `x(VITE_IN_${ext.toUpperCase()});`);
+    assert.deepEqual(unlistedViteReferences(root), ["VITE_BRAND_NEW_FLAG", "VITE_FROM_HTML", "VITE_IN_CJS", "VITE_IN_CTS", "VITE_IN_JSX", "VITE_IN_MTS", "WXT_TSX_FLAG"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("build environments drop VITE_ and WXT_ variables from the shell", () => {
+  process.env.WXT_RELEASE_TEST_LEAK = "x";
+  process.env.VITE_RELEASE_TEST_LEAK = "x";
+  try {
+    const env = cleanEnv({ VITE_SUPABASE_URL: "given" });
+    assert.equal(env.WXT_RELEASE_TEST_LEAK, undefined);
+    assert.equal(env.VITE_RELEASE_TEST_LEAK, undefined);
+    assert.equal(env.VITE_SUPABASE_URL, "given");
+    assert.ok(env.PATH);
+  } finally {
+    delete process.env.WXT_RELEASE_TEST_LEAK;
+    delete process.env.VITE_RELEASE_TEST_LEAK;
   }
 });
 
@@ -184,9 +202,71 @@ test("a symlink is refused rather than followed when zipping", () => {
   }
 });
 
+function cloneRepo(base) {
+  const clone = join(base, "clone");
+  execFileSync("git", ["clone", "--quiet", `file://${ROOT}`, clone]);
+  return clone;
+}
+
+/** Put a fake `pnpm` first on PATH for the duration of `fn`; it records its calls and runs `body`. */
+function withFakePnpm(body, fn) {
+  const bin = mkdtempSync(join(tmpdir(), "still-fakepnpm-"));
+  const calls = join(bin, "calls.log");
+  writeFileSync(join(bin, "pnpm"), `#!/usr/bin/env node\nconst fs = require("node:fs");\nfs.appendFileSync(${JSON.stringify(calls)}, process.argv.slice(2).join(" ") + "\\n");\n${body}\n`);
+  chmodSync(join(bin, "pnpm"), 0o755);
+  const saved = process.env.PATH;
+  process.env.PATH = `${bin}${delimiter}${saved}`;
+  try {
+    return fn(() => (existsSync(calls) ? readFileSync(calls, "utf8") : ""));
+  } finally {
+    process.env.PATH = saved;
+    rmSync(bin, { recursive: true, force: true });
+  }
+}
+
+test("a tracked symlink is refused before anything is installed or built, and --out stays empty", () => {
+  const base = mkdtempSync(join(tmpdir(), "still-trackedlink-"));
+  try {
+    const clone = cloneRepo(base);
+    symlinkSync("/etc/hosts", join(clone, "packages/ext-chromium/public/tracked-link"));
+    execFileSync("git", ["add", "-A"], { cwd: clone });
+    execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "tracked symlink"], { cwd: clone });
+    const out = join(base, "out");
+    withFakePnpm("process.exit(1);", (calls) => {
+      assert.throws(() => buildPackages({ out, root: clone }), /symlink/);
+      assert.equal(calls(), "", "pnpm must not run before the symlink refusal");
+    });
+    assert.equal(existsSync(out) ? readdirSync(out).length : 0, 0, "--out must contain nothing");
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test("a run that fails after the Chrome zip is ready leaves --out untouched", () => {
+  const base = mkdtempSync(join(tmpdir(), "still-staging-"));
+  try {
+    const out = join(base, "out");
+    const version = readVersions().extension;
+    // Fake build: Chrome gets the right manifest version, Firefox a wrong one.
+    const body = `const script = process.argv[4];
+if (script === "build" || script === "build:firefox") {
+  const dir = process.cwd() + "/packages/ext-chromium/dist/" + (script === "build" ? "chrome-mv3" : "firefox-mv3");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(dir + "/manifest.json", JSON.stringify({ version: script === "build" ? ${JSON.stringify(version)} : "0.0.0" }));
+}`;
+    withFakePnpm(body, () => assert.throws(() => buildPackages({ out, root: ROOT, allowDirty: true }), /firefox manifest version 0\.0\.0/));
+    assert.equal(existsSync(out) ? readdirSync(out).length : 0, 0, "no zip may be written when a later check fails");
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test("building twice gives byte-identical packages, and nothing untracked, stale or ignored in the checkout reaches them", { timeout: 600_000 }, () => {
   const base = mkdtempSync(join(tmpdir(), "still-packages-"));
-  const ext = join(ROOT, "packages/ext-chromium");
+  // Everything is planted inside a throwaway clone, so a developer's own files are never touched and a
+  // killed run leaves nothing behind in the real checkout.
+  const clone = cloneRepo(base);
+  const ext = join(clone, "packages/ext-chromium");
   const planted = {
     untracked: join(ext, "public/PLANTED-untracked.txt"),
     link: join(ext, "public/PLANTED-link"),
@@ -207,9 +287,9 @@ test("building twice gives byte-identical packages, and nothing untracked, stale
   try {
     const env = { VITE_SUPABASE_URL: "https://still-audit.invalid", VITE_SUPABASE_ANON_KEY: "public-audit-placeholder" };
     plant();
-    const a = buildPackages({ out: join(base, "a"), env, allowDirty: true });
+    const a = buildPackages({ out: join(base, "a"), root: clone, env, allowDirty: true });
     unplant();
-    const b = buildPackages({ out: join(base, "b"), env, allowDirty: true });
+    const b = buildPackages({ out: join(base, "b"), root: clone, env, allowDirty: true });
     assert.deepEqual(a, b);
     const versions = readVersions();
     assert.deepEqual(Object.keys(a.files), [`still-chrome-${versions.extension}.zip`, `still-firefox-${versions.extension}.zip`, `still-source-${versions.extension}.zip`]);

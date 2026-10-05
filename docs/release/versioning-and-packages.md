@@ -44,9 +44,12 @@ tracked files, because a HEAD build would silently ignore them.
 It writes `still-chrome-<v>.zip`, `still-firefox-<v>.zip`, `still-source-<v>.zip` (the complete source AMO
 requires, read from the committed tree, with `AMO-BUILD-INSTRUCTIONS.md`) and `SHA256SUMS.json` /
 `SHA256SUMS.txt`. Only the listed public build values are accepted; every other `VITE_*` variable in your
-shell is removed. If shipped source starts reading a `VITE_*` name that is on neither the public list nor
+shell is removed (`WXT_*` too). A tracked symlink is refused before anything is built, and every output is held
+back until all checks pass, so a failed run never leaves zips in `--out`. If shipped source starts reading a `VITE_*` or `WXT_*` name that is on neither the public list nor
 the deliberately-unpackaged list (`PUBLIC_ENV_KEYS`, `DELIBERATELY_UNPACKAGED` in `package.mjs`), the build
-stops until someone decides which list it belongs on. Record the hashes with the submission. Use this
+stops until someone decides which list it belongs on. The scan reads ts, tsx, mts, cts, js, jsx, mjs, cjs,
+svelte and html (including `%VITE_X%` placeholders) but sees only names written out literally; a name built
+at runtime, such as `import.meta.env[prefix + "KEY"]`, is invisible to it, so do not write code that way. Record the hashes with the submission. Use this
 instead of `wxt zip`, whose archives carry timestamps and change on every run.
 
 Archives have sorted entries, a fixed 1980-01-01 timestamp, fixed permissions, no symlinks and no machine

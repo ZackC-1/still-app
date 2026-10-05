@@ -133,12 +133,17 @@ The manifest version is ${versions.extension}, taken from version.json through p
 `;
 }
 
-function cleanEnv(extra) {
-  const base = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("VITE_")));
+export function cleanEnv(extra) {
+  // Vite reads VITE_*, WXT reads WXT_*; neither may leak in from the shell.
+  const base = Object.fromEntries(Object.entries(process.env).filter(([key]) => !/^(VITE|WXT)_/.test(key)));
   return { ...base, ...extra };
 }
 
-/** VITE_* names referenced by shipped source that are neither packaged nor deliberately excluded. */
+/**
+ * VITE_* and WXT_* names written literally in shipped source (including the `%VITE_X%` placeholder in
+ * html) that are neither packaged nor deliberately excluded. Limitation: a name assembled at runtime,
+ * such as import.meta.env[prefix + "KEY"], cannot be seen by a text scan; do not write code that way.
+ */
 export function unlistedViteReferences(root = ROOT) {
   const found = new Set();
   const skip = new Set(["node_modules", "dist", ".wxt", ".output", "__tests__"]);
@@ -148,8 +153,8 @@ export function unlistedViteReferences(root = ROOT) {
       const path = join(dir, name);
       const info = lstatSync(path);
       if (info.isDirectory()) walk(path);
-      else if (info.isFile() && /\.(ts|js|mjs|svelte)$/.test(name) && !/\.test\.|\.spec\./.test(name))
-        for (const m of readFileSync(path, "utf8").matchAll(/VITE_[A-Z0-9_]*[A-Z0-9]/g)) found.add(m[0]);
+      else if (info.isFile() && /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|svelte|html)$/.test(name) && !/\.test\.|\.spec\./.test(name))
+        for (const m of readFileSync(path, "utf8").matchAll(/\b(?:VITE|WXT)_[A-Z0-9_]*[A-Z0-9]/g)) found.add(m[0]);
     }
   };
   for (const dir of ENV_SCAN_DIRS) if (existsSync(join(root, dir))) walk(join(root, dir));
@@ -187,6 +192,9 @@ export function buildPackages({ out, root = ROOT, env = {}, allowDirty = false }
   }
   const work = mkdtempSync(join(tmpdir(), "still-package-"));
   try {
+    // Refuse tracked symlinks before anything is installed or built: WXT copies through a symlink,
+    // so the target's contents would reach dist/. Reading the source set also validates it.
+    const source = sourceEntries(root, { allowDirty: true });
     exportHead(root, work);
     const unlisted = unlistedViteReferences(work);
     if (unlisted.length)
@@ -196,10 +204,11 @@ export function buildPackages({ out, root = ROOT, env = {}, allowDirty = false }
     const versions = readVersions(work);
     installAndBuild(work, env);
 
-    mkdirSync(out, { recursive: true });
+    // Staged in memory: nothing reaches --out until every check has passed.
+    const staged = {};
     const files = {};
     const write = (name, bytes) => {
-      writeFileSync(join(out, name), bytes);
+      staged[name] = bytes;
       files[name] = { sha256: sha256(bytes), bytes: bytes.length };
     };
     for (const [target, { dist }] of Object.entries(WEB_TARGETS)) {
@@ -210,14 +219,15 @@ export function buildPackages({ out, root = ROOT, env = {}, allowDirty = false }
     }
 
     const rootPackage = JSON.parse(readFileSync(join(work, "package.json"), "utf8"));
-    const source = sourceEntries(root, { allowDirty: true });
     source.push({ name: "AMO-BUILD-INSTRUCTIONS.md", data: Buffer.from(amoInstructions(versions, rootPackage, env)) });
     write(`still-source-${versions.extension}.zip`, createZip(source));
 
     const sorted = Object.fromEntries(Object.entries(files).sort(([a], [b]) => (a < b ? -1 : 1)));
     const manifest = { version: versions.extension, appleVersion: versions.apple, appleBuild: versions.appleBuild, files: sorted };
-    writeFileSync(join(out, "SHA256SUMS.json"), JSON.stringify(manifest, null, 2) + "\n");
-    writeFileSync(join(out, "SHA256SUMS.txt"), Object.entries(sorted).map(([name, f]) => `${f.sha256}  ${name}\n`).join(""));
+    staged["SHA256SUMS.json"] = JSON.stringify(manifest, null, 2) + "\n";
+    staged["SHA256SUMS.txt"] = Object.entries(sorted).map(([name, f]) => `${f.sha256}  ${name}\n`).join("");
+    mkdirSync(out, { recursive: true });
+    for (const [name, bytes] of Object.entries(staged)) writeFileSync(join(out, name), bytes);
     return manifest;
   } finally {
     rmSync(work, { recursive: true, force: true });
