@@ -47,6 +47,7 @@ export const TOOLING_PATHS = Object.freeze([
   "scripts/backend/deploy/sql/migration-history.sql",
   "scripts/backend/deploy/sql/rehearsal-data-fingerprint.sql",
   "scripts/backend/deploy/sql/role-facts.sql",
+  "scripts/backend/deploy/sql/server-version.sql",
 ]);
 const isOperation = (plan) => plan?.kind === OPERATION_KIND;
 /** Loaded on demand: operations.mjs imports this module, so a static import would be a cycle. */
@@ -2004,25 +2005,31 @@ export async function main(
   );
 }
 
+// No top-level await here, on purpose: main() loads operations.mjs on demand, and that module
+// imports this one. A top-level await would leave this module unevaluated while that import waits
+// for it, so Node would exit 13 ("unsettled top-level await") before main() finished.
 if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
-  try {
-    process.exitCode = await main(process.argv.slice(2));
-  } catch (error) {
-    // Only fixed categories and our own messages are printed; never driver or provider text.
-    const category =
-      error instanceof Refusal ? error.category : "unexpected-error";
-    const message =
-      error instanceof Refusal
-        ? error.message
-        : "Unexpected failure; no further detail is printed";
-    process.stderr.write(`Refused (${category}): ${message}\n`);
-    if (process.env.GITHUB_ACTIONS === "true")
-      process.stdout.write(
-        `::error title=Deploy refused::${category}: ${message}\n`,
-      );
-    process.exitCode = 1;
-  }
+  main(process.argv.slice(2)).then(
+    (code) => {
+      process.exitCode = code;
+    },
+    (error) => {
+      // Only fixed categories and our own messages are printed; never driver or provider text.
+      const category =
+        error instanceof Refusal ? error.category : "unexpected-error";
+      const message =
+        error instanceof Refusal
+          ? error.message
+          : "Unexpected failure; no further detail is printed";
+      process.stderr.write(`Refused (${category}): ${message}\n`);
+      if (process.env.GITHUB_ACTIONS === "true")
+        process.stdout.write(
+          `::error title=Deploy refused::${category}: ${message}\n`,
+        );
+      process.exitCode = 1;
+    },
+  );
 }

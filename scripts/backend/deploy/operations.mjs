@@ -63,6 +63,10 @@ export const ROLE_FACTS_SQL = "scripts/backend/deploy/sql/role-facts.sql";
 export const DATA_FINGERPRINT_SQL =
   "scripts/backend/deploy/sql/rehearsal-data-fingerprint.sql";
 const HISTORY_SQL = "scripts/backend/deploy/sql/migration-history.sql";
+export const SERVER_VERSION_SQL =
+  "scripts/backend/deploy/sql/server-version.sql";
+/** PostgreSQL 16: the first version whose pg_auth_members has inherit_option and set_option. */
+export const MIN_SERVER_VERSION_NUM = 160000;
 const FACTS_SQL = "scripts/backend/deploy/sql/catalog-facts.sql";
 /** Production waits this long after a pause before checking again that no connection came back. */
 export const SETTLE_MS = 30_000;
@@ -486,6 +490,20 @@ export async function runOperation({
     await verifyWorkdir({ plan, dir, stage: "full" });
     await step("operation files match the pinned plan hashes", "ok");
 
+    // Role facts need pg_auth_members' per-edge options (PostgreSQL 16+). Refuse cleanly before
+    // anything else rather than failing a query part-way through the checks.
+    const version = Number(await read(join(cwd, SERVER_VERSION_SQL)));
+    if (!Number.isInteger(version) || version < MIN_SERVER_VERSION_NUM) {
+      await step(
+        "PostgreSQL version",
+        "refused",
+        Number.isInteger(version)
+          ? `server_version_num ${version} is below ${MIN_SERVER_VERSION_NUM}`
+          : "server version unreadable",
+      );
+      throw new Refusal("postgres-version-unsupported");
+    }
+    await step("PostgreSQL version", "ok", `server_version_num ${version}`);
     historyBefore = await history();
     await step(
       "migration history read",
@@ -652,16 +670,30 @@ export async function runOperation({
     await step("migration history unchanged", "failed", publicError(error));
   }
 
+  // The end state (login off and no connection, or login on) is judged only by the operation's own
+  // checks; the role comparison and history checks are separate side checks.
+  const endStateReached = !receipt.issues.some((i) =>
+    /^verification-(issues|error):/.test(i),
+  );
+  receipt.endState = endStateReached ? "reached" : "not-reached";
+  const sideFailed = receipt.issues.filter(
+    (i) => !/^verification-(issues|error):/.test(i),
+  );
+  const state = op.login ? "resumed" : "paused";
+  const again = op.login ? "resume-settings-sync" : "pause-settings-sync";
   if (receipt.issues.length) {
     receipt.status = "verification-failed";
-    if (receipt.issues.includes("other-roles-changed"))
+    if (!endStateReached) {
       receipt.recovery =
-        "Something other than the writer's login changed while the operation ran. Inspect role settings privately (Supabase SQL editor) before anything else; do not assume sync is " +
-        (op.login ? "resumed." : "paused.");
-    else
-      receipt.recovery = op.login
-        ? "Do not assume sync is resumed. Run resume-settings-sync again (safe to repeat); if the checks still fail, run the runbook's read-only checks privately."
-        : "Do not assume sync is paused. Run pause-settings-sync again (safe to repeat); if the checks still fail, run the runbook's read-only checks privately.";
+        `End state NOT reached: do not assume sync is ${state}. Run ${again} again (safe to repeat); ` +
+        "if the checks still fail, run the runbook's read-only checks privately.";
+      if (sideFailed.length)
+        receipt.recovery += ` Separately, a side check failed (${sideFailed.join(", ")}): inspect role settings and migration history privately (Supabase SQL editor).`;
+    } else
+      receipt.recovery =
+        `End state verified: sync IS ${state} (${op.effect}). But a separate check failed (${sideFailed.join(", ")}): ` +
+        "something other than the writer's login changed during the run (another role's settings, or migration history), possibly unrelated activity. " +
+        `Do not run ${again} again to fix that, and do not undo the ${op.login ? "resume" : "pause"} because of it; inspect role settings and migration history privately (Supabase SQL editor) and decide.`;
   } else {
     receipt.status = "verified";
     receipt.recovery = op.login
@@ -1025,6 +1057,11 @@ export function renderOperationReceipt(receipt) {
       ? [`- SQL \`${receipt.sql.path}\` SHA-256 \`${receipt.sql.sha256}\``]
       : []),
     `- Write attempted: ${receipt.writeAttempted ? "yes" : "no"}`,
+    ...(receipt.endState
+      ? [
+          `- End state: ${receipt.endState === "reached" ? "reached (verified)" : "NOT reached"}`,
+        ]
+      : []),
     ...(receipt.issues.length
       ? [`- Issues: ${receipt.issues.join(", ")}`]
       : []),
@@ -1091,6 +1128,11 @@ export function renderOperationFinal(receipt, { applyOutcome, jobStatus }) {
     `- Operation: \`${receipt.operation}\``,
     `- Outcome: ${outcome}; apply step ${applyOutcome || "unknown"}, job ${jobStatus || "unknown"}`,
     `- Write attempted: ${receipt.writeAttempted ? "yes" : "no"}`,
+    ...(receipt.endState
+      ? [
+          `- End state: ${receipt.endState === "reached" ? "reached (verified)" : "NOT reached"}`,
+        ]
+      : []),
     ...(receipt.sql
       ? [`- SQL \`${receipt.sql.path}\` SHA-256 \`${receipt.sql.sha256}\``]
       : []),

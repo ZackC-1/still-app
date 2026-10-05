@@ -348,6 +348,26 @@ test("the pull-request operation rehearsal has no environment or secret and cove
       ),
     ),
   );
+  // Every action is pinned to the same full commit SHA the production deploy workflow uses.
+  const production = (await load(DEPLOY)).workflow;
+  const pinned = new Map(
+    Object.values(production.jobs)
+      .flatMap((j) => j.steps)
+      .filter((s) => s.uses)
+      .map((s) => s.uses.split("@"))
+      .map(([action, sha]) => [action, sha]),
+  );
+  const uses = job.steps.filter((s) => s.uses).map((s) => s.uses);
+  assert.ok(uses.length >= 2);
+  for (const ref of uses) {
+    assert.match(ref, /^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/, ref);
+    const [action, sha] = ref.split("@");
+    assert.equal(
+      sha,
+      pinned.get(action),
+      `${action} pin differs from production`,
+    );
+  }
   // The operation tests run with the other deploy tests on every pull request.
   const foundation = (await load("supabase-deploy.yml")).workflow;
   const tests = foundation.jobs.preview.steps.find((s) =>

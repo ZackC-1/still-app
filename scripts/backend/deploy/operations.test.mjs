@@ -430,6 +430,7 @@ function fakeDb({
   onOperation,
   onSleep,
   sqlFailure,
+  serverVersion = "170006",
   history = [
     { version: "0001", name: "init" },
     { version: "0015", name: "settings_sync_per_field" },
@@ -507,6 +508,7 @@ function fakeDb({
         return ok(out);
       }
       assert.ok(readOnly, `${file} must run read-only`);
+      if (file.endsWith("server-version.sql")) return ok(serverVersion);
       if (file.endsWith("migration-history.sql"))
         return ok(JSON.stringify(state.history));
       if (file.endsWith("role-facts.sql")) return ok(JSON.stringify(facts()));
@@ -649,6 +651,7 @@ test("pause: login off, open connections closed, verified twice, nothing else ch
   // Read state, write once, verify immediately, wait the production settle time, verify again,
   // then prove every other role and the migration history unchanged.
   assert.deepEqual(sequence(db.state), [
+    "server-version.sql",
     "migration-history.sql",
     "role-facts.sql",
     "pause-settings-sync.verify.sql",
@@ -664,6 +667,7 @@ test("pause: login off, open connections closed, verified twice, nothing else ch
     receipt.steps.map((s) => [s.name, s.outcome]),
     [
       ["operation files match the pinned plan hashes", "ok"],
+      ["PostgreSQL version", "ok"],
       ["migration history read", "ok"],
       ["every role's attributes recorded", "ok"],
       ["state before", "ok"],
@@ -696,6 +700,7 @@ test("resume: login on, verified, no connection wait, nothing else changed", asy
   assert.equal(receipt.status, "verified", JSON.stringify(receipt, null, 2));
   assert.equal(db.state.roles[SETTINGS_WRITER_ROLE].login, true);
   assert.deepEqual(sequence(db.state), [
+    "server-version.sql",
     "migration-history.sql",
     "role-facts.sql",
     "resume-settings-sync.verify.sql",
@@ -797,7 +802,28 @@ test("an operation that changes any other role fails verification without naming
   const receipt = await run(fx, db, { settleMs: 0 });
   assert.equal(receipt.status, "verification-failed");
   assert.deepEqual(receipt.issues, ["other-roles-changed"]);
-  assert.match(receipt.recovery, /Inspect role settings privately/);
+  // The end state was reached; only the side check failed, and the recovery says exactly that.
+  assert.equal(receipt.endState, "reached");
+  assert.match(
+    receipt.recovery,
+    /^End state verified: sync IS paused \(still_settings_writer cannot sign in/,
+  );
+  assert.match(
+    receipt.recovery,
+    /a separate check failed \(other-roles-changed\)/,
+  );
+  assert.match(
+    receipt.recovery,
+    /Do not run pause-settings-sync again to fix that, and do not undo the pause because of it/,
+  );
+  assert.doesNotMatch(
+    receipt.recovery,
+    /NOT reached|do not assume sync is paused/i,
+  );
+  assert.match(
+    renderOperationReceipt(receipt),
+    /- End state: reached \(verified\)/,
+  );
   const step = receipt.steps.find((s) =>
     s.name.startsWith("only the writer's login changed"),
   );
@@ -833,10 +859,13 @@ test("a connection that survives the pause or comes back during the settle wait 
     assert.deepEqual(receipt.issues, [
       "verification-issues:after 30 s (no connection came back)",
     ]);
+    assert.equal(receipt.endState, "not-reached");
     assert.match(
       receipt.recovery,
-      /Do not assume sync is paused\. Run pause-settings-sync again/,
+      /^End state NOT reached: do not assume sync is paused\. Run pause-settings-sync again \(safe to repeat\)/,
     );
+    assert.doesNotMatch(receipt.recovery, /Separately|sync IS paused/);
+    assert.match(renderOperationReceipt(receipt), /- End state: NOT reached/);
   }
   {
     const fx = await opFixture(t);
@@ -1258,4 +1287,143 @@ test("freshness for an operation: newer migrations on main are fine; a changed o
       "hash-mismatch",
     );
   }
+});
+
+test("recovery when the end state is missed and another role also changed names both, end state first", async (t) => {
+  const fx = await opFixture(t, RESUME);
+  const db = fakeDb({
+    writerLogin: false,
+    connections: 0,
+    onOperation: (s) => {
+      s.roles[SETTINGS_WRITER_ROLE].login = false;
+      s.roles.still_policy_admin.login = false;
+    },
+  });
+  const receipt = await run(fx, db);
+  assert.equal(receipt.status, "verification-failed");
+  assert.equal(receipt.endState, "not-reached");
+  assert.deepEqual(receipt.issues, [
+    "verification-issues:immediately",
+    "other-roles-changed",
+  ]);
+  assert.match(
+    receipt.recovery,
+    /^End state NOT reached: do not assume sync is resumed\. Run resume-settings-sync again[\s\S]* Separately, a side check failed \(other-roles-changed\)/,
+  );
+  // End state reached on resume, history moved: "sync IS resumed" and do not undo it.
+  const fx2 = await opFixture(t, RESUME);
+  const moved = await run(
+    fx2,
+    fakeDb({
+      writerLogin: false,
+      connections: 0,
+      onOperation: (s) => s.history.push({ version: "0099", name: "x" }),
+    }),
+  );
+  assert.equal(moved.endState, "reached");
+  assert.match(
+    moved.recovery,
+    /^End state verified: sync IS resumed[\s\S]*do not undo the resume because of it/,
+  );
+});
+
+test("an operation refuses before any write on PostgreSQL older than 16 or an unreadable version", async (t) => {
+  for (const serverVersion of ["150008", "not-a-number", ""]) {
+    const fx = await opFixture(t);
+    const db = fakeDb({ serverVersion });
+    const receipt = await run(fx, db);
+    assert.deepEqual(
+      [receipt.status, receipt.issues, receipt.writeAttempted],
+      ["refused", ["postgres-version-unsupported"], false],
+      serverVersion,
+    );
+    // The version is the first database read; nothing else ran.
+    assert.deepEqual(sequence(db.state), ["server-version.sql"]);
+    assert.equal(receipt.steps.at(-1).name, "PostgreSQL version");
+    assert.equal(receipt.steps.at(-1).outcome, "refused");
+  }
+  const fx = await opFixture(t);
+  const ok = await run(fx, fakeDb({ serverVersion: "160000" }), {
+    settleMs: 0,
+  });
+  assert.equal(ok.status, "verified");
+});
+
+// ── The real command line, as a subprocess (regression: import cycle + top-level await) ───────
+
+const DEPLOY_CLI = new URL("./deploy.mjs", import.meta.url).pathname;
+const cli = (args, env, cwd) =>
+  spawnSync(process.execPath, [DEPLOY_CLI, ...args], {
+    cwd,
+    encoding: "utf8",
+    timeout: 60_000,
+    env: { PATH: process.env.PATH, ...env },
+  });
+
+test("the deploy CLI plans both operations as a subprocess: exit 0 and the digest printed", async (t) => {
+  const { root, head } = await repo(t);
+  for (const operation of [PAUSE, RESUME]) {
+    const result = cli(
+      ["plan"],
+      {
+        DEPLOY_SHA: head,
+        DEPLOY_OPERATION: operation,
+        DEPLOY_MIGRATIONS: "",
+        DEPLOY_FUNCTIONS: "",
+      },
+      root,
+    );
+    // Exit 13 here means Node found an unsettled top-level await (the import-cycle deadlock).
+    assert.equal(result.status, 0, `${operation}: ${result.stderr}`);
+    assert.equal(result.stderr, "");
+    const digest = result.stdout.trim();
+    assert.match(digest, /^[0-9a-f]{64}$/);
+    assert.equal(digest, (await plan(root, head, operation)).digest);
+  }
+  const refused = cli(
+    ["plan"],
+    { DEPLOY_SHA: head, DEPLOY_OPERATION: "pause-everything" },
+    root,
+  );
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /^Refused \(operation-unknown\): /);
+  const mixed = cli(
+    ["plan"],
+    {
+      DEPLOY_SHA: head,
+      DEPLOY_OPERATION: PAUSE,
+      DEPLOY_MIGRATIONS: "0015_settings_sync_per_field.sql",
+    },
+    root,
+  );
+  assert.equal(mixed.status, 1);
+  assert.match(mixed.stderr, /^Refused \(operation-with-migrations\): /);
+});
+
+test("the deploy CLI writes an operation closing record as a subprocess without any secret", async (t) => {
+  const fx = await opFixture(t);
+  const snapshots = [];
+  await run(fx, fakeDb(), {
+    settleMs: 0,
+    onProgress: async (r) => snapshots.push(structuredClone(r)),
+  });
+  const receiptFile = join(fx.root, ".receipt.json");
+  const summary = join(fx.root, ".summary.md");
+  await writeFile(receiptFile, JSON.stringify(snapshots.at(-1)));
+  const result = cli(
+    ["final-summary", "--receipt", receiptFile],
+    {
+      APPLY_OUTCOME: "success",
+      JOB_STATUS: "success",
+      GITHUB_STEP_SUMMARY: summary,
+    },
+    fx.root,
+  );
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(
+    result.stdout,
+    /## Operation closing record[\s\S]*Operation: `pause-settings-sync`[\s\S]*Outcome: verified/,
+  );
+  assert.match(await readFile(summary, "utf8"), /## Operation closing record/);
+  for (const leak of [SECRET, REF]) assert.ok(!result.stdout.includes(leak));
 });
