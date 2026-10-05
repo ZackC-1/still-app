@@ -1,0 +1,139 @@
+name: Firefox for Android emulator spike
+
+# Optional and secret-free. Loads the unconfigured Firefox build into the real Firefox for Android
+# (Mozilla's own release APK, pinned and checksum-verified) in a cloud Android emulator, then answers:
+#   1. Does Still install, and can the four sites be granted from the first-run page on Android?
+#   2. Does the popup page fit the screen at 320, 360 and 412 dp? (screenshots uploaded)
+#   3. Does one synthetic fixture page work? (served from tests/fixtures; no real site is visited)
+# It is NOT a required check. Each run uploads a report and screenshots as workflow artifacts and
+# writes a step-by-step table to the run summary, including where any step had to stop.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+    paths:
+      - "packages/ext-chromium/**"
+      - "tests/firefox-android/**"
+      - ".github/workflows/firefox-android-emulator.yml"
+
+concurrency:
+  group: firefox-android-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NPM_CONFIG_MINIMUM_RELEASE_AGE: "0"
+
+jobs:
+  emulator:
+    name: Firefox for Android ${{ matrix.fenix.version }} (emulator)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        fenix:
+          # 142.0 is the manifest's Android floor (no Navigation API; the URL-poll fallback runs).
+          # 157.0 is the current release at the time of writing.
+          # sha256: computed from Mozilla's archive download over HTTPS; its MD5 also matches the
+          # archive's own x-goog-hash header. The signer check below is independent of both.
+          - version: "142.0"
+            sha256: dbdedba5a837dda6e3f0eabb357b8fc01342623d5bb9004258e6cb936cab1fec
+          - version: "157.0"
+            sha256: 85cbd0d56c571b7eec8e34a76a4edebac713aec773491d41c6a5915beb2f9354
+    env:
+      FENIX_VERSION: ${{ matrix.fenix.version }}
+      FENIX_SHA256: ${{ matrix.fenix.sha256 }}
+      # Mozilla's Firefox for Android release signing certificate (SHA-256).
+      MOZILLA_RELEASE_SIGNER: a78b62a5165b4494b2fead9e76a280d22d937fee6251aece599446b2ea319b04
+      ANDROID_API_LEVEL: "34"
+      STILL_ANDROID_ARTIFACTS: test-results/firefox-android
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v6.1.0
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Blank server settings: the build has no sign-in or analytics server compiled in, which the
+      # spike re-checks before installing (tests/firefox/_session.ts assertUnconfiguredBuild).
+      - name: Build the unconfigured Firefox extension
+        env:
+          VITE_SUPABASE_URL: ""
+          VITE_SUPABASE_ANON_KEY: ""
+          VITE_POSTHOG_KEY: ""
+          VITE_POSTHOG_HOST: ""
+        run: |
+          pnpm --filter @still/ext-chromium build:firefox
+          mkdir -p "$STILL_ANDROID_ARTIFACTS"
+          (cd packages/ext-chromium/dist/firefox-mv3 && zip -qr "$RUNNER_TEMP/still-firefox.zip" .)
+          python3 -c "import json;m=json.load(open('packages/ext-chromium/dist/firefox-mv3/manifest.json'));print(json.dumps(m['browser_specific_settings'],indent=2))" | tee "$STILL_ANDROID_ARTIFACTS/browser-specific-settings.json"
+
+      - name: Download and verify Firefox for Android ${{ matrix.fenix.version }} (x86_64)
+        run: |
+          url="https://archive.mozilla.org/pub/fenix/releases/${FENIX_VERSION}/android/fenix-${FENIX_VERSION}-android-x86_64/fenix-${FENIX_VERSION}.multi.android-x86_64.apk"
+          curl --fail --silent --show-error --location --retry 3 --proto '=https' --tlsv1.2 -o "$RUNNER_TEMP/fenix.apk" "$url"
+          echo "${FENIX_SHA256}  $RUNNER_TEMP/fenix.apk" | sha256sum --check --strict
+          apksigner="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -n 1)/apksigner"
+          "$apksigner" verify --print-certs "$RUNNER_TEMP/fenix.apk" | tee "$RUNNER_TEMP/fenix-signer.txt"
+          signer="$(grep -m1 'Signer #1 certificate SHA-256 digest' "$RUNNER_TEMP/fenix-signer.txt" | awk '{print $NF}')"
+          if [ "$signer" != "$MOZILLA_RELEASE_SIGNER" ]; then
+            echo "::error::Firefox APK is not signed by Mozilla's release certificate (got '$signer')"
+            exit 1
+          fi
+          echo "FENIX_APK=$RUNNER_TEMP/fenix.apk" >> "$GITHUB_ENV"
+          echo "STILL_ANDROID_XPI=$RUNNER_TEMP/still-firefox.zip" >> "$GITHUB_ENV"
+
+      # Hardware acceleration for the x86_64 emulator on GitHub's Linux runners.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run the spike in an Android ${{ env.ANDROID_API_LEVEL }} emulator
+        # reactivecircus/android-emulator-runner v2.38.0
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 34
+          # Plain google_apis (no Play Store, no Google sign-in); its debuggable image lets Firefox
+          # read the GeckoView config file that opens the BiDi port.
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          ram-size: 3072M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
+          script: bash tests/firefox-android/run-spike.sh
+
+      # Artifacts are limited to the report, logs and screenshots of synthetic pages. A Firefox
+      # profile (cookies, history, storage) must never be uploaded.
+      - name: Refuse to upload anything that looks like a browser profile
+        if: always()
+        run: |
+          if [ -d "$STILL_ANDROID_ARTIFACTS" ] && find "$STILL_ANDROID_ARTIFACTS" \( -name 'prefs.js' -o -name '*.sqlite' -o -name 'cookies*' -o -name '*.mozlz4' -o -name 'storage' \) | grep -q .; then
+            echo "::error::Artifact directory contains browser-profile files; refusing to upload"
+            find "$STILL_ANDROID_ARTIFACTS" \( -name 'prefs.js' -o -name '*.sqlite' -o -name 'cookies*' -o -name '*.mozlz4' -o -name 'storage' \)
+            rm -rf "$STILL_ANDROID_ARTIFACTS"
+            exit 1
+          fi
+
+      - name: Upload the spike report and screenshots
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: firefox-android-${{ matrix.fenix.version }}
+          path: ${{ env.STILL_ANDROID_ARTIFACTS }}
+          if-no-files-found: warn
+          retention-days: 14
