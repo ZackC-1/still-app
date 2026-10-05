@@ -69,6 +69,11 @@ supabase migration up --local >/dev/null
 grants_test upgrade
 supabase db reset --local --no-seed >/dev/null
 grants_test clean
+# 0014 as the newest migration, so its re-apply and self-check steps run: at the head they are
+# skipped because 0015 re-pins search_path in the stricter pg_temp-last form.
+supabase db reset --local --no-seed --version 0014 >/dev/null
+grants_test clean
+supabase db reset --local --no-seed >/dev/null
 # The existing pgTAP suite against migrations alone (no candidate). On 0013 it fails the
 # set_entitlement, entitlement-write and anon free-sync checks; 0014 must make it pass.
 supabase test db supabase/tests/rls_test.sql

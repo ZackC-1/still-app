@@ -237,6 +237,29 @@ coarse-write grammar and timestamp arbitration in the earlier candidate were not
 they would have refused writes that released apps make today (for example from a device whose
 clock runs ahead of the server).
 
+Every SECURITY DEFINER function in `public` and `private`, and every function in `private`, uses
+`set search_path = pg_catalog, pg_temp`. An empty search_path is not enough: PostgreSQL still
+searches the caller's own temporary schema first for type names, so any session that can call a
+definer could plant a `pg_temp.text` (or `jsonb`, `uuid`, ...) domain whose CHECK would run with the
+owner's rights. 0015 re-pins the 0013/0014 definers it does not replace and its self-check refuses
+any definer whose path does not end in `pg_temp`. Later migrations must use the same form.
+
+### Owner steps after 0015 is applied (separate approval, never in Git)
+
+1. Give the writer a login without putting a cleartext password in SQL text. Either connect with
+   `psql` as `postgres`, run `alter role still_settings_writer login;` and then
+   `\password still_settings_writer` (psql hashes the password client-side before sending it), or
+   generate a SCRAM verifier offline and run `alter role still_settings_writer login password
+   'SCRAM-SHA-256$4096:<salt>$<stored key>:<server key>';`. Never paste a real password or verifier
+   into a document, commit, ticket or chat.
+2. Build `SETTINGS_WRITER_DB_URL` for the project's connection pooler (Supavisor), whose user name
+   is `still_settings_writer.<project-ref>`, and store it only as an Edge Function secret. It never
+   goes into a repository file, a workflow log or another function.
+3. Before deploying `sync-settings`, connect once as the writer through that pooler URL and run
+   `show log_parameter_max_length;` and `show log_parameter_max_length_on_error;`. Both must return
+   `0` (and `show statement_timeout;` returns `2s`). If either differs, stop: the private anchor key
+   could reach database logs.
+
 Per-field write identities retain their original JSON for 30 days within the settings domain.
 Database admission allows at most 120 new identities in a rolling minute, 4,096 retained
 identities and 4 MiB of retained request JSON per account. Exact retained retries bypass

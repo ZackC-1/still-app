@@ -67,7 +67,8 @@ Deno.test({
               .map((row) => row.version);
           assert(versions.includes("0015"), "migration 0015 applied");
           // The ordinary role holds the admin option the migration's CREATEROLE grant records,
-          // so it can add the disposable login exactly as the production secret step would.
+          // so it can add this disposable synthetic login. Production never puts a cleartext
+          // password in SQL text (owner steps in scripts/backend/README.md).
           await ordinary.unsafe(
             `alter role still_settings_writer login password '${SYNTHETIC_PASSWORD}'`,
           );

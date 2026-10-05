@@ -16,18 +16,22 @@
 --  (3) schema private: owned by postgres; only the writer holds anything (USAGE);
 --  (4) relations in private: exactly settings_anchors and settings_writes, owned by postgres, RLS
 --      on, no table or column grant to anyone, both cascading from auth.users on delete;
---  (5) functions in private: exactly the seven, owned by postgres, search_path pinned, SECURITY
+--  (5) functions in private: exactly the seven, owned by postgres, search_path pg_temp-last, SECURITY
 --      DEFINER exactly for lock/claim/commit/cleanup, EXECUTE only for the owner plus (lock, claim,
 --      commit) the writer, bodies byte-identical to the migration;
---  (6) write_profile_settings: owner postgres, definer, pinned, EXECUTE only authenticated besides
+--  (6) write_profile_settings: owner postgres, definer, pg_temp-last, EXECUTE only authenticated besides
 --      the owner, body byte-identical to 0015 (the 0012 body plus the per-account guard);
---  (7) consume_rate_limit: definer, pinned, EXECUTE only still_entitlement_writer and
+--  (7) consume_rate_limit: definer, pg_temp-last, EXECUTE only still_entitlement_writer and
 --      still_settings_writer besides the owner, body byte-identical to 0015 (0013 plus one bucket);
 --  (8) no SECURITY DEFINER in public or private executable by a client role (closure over every
 --      membership edge) except the two client RPCs, and nothing in private for service_role;
 --  (9) no default privilege for schema private reaches PUBLIC, a client role, service_role or the
 --      writer;
---  (10) exactly one active retention job, run as postgres, calling only the cleanup helper.
+--  (10) exactly one active retention job, run as postgres, calling only the cleanup helper;
+--  (11) every SECURITY DEFINER in public and private (event-trigger functions excluded, as in 0014)
+--      has exactly search_path=pg_catalog, pg_temp. An empty path fails: PostgreSQL then searches the
+--      caller's pg_temp first for type names. Note 0014's own check expects the empty path, so it
+--      reports these functions if it is ever re-run after 0015.
 -- Row-count invariance is the separate 0015_settings_sync_per_field.invariant.sql.
 with recursive
 client_reach(oid) as (
@@ -188,9 +192,9 @@ issues(issue) as (
   select 'private_function_owner:' || f.routine
   from private_functions f cross join ids where f.proowner <> ids.owner_oid
   union all
-  select 'unpinned_search_path:' || f.routine
+  select 'unsafe_search_path:' || f.routine
   from private_functions f
-  where not coalesce(f.proconfig @> array['search_path=""']::text[], false)
+  where not coalesce(f.proconfig @> array['search_path=pg_catalog, pg_temp']::text[], false)
   union all
   select 'private_function_definer:' || f.routine
   from private_functions f join routines r on r.oid = f.oid
@@ -220,7 +224,7 @@ issues(issue) as (
   from public_state s cross join ids
   where s.oid is not null
     and (s.proowner <> ids.owner_oid or not s.prosecdef
-         or not coalesce(s.proconfig @> array['search_path=""']::text[], false))
+         or not coalesce(s.proconfig @> array['search_path=pg_catalog, pg_temp']::text[], false))
   union all
   select s.kind || '_body_changed'
   from public_state s where s.oid is not null and pg_catalog.md5(s.prosrc) <> s.body_md5
@@ -254,6 +258,14 @@ issues(issue) as (
   cross join lateral pg_catalog.aclexplode(d.defaclacl) a
   where d.defaclnamespace = ids.private_oid
     and (a.grantee in (select oid from restricted) or a.grantee = ids.writer_oid)
+  union all
+  -- (11) pg_temp last for every SECURITY DEFINER in public and private.
+  select 'unsafe_search_path:' || p.oid::pg_catalog.regprocedure::text
+  from pg_catalog.pg_proc p
+  join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+  where n.nspname in ('public', 'private') and p.prosecdef
+    and p.prorettype <> 'pg_catalog.event_trigger'::pg_catalog.regtype
+    and not coalesce(p.proconfig @> array['search_path=pg_catalog, pg_temp']::text[], false)
   union all
   -- (10) retention job.
   select 'retention_job'

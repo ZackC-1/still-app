@@ -322,6 +322,16 @@ test("0015 post-apply verification pins the migration's exact routine bodies", a
     "public.write_profile_settings",
   ]);
   for (const [name, digest] of pinned) assert.equal(body(name), digest, name);
+  // Every function the migration defines searches pg_temp last; the empty path is gone.
+  for (const name of pinned.keys()) {
+    const start = migration.indexOf(`create or replace function ${name}(`);
+    const header = migration.slice(start, migration.indexOf("$$", start));
+    assert.match(header, /set search_path = pg_catalog, pg_temp\s/, name);
+  }
+  assert.doesNotMatch(migration, /search_path = ''/);
+  assert.doesNotMatch(migration, /search_path=""/);
+  assert.match(verification, /'search_path=pg_catalog, pg_temp'/);
+  assert.doesNotMatch(verification, /'search_path=""'/);
 });
 
 async function fixture(t) {

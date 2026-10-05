@@ -11,8 +11,10 @@
 //   clean    `supabase db reset` to head; the test seeds the same rows itself.
 //
 // Client calls go through a real `authenticator` login that switches role as PostgREST does. The
-// per-field path logs in as still_settings_writer, whose LOGIN and password the ordinary postgres
-// role sets here exactly as the production secret step would, and removes again at the end.
+// per-field path logs in as still_settings_writer. The ordinary postgres role (which holds the admin
+// option on it) gives it a disposable synthetic login here and removes it again at the end. That
+// proves the authority only: production never sends a cleartext password in SQL text (see the
+// owner steps in scripts/backend/README.md).
 import { assert, assertEquals, assertRejects } from "@std/assert";
 import postgres from "postgres";
 import { PgSettingsStore } from "../functions/_shared/pg-settings-store.ts";
@@ -29,6 +31,7 @@ const mode = Deno.env.get("STILL_U3_MIGRATION_TEST_MODE");
 const gatewayPassword = Deno.env.get("STILL_GRANTS_GATEWAY_PASSWORD") ??
   "postgres";
 const WRITER_PASSWORD = "u3m-synthetic-settings-writer-only";
+const ENTITLEMENT_PASSWORD = "u3m-synthetic-entitlement-writer-only";
 const MIGRATION = "0015_settings_sync_per_field.sql";
 
 const CURRENT = "d1d1d1d1-0000-4000-8000-000000000001"; // 2.x document, version 7
@@ -50,6 +53,27 @@ const OWNER_HELPERS = [
   "private.settings_canonical_valid(jsonb,bigint)",
 ];
 const FREE_SYNC = "public.write_profile_settings(jsonb,uuid)";
+// Every routine that must search pg_temp last: all functions in private (the non-definer helpers run
+// inside the definers) and every SECURITY DEFINER in public. Names as regprocedure prints them.
+const PG_TEMP_LAST = [
+  "private.claim_settings_write(uuid,uuid,jsonb)",
+  "private.cleanup_settings_writes()",
+  "private.commit_settings(uuid,uuid,bigint,jsonb,jsonb,uuid,bigint,jsonb)",
+  "private.lock_settings(uuid,uuid,text)",
+  "private.settings_canonical_valid(jsonb,bigint)",
+  "private.settings_fields()",
+  "private.settings_json_bounded(jsonb)",
+  "claim_revenuecat_event(text,text,jsonb)",
+  "cleanup_rate_limit_counters()",
+  "complete_revenuecat_event(text,uuid)",
+  "consume_rate_limit(text,integer,integer)",
+  "get_current_rule_set()",
+  "record_revenuecat_event(text,text,jsonb)",
+  "release_revenuecat_event(text,uuid)",
+  "set_entitlement(uuid,boolean,text,text)",
+  "sync_rate_limit_account()",
+  "write_profile_settings(jsonb,uuid)",
+];
 const LIMITER = "public.consume_rate_limit(text,integer,integer)";
 const ROLES = [
   "public",
@@ -76,6 +100,20 @@ async function seedSource(): Promise<string> {
   );
 }
 /** The migration with exactly one reviewed statement removed: the negative-control mutant. */
+/** The migration with exactly one reviewed statement replaced. */
+async function replacing(
+  statement: string,
+  replacement: string,
+): Promise<string> {
+  const source = await migrationSource();
+  assertEquals(
+    source.split(statement).length,
+    2,
+    `statement occurs once: ${statement}`,
+  );
+  // split/join: String.replace would read the `$$` in a replacement as a pattern.
+  return source.split(statement).join(replacement);
+}
 async function without(statement: string): Promise<string> {
   const source = await migrationSource();
   assertEquals(
@@ -234,85 +272,106 @@ Deno.test({
             rate_limit_counters: 1,
           });
           assertEquals(
-            (await admin`select count(*)::int as n from private.settings_anchors`)[0].n,
+            (await admin`select count(*)::int as n from private.settings_anchors`)[
+              0
+            ].n,
             0,
             "no account is marked as using per-field sync by the migration",
           );
         },
       );
 
-      await t.step("catalog privilege matrix is exactly the intended one", async () => {
-        const matrix: string[] = [];
-        const expected = (role: string, routine: string) => {
-          if (WRITER_HELPERS.includes(routine)) {
-            return role === "still_settings_writer";
+      await t.step(
+        "catalog privilege matrix is exactly the intended one",
+        async () => {
+          const matrix: string[] = [];
+          const expected = (role: string, routine: string) => {
+            if (WRITER_HELPERS.includes(routine)) {
+              return role === "still_settings_writer";
+            }
+            if (routine === FREE_SYNC) return role === "authenticated";
+            if (routine === LIMITER) {
+              return role === "still_entitlement_writer" ||
+                role === "still_settings_writer";
+            }
+            return false; // owner-only helpers
+          };
+          for (
+            const routine of [
+              ...WRITER_HELPERS,
+              ...OWNER_HELPERS,
+              FREE_SYNC,
+              LIMITER,
+            ]
+          ) {
+            for (const role of ROLES) {
+              const allowed =
+                (await admin`select has_function_privilege(${role}, ${routine}, 'EXECUTE') as allowed`)[
+                  0
+                ].allowed;
+              matrix.push(`${role} EXECUTE ${routine} = ${allowed}`);
+              assertEquals(
+                allowed,
+                expected(role, routine),
+                `${role} ${routine}`,
+              );
+            }
           }
-          if (routine === FREE_SYNC) return role === "authenticated";
-          if (routine === LIMITER) {
-            return role === "still_entitlement_writer" ||
-              role === "still_settings_writer";
+          for (
+            const table of [
+              "private.settings_anchors",
+              "private.settings_writes",
+            ]
+          ) {
+            for (const role of ROLES) {
+              assertEquals(
+                (await admin`select has_table_privilege(${role}, ${table}, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN') or has_any_column_privilege(${role}, ${table}, 'SELECT,INSERT,UPDATE,REFERENCES') as allowed`)[
+                  0
+                ].allowed,
+                false,
+                `${role} ${table}`,
+              );
+            }
           }
-          return false; // owner-only helpers
-        };
-        for (const routine of [...WRITER_HELPERS, ...OWNER_HELPERS, FREE_SYNC, LIMITER]) {
-          for (const role of ROLES) {
-            const allowed =
-              (await admin`select has_function_privilege(${role}, ${routine}, 'EXECUTE') as allowed`)[
-                0
-              ].allowed;
-            matrix.push(`${role} EXECUTE ${routine} = ${allowed}`);
-            assertEquals(allowed, expected(role, routine), `${role} ${routine}`);
-          }
-        }
-        for (const table of ["private.settings_anchors", "private.settings_writes"]) {
           for (const role of ROLES) {
             assertEquals(
-              (await admin`select has_table_privilege(${role}, ${table}, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER,MAINTAIN') or has_any_column_privilege(${role}, ${table}, 'SELECT,INSERT,UPDATE,REFERENCES') as allowed`)[
+              (await admin`select has_schema_privilege(${role}, 'private', 'USAGE') as usage, has_schema_privilege(${role}, 'private', 'CREATE') as create`)[
                 0
-              ].allowed,
-              false,
-              `${role} ${table}`,
+              ],
+              { usage: role === "still_settings_writer", create: false },
+              role,
             );
           }
-        }
-        for (const role of ROLES) {
           assertEquals(
-            (await admin`select has_schema_privilege(${role}, 'private', 'USAGE') as usage, has_schema_privilege(${role}, 'private', 'CREATE') as create`)[
+            (await admin`select r.rolsuper, r.rolinherit, r.rolcreaterole, r.rolcreatedb, r.rolbypassrls, r.rolcanlogin from pg_catalog.pg_roles r where r.rolname = 'still_settings_writer'`)[
               0
             ],
-            { usage: role === "still_settings_writer", create: false },
-            role,
+            {
+              rolsuper: false,
+              rolinherit: false,
+              rolcreaterole: false,
+              rolcreatedb: false,
+              rolbypassrls: false,
+              rolcanlogin: false,
+            },
+            "the migration creates the writer without LOGIN; the secret step adds it",
           );
-        }
-        assertEquals(
-          (await admin`select r.rolsuper, r.rolinherit, r.rolcreaterole, r.rolcreatedb, r.rolbypassrls, r.rolcanlogin from pg_catalog.pg_roles r where r.rolname = 'still_settings_writer'`)[
-            0
-          ],
-          {
-            rolsuper: false,
-            rolinherit: false,
-            rolcreaterole: false,
-            rolcreatedb: false,
-            rolbypassrls: false,
-            rolcanlogin: false,
-          },
-          "the migration creates the writer without LOGIN; the secret step adds it",
-        );
-        assertEquals(
-          [
-            ...await admin`select m.roleid::regrole::text as role, m.member::regrole::text as member, m.admin_option, m.inherit_option, m.set_option from pg_catalog.pg_auth_members m where m.roleid = 'still_settings_writer'::regrole or m.member = 'still_settings_writer'::regrole`,
-          ],
-          [{
-            role: "still_settings_writer",
-            member: "postgres",
-            admin_option: true,
-            inherit_option: false,
-            set_option: false,
-          }],
-          "only the automatic, non-inheriting CREATEROLE admin membership",
-        );
-        console.log(JSON.stringify({ u3MigrationPrivilegeMatrix: matrix }));
-      });
+          assertEquals(
+            [
+              ...await admin`select m.roleid::regrole::text as role, m.member::regrole::text as member, m.admin_option, m.inherit_option, m.set_option from pg_catalog.pg_auth_members m where m.roleid = 'still_settings_writer'::regrole or m.member = 'still_settings_writer'::regrole`,
+            ],
+            [{
+              role: "still_settings_writer",
+              member: "postgres",
+              admin_option: true,
+              inherit_option: false,
+              set_option: false,
+            }],
+            "only the automatic, non-inheriting CREATEROLE admin membership",
+          );
+          console.log(JSON.stringify({ u3MigrationPrivilegeMatrix: matrix }));
+        },
+      );
 
       await t.step(
         "client roles cannot reach the private schema through the gateway",
@@ -343,7 +402,7 @@ Deno.test({
       );
 
       const writer = await t.step(
-        "postgres can set the writer's login exactly as the production secret step does",
+        "postgres, as the writer's admin, can add a login (synthetic here; never cleartext in production)",
         async () => {
           await admin.unsafe(
             `alter role still_settings_writer login password '${WRITER_PASSWORD}'`,
@@ -354,10 +413,16 @@ Deno.test({
             WRITER_PASSWORD,
           );
           assertEquals(
-            (await opened.writer`select session_user::text as login, current_setting('statement_timeout') as statement, current_setting('lock_timeout') as lock, current_setting('log_parameter_max_length') as log`)[
-              0
-            ],
-            { login: "still_settings_writer", statement: "2s", lock: "1s", log: "0" },
+            (await opened
+              .writer`select session_user::text as login, current_setting('statement_timeout') as statement, current_setting('lock_timeout') as lock, current_setting('log_parameter_max_length') as log`)[
+                0
+              ],
+            {
+              login: "still_settings_writer",
+              statement: "2s",
+              lock: "1s",
+              log: "0",
+            },
           );
           for (
             const statement of [
@@ -370,7 +435,9 @@ Deno.test({
               "select private.settings_json_bounded('{}')",
             ]
           ) {
-            const error = await rejection(() => opened.writer!.unsafe(statement));
+            const error = await rejection(() =>
+              opened.writer!.unsafe(statement)
+            );
             assertEquals(error.code, "42501", statement);
           }
           // The helpers bind the verified subject: another account's claim is refused.
@@ -382,7 +449,10 @@ Deno.test({
           );
           assertEquals(mismatch.code, "28000");
           const limiter = new PgRateLimiter(opened.writer);
-          assertEquals(await limiter.consume(`settings-sync:user:${CURRENT}`, 5, 600), 0);
+          assertEquals(
+            await limiter.consume(`settings-sync:user:${CURRENT}`, 5, 600),
+            0,
+          );
           await assertRejects(() =>
             limiter.consume(`settings-sync-other:user:${CURRENT}`, 5, 600)
           );
@@ -404,6 +474,197 @@ Deno.test({
       };
 
       await t.step(
+        "every SECURITY DEFINER in public and private searches pg_temp last",
+        async () => {
+          // Enumerated from the catalog: any definer added later without the safe form fails here.
+          const rows =
+            await admin`select p.oid::regprocedure::text as routine, p.proconfig from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid = p.pronamespace where n.nspname in ('public', 'private') and (p.prosecdef or n.nspname = 'private') and p.prorettype <> 'pg_catalog.event_trigger'::pg_catalog.regtype`;
+          assertEquals(
+            rows.map((r) => r.routine).sort(),
+            [...PG_TEMP_LAST].sort(),
+          );
+          for (const row of rows) {
+            assertEquals(
+              row.proconfig,
+              ["search_path=pg_catalog, pg_temp"],
+              row.routine,
+            );
+          }
+        },
+      );
+
+      await t.step(
+        "a planted pg_temp type never runs with the owner's rights",
+        async () => {
+          // A caller's own session may create temporary objects (PUBLIC holds TEMPORARY). Plant
+          // domains over the type names the definer bodies use; each CHECK reports who ran it.
+          const plant = [
+            "create function pg_temp.u3m_probe() returns boolean language plpgsql as $f$ begin raise warning 'u3m-temp-probe ran as %', current_user; return true; end $f$",
+            ...["text", "jsonb", "uuid", "bytea", "timestamptz"].map((type) =>
+              `create domain pg_temp.${type} as pg_catalog.${type} check (pg_temp.u3m_probe())`
+            ),
+            // Positive control: the trap is armed for the caller's own casts.
+            "select 'armed'::text",
+          ];
+          type Attempt = { sub: string | null; statement: string };
+          async function probe(
+            user: string,
+            password: string,
+            role: string | null,
+            attempts: Attempt[],
+          ) {
+            const notices: string[] = [];
+            const sql = postgres(
+              Object.assign(new URL(databaseUrl!), { username: user, password })
+                .href,
+              {
+                prepare: false,
+                max: 1,
+                onnotice: (notice) => notices.push(String(notice.message)),
+              },
+            );
+            try {
+              await sql.begin(async (tx) => {
+                if (role) await tx.unsafe(`set local role ${role}`);
+                for (const statement of plant) await tx.unsafe(statement);
+                for (const { sub, statement } of attempts) {
+                  // Each call may refuse; its savepoint keeps the session usable. Nothing commits.
+                  await tx.savepoint(async (sp) => {
+                    await sp`select pg_catalog.set_config('request.jwt.claims', ${
+                      JSON.stringify(
+                        sub
+                          ? { sub, role: role ?? "authenticated" }
+                          : { role: role ?? "anon" },
+                      )
+                    }, true), pg_catalog.set_config('request.jwt.claim.sub', ${
+                      sub ?? ""
+                    }, true)`;
+                    await sp.unsafe(statement);
+                  }).catch(() => {});
+                }
+                throw new Error("rollback temp probe");
+              }).catch((error) => {
+                if (error.message !== "rollback temp probe") throw error;
+              });
+            } finally {
+              await sql.end();
+            }
+            return notices;
+          }
+          const results: Record<string, string[]> = {};
+          results.still_settings_writer = await probe(
+            "still_settings_writer",
+            WRITER_PASSWORD,
+            null,
+            [
+              {
+                sub: null,
+                statement:
+                  `select public.consume_rate_limit('settings-sync:user:${PAID}', 5, 600)`,
+              },
+              {
+                sub: PAID,
+                statement:
+                  `select private.lock_settings('${PAID}', gen_random_uuid(), repeat('ab', 32))`,
+              },
+              {
+                sub: PAID,
+                statement:
+                  `select private.claim_settings_write('${PAID}', gen_random_uuid(), '{"probe":true}')`,
+              },
+              {
+                sub: PAID,
+                statement:
+                  `select private.lock_settings('${PAID}', gen_random_uuid(), repeat('ab', 32)), private.commit_settings('${PAID}', gen_random_uuid(), 1, 'null', '{}', gen_random_uuid(), 0, '[]')`,
+              },
+            ],
+          );
+          await admin.unsafe(
+            `alter role still_entitlement_writer login password '${ENTITLEMENT_PASSWORD}'`,
+          );
+          try {
+            results.still_entitlement_writer = await probe(
+              "still_entitlement_writer",
+              ENTITLEMENT_PASSWORD,
+              null,
+              [
+                {
+                  sub: null,
+                  statement:
+                    `select public.set_entitlement('${PAID}', false, 'probe', null)`,
+                },
+                {
+                  sub: null,
+                  statement:
+                    `select public.record_revenuecat_event('u3m-probe', '${PAID}', '{}')`,
+                },
+                {
+                  sub: null,
+                  statement:
+                    `select * from public.claim_revenuecat_event('u3m-probe-claim', '${PAID}', '{}')`,
+                },
+                {
+                  sub: null,
+                  statement:
+                    "select public.complete_revenuecat_event('u3m-probe-claim', gen_random_uuid())",
+                },
+                {
+                  sub: null,
+                  statement:
+                    "select public.release_revenuecat_event('u3m-probe-claim', gen_random_uuid())",
+                },
+                {
+                  sub: null,
+                  statement:
+                    `select public.consume_rate_limit('reconcile:user:${PAID}', 5, 600)`,
+                },
+              ],
+            );
+          } finally {
+            await admin.unsafe(
+              "alter role still_entitlement_writer nologin password null",
+            );
+          }
+          for (
+            const [role, sub] of [["authenticated", PAID], ["anon", null], [
+              "service_role",
+              null,
+            ]] as const
+          ) {
+            results[role] = await probe(
+              "authenticator",
+              gatewayPassword,
+              role,
+              [
+                ...(role === "authenticated"
+                  ? [{
+                    sub,
+                    statement:
+                      `select * from public.write_profile_settings('{"globalOn":true}', gen_random_uuid())`,
+                  }]
+                  : []),
+                {
+                  sub,
+                  statement: "select * from public.get_current_rule_set()",
+                },
+              ],
+            );
+          }
+          for (const [role, notices] of Object.entries(results)) {
+            assert(
+              notices.some((n) => n.startsWith("u3m-temp-probe ran as ")),
+              `${role}: the planted trap is armed`,
+            );
+            assertEquals(
+              notices.filter((n) => n === "u3m-temp-probe ran as postgres"),
+              [],
+              `${role}: a planted pg_temp type ran with the owner's rights`,
+            );
+          }
+        },
+      );
+
+      await t.step(
         "free sync keeps the 0012 behaviour for accounts that only use released apps",
         async () => {
           // Each case: account, body, expected version. Every body 0012 accepts is still accepted,
@@ -411,41 +672,70 @@ Deno.test({
           const cases: [string, Record<string, unknown>, number][] = [
             [CURRENT, {
               globalOn: false,
-              services: { youtube: true, instagram: false, tiktok: true, facebook: true },
+              services: {
+                youtube: true,
+                instagram: false,
+                tiktok: true,
+                facebook: true,
+              },
               pauses: [],
               updatedAt: 1791000000000,
             }, 8],
             [OLDER, { globalOn: true, extra: { kept: "as sent" } }, 3],
             [MINIMAL, {
               globalOn: false,
-              services: { youtube: false, instagram: false, tiktok: false, facebook: false },
+              services: {
+                youtube: false,
+                instagram: false,
+                tiktok: false,
+                facebook: false,
+              },
               pauses: [],
               updatedAt: 9999999999999,
             }, 2],
             [PAID, {
               globalOn: true,
-              services: { youtube: true, instagram: true, tiktok: false, facebook: true },
+              services: {
+                youtube: true,
+                instagram: true,
+                tiktok: false,
+                facebook: true,
+              },
               pauses: [],
               updatedAt: 1791000000001,
             }, 13],
             [EMPTY, {
               globalOn: true,
-              services: { youtube: true, instagram: true, tiktok: true, facebook: true },
+              services: {
+                youtube: true,
+                instagram: true,
+                tiktok: true,
+                facebook: true,
+              },
               pauses: [],
               updatedAt: 0,
             }, 1],
           ];
           for (const [subject, body, version] of cases) {
-            const before = (await admin`select settings_server_updated_at from public.profiles where id = ${subject}`)[0];
+            const before =
+              (await admin`select settings_server_updated_at from public.profiles where id = ${subject}`)[
+                0
+              ];
             const id = crypto.randomUUID();
             const row = await legacyWrite(subject, body, id);
             assertEquals(row.settings, body, subject);
             assertEquals(Number(row.settings_version), version, subject);
             assertEquals(row.settings_last_write_id, id, subject);
             if (before) {
-              assert(row.settings_server_updated_at > before.settings_server_updated_at);
+              assert(
+                row.settings_server_updated_at >
+                  before.settings_server_updated_at,
+              );
             }
-            const stored = (await admin`select settings, updated_at = settings_server_updated_at as same_clock from public.profiles where id = ${subject}`)[0];
+            const stored =
+              (await admin`select settings, updated_at = settings_server_updated_at as same_clock from public.profiles where id = ${subject}`)[
+                0
+              ];
             assertEquals(stored, { settings: body, same_clock: true });
           }
           // 0012 has no write-id deduplication: an exact retry is applied again.
@@ -475,11 +765,15 @@ Deno.test({
           }
           // No per-field state was created by any of this.
           assertEquals(
-            (await admin`select count(*)::int as n from private.settings_anchors`)[0].n,
+            (await admin`select count(*)::int as n from private.settings_anchors`)[
+              0
+            ].n,
             0,
           );
           assertEquals(
-            (await admin`select count(*)::int as n from private.settings_writes`)[0].n,
+            (await admin`select count(*)::int as n from private.settings_writes`)[
+              0
+            ].n,
             0,
           );
         },
@@ -511,7 +805,11 @@ Deno.test({
           assertEquals(after.anchor.length, 1);
           assertEquals(after.anchor[0].modern_used, false);
           assertEquals(after.anchor[0].lineage, paid.lineage);
-          const row = await legacyWrite(PAID, { globalOn: false }, crypto.randomUUID());
+          const row = await legacyWrite(
+            PAID,
+            { globalOn: false },
+            crypto.randomUUID(),
+          );
           assertEquals(Number(row.settings_version), 14);
         },
       );
@@ -523,7 +821,13 @@ Deno.test({
           const saved = await syncSettings(
             store,
             CURRENT,
-            parsed(write(initial, [["sites.youtube.related", true]], initial.settingsVersion)),
+            parsed(
+              write(
+                initial,
+                [["sites.youtube.related", true]],
+                initial.settingsVersion,
+              ),
+            ),
           );
           assertEquals(saved.status, "ready");
           if (saved.status !== "ready") throw new Error("save");
@@ -533,7 +837,12 @@ Deno.test({
           const error = await rejection(() =>
             legacyWrite(CURRENT, {
               globalOn: true,
-              services: { youtube: true, instagram: true, tiktok: true, facebook: true },
+              services: {
+                youtube: true,
+                instagram: true,
+                tiktok: true,
+                facebook: true,
+              },
               pauses: [],
               updatedAt: Date.now(),
             }, crypto.randomUUID())
@@ -609,7 +918,12 @@ Deno.test({
           await admin`insert into auth.users (id, email) values (${RACE}, 'u3m-race@example.invalid')`;
           const legacyBody = {
             globalOn: true,
-            services: { youtube: true, instagram: true, tiktok: true, facebook: true },
+            services: {
+              youtube: true,
+              instagram: true,
+              tiktok: true,
+              facebook: true,
+            },
             pauses: [],
             updatedAt: 1791000000000,
           };
@@ -639,7 +953,13 @@ Deno.test({
             const saving = syncSettings(
               gated,
               RACE,
-              parsed(write(initial, [["sites.instagram.reels", false]], initial.settingsVersion)),
+              parsed(
+                write(
+                  initial,
+                  [["sites.instagram.reels", false]],
+                  initial.settingsVersion,
+                ),
+              ),
             );
             await inside;
             let outcome: unknown;
@@ -671,11 +991,17 @@ Deno.test({
           }
 
           const real = await race();
-          assert(real.waited, "the released-app write waited on the account lock");
+          assert(
+            real.waited,
+            "the released-app write waited on the account lock",
+          );
           assertEquals(real.saved.status, "ready");
           assert(real.outcome instanceof Error);
           assertEquals((real.outcome as PgError).code, "40001");
-          const kept = (await admin`select settings from public.profiles where id = ${RACE}`)[0].settings;
+          const kept =
+            (await admin`select settings from public.profiles where id = ${RACE}`)[
+              0
+            ].settings;
           assertEquals(kept.schemaVersion, 2);
           assertEquals(kept.sites["instagram.reels"], false);
 
@@ -686,19 +1012,37 @@ Deno.test({
           await legacyWrite(RACE, legacyBody, crypto.randomUUID());
           const lockLine =
             "  perform 1 from auth.users u where u.id = v_user_id for no key update;\n";
-          assertEquals(original.split(lockLine).length, 2, "lock statement located");
+          assertEquals(
+            original.split(lockLine).length,
+            2,
+            "lock statement located",
+          );
           try {
             await admin.unsafe(original.replace(lockLine, ""));
             const mutant = await race();
             assertEquals(mutant.saved.status, "ready");
-            assert(!(mutant.outcome instanceof Error), "mutant accepted the write");
-            const clobbered = (await admin`select settings from public.profiles where id = ${RACE}`)[0].settings;
-            assertEquals(clobbered.schemaVersion, undefined, "per-field document overwritten");
+            assert(
+              !(mutant.outcome instanceof Error),
+              "mutant accepted the write",
+            );
+            const clobbered =
+              (await admin`select settings from public.profiles where id = ${RACE}`)[
+                0
+              ].settings;
+            assertEquals(
+              clobbered.schemaVersion,
+              undefined,
+              "per-field document overwritten",
+            );
           } finally {
             await admin.unsafe(original);
           }
           await admin`delete from auth.users where id = ${RACE}`;
-          assertEquals(await catalogState(admin), catalogBefore, "mutant fully reverted");
+          assertEquals(
+            await catalogState(admin),
+            catalogBefore,
+            "mutant fully reverted",
+          );
         },
       );
 
@@ -706,13 +1050,17 @@ Deno.test({
         "deleting an account removes its anchor and write identities",
         async () => {
           assertEquals(
-            (await admin`select count(*)::int as n from private.settings_writes where user_id = ${CURRENT}`)[0].n,
+            (await admin`select count(*)::int as n from private.settings_writes where user_id = ${CURRENT}`)[
+              0
+            ].n,
             1,
           );
           await admin.begin(async (tx) => {
             await tx`delete from auth.users where id = ${CURRENT}`;
             assertEquals(
-              (await tx`select (select count(*)::int from private.settings_anchors where user_id = ${CURRENT}) + (select count(*)::int from private.settings_writes where user_id = ${CURRENT}) as n`)[0].n,
+              (await tx`select (select count(*)::int from private.settings_anchors where user_id = ${CURRENT}) + (select count(*)::int from private.settings_writes where user_id = ${CURRENT}) as n`)[
+                0
+              ].n,
               0,
             );
             throw new Error("rollback deletion probe");
@@ -725,20 +1073,35 @@ Deno.test({
       await t.step("re-applying 0015 as postgres is a no-op", async () => {
         const before = await catalogState(admin);
         const data = {
-          anchors: [...await admin`select user_id::text, lineage::text, modern_used from private.settings_anchors order by user_id`],
-          writes: [...await admin`select user_id::text, write_id::text from private.settings_writes order by user_id, write_id`],
-          profiles: [...await admin`select pg_catalog.row_to_json(p)::text as raw from public.profiles p order by id`],
+          anchors: [
+            ...await admin`select user_id::text, lineage::text, modern_used from private.settings_anchors order by user_id`,
+          ],
+          writes: [
+            ...await admin`select user_id::text, write_id::text from private.settings_writes order by user_id, write_id`,
+          ],
+          profiles: [
+            ...await admin`select pg_catalog.row_to_json(p)::text as raw from public.profiles p order by id`,
+          ],
         };
         await admin.begin(async (tx) => {
-          assertEquals((await tx`select current_user::text as role`)[0].role, "postgres");
+          assertEquals(
+            (await tx`select current_user::text as role`)[0].role,
+            "postgres",
+          );
           await tx.unsafe(await migrationSource());
         });
         // The writer's LOGIN (set above, outside the migration) is untouched too.
         assertEquals(await catalogState(admin), before);
         assertEquals({
-          anchors: [...await admin`select user_id::text, lineage::text, modern_used from private.settings_anchors order by user_id`],
-          writes: [...await admin`select user_id::text, write_id::text from private.settings_writes order by user_id, write_id`],
-          profiles: [...await admin`select pg_catalog.row_to_json(p)::text as raw from public.profiles p order by id`],
+          anchors: [
+            ...await admin`select user_id::text, lineage::text, modern_used from private.settings_anchors order by user_id`,
+          ],
+          writes: [
+            ...await admin`select user_id::text, write_id::text from private.settings_writes order by user_id, write_id`,
+          ],
+          profiles: [
+            ...await admin`select pg_catalog.row_to_json(p)::text as raw from public.profiles p order by id`,
+          ],
         }, data);
       });
 
@@ -785,6 +1148,11 @@ Deno.test({
               freeSyncRevoke,
               "free_sync_grantees",
             ],
+            [
+              "alter function public.set_entitlement(uuid,boolean,text,text) set search_path = ''",
+              "alter function public.set_entitlement(uuid, boolean, text, text) set search_path = pg_catalog, pg_temp;",
+              "unsafe_search_path:set_entitlement(uuid,boolean,text,text)",
+            ],
           ];
           for (const [injection, statement, issue] of cases) {
             // With the statement in place the migration repairs the injected state.
@@ -795,7 +1163,11 @@ Deno.test({
                 throw new Error("rollback repaired probe");
               })
             );
-            assertEquals(repaired.message, "rollback repaired probe", injection);
+            assertEquals(
+              repaired.message,
+              "rollback repaired probe",
+              injection,
+            );
             // Without it, only the self-check stands between the state and a committed migration.
             const error = await rejection(() =>
               admin.begin(async (tx) => {
@@ -805,11 +1177,30 @@ Deno.test({
             );
             assertEquals(error.code, "42501", injection);
             assert(
-              error.message.startsWith("settings sync privilege self-check failed:") &&
+              error.message.startsWith(
+                "settings sync privilege self-check failed:",
+              ) &&
                 error.message.includes(issue),
               `${injection}: ${error.message}`,
             );
           }
+          // A replaced definer written with the empty path (what 0014 used) is refused too.
+          const mutant = await replacing(
+            "returns jsonb language plpgsql security definer set search_path = pg_catalog, pg_temp as $$",
+            "returns jsonb language plpgsql security definer set search_path = '' as $$",
+          );
+          const emptyPath = await rejection(() =>
+            admin.begin(async (tx) => {
+              await tx.unsafe(mutant);
+            })
+          );
+          assertEquals(emptyPath.code, "42501");
+          assert(
+            emptyPath.message.includes(
+              "unsafe_search_path:private.lock_settings(uuid,uuid,text)",
+            ),
+            emptyPath.message,
+          );
           assertEquals(await catalogState(admin), before);
         },
       );
@@ -853,7 +1244,9 @@ Deno.test({
             );
             assertEquals(error.code, "42501", mutation);
             assert(
-              error.message.startsWith("settings sync privilege self-check failed:") &&
+              error.message.startsWith(
+                "settings sync privilege self-check failed:",
+              ) &&
                 error.message.includes(issue),
               `${mutation}: ${error.message}`,
             );
@@ -876,7 +1269,10 @@ Deno.test({
             })
           );
           assertEquals(other.code, "42501");
-          assertEquals(other.message, "settings sync migration role precondition");
+          assertEquals(
+            other.message,
+            "settings sync migration role precondition",
+          );
           const drift = await rejection(() =>
             admin.begin(async (tx) => {
               await tx.unsafe(
@@ -896,7 +1292,9 @@ Deno.test({
     } finally {
       await opened.writer?.end();
       // Return the writer to the migration's state: no LOGIN, no password.
-      await admin.unsafe("alter role still_settings_writer nologin password null");
+      await admin.unsafe(
+        "alter role still_settings_writer nologin password null",
+      );
       await gateway.end();
       await admin.end();
     }

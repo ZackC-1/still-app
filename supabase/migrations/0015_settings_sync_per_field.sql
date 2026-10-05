@@ -28,8 +28,14 @@
 -- Rules carried from 0014. Nothing created by `postgres` is client-reachable by default any more,
 -- and this migration still grants and revokes explicitly: every new function is revoked from
 -- PUBLIC, anon, authenticated and service_role, the three writer helpers are granted only to
--- `still_settings_writer`, every SECURITY DEFINER function pins `search_path = ''` with fully
--- qualified bodies, and the client read surface is unchanged (no new client SELECT or EXECUTE).
+-- `still_settings_writer`, bodies are fully qualified, and the client read surface is unchanged (no
+-- new client SELECT or EXECUTE). One rule is tightened: an empty search_path still looks up type
+-- names in the caller's own temporary schema (pg_temp) first, so a session holding any credential
+-- that can call a SECURITY DEFINER function could plant a pg_temp domain named, say, `text` whose
+-- CHECK then runs with the owner's rights. Every function 0015 creates or replaces, and every other
+-- SECURITY DEFINER function in public, is therefore pinned to `search_path = pg_catalog, pg_temp`
+-- (pg_temp searched last, as the PostgreSQL documentation for SECURITY DEFINER prescribes). Later
+-- migrations must use the same form.
 --
 -- Idempotence. Every statement is guarded or replace-in-place (`if not exists`, `create or replace`,
 -- `alter role ... set`, `cron.schedule` by job name, revoke/grant), so applying the file a second
@@ -117,7 +123,7 @@ revoke all on table private.settings_anchors, private.settings_writes
 -- ── 3. Helpers and the server-only writer path (reviewed candidate bodies) ────────────────────
 -- Mirrored structural bounds are source-checked against the maintained migrator.
 create or replace function private.settings_json_bounded(p_value jsonb) returns boolean
-language sql immutable set search_path = '' as $$
+language sql immutable set search_path = pg_catalog, pg_temp as $$
   with recursive nodes(value,depth) as (
     -- JSONB adds at most two formatting spaces per node to compact JSON.
     select p_value,0 where pg_catalog.octet_length(p_value::text)<=65536+2*4096
@@ -142,13 +148,13 @@ language sql immutable set search_path = '' as $$
       else true end),false) from nodes;
 $$;
 
-create or replace function private.settings_fields() returns text[] language sql immutable set search_path = '' as $$
+create or replace function private.settings_fields() returns text[] language sql immutable set search_path = pg_catalog, pg_temp as $$
   select array['globalOn','services.youtube','services.instagram','services.tiktok','services.facebook','sites.youtube.shorts','sites.youtube.related','sites.youtube.endscreen','sites.youtube.autoplay','sites.youtube.comments','sites.youtube.livechat','sites.instagram.reels','sites.instagram.explore','sites.instagram.stories','sites.instagram.suggested','sites.instagram.threads','sites.facebook.reels','sites.facebook.stories','sites.facebook.videos','sites.facebook.sponsored'];
 $$;
 
 -- Complete supported canonical validation of a stored document; unknown members survive.
 create or replace function private.settings_canonical_valid(v jsonb,revision bigint) returns boolean
-language plpgsql immutable set search_path = '' as $$
+language plpgsql immutable set search_path = pg_catalog, pg_temp as $$
 declare field text; group_name text; member text; stamp record; n numeric; modern boolean;
   core_sites constant text[] := array['youtube.shorts','instagram.reels','facebook.reels'];
   services jsonb; sites jsonb; clocks jsonb; projected jsonb; supplied boolean;
@@ -219,7 +225,7 @@ begin
 end $$;
 revoke all on function private.settings_json_bounded(jsonb), private.settings_fields(), private.settings_canonical_valid(jsonb,bigint) from public, anon, authenticated, service_role, still_settings_writer;
 
-create or replace function private.cleanup_settings_writes() returns void language sql security definer set search_path = '' as $$
+create or replace function private.cleanup_settings_writes() returns void language sql security definer set search_path = pg_catalog, pg_temp as $$
   delete from private.settings_writes where (user_id,write_id) in (
     select user_id,write_id from private.settings_writes
     where created_at < pg_catalog.clock_timestamp()-interval '30 days'
@@ -232,7 +238,7 @@ select cron.schedule('still-settings-write-retention','* * * * *',
   $$set statement_timeout = '5s'; select private.cleanup_settings_writes();$$);
 
 create or replace function private.lock_settings(p_subject uuid, p_lineage uuid, p_key text)
-returns jsonb language plpgsql security definer set search_path = '' as $$
+returns jsonb language plpgsql security definer set search_path = pg_catalog, pg_temp as $$
 declare p public.profiles%rowtype; a private.settings_anchors%rowtype; found_profile boolean;
 begin
   if p_subject is null or p_subject::text is distinct from pg_catalog.current_setting('request.jwt.claim.sub', true) then
@@ -257,7 +263,7 @@ end $$;
 
 -- Thirty-day identity retention is a settings-only engineering bound. Expired retries retain their original stamps.
 create or replace function private.claim_settings_write(p_subject uuid,p_id uuid,p_body jsonb)
-returns text language plpgsql security definer set search_path = '' as $$
+returns text language plpgsql security definer set search_path = pg_catalog, pg_temp as $$
 declare prior jsonb; retained_count bigint; retained_bytes bigint; recent_count bigint;
 begin
   if p_subject::text is distinct from pg_catalog.current_setting('request.jwt.claim.sub',true) or p_id is null then
@@ -282,7 +288,7 @@ begin
 end $$;
 
 create or replace function private.commit_settings(p_subject uuid,p_lineage uuid,p_revision bigint,p_raw jsonb,p_next jsonb,p_id uuid,p_receipt_revision bigint,p_operations jsonb)
-returns void language plpgsql security definer set search_path = '' as $$
+returns void language plpgsql security definer set search_path = pg_catalog, pg_temp as $$
 declare a private.settings_anchors%rowtype; p public.profiles%rowtype; revision bigint; op jsonb; t timestamptz; field text; path text[]; raw_next jsonb; stamps jsonb;
 begin
   if p_subject::text is distinct from pg_catalog.current_setting('request.jwt.claim.sub',true) then
@@ -344,7 +350,7 @@ grant execute on function private.lock_settings(uuid,uuid,text), private.claim_s
 create or replace function public.consume_rate_limit(
   p_bucket_key text, p_max_requests integer, p_window_seconds integer
 ) returns integer
-language plpgsql security definer set search_path = ''
+language plpgsql security definer set search_path = pg_catalog, pg_temp
 as $$
 declare
   moment timestamptz;
@@ -404,7 +410,7 @@ revoke all on function public.consume_rate_limit(text,integer,integer)
 
 -- ── 4. Free settings sync: the 0012 body plus one guard ───────────────────────────────────────
 -- Everything outside the marked block is the 0012 body, with built-ins and tables written fully
--- qualified for the empty search_path that 0014 already pinned on this function.
+-- qualified; the search_path is the pg_temp-last form described in the header.
 create or replace function public.write_profile_settings(
   p_settings jsonb,
   p_write_id uuid
@@ -416,7 +422,7 @@ create or replace function public.write_profile_settings(
 )
 language plpgsql
 security definer
-set search_path = ''
+set search_path = pg_catalog, pg_temp
 as $$
 declare
   v_user_id uuid := (select auth.uid());
@@ -484,6 +490,20 @@ $$;
 -- Grants restated from 0014: signed-in users only.
 revoke all on function public.write_profile_settings(jsonb, uuid) from public, anon, service_role;
 grant execute on function public.write_profile_settings(jsonb, uuid) to authenticated;
+
+-- ── 4b. pg_temp last for the SECURITY DEFINER functions 0015 does not replace ─────────────────
+-- Bodies untouched (they already qualify every table); only the configured search_path changes.
+-- These are every other SECURITY DEFINER function in public that a writer role, a client role or
+-- an auth.users trigger can reach. Event-trigger functions are excluded as in 0014: no caller can
+-- invoke them directly and they are not owned by this migration's role.
+alter function public.set_entitlement(uuid, boolean, text, text) set search_path = pg_catalog, pg_temp;
+alter function public.record_revenuecat_event(text, text, jsonb) set search_path = pg_catalog, pg_temp;
+alter function public.claim_revenuecat_event(text, text, jsonb) set search_path = pg_catalog, pg_temp;
+alter function public.complete_revenuecat_event(text, uuid) set search_path = pg_catalog, pg_temp;
+alter function public.release_revenuecat_event(text, uuid) set search_path = pg_catalog, pg_temp;
+alter function public.get_current_rule_set() set search_path = pg_catalog, pg_temp;
+alter function public.cleanup_rate_limit_counters() set search_path = pg_catalog, pg_temp;
+alter function public.sync_rate_limit_account() set search_path = pg_catalog, pg_temp;
 
 -- ── 5. Self-check: abort the whole migration unless the final state is the intended one ───────
 -- Client reach is the closure of anon and authenticated over every membership edge, as in 0014.
@@ -622,7 +642,7 @@ begin
     end if;
   end loop;
 
-  -- Functions in private: exactly the expected set, owned by postgres, pinned search_path, and
+  -- Functions in private: exactly the expected set, owned by postgres, pg_temp-last search_path, and
   -- EXECUTE for the owner plus (writer helpers only) the writer. Nothing else, PUBLIC included.
   for item in
     select p.oid, p.oid::regprocedure::text as routine, p.proowner, p.prosecdef, p.proconfig, p.proacl
@@ -634,8 +654,8 @@ begin
     if item.proowner <> owner_oid then
       issues := issues || ('private_function_owner:' || item.routine);
     end if;
-    if not coalesce(item.proconfig @> array['search_path=""']::text[], false) then
-      issues := issues || ('unpinned_search_path:' || item.routine);
+    if not coalesce(item.proconfig @> array['search_path=pg_catalog, pg_temp']::text[], false) then
+      issues := issues || ('unsafe_search_path:' || item.routine);
     end if;
     if item.prosecdef is distinct from (item.oid = any (definer_oids)) then
       issues := issues || ('private_function_definer:' || item.routine);
@@ -674,7 +694,7 @@ begin
   select p.proowner, p.prosecdef, p.proconfig, p.proacl into item
   from pg_catalog.pg_proc p where p.oid = 'public.write_profile_settings(jsonb,uuid)'::regprocedure;
   if item.proowner <> owner_oid or not item.prosecdef
-     or not coalesce(item.proconfig @> array['search_path=""']::text[], false) then
+     or not coalesce(item.proconfig @> array['search_path=pg_catalog, pg_temp']::text[], false) then
     issues := issues || 'free_sync_definition'::text;
   end if;
   if (select pg_catalog.array_agg(a.grantee order by a.grantee)
@@ -688,7 +708,7 @@ begin
   select p.proowner, p.prosecdef, p.proconfig, p.proacl into item
   from pg_catalog.pg_proc p where p.oid = 'public.consume_rate_limit(text,integer,integer)'::regprocedure;
   if item.proowner <> owner_oid or not item.prosecdef
-     or not coalesce(item.proconfig @> array['search_path=""']::text[], false) then
+     or not coalesce(item.proconfig @> array['search_path=pg_catalog, pg_temp']::text[], false) then
     issues := issues || 'limiter_definition'::text;
   end if;
   if (select pg_catalog.array_agg(a.grantee order by a.grantee)
@@ -714,6 +734,19 @@ begin
       and pg_catalog.has_function_privilege(c.oid, p.oid, 'EXECUTE')
   loop
     issues := issues || ('client_execute:' || item.rolname || ':' || item.routine);
+  end loop;
+
+  -- Every SECURITY DEFINER function in public and private searches pg_temp last. An empty path,
+  -- an absent pg_temp or any other form fails: pg_temp is then searched first for type names.
+  for item in
+    select p.oid::regprocedure::text as routine
+    from pg_catalog.pg_proc p
+    join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+    where n.nspname in ('public', 'private') and p.prosecdef
+      and p.prorettype <> 'pg_catalog.event_trigger'::pg_catalog.regtype
+      and not coalesce(p.proconfig @> array['search_path=pg_catalog, pg_temp']::text[], false)
+  loop
+    issues := issues || ('unsafe_search_path:' || item.routine);
   end loop;
 
   -- The identity-retention job exists once, runs as postgres and calls only the cleanup helper.
