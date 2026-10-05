@@ -4,6 +4,7 @@ import {
   FEATURE_REGISTRY,
   type SettingsV2,
 } from "@still/shared-types";
+import { migrateSettingsV2 } from "@still/core/storage";
 import {
   boundary,
   KEY,
@@ -229,14 +230,154 @@ describe("maintained background settings bootstrap", () => {
     );
     expect(boundary.installed).toHaveBeenCalledTimes(2);
   });
-  it.each(["update", "chrome_update"] as const)(
+  // Owner decision 28 replaces the earlier pin that an update never seeds absent settings: 2.x
+  // saves nothing until the first toggle, so an untouched 2.x upgrader would otherwise see
+  // "Settings are unavailable". The update saves the defaults that person was already using.
+  const untouchedUpgradeRecord = () => {
+    const legacy = migrateSettingsV2(DEFAULT_SETTINGS, {
+      kind: "readable-local",
+      provenInitialization: true,
+    });
+    if (legacy.status !== "ready") throw new Error("Invalid legacy defaults");
+    return {
+      settings: { ...legacy.settings, pauses: [] },
+      syncMetadata: null,
+      syncEpoch: 0,
+      atomic: {
+        format: 1,
+        sequence: 0,
+        ownership: "unknown",
+        scope: { accountId: null, generation: 0 },
+        anchor: null,
+        pending: [],
+        held: {},
+        paused: null,
+      },
+    };
+  };
+  const settingsWrites = (h: Awaited<ReturnType<typeof start>>) =>
+    h.writes.filter((write) => Object.hasOwn(write, KEY));
+
+  it("an update with nothing saved saves the 2.x defaults once, with unknown ownership", async () => {
+    const update = dnrUpdate();
+    const h = await start({}, update);
+    expect(Object.hasOwn(h.store, KEY)).toBe(false);
+    h.installed[0]!({ reason: "update", previousVersion: "2.1.1" });
+    await h.settle();
+    expect(h.store[KEY]).toEqual(untouchedUpgradeRecord());
+    expectDnr(update, true);
+    // A repeated callback in the same process, and the same event in a new process, change nothing.
+    h.installed[0]!({ reason: "update", previousVersion: "2.1.1" });
+    await h.settle();
+    expect(settingsWrites(h)).toHaveLength(1);
+    const before = JSON.stringify(h.store);
+    const again = await start(h.store);
+    again.installed[0]!({ reason: "update", previousVersion: "2.1.1" });
+    await again.settle();
+    expect(JSON.stringify(again.store)).toBe(before);
+    expect(settingsWrites(again)).toEqual([]);
+    expect(boundary.installed).toHaveBeenCalledWith({ reason: "update", previousVersion: "2.1.1" });
+  });
+
+  it("the saved upgrade record is exactly the existing schema-1 conversion of the 2.x defaults", async () => {
+    const converted = await start({
+      [KEY]: { settings: DEFAULT_SETTINGS, syncMetadata: null, syncEpoch: 0 },
+    });
+    const seeded = await start();
+    seeded.installed[0]!({ reason: "update", previousVersion: "2.0.0" });
+    await seeded.settle();
+    expect(seeded.store[KEY]).toEqual(converted.store[KEY]);
+    // The same values a fresh install saves; only the ownership claim differs.
+    const fresh = await start();
+    fresh.installed[0]!({ reason: "install" });
+    await fresh.settle();
+    const { atomic: freshAtomic, ...freshRest } = fresh.store[KEY] as ReturnType<typeof untouchedUpgradeRecord>;
+    const { atomic: seededAtomic, ...seededRest } = seeded.store[KEY] as ReturnType<typeof untouchedUpgradeRecord>;
+    expect(seededRest).toEqual(freshRest);
+    expect({ fresh: freshAtomic.ownership, seeded: seededAtomic.ownership }).toEqual({ fresh: "never-linked", seeded: "unknown" });
+  });
+
+  it("an untouched 2.x upgrader who signed in still gets the defaults record", async () => {
+    const h = await start({ "still:auth": "retained-session", "still:last-identity": "account" });
+    h.installed[0]!({ reason: "update", previousVersion: "2.1.1" });
+    await h.settle();
+    expect(h.store[KEY]).toEqual(untouchedUpgradeRecord());
+    expect(h.store["still:auth"]).toBe("retained-session");
+  });
+
+  it.each([
+    ["retained atomic Off choices", () => retainedDnrRecord(false, false)],
+    ["a damaged record", () => ({ damaged: true })],
+    ["a keyed null", () => null],
+    ["a future schema", () => ({ settings: { ...DEFAULT_SETTINGS, schemaVersion: 99 } })],
+    ["a schema-1 record that cannot convert", () => ({ settings: { ...DEFAULT_SETTINGS, globalOn: "yes", updatedAt: 9 } })],
+  ])("an update never replaces %s", async (_name, record) => {
+    const h = await start({ [KEY]: record() });
+    const before = JSON.stringify(h.store);
+    const writes = h.writes.length;
+    h.installed[0]!({ reason: "update", previousVersion: "2.1.1" });
+    await h.settle();
+    expect(JSON.stringify(h.store)).toBe(before);
+    expect(h.writes).toHaveLength(writes);
+  });
+
+  it("an update keeps readable saved 2.x Off choices and adds no second write", async () => {
+    const h = await start({
+      [KEY]: {
+        settings: { ...DEFAULT_SETTINGS, globalOn: false, services: { ...DEFAULT_SETTINGS.services, youtube: false }, updatedAt: 42 },
+        syncMetadata: null,
+      },
+    });
+    const before = JSON.stringify(h.store);
+    h.installed[0]!({ reason: "update", previousVersion: "2.1.1" });
+    await h.settle();
+    expect(JSON.stringify(h.store)).toBe(before);
+    expect(h.store[KEY]).toMatchObject({
+      settings: { globalOn: false, services: { youtube: false } },
+      atomic: { ownership: "unknown" },
+    });
+    expect(settingsWrites(h)).toHaveLength(1);
+  });
+
+  it("an update whose settings write fails stays held without an unhandled rejection", async () => {
+    const h = await start();
+    h.failSettingsWrite();
+    h.installed[0]!({ reason: "update", previousVersion: "2.1.1" });
+    await h.settle();
+    expect(Object.hasOwn(h.store, KEY)).toBe(false);
+    expect(settingsWrites(h)).toEqual([]);
+  });
+
+  it("a lost write acknowledgement on update reads the saved record without writing again", async () => {
+    const h = await start();
+    h.retryFaults({ lostAck: true });
+    h.installed[0]!({ reason: "update", previousVersion: "2.1.1" });
+    await h.settle();
+    expect(h.attempts.settingsWrites).toBe(1);
+    expect(h.store[KEY]).toEqual(untouchedUpgradeRecord());
+  });
+
+  it("a configured legacy build never saves a record on update or install", async () => {
+    vi.stubEnv("VITE_SUPABASE_URL", "https://example.supabase.co");
+    vi.stubEnv("VITE_SUPABASE_ANON_KEY", "public-test-key");
+    for (const reason of ["update", "install"] as const) {
+      const h = await start({}, undefined, "false");
+      h.installed[0]!({ reason, previousVersion: "2.1.1" });
+      await h.settle();
+      expect(Object.hasOwn(h.store, KEY)).toBe(false);
+      expect(settingsWrites(h)).toEqual([]);
+      expect(boundary.installed).toHaveBeenCalledWith({ reason, previousVersion: "2.1.1" });
+    }
+  });
+
+  it.each(["chrome_update", "shared_module_update"] as const)(
     "%s and ordinary wakes never seed absent settings",
     async (reason) => {
       const h = await start();
       h.installed[0]!({ reason });
       await h.settle();
       expect(Object.hasOwn(h.store, KEY)).toBe(false);
-      expect(h.writes.filter((write) => Object.hasOwn(write, KEY))).toEqual([]);
+      expect(settingsWrites(h)).toEqual([]);
       expect(boundary.installed).toHaveBeenCalledWith({ reason });
     },
   );

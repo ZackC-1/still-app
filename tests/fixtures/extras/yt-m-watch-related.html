@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Synthetic m.youtube.com watch page: related videos</title>
+  </head>
+  <body>
+    <!--
+      Synthetic structural model for youtube.related on the mobile single-column watch page.
+      UNVERIFIED CANDIDATE selector family: the watch-next related item section inside ytm-app.
+      The player, title, comments teaser and playlist panel must stay (ids "keep-*"). Invented text only.
+    -->
+    <ytm-app>
+      <div id="keep-player"><video></video></div>
+      <h1 id="keep-title">An invented mobile video</h1>
+      <ytm-slim-video-metadata-section-renderer id="keep-metadata">Invented channel line</ytm-slim-video-metadata-section-renderer>
+      <ytm-playlist-panel-renderer id="keep-playlist-panel"><a href="/watch?v=inv100001&amp;list=PLinvented02">Invented playlist item</a></ytm-playlist-panel-renderer>
+      <ytm-item-section-renderer id="target-m-related" section-identifier="related-items">
+        <ytm-video-with-context-renderer><a href="/watch?v=inv100002">Invented related one</a></ytm-video-with-context-renderer>
+        <ytm-video-with-context-renderer><a href="/watch?v=inv100003">Invented related two</a></ytm-video-with-context-renderer>
+      </ytm-item-section-renderer>
+      <ytm-item-section-renderer id="keep-m-comments-teaser" section-identifier="comments-entry-point">
+        <a href="#comments">Invented comments entry</a>
+      </ytm-item-section-renderer>
+    </ytm-app>
+  </body>
+</html>

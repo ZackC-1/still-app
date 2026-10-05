@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Synthetic Facebook desktop right column</title>
+  </head>
+  <body>
+    <!--
+      Synthetic structural model for facebook.sponsored (CP-083, design id sidebar_ads): only the
+      confirmed right-column ad block, by a structural anchor (to verify, H-014). Contacts,
+      birthdays, group chats, sponsored feed posts and organic links with ad-like query strings stay.
+      No text or letter detection. UNVERIFIED CANDIDATE: a complementary-role column child that holds
+      ad-link anchors but not the Contacts list. Invented text only.
+    -->
+    <div role="main"><div role="feed" id="keep-feed">
+      <div role="article" id="keep-sponsored-feed-post"><a href="/inventedpage/posts/900000000201">An invented sponsored feed post</a></div>
+    </div></div>
+    <div role="complementary" id="right-column">
+      <div id="target-sidebar-ad-block"><a href="https://ads.invented.example/click?id=ad1" rel="nofollow">Invented ad one</a>
+        <a href="https://ads.invented.example/click?id=ad2" rel="nofollow">Invented ad two</a></div>
+      <div id="keep-birthdays"><a href="/events/birthdays/">Invented birthdays</a></div>
+      <div id="keep-contacts" role="region" aria-label="Contacts">
+        <a href="/inventedcontact1/">Invented contact one</a>
+        <a href="/inventedcontact2/">Invented contact two</a>
+      </div>
+      <div id="keep-group-chats"><a href="/messages/t/900000000202/">Invented group chat</a></div>
+    </div>
+    <p id="keep-organic-links"><a href="/inventedpage/?utm_source=ad&amp;fbclid=inventedclick">Organic link with an ad-like query</a>
+       <a href="/inventedpage/?ref=sponsored" id="keep-organic-link-two">Organic link two</a></p>
+  </body>
+</html>
