@@ -13,7 +13,9 @@
     createPopupViewBinding,
     createAppleSettingsSync,
     appleSettingsRestore,
+    createAppleSettingsRestore,
     watchAppleSetup,
+    type AppleRestoreBridge,
     type AppleSettingsAuthority,
     type AppleSettingsProps,
     type CommittedPopupToggle,
@@ -28,6 +30,8 @@
     /** Native setup observation (NativeBridge.observeSafariSetup), bounded in core. */
     observeSetup: NativeBridge["observeSafariSetup"];
     help: AppleSettingsProps["help"];
+    /** Native restore and receipt reads for the free-period Restore link; absent, no link. */
+    restoreBridge?: AppleRestoreBridge;
     onCommittedToggle?: (toggle: CommittedPopupToggle) => void;
   }
   let {
@@ -35,6 +39,7 @@
     authority,
     observeSetup,
     help,
+    restoreBridge,
     onCommittedToggle,
   }: Props = $props();
 
@@ -48,7 +53,22 @@
   });
   const syncFor = createAppleSettingsSync();
   let sync = $derived(syncFor(c));
-  let restore = $derived(appleSettingsRestore(c));
+  // Free-period Restore (owner decision 17): its own status, or a controller-driven one.
+  let restoreStatus = $state.raw<AppleSettingsProps["restore"]>(undefined);
+  function nativeRestore(): AppleRestoreBridge {
+    if (!restoreBridge) throw new Error("No native restore");
+    return restoreBridge;
+  }
+  const freeRestore = createAppleSettingsRestore({
+    bridge: {
+      restore: () => nativeRestore().restore(),
+      receiptStatus: () => nativeRestore().receiptStatus(),
+    },
+    refreshAccess: () => authority.entitlement.refreshAccess(),
+    publish: (next) => (restoreStatus = next),
+  });
+  $effect(() => () => freeRestore.stop());
+  let restore = $derived(restoreStatus ?? appleSettingsRestore(c));
   // Platform starts as the narrower iOS inventory and follows any later successful observation.
   let platform = $state<AppleSettingsProps["platform"]>("ios");
   let setup = $state.raw<AppleSettingsProps["setup"]>(undefined);
@@ -146,6 +166,7 @@
     onFeatureChange={view.commands.feature}
     {sync}
     {restore}
+    onRestore={restoreBridge ? freeRestore.start : undefined}
     {setup}
     privacyActions={usageActions}
     {help}

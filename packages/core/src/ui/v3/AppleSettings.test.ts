@@ -1596,3 +1596,107 @@ describe("D04 native purchase entry requires a non-blank offer price", () => {
     view.unmount();
   });
 });
+
+describe("D04 free-period Restore link (owner decision 17)", () => {
+  it("without a paid producer, shows one plain Restore purchase link and no offer, Buy or price", async () => {
+    const { props, storage } = await fixture("locked");
+    const onRestore = vi.fn();
+    const saved = await storage.get();
+    const view = render(AppleSettings, {
+      props: { ...props, pro: undefined, onRestore },
+    });
+    const links = screen.getAllByRole("button", { name: "Restore purchase" });
+    expect(links).toHaveLength(1);
+    expect(links[0]).toHaveClass("link");
+    expect(screen.queryByRole("region", { name: "Still Pro" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Get Still Pro" })).toBeNull();
+    expect(screen.queryByText("Still Pro can't be bought here yet.")).toBeNull();
+    expect(
+      screen.queryByText("No account needed. Payment is handled by Apple."),
+    ).toBeNull();
+    expect(
+      screen.getByText("Optional. Blocking works without an account."),
+    ).toBeVisible();
+    const card = links[0]!.closest("section")!;
+    expect(card.textContent?.trim()).toBe("Restore purchase");
+    await fireEvent.click(links[0]!);
+    expect(onRestore).toHaveBeenCalledOnce();
+    expect(props.onGlobalChange).not.toHaveBeenCalled();
+    expect(props.onServiceChange).not.toHaveBeenCalled();
+    expect(props.onFeatureChange).not.toHaveBeenCalled();
+    expect(await storage.get()).toEqual(saved);
+    view.unmount();
+  });
+
+  it("sits in the Still Pro card's slot: after sync, before the Restore status, sharing and Help", async () => {
+    const { props } = await fixture("locked");
+    const view = render(AppleSettings, {
+      props: {
+        ...props,
+        pro: undefined,
+        onRestore: vi.fn(),
+        restore: { state: "nothing" },
+      },
+    });
+    const order = [
+      screen.getByRole("heading", { name: "Settings sync" }),
+      screen.getByRole("button", { name: "Restore purchase" }),
+      screen.getByText("No Still Pro purchase was found for this account."),
+      screen.getByRole("heading", { name: "Help" }),
+    ];
+    for (let i = 1; i < order.length; i++)
+      expect(
+        order[i - 1]!.compareDocumentPosition(order[i]!) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    view.unmount();
+  });
+
+  it.each([
+    ["checking", true],
+    ["failed", true],
+    ["verify", true],
+    ["restored", false],
+    ["nothing", false],
+  ] as const)(
+    "is inert while a Restore is held (%s held: %s)",
+    async (state, held) => {
+      const { props } = await fixture("locked");
+      const onRestore = vi.fn();
+      const view = render(AppleSettings, {
+        props: { ...props, pro: undefined, onRestore, restore: { state } },
+      });
+      const link = screen.getByRole("button", { name: "Restore purchase" });
+      expect(link.hasAttribute("disabled")).toBe(held);
+      await fireEvent.click(link);
+      expect(onRestore).toHaveBeenCalledTimes(held ? 0 : 1);
+      view.unmount();
+    },
+  );
+
+  it("is absent without a restore action, and never doubles the Still Pro card's own Restore", async () => {
+    const { props } = await fixture("locked");
+    const onRestore = vi.fn();
+    const view = render(AppleSettings, {
+      props: { ...props, pro: undefined },
+    });
+    expect(
+      screen.queryByRole("button", { name: "Restore purchase" }),
+    ).toBeNull();
+    view.unmount();
+    const cardRestore = vi.fn();
+    const withPro = render(AppleSettings, {
+      props: {
+        ...props,
+        pro: { ...props.pro, onRestore: cardRestore },
+        onRestore,
+      },
+    });
+    const links = screen.getAllByRole("button", { name: "Restore purchase" });
+    expect(links).toHaveLength(1);
+    await fireEvent.click(links[0]!);
+    expect(cardRestore).toHaveBeenCalledOnce();
+    expect(onRestore).not.toHaveBeenCalled();
+    withPro.unmount();
+  });
+});
