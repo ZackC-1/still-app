@@ -70,7 +70,9 @@ function setup(
   );
   bg.onStart(null); // this fixture explicitly confirms no account
   const queue = () =>
-    (local.data[QUEUE_KEY] as { event: string; properties: Record<string, unknown> }[] | undefined) ?? [];
+    (local.data[QUEUE_KEY] as
+      | { event: string; attributeLater?: boolean; properties: Record<string, unknown> }[]
+      | undefined) ?? [];
   const send = (message: unknown, sender: object) =>
     new Promise<unknown>((resolve) => {
       const async = bg.listener(message, sender, resolve);
@@ -200,19 +202,25 @@ describe("page analytics", () => {
 });
 
 describe("server-side email attach", () => {
-  it("runs once per account while sharing is on, and retries after a failure", async () => {
-    let fail = true;
-    const identifyOnServer = vi.fn(async () => {
-      if (fail) throw new Error("offline");
-    });
-    const { send } = setup({ identifyOnServer });
+  // Owner decision 50 (U5-W2): a signed-in device reports under its own server-issued identity, never
+  // the account id. This build has no per-device identities wired, so the legacy attach (which sets
+  // the email on the account-id person) never runs, and nothing is reported as the account.
+  it("never attaches the email to the account id, and never reports as the account", async () => {
+    const identifyOnServer = vi.fn(async () => {});
+    const { send, queue, local } = setup({ identifyOnServer });
     const identify = (userId: string) => send({ kind: ANALYTICS_MESSAGE_KIND, action: "identify", userId }, PAGE);
     await identify(U1);
-    fail = false;
     await identify(U1);
-    await identify(U1);
+    await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "signed_in", props: {} }, PAGE);
     await identify(U2);
-    expect(identifyOnServer).toHaveBeenCalledTimes(3); // failed u1, retried u1, then u2
+    expect(identifyOnServer).not.toHaveBeenCalled();
+    for (const account of [U1, U2]) {
+      expect(JSON.stringify(queue())).not.toContain(account);
+      expect(JSON.stringify(local.data)).not.toContain(account);
+    }
+    // Signed-in use waits with no person at all: neither an account nor the anonymous id.
+    expect(queue().find((e) => e.event === "signed_in")).toMatchObject({ attributeLater: true });
+    expect(queue().find((e) => e.event === "signed_in")!.properties.distinct_id).toBeUndefined();
   });
 
   it("never runs while sharing is off", async () => {
@@ -226,15 +234,27 @@ describe("server-side email attach", () => {
 describe("account changes outside the popup", () => {
   it("a start that finds no session lets go of the earlier account; an unreadable one keeps it", async () => {
     const { bg, send, queue } = setup();
+    // The fixture confirmed nobody. A sign-in withdraws that at once: signed-in use is never
+    // reported as nobody, and (no per-device identity here) never as the account id either.
     await send({ kind: ANALYTICS_MESSAGE_KIND, action: "identify", userId: U1 }, PAGE);
-    bg.onStart(undefined);
+    expect(bg.client.accountConfirmed).toBe(false);
+    bg.onStart(undefined); // unreadable: the account is kept, nothing becomes nobody
     await bg.client.trackDaily("x", "active", {});
-    expect(await bg.client.signedInAs()).toBe(U1);
-    bg.onStart(null);
+    expect(bg.client.accountConfirmed).toBe(false);
+    expect(await bg.client.signedInAs()).toBeNull(); // the account id is never the person
+    expect(queue().map((e) => [e.event, e.attributeLater])).toEqual([["active", true]]);
+    expect(queue()[0]!.properties.distinct_id).toBeUndefined();
+    bg.onStart(null); // no session: the account is let go of
     await bg.client.trackDaily("y", "active", {});
+    expect(bg.client.accountConfirmed).toBe(true);
     expect(await bg.client.signedInAs()).toBeNull();
+    // The use recorded while signed in went with the account; only use after it is reported.
+    expect(queue()).toHaveLength(1);
     const last = queue().at(-1)!;
+    expect(last.attributeLater).toBeUndefined();
+    expect(last.properties).toMatchObject({ signed_in: false });
     expect(last.properties.distinct_id).not.toBe(U1);
+    expect(JSON.stringify(queue())).not.toContain(U1);
   });
 
   it("deletion from the popup forgets the account's waiting events", async () => {
@@ -508,14 +528,21 @@ describe("turning sharing off", () => {
 });
 
 describe("server email attach for people already signed in", () => {
-  it("a Still screen finishes the attach a background start deferred", async () => {
+  // Without per-device identities (owner decision 50) there is no person to attach an email to: the
+  // legacy attach would set it on the account-id person, so neither a background start nor a later
+  // Still screen runs it, and the signed-in use waits with no person.
+  it("neither a background start nor a later Still screen attaches the email to the account id", async () => {
     const identifyOnServer = vi.fn(async () => {});
-    const { bg, send } = setup({ identifyOnServer });
+    const { bg, send, queue } = setup({ identifyOnServer });
     bg.onStart(U1); // quiet: no server call
     await new Promise((r) => setTimeout(r, 20));
     expect(identifyOnServer).not.toHaveBeenCalled();
     await send({ kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } }, PAGE);
-    expect(identifyOnServer).toHaveBeenCalledTimes(1);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(identifyOnServer).not.toHaveBeenCalled();
+    expect(bg.client.accountConfirmed).toBe(false);
+    expect(JSON.stringify(queue())).not.toContain(U1);
+    expect(queue().find((e) => e.event === "opened")).toMatchObject({ attributeLater: true });
   });
 });
 

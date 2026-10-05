@@ -155,6 +155,10 @@ interface ClientState {
   readonly stopPending: boolean;
   readonly accountGeneration: number;
   readonly stoppedOrigin: string | null;
+  /** An account is signed in but no identity was confirmed for it (`holdForAccount`): what waits
+   * unattributed was recorded while it was signed in. Kept here as well as in memory so that a
+   * restart cannot let those events be attributed to nobody (see `dropHeld`). */
+  readonly held: boolean;
 }
 
 const EMPTY_STATE: ClientState = {
@@ -169,6 +173,7 @@ const EMPTY_STATE: ClientState = {
   stopPending: false,
   accountGeneration: 0,
   stoppedOrigin: null,
+  held: false,
 };
 
 function parseState(value: unknown): ClientState {
@@ -188,6 +193,7 @@ function parseState(value: unknown): ClientState {
     permission: readAnalyticsPermission(v.permission),
     stopPending: v.stopPending === true,
     stoppedOrigin: isAnalyticsId(v.stoppedOrigin) ? v.stoppedOrigin : null,
+    held: v.held === true,
     accountGeneration:
       Number.isSafeInteger(v.accountGeneration) && (v.accountGeneration as number) >= 0
         ? (v.accountGeneration as number)
@@ -268,6 +274,8 @@ export type ConfirmedAccount = string | null;
 interface Confirmation {
   readonly account: ConfirmedAccount;
   readonly options: ConfirmOptions;
+  /** `holds` when this was asked: a hold that came later is never released by it. */
+  readonly holds: number;
 }
 
 export interface ConfirmOptions {
@@ -301,6 +309,10 @@ export class AnalyticsClient {
   private pending: Confirmation | null = null;
   /** A newer account answer cannot replace a forget that has not reached durable state yet. */
   private forgetPending = false;
+  /** In-memory twin of `ClientState.held`, for when storage refuses to record it. */
+  private held = false;
+  /** Counts holds, so a confirmation asked before a hold, but run after it, cannot release it. */
+  private holds = 0;
   /** The request in flight, so switching sharing off can abandon it instead of waiting. */
   private inflight: AbortController | null = null;
   /** Set when an account change could not be saved: reporting stops for the life of this client
@@ -436,6 +448,7 @@ export class AnalyticsClient {
     )
       return Promise.resolve();
     if (options.forget) this.cancel();
+    const holds = this.holds;
     if (account !== this.lastAsked) {
       this.cancel();
       this.generation += 1;
@@ -444,7 +457,7 @@ export class AnalyticsClient {
     this.confirmed = false;
     return this.run(async () => {
       this.confirmed = false;
-      this.pending = { account, options };
+      this.pending = { account, options, holds };
       this.forgetPending ||= options.forget === true;
       await this.establish();
     });
@@ -453,7 +466,7 @@ export class AnalyticsClient {
   /** The body of a confirmation; also how `flush` retries the host's latest ask (`retrying`). */
   private async establish(retrying = false): Promise<void> {
     if (!this.pending) return;
-    const { account, options } = this.pending;
+    const { account, options, holds } = this.pending;
     if (!options.forget && !(await this.allowed())) return;
     if (this.forgetPending) {
       // Persist the old account's drop before installing any newer account. Once recorded, the
@@ -464,7 +477,9 @@ export class AnalyticsClient {
     if (!(await this.installAccount(account, options))) return;
     await this.dropForgotten(); // tried here; `flush` is the gate that refuses to send until it is done
     if (!(await this.allowed())) return;
+    if (account === null && !(await this.dropHeld())) return;
     if (!(await this.attributeWaiting())) return;
+    if (holds === this.holds) await this.releaseHold();
     this.pending = null;
     this.confirmed = true;
     if (!retrying && !options.quiet && (await this.readQueue()).length > 0) this.scheduleFlush();
@@ -481,10 +496,61 @@ export class AnalyticsClient {
     this.generation += 1;
     this.lastAsked = undefined;
     this.confirmed = false;
+    this.held = true;
+    this.holds += 1;
     return this.run(async () => {
       this.confirmed = false;
       this.pending = null;
+      await this.recordHold();
     });
+  }
+
+  /**
+   * An account is signed in and there is no identity to report it under yet (or ever, without
+   * per-device subjects): stop reporting as anyone else (`withdrawConfirmation`), and mark what is
+   * recorded from now on as the account's. Those events wait unattributed; if the account is let go
+   * of (a sign-out or a deletion) before an identity is confirmed, they are dropped rather than
+   * given to nobody, so signed-in use is never reported under the anonymous id. Nothing is
+   * cancelled when the client is already unconfirmed with nothing asked: there is nothing to stop.
+   */
+  holdForAccount(): Promise<void> {
+    if (this.confirmed || this.lastAsked !== undefined) return this.withdrawConfirmation();
+    if (this.held) return Promise.resolve();
+    this.held = true;
+    this.holds += 1;
+    return this.run(() => this.recordHold());
+  }
+
+  private async recordHold(): Promise<void> {
+    const state = await this.read();
+    // Best effort: when storage refuses, the in-memory flag still covers this process.
+    if (state && !state.held) await this.write({ ...state, held: true });
+  }
+
+  /** A confirmation succeeded: what waited was attributed to it, so nothing is held any more. */
+  private async releaseHold(): Promise<void> {
+    this.held = false;
+    const state = await this.read();
+    if (state?.held) await this.write({ ...state, held: false });
+  }
+
+  /**
+   * Letting go to nobody while held: drop every waiting unattributed event, verified, before
+   * anything is attributed. They were recorded while an account was signed in with no identity
+   * confirmed, so nobody else can own them; for a deletion they are the deleted account's use.
+   * False when the queue or state cannot be read or the drop cannot be verified: nothing is
+   * attributed or sent, and the confirmation is retried.
+   */
+  private async dropHeld(): Promise<boolean> {
+    const state = await this.read();
+    if (!state) return false;
+    if (!this.held && !state.held) return true;
+    const queue = await this.loadQueue();
+    if (queue === null) return false;
+    if (queue.some((e) => e.attributeLater) && !(await this.writeQueue(queue.filter((e) => !e.attributeLater))))
+      return false;
+    const remaining = await this.loadQueue();
+    return remaining !== null && !remaining.some((e) => e.attributeLater);
   }
 
   /** A sign-in: shorthand for `confirm(userId)`. */

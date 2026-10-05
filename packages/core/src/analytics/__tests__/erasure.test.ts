@@ -265,6 +265,110 @@ describe("per-device subjects through the host", () => {
     extension.stop();
   });
 
+  describe("signed-in use with no identity is never given to nobody", () => {
+    const plainHost = (h: ReturnType<typeof harness>) =>
+      createExtensionAnalyticsHost({
+        ...h.deps,
+        permission: async () => readAnalyticsPermission(await h.deps.permission?.()),
+        local: h.store,
+        noticeApplies: false,
+        isTrustedPage: () => true,
+      });
+    const queued = (h: ReturnType<typeof harness>) =>
+      ((h.store.data[QUEUE_KEY] as { event: string; attributeLater?: boolean }[] | undefined) ?? []);
+
+    it("without per-device subjects, a sign-in from confirmed-nobody stops reporting as nobody", async () => {
+      const h = harness();
+      const extension = plainHost(h);
+      extension.onStart(null);
+      await extension.flushWhenReady();
+      expect(extension.client.accountConfirmed).toBe(true); // nobody is signed in
+      await extension.identify(ACCOUNT);
+      expect(extension.client.accountConfirmed).toBe(false);
+      await extension.client.track("opened", { where: "popup" });
+      await extension.client.flush();
+      expect(h.sink).not.toHaveBeenCalled();
+      expect(queued(h).map((e) => [e.event, e.attributeLater])).toEqual([["opened", true]]);
+      extension.stop();
+    });
+
+    it.each([
+      ["a deletion", { forgetAccount: true }],
+      ["a sign-out", {}],
+    ] as const)("%s drops what waited for the account; nothing recorded later is lost", async (_, options) => {
+      const h = harness();
+      const extension = plainHost(h);
+      extension.onStart(null);
+      await extension.flushWhenReady();
+      await extension.client.track("opened", { where: "options" }); // signed out: anonymous
+      await extension.identify(ACCOUNT);
+      await extension.client.track("opened", { where: "popup" }); // signed in: waits
+      await extension.client.reset(options);
+      await extension.client.track("active", {});
+      await extension.client.flush();
+      expect(h.sent().map((e) => [e.event, e.properties.where, e.properties.signed_in])).toEqual([
+        ["opened", "options", false],
+        ["active", undefined, false],
+      ]);
+      expect(JSON.stringify(h.bodies)).not.toContain(ACCOUNT);
+      extension.stop();
+    });
+
+    it("the hold survives a restart: a new client lets go without giving the waiting use to nobody", async () => {
+      const h = harness();
+      const first = plainHost(h);
+      first.onStart(null);
+      await first.flushWhenReady();
+      await first.identify(ACCOUNT);
+      await first.client.track("opened", { where: "popup" });
+      expect(queued(h)).toHaveLength(1);
+      // The worker ends without a teardown; the next background start finds no session (signed
+      // out, or the account deleted, while it slept).
+      const later = plainHost(h);
+      later.onStart(null);
+      await later.flushWhenReady();
+      await later.client.flush();
+      expect(h.sink).not.toHaveBeenCalled();
+      expect(queued(h)).toEqual([]);
+      later.stop();
+      first.stop();
+    });
+
+    it("NEGATIVE CONTROL: a confirmation asked before the hold never releases it, even unrecorded", async () => {
+      const h = harness();
+      const set = h.store.set;
+      // Storage refuses to record the hold: only the in-memory flag remains.
+      h.store.set = async (key: string, value: unknown) => {
+        if (key === STATE_KEY && (value as { held?: boolean }).held === true) throw new Error("refused");
+        return set(key, value);
+      };
+      const extension = plainHost(h);
+      extension.onStart(null); // asked now, run after the sign-in's hold below
+      await extension.identify(ACCOUNT);
+      await extension.client.track("opened", { where: "popup" });
+      await extension.client.reset({ forgetAccount: true });
+      await extension.client.track("active", {});
+      await extension.client.flush();
+      expect(h.sent().map((e) => e.event)).toEqual(["active"]);
+      extension.stop();
+    });
+
+    it("a subject issued later takes what waited; only letting go drops it", async () => {
+      let reply: unknown = null;
+      const { h, host: extension } = host(() => reply);
+      extension.onStart(null);
+      await extension.flushWhenReady();
+      await extension.identify(ACCOUNT); // no subject yet
+      await extension.client.track("opened", { where: "popup" });
+      reply = { state: "active", subject: SUBJECT };
+      await extension.identify(ACCOUNT);
+      await extension.client.flush();
+      expect(h.sent().map((e) => [e.event, e.properties.distinct_id])).toEqual([["opened", SUBJECT]]);
+      expect((h.store.data[STATE_KEY] as { held?: boolean }).held).toBe(false);
+      extension.stop();
+    });
+  });
+
   it("NEGATIVE CONTROL: from confirmed-nobody, an account whose subject request fails sends nothing as nobody", async () => {
     const { h, host: extension, requests } = host(() => {
       throw new Error("offline");

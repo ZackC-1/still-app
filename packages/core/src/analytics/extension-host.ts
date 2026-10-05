@@ -403,9 +403,11 @@ export function createAccountIdentifier(deps: {
     async identify(userId, options = {}) {
       if (deps.subjects) return identifySubject(userId, options);
       // Without per-device subjects there is no identity to report under: never fall back to the
-      // account id (owner decision 50). Signed-in events wait unattributed.
-      void userId;
+      // account id (owner decision 50). Stop reporting as anyone else (nobody included) at once;
+      // signed-in events wait unattributed, and are dropped if the account is let go of, so they
+      // are never reported under the anonymous id either.
       void options;
+      if (client.enabled && isAnalyticsId(userId)) await client.holdForAccount();
     },
     // With per-device subjects the email is set when the subject is issued, so there is no separate
     // attach: an ordinary screen instead retries a subject request that has not succeeded yet.
