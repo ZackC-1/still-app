@@ -1,4 +1,5 @@
 import postgres from "postgres";
+import { CodedError } from "./coded-error.ts";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils.js";
 import { createSettingsAnchorIdentity } from "./settings-anchor.ts";
 import {
@@ -44,7 +45,7 @@ export class PgSettingsStore implements SettingsStore {
           tx`select private.lock_settings(${subject}::uuid, ${identity.lineage}::uuid, ${key}) as state`,
         );
         const state = rows[0]?.state;
-        if (!state) throw new Error("Missing locked settings state");
+        if (!state) throw new CodedError("missing_locked_settings", "Missing locked settings state");
         if (state.numeric_supported === false) {
           throw new SettingsWriteHold("bounds");
         }
@@ -94,7 +95,7 @@ export class PgSettingsStore implements SettingsStore {
         throw new SettingsWriteHold("bounds");
       }
       // postgres errors may contain SQL parameters and the private key. Never send/log them.
-      throw new Error("Settings storage unavailable");
+      throw new CodedError("settings_unavailable", "Settings storage unavailable");
     }
   }
 }

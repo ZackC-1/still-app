@@ -23,8 +23,8 @@ export async function handleCanaryRequest(
 
   try {
     return jsonResponse(200, await deps.run());
-  } catch (error) {
-    console.error("selector-canary run failed:", error);
+  } catch {
+    console.error("selector-canary failed reason=run_failed status=500");
     return jsonResponse(500, { error: "canary_failed" });
   }
 }
