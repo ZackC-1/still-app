@@ -89,7 +89,7 @@ relations as (
 -- Routine, whether SECURITY DEFINER, its grantees besides the owner, and the md5 of its body.
 expected_routines(sig, definer, grantees, body_md5) as (
   values
-    ('private.analytics_anonymous_ids(bytea,integer)', false, null::text[], '802d9ff62ba093a50ca0daaaf3d79d87'),
+    ('private.analytics_anonymous_ids(bytea,integer)', false, null::text[], 'db8ad793735beaabfe460a9571f0d71b'),
     ('private.analytics_snapshot_deleted_subject()', true, null::text[], '6f22d7e7bdefbd04143dad6149b7b8e6'),
     ('private.analytics_origin_key(bytea)', false, null::text[], 'ac796e926ecfc284200f0cf1938a5590'),
     ('private.analytics_issue_subject(uuid,bytea)', true, array['still_analytics_eraser'], '582be9980419fba06e58ec2be9b1f78f'),
@@ -211,7 +211,6 @@ issues(issue) as (
     ('analytics_erasure_jobs', 'stage', 'pg_catalog.text'::pg_catalog.regtype),
     ('analytics_erasure_jobs', 'sweeps', 'pg_catalog.int4'::pg_catalog.regtype),
     ('analytics_erasure_jobs', 'attempts', 'pg_catalog.int4'::pg_catalog.regtype),
-    ('analytics_erasure_jobs', 'next_attempt_at', 'pg_catalog.timestamptz'::pg_catalog.regtype),
     ('analytics_erasure_jobs', 'created_at', 'pg_catalog.timestamptz'::pg_catalog.regtype),
     ('analytics_erasure_targets', 'job_id', 'pg_catalog.uuid'::pg_catalog.regtype),
     ('analytics_erasure_targets', 'distinct_id', 'pg_catalog.uuid'::pg_catalog.regtype),

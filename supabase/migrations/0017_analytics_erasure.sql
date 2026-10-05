@@ -198,9 +198,8 @@ begin
     raise exception 'analytics erasure request shape' using errcode = '22023';
   end if;
   for i in 0 .. p_last loop
-    h := pg_catalog.substring(
-      extensions.hmac(pg_catalog.convert_to('still:analytics:anon:0:' || i::text, 'UTF8'), p_key, 'sha256')
-      from 1 for 16);
+    h := pg_catalog.substr(
+      extensions.hmac(pg_catalog.convert_to('still:analytics:anon:0:' || i::text, 'UTF8'), p_key, 'sha256'), 1, 16);
     h := pg_catalog.set_byte(h, 6, (pg_catalog.get_byte(h, 6) & 15) | 64);
     h := pg_catalog.set_byte(h, 8, (pg_catalog.get_byte(h, 8) & 63) | 128);
     ids := ids || pg_catalog.encode(h, 'hex')::uuid;
@@ -692,7 +691,6 @@ begin
       ('analytics_erasure_jobs', 'stage', 'pg_catalog.text'::pg_catalog.regtype),
       ('analytics_erasure_jobs', 'sweeps', 'pg_catalog.int4'::pg_catalog.regtype),
       ('analytics_erasure_jobs', 'attempts', 'pg_catalog.int4'::pg_catalog.regtype),
-      ('analytics_erasure_jobs', 'next_attempt_at', 'pg_catalog.timestamptz'::pg_catalog.regtype),
       ('analytics_erasure_jobs', 'created_at', 'pg_catalog.timestamptz'::pg_catalog.regtype),
       ('analytics_erasure_targets', 'job_id', 'pg_catalog.uuid'::pg_catalog.regtype),
       ('analytics_erasure_targets', 'distinct_id', 'pg_catalog.uuid'::pg_catalog.regtype),
