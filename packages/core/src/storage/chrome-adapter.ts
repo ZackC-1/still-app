@@ -117,7 +117,12 @@ export class ChromeStorageAdapter implements StorageAdapter {
       return record;
     }
     if (this.writer) return this.writer.commit(intent);
-    const reply: unknown = await chrome.runtime.sendMessage(settingsIntentMessage(intent));
+    let reply: unknown;
+    // A worker terminated after its durable write but before replying closes the channel. The
+    // intent's outcome is then unknown, exactly like an "unavailable" reply: hold and re-read the
+    // stored record; never resend the intent.
+    try { reply = await chrome.runtime.sendMessage(settingsIntentMessage(intent)); }
+    catch { throw new SettingsStorageRecovery("authority-unavailable"); }
     if (!reply || typeof reply !== "object" || (reply as { status?: unknown }).status !== "committed")
       throw new SettingsStorageRecovery("authority-unavailable");
     const record = parseStoredSettingsRecord((reply as { record?: unknown }).record);
@@ -136,6 +141,12 @@ export class ChromeStorageAdapter implements StorageAdapter {
       const raw = await chrome.storage.local.get(FRESH_HISTORY_KEYS);
       return FRESH_HISTORY_KEYS.every(key => !Object.hasOwn(raw, key));
     });
+  }
+  /** Called only by the maintained background's actual browser update-event closure. */
+  initializeUntouchedUpgradeAtomic(): Promise<StoredSettingsRecord> {
+    if (!this.writer || this.options.nativeMirror || this.options.nativeIntent || this.isSafari())
+      return Promise.reject(new SettingsStorageRecovery("authority-unavailable"));
+    return this.writer.initializeUntouchedUpgrade();
   }
   serializeLocalMutation<T>(body: () => Promise<T>): Promise<T> {
     if (!this.writer || this.options.nativeMirror || this.options.nativeIntent || this.isSafari())
