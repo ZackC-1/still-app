@@ -388,6 +388,9 @@ export const invariantPath = (file) =>
 /** Every file the deploy relies on, with its planned hash. */
 export function boundFiles(plan) {
   return [
+    // Deploy tooling (workflow, deploy.mjs, replay.sh, SQL helpers): main must not have
+    // changed how the deploy runs or reads history while the approval was pending.
+    ...plan.tooling,
     plan.config,
     ...plan.priorMigrations.map((m) => ({
       path: `${MIGRATIONS_DIR}/${m.file}`,
@@ -403,8 +406,9 @@ export function boundFiles(plan) {
 
 /**
  * Staleness guard for a run that waited for approval while main moved. Passes when main's
- * current tip is still the dispatch revision, or when every bound file is byte-identical at the
- * tip and the tip holds exactly the planned migrations up to the newest planned version.
+ * current tip is still the dispatch revision, or when every bound file (deploy tooling, config,
+ * every migration up to the change, verification and invariant queries) is byte-identical at
+ * the tip and the tip holds exactly the planned migrations up to the newest planned version.
  */
 export async function checkFreshness({ git, plan, tipRef }) {
   const tip = await git.commit(tipRef);
@@ -673,7 +677,11 @@ export function failureFacts(text, plannedFiles = []) {
   const source = String(text ?? "");
   const codes = [
     ...source.matchAll(/SQLSTATE[\s:=]*([0-9A-Z]{5})\b/g),
-    ...source.matchAll(/^(?:ERROR|FATAL|PANIC):\s+([0-9A-Z]{5})\s*$/gm),
+    // psql VERBOSITY=sqlstate: "ERROR:  42501", or with a script location prefix
+    // "psql:/path/file.sql:12: ERROR:  42501".
+    ...source.matchAll(
+      /(?:^|:\s*)(?:ERROR|FATAL|PANIC):\s+([0-9A-Z]{5})\s*$/gm,
+    ),
   ].map((m) => m[1]);
   let migration = null;
   let at = -1;
@@ -711,10 +719,16 @@ export async function runReadOnlySql({ exec, conn, target, file, cwd }) {
     { cwd, env: pgEnv(conn, target) },
   );
   if (result.code !== 0) {
+    const { sqlstate } = failureFacts(result.stderr);
     const detail = raw
       ? redact(result.stderr, conn).slice(0, 2000)
-      : `SQLSTATE ${failureFacts(result.stderr).sqlstate}`;
-    throw new Refusal("sql-failed", `Read-only query failed: ${detail}`);
+      : `SQLSTATE ${sqlstate}`;
+    const error = new Refusal(
+      "sql-failed",
+      `Read-only query failed: ${detail}`,
+    );
+    error.sqlstate = sqlstate;
+    throw error;
   }
   const lines = result.stdout
     .toString()
@@ -841,6 +855,12 @@ async function supabasePush({ exec, conn, target, dir, dryRun }) {
   };
 }
 
+/** Public description of an error: fixed category plus SQLSTATE when one is known. */
+export const publicError = (error) =>
+  error instanceof Refusal
+    ? `${error.category}${error.sqlstate ? ` sqlstate=${error.sqlstate}` : ""}`
+    : "unexpected-error";
+
 /** Splits verification output into failing issues and the reviewed, reported residual. */
 export function classifyIssues(list) {
   if (list.some((i) => typeof i !== "string")) {
@@ -899,12 +919,13 @@ export async function runDeploy({
     historyKnown: false,
     steps: [],
     issues: [],
+    warnings: [],
     recovery: "none needed: nothing was written",
   };
   const step = async (name, outcome, detail) => {
     receipt.steps.push(detail ? { name, outcome, detail } : { name, outcome });
     log(
-      `${outcome === "ok" ? "PASS" : "FAIL"} ${name}${detail ? `: ${detail}` : ""}`,
+      `${outcome === "ok" ? "PASS" : outcome === "warning" ? "WARN" : "FAIL"} ${name}${detail ? `: ${detail}` : ""}`,
     );
     await onProgress(receipt);
   };
@@ -978,14 +999,6 @@ export async function runDeploy({
         "ok",
         `${failing.length} open issue(s) before the change${failing.length ? ` (${raw ? failing.join(", ") : issueCounts(failing)})` : ""}; residual ${residual.length}`,
       );
-      if (m.invariant) {
-        invariantsBefore.set(m.file, await invariant(m));
-        await step(
-          `invariant baseline ${m.file}`,
-          "ok",
-          "recorded (not printed)",
-        );
-      }
     }
 
     const dry = await supabasePush({ exec, conn, target, dir, dryRun: true });
@@ -1016,12 +1029,23 @@ export async function runDeploy({
       throw new Refusal(`history-${recheck.category}`);
     }
     await step("migration history unchanged before apply", "ok");
+
+    // Row-count baseline as late as possible: the next database action is the push itself.
+    for (const m of plan.migrations.filter((x) => x.invariant)) {
+      invariantsBefore.set(m.file, await invariant(m));
+      await step(
+        `row-count baseline ${m.file}`,
+        "ok",
+        "recorded (not printed)",
+      );
+    }
   } catch (error) {
     receipt.status = "refused";
     receipt.issues.push(
       error instanceof Refusal ? error.category : "unexpected-error",
     );
     if (error instanceof Refusal && error.message !== error.category)
+      // Our own messages; on production a query failure's message carries only its SQLSTATE.
       log(error.message);
     await onProgress(receipt);
     return receipt;
@@ -1033,7 +1057,23 @@ export async function runDeploy({
     "fix-forward only: keep payments off, do not restore removed grants, inspect the recorded state, " +
     "write a new forward migration, and approve it as a new deploy";
   await onProgress(receipt);
+  const windowStart = Date.now();
   const pushed = await supabasePush({ exec, conn, target, dir, dryRun: false });
+  // Second row-count read immediately after the push, before anything else.
+  const invariantsAfter = new Map();
+  if (pushed.code === 0) {
+    for (const m of plan.migrations.filter((x) => x.invariant)) {
+      invariantsAfter.set(
+        m.file,
+        await invariant(m).catch((error) =>
+          error instanceof Refusal
+            ? { error: error.category }
+            : { error: "unexpected-error" },
+        ),
+      );
+    }
+    receipt.countWindowMs = Date.now() - windowStart;
+  }
   if (raw) log(pushed.output);
   if (pushed.code !== 0) {
     receipt.status = "stopped";
@@ -1058,22 +1098,28 @@ export async function runDeploy({
         "ok",
         `${applied} of ${planned.length} planned migrations recorded`,
       );
-    } catch {
+    } catch (error) {
       receipt.appliedListed = "unknown";
       await step(
         "history after failure",
         "failed",
-        "state unknown; inspect privately",
+        `state unknown (${publicError(error)}); inspect privately`,
       );
     }
     return receipt;
   }
+  receipt.applied = true;
   await step("apply", "ok");
 
-  receipt.status = "verification-failed";
+  receipt.status = "in-progress";
   try {
-    const after = compareHistory(await history(), plan.expectedHistoryAfter);
+    const observedAfter = await history();
+    const after = compareHistory(observedAfter, plan.expectedHistoryAfter);
     receipt.historyKnown = true;
+    const recordedAfter = new Set(
+      observedAfter.map((e) => `${e.version}_${e.name}.sql`),
+    );
+    receipt.historyAfter = `${planned.filter((f) => recordedAfter.has(f)).length} of ${planned.length} planned recorded`;
     if (!after.ok) {
       receipt.issues.push(`history-after-${after.category}`);
       await step("migration history after", "failed", after.category);
@@ -1087,7 +1133,11 @@ export async function runDeploy({
     receipt.issues.push(
       error instanceof Refusal ? error.category : "unexpected-error",
     );
-    await step("migration history after", "failed", "unreadable");
+    await step(
+      "migration history after",
+      "failed",
+      `unreadable (${publicError(error)})`,
+    );
   }
   for (const m of plan.migrations) {
     try {
@@ -1110,39 +1160,54 @@ export async function runDeploy({
       await step(
         `verify ${m.file}`,
         "failed",
-        raw && error instanceof Refusal
-          ? error.message
-          : error instanceof Refusal
-            ? error.category
-            : "unexpected-error",
+        raw && error instanceof Refusal ? error.message : publicError(error),
       );
     }
     if (m.invariant) {
-      try {
-        const now = await invariant(m);
-        if (now !== invariantsBefore.get(m.file)) {
-          receipt.issues.push(`invariant-changed:${m.file}`);
-          await step(
-            `invariant ${m.file}`,
-            "failed",
-            raw
-              ? `before ${invariantsBefore.get(m.file)} after ${now}`
-              : "changed (values not printed; may be live traffic, inspect privately)",
-          );
-        } else await step(`invariant ${m.file}`, "ok", "unchanged");
-      } catch (error) {
-        receipt.issues.push(`invariant-error:${m.file}`);
+      const now = invariantsAfter.get(m.file);
+      const window = `${receipt.countWindowMs} ms window around the push`;
+      if (typeof now !== "string") {
+        receipt.warnings.push(`row-count-unreadable:${m.file}`);
         await step(
-          `invariant ${m.file}`,
-          "failed",
-          error instanceof Refusal ? error.category : "unexpected-error",
+          `row counts ${m.file}`,
+          "warning",
+          `second read failed (${now?.error ?? "missing"}); ${window}`,
         );
-      }
+      } else if (now !== invariantsBefore.get(m.file)) {
+        receipt.warnings.push(`row-count-changed:${m.file}`);
+        await step(
+          `row counts ${m.file}`,
+          "warning",
+          raw
+            ? `before ${invariantsBefore.get(m.file)} after ${now}; ${window}`
+            : `changed during the ${window} (counts not printed; likely live traffic during the run)`,
+        );
+      } else
+        await step(
+          `row counts ${m.file}`,
+          "ok",
+          `unchanged across the ${window}`,
+        );
     }
   }
-  if (receipt.issues.length === 0) {
+  if (receipt.issues.length > 0) {
+    receipt.status = "verification-failed";
+  } else if (receipt.warnings.length === 0) {
     receipt.status = "verified";
     receipt.recovery = "none needed";
+  } else {
+    // Applied and every verification passed; only the row-count cross-check moved. That is not
+    // a failed deploy and needs no forward migration.
+    receipt.status = "applied-verified-counts-changed";
+    receipt.recovery =
+      "no forward migration needed: the change applied and every verification passed, but the " +
+      "row-count check changed (likely live sign-ups, deletions or purchase events during the run). " +
+      "To confirm privately, the owner runs " +
+      plan.migrations
+        .filter((m) => m.invariant)
+        .map((m) => m.invariant.path)
+        .join(", ") +
+      " in the Supabase SQL editor and compares with expected activity. Never post the counts publicly.";
   }
   await onProgress(receipt);
   return receipt;
@@ -1347,13 +1412,21 @@ export function renderPlan(plan) {
     plan.newerMigrationsOnMain > 0
       ? `- Note: main has ${plan.newerMigrationsOnMain} newer migration(s) that this deploy does NOT include.`
       : "- Main has no newer migrations.",
+    plan.onFirstParent
+      ? "- The commit is on main's own line of history (first parent)."
+      : "- ⚠️ **The commit is not on main's own line of history**: it reached main through a merged branch. " +
+        "That is allowed only because every migration, check and config file it uses is byte-identical on main; " +
+        "if you expected a commit made directly on main, reject and check the commit you pasted.",
     "",
-    "| Migration to apply | SHA-256 | Read-only verification | SHA-256 |",
-    "|---|---|---|---|",
-    ...plan.migrations.map(
-      (m) =>
-        `| \`${m.file}\` | \`${m.sha256}\` | \`${m.verification.path}\` | \`${m.verification.sha256}\` |`,
-    ),
+    "| File | Role | SHA-256 |",
+    "|---|---|---|",
+    ...plan.migrations.flatMap((m) => [
+      `| \`${m.file}\` | migration to apply | \`${m.sha256}\` |`,
+      `| \`${m.verification.path}\` | read-only end-state check (before and after) | \`${m.verification.sha256}\` |`,
+      m.invariant
+        ? `| \`${m.invariant.path}\` | read-only row-count check (counts never printed) | \`${m.invariant.sha256}\` |`
+        : `| — | no row-count check for \`${m.file}\` | — |`,
+    ]),
     "",
     "**If anything fails:** nothing is rolled back automatically. The job stops, reports what it saw, and",
     "the fix is a new reviewed forward migration approved as a new deploy. Removed grants are never restored.",
@@ -1367,10 +1440,7 @@ export function renderReplay({ receipt, diff, sql }) {
     "## Rehearsal on a throwaway database (no production access)",
     "",
   ];
-  for (const s of receipt.steps)
-    lines.push(
-      `- ${s.outcome === "ok" ? "✅" : "❌"} ${s.name}${s.detail ? ` — ${s.detail}` : ""}`,
-    );
+  lines.push(...renderSteps(receipt.steps));
   lines.push("");
   if (diff) {
     const cap = (list) =>
@@ -1400,8 +1470,30 @@ export function renderReplay({ receipt, diff, sql }) {
   return lines.join("\n");
 }
 
+const STEP_ICON = { ok: "✅", warning: "⚠️" };
+const renderSteps = (steps) =>
+  steps.map(
+    (s) =>
+      `- ${STEP_ICON[s.outcome] ?? "❌"} ${s.name}${s.detail ? ` — ${s.detail}` : ""}`,
+  );
+
+/** What is actually known about migration history, from steps that really ran. */
+export function historyStatus(receipt) {
+  if (receipt.historyAfter) return `known: ${receipt.historyAfter}`;
+  if (receipt.appliedListed && receipt.appliedListed !== "unknown")
+    return `known: ${receipt.appliedListed} planned recorded`;
+  if (!receipt.writeAttempted && receipt.historyKnown)
+    return "known: unchanged (nothing was written)";
+  return "UNKNOWN: inspect privately before any new deploy";
+}
+
 export function renderReceipt(receipt) {
-  const icon = receipt.status === "verified" ? "✅" : "❌";
+  const icon =
+    receipt.status === "verified"
+      ? "✅"
+      : receipt.status === "applied-verified-counts-changed"
+        ? "⚠️"
+        : "❌";
   const lines = [
     `## ${icon} Production deploy: ${receipt.status}`,
     "",
@@ -1409,7 +1501,7 @@ export function renderReceipt(receipt) {
     ...receipt.migrations.map(
       (m) => `- Migration \`${m.file}\` SHA-256 \`${m.sha256}\``,
     ),
-    `- Write attempted: ${receipt.writeAttempted ? "yes" : "no"}; migration history ${receipt.historyKnown ? "known" : "UNKNOWN"}`,
+    `- Write attempted: ${receipt.writeAttempted ? "yes" : "no"}; migration history ${historyStatus(receipt)}`,
     ...(receipt.appliedListed
       ? [
           `- Planned migrations recorded after the failure: ${receipt.appliedListed}`,
@@ -1418,12 +1510,12 @@ export function renderReceipt(receipt) {
     ...(receipt.issues.length
       ? [`- Issues: ${receipt.issues.join(", ")}`]
       : []),
+    ...(receipt.warnings?.length
+      ? [`- Warnings: ${receipt.warnings.join(", ")}`]
+      : []),
     `- Recovery: ${receipt.recovery}`,
     "",
-    ...receipt.steps.map(
-      (s) =>
-        `- ${s.outcome === "ok" ? "✅" : "❌"} ${s.name}${s.detail ? ` — ${s.detail}` : ""}`,
-    ),
+    ...renderSteps(receipt.steps),
     "",
   ];
   return lines.join("\n");
@@ -1439,14 +1531,36 @@ export function renderFinal(receipt, { applyOutcome, jobStatus }) {
     );
   } else {
     const interrupted = receipt.status === "in-progress";
+    const how =
+      jobStatus === "cancelled" ? "cancelled" : "stopped or timed out";
+    let outcome = receipt.status;
+    let recovery = receipt.recovery;
+    if (interrupted && receipt.applied) {
+      outcome = `applied; verification not completed (interrupted: ${how})`;
+      recovery =
+        "do not re-run the apply. Run " +
+        receipt.migrations.map((m) => `${VERIFY_DIR}/${m.file}`).join(", ") +
+        " privately in the Supabase SQL editor; if it lists issues, fix forward with a new reviewed migration. Never restore removed grants.";
+    } else if (interrupted && receipt.writeAttempted) {
+      outcome = `apply started; result unknown (interrupted: ${how})`;
+      recovery =
+        "inspect migration history privately before anything else; fix forward only, never restore removed grants.";
+    } else if (interrupted) {
+      outcome = `interrupted before any write (${how})`;
+      recovery = "nothing was written; plan and approve again.";
+    }
     lines.push(
-      `- Outcome: ${interrupted ? `interrupted (${jobStatus === "cancelled" ? "cancelled" : "stopped or timed out"})` : receipt.status}; apply step ${applyOutcome || "unknown"}, job ${jobStatus || "unknown"}`,
+      `- Outcome: ${outcome}; apply step ${applyOutcome || "unknown"}, job ${jobStatus || "unknown"}`,
       `- Write attempted: ${receipt.writeAttempted ? "yes" : "no"}`,
-      `- Migration history: ${receipt.historyKnown && !interrupted ? "known (see steps above)" : "UNKNOWN: inspect privately before any new deploy"}`,
+      `- Migration history: ${historyStatus(receipt)}`,
       ...receipt.migrations.map(
         (m) => `- Planned \`${m.file}\` SHA-256 \`${m.sha256}\``,
       ),
-      `- Recovery: ${interrupted && receipt.writeAttempted ? "fix-forward only; never restore removed grants" : receipt.recovery}`,
+      `- Recovery: ${recovery}`,
+      "",
+      "Steps recorded before the end of the run:",
+      "",
+      ...renderSteps(receipt.steps),
     );
   }
   lines.push("");
@@ -1639,6 +1753,12 @@ export async function main(
     });
     await writeSummary(renderReceipt(receipt), env);
     say(JSON.stringify(receipt));
+    if (receipt.status === "applied-verified-counts-changed") {
+      say(
+        `::warning title=Applied and verified; row-count check changed::${receipt.recovery}`,
+      );
+      return 0;
+    }
     if (receipt.status !== "verified") {
       say(
         `::error title=Production deploy ${receipt.status}::${receipt.issues.join(", ")}. ${receipt.recovery}`,

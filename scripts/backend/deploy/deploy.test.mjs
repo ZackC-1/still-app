@@ -167,7 +167,21 @@ test("plan binds commit, hashes, verification, tooling and exact expected histor
   // Deterministic: the apply job re-derives exactly the same digest.
   assert.equal((await plan(root, head)).digest, p.digest);
   assertSamePlan(p, p.digest);
-  assert.match(renderPlan(p), /0002_harden\.sql/);
+  const shown = renderPlan(p);
+  assert.match(shown, /0002_harden\.sql/);
+  // Everything the approval binds is on the page: migration, end-state check, row-count check.
+  for (const file of [
+    p.migrations[0],
+    p.migrations[0].verification,
+    p.migrations[0].invariant,
+  ])
+    assert.ok(shown.includes(file.sha256), file.path ?? file.file);
+  assert.ok(
+    shown.includes("scripts/backend/deploy/verify/0002_harden.invariant.sql"),
+  );
+  assert.match(shown, /row-count check \(counts never printed\)/);
+  assert.match(shown, /on main's own line of history \(first parent\)/);
+  assert.doesNotMatch(shown, /⚠️/);
 });
 
 test("plan refuses commits that are not on main", async (t) => {
@@ -621,17 +635,21 @@ test("deploy applies only after history and dry run match, then verifies read-on
           ? "dry-run"
           : "push",
     );
+  // Row counts bracket only the push: baseline last before it, second read first after it.
   assert.deepEqual(order, [
     "migration-history.sql",
     "0002_harden.sql",
-    "0002_harden.invariant.sql",
     "dry-run",
     "migration-history.sql",
+    "0002_harden.invariant.sql",
     "push",
+    "0002_harden.invariant.sql",
     "migration-history.sql",
     "0002_harden.sql",
-    "0002_harden.invariant.sql",
   ]);
+  assert.ok(
+    Number.isInteger(receipt.countWindowMs) && receipt.countWindowMs >= 0,
+  );
   assert.deepEqual(receipt.migrations, [
     { file: "0002_harden.sql", sha256: p.migrations[0].sha256 },
   ]);
@@ -923,7 +941,7 @@ test("the reviewed residual is reported, never fatal; anything else still fails"
   assert.equal(issueCounts(["a:x", "b:y", "a:z", "c"]), "a×2, b×1, c×1");
 });
 
-test("row-count invariant must be unchanged; production never prints the counts", async (t) => {
+test("row counts moving after a successful, verified apply is a distinct non-failure outcome", async (t) => {
   const { root, p, dir } = await deployFixture(t);
   const db = fakeDb(p, { countsAfterPush: { "public.profiles": 98765 } });
   const logs = [];
@@ -936,11 +954,140 @@ test("row-count invariant must be unchanged; production never prints the counts"
     cwd: root,
     log: (l) => logs.push(l),
   });
-  assert.equal(receipt.status, "verification-failed");
-  assert.deepEqual(receipt.issues, ["invariant-changed:0002_harden.sql"]);
-  const text = `${logs.join("\n")}${JSON.stringify(receipt)}${renderReceipt(receipt)}`;
+  assert.equal(receipt.status, "applied-verified-counts-changed");
+  assert.deepEqual(receipt.issues, []);
+  assert.deepEqual(receipt.warnings, ["row-count-changed:0002_harden.sql"]);
+  assert.match(receipt.recovery, /^no forward migration needed/);
+  assert.match(receipt.recovery, /likely live/);
+  assert.match(
+    receipt.recovery,
+    /runs scripts\/backend\/deploy\/verify\/0002_harden\.invariant\.sql in the Supabase SQL editor/,
+  );
+  assert.match(receipt.recovery, /Never post the counts publicly/);
+  assert.doesNotMatch(receipt.recovery, /write a new forward migration/);
+  const rendered = renderReceipt(receipt);
+  assert.match(
+    rendered,
+    /⚠️ Production deploy: applied-verified-counts-changed/,
+  );
+  const text = `${logs.join("\n")}${JSON.stringify(receipt)}${rendered}${renderFinal(receipt, {})}`;
   assert.ok(!text.includes("98765"));
   assert.ok(!text.includes('"public.profiles":3'));
+  assert.match(
+    receipt.steps.find((x) => x.name === "row counts 0002_harden.sql").detail,
+    /changed during the \d+ ms window around the push \(counts not printed; likely live traffic during the run\)/,
+  );
+
+  // If verification also fails, it is a failed deploy; the count change stays a warning.
+  const both = await runDeploy({
+    exec: fakeDb(p, {
+      countsAfterPush: { "public.profiles": 98765 },
+      verify: (st) => (st.pushed ? '["client_execute:anon:x"]' : "[]"),
+    }).exec,
+    plan: p,
+    dir,
+    conn: parseDbUrl(PROD_URL),
+    target: "production",
+    cwd: root,
+  });
+  assert.equal(both.status, "verification-failed");
+  assert.match(both.recovery, /write a new forward migration/);
+  assert.deepEqual(both.warnings, ["row-count-changed:0002_harden.sql"]);
+
+  // Unchanged counts: plain verified.
+  const same = await runDeploy({
+    exec: fakeDb(p).exec,
+    plan: p,
+    dir,
+    conn: parseDbUrl(PROD_URL),
+    target: "production",
+    cwd: root,
+  });
+  assert.equal(same.status, "verified");
+});
+
+test("the apply command exits 0 with a warning when only the row counts moved", async (t) => {
+  const { root, p, dir } = await deployFixture(t);
+  const planFile = join(root, ".plan.json");
+  await writeFile(planFile, JSON.stringify(p));
+  const out = {
+    text: "",
+    write(x) {
+      this.text += x;
+    },
+  };
+  const code = await main(
+    ["apply", "--plan", planFile, "--dir", dir],
+    {
+      GITHUB_ACTIONS: "true",
+      RUNNER_ENVIRONMENT: "github-hosted",
+      GITHUB_EVENT_NAME: "workflow_dispatch",
+      GITHUB_REF: "refs/heads/main",
+      EXPECTED_PLAN_DIGEST: p.digest,
+      SUPABASE_DB_URL: PROD_URL,
+    },
+    {
+      exec: fakeDb(p, { countsAfterPush: { "public.profiles": 98765 } }).exec,
+      cwd: root,
+      out,
+      platform: "linux",
+    },
+  );
+  assert.equal(code, 0);
+  assert.match(
+    out.text,
+    /::warning title=Applied and verified; row-count check changed::/,
+  );
+  assert.doesNotMatch(out.text, /::error/);
+  assert.ok(!out.text.includes("98765"));
+});
+
+test("SQLSTATE is extracted from psql's script-prefixed and the CLI's formats, nothing else", () => {
+  for (const [text, code] of [
+    ["psql:/tmp/x/migration-history.sql:12: ERROR:  42501\n", "42501"],
+    ["psql:/tmp/x/verify/0014_a.sql:3: FATAL:  57P01", "57P01"],
+    ["ERROR:  23505\n", "23505"],
+    [
+      'ERROR: new row violates check constraint "x" (SQLSTATE 23514)\nAt statement 3: ...',
+      "23514",
+    ],
+    [
+      "failed to connect: FATAL: password authentication failed (SQLSTATE 28P01)",
+      "28P01",
+    ],
+    ["SQLSTATE: 42P01", "42P01"],
+    ["connection refused", "unknown"],
+  ]) {
+    assert.equal(failureFacts(text).sqlstate, code, text);
+  }
+});
+
+test("production query failures after apply report the real SQLSTATE and nothing else", async (t) => {
+  const { root, p, dir } = await deployFixture(t);
+  const logs = [];
+  const receipt = await runDeploy({
+    exec: fakeDb(p, {
+      psqlFailure: (file, st) =>
+        st.pushed && file.endsWith("0002_harden.sql")
+          ? `psql:${file}:41: ERROR:  42501\nDETAIL:  Key (user_id)=(${"5f1e0000-0000-4000-8000-00000000beef"}) already exists.\n`
+          : null,
+    }).exec,
+    plan: p,
+    dir,
+    conn: parseDbUrl(PROD_URL),
+    target: "production",
+    cwd: root,
+    log: (l) => logs.push(l),
+  });
+  assert.equal(receipt.status, "verification-failed");
+  const detail = receipt.steps.find(
+    (x) => x.name === "verify 0002_harden.sql",
+  ).detail;
+  assert.equal(detail, "sql-failed sqlstate=42501");
+  const text = `${logs.join("\n")}${JSON.stringify(receipt)}${renderReceipt(receipt)}`;
+  assert.ok(!text.includes("Key (user_id)"));
+  assert.ok(!text.includes("5f1e0000"));
+  assert.ok(!text.includes(":41:"));
 });
 
 // Negative control for public logs: a constraint failure quoting row values must never surface.
@@ -970,7 +1117,7 @@ test("production prints only category, SQLSTATE and planned file for tool failur
       pushOutput: LEAKY_PUSH,
       psqlFailure: (file, st) =>
         st.pushed && file.endsWith("migration-history.sql")
-          ? `ERROR:  23505\nDETAIL:  Key (user_id)=(${ROW_SENTINEL}) already exists.\n`
+          ? `psql:${file}:7: ERROR:  23505\nDETAIL:  Key (user_id)=(${ROW_SENTINEL}) already exists.\n`
           : null,
     }).exec,
     plan: p,
@@ -1049,7 +1196,7 @@ test("the apply command's stdout and job summary carry no row values (end to end
   );
 });
 
-test("progress is recorded before the write, so an interrupted run is reported as unknown", async (t) => {
+test("closing record reports only what steps actually recorded when a run is interrupted", async (t) => {
   const { root, p, dir } = await deployFixture(t);
   const snapshots = [];
   await runDeploy({
@@ -1061,24 +1208,60 @@ test("progress is recorded before the write, so an interrupted run is reported a
     cwd: root,
     onProgress: async (r) => snapshots.push(structuredClone(r)),
   });
-  const beforeWrite = snapshots.find(
-    (r) =>
-      r.writeAttempted &&
-      r.status === "in-progress" &&
-      r.steps.length &&
-      r.steps.at(-1).name.startsWith("migration history unchanged"),
+  const last = (name) => (r) => r.steps.length && r.steps.at(-1).name === name;
+  const cancelled = { applyOutcome: "cancelled", jobStatus: "cancelled" };
+
+  // Interrupted during the push: write started, result unknown.
+  const duringPush = snapshots.find(
+    (r) => r.writeAttempted && !r.applied && r.status === "in-progress",
   );
-  assert.ok(
-    beforeWrite,
-    "a write-attempted, in-progress record exists before the push returns",
+  assert.ok(duringPush, "a record exists before the push returns");
+  const pushText = renderFinal(duringPush, cancelled);
+  assert.match(
+    pushText,
+    /apply started; result unknown \(interrupted: cancelled\)/,
   );
-  const interrupted = renderFinal(beforeWrite, {
-    applyOutcome: "cancelled",
-    jobStatus: "cancelled",
+  assert.match(pushText, /Migration history: UNKNOWN/);
+  assert.match(pushText, /fix forward only/);
+
+  // Interrupted after the push but before history-after: applied, history still unknown.
+  const afterApply = snapshots.find(last("apply"));
+  const applyText = renderFinal(afterApply, cancelled);
+  assert.match(
+    applyText,
+    /applied; verification not completed \(interrupted: cancelled\)/,
+  );
+  assert.match(applyText, /Migration history: UNKNOWN/);
+  assert.match(applyText, /do not re-run the apply/);
+
+  // Interrupted after history-after: history known from that step only.
+  const afterHistory = snapshots.find(last("migration history after"));
+  const historyText = renderFinal(afterHistory, {
+    applyOutcome: "failure",
+    jobStatus: "failure",
   });
-  assert.match(interrupted, /interrupted \(cancelled\)/);
-  assert.match(interrupted, /Migration history: UNKNOWN/);
-  assert.match(interrupted, /fix-forward only/);
+  assert.match(
+    historyText,
+    /applied; verification not completed \(interrupted: stopped or timed out\)/,
+  );
+  assert.match(
+    historyText,
+    /Migration history: known: 1 of 1 planned recorded/,
+  );
+  assert.match(historyText, /Steps recorded before the end of the run:/);
+  assert.match(historyText, /✅ migration history after/);
+
+  for (const text of [pushText, applyText, historyText])
+    assert.doesNotMatch(text, /see steps above/);
+
+  // Interrupted before any write.
+  const beforeWrite = snapshots.find(
+    last("migration history unchanged before apply"),
+  );
+  assert.match(
+    renderFinal(beforeWrite, cancelled),
+    /interrupted before any write \(cancelled\)[\s\S]*Migration history: known: unchanged \(nothing was written\)/,
+  );
   assert.match(
     renderFinal(null, { applyOutcome: "", jobStatus: "failure" }),
     /did not leave a record.*UNKNOWN/s,
@@ -1087,14 +1270,7 @@ test("progress is recorded before the write, so an interrupted run is reported a
   assert.equal(done.status, "verified");
   assert.match(
     renderFinal(done, { applyOutcome: "success", jobStatus: "success" }),
-    /Migration history: known/,
-  );
-  assert.match(
-    renderFinal(
-      { ...beforeWrite, status: "in-progress" },
-      { applyOutcome: "failure", jobStatus: "failure" },
-    ),
-    /stopped or timed out/,
+    /Outcome: verified[\s\S]*Migration history: known: 1 of 1 planned recorded/,
   );
 });
 
@@ -1166,6 +1342,20 @@ test("freshness: main changing, reverting or re-pointing a planned file refuses"
         "create table b (id int);\n",
       ),
     async (root) =>
+      put(root, "scripts/backend/deploy/deploy.mjs", "changed tooling\n"),
+    async (root) =>
+      put(
+        root,
+        ".github/workflows/supabase-production-deploy.yml",
+        "changed\n",
+      ),
+    async (root) =>
+      put(
+        root,
+        "scripts/backend/deploy/sql/migration-history.sql",
+        "select '[]';\n",
+      ),
+    async (root) =>
       put(root, "supabase/migrations/0001_extra.sql", "select 1;\n"),
   ]) {
     const { root, head } = await repo(t);
@@ -1231,6 +1421,12 @@ test("a commit reached through a merge's second parent needs main-identical chec
 
   const viaSecondParent = await plan(root, feature, "0003_feature.sql");
   assert.equal(viaSecondParent.onFirstParent, false);
+  const warned = renderPlan(viaSecondParent);
+  assert.match(
+    warned,
+    /⚠️ \*\*The commit is not on main's own line of history\*\*/,
+  );
+  assert.match(warned, /reject and check the commit you pasted/);
   const viaMerge = await plan(root, merge, "0003_feature.sql");
   assert.equal(viaMerge.onFirstParent, true);
   assert.equal((await plan(root, head)).onFirstParent, true);
