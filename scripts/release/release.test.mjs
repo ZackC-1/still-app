@@ -12,6 +12,9 @@ import { createZip } from "./zip.mjs";
 // shipped build; it must never be lowered.
 const BUILD_FLOOR = 9;
 
+// Built from parts so this file, which ships in the source bundle, never contains the marker itself.
+const MARKER = ["PLANTED", "MARKER"].join("-");
+
 const VERSION_FILES = ["version.json", "packages/ext-chromium/package.json", "packages/ext-safari/package.json", "apps/apple/Still/Still.xcodeproj/project.pbxproj"];
 
 function copyVersionFiles() {
@@ -194,11 +197,11 @@ test("building twice gives byte-identical packages, and nothing untracked, stale
   const plant = () => {
     mkdirSync(join(ext, "dist/chrome-mv3"), { recursive: true });
     mkdirSync(join(ext, "dist/firefox-mv3"), { recursive: true });
-    writeFileSync(planted.untracked, "PLANTED-MARKER");
+    writeFileSync(planted.untracked, MARKER);
     symlinkSync("/etc/hosts", planted.link);
-    writeFileSync(planted.staleDist, "PLANTED-MARKER");
-    writeFileSync(planted.staleFirefox, "PLANTED-MARKER");
-    writeFileSync(planted.env, "VITE_POSTHOG_KEY=PLANTED-MARKER\n");
+    writeFileSync(planted.staleDist, MARKER);
+    writeFileSync(planted.staleFirefox, MARKER);
+    writeFileSync(planted.env, `VITE_POSTHOG_KEY=${MARKER}\n`);
   };
   const unplant = () => Object.values(planted).forEach((path) => rmSync(path, { force: true }));
   try {
@@ -215,7 +218,7 @@ test("building twice gives byte-identical packages, and nothing untracked, stale
     }
     for (const name of Object.keys(a.files)) {
       const everything = spawnSync("unzip", ["-p", join(base, "a", name)], { encoding: "buffer", maxBuffer: 1 << 29 }).stdout;
-      assert.ok(!everything.includes("PLANTED-MARKER"), `${name} contains a planted file`);
+      assert.ok(!everything.includes(MARKER), `${name} contains a planted file`);
       const listing = spawnSync("unzip", ["-Z1", join(base, "a", name)], { encoding: "utf8" }).stdout;
       assert.ok(!listing.includes("PLANTED"), `${name} lists a planted file`);
     }
