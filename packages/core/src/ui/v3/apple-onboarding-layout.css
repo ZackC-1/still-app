@@ -1,0 +1,68 @@
+.onboarding-steps {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: calc(14px * var(--text-scale, 1));
+  line-height: 1.4;
+  color: var(--ink);
+}
+.onboarding-steps b {
+  font-weight: 600;
+}
+.ob {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 20px 24px 24px;
+  box-sizing: border-box;
+}
+.ob-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: calc(13px * var(--text-scale, 1));
+  color: var(--ink-secondary);
+}
+.ob-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  justify-content: center;
+}
+.ob-main h1 {
+  margin: 0;
+  font-size: calc(28px * var(--text-scale, 1));
+  line-height: 1.2;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+}
+.ob-main .lede {
+  margin: 0;
+  font-size: calc(16px * var(--text-scale, 1));
+  line-height: 1.45;
+  color: var(--ink-secondary);
+  text-wrap: pretty;
+}
+.ob-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: stretch;
+}
+.ob-actions .link {
+  align-self: center;
+}
+.ob-col {
+  width: 100%;
+  max-width: 480px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 16px;
+}
