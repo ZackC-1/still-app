@@ -1,6 +1,9 @@
 """Regenerate packages/shared-types/fixtures/sync-reference-vectors.json:
 
-    python3 scripts/sync-vectors/generate.py > packages/shared-types/fixtures/sync-reference-vectors.json
+    python3 scripts/sync-vectors/generate.py --out packages/shared-types/fixtures/sync-reference-vectors.json
+
+Without --out the JSON goes to stdout. With --out it is written to a temporary file and moved into
+place only after every check passes, so a failed run never leaves the fixture empty.
 
 Emit explicit shared vectors from the pure ordering reference model.
 
@@ -20,7 +23,12 @@ from itertools import product
 import contextlib
 import os
 
-MODEL_PATH = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(os.path.abspath(__file__)), "reference.py")
+args = sys.argv[1:]
+OUT_PATH = None
+if args[:1] == ["--out"]:
+    OUT_PATH, args = args[1], args[2:]
+MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "reference.py")
+assert not args, "usage: generate.py [--out PATH]"
 with contextlib.redirect_stdout(sys.stderr):
     ref = runpy.run_path(MODEL_PATH, run_name="reference")
 assert ref["checks"] == 6558, ref["checks"]
@@ -228,5 +236,11 @@ def dump(value, indent=0):
 
 text = dump(out) + "\n"
 assert json.loads(text) == out
-sys.stdout.write(text)
+if OUT_PATH is None:
+    sys.stdout.write(text)
+else:
+    tmp = OUT_PATH + ".tmp"
+    with open(tmp, "w") as handle:
+        handle.write(text)
+    os.replace(tmp, OUT_PATH)
 print(json.dumps({"vectors": count, "cases": len(cases)}), file=sys.stderr)

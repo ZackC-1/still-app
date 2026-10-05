@@ -1,4 +1,4 @@
-"""Synthetic planning model only; never imported by Still or connected to a service."""
+"""Synthetic reference model only; never imported by Still or connected to a service."""
 from dataclasses import dataclass
 from itertools import product
 import json
@@ -152,5 +152,5 @@ print(json.dumps({
     'canonical_domain_fields': len(domain),
     'counterexamples_confirmed': ['receive-time clamp changes replay priority', 'numeric revision ceiling cannot authenticate an original anchor'],
     'anchor_proof_model': 'Synthetic HMAC-SHA256 binds purpose/account/lineage/revision; no real key or provider',
-    'limits': ['Pure Python planning model only', 'Anchor proof is proposed, not provided by current RPC', 'No TS/Swift/SQL integration or production/device/provider verification', 'Candidate does not establish real-time order of disconnected same-key edits'],
+    'limits': ['Pure Python reference model only', 'Anchor proof here is a synthetic model, not a server function', 'No TS/Swift/SQL integration or production/device/provider verification', 'Candidate does not establish real-time order of disconnected same-key edits'],
 }, indent=2))
