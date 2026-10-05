@@ -66,6 +66,15 @@ async function launchWithExtensionLoader(profile: string) {
   const endpoint = await new Promise<string>((resolveEndpoint, reject) => {
     let output = "";
     const timer = setTimeout(() => reject(new Error(`browser did not start: ${output.slice(0, 500)}`)), 30_000);
+    // A browser that dies at startup fails the test at once, not after the 30s wait.
+    proc.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    proc.once("exit", (code) => {
+      clearTimeout(timer);
+      reject(new Error(`browser exited (${code}) before it started: ${output.slice(0, 500)}`));
+    });
     proc.stderr!.on("data", (chunk) => {
       output += String(chunk);
       const match = /DevTools listening on (ws:\/\/\S+)/.exec(output);
@@ -81,9 +90,16 @@ async function launchWithExtensionLoader(profile: string) {
     context: browser.contexts()[0],
     load: (path: string) =>
       session.send("Extensions.loadUnpacked" as never, { path } as never) as Promise<{ id: string }>,
+    // Waits for the browser process to exit, so its profile is no longer being written when the
+    // caller deletes it.
     async close() {
       await browser.close().catch(() => {});
+      if (proc.exitCode !== null || proc.signalCode !== null) return;
+      const exited = new Promise((resolveExit) => proc.once("exit", resolveExit));
       proc.kill();
+      const forced = setTimeout(() => proc.kill("SIGKILL"), 5_000);
+      await exited;
+      clearTimeout(forced);
     },
   };
 }
@@ -93,8 +109,9 @@ test("an update does not open the first-run page", async () => {
   const work = mkdtempSync(join(tmpdir(), "still-first-run-update-"));
   const extension = join(work, "extension");
   cpSync(CHROMIUM_EXTENSION, extension, { recursive: true });
-  const browser = await launchWithExtensionLoader(join(work, "profile"));
+  let browser: Awaited<ReturnType<typeof launchWithExtensionLoader>> | undefined;
   try {
+    browser = await launchWithExtensionLoader(join(work, "profile"));
     const { context } = browser;
     const installed = firstRunPage(context);
     const { id } = await browser.load(extension);
@@ -123,8 +140,8 @@ test("an update does not open the first-run page", async () => {
     await new Promise((resolveQuiet) => setTimeout(resolveQuiet, 3_000));
     expect(firstRunPages(context)).toHaveLength(0);
   } finally {
-    await browser.close();
-    rmSync(work, { recursive: true, force: true });
+    await browser?.close();
+    rmSync(work, { recursive: true, force: true, maxRetries: 3 });
   }
 });
 
