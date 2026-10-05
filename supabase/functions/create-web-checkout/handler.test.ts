@@ -1,7 +1,7 @@
 import { assertEquals } from "@std/assert";
 import { handleCreateWebCheckout } from "./handler.ts";
 import { signHs256 } from "../_shared/jwt.ts";
-import { mintEs256, mintHs256, TEST_EXPECTED_CLAIMS } from "../_shared/test-helpers.ts";
+import { captureConsole, mintEs256, mintHs256, TEST_EXPECTED_CLAIMS } from "../_shared/test-helpers.ts";
 import type { RateLimiter } from "../_shared/rate-limit.ts";
 import type { RevenueCatClient, RcSubscriber } from "../_shared/revenuecat.ts";
 import type { WebBillingClient } from "../_shared/web-billing.ts";
@@ -233,4 +233,19 @@ Deno.test("over the per-IP limit → 429 keyed by the Cloudflare client IP", asy
   assertEquals(res.headers.get("retry-after"), "12");
   assertEquals(seen, [`checkout:user:${A}`, "checkout:ip:203.0.113.9"]);
   assertEquals(calls.length, 0);
+});
+
+Deno.test("billing failure logs a fixed reason, never the error text, account id, email, token or URL", async () => {
+  const SECRET_TEXT = `boom for ${A} person@example.com https://checkout.example/${A}?token=sk_live_secret`;
+  const billing: WebBillingClient = { createCheckout: () => Promise.reject(new Error(SECRET_TEXT)) };
+  const jwt = await mintHs256({ sub: A, email: "person@example.com" }, SECRET);
+  let status = 0;
+  const logged = await captureConsole(async () => {
+    status = (await handleCreateWebCheckout(req(jwt), { jwtSecret: SECRET, expected: EXPECTED, billing, rc: rcInactive, limiter: allowAll })).status;
+  });
+  assertEquals(status, 502);
+  assertEquals(logged, "create-web-checkout failed reason=checkout_unavailable status=502");
+  for (const leak of [A, "person@example.com", "sk_live_secret", "checkout.example", jwt, "boom"]) {
+    assertEquals(logged.includes(leak), false, `log must not contain ${leak}`);
+  }
 });

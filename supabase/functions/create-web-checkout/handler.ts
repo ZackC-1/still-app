@@ -30,10 +30,10 @@ export function handleCreateWebCheckout(
       if (stillProActive(subscriber)) return jsonResponse(409, { error: "already_entitled" });
       const checkout = await deps.billing.createCheckout(userId);
       return jsonResponse(200, checkout);
-    } catch (error) {
+    } catch {
       // Don't leak internal billing/config detail (e.g. "RevenueCat Web Billing is not configured") to
-      // the authenticated caller — log it server-side, return only a generic status the client acts on.
-      console.error("create-web-checkout failed:", error);
+      // the authenticated caller — log only a fixed reason code server-side (the error text can carry account ids and URLs), return only a generic status the client acts on.
+      console.error("create-web-checkout failed reason=checkout_unavailable status=502");
       return jsonResponse(502, { error: "checkout_unavailable" });
     }
   });
