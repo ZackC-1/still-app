@@ -34,7 +34,11 @@
 -- erasure and is never stored (bind parameters are kept out of the logs).
 --
 -- Account deletion. Deleting an account cascades to its subjects; a trigger snapshots each deleted
--- subject into an `account_deleted` job first, so its PostHog persons are still deleted afterwards.
+-- subject into its own `account_deleted` job, keyed by random bytes, so its PostHog person is still
+-- deleted afterwards and no erasure row can be matched back to the account.
+--
+-- Subject issuance is limited to 5 new devices per account per day (issued subjects raise a job's
+-- claim priority, so they must not be mintable at scale).
 --
 -- Routes (SECURITY DEFINER, EXECUTE only for still_analytics_eraser):
 --   analytics_issue_subject           issue or return the subject for (account, device); "stopped"
@@ -42,10 +46,11 @@
 --   analytics_subject_active          whether a subject may still receive writes (identify's
 --                                     post-check);
 --   analytics_begin_device_erasure    from the erasure key: retire the device's subjects and open
---                                     (or reuse) its job; refuses new jobs past a global cap;
+--                                     (or reuse) its job; never refused for volume (past a global
+--                                     cap, anonymous-only jobs are recorded at the lowest priority);
 --   analytics_erasure_status          the stage of the device's latest job, from the erasure key;
---   analytics_claim_erasure_work      lease due jobs to the worker (per-claim token), jobs that
---                                     delete issued subjects first;
+--   analytics_claim_erasure_work      lease due jobs to the worker (per-claim token) in indexed
+--                                     priority order, jobs that delete issued subjects first;
 --   analytics_record_erasure_outcome  advance or back off a leased job by a fixed outcome word.
 -- The limiter learns three buckets, `analytics-erasure-submit`, `analytics-erasure-status` and
 -- `analytics-identify`, and the eraser may call it. Its body is otherwise byte-identical to 0015's.
@@ -130,6 +135,9 @@ create table if not exists private.analytics_erasure_jobs (
                                         'provider_delete_confirmed', 'complete')),
   sweeps integer not null check (sweeps >= 0 and sweeps <= 3),
   attempts integer not null check (attempts >= 0),
+  -- Claim order: 2 deletes issued subjects (signed-in history), 1 anonymous only, 0 submitted past
+  -- the global new-job cap (recorded, never refused, worked after everything else).
+  priority smallint not null check (priority between 0 and 2),
   next_attempt_at timestamptz,
   lease_token uuid,
   lease_until timestamptz,
@@ -137,6 +145,8 @@ create table if not exists private.analytics_erasure_jobs (
                                         'provider_partial', 'provider_shape')),
   created_at timestamptz not null,
   accepted_at timestamptz,
+  -- The last time PostHog queued a person of this job for deletion: the 8-day floor counts from it.
+  last_queued_at timestamptz,
   confirmed_at timestamptz,
   completed_at timestamptz,
   fence_until timestamptz,
@@ -149,8 +159,9 @@ create table if not exists private.analytics_erasure_jobs (
 -- At most one open job per device: two tabs, a retry after a lost reply, or both, reach one job.
 create unique index if not exists analytics_erasure_jobs_open
   on private.analytics_erasure_jobs(scope, scope_key) where completed_at is null;
+-- The claim walks this index in claim order, so a large backlog stays within the role's 2 s limit.
 create index if not exists analytics_erasure_jobs_due
-  on private.analytics_erasure_jobs(next_attempt_at) where next_attempt_at is not null;
+  on private.analytics_erasure_jobs(priority desc, next_attempt_at, job_id) where next_attempt_at is not null;
 create index if not exists analytics_erasure_jobs_created on private.analytics_erasure_jobs(created_at);
 create index if not exists analytics_erasure_jobs_key
   on private.analytics_erasure_jobs(scope_key, created_at);
@@ -239,6 +250,12 @@ begin
     end if;
     return pg_catalog.jsonb_build_object('state', 'active', 'subject', subj.subject_id);
   end if;
+  -- At most 5 new devices per account per day: issued subjects decide claim priority, so they must
+  -- not be mintable at scale.
+  if (select pg_catalog.count(*) from private.analytics_subjects s
+      where s.user_id = p_user and s.created_at > pg_catalog.now() - interval '1 day') >= 5 then
+    return pg_catalog.jsonb_build_object('state', 'limited');
+  end if;
   insert into private.analytics_subjects(subject_id, user_id, origin_key, epoch, created_at, last_activity_month)
     values (pg_catalog.gen_random_uuid(), p_user, k, 0, pg_catalog.now(), this_month)
     returning * into subj;
@@ -259,7 +276,9 @@ end $$;
 -- database derives every target itself: anon(0..k) from E, and every subject issued for this
 -- device (found by SHA-256(SHA-256(E))). It retires those subjects, then opens (or reuses) the
 -- device's job. A job that gains targets after its first provider call starts again from the top,
--- so nothing reads as deleted before the new targets are. New jobs are capped per 10 minutes.
+-- so nothing reads as deleted before the new targets are. A request is never refused for volume:
+-- past 200 new device jobs in 10 minutes, a job with no issued subject is recorded at the lowest
+-- claim priority instead.
 create or replace function private.analytics_begin_device_erasure(p_key bytea, p_anon_index integer)
 returns jsonb language plpgsql volatile security definer set search_path = pg_catalog, pg_temp as $$
 declare
@@ -269,8 +288,10 @@ declare
   job private.analytics_erasure_jobs%rowtype;
   added integer := 0;
   n integer;
+  has_subjects boolean;
 begin
   perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(pg_catalog.encode(k, 'hex'), 170017));
+  has_subjects := exists (select 1 from private.analytics_subjects s where s.origin_key = k);
   update private.analytics_subjects set retired_at = moment, retired_reason = 'device_erasure'
     where origin_key = k and retired_at is null;
 
@@ -291,15 +312,16 @@ begin
                                                 where t.job_id = job.job_id and t.distinct_id = s.subject_id)) then
       return pg_catalog.jsonb_build_object('job', job.job_id, 'stage', job.stage);
     end if;
-    -- The global cap on new device jobs: a flood of made-up keys cannot grow the queue without bound.
-    perform pg_catalog.pg_advisory_xact_lock(170018);
-    if (select pg_catalog.count(*) from private.analytics_erasure_jobs j
-        where j.scope = 'device' and j.created_at > moment - interval '10 minutes') >= 200 then
-      raise exception 'analytics erasure capacity' using errcode = '53400';
-    end if;
-    insert into private.analytics_erasure_jobs(job_id, scope, scope_key, stage, sweeps, attempts,
+    -- Past the global cap, a job with no issued subject still records the obligation, at priority
+    -- 0: a flood of made-up keys can only queue behind genuine work, never displace or block it.
+    insert into private.analytics_erasure_jobs(job_id, scope, scope_key, stage, sweeps, attempts, priority,
                                                next_attempt_at, created_at)
-      values (pg_catalog.gen_random_uuid(), 'device', k, 'stop_recorded', 0, 0, moment, moment)
+      values (pg_catalog.gen_random_uuid(), 'device', k, 'stop_recorded', 0, 0,
+              case when has_subjects then 2
+                   when (select pg_catalog.count(*) from private.analytics_erasure_jobs j
+                         where j.scope = 'device' and j.created_at > moment - interval '10 minutes') >= 200 then 0
+                   else 1 end,
+              moment, moment)
       returning * into job;
   end if;
   insert into private.analytics_erasure_targets(job_id, distinct_id, kind)
@@ -312,6 +334,9 @@ begin
     on conflict do nothing;
   get diagnostics n = row_count;
   added := added + n;
+  if has_subjects and job.priority < 2 then
+    update private.analytics_erasure_jobs set priority = 2 where job_id = job.job_id;
+  end if;
   if added > 0 and job.stage <> 'stop_recorded' then
     update private.analytics_erasure_jobs set stage = 'stop_recorded', sweeps = 0, accepted_at = null,
       confirmed_at = null, next_attempt_at = moment
@@ -339,34 +364,21 @@ begin
   return pg_catalog.jsonb_build_object('job', job.job_id, 'stage', job.stage);
 end $$;
 
--- A deleted subject (an account deletion cascades here) is snapshotted into that account's
--- `account_deleted` job before the row goes, so its PostHog persons are still deleted. The job is
--- keyed by a hash of the account id and references nothing, so it survives the account.
+-- A deleted subject (an account deletion cascades here) is snapshotted into its own
+-- `account_deleted` job before the row goes, so its PostHog person is still deleted. The job's key is
+-- 32 random bytes and the job references nothing: no erasure row can be matched to the account it
+-- came from, and one account's subjects share no key.
 create or replace function private.analytics_snapshot_deleted_subject()
 returns trigger language plpgsql security definer set search_path = pg_catalog, pg_temp as $$
 declare
-  k bytea := extensions.digest(pg_catalog.convert_to('still:analytics:account:' || old.user_id::text, 'UTF8'), 'sha256');
   moment timestamptz := pg_catalog.now();
-  job_ref uuid;
-  n integer;
+  job_ref uuid := pg_catalog.gen_random_uuid();
 begin
-  select j.job_id into job_ref from private.analytics_erasure_jobs j
-    where j.scope = 'account_deleted' and j.scope_key = k and j.completed_at is null for update;
-  if not found then
-    insert into private.analytics_erasure_jobs(job_id, scope, scope_key, stage, sweeps, attempts,
-                                               next_attempt_at, created_at)
-      values (pg_catalog.gen_random_uuid(), 'account_deleted', k, 'stop_recorded', 0, 0, moment, moment)
-      returning job_id into job_ref;
-  end if;
+  insert into private.analytics_erasure_jobs(job_id, scope, scope_key, stage, sweeps, attempts, priority,
+                                             next_attempt_at, created_at)
+    values (job_ref, 'account_deleted', extensions.gen_random_bytes(32), 'stop_recorded', 0, 0, 2, moment, moment);
   insert into private.analytics_erasure_targets(job_id, distinct_id, kind)
-    values (job_ref, old.subject_id, 'subject')
-    on conflict do nothing;
-  get diagnostics n = row_count;
-  if n > 0 then
-    update private.analytics_erasure_jobs set stage = 'stop_recorded', sweeps = 0, accepted_at = null,
-      confirmed_at = null, next_attempt_at = moment
-      where job_id = job_ref and stage <> 'stop_recorded';
-  end if;
+    values (job_ref, old.subject_id, 'subject');
   return null;
 end $$;
 create or replace trigger analytics_subjects_snapshot
@@ -375,7 +387,7 @@ create or replace trigger analytics_subjects_snapshot
 alter table private.analytics_subjects enable always trigger analytics_subjects_snapshot;
 
 -- Lease up to p_limit due jobs. Each claim gets a fresh token; only its holder records the outcome.
--- Jobs that delete issued subjects (identifiable history) go before anonymous-only jobs.
+-- Claim order is the indexed priority (issued subjects first, past-the-cap jobs last), then due time.
 create or replace function private.analytics_claim_erasure_work(p_limit integer, p_lease_seconds integer)
 returns jsonb language plpgsql volatile security definer set search_path = pg_catalog, pg_temp as $$
 declare
@@ -384,7 +396,7 @@ declare
   job private.analytics_erasure_jobs%rowtype;
   token uuid;
 begin
-  if p_limit is null or p_limit < 1 or p_limit > 20
+  if p_limit is null or p_limit < 1 or p_limit > 100
      or p_lease_seconds is null or p_lease_seconds < 30 or p_lease_seconds > 600 then
     raise exception 'analytics erasure claim shape' using errcode = '22023';
   end if;
@@ -392,9 +404,7 @@ begin
     select * from private.analytics_erasure_jobs j
     where j.next_attempt_at is not null and j.next_attempt_at <= moment
       and (j.lease_until is null or j.lease_until < moment)
-    order by exists (select 1 from private.analytics_erasure_targets t
-                     where t.job_id = j.job_id and t.kind = 'subject') desc,
-             j.next_attempt_at, j.job_id
+    order by j.priority desc, j.next_attempt_at, j.job_id
     limit p_limit
     for update skip locked
   loop
@@ -404,8 +414,8 @@ begin
       where job_id = job.job_id;
     claimed := claimed || pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
       'job', job.job_id, 'lease', token, 'stage', job.stage, 'sweeps', job.sweeps, 'attempts', job.attempts,
-      'targets', (select pg_catalog.jsonb_agg(t.distinct_id order by t.distinct_id)
-                  from private.analytics_erasure_targets t where t.job_id = job.job_id)));
+      'targets', coalesce((select pg_catalog.jsonb_agg(t.distinct_id order by t.distinct_id)
+                  from private.analytics_erasure_targets t where t.job_id = job.job_id), '[]'::jsonb)));
   end loop;
   return claimed;
 end $$;
@@ -417,7 +427,8 @@ end $$;
 --   stop_recorded             -> provider_delete_accepted  on the first accepted deletion;
 --   provider_delete_accepted  -> provider_delete_confirmed when the +1 day sweep finds nobody;
 --   provider_delete_confirmed -> complete                  when a sweep at least 8 days after
---                                acceptance finds nobody. PostHog deletes events in a later batch
+--                                PostHog last queued a deletion for this job (or after acceptance,
+--                                if it never had to) finds nobody. PostHog deletes events in a later batch
 --                                (weekends on PostHog Cloud), and a person that is gone says nothing
 --                                about its events, so 8 days covers one full weekly batch before a
 --                                device is told its data is deleted;
@@ -448,6 +459,10 @@ begin
       where job_id = job.job_id;
     return pg_catalog.jsonb_build_object('recorded', true, 'stage', job.stage, 'overdue', job.attempts + 1 >= 5);
   end if;
+  if p_outcome = 'queued' then
+    update private.analytics_erasure_jobs set last_queued_at = moment where job_id = job.job_id;
+    job.last_queued_at := moment;
+  end if;
   if job.stage = 'stop_recorded' then
     update private.analytics_erasure_jobs set stage = 'provider_delete_accepted', accepted_at = moment,
       sweeps = 0, next_attempt_at = moment + interval '1 day'
@@ -458,12 +473,12 @@ begin
       where job_id = job.job_id;
   elsif job.stage = 'provider_delete_accepted' then
     update private.analytics_erasure_jobs set stage = 'provider_delete_confirmed', confirmed_at = moment,
-      sweeps = 1, next_attempt_at = greatest(moment, job.accepted_at + interval '8 days')
+      sweeps = 1, next_attempt_at = greatest(moment, coalesce(job.last_queued_at, job.accepted_at) + interval '8 days')
       where job_id = job.job_id;
     job.stage := 'provider_delete_confirmed';
   elsif job.stage = 'provider_delete_confirmed' then
-    if moment < job.accepted_at + interval '8 days' then
-      update private.analytics_erasure_jobs set next_attempt_at = job.accepted_at + interval '8 days'
+    if moment < coalesce(job.last_queued_at, job.accepted_at) + interval '8 days' then
+      update private.analytics_erasure_jobs set next_attempt_at = coalesce(job.last_queued_at, job.accepted_at) + interval '8 days'
         where job_id = job.job_id;
     else
       update private.analytics_erasure_jobs set stage = 'complete', sweeps = 2, completed_at = moment,
@@ -691,6 +706,7 @@ begin
       ('analytics_erasure_jobs', 'stage', 'pg_catalog.text'::pg_catalog.regtype),
       ('analytics_erasure_jobs', 'sweeps', 'pg_catalog.int4'::pg_catalog.regtype),
       ('analytics_erasure_jobs', 'attempts', 'pg_catalog.int4'::pg_catalog.regtype),
+      ('analytics_erasure_jobs', 'priority', 'pg_catalog.int2'::pg_catalog.regtype),
       ('analytics_erasure_jobs', 'created_at', 'pg_catalog.timestamptz'::pg_catalog.regtype),
       ('analytics_erasure_targets', 'job_id', 'pg_catalog.uuid'::pg_catalog.regtype),
       ('analytics_erasure_targets', 'distinct_id', 'pg_catalog.uuid'::pg_catalog.regtype),

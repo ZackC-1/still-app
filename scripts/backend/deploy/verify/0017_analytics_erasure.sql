@@ -90,14 +90,14 @@ relations as (
 expected_routines(sig, definer, grantees, body_md5) as (
   values
     ('private.analytics_anonymous_ids(bytea,integer)', false, null::text[], 'db8ad793735beaabfe460a9571f0d71b'),
-    ('private.analytics_snapshot_deleted_subject()', true, null::text[], '6f22d7e7bdefbd04143dad6149b7b8e6'),
+    ('private.analytics_snapshot_deleted_subject()', true, null::text[], '5bbbec70399c1ac78f1eb39255c418c2'),
     ('private.analytics_origin_key(bytea)', false, null::text[], 'ac796e926ecfc284200f0cf1938a5590'),
-    ('private.analytics_issue_subject(uuid,bytea)', true, array['still_analytics_eraser'], '582be9980419fba06e58ec2be9b1f78f'),
+    ('private.analytics_issue_subject(uuid,bytea)', true, array['still_analytics_eraser'], 'd67f2ee4fb5d6a3e74d965359dec3e87'),
     ('private.analytics_subject_active(uuid)', true, array['still_analytics_eraser'], '2c8ec961a28dca52ed1fac79154ed5d3'),
-    ('private.analytics_begin_device_erasure(bytea,integer)', true, array['still_analytics_eraser'], '55d057d77baf7f6541ea43ff1eabfbbb'),
+    ('private.analytics_begin_device_erasure(bytea,integer)', true, array['still_analytics_eraser'], 'eb08195f32c2a279e44cfd20063946af'),
     ('private.analytics_erasure_status(bytea)', true, array['still_analytics_eraser'], '326f30ea0193051673fedd681e647299'),
-    ('private.analytics_claim_erasure_work(integer,integer)', true, array['still_analytics_eraser'], '783661928f3fffb56a03a8e621f1f2e1'),
-    ('private.analytics_record_erasure_outcome(uuid,uuid,text)', true, array['still_analytics_eraser'], 'df1bcbcf879ce239064a0be1b5c028b0'),
+    ('private.analytics_claim_erasure_work(integer,integer)', true, array['still_analytics_eraser'], 'e8709673e764dbc7605274c67221e9a0'),
+    ('private.analytics_record_erasure_outcome(uuid,uuid,text)', true, array['still_analytics_eraser'], '56e8c9ef75f290c5d2b3dbc234a11824'),
     ('public.consume_rate_limit(text,integer,integer)', true,
      array['still_analytics_eraser', 'still_entitlement_writer', 'still_settings_writer'], '45da64e1167f825c831bbdf05b7b09be')
 ),
@@ -211,6 +211,7 @@ issues(issue) as (
     ('analytics_erasure_jobs', 'stage', 'pg_catalog.text'::pg_catalog.regtype),
     ('analytics_erasure_jobs', 'sweeps', 'pg_catalog.int4'::pg_catalog.regtype),
     ('analytics_erasure_jobs', 'attempts', 'pg_catalog.int4'::pg_catalog.regtype),
+    ('analytics_erasure_jobs', 'priority', 'pg_catalog.int2'::pg_catalog.regtype),
     ('analytics_erasure_jobs', 'created_at', 'pg_catalog.timestamptz'::pg_catalog.regtype),
     ('analytics_erasure_targets', 'job_id', 'pg_catalog.uuid'::pg_catalog.regtype),
     ('analytics_erasure_targets', 'distinct_id', 'pg_catalog.uuid'::pg_catalog.regtype),

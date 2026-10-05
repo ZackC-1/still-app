@@ -25,7 +25,7 @@ import type { ErasureOutcome } from "../functions/_shared/erasure-store.ts";
 import { PgRateLimiter } from "../functions/_shared/pg-store.ts";
 import type { PostHogErasurePort, PostHogSubjectPort } from "../functions/_shared/posthog-erasure.ts";
 import { signHs256 } from "../functions/_shared/jwt.ts";
-import { deviceErasureState, ErasureCapacity } from "../functions/_shared/erasure-store.ts";
+import { deviceErasureState } from "../functions/_shared/erasure-store.ts";
 import {
   anonymousIdFromKey,
   fromHex,
@@ -639,7 +639,11 @@ Deno.test({
         assertEquals(deviceErasureState(await store.erasureStatus(K1)), "verifying");
         // A clean sweep before 8 days after acceptance does not complete.
         assertEquals((await step("none_found")).stage, "provider_delete_confirmed");
+        // NEGATIVE CONTROL (floor): 8 days counts from the last queued deletion, not acceptance.
         await admin`update private.analytics_erasure_jobs set accepted_at = accepted_at - interval '9 days'
+          where job_id = ${job}::uuid`;
+        assertEquals((await step("none_found")).stage, "provider_delete_confirmed");
+        await admin`update private.analytics_erasure_jobs set last_queued_at = last_queued_at - interval '9 days'
           where job_id = ${job}::uuid`;
         const done = await step("none_found");
         assertEquals([done.stage, done.fenced, done.finished], ["complete", true, false]);
@@ -681,16 +685,63 @@ Deno.test({
         await admin`delete from private.analytics_erasure_jobs where job_id in (${anonOnly.job}::uuid, ${subjectJob.job}::uuid)`;
       });
 
-      await t.step("a global cap stops a flood of new device jobs", async () => {
+      await t.step("past the global cap a submission is still recorded, at the lowest priority", async () => {
         await admin`insert into private.analytics_erasure_jobs(job_id, scope, scope_key, stage, sweeps, attempts,
-            next_attempt_at, created_at)
-          select gen_random_uuid(), 'device', extensions.gen_random_bytes(32), 'stop_recorded', 0, 0, now(), now()
+            priority, next_attempt_at, created_at)
+          select gen_random_uuid(), 'device', extensions.gen_random_bytes(32), 'stop_recorded', 0, 0, 1, now(), now()
           from generate_series(1, 200)`;
-        await assertRejects(() => store.beginDeviceErasure(deviceKey(77), 0), ErasureCapacity);
-        // The cap counts new jobs only: an existing device's job is still reached.
-        assertEquals((await store.beginDeviceErasure(K1, 1)).job, job);
-        await admin`delete from private.analytics_erasure_jobs j
-          where not exists (select 1 from private.analytics_erasure_targets t where t.job_id = j.job_id)`;
+        const flooded = await store.beginDeviceErasure(deviceKey(77), 0);
+        assertEquals(flooded.stage, "stop_recorded", "never refused");
+        const priorityOf = async (job: string) =>
+          (await admin`select priority from private.analytics_erasure_jobs where job_id = ${job}::uuid`)[0].priority;
+        assertEquals(await priorityOf(flooded.job), 0);
+        // A device with an issued subject keeps the top priority past the cap.
+        const signedIn = await store.issueSubject(U3, await proof(deviceKey(78)));
+        assert(signedIn.state === "active");
+        assertEquals(await priorityOf((await store.beginDeviceErasure(deviceKey(78), 0)).job), 2);
+        assertEquals((await store.beginDeviceErasure(K1, 1)).job, job, "an existing device's job is reached");
+        await admin`delete from private.analytics_erasure_jobs j where j.job_id <> ${job}::uuid`;
+      });
+
+      await t.step("claiming stays within the eraser's 2 s limit with a backlog far past the cap", async () => {
+        await admin`insert into private.analytics_erasure_jobs(job_id, scope, scope_key, stage, sweeps, attempts,
+            priority, next_attempt_at, created_at)
+          select gen_random_uuid(), 'device', extensions.gen_random_bytes(32), 'stop_recorded', 0, 0, (g % 2)::smallint,
+                 now() - (g || ' seconds')::interval, now()
+          from generate_series(1, 30000) g`;
+        const urgent = await store.issueSubject(U3, await proof(deviceKey(79)));
+        assert(urgent.state === "active");
+        const top = await store.beginDeviceErasure(deviceKey(79), 0);
+        assertEquals(
+          (await eraser!`select pg_catalog.current_setting('statement_timeout') as limit`)[0].limit,
+          "2s",
+          "the claim runs under the role's own timeout",
+        );
+        const started = performance.now();
+        const claimed = await store.claimWork(100, 60);
+        const elapsed = performance.now() - started;
+        assertEquals(claimed.length, 100);
+        assertEquals(claimed[0]!.job, top.job, "the subject job comes first");
+        assert(elapsed < 2000, `claim took ${elapsed} ms`);
+        await admin`delete from private.analytics_erasure_jobs j where j.job_id <> ${job}::uuid`;
+      });
+
+      await t.step("an account may add at most five new devices a day", async () => {
+        const fresh = "b6b6b6b6-0000-4000-8000-000000000064";
+        await admin`insert into auth.users (id, email) values (${fresh}, 'u5w2-daily@example.invalid')`;
+        for (let n = 0; n < 5; n++) {
+          assertEquals((await store.issueSubject(fresh, await proof(deviceKey(200 + n)))).state, "active");
+        }
+        assertEquals(await store.issueSubject(fresh, await proof(deviceKey(205))), { state: "limited" });
+        // An existing device is still answered.
+        assertEquals((await store.issueSubject(fresh, await proof(deviceKey(200)))).state, "active");
+        await admin`delete from private.analytics_subjects where user_id = ${fresh}::uuid`;
+        // One account's deleted subjects share no key: each snapshot job has its own random key.
+        const keys = await admin`select pg_catalog.count(distinct scope_key)::int as keys, pg_catalog.count(*)::int as jobs
+          from private.analytics_erasure_jobs where scope = 'account_deleted'`;
+        assertEquals({ ...keys[0] }, { keys: 5, jobs: 5 });
+        await admin`delete from private.analytics_erasure_jobs where scope = 'account_deleted'`;
+        await admin`delete from auth.users where id = ${fresh}::uuid`;
       });
 
       await t.step("account deletion snapshots its subjects into a job that survives the account", async () => {
@@ -702,6 +753,16 @@ Deno.test({
           from private.analytics_erasure_jobs j join private.analytics_erasure_targets t on t.job_id = j.job_id
           where j.scope = 'account_deleted'`;
         assertEquals(snapshot.map((r) => [r.scope, r.stage, r.id]), [["account_deleted", "stop_recorded", s3]]);
+        // NEGATIVE CONTROL (linkability): nothing in the erasure tables can be matched from U2.
+        const linked = await admin`
+          with candidates(k) as (values
+            (extensions.digest(pg_catalog.convert_to('still:analytics:account:' || ${U2}::text, 'UTF8'), 'sha256')),
+            (extensions.digest(pg_catalog.convert_to(${U2}::text, 'UTF8'), 'sha256')),
+            (extensions.digest(pg_catalog.decode(pg_catalog.replace(${U2}::text, '-', ''), 'hex'), 'sha256')),
+            (extensions.digest(pg_catalog.decode(pg_catalog.replace(${U2}::text, '-', ''), 'hex') || pg_catalog.decode(pg_catalog.replace(${U2}::text, '-', ''), 'hex'), 'sha256')))
+          select (select pg_catalog.count(*) from private.analytics_erasure_jobs j join candidates c on j.scope_key = c.k)::int as keys,
+                 (select pg_catalog.count(*) from private.analytics_erasure_targets t where t.distinct_id = ${U2}::uuid)::int as ids`;
+        assertEquals({ ...linked[0] }, { keys: 0, ids: 0 });
         // NEGATIVE CONTROL: without the trigger the same deletion leaves no job behind.
         const without = await rejection(() =>
           admin.begin(async (tx) => {
