@@ -34,10 +34,10 @@ final class SettingsExecutorTests: XCTestCase {
     return url
   }
 
-  private func seed(_ directory: URL) throws -> Data {
+  private func seed(_ directory: URL, ownership: String = "unknown") throws -> Data {
     let store = SharedSettingsStore(backing: AtomicSettingsBacking(directory: directory))
     store.save(StillSettings(globalOn: true, services: StillServices(), pauses: [], updatedAt: 1))
-    _ = try store.initializeAtomic(ownership: "unknown")
+    _ = try store.initializeAtomic(ownership: ownership)
     return try XCTUnwrap(store.readCommittedRecord())
   }
 
@@ -120,7 +120,8 @@ final class SettingsExecutorTests: XCTestCase {
 
   @MainActor
   func testQueuedIntentsAndInterleavedReadPreserveArrivalAndCommittedMetadata() async throws {
-    let dir = try directory(); _ = try seed(dir)
+    // A previous-account journal queues each committed request; unknown null-scope edits are local-only.
+    let dir = try directory(); _ = try seed(dir, ownership: "previous-account")
     let executor = SettingsExecutor {
       SettingsBridge(store: SharedSettingsStore(backing: AtomicSettingsBacking(directory: dir)), notifyChanged: {})
     }
