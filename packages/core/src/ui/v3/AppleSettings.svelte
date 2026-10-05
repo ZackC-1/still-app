@@ -28,6 +28,7 @@
     link,
     linkInvitation,
     sharing,
+    privacyActions,
     setup,
     help,
   }: AppleSettingsProps = $props();
@@ -144,7 +145,8 @@
       restore?.state === "failed",
   );
   let proActionReady = $derived(
-    knownMissing &&
+    pro !== undefined &&
+      knownMissing &&
       pro.ownership === "none" &&
       !restoreHeld &&
       pro.channel === "ready" &&
@@ -154,24 +156,24 @@
   );
   let showInvitation = $derived(
     Boolean(linkInvitation?.eligibleLaterVisit) &&
-      pro.ownership === "owned" &&
+      pro?.ownership === "owned" &&
       !accessHeld &&
       !setup &&
       !link &&
       !restore &&
       !confirming &&
-      (!pro.state || pro.state === "idle") &&
-      sharing.state !== "unasked" &&
-      (!sharing.withdrawal || sharing.withdrawal === "none") &&
+      (!pro?.state || pro.state === "idle") &&
+      sharing?.state !== "unasked" &&
+      (!sharing?.withdrawal || sharing.withdrawal === "none") &&
       sync.account?.status?.tone !== "failed",
   );
   function requestPro() {
-    if (proActionReady) pro.onBuy?.();
+    if (proActionReady) pro?.onBuy?.();
   }
   function requestRestoreAction() {
     if (
       mounted &&
-      pro.state !== "pending" &&
+      pro?.state !== "pending" &&
       (restore?.state === "failed" || restore?.state === "verify")
     )
       restore.onAction?.();
@@ -227,7 +229,7 @@
     onProAction={proActionReady ? requestPro : undefined}
   />
   <SyncCard
-    owned={pro.ownership === "owned"}
+    owned={pro?.ownership === "owned"}
     onSignIn={sync.onSignIn}
     accountActions={syncCaption}
     account={sync.account
@@ -268,7 +270,7 @@
     </section>
   {/if}
   {#if link}<AccountLinkCard {...link} />{/if}
-  {#if pro.ownership !== "owned" && (pro.ownership !== "verify" || (!restore && pro.onRestore))}
+  {#if pro && pro.ownership !== "owned" && (pro.ownership !== "verify" || (!restore && pro.onRestore))}
     <NativeProOfferCard
       {...pro}
       accessHeld={accessHeld || (pro.ownership === "none" && !knownMissing)}
@@ -283,11 +285,13 @@
     </p>{/if}
   {#if restore}<RestoreStatusCard
       {...restore}
-      onAction={pro.state !== "pending" && restore?.onAction
+      onAction={pro?.state !== "pending" && restore?.onAction
         ? requestRestoreAction
         : undefined}
     />{/if}
-  <SharingCard {...sharing} />
+  {#if sharing}<SharingCard
+      {...sharing}
+    />{:else if privacyActions}{@render privacyActions()}{/if}
   <section class="card card-stack">
     <h2 class="section-label">Help</h2>
     <div class="account">
