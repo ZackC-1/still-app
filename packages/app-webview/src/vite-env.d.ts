@@ -13,6 +13,11 @@ interface ImportMetaEnv {
    * The value never lives in the repo; absent → the review branch is unreachable (fail closed)
    * and every address gets normal OTP. Extension builds must never set this. */
   readonly VITE_REVIEW_SIGNIN_EMAIL?: string;
+  /** Developer opt-in for the D04 settings screen over committed (atomic) App Group settings.
+   * Only the exact value "true" in a build WITHOUT Supabase configuration selects it, and only
+   * inside the native host. Converting the App Group record is one-way; never set this for a
+   * store build. Absent → the legacy settings screen, byte-for-byte as before. */
+  readonly VITE_APPLE_ATOMIC_SETTINGS?: string;
 }
 interface ImportMeta {
   readonly env: ImportMetaEnv;
