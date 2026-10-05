@@ -43,6 +43,42 @@
             "ytm-app ytm-rich-item-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"])",
             "ytm-app ytm-shorts-lockup-view-model"
           ]
+        },
+        {
+          "id": "youtube-related-videos",
+          "feature": "youtube.related",
+          "action": "hide",
+          "selectors": [
+            "ytd-watch-next-secondary-results-renderer",
+            "ytm-item-section-renderer[section-identifier=\"related-items\"]"
+          ]
+        },
+        {
+          "id": "youtube-end-of-video",
+          "feature": "youtube.endscreen",
+          "action": "hide",
+          "selectors": [
+            ".ytp-ce-element",
+            ".ytp-endscreen-content"
+          ]
+        },
+        {
+          "id": "youtube-comments",
+          "feature": "youtube.comments",
+          "action": "hide",
+          "selectors": [
+            "ytd-comments",
+            "ytd-engagement-panel-section-list-renderer[target-id=\"engagement-panel-comments-section\"]"
+          ]
+        },
+        {
+          "id": "youtube-live-chat",
+          "feature": "youtube.livechat",
+          "action": "hide",
+          "selectors": [
+            "ytd-live-chat-frame",
+            "ytd-engagement-panel-section-list-renderer[target-id=\"engagement-panel-live-chat-replay\"]"
+          ]
         }
       ]
     },
@@ -160,6 +196,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "4548051b8185372272f7ae1481886d20f8207cafb46c6acdff5f2241610491570daf0d5a35f7d353c2a2985f0e9fcbd8467fc7bf96fed1b4aa7d74651313b50e"
+    "value": "705a1dc76b834026da6516e9735851f4ae13d3b661b724d86aa65e7b4af51f2934a769040f4b152cc8eea4c28e7938d57dbb18273b31c5eecac4bcc860700c0e"
   }
 }

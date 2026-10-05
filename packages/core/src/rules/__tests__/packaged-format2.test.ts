@@ -71,6 +71,12 @@ describe("packaged format-2 rule set", () => {
     for (const id of features) expect(PACKAGED_FREE_FEATURES.includes(id as never) || implemented.has(id as never), id).toBe(true);
     // A Pro surface is packaged only together with its implementation; the rest stay out.
     for (const id of pro) if (!implemented.has(id)) expect(features, id).not.toContain(id);
+    // Packaged Pro data exists exactly for the implemented extras (dormant while paid is off).
+    expect(new Set(features.filter((id) => (pro as readonly string[]).includes(id)))).toEqual(implemented);
+    expect([...implemented].sort()).toEqual([
+      "instagram.explore", "instagram.stories", "instagram.suggested", "instagram.threads",
+      "youtube.comments", "youtube.endscreen", "youtube.livechat", "youtube.related",
+    ]);
   });
 
   it("is admitted by the format-2 contract and carries a valid dev signature over its exact payload", async () => {
