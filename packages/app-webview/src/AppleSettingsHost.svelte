@@ -1,21 +1,21 @@
 <script lang="ts">
   // D04 Apple settings host: prop plumbing only. Every rule lives in @still/core's tested
   // apple-settings-host module and the existing committed popup view binding. The entry reaches
-  // this file only through a dynamic import that configured builds fold away, so AppleSettings and
-  // its global stylesheet exist only in bundles that can select this screen. The leaf is imported
-  // by file path (as the Chromium popup imports DesktopPopup), through this package's dependency
-  // link so the app-webview `rootDir` check treats core as a dependency, not as local source.
+  // this file only through a dynamic import that default builds fold away, so AppleSettings and
+  // its global stylesheet exist only in bundles that opt in. The leaf is imported by file path
+  // (as the Chromium popup imports DesktopPopup), through this package's dependency link so the
+  // app-webview `rootDir` check treats core as a dependency, not as local source.
   import AppleSettings from "../node_modules/@still/core/src/ui/v3/AppleSettings.svelte";
   import SettingsSwitch from "../node_modules/@still/core/src/ui/v3/Toggle.svelte";
   import {
     STRINGS,
     SignInSheet,
     createPopupViewBinding,
-    appleSettingsSync,
+    createAppleSettingsSync,
     appleSettingsRestore,
     watchAppleSetup,
+    type AppleSettingsAuthority,
     type AppleSettingsProps,
-    type CommittedPopupBinding,
     type CommittedPopupToggle,
     type UiController,
   } from "@still/core/ui";
@@ -23,55 +23,60 @@
 
   interface Props {
     controller: UiController;
-    binding: CommittedPopupBinding;
-    platform: AppleSettingsProps["platform"];
-    /** Setup card from the composition-time native observation (macOS "disabled" only). */
-    initialSetup: AppleSettingsProps["setup"];
-    /** Re-read on return to the foreground (NativeBridge.observeSafariSetup). */
+    /** Committed binding, access and recovery over the entry's one cache; stopped on unmount. */
+    authority: AppleSettingsAuthority;
+    /** Native setup observation (NativeBridge.observeSafariSetup), bounded in core. */
     observeSetup: NativeBridge["observeSafariSetup"];
     help: AppleSettingsProps["help"];
-    /** The shared cache's first native read (SettingsCache.whenHydrated). */
-    settingsRead: Promise<unknown>;
     onCommittedToggle?: (toggle: CommittedPopupToggle) => void;
   }
   let {
     controller: c,
-    binding,
-    platform,
-    initialSetup,
+    authority,
     observeSetup,
     help,
-    settingsRead,
     onCommittedToggle,
   }: Props = $props();
 
   const view = createPopupViewBinding(
-    () => binding,
+    () => authority.binding,
     (toggle) => onCommittedToggle?.(toggle),
   );
-  let sync = $derived(appleSettingsSync(c));
-  let restore = $derived(appleSettingsRestore(c));
-  let setup = $state.raw<AppleSettingsProps["setup"]>(undefined);
-  $effect.pre(() => {
-    setup = initialSetup;
+  $effect(() => {
+    const current = authority;
+    return () => current.stop();
   });
+  const syncFor = createAppleSettingsSync();
+  let sync = $derived(syncFor(c));
+  let restore = $derived(appleSettingsRestore(c));
+  // Platform starts as the narrower iOS inventory and follows any later successful observation.
+  let platform = $state<AppleSettingsProps["platform"]>("ios");
+  let setup = $state.raw<AppleSettingsProps["setup"]>(undefined);
   $effect(() =>
     watchAppleSetup(observeSetup, (next) => {
-      setup = next;
+      setup = next.setup;
+      if (next.platform) platform = next.platform;
     }),
   );
   // Until the first native read settles, a hold is "checking", not "unavailable".
   let reading = $state(true);
+  let recovering = $state(false);
   $effect(() => {
     let live = true;
-    const settled = () => {
+    void authority.settled.then(() => {
       if (live) reading = false;
-    };
-    settingsRead.then(settled, settled);
+    });
     return () => {
       live = false;
     };
   });
+  function retry(): void {
+    if (recovering) return;
+    recovering = true;
+    void authority.recover().finally(() => {
+      recovering = false;
+    });
+  }
 </script>
 
 <!-- The existing Apple usage-sharing control and copy, driven by the native analytics consent
@@ -99,7 +104,10 @@
     <section class="card card-stack">
       <div class="sync-row">
         <div class="sync-row-text">
-          <span class="row-title" id="usage-sharing-title"
+          <span
+            class="row-title"
+            id="usage-sharing-title"
+            style="font-size:calc(15px * var(--text-scale, 1));font-weight:600;"
             >{STRINGS.usage.title}</span
           ><span class="muted sync-row-sub" id="usage-sharing-body"
             >{STRINGS.usage.body}</span
@@ -122,8 +130,8 @@
     <button
       type="button"
       class="secondary block"
-      disabled={view.recovering}
-      onclick={view.recoverSettings}>Try again</button
+      disabled={recovering}
+      onclick={retry}>Try again</button
     >
   {/if}
 {/snippet}

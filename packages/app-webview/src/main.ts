@@ -7,9 +7,6 @@ import {
   UiController,
   appleSettingsCacheOptions,
   appleSettingsHelp,
-  appleSettingsPlatform,
-  appleSettingsSetup,
-  observeAppleSetup,
   appleSettingsToggleReporter,
   createAppleSettingsAuthority,
   openExternalLink,
@@ -37,28 +34,34 @@ import {
 // (StoreKit/RevenueCat) keyed to the Supabase UUID (KTD5); the UI gates on the Supabase
 // entitlement surfaced through SyncService.
 
-// D04 settings (committed atomic authority) is selected only by the tested core rule, and only
-// for unconfigured builds running inside the native host. The inline build-time check below can
-// only narrow to the legacy screen: Vite inlines both env values, so a configured build folds this
-// to "legacy" and drops the D04 module and its global stylesheet from the single-file bundle.
-const appleSettingsMode: AppleSettingsMode = !(
-  import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY
-)
-  ? selectAppleSettingsMode({
-      supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
-      supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-      nativePort: new NativeBridge().available,
-    })
-  : "legacy";
+// D04 settings (committed atomic authority) is an explicit developer opt-in: only a build with
+// VITE_APPLE_ATOMIC_SETTINGS=true and no Supabase configuration can select it, and the tested core
+// rule then also requires the native port. The inline build-time check can only narrow to the
+// legacy screen: Vite inlines these env values, so every default build (configured or not) folds
+// this to "legacy" and drops the D04 module and its global stylesheet from the single-file bundle.
+const appleSettingsMode: AppleSettingsMode =
+  import.meta.env.VITE_APPLE_ATOMIC_SETTINGS === "true" &&
+  !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
+    ? selectAppleSettingsMode({
+        atomicSettingsFlag: import.meta.env.VITE_APPLE_ATOMIC_SETTINGS,
+        supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
+        supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+        nativePort: new NativeBridge().available,
+      })
+    : "legacy";
 
 // The ONE settings cache and writer. Atomic mode initializes the App Group record through native
-// with unknown ownership; the legacy screen keeps exactly the construction it always had.
-const cache =
-  appleSettingsMode === "atomic"
-    ? new SettingsCache(new WKWebViewStorageAdapter(), appleSettingsCacheOptions(appleSettingsMode))
-    : new SettingsCache(new WKWebViewStorageAdapter());
+// with unknown ownership (a one-way conversion, accepted for opted-in developer builds only); the
+// legacy screen keeps exactly the construction it always had.
+const appleSettingsAdapter =
+  appleSettingsMode === "atomic" ? new WKWebViewStorageAdapter() : undefined;
+const cache = appleSettingsAdapter
+  ? new SettingsCache(appleSettingsAdapter, appleSettingsCacheOptions(appleSettingsMode))
+  : new SettingsCache(new WKWebViewStorageAdapter());
 cache.watch();
-void cache.hydrate();
+// A failed atomic initialization is a held state the screen shows and can retry; never unhandled.
+if (appleSettingsAdapter) void cache.hydrate().catch(() => {});
+else void cache.hydrate();
 
 const bridge = new NativeBridge();
 
@@ -252,7 +255,7 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") void analytics.recheckSetup();
 });
 
-if (appleSettingsMode === "atomic") void mountAppleSettings();
+if (appleSettingsAdapter) void mountAppleSettings(appleSettingsAdapter);
 else
   mount(App, {
     target: document.getElementById("app")!,
@@ -264,24 +267,22 @@ else
     },
   });
 
-/** D04 over the same cache: committed binding + read-only native access, mounted once. */
-async function mountAppleSettings(): Promise<void> {
-  const [{ default: AppleSettingsHost }, setup] = await Promise.all([
-    import("./AppleSettingsHost.svelte"),
-    observeAppleSetup(() => bridge.observeSafariSetup()),
-  ]);
-  const authority = createAppleSettingsAuthority(cache, bridge);
+/** D04 over the same cache: committed binding + read-only native access, mounted at once. */
+async function mountAppleSettings(adapter: WKWebViewStorageAdapter): Promise<void> {
+  const { default: AppleSettingsHost } = await import("./AppleSettingsHost.svelte");
+  const authority = createAppleSettingsAuthority(cache, {
+    native: bridge,
+    initializer: adapter,
+    hydration: cache.whenHydrated(),
+  });
   try {
     mount(AppleSettingsHost, {
       target: document.getElementById("app")!,
       props: {
         controller,
-        binding: authority.binding,
-        platform: appleSettingsPlatform(setup),
-        initialSetup: appleSettingsSetup(setup),
+        authority,
         observeSetup: () => bridge.observeSafariSetup(),
         help: appleSettingsHelp((url) => openExternalLink(url)),
-        settingsRead: cache.whenHydrated(),
         onCommittedToggle: appleSettingsToggleReporter(analytics.ui),
       },
     });

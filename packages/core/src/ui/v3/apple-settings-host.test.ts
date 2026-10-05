@@ -1,19 +1,25 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/svelte";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
+import { execFile, spawn } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-import type { Component } from "svelte";
+import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
+import { createInterface } from "node:readline";
+import { promisify } from "node:util";
+import { flushSync, type Component } from "svelte";
 import type { SafariSetupObservation } from "../../native/bridge.js";
 import { DEFAULT_SETTINGS, type StillSettings } from "@still/shared-types";
 import { AtomicSettingsWriter, requireModernSettings } from "../../storage/atomic-settings.js";
 import { InMemoryStorageAdapter } from "../../storage/adapter.js";
 import { SettingsCache } from "../../storage/cache.js";
+import { parseStoredSettingsRecord } from "../../storage/settings-validation.js";
 import { WKWebViewStorageAdapter, type StillBridgeWindow } from "../../storage/wkwebview-adapter.js";
 import { NativeBridge } from "../../native/bridge.js";
 import { UiController, type UiAnalytics } from "../controller.svelte.js";
 import { STRINGS } from "../strings.js";
-import { PRIVACY_POLICY_URL } from "../config.js";
+import { PRIVACY_POLICY_URL, SETUP_GUIDE_URL } from "../config.js";
 import { createDesktopPopupBinding } from "./desktop-popup-binding.js";
 import { EntitlementCache } from "../../entitlement/cache.js";
 import {
@@ -22,7 +28,7 @@ import {
   appleSettingsPlatform,
   appleSettingsRestore,
   appleSettingsSetup,
-  appleSettingsSync,
+  createAppleSettingsSync,
   APPLE_SETUP_OBSERVATION_DEADLINE_MS,
   observeAppleSetup,
   watchAppleSetup,
@@ -44,35 +50,118 @@ async function loadHost(): Promise<Component<Record<string, unknown>>> {
 }
 
 type NativeMessage = { kind: string; command?: string; path?: string; value?: boolean; updatedAt?: number };
+/** One App Group authority behind the WK settings message shapes. */
+interface SettingsBackend {
+  readonly name: string;
+  post(message: NativeMessage): Promise<unknown>;
+  read(): Promise<ReturnType<typeof parseStoredSettingsRecord>>;
+  close(): Promise<void>;
+}
 
-/** A fake App Group host: the existing atomic writer behind the WK message shapes. */
-function fakeNative(seed: StillSettings = DEFAULT_SETTINGS, options: { fail?: string[]; initialized?: Promise<void> } = {}) {
+// A user who already saved choices (YouTube Off). Native fresh-install initialization (absent or
+// updatedAt 0) is being repaired separately in StillKit; these tests use an actual saved record.
+const SAVED: StillSettings = { ...DEFAULT_SETTINGS, updatedAt: 21, services: { ...DEFAULT_SETTINGS.services, youtube: false } };
+
+async function tsBackend(seed: StillSettings): Promise<SettingsBackend> {
   const storage = new InMemoryStorageAdapter(seed);
   const writer = new AtomicSettingsWriter(storage);
-  const fail = new Set<string>(options.fail);
+  return {
+    name: "TS writer",
+    async post(message) {
+      switch (message.kind) {
+        case "get":
+          return (await storage.get()) ?? "";
+        case "settingsAtomic": {
+          const command = JSON.parse(message.command!) as { action: string; ownership?: "unknown" };
+          return command.action === "initialize" ? writer.initialize(command.ownership!) : null;
+        }
+        case "settingsIntent": {
+          const committed = await writer.commit({ path: message.path as never, value: message.value!, updatedAt: message.updatedAt! });
+          const { intentCommitted, ...record } = committed as typeof committed & { intentCommitted?: boolean };
+          return { changed: intentCommitted === true, record };
+        }
+        default:
+          return null;
+      }
+    },
+    read: async () => storage.get(),
+    close: async () => {},
+  };
+}
+
+// The compiled StillKit host used by storage/__tests__/atomic-settings.test.ts. CI runs on Linux,
+// so the TS writer keeps every case covered there; on macOS the same cases also run on Swift.
+const swift = { temporary: "", binary: "", count: 0 };
+const darwin = process.platform === "darwin";
+// Compile the host component once up front so the first rendering test is not timed on it.
+beforeAll(async () => {
+  await loadHost();
+}, 60_000);
+beforeAll(async () => {
+  if (!darwin) return;
+  swift.temporary = await mkdtemp(join(tmpdir(), "still-apple-host-native-"));
+  swift.binary = join(swift.temporary, "writer");
+  const root = resolve(import.meta.dirname, "../../../../..");
+  await copyFile(resolve(import.meta.dirname, "../../storage/__tests__/support/atomic-settings-main.swift"), join(swift.temporary, "main.swift"));
+  await promisify(execFile)("swiftc", [
+    ...["StillSettings", "SharedSettingsStore", "SettingsBridge", "SettingsV2", "SettingsFieldOrder", "PackagedFeatureRegistry", "AtomicSettingsBacking", "AtomicSettingsRecord"]
+      .map((name) => join(root, "apps/apple/StillKit/Sources/StillKit", `${name}.swift`)),
+    join(swift.temporary, "main.swift"), "-module-cache-path", join(swift.temporary, "modules"), "-o", swift.binary,
+  ]);
+}, 120_000);
+afterAll(async () => {
+  if (swift.temporary) await rm(swift.temporary, { recursive: true, force: true });
+});
+
+async function swiftBackend(seed: StillSettings): Promise<SettingsBackend> {
+  const child = spawn(swift.binary, [join(swift.temporary, `host-${++swift.count}`)], { stdio: ["pipe", "pipe", "pipe"] });
+  const queue: { resolve: (value: string) => void; reject: (e: Error) => void }[] = [];
+  const lines = createInterface({ input: child.stdout });
+  lines.on("line", (value) => queue.shift()?.resolve(value));
+  child.on("exit", () => queue.splice(0).forEach((p) => p.reject(new Error("native exited"))));
+  const raw = (message: unknown) => new Promise<string>((resolveReply, reject) => {
+    queue.push({ resolve: resolveReply, reject });
+    child.stdin.write((typeof message === "string" ? message : JSON.stringify(message)) + "\n");
+  });
+  await raw("replace:" + JSON.stringify({ settings: seed, syncMetadata: null }));
+  const settingsKinds = ["get", "set", "settingsAtomic", "settingsIntent"];
+  return {
+    name: "compiled Swift",
+    post: (message) => (settingsKinds.includes(message.kind) ? raw(message) : Promise.resolve(null)),
+    read: async () => parseStoredSettingsRecord(await raw({ kind: "get" })),
+    async close() {
+      lines.close();
+      if (child.exitCode === null && child.signalCode === null) {
+        child.kill("SIGKILL");
+        await new Promise((r) => child.once("exit", r));
+      }
+    },
+  };
+}
+
+const BACKENDS: readonly (readonly [string, (seed: StillSettings) => Promise<SettingsBackend>])[] = [
+  ["TS writer", tsBackend],
+  ...(darwin ? [["compiled Swift", swiftBackend] as const] : []),
+];
+
+/** The WK port in front of a backend, with transport faults and an initialization gate. */
+function port(backend: SettingsBackend, options: { failOnce?: string[]; initialized?: Promise<void> } = {}) {
+  const failOnce = [...(options.failOnce ?? [])];
+  const fail = new Set<string>();
   const messages: NativeMessage[] = [];
   const postMessage = vi.fn(async (message: NativeMessage): Promise<unknown> => {
     messages.push(message);
-    if (fail.has(message.kind)) return null;
-    switch (message.kind) {
-      case "get":
-        return (await storage.get()) ?? "";
-      case "settingsAtomic": {
-        await options.initialized;
-        const command = JSON.parse(message.command!) as { action: string; ownership?: "unknown" };
-        return command.action === "initialize" ? writer.initialize(command.ownership!) : null;
-      }
-      case "settingsIntent": {
-        const committed = await writer.commit({ path: message.path as never, value: message.value!, updatedAt: message.updatedAt! });
-        const { intentCommitted, ...record } = committed as typeof committed & { intentCommitted?: boolean };
-        return { changed: intentCommitted === true, record };
-      }
-      default:
-        return null;
+    if (message.kind === "settingsAtomic") await options.initialized;
+    const once = failOnce.indexOf(message.kind);
+    if (once >= 0) {
+      failOnce.splice(once, 1);
+      return null;
     }
+    if (fail.has(message.kind)) return null;
+    return backend.post(message);
   });
   const win: StillBridgeWindow = { webkit: { messageHandlers: { still: { postMessage } } } };
-  return { storage, writer, fail, messages, postMessage, win };
+  return { win, messages, fail, postMessage };
 }
 
 function analyticsDouble(enabled = true) {
@@ -87,33 +176,69 @@ function analyticsDouble(enabled = true) {
   return { analytics, setSharing };
 }
 
-async function composeAtomic(seed?: StillSettings, options?: Parameters<typeof fakeNative>[1]) {
-  const native = fakeNative(seed, options);
-  const cache = new SettingsCache(new WKWebViewStorageAdapter(native.win), appleSettingsCacheOptions("atomic"));
+const opened: SettingsBackend[] = [];
+async function composeAtomic(
+  factory: (seed: StillSettings) => Promise<SettingsBackend> = tsBackend,
+  options: Parameters<typeof port>[1] & { seed?: StillSettings } = {},
+) {
+  const backend = await factory(options.seed ?? SAVED);
+  opened.push(backend);
+  const native = port(backend, options);
+  const adapter = new WKWebViewStorageAdapter(native.win);
+  const cache = new SettingsCache(adapter, appleSettingsCacheOptions("atomic"));
   cache.watch();
-  const bridge = new NativeBridge(native.win);
-  const authority = createAppleSettingsAuthority(cache, bridge);
+  const hydrated = cache.hydrate();
+  hydrated.catch(() => {});
+  const authority = createAppleSettingsAuthority(cache, {
+    native: new NativeBridge(native.win),
+    initializer: adapter,
+    hydration: cache.whenHydrated(),
+  });
   const { analytics, setSharing } = analyticsDouble();
   const controller = new UiController({ cache, host: { canPurchase: true }, analytics });
-  return { native, cache, authority, controller, setSharing, hydrated: cache.hydrate() };
+  return { backend, native, adapter, cache, authority, controller, setSharing, hydrated };
 }
 
-afterEach(() => {
+async function renderHost(f: Awaited<ReturnType<typeof composeAtomic>>, overrides: Record<string, unknown> = {}) {
+  const Host = await loadHost();
+  const open = vi.fn();
+  const report = vi.fn();
+  const view = render(Host, {
+    props: {
+      controller: f.controller,
+      authority: f.authority,
+      observeSetup: async () => null,
+      help: appleSettingsHelp(open),
+      onCommittedToggle: report,
+      ...overrides,
+    },
+  });
+  return { view, open, report };
+}
+
+afterEach(async () => {
   cleanup();
   vi.restoreAllMocks();
+  await Promise.all(opened.splice(0).map((backend) => backend.close()));
 });
 
 describe("Apple settings mode rule", () => {
   it.each([
-    [undefined, undefined, true, "atomic"],
-    ["", "", true, "atomic"],
-    ["https://still-audit.invalid", undefined, true, "atomic"],
-    [undefined, "public-audit-placeholder", true, "atomic"],
-    [undefined, undefined, false, "legacy"],
-    ["https://still-audit.invalid", "public-audit-placeholder", true, "legacy"],
-    ["https://still-audit.invalid", "public-audit-placeholder", false, "legacy"],
-  ] as const)("url=%s key=%s port=%s -> %s", (supabaseUrl, supabaseAnonKey, nativePort, mode) => {
-    expect(selectAppleSettingsMode({ supabaseUrl, supabaseAnonKey, nativePort })).toBe(mode);
+    ["true", undefined, undefined, true, "atomic"],
+    ["true", "", "", true, "atomic"],
+    ["true", "https://still-audit.invalid", undefined, true, "atomic"],
+    ["true", undefined, undefined, false, "legacy"],
+    // Missing configuration alone never selects atomic.
+    [undefined, undefined, undefined, true, "legacy"],
+    ["", undefined, undefined, true, "legacy"],
+    ["1", undefined, undefined, true, "legacy"],
+    ["TRUE", undefined, undefined, true, "legacy"],
+    ["false", undefined, undefined, true, "legacy"],
+    // Configured builds stay legacy even with the flag.
+    ["true", "https://still-audit.invalid", "public-audit-placeholder", true, "legacy"],
+    [undefined, "https://still-audit.invalid", "public-audit-placeholder", true, "legacy"],
+  ] as const)("flag=%s url=%s key=%s port=%s -> %s", (atomicSettingsFlag, supabaseUrl, supabaseAnonKey, nativePort, mode) => {
+    expect(selectAppleSettingsMode({ atomicSettingsFlag, supabaseUrl, supabaseAnonKey, nativePort })).toBe(mode);
   });
 
   it("keeps the legacy cache construction and gives atomic mode unknown ownership", () => {
@@ -121,30 +246,41 @@ describe("Apple settings mode rule", () => {
     expect(appleSettingsCacheOptions("atomic")).toEqual({ atomicOwnership: "unknown" });
   });
 
-  it("entry: inline build-time pre-filter, one dynamic host import, no Apple modern-sync opt-in", () => {
+  it("entry: inline build-time pre-filter on the flag, one dynamic host import, held hydration", () => {
     const main = readFileSync(MAIN_PATH, "utf8");
-    expect(main).toMatch(/!\(\s*import\.meta\.env\.VITE_SUPABASE_URL && import\.meta\.env\.VITE_SUPABASE_ANON_KEY\s*\)\s*\?\s*selectAppleSettingsMode\(/);
+    expect(main).toMatch(
+      /import\.meta\.env\.VITE_APPLE_ATOMIC_SETTINGS === "true" &&\s*!\(import\.meta\.env\.VITE_SUPABASE_URL && import\.meta\.env\.VITE_SUPABASE_ANON_KEY\)\s*\?\s*selectAppleSettingsMode\(/,
+    );
     expect(main).toContain('import("./AppleSettingsHost.svelte")');
     expect(main).not.toMatch(/^import[^;]*AppleSettingsHost/m);
     expect(main).not.toMatch(/AppleSettings\.svelte/);
     expect(main).not.toContain("VITE_MODERN_SETTINGS_SYNC_ENABLED");
-    // Exactly the shipped legacy construction remains on the legacy branch.
+    // The host mounts without waiting for a native setup read.
+    expect(main).not.toMatch(/await[^;]*observeSafariSetup/);
+    // Exactly the shipped legacy construction and hydration remain on the legacy branch.
     expect(main).toContain(": new SettingsCache(new WKWebViewStorageAdapter());");
+    expect(main).toContain("else void cache.hydrate();");
+    expect(main).toContain("void cache.hydrate().catch(() => {});");
     const index = readFileSync(resolve(import.meta.dirname, "../index.ts"), "utf8");
     expect(index).not.toMatch(/AppleSettings\.svelte/);
   });
 });
 
-describe("one cache and writer", () => {
+describe.each(BACKENDS)("native settings authority (%s)", (_name, factory) => {
   it("atomic hydration initializes through native with unknown ownership; legacy reads only", async () => {
-    const atomic = fakeNative();
+    const atomicBackend = await factory(SAVED);
+    opened.push(atomicBackend);
+    const atomic = port(atomicBackend);
     const cache = new SettingsCache(new WKWebViewStorageAdapter(atomic.win), appleSettingsCacheOptions("atomic"));
     await cache.hydrate();
     expect(atomic.messages.map((m) => m.kind)).toEqual(["settingsAtomic"]);
     expect(JSON.parse(atomic.messages[0]!.command!)).toEqual({ action: "initialize", ownership: "unknown" });
     expect(cache.currentRecord().atomic?.ownership).toBe("unknown");
+    expect(requireModernSettings(cache.currentRecord()).services.youtube).toBe(false);
 
-    const legacy = fakeNative();
+    const legacyBackend = await factory(SAVED);
+    opened.push(legacyBackend);
+    const legacy = port(legacyBackend);
     const legacyCache = new SettingsCache(new WKWebViewStorageAdapter(legacy.win), appleSettingsCacheOptions("legacy"));
     await legacyCache.hydrate();
     expect(legacy.messages.map((m) => m.kind)).toEqual(["get"]);
@@ -152,66 +288,25 @@ describe("one cache and writer", () => {
   });
 
   it("commands go through the same cache and port; no second adapter", async () => {
-    const f = await composeAtomic();
+    const f = await composeAtomic(factory);
     await f.hydrated;
-    const before = f.native.postMessage.mock.calls.length;
-    expect((await f.authority.binding.setService("youtube", false)).status).toBe("committed");
-    const sent = f.native.messages.slice(before);
-    expect(sent).toEqual([expect.objectContaining({ kind: "settingsIntent", path: "services.youtube", value: false })]);
-    expect(requireModernSettings((await f.native.storage.get())!).services.youtube).toBe(false);
-    expect(f.authority.binding.current().settings?.services.youtube).toBe(false);
+    const before = f.native.messages.length;
+    expect((await f.authority.binding.setService("instagram", false)).status).toBe("committed");
+    expect(f.native.messages.slice(before)).toEqual([
+      expect.objectContaining({ kind: "settingsIntent", path: "services.instagram", value: false }),
+    ]);
+    expect(requireModernSettings((await f.backend.read())!).services.instagram).toBe(false);
+    expect(f.authority.binding.current().settings?.services.instagram).toBe(false);
     f.authority.stop();
   });
-});
-
-describe("no native port", () => {
-  it("is never presented as saved defaults", async () => {
-    const empty: StillBridgeWindow = {};
-    expect(selectAppleSettingsMode({ supabaseUrl: undefined, supabaseAnonKey: undefined, nativePort: new NativeBridge(empty).available })).toBe("legacy");
-    // The legacy cache reports absence, and committed authority over it holds instead of projecting.
-    const cache = new SettingsCache(new WKWebViewStorageAdapter(empty));
-    await cache.hydrate();
-    expect(cache.legacyReadState().status).toBe("absent");
-    const binding = createDesktopPopupBinding(cache, new EntitlementCache({ get: async () => null, set: async () => {}, subscribe: () => () => {} }));
-    expect(binding.current().settings).toBeNull();
-    // Even a forced atomic cache without a port holds rather than inventing choices.
-    const forced = new SettingsCache(new WKWebViewStorageAdapter(empty), appleSettingsCacheOptions("atomic"));
-    await expect(forced.hydrate()).rejects.toMatchObject({ reason: "native-atomic-unavailable" });
-    const held = createAppleSettingsAuthority(forced, new NativeBridge(empty));
-    expect(held.binding.current().settings).toBeNull();
-    expect(held.binding.current().commandAvailability).toBe("unavailable");
-    binding.stop();
-    held.stop();
-  });
-});
-
-describe("D04 host", () => {
-  async function renderHost(f: Awaited<ReturnType<typeof composeAtomic>>, overrides: Record<string, unknown> = {}) {
-    const Host = await loadHost();
-    const open = vi.fn();
-    const report = vi.fn();
-    const view = render(Host, {
-      props: {
-        controller: f.controller,
-        binding: f.authority.binding,
-        platform: "ios",
-        initialSetup: undefined,
-        observeSetup: async () => null,
-        help: appleSettingsHelp(open),
-        settingsRead: f.cache.whenHydrated(),
-        onCommittedToggle: report,
-        ...overrides,
-      },
-    });
-    return { view, open, report };
-  }
 
   it("holds without saved choices until committed authority arrives, then shows saved Off as saved", async () => {
     let initialize!: () => void;
-    const initialized = new Promise<void>((r) => { initialize = r; });
-    const f = await composeAtomic({ ...DEFAULT_SETTINGS, updatedAt: 21, services: { ...DEFAULT_SETTINGS.services, youtube: false } }, { initialized });
+    const initialized = new Promise<void>((r) => {
+      initialize = r;
+    });
+    const f = await composeAtomic(factory, { initialized });
     await renderHost(f);
-    // Before native initialization: no switches, no hero, no defaults.
     expect(screen.queryByRole("switch", { name: "Still" })).toBeNull();
     expect(screen.queryByText("Still is active")).toBeNull();
     expect(screen.getByRole("status")).toHaveTextContent(STRINGS.sync.checking);
@@ -224,18 +319,18 @@ describe("D04 host", () => {
   });
 
   it("commits toggles through the binding and reports only committed toggles", async () => {
-    const f = await composeAtomic();
+    const f = await composeAtomic(factory);
     await f.hydrated;
     const { report } = await renderHost(f);
     await fireEvent.click(await screen.findByRole("switch", { name: "Still" }));
     await screen.findByText("Still is off");
-    expect(requireModernSettings((await f.native.storage.get())!).globalOn).toBe(false);
+    expect(requireModernSettings((await f.backend.read())!).globalOn).toBe(false);
     await waitFor(() => expect(report).toHaveBeenCalledWith({ enabled: false }));
     f.authority.stop();
   });
 
   it("leaves the displayed saved choice unchanged when native refuses a command", async () => {
-    const f = await composeAtomic();
+    const f = await composeAtomic(factory);
     await f.hydrated;
     const { report } = await renderHost(f);
     f.native.fail.add("settingsIntent");
@@ -244,18 +339,87 @@ describe("D04 host", () => {
     await new Promise((r) => setTimeout(r, 0));
     expect(screen.getByText("Still is active")).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "Still" })).toHaveAttribute("aria-checked", "true");
-    expect(requireModernSettings((await f.native.storage.get())!).globalOn).toBe(true);
+    expect(requireModernSettings((await f.backend.read())!).globalOn).toBe(true);
     expect(report).not.toHaveBeenCalled();
     f.authority.stop();
   });
 
-  it("shows an unavailable hold with retry when native initialization fails", async () => {
-    const f = await composeAtomic(undefined, { fail: ["settingsAtomic"] });
+  it("after failed initialization, Try again initializes again through the same writer, then shows saved choices", async () => {
+    const f = await composeAtomic(factory, { failOnce: ["settingsAtomic"] });
     await expect(f.hydrated).rejects.toMatchObject({ reason: "native-atomic-unavailable" });
     await renderHost(f);
     expect(await screen.findByText("Settings are unavailable.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled();
     expect(screen.queryByRole("switch", { name: "Still" })).toBeNull();
+    const before = f.native.messages.length;
+    await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await screen.findByText("Still is active");
+    const retried = f.native.messages.slice(before);
+    expect(retried[0]).toMatchObject({ kind: "settingsAtomic" });
+    expect(JSON.parse(retried[0]!.command!)).toEqual({ action: "initialize", ownership: "unknown" });
+    expect(retried.some((m) => m.kind === "get")).toBe(true);
+    await fireEvent.click(screen.getByRole("button", { name: "YouTube Blocker" }));
+    expect(screen.getByRole("switch", { name: "Still on YouTube" })).toHaveAttribute("aria-checked", "false");
+    // Commands now work through the same cache.
+    await fireEvent.click(screen.getByRole("switch", { name: "Still" }));
+    await screen.findByText("Still is off");
+    expect(requireModernSettings((await f.backend.read())!).globalOn).toBe(false);
+    f.authority.stop();
+  });
+
+  it("a retry that fails again keeps the hold and never presents defaults", async () => {
+    const f = await composeAtomic(factory, { failOnce: ["settingsAtomic"] });
+    await expect(f.hydrated).rejects.toBeTruthy();
+    f.native.fail.add("settingsAtomic");
+    await renderHost(f);
+    await fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Try again" })).toBeEnabled());
+    expect(screen.getByText("Settings are unavailable.")).toBeInTheDocument();
+    expect(screen.queryByRole("switch", { name: "Still" })).toBeNull();
+    expect(screen.queryByText("Still is active")).toBeNull();
+    f.authority.stop();
+  });
+});
+
+describe("no native port", () => {
+  it("is never presented as saved defaults", async () => {
+    const empty: StillBridgeWindow = {};
+    expect(selectAppleSettingsMode({ atomicSettingsFlag: "true", supabaseUrl: undefined, supabaseAnonKey: undefined, nativePort: new NativeBridge(empty).available })).toBe("legacy");
+    const cache = new SettingsCache(new WKWebViewStorageAdapter(empty));
+    await cache.hydrate();
+    expect(cache.legacyReadState().status).toBe("absent");
+    const binding = createDesktopPopupBinding(cache, new EntitlementCache({ get: async () => null, set: async () => {}, subscribe: () => () => {} }));
+    expect(binding.current().settings).toBeNull();
+    // Even a forced atomic cache without a port holds rather than inventing choices.
+    const adapter = new WKWebViewStorageAdapter(empty);
+    const forced = new SettingsCache(adapter, appleSettingsCacheOptions("atomic"));
+    await expect(forced.hydrate()).rejects.toMatchObject({ reason: "native-atomic-unavailable" });
+    const held = createAppleSettingsAuthority(forced, { native: new NativeBridge(empty), initializer: adapter, hydration: forced.whenHydrated() });
+    await held.recover();
+    expect(held.binding.current().settings).toBeNull();
+    expect(held.binding.current().commandAvailability).toBe("unavailable");
+    binding.stop();
+    held.stop();
+  });
+});
+
+describe("D04 host", () => {
+  it("mounts at once without waiting for the native setup read", async () => {
+    const f = await composeAtomic();
+    await f.hydrated;
+    await renderHost(f, { observeSetup: () => new Promise<SafariSetupObservation | null>(() => {}) });
+    expect(await screen.findByText("Still is active")).toBeInTheDocument();
+    f.authority.stop();
+  });
+
+  it("follows a later successful setup read for the Mac inventory", async () => {
+    const f = await composeAtomic();
+    await f.hydrated;
+    const reads: (SafariSetupObservation | null)[] = [null, { ...MAC, extensionStatus: "enabled" }];
+    await renderHost(f, { observeSetup: async () => reads.shift() ?? null });
+    await fireEvent.click(await screen.findByRole("button", { name: "Facebook Blocker" }));
+    expect(screen.queryByText("Desktop sidebar ads")).toBeNull();
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(await screen.findByText("Desktop sidebar ads")).toBeInTheDocument();
     f.authority.stop();
   });
 
@@ -279,6 +443,9 @@ describe("D04 host", () => {
     await renderHost(f);
     const usage = await screen.findByRole("switch", { name: STRINGS.usage.title });
     expect(usage).toHaveAttribute("aria-checked", "true");
+    const title = document.getElementById("usage-sharing-title")!;
+    expect(title).toHaveClass("row-title");
+    expect(title.getAttribute("style")).toBe("font-size:calc(15px * var(--text-scale, 1));font-weight:600;");
     expect(screen.queryByText("Share email and usage data")).toBeNull();
     expect(screen.queryByText(/Share your email and usage data/)).toBeNull();
     await fireEvent.click(usage);
@@ -287,13 +454,14 @@ describe("D04 host", () => {
     f.authority.stop();
   });
 
-  it("offers privacy through the shipped URL and leaves guide and support unsupplied", async () => {
+  it("help: setup guide and privacy open the shipped pages; support stays unsupplied", async () => {
     const f = await composeAtomic();
     await f.hydrated;
     const { open } = await renderHost(f);
-    await fireEvent.click(await screen.findByRole("button", { name: "Privacy policy" }));
-    expect(open).toHaveBeenCalledWith(PRIVACY_POLICY_URL);
-    expect(screen.getByRole("button", { name: "Setup guide" })).toBeDisabled();
+    await fireEvent.click(await screen.findByRole("button", { name: "Setup guide" }));
+    await fireEvent.click(screen.getByRole("button", { name: "Privacy policy" }));
+    expect(open.mock.calls).toEqual([[SETUP_GUIDE_URL], [PRIVACY_POLICY_URL]]);
+    expect(SETUP_GUIDE_URL).toBe("https://stillapp.fit/setup/");
     expect(screen.getByRole("button", { name: "Contact support" })).toBeDisabled();
     f.authority.stop();
   });
@@ -321,25 +489,64 @@ describe("D04 host", () => {
     f.authority.stop();
   });
 
-  it("shows the approved Mac setup card only while native observes the extension off", async () => {
+  async function signedIn() {
     const f = await composeAtomic();
     await f.hydrated;
-    let next: SafariSetupObservation | null = { ...MAC, extensionStatus: "disabled" };
-    await renderHost(f, {
-      platform: "mac",
-      initialSetup: appleSettingsSetup(next),
-      observeSetup: async () => next,
+    const controller = new UiController({
+      cache: f.cache,
+      host: { canPurchase: true },
+      auth: { requestCode: vi.fn(), verifyCode: vi.fn(), signOut: vi.fn(), deleteAccount: vi.fn() } as never,
     });
-    expect(await screen.findByRole("heading", { name: "Turn on Still in Safari" })).toBeInTheDocument();
-    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual(expect.arrayContaining(MAC_STEPS));
-    expect(screen.getByRole("button", { name: "Open Safari Settings" })).toBeDisabled();
-    next = { ...MAC, extensionStatus: "enabled" };
-    document.dispatchEvent(new Event("visibilitychange"));
-    await waitFor(() => expect(screen.queryByRole("heading", { name: "Turn on Still in Safari" })).toBeNull());
+    controller.userId = "user-1";
+    controller.accountEmail = "person@example.com";
+    const confirm = vi.spyOn(controller, "confirmDeleteAccount").mockResolvedValue();
+    await renderHost(f, { controller });
+    await fireEvent.click(await screen.findByRole("button", { name: "Delete account" }));
+    const dialog = await screen.findByRole("dialog");
+    return { f, controller, confirm, dialog };
+  }
+
+  it("an open delete confirmation survives routine sync-status changes", async () => {
+    const { f, controller, confirm, dialog } = await signedIn();
+    controller.pendingUpload = true;
+    flushSync();
+    controller.pendingUpload = false;
+    controller.lastSyncedAt = 5;
+    flushSync();
+    controller.cloudReachable = false;
+    flushSync();
+    await fireEvent.click(within(dialog).getByRole("button", { name: "Delete account" }));
+    expect(confirm).toHaveBeenCalledOnce();
     f.authority.stop();
   });
 
-  it("stops the binding and releases its listeners when the host unmounts", async () => {
+  it("a sign-out and sign-in to the same account (new revision) still invalidates the confirmation", async () => {
+    const { f, controller, confirm } = await signedIn();
+    controller.userId = null;
+    controller.accountRevision += 1;
+    flushSync();
+    controller.userId = "user-1";
+    controller.accountRevision += 1;
+    flushSync();
+    const dialog = screen.queryByRole("dialog");
+    if (dialog) {
+      const button = within(dialog).queryByRole("button", { name: "Delete account" });
+      if (button) await fireEvent.click(button);
+    }
+    expect(confirm).not.toHaveBeenCalled();
+    f.authority.stop();
+  });
+
+  it("stops the binding, releases its listeners and the access watch when the host unmounts", async () => {
+    const watch = EntitlementCache.prototype.watch;
+    const unwatched = vi.fn();
+    vi.spyOn(EntitlementCache.prototype, "watch").mockImplementation(function (this: EntitlementCache) {
+      const release = watch.call(this);
+      return () => {
+        unwatched();
+        release();
+      };
+    });
     const f = await composeAtomic();
     await f.hydrated;
     const stop = vi.spyOn(f.authority.binding, "stop");
@@ -355,14 +562,14 @@ describe("D04 host", () => {
     const { view } = await renderHost(f);
     await screen.findByText("Still is active");
     view.unmount();
-    expect(stop).toHaveBeenCalledTimes(1);
+    expect(stop).toHaveBeenCalled();
     expect(released).toHaveBeenCalledTimes(1);
+    expect(unwatched).toHaveBeenCalledTimes(1);
     expect(f.authority.binding.current().reason).toBe("stopped");
-    // A later saved change cannot reach a stopped view; the shared cache keeps working.
     const before = f.native.messages.length;
     expect((await f.authority.binding.setGlobalOn(false)).status).toBe("unavailable");
+    await f.authority.recover();
     expect(f.native.messages.length).toBe(before);
-    f.authority.stop();
   });
 });
 
@@ -405,30 +612,64 @@ describe("Safari setup card", () => {
     }
   });
 
-  it("re-observes on return to the foreground, latest read wins, and stops cleanly", async () => {
+  it("attaches the foreground listener before the first read", async () => {
+    const order: string[] = [];
+    const add = vi.spyOn(document, "addEventListener").mockImplementation(function (this: Document, ...args: Parameters<Document["addEventListener"]>) {
+      if (args[0] === "visibilitychange") order.push("listen");
+      return EventTarget.prototype.addEventListener.apply(this, args);
+    });
+    const stop = watchAppleSetup(async () => {
+      order.push("read");
+      return null;
+    }, vi.fn());
+    expect(order).toEqual(["listen"]);
+    await vi.waitFor(() => expect(order).toEqual(["listen", "read"]));
+    stop();
+    add.mockRestore();
+  });
+
+  it("reads at once and on return to the foreground, latest read wins, keeps platform on a blank read, and stops cleanly", async () => {
     const replies: Array<(value: SafariSetupObservation | null) => void> = [];
     const read = vi.fn(() => new Promise<SafariSetupObservation | null>((r) => replies.push(r)));
     const publish = vi.fn();
     const stop = watchAppleSetup(read, publish, document, 60_000);
-    expect(read).not.toHaveBeenCalled();
-    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(1));
     document.dispatchEvent(new Event("visibilitychange"));
     await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2));
-    replies[1]!({ ...MAC, extensionStatus: "enabled" });
-    replies[0]!({ ...MAC, extensionStatus: "disabled" });
+    replies[1]!({ ...MAC, extensionStatus: "disabled" });
+    replies[0]!({ ...MAC, extensionStatus: "enabled" });
     await vi.waitFor(() => expect(publish).toHaveBeenCalledTimes(1));
     await new Promise((r) => setTimeout(r, 0));
     expect(publish).toHaveBeenCalledTimes(1);
-    expect(publish).toHaveBeenCalledWith(undefined);
+    expect(publish).toHaveBeenLastCalledWith({ setup: appleSettingsSetup({ ...MAC, extensionStatus: "disabled" }), platform: "mac" });
     document.dispatchEvent(new Event("visibilitychange"));
     await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(3));
+    replies[2]!(null);
+    await vi.waitFor(() => expect(publish).toHaveBeenCalledTimes(2));
+    expect(publish).toHaveBeenLastCalledWith({ setup: undefined, platform: null });
+    document.dispatchEvent(new Event("visibilitychange"));
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(4));
     stop();
-    replies[2]!({ ...MAC, extensionStatus: "disabled" });
+    replies[3]!({ ...MAC, extensionStatus: "disabled" });
     await new Promise((r) => setTimeout(r, 0));
     document.dispatchEvent(new Event("visibilitychange"));
     await new Promise((r) => setTimeout(r, 0));
-    expect(read).toHaveBeenCalledTimes(3);
-    expect(publish).toHaveBeenCalledTimes(1);
+    expect(read).toHaveBeenCalledTimes(4);
+    expect(publish).toHaveBeenCalledTimes(2);
+  });
+
+  it("shows the approved Mac setup card only while native observes the extension off", async () => {
+    const f = await composeAtomic();
+    await f.hydrated;
+    let next: SafariSetupObservation | null = { ...MAC, extensionStatus: "disabled" };
+    await renderHost(f, { observeSetup: async () => next });
+    expect(await screen.findByRole("heading", { name: "Turn on Still in Safari" })).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem").map((item) => item.textContent)).toEqual(expect.arrayContaining(MAC_STEPS));
+    expect(screen.getByRole("button", { name: "Open Safari Settings" })).toBeDisabled();
+    next = { ...MAC, extensionStatus: "enabled" };
+    document.dispatchEvent(new Event("visibilitychange"));
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Turn on Still in Safari" })).toBeNull());
+    f.authority.stop();
   });
 });
 
@@ -453,49 +694,71 @@ describe("account, restore, help and telemetry mapping", () => {
   }
 
   it("signed out: sign-in only when a code path exists", () => {
-    expect(appleSettingsSync(source()).onSignIn).toBeUndefined();
+    const sync = createAppleSettingsSync();
+    expect(sync(source()).onSignIn).toBeUndefined();
     const s = source({ canSignIn: true });
-    appleSettingsSync(s).onSignIn!();
+    sync(s).onSignIn!();
     expect(s.openSignIn).toHaveBeenCalledOnce();
-    expect(appleSettingsSync(s).account).toBeUndefined();
+    expect(sync(s).account).toBeUndefined();
   });
 
   it("signed in: identity is the user id, revision the controller epoch, missing email stays missing", () => {
+    const sync = createAppleSettingsSync();
     const s = source({ userId: "user-1", canDeleteAccount: true, lastSyncedAt: 5 });
-    const sync = appleSettingsSync(s);
-    expect(sync.account).toMatchObject({ address: "", identity: "user-1", revision: 3, confirmed: false, status: { tone: "success", text: STRINGS.sync.synced } });
-    sync.account!.onSignOut!();
-    sync.account!.onDeleteAccount!();
+    const props = sync(s);
+    expect(props.account).toMatchObject({ address: "", identity: "user-1", revision: 3, confirmed: false, status: { tone: "success", text: STRINGS.sync.synced } });
+    props.account!.onSignOut!();
+    props.account!.onDeleteAccount!();
     expect(s.signOut).toHaveBeenCalledOnce();
     expect(s.confirmDeleteAccount).toHaveBeenCalledOnce();
-    expect(appleSettingsSync(source({ userId: "u", accountEmail: "a@b.c" })).account?.address).toBe("a@b.c");
+    expect(sync(source({ userId: "u", accountEmail: "a@b.c" })).account?.address).toBe("a@b.c");
+  });
+
+  it("keeps the same operations across routine status changes and replaces them on a new revision", () => {
+    const sync = createAppleSettingsSync();
+    const s = source({ userId: "user-1", canDeleteAccount: true });
+    const first = sync(s).account!;
+    Object.assign(s, { pendingUpload: true, lastSyncedAt: 9, cloudReachable: false });
+    const second = sync(s).account!;
+    expect(second.status).not.toEqual(first.status);
+    expect(second.onDeleteAccount).toBe(first.onDeleteAccount);
+    expect(second.onSignOut).toBe(first.onSignOut);
+    Object.assign(s, { accountRevision: 4 });
+    const third = sync(s).account!;
+    expect(third.onDeleteAccount).not.toBe(first.onDeleteAccount);
+    first.onDeleteAccount!();
+    expect(s.confirmDeleteAccount).not.toHaveBeenCalled();
+    third.onDeleteAccount!();
+    expect(s.confirmDeleteAccount).toHaveBeenCalledOnce();
   });
 
   it("operations bound to an earlier account revision do nothing", () => {
+    const sync = createAppleSettingsSync();
     const s = source({ userId: "user-1", canDeleteAccount: true, retrySync: vi.fn(async () => {}), cloudReachable: false });
-    const sync = appleSettingsSync(s);
+    const props = sync(s);
     (s as { accountRevision: number }).accountRevision = 4;
-    sync.account!.onSignOut!();
-    sync.account!.onDeleteAccount!();
-    sync.account!.status!.onAction!();
+    props.account!.onSignOut!();
+    props.account!.onDeleteAccount!();
+    props.account!.status!.onAction!();
     expect(s.signOut).not.toHaveBeenCalled();
     expect(s.confirmDeleteAccount).not.toHaveBeenCalled();
     expect(s.retrySync).not.toHaveBeenCalled();
   });
 
   it("no delete without the capability or while deleting; status follows the operation", () => {
-    expect(appleSettingsSync(source({ userId: "u" })).account).not.toHaveProperty("onDeleteAccount");
-    const deleting = appleSettingsSync(source({ userId: "u", canDeleteAccount: true, deleteFlow: "deleting" })).account!;
+    const sync = createAppleSettingsSync();
+    expect(sync(source({ userId: "u" })).account).not.toHaveProperty("onDeleteAccount");
+    const deleting = sync(source({ userId: "u", canDeleteAccount: true, deleteFlow: "deleting" })).account!;
     expect(deleting.onDeleteAccount).toBeUndefined();
     expect(deleting.status).toEqual({ tone: "pending", text: STRINGS.account.deleting });
-    expect(appleSettingsSync(source({ userId: "u", deleteFlow: "error" })).account!.status).toEqual({ tone: "failed", text: STRINGS.account.deleteError });
+    expect(sync(source({ userId: "u", deleteFlow: "error" })).account!.status).toEqual({ tone: "failed", text: STRINGS.account.deleteError });
     const retry = vi.fn(async () => {});
-    const unreachable = appleSettingsSync(source({ userId: "u", cloudReachable: false, retrySync: retry })).account!.status!;
+    const unreachable = sync(source({ userId: "u", cloudReachable: false, retrySync: retry })).account!.status!;
     expect(unreachable).toMatchObject({ tone: "failed", text: STRINGS.sync.unreachable, actionLabel: STRINGS.sync.retry });
     unreachable.onAction!();
     expect(retry).toHaveBeenCalledOnce();
-    expect(appleSettingsSync(source({ userId: "u", pendingUpload: true })).account!.status).toEqual({ tone: "pending", text: STRINGS.sync.syncing });
-    expect(appleSettingsSync(source({ userId: "u" })).account!.status).toEqual({ tone: "pending", text: STRINGS.sync.checking });
+    expect(sync(source({ userId: "u", pendingUpload: true })).account!.status).toEqual({ tone: "pending", text: STRINGS.sync.syncing });
+    expect(sync(source({ userId: "u" })).account!.status).toEqual({ tone: "pending", text: STRINGS.sync.checking });
   });
 
   it("restore appears only for an actual running Restore", () => {
@@ -517,8 +780,9 @@ describe("account, restore, help and telemetry mapping", () => {
     expect(document.querySelector("a[hidden]")).toBeNull();
     openExternalLink("javascript:alert(1)");
     openExternalLink("http://example.com/");
+    openExternalLink("mailto:support@stillapp.fit");
     expect(clicked).toHaveLength(1);
-    expect(appleSettingsHelp(vi.fn())).toEqual({ onPrivacy: expect.any(Function) });
+    expect(appleSettingsHelp(vi.fn())).toEqual({ onGuide: expect.any(Function), onPrivacy: expect.any(Function) });
   });
 
   it("reports existing toggle events and never throws from telemetry", () => {

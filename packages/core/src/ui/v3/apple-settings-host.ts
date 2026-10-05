@@ -1,4 +1,5 @@
 import type { SettingsCache, SettingsCacheOptions } from "../../storage/cache.js";
+import type { StoredSettingsRecord } from "../../storage/adapter.js";
 import { EntitlementCache } from "../../entitlement/cache.js";
 import {
   WKBenefitAccessAdapter,
@@ -7,7 +8,7 @@ import {
 import type { UiAnalytics, DeleteFlow, PurchaseFlow } from "../controller.svelte.js";
 import type { SafariSetupObservation } from "../../native/bridge.js";
 import { STRINGS } from "../strings.js";
-import { PRIVACY_POLICY_URL } from "../config.js";
+import { PRIVACY_POLICY_URL, SETUP_GUIDE_URL } from "../config.js";
 import { createDesktopPopupBinding } from "./desktop-popup-binding.js";
 import type { AppleSettingsProps } from "./apple-settings-presentation.js";
 import type { OperationStatus, RestoreStatusCardProps } from "./extension-settings-presentation.js";
@@ -24,6 +25,8 @@ import type { CommittedPopupToggle } from "../index.js";
 export type AppleSettingsMode = "atomic" | "legacy";
 
 export interface AppleSettingsModeInput {
+  /** VITE_APPLE_ATOMIC_SETTINGS: the explicit developer opt-in. Only "true" selects D04. */
+  readonly atomicSettingsFlag: string | undefined;
   readonly supabaseUrl: string | undefined;
   readonly supabaseAnonKey: string | undefined;
   /** The native message port exists at composition time (NativeBridge.available). */
@@ -31,15 +34,18 @@ export interface AppleSettingsModeInput {
 }
 
 /**
- * Committed (atomic) settings with the D04 screen only for an unconfigured Apple build running
- * inside the native host. "Configured" is the Apple entry's own rule: both Supabase values are
- * non-empty. Configured builds stay on the legacy screen whatever the modern-sync opt-in says,
- * until an Apple modern-sync rollout exists. Without a native port there is no committed
- * authority to read, so the legacy screen (unchanged) is kept rather than presenting defaults.
+ * Committed (atomic) settings with the D04 screen only when a build explicitly opts in
+ * (VITE_APPLE_ATOMIC_SETTINGS === "true"), has no Supabase configuration (Apple's own rule: both
+ * values non-empty means configured) and runs inside the native host. Missing configuration alone
+ * never selects it: converting the App Group record is a one-way change for opted-in developer
+ * builds only. Without a native port there is no committed authority, so the legacy screen
+ * (unchanged) is kept rather than presenting defaults.
  */
 export function selectAppleSettingsMode(input: AppleSettingsModeInput): AppleSettingsMode {
   const configured = Boolean(input.supabaseUrl && input.supabaseAnonKey);
-  return !configured && input.nativePort === true ? "atomic" : "legacy";
+  return input.atomicSettingsFlag === "true" && !configured && input.nativePort === true
+    ? "atomic"
+    : "legacy";
 }
 
 /** The one cache's options. Atomic hydration initializes through native with unknown ownership. */
@@ -47,24 +53,76 @@ export function appleSettingsCacheOptions(mode: AppleSettingsMode): SettingsCach
   return mode === "atomic" ? { atomicOwnership: "unknown" } : undefined;
 }
 
+export interface AppleSettingsAuthorityDeps {
+  /** Native benefit observation (NativeBridge). */
+  readonly native: NativeBenefitSource;
+  /** The cache's own storage adapter instance: the one native writer. */
+  readonly initializer: {
+    initializeAtomic(ownership: "unknown"): Promise<StoredSettingsRecord>;
+  };
+  /** The cache's first native read (SettingsCache.whenHydrated()). */
+  readonly hydration: Promise<unknown>;
+}
+
 /**
- * Committed authority over the existing cache plus read-only native benefit access. Nothing here
- * hydrates or writes settings; the entry keeps the cache's watch/hydrate lifetime.
+ * Committed authority over the existing cache plus read-only native benefit access. The entry
+ * keeps the cache's watch/hydrate lifetime; this adds no second cache or writer.
+ *
+ * `recover` is the screen's "Try again". When the first native initialization never produced an
+ * atomic record, it asks the same adapter to initialize again and then lets the cache accept the
+ * result through its own validated authority reread, which only admits a committed atomic record
+ * (never migrated or startup defaults). Otherwise it is that reread alone. One retry at a time.
  */
-export function createAppleSettingsAuthority(cache: SettingsCache, native: NativeBenefitSource) {
-  const entitlement = new EntitlementCache(new WKBenefitAccessAdapter(native));
+export function createAppleSettingsAuthority(cache: SettingsCache, deps: AppleSettingsAuthorityDeps) {
+  const entitlement = new EntitlementCache(new WKBenefitAccessAdapter(deps.native));
   const unwatch = entitlement.watch();
   void entitlement.refreshAccess();
   const binding = createDesktopPopupBinding(cache, entitlement);
+  const settled = deps.hydration.then(
+    () => {},
+    () => {},
+  );
+  let stopped = false;
+  let recovery: Promise<void> | null = null;
+  async function retry(): Promise<void> {
+    await settled;
+    if (stopped) return;
+    if (!cache.currentRecord().atomic) {
+      try {
+        await deps.initializer.initializeAtomic("unknown");
+      } catch {
+        /* The hold stays; the reread below records the current reason. */
+      }
+      if (stopped) return;
+    }
+    try {
+      await binding.rereadAuthority();
+    } catch {
+      /* The cache retains its authoritative hold. */
+    }
+  }
   return {
     binding,
     entitlement,
+    /** Resolves once the first native read settled, either way. */
+    settled,
+    recover(): Promise<void> {
+      if (stopped) return Promise.resolve();
+      recovery ??= retry().finally(() => {
+        recovery = null;
+      });
+      return recovery;
+    },
     stop(): void {
+      if (stopped) return;
+      stopped = true;
       binding.stop();
       unwatch();
     },
   };
 }
+
+export type AppleSettingsAuthority = ReturnType<typeof createAppleSettingsAuthority>;
 
 /** Mac inventory only on a native Mac observation; an unknown host gets the narrower iOS list. */
 export function appleSettingsPlatform(observation: SafariSetupObservation | null): "ios" | "mac" {
@@ -110,13 +168,21 @@ export function appleSettingsSetup(observation: SafariSetupObservation | null): 
   };
 }
 
+export interface AppleSetupView {
+  readonly setup: AppleSettingsProps["setup"];
+  /** Null when this read observed nothing; the caller keeps the platform it already has. */
+  readonly platform: "ios" | "mac" | null;
+}
+
 /**
- * Re-observe setup when the app returns to the foreground, so turning Still on in Safari removes
- * the card. Latest read wins; stopping removes the listener and ignores late replies.
+ * Observe setup now and again whenever the app returns to the foreground, so turning Still on in
+ * Safari removes the card and a later successful read corrects the platform. The listener is
+ * attached before the first read. Latest read wins; stopping removes the listener and ignores
+ * late replies.
  */
 export function watchAppleSetup(
   read: () => Promise<SafariSetupObservation | null>,
-  publish: (setup: AppleSettingsProps["setup"]) => void,
+  publish: (view: AppleSetupView) => void,
   doc: Document = document,
   deadlineMs: number = APPLE_SETUP_OBSERVATION_DEADLINE_MS,
 ): () => void {
@@ -125,13 +191,18 @@ export function watchAppleSetup(
   const observe = () => {
     const current = ++ticket;
     void observeAppleSetup(read, deadlineMs).then((observation) => {
-      if (!stopped && current === ticket) publish(appleSettingsSetup(observation));
+      if (stopped || current !== ticket) return;
+      publish({
+        setup: appleSettingsSetup(observation),
+        platform: observation ? appleSettingsPlatform(observation) : null,
+      });
     });
   };
   const onVisibility = () => {
     if (doc.visibilityState === "visible") observe();
   };
   doc.addEventListener("visibilitychange", onVisibility);
+  observe();
   return () => {
     stopped = true;
     doc.removeEventListener("visibilitychange", onVisibility);
@@ -155,49 +226,68 @@ export interface AppleSettingsAccountSource {
   confirmDeleteAccount(): Promise<void>;
 }
 
-/**
- * Sync card from the existing controller. Operations are bound to the account identity and
- * revision they were rendered for and do nothing once either changes. An account without an
- * email keeps no address (the leaf requires a string; an empty one renders no address line).
- */
-export function appleSettingsSync(source: AppleSettingsAccountSource): AppleSettingsProps["sync"] {
+interface AccountOperations {
+  readonly onSignIn?: () => void;
+  readonly retry?: () => void;
+  readonly onSignOut: () => void;
+  readonly onDeleteAccount: () => void;
+}
+
+function accountOperations(source: AppleSettingsAccountSource): AccountOperations {
   const identity = source.userId;
   const revision = source.accountRevision;
+  // Re-read at use: a sign-out and sign-in (even to the same account) advances the revision.
   const current = () => source.userId === identity && source.accountRevision === revision;
-  if (!identity) {
-    return {
-      onSignIn: source.canSignIn
+  return {
+    onSignIn:
+      !identity && source.canSignIn
         ? () => {
             if (current() && source.canSignIn) source.openSignIn();
           }
         : undefined,
-    };
-  }
-  const retry = source.retrySync
-    ? () => {
-        if (current()) void source.retrySync?.().catch(() => {});
-      }
-    : undefined;
-  const deletable = source.canDeleteAccount && source.deleteFlow !== "deleting";
-  const base = {
-    address: source.accountEmail ?? "",
-    confirmed: false,
-    status: accountStatus(source, retry),
+    retry: source.retrySync
+      ? () => {
+          if (current()) void source.retrySync?.().catch(() => {});
+        }
+      : undefined,
     onSignOut: () => {
       if (current()) void source.signOut();
     },
-  };
-  if (!deletable) return { account: base };
-  return {
-    account: {
-      ...base,
-      identity,
-      revision,
-      onDeleteAccount: () => {
-        if (current() && source.canDeleteAccount && source.deleteFlow !== "deleting")
-          void source.confirmDeleteAccount();
-      },
+    onDeleteAccount: () => {
+      if (current() && source.canDeleteAccount && source.deleteFlow !== "deleting")
+        void source.confirmDeleteAccount();
     },
+  };
+}
+
+/**
+ * Sync card from the existing controller. Operations are created once per account identity and
+ * revision (like the D03 host's optionsOperations), so routine sync-status changes keep the same
+ * callbacks and an open delete confirmation stays valid; a changed identity or revision replaces
+ * them, and the old ones do nothing. An account without an email keeps no address (the leaf
+ * requires a string; an empty one renders no address line).
+ */
+export function createAppleSettingsSync() {
+  const epochs = new WeakMap<AppleSettingsAccountSource, { key: string; ops: AccountOperations }>();
+  return (source: AppleSettingsAccountSource): AppleSettingsProps["sync"] => {
+    const identity = source.userId;
+    const revision = source.accountRevision;
+    const key = JSON.stringify([identity, revision, source.canSignIn, Boolean(source.retrySync)]);
+    let epoch = epochs.get(source);
+    if (epoch?.key !== key) {
+      epoch = { key, ops: accountOperations(source) };
+      epochs.set(source, epoch);
+    }
+    const ops = epoch.ops;
+    if (!identity) return { onSignIn: ops.onSignIn };
+    const base = {
+      address: source.accountEmail ?? "",
+      confirmed: false,
+      status: accountStatus(source, ops.retry),
+      onSignOut: ops.onSignOut,
+    };
+    if (!source.canDeleteAccount || source.deleteFlow === "deleting") return { account: base };
+    return { account: { ...base, identity, revision, onDeleteAccount: ops.onDeleteAccount } };
   };
 }
 
@@ -242,9 +332,17 @@ export function openExternalLink(url: string, doc: Document = document): void {
   }
 }
 
-/** Privacy uses the shipped policy URL. Setup guide and support stay unsupplied (owner-open). */
+/**
+ * Help destinations (owner decision 2026-10-05): the live setup guide and the shipped privacy
+ * policy open externally. Contact support stays unsupplied: the approved destination is the
+ * support email, and the native navigation policy opens only http(s) links externally (a mailto
+ * link would be cancelled), so a button here would do nothing.
+ */
 export function appleSettingsHelp(open: (url: string) => void): AppleSettingsProps["help"] {
-  return { onPrivacy: () => open(PRIVACY_POLICY_URL) };
+  return {
+    onGuide: () => open(SETUP_GUIDE_URL),
+    onPrivacy: () => open(PRIVACY_POLICY_URL),
+  };
 }
 
 /** The existing toggle events for committed toggles, as the legacy Apple screen reports them. */

@@ -62,9 +62,8 @@ export {
   createAppleSettingsAuthority,
   appleSettingsPlatform,
   appleSettingsSetup,
-  observeAppleSetup,
   watchAppleSetup,
-  appleSettingsSync,
+  createAppleSettingsSync,
   appleSettingsRestore,
   appleSettingsHelp,
   appleSettingsToggleReporter,
@@ -72,5 +71,7 @@ export {
   type AppleSettingsMode,
   type AppleSettingsModeInput,
   type AppleSettingsAccountSource,
+  type AppleSettingsAuthority,
+  type AppleSetupView,
 } from "./v3/apple-settings-host.js";
 export type { AppleSettingsProps } from "./v3/apple-settings-presentation.js";
