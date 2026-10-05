@@ -8,9 +8,9 @@
   import { SERVICE_IDS, type ServiceId } from "@still/shared-types";
   import {
     PRIVACY_POLICY_URL,
-    SETUP_GUIDE_URL,
     SUPPORT_EMAIL,
   } from "../../../core/src/ui/config.js";
+  import { FIRST_RUN_PAGE } from "../../../core/src/ui/v3/first-run-host.js";
   import {
     extensionPurchaseDeps,
     restoreHandler,
@@ -58,8 +58,13 @@
   const loadSettings = () =>
     import("../../../core/src/ui/v3/ExtensionSettings.svelte");
   const help = {
+    // Setup guide reopens the extension's own first-run page (owner decision 2026-10-05).
     onGuide: () => {
-      window.open(SETUP_GUIDE_URL, "_blank", "noopener,noreferrer");
+      window.open(
+        chrome.runtime.getURL(FIRST_RUN_PAGE),
+        "_blank",
+        "noopener,noreferrer",
+      );
     },
     onSupport: () => {
       window.location.href = `mailto:${SUPPORT_EMAIL}`;
