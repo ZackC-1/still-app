@@ -15,19 +15,67 @@ export const EXTENSION_UUID = "5a1c0de0-0000-4000-8000-000000000001";
 
 const MAC_FIREFOX = "/Applications/Firefox.app/Contents/MacOS/firefox";
 
+// An explicit FIREFOX_BIN is a promise about which browser to test, so a wrong path is an error and
+// never a quiet fall back to some other Firefox (or a skip that reads as a pass).
 export function findFirefox(): string | null {
+  const chosen = process.env.FIREFOX_BIN;
+  if (chosen) {
+    if (!existsSync(chosen))
+      throw new Error(
+        `FIREFOX_BIN is set to "${chosen}", but nothing exists there`,
+      );
+    return chosen;
+  }
   const candidates = [
-    process.env.FIREFOX_BIN,
     MAC_FIREFOX,
     "/usr/bin/firefox",
     "/usr/local/bin/firefox",
     "/snap/bin/firefox",
   ];
-  return (
-    candidates.find(
-      (path): path is string => Boolean(path) && existsSync(path as string),
-    ) ?? null
-  );
+  return candidates.find((path) => existsSync(path)) ?? null;
+}
+
+// Firefox and its throwaway profile must not outlive the test run, even when afterAll never runs
+// (a crash, Ctrl-C, or a runner kill). Cleanup is synchronous so it can run inside exit handlers.
+const live = new Set<{ child: ChildProcess; profile: string }>();
+function reap(): void {
+  for (const entry of live) {
+    entry.child.kill("SIGKILL");
+    rmSync(entry.profile, { recursive: true, force: true });
+  }
+  live.clear();
+}
+process.once("exit", reap);
+
+// Signal handlers cannot run when the test runner is killed outright (Playwright's own workers are
+// stopped that way). A tiny detached watchdog covers that case: once the owning process is gone it
+// kills Firefox and deletes the profile.
+const WATCHDOG = `
+const [parent, child, profile] = process.argv.slice(1);
+const alive = (pid) => { try { process.kill(Number(pid), 0); return true; } catch { return false; } };
+const timer = setInterval(() => {
+  if (alive(parent) && alive(child)) return;
+  try { process.kill(Number(child), "SIGKILL"); } catch {}
+  require("node:fs").rmSync(profile, { recursive: true, force: true });
+  clearInterval(timer);
+}, 1000);
+`;
+function startWatchdog(child: ChildProcess, profile: string): void {
+  if (child.pid === undefined) return;
+  spawn(
+    process.execPath,
+    ["-e", WATCHDOG, String(process.pid), String(child.pid), profile],
+    {
+      detached: true,
+      stdio: "ignore",
+    },
+  ).unref();
+}
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
+  process.once(signal, () => {
+    reap();
+    process.kill(process.pid, signal);
+  });
 }
 
 // BiDi replies are untyped JSON; each caller reads only the few fields it needs.
@@ -186,6 +234,9 @@ export async function launchFirefox(binary: string): Promise<FirefoxSession> {
       stdio: ["ignore", "ignore", "pipe"],
     },
   );
+  const entry = { child, profile };
+  live.add(entry);
+  startWatchdog(child, profile);
   try {
     const endpoint = await waitForEndpoint(child);
     const bidi = await Bidi.connect(endpoint);
@@ -208,11 +259,13 @@ export async function launchFirefox(binary: string): Promise<FirefoxSession> {
           });
         });
         rmSync(profile, { recursive: true, force: true });
+        live.delete(entry);
       },
     };
   } catch (error) {
     child.kill("SIGKILL");
     rmSync(profile, { recursive: true, force: true });
+    live.delete(entry);
     throw error;
   }
 }

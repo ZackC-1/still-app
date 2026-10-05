@@ -21,9 +21,32 @@ export function fixture(name: string): string {
   return readFileSync(resolve(FIXTURE_DIR, name), "utf8");
 }
 
-// The four services. A request to any of these hosts is answered from a local fixture, and any other
-// web request is refused, so the lane never touches the real sites and needs no network at all.
+// The four services. Page and extension-page requests to these hosts are answered from a local
+// fixture, and any other such request is refused, so pages never touch the real sites.
+//
+// BiDi interception does NOT see requests made by the extension's own background script. Nothing
+// here stops the background from reaching a server, so the lane instead refuses to run against a
+// build that has a sign-in or analytics server compiled in (see assertUnconfiguredBuild).
 const SERVICE_HOST = /(^|\.)(youtube|instagram|facebook|tiktok)\.com$/;
+
+// A configured build carries real Supabase or PostHog addresses. The unconfigured build only has a
+// bare "*.supabase.co" host-pattern string, which is not a URL and does not match.
+const CONFIGURED_SERVER = /https?:\/\/[^"'`\s]*(supabase\.(co|in)|posthog)/i;
+
+function assertUnconfiguredBuild(): void {
+  const background = readFileSync(
+    resolve(FIREFOX_EXTENSION, "background.js"),
+    "utf8",
+  );
+  const found = CONFIGURED_SERVER.exec(background);
+  if (found) {
+    throw new Error(
+      `The Firefox build at ${FIREFOX_EXTENSION} has a server address compiled in (${found[0].slice(0, 60)}). ` +
+        "The background script's own requests are not intercepted, so this lane would reach the network. " +
+        "Rebuild with VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY and VITE_POSTHOG_* blank.",
+    );
+  }
+}
 
 export type Router = (url: URL) => string | null;
 
@@ -41,6 +64,7 @@ export class StillFirefox {
   static async start(): Promise<StillFirefox> {
     const binary = findFirefox();
     if (!binary) throw new Error("Firefox not found");
+    assertUnconfiguredBuild();
     const session = await launchFirefox(binary);
     const self = new StillFirefox(session);
     try {
@@ -184,6 +208,58 @@ export class Tab {
       const style = getComputedStyle(el);
       return style.display !== "none" && style.visibility !== "hidden" && el.getClientRects().length > 0;
     })()`);
+  }
+
+  /** Wait until `selector` matches exactly `n` elements (or, with a function, until it accepts the count). */
+  async waitForCount(
+    selector: string,
+    expected: number | ((n: number) => boolean),
+    timeoutMs = 10_000,
+  ): Promise<number> {
+    const accept =
+      typeof expected === "number" ? (n: number) => n === expected : expected;
+    return await this.waitFor(
+      `${selector} count to be ${typeof expected === "number" ? expected : "accepted"}`,
+      () => this.count(selector),
+      accept,
+      timeoutMs,
+    );
+  }
+
+  /** Wait until `selector` is drawn (true) or not drawn (false). */
+  async waitForVisible(
+    selector: string,
+    visible: boolean,
+    timeoutMs = 10_000,
+  ): Promise<void> {
+    await this.waitFor(
+      `${selector} visible=${visible}`,
+      () => this.isVisible(selector),
+      (v) => v === visible,
+      timeoutMs,
+    );
+  }
+
+  /**
+   * Require a condition to hold at every sample across a window. This is how "Still left the page
+   * alone" is proved: a single early read is true before Still has decided anything, so the window
+   * is only meaningful after a positive sign that Still is running.
+   */
+  async holdsFor(
+    label: string,
+    read: () => Promise<boolean>,
+    windowMs = 1_000,
+  ): Promise<void> {
+    const deadline = Date.now() + windowMs;
+    let samples = 0;
+    do {
+      if (!(await read()))
+        throw new Error(
+          `${label} stopped holding after ${samples} good samples`,
+        );
+      samples++;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    } while (Date.now() < deadline);
   }
 
   /** Poll until the condition holds, so a content script that runs after load is given time. */

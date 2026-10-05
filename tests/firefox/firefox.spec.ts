@@ -1,6 +1,12 @@
 import { test, expect } from "@playwright/test";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+import { PAID_TIER_ENABLED } from "../../packages/shared-types/src/entitlement.js";
+import {
+  expectInstagramLeftAlone,
+  expectYoutubeLeftAlone,
+  stillIsActive,
+} from "./_assertions.js";
 import { findFirefox } from "./_bidi.js";
 import {
   FIREFOX_EXTENSION,
@@ -55,23 +61,25 @@ test.afterAll(async () => {
 
 const rootClass = (tab: Tab) =>
   tab.evaluate<string>("document.documentElement.className");
+const waitActive = (tab: Tab) =>
+  tab.waitFor(
+    "Still to mark the page active",
+    () => stillIsActive(tab),
+    Boolean,
+  );
 
 test("youtube: Shorts shelves go, ordinary feed content stays", async () => {
   const tab = await firefox.openTab(
     "https://www.youtube.com/feed/subscriptions",
   );
-  await tab.waitFor(
-    "Still to mark the page active",
-    () => rootClass(tab),
-    (c) => c.includes("still-active"),
-  );
+  await waitActive(tab);
 
-  expect(await tab.count("#shelf")).toBe(0);
-  expect(await tab.count("#rich-shorts-section")).toBe(0);
-  expect(await tab.count("#subs-shorts-shelf")).toBe(0);
-  expect(await tab.isVisible("#endpoint")).toBe(false);
-  expect(await tab.isVisible("#shorts-mini-guide")).toBe(false);
-  expect(await tab.isVisible("#shorts-chip")).toBe(false);
+  await tab.waitForCount("#shelf", 0);
+  await tab.waitForCount("#rich-shorts-section", 0);
+  await tab.waitForCount("#subs-shorts-shelf", 0);
+  await tab.waitForVisible("#endpoint", false);
+  await tab.waitForVisible("#shorts-mini-guide", false);
+  await tab.waitForVisible("#shorts-chip", false);
 
   expect(await tab.isVisible("#keep-video")).toBe(true);
   expect(await tab.isVisible("#keep-subs-video")).toBe(true);
@@ -95,41 +103,54 @@ test("youtube: a Shorts address ends up on the watch page", async () => {
   await tab.close();
 });
 
-test("instagram: a Reel post and the Reels link go, an ordinary post stays", async () => {
+// With the paid tier off every surface is blocked for everyone; the branch mirrors the Chromium
+// fixtures so flipping the switch later changes both lanes the same way.
+test("instagram: a Reel post and the Reels link follow the paid-tier switch, an ordinary post stays", async () => {
   const tab = await firefox.openTab("https://www.instagram.com/someuser/");
-  await tab.waitFor(
-    "Still to mark the page active",
-    () => rootClass(tab),
-    (c) => c.includes("still-active"),
-  );
-  expect(await tab.count("#reel-post")).toBe(0);
-  expect(await tab.isVisible("#reels-link")).toBe(false);
+  if (PAID_TIER_ENABLED) {
+    await expectInstagramLeftAlone(tab);
+  } else {
+    await waitActive(tab);
+    await tab.waitForCount("#reel-post", 0);
+    await tab.waitForVisible("#reels-link", false);
+  }
   expect(await tab.isVisible("#keep-post")).toBe(true);
   await tab.close();
 });
 
-test("facebook: a Reel article and the Reels shortcut go, an ordinary post stays", async () => {
+test("facebook: a Reel article and the Reels shortcut follow the paid-tier switch, an ordinary post stays", async () => {
   const tab = await firefox.openTab("https://www.facebook.com/");
-  await tab.waitFor(
-    "Still to mark the page active",
-    () => rootClass(tab),
-    (c) => c.includes("still-active"),
-  );
-  expect(await tab.count("#reel-article")).toBe(0);
-  expect(await tab.isVisible("#reels-shortcut")).toBe(false);
+  if (PAID_TIER_ENABLED) {
+    await tab.holdsFor(
+      "Facebook left alone",
+      async () =>
+        (await tab.count("#reel-article")) > 0 &&
+        (await tab.isVisible("#reels-shortcut")) &&
+        !(await stillIsActive(tab)),
+    );
+  } else {
+    await waitActive(tab);
+    await tab.waitForCount("#reel-article", 0);
+    await tab.waitForVisible("#reels-shortcut", false);
+  }
   expect(await tab.isVisible("#keep-article")).toBe(true);
   expect(await tab.isVisible("#keep-lookalike-article")).toBe(true);
   await tab.close();
 });
 
-test("tiktok: the website is replaced by Still's placeholder", async () => {
+test("tiktok: the website follows the paid-tier switch", async () => {
   const tab = await firefox.openTab("https://www.tiktok.com/foryou");
-  await tab.waitFor(
-    "the placeholder",
-    () => tab.isVisible("#still-placeholder"),
-    Boolean,
-  );
-  expect(await tab.count("#tiktok-feed")).toBe(0);
+  if (PAID_TIER_ENABLED) {
+    await tab.holdsFor(
+      "TikTok left alone",
+      async () =>
+        (await tab.isVisible("#tiktok-feed")) &&
+        (await tab.count("#still-placeholder")) === 0,
+    );
+  } else {
+    await tab.waitForVisible("#still-placeholder", true);
+    await tab.waitForCount("#tiktok-feed", 0);
+  }
   await tab.close();
 });
 
@@ -161,32 +182,34 @@ async function setSwitch(
   );
 }
 
+// Off is proved in two steps, each starting from a page where Still was seen working:
+//  1. Live: with the page open and blocked, switching Off must make Still take its marker away and
+//     un-hide the hidden parts. That marker change is the positive sign Still ran and chose to stop.
+//  2. Reload: a fresh page must then stay whole for a full second, so removed parts really return.
 test("the master switch: Off restores every page, On blocks again", async () => {
   const popup = await firefox.openExtensionPage("popup.html");
   try {
+    const url = "https://www.youtube.com/feed/subscriptions";
+    const tab = await firefox.openTab(url);
+    await waitActive(tab);
+    await tab.waitForCount("#shelf", 0);
+
     await setSwitch(popup, "Still", false);
-    const off = await firefox.openTab(
-      "https://www.youtube.com/feed/subscriptions",
+    await tab.waitFor(
+      "Still to take its marker away",
+      () => stillIsActive(tab),
+      (active) => !active,
     );
-    await off.waitFor(
-      "the Shorts shelf to be left alone",
-      () => off.count("#shelf"),
-      (n) => n > 0,
-    );
-    expect(await off.isVisible("#endpoint")).toBe(true);
-    expect(await rootClass(off)).not.toContain("still-active");
-    await off.close();
+    await tab.waitForVisible("#endpoint", true);
+
+    await tab.goto(url);
+    await expectYoutubeLeftAlone(tab);
+    await tab.close();
 
     await setSwitch(popup, "Still", true);
-    const on = await firefox.openTab(
-      "https://www.youtube.com/feed/subscriptions",
-    );
-    await on.waitFor(
-      "Still to mark the page active",
-      () => rootClass(on),
-      (c) => c.includes("still-active"),
-    );
-    expect(await on.count("#shelf")).toBe(0);
+    const on = await firefox.openTab(url);
+    await waitActive(on);
+    await on.waitForCount("#shelf", 0);
     await on.close();
   } finally {
     await setSwitch(popup, "Still", true);
@@ -195,29 +218,34 @@ test("the master switch: Off restores every page, On blocks again", async () => 
 });
 
 test("one service switch Off restores only that service", async () => {
+  test.skip(
+    PAID_TIER_ENABLED,
+    "with the paid tier on, free Instagram is not blocked, so there is nothing to switch off",
+  );
   const popup = await firefox.openExtensionPage("popup.html");
   try {
+    const url = "https://www.instagram.com/someuser/";
+    const instagram = await firefox.openTab(url);
+    await waitActive(instagram);
+    await instagram.waitForCount("#reel-post", 0);
+
     await setSwitch(popup, "Still on Instagram", false);
-    const instagram = await firefox.openTab(
-      "https://www.instagram.com/someuser/",
-    );
     await instagram.waitFor(
-      "the Reel post to be left alone",
-      () => instagram.count("#reel-post"),
-      (n) => n > 0,
+      "Still to take its marker away",
+      () => stillIsActive(instagram),
+      (active) => !active,
     );
-    expect(await instagram.isVisible("#reels-link")).toBe(true);
+    await instagram.waitForVisible("#reels-link", true);
+
+    await instagram.goto(url);
+    await expectInstagramLeftAlone(instagram);
     await instagram.close();
 
     const youtube = await firefox.openTab(
       "https://www.youtube.com/feed/subscriptions",
     );
-    await youtube.waitFor(
-      "Still to mark the page active",
-      () => rootClass(youtube),
-      (c) => c.includes("still-active"),
-    );
-    expect(await youtube.count("#shelf")).toBe(0);
+    await waitActive(youtube);
+    await youtube.waitForCount("#shelf", 0);
     await youtube.close();
   } finally {
     await setSwitch(popup, "Still on Instagram", true);
