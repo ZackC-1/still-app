@@ -9,7 +9,7 @@ test.skip(
   "Requires the independently declared configured build",
 );
 
-test("configured build: a YouTube Shorts page runs the legacy lane, never format-2", async ({ context }) => {
+async function expectLegacyLane(context: import("@playwright/test").BrowserContext) {
   const page = await context.newPage();
   await page.route("**://*.youtube.com/**", (route) =>
     route.fulfill({ contentType: "text/html; charset=utf-8", body: fixture("youtube.html") }),
@@ -21,4 +21,14 @@ test("configured build: a YouTube Shorts page runs the legacy lane, never format
   await expect(page.locator("#keep-video")).toBeVisible();
   await page.waitForTimeout(500);
   await expect(page.locator("html")).not.toHaveClass(/still-feature-/);
+  await page.close();
+}
+
+test("configured build: a YouTube Shorts page runs the legacy lane, never format-2", async ({ context, extensionId }) => {
+  expect(extensionId).toMatch(/^[a-z]{32}$/);
+  await expectLegacyLane(context);
+  // The engine is chosen once per page, so check a page that loads after install-time settings have
+  // had time to settle too: a configured build must never move to format-2.
+  await new Promise((settle) => setTimeout(settle, 1_500));
+  await expectLegacyLane(context);
 });
