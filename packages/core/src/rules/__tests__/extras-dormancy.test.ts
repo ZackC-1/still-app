@@ -153,7 +153,7 @@ describe("effective-only owned CSS on the shipped packaged set", () => {
       const engine = session(packaged);
       engine.applyDom(settings, new URL(PAGE[service]), document);
       // The pre-extras composition: every FREE hide rule of the service, in plan order. Packaged
-      // Pro surfaces (Instagram's and YouTube's today) must add nothing while paid is off.
+      // Pro surfaces (Instagram's, YouTube's and Facebook's today) must add nothing while paid is off.
       const surfaces = packaged.services[service]!.surfaces.filter((surface) => surface.action === "hide"
         && FEATURE_REGISTRY.some((feature) => feature.id === surface.feature && feature.tier === "free"));
       const scope = scopeOf(core);
@@ -246,9 +246,10 @@ describe("compiled extras route framework", () => {
     expect(matches).not.toHaveBeenCalled();
   });
 
-  it("shipped sessions route only through the compiled tables that exist: Instagram's and YouTube's live chat today", () => {
+  it("shipped sessions route only through the compiled tables that exist: Instagram's, YouTube's live chat and Facebook's today", () => {
     // Instagram's own routes ship with P4 and are covered by instagram-extras.test.ts; YouTube's
-    // live chat route is pinned here and in youtube-extras.test.ts.
+    // live chat route and Facebook's Stories and Watch hub routes are pinned here and in their
+    // service tests (youtube-extras.test.ts, facebook-extras.test.ts).
     const shipped: Partial<Record<ServiceId, readonly string[]>> = { instagram: ["/explore/", "/stories/x/", "/explore/people/"] };
     for (const [service, href] of Object.entries(PAGE) as [ServiceId, string][]) {
       const engine = session(packaged);
@@ -256,10 +257,12 @@ describe("compiled extras route framework", () => {
         if (shipped[service]?.includes(path)) continue;
         const decision = engine.evaluate(ALL_ON, new URL(path, href), on);
         if (service === "youtube" && path === "/live_chat") expect(decision, `${service}${path}`).toEqual({ kind: "redirect", url: "https://www.youtube.com/" });
+        else if (service === "facebook" && (path === "/stories/x/" || path === "/watch/"))
+          expect(decision, `${service}${path}`).toEqual({ kind: "redirect", url: "https://www.facebook.com/" });
         else expect(decision.kind, `${service}${path}`).not.toBe("redirect");
       }
       // Paid off (shipped defaults): no route at all.
-      for (const path of ["/live_chat", "/live_chat_replay"]) expect(engine.evaluate(ALL_ON, new URL(path, href)).kind).not.toBe("redirect");
+      for (const path of ["/live_chat", "/live_chat_replay", "/stories/x/", "/watch/"]) expect(engine.evaluate(ALL_ON, new URL(path, href)).kind).not.toBe("redirect");
     }
   });
 });
