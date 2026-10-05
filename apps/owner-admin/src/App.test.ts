@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { AdminClient } from "./admin-client.js";
 import App from "./App.svelte";
 import type { OwnerAuth } from "./auth.js";
-import { APPROVED, PENDING_OWNER_COPY } from "./copy.js";
+import { APPROVED } from "./copy.js";
 import { allSurfaces, FakeAdminFunction, OWNER_TOKEN, salesChannels, STRANGER_TOKEN } from "./test-support/fake-admin.js";
 
 const A = APPROVED.allowances;
@@ -41,7 +41,7 @@ async function signIn(sessionToken = OWNER_TOKEN, server = new FakeAdminFunction
 }
 
 const allowances = () => screen.getByRole("region", { name: A.title });
-const sales = () => screen.getByRole("region", { name: PENDING_OWNER_COPY.salesTitle });
+const sales = () => screen.getByRole("region", { name: APPROVED.salesTitle });
 const switchFor = (region: HTMLElement, name: string) => within(region).getByRole("switch", { name });
 
 describe("owner page", () => {
@@ -164,7 +164,7 @@ describe("owner page", () => {
     const region = await screen.findByRole("region", { name: A.title });
     expect(switchFor(region, A.all)).toHaveAttribute("aria-checked", "true");
     server.failApply = true;
-    await fireEvent.click(within(region).getByRole("button", { name: PENDING_OWNER_COPY.rollback }));
+    await fireEvent.click(within(region).getByRole("button", { name: APPROVED.rollback }));
     expect(await within(region).findByText(A.failed)).toBeInTheDocument();
     expect(server.writes).toBe(2);
     server.failApply = false;
@@ -181,10 +181,10 @@ describe("owner page", () => {
     server.seed("sales", "sandbox", { salesEnabled: false, channels: salesChannels(false), builds: [] });
     server.seed("sales", "sandbox", { salesEnabled: true, channels: salesChannels(true), builds: [] });
     await signIn(OWNER_TOKEN, server);
-    const region = await screen.findByRole("region", { name: PENDING_OWNER_COPY.salesTitle });
-    expect(switchFor(region, PENDING_OWNER_COPY.salesSwitch)).toHaveAttribute("aria-checked", "true");
+    const region = await screen.findByRole("region", { name: APPROVED.salesTitle });
+    expect(switchFor(region, APPROVED.salesSwitch)).toHaveAttribute("aria-checked", "true");
     server.failApply = true;
-    await fireEvent.click(within(region).getByRole("button", { name: PENDING_OWNER_COPY.rollback }));
+    await fireEvent.click(within(region).getByRole("button", { name: APPROVED.rollback }));
     expect(await within(region).findByText(A.failed)).toBeInTheDocument();
     server.failApply = false;
     await fireEvent.click(within(region).getByRole("button", { name: A.tryAgain }));
@@ -192,14 +192,14 @@ describe("owner page", () => {
     const previews = server.calls.filter((c) => c.namespace === "sales" && String(c.action).startsWith("preview"));
     expect(previews.at(-1)).toMatchObject({ action: "preview-rollback", sourceRevision: 1, expectedRevision: 2 });
     expect(JSON.parse(server.current("sales", "sandbox")!.body)).toMatchObject({ revision: 3, salesEnabled: false });
-    expect(switchFor(region, PENDING_OWNER_COPY.salesSwitch)).toHaveAttribute("aria-checked", "false");
+    expect(switchFor(region, APPROVED.salesSwitch)).toHaveAttribute("aria-checked", "false");
   });
 
   it("says plainly that switching on does nothing while no approved builds are listed", async () => {
     await signIn(); // nothing on record: no builds in either policy
     const rating = await screen.findByRole("region", { name: A.title });
-    expect(within(rating).getByText(PENDING_OWNER_COPY.noBuilds)).toBeInTheDocument();
-    expect(within(sales()).getByText(PENDING_OWNER_COPY.noBuilds)).toBeInTheDocument();
+    expect(within(rating).getByText(APPROVED.noBuilds)).toBeInTheDocument();
+    expect(within(sales()).getByText(APPROVED.noBuilds)).toBeInTheDocument();
   });
 
   it("drops that line in a section once its policy lists approved builds", async () => {
@@ -207,24 +207,24 @@ describe("owner page", () => {
     server.seed("rating", "sandbox", { master: false, surfaces: allSurfaces(false), builds: BUILDS });
     await signIn(OWNER_TOKEN, server);
     const rating = await screen.findByRole("region", { name: A.title });
-    expect(within(rating).queryByText(PENDING_OWNER_COPY.noBuilds)).toBeNull();
-    expect(within(sales()).getByText(PENDING_OWNER_COPY.noBuilds)).toBeInTheDocument();
+    expect(within(rating).queryByText(APPROVED.noBuilds)).toBeNull();
+    expect(within(sales()).getByText(APPROVED.noBuilds)).toBeInTheDocument();
   });
 
   it("sales switched on with no approved builds applies and reads back, and still says it has no effect", async () => {
     const server = new FakeAdminFunction();
     server.seed("sales", "sandbox", { salesEnabled: false, channels: salesChannels(false), builds: [] });
     await signIn(OWNER_TOKEN, server);
-    const region = await screen.findByRole("region", { name: PENDING_OWNER_COPY.salesTitle });
-    expect(within(region).getByText(PENDING_OWNER_COPY.noBuilds)).toBeInTheDocument();
-    await fireEvent.click(switchFor(region, PENDING_OWNER_COPY.salesSwitch));
+    const region = await screen.findByRole("region", { name: APPROVED.salesTitle });
+    expect(within(region).getByText(APPROVED.noBuilds)).toBeInTheDocument();
+    await fireEvent.click(switchFor(region, APPROVED.salesSwitch));
     await fireEvent.click(within(region).getByRole("button", { name: A.apply }));
     expect(await within(region).findByText(A.applied)).toBeInTheDocument();
     // Nothing activates without a listed build, so the server has no cutoff to refuse.
-    expect(within(region).queryByText(PENDING_OWNER_COPY.salesCutoffRefused)).toBeNull();
+    expect(within(region).queryByText(APPROVED.salesCutoffRefused)).toBeNull();
     expect(JSON.parse(server.current("sales", "sandbox")!.body)).toMatchObject({ revision: 2, salesEnabled: true, builds: [] });
-    expect(switchFor(region, PENDING_OWNER_COPY.salesSwitch)).toHaveAttribute("aria-checked", "true");
-    expect(within(region).getByText(PENDING_OWNER_COPY.noBuilds)).toBeInTheDocument();
+    expect(switchFor(region, APPROVED.salesSwitch)).toHaveAttribute("aria-checked", "true");
+    expect(within(region).getByText(APPROVED.noBuilds)).toBeInTheDocument();
   });
 
   it("losing owner access mid-session (403 on apply) switches to the neutral state", async () => {
@@ -243,10 +243,10 @@ describe("owner page", () => {
     const server = new FakeAdminFunction();
     server.seed("sales", "sandbox", { salesEnabled: false, channels: salesChannels(false), builds: BUILDS });
     await signIn(OWNER_TOKEN, server);
-    const region = await screen.findByRole("region", { name: PENDING_OWNER_COPY.salesTitle });
-    await fireEvent.click(switchFor(region, PENDING_OWNER_COPY.salesSwitch));
+    const region = await screen.findByRole("region", { name: APPROVED.salesTitle });
+    await fireEvent.click(switchFor(region, APPROVED.salesSwitch));
     await fireEvent.click(within(region).getByRole("button", { name: A.apply }));
-    expect(await within(region).findByText(PENDING_OWNER_COPY.salesCutoffRefused)).toBeInTheDocument();
+    expect(await within(region).findByText(APPROVED.salesCutoffRefused)).toBeInTheDocument();
     expect(within(region).queryByText(A.applied)).toBeNull();
     expect(server.current("sales", "sandbox")!.revision).toBe(1);
     expect(sales()).toBeInTheDocument();
@@ -258,7 +258,7 @@ describe("owner page", () => {
     await signIn(OWNER_TOKEN, server);
     await screen.findByRole("region", { name: A.title });
     expect(switchFor(allowances(), A.all)).toHaveAttribute("aria-checked", "false");
-    await fireEvent.change(screen.getByLabelText(PENDING_OWNER_COPY.environmentLabel), { target: { value: "production" } });
+    await fireEvent.change(screen.getByLabelText(APPROVED.environmentLabel), { target: { value: "production" } });
     await waitFor(() => expect(switchFor(allowances(), A.all)).toHaveAttribute("aria-checked", "true"));
   });
 

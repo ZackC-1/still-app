@@ -80,9 +80,7 @@ only after the owner approves it. Before that PR:
    function are deployed through the protected deploy, the function's database login secret is set,
    and the owner's Still account user id is on the server-side owner allowlist. Without the
    allowlist entry the owner also sees "Not available here".
-2. **Copy approved.** Replace every `PENDING_OWNER_COPY` line in `src/copy.ts` with the owner's
-   wording (see the questions below).
-3. **Build with the production public config:**
+2. **Build with the production public config:**
 
    ```bash
    VITE_SUPABASE_URL=https://<project-ref>.supabase.co \
@@ -90,11 +88,11 @@ only after the owner approves it. Before that PR:
    pnpm --filter @still/owner-admin build
    ```
 
-4. **Pick an unlisted path** that is hard to guess, for example `openssl rand -hex 12`. Unlisted is
+3. **Pick an unlisted path** that is hard to guess, for example `openssl rand -hex 12`. Unlisted is
    not the protection (the server allowlist is); it only keeps the page out of casual view. Do not
    add it to `docs/sitemap.xml`, do not link it from any page, and do not name it in `robots.txt`
    (a `Disallow` line would advertise it).
-5. **Copy the one file and re-check it in place:**
+4. **Copy the one file and re-check it in place:**
 
    ```bash
    mkdir -p docs/<slug>
@@ -103,19 +101,19 @@ only after the owner approves it. Before that PR:
      node apps/owner-admin/scripts/bundle-guard.mjs docs/<slug>/index.html
    ```
 
-6. Open the PR with only that file, get the owner's approval, merge. Then sign in on
+5. Open the PR with only that file, get the owner's approval, merge. Then sign in on
    `https://stillapp.fit/<slug>/` and confirm the current state reads back.
 
 To unpublish, delete `docs/<slug>/` in another owner-approved PR. Removing the owner from the server
 allowlist turns the page off immediately without touching the website.
 
-## Owner copy questions
+## Page copy
 
-Every line below is provisional (`PENDING_OWNER_COPY` in `src/copy.ts`); the approved D28 lines and
-the shipped sign-in wording are used everywhere else.
+All of the page copy is approved and lives in `src/copy.ts`, together with the approved design lines
+and the shipped sign-in wording. What the page says for the states those don't cover:
 
-1. Environment picker: label "Environment", options "Sandbox" and "Production". Which should open
-   first? (It opens on Sandbox.)
+1. Environment picker: label "Environment", options "Sandbox" and "Production". It opens on
+   Sandbox.
 2. Sales section: title "Sales", line "Off until you allow it. Nothing changes until Apply.", switch
    "Sales allowed", and the progress line "Reading back the saved sales setting…".
 3. The server's refusal to turn sales on before the paid cutoff: "The server refused: sales can't

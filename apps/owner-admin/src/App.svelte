@@ -5,7 +5,7 @@
   import { AdminClient, type Environment, type PolicyState } from "./admin-client.js";
   import { applyChange, type Change, type FlowResult } from "./apply-flow.js";
   import type { OwnerAuth } from "./auth.js";
-  import { APPROVED, PENDING_OWNER_COPY } from "./copy.js";
+  import { APPROVED } from "./copy.js";
   import OwnerAllowances from "./OwnerAllowances.svelte";
   import {
     ratingDraft,
@@ -167,12 +167,12 @@
     <p class="muted" role="status">{APPROVED.loading}</p>
   {:else if phase === "load-failed"}
     <section class="card card-stack">
-      <p class="error" role="alert">{PENDING_OWNER_COPY.loadFailed}</p>
+      <p class="error" role="alert">{APPROVED.loadFailed}</p>
       <button type="button" class="link" onclick={load}>{APPROVED.allowances.tryAgain}</button>
     </section>
   {:else if phase === "ready" && rating && sales}
     <div class="environment">
-      <label class="field-label" for="owner-environment">{PENDING_OWNER_COPY.environmentLabel}</label>
+      <label class="field-label" for="owner-environment">{APPROVED.environmentLabel}</label>
       <select
         id="owner-environment"
         class="field"
@@ -183,8 +183,8 @@
           void load();
         }}
       >
-        <option value="sandbox">{PENDING_OWNER_COPY.environmentSandbox}</option>
-        <option value="production">{PENDING_OWNER_COPY.environmentProduction}</option>
+        <option value="sandbox">{APPROVED.environmentSandbox}</option>
+        <option value="production">{APPROVED.environmentProduction}</option>
       </select>
     </div>
     <OwnerAllowances

@@ -1,11 +1,8 @@
-// Every word the owner page shows. Two groups, kept apart on purpose:
-//
-// APPROVED: exact wording from the approved design (D28 OwnerAllowances, design system v3.2) or
-// from copy Still already ships (packages/core/src/ui/strings.ts codeAuth, the "Not available
-// here" access tag). copy.test.ts pins these strings so they cannot drift.
-//
-// PENDING_OWNER_COPY: provisional wording for states the references don't cover. Each line is an
-// owner copy question (numbered as in README.md); replace it with the owner's wording before publishing.
+// Every word the owner page shows. All of it is approved: the exact wording from the approved
+// design (D28 OwnerAllowances, design system v3.2), copy Still already ships
+// (packages/core/src/ui/strings.ts codeAuth, the "Not available here" access tag), and the
+// owner-approved wording for the states those references don't cover. copy.test.ts pins the strings
+// so they cannot drift.
 // Nothing here describes the owner, the allowlist, or who may sign in.
 
 export const APPROVED = Object.freeze({
@@ -59,9 +56,7 @@ export const APPROVED = Object.freeze({
   // configured; it says nothing about who the owner is or why.
   unavailable: "Not available here",
   loading: "Checking…",
-});
-
-export const PENDING_OWNER_COPY = Object.freeze({
+  // Owner-approved page wording for states the design references don't cover.
   /** Q1: environment picker label and its two options. */
   environmentLabel: "Environment",
   environmentSandbox: "Sandbox",

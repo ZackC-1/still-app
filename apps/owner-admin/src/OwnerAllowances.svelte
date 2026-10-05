@@ -4,7 +4,7 @@
   // and has no switch; nothing changes until Apply, and success is shown only after readback.
   import Toggle from "@still/core/ui/v3/Toggle.svelte";
   import StatusLine from "./StatusLine.svelte";
-  import { APPROVED, PENDING_OWNER_COPY } from "./copy.js";
+  import { APPROVED } from "./copy.js";
   import {
     changedAllowances,
     isDeferred,
@@ -62,7 +62,7 @@
       case "applied": return { tone: "success" as const, text: copy.applied };
       case "stale": return { tone: "caution" as const, text: copy.stale, action: copy.reload };
       case "failed": return { tone: "failed" as const, text: copy.failed, action: copy.tryAgain };
-      case "unconfirmed": return { tone: "caution" as const, text: PENDING_OWNER_COPY.unconfirmed, action: copy.reload };
+      case "unconfirmed": return { tone: "caution" as const, text: APPROVED.unconfirmed, action: copy.reload };
       default: return null;
     }
   });
@@ -77,7 +77,7 @@
     <h2 class="card-title">{copy.title}</h2>
     <p class="card-body small">{copy.body}</p>
   </div>
-  {#if current.builds.length === 0}<p class="caption" role="note">{PENDING_OWNER_COPY.noBuilds}</p>{/if}
+  {#if current.builds.length === 0}<p class="caption" role="note">{APPROVED.noBuilds}</p>{/if}
   <div class="allow-list">
     {#each rows as row (row.id)}
       <div class="allow-row" data-inactive={row.inactive || undefined}>
@@ -121,7 +121,7 @@
     {#if changed.length > 0 && !busy}
       <button type="button" class="link" onclick={() => { edited = null; onEdit?.(); }}>{copy.discard}</button>
     {:else if onRollback && revision >= 2 && !busy}
-      <button type="button" class="link" onclick={onRollback}>{PENDING_OWNER_COPY.rollback}</button>
+      <button type="button" class="link" onclick={onRollback}>{APPROVED.rollback}</button>
     {/if}
   </div>
 </section>
