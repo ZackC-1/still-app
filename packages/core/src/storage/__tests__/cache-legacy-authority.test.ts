@@ -1552,3 +1552,261 @@ describe("absence-bound legacy replies across pure presence reads", () => {
     },
   );
 });
+describe("independent legacy read observation ordering", () => {
+  it.each([
+    ["globalOn", "saved"],
+    ["globalOn", "error"],
+    ["services.youtube", "saved"],
+    ["services.youtube", "error"],
+  ] as const)(
+    "newer null supersedes older %s no-op followup %s without retiring absence commands",
+    async (path, older) => {
+      const h = browser(undefined, false);
+      await h.cache.hydrate();
+      const transport = queuedLegacyReplies(h);
+      const edits = vi.fn();
+      const reads = vi.fn();
+      h.cache.subscribe(edits);
+      h.cache.subscribeLegacyRead(() => reads(h.cache.legacyReadState()));
+      const first = h.cache.commitLegacyIntent(path, true);
+      const second = h.cache.commitLegacyIntent(path, true);
+      const presence = deferred<Record<string, unknown>>();
+      try {
+        await vi.waitFor(() => expect(transport.replies).toHaveLength(2));
+        expect(transport.replies).toEqual([
+          expect.objectContaining({
+            record: expect.objectContaining({ intentCommitted: false }),
+          }),
+          expect.objectContaining({
+            record: expect.objectContaining({ intentCommitted: false }),
+          }),
+        ]);
+        h.local.get.mockImplementationOnce(() => presence.promise);
+        transport.release(0);
+        await vi.waitFor(() =>
+          expect(h.cache.legacyReadState().status).toBe("loading"),
+        );
+        transport.release(1);
+        expect((await second).intentCommitted).toBe(false);
+        expect(h.cache.legacyReadState()).toEqual({
+          status: "absent",
+          settings: null,
+        });
+        const published = reads.mock.calls.length;
+        if (older === "saved") presence.resolve({ [KEY]: saved(false, 50) });
+        else presence.reject(new Error("Older captured presence read failed"));
+        expect((await first).intentCommitted).toBe(false);
+        expect(h.cache.legacyReadState()).toEqual({
+          status: "absent",
+          settings: null,
+        });
+        expect(h.cache.current()).toEqual(DEFAULT_SETTINGS);
+        expect(h.cache.currentRecord()).toEqual({
+          settings: DEFAULT_SETTINGS,
+          syncMetadata: null,
+          syncEpoch: 0,
+        });
+        expect(reads).toHaveBeenCalledTimes(published);
+        await expect(h.cache.whenHydrated()).resolves.toBeUndefined();
+        expect(h.sendMessage).toHaveBeenCalledTimes(2);
+        expect(h.local.get).toHaveBeenCalledTimes(5);
+        expect(h.local.set).not.toHaveBeenCalled();
+        expect(h.raw()).toBeUndefined();
+        expect(edits).not.toHaveBeenCalled();
+      } finally {
+        presence.resolve({});
+        transport.releaseAll();
+        await Promise.allSettled([first, second]);
+      }
+    },
+  );
+});
+
+describe("hydration publication follows the current legacy read operation", () => {
+  it.each(["ready", "absent", "unavailable"] as const)(
+    "older saved hydration cannot publish readiness while newer %s reread is loading",
+    async (latest) => {
+      const h = browser(saved());
+      const initial = deferred<Record<string, unknown>>();
+      const current = deferred<Record<string, unknown>>();
+      h.local.get
+        .mockImplementationOnce(() => initial.promise)
+        .mockImplementationOnce(() => current.promise);
+      const load = h.cache.hydrate();
+      const reread = h.cache.rereadLegacyAuthority();
+      await vi.waitFor(() => expect(h.local.get).toHaveBeenCalledTimes(2));
+      const reads = vi.fn();
+      h.cache.subscribeLegacyRead(() => reads(h.cache.legacyReadState()));
+      try {
+        initial.resolve({ [KEY]: saved(false, 100) });
+        await load;
+        expect(h.cache.legacyReadState()).toEqual({
+          status: "loading",
+          settings: null,
+        });
+        expect(h.cache.current()).toEqual(DEFAULT_SETTINGS);
+        expect(h.cache.currentRecord().settings).toEqual(DEFAULT_SETTINGS);
+        expect(reads).not.toHaveBeenCalled();
+        await expect(
+          h.cache.commitLegacyIntent("globalOn", false),
+        ).rejects.toThrow("legacy-command-unavailable");
+        expect(h.sendMessage).not.toHaveBeenCalled();
+        if (latest === "ready") current.resolve({ [KEY]: saved(true, 200) });
+        else if (latest === "absent") current.resolve({});
+        else current.reject(new Error("Current read failure"));
+        expect(await reread).toEqual(
+          latest === "unavailable"
+            ? { status: "unavailable", reason: "read-failed" }
+            : { status: latest },
+        );
+        expect(h.cache.legacyReadState()).toEqual(
+          latest === "ready"
+            ? { status: "ready", settings: saved(true, 200).settings }
+            : latest === "absent"
+              ? { status: "absent", settings: null }
+              : {
+                  status: "unavailable",
+                  reason: "read-failed",
+                  settings: null,
+                },
+        );
+        expect(h.cache.currentRecord().settings).toEqual(h.cache.current());
+        expect(h.cache.current()).toEqual(
+          latest === "ready" ? saved(true, 200).settings : DEFAULT_SETTINGS,
+        );
+        expect(h.local.set).not.toHaveBeenCalled();
+      } finally {
+        initial.resolve({});
+        current.resolve({});
+        await Promise.allSettled([load, reread]);
+      }
+    },
+  );
+
+  it.each([
+    ["generic", "loading", "ready"],
+    ["typed", "loading", "ready"],
+    ["retained", "loading", "ready"],
+    ["generic", "terminal", "ready"],
+    ["typed", "terminal", "ready"],
+    ["retained", "terminal", "ready"],
+    ["generic", "loading", "unavailable"],
+    ["typed", "loading", "unavailable"],
+    ["retained", "loading", "unavailable"],
+    ["generic", "terminal", "unavailable"],
+    ["typed", "terminal", "unavailable"],
+    ["retained", "terminal", "unavailable"],
+  ] as const)(
+    "older %s hydration failure cannot replace newer %s %s reread",
+    async (older, timing, latest) => {
+      const { SettingsStorageRecovery } = await import("../atomic-settings.js");
+      const h = browser(saved());
+      const initial = deferred<StoredSettingsRecord | null>();
+      const current = deferred<StoredSettingsRecord | null>();
+      vi.spyOn(h.consumer, "get")
+        .mockImplementationOnce(() => initial.promise)
+        .mockImplementationOnce(() => current.promise);
+      // Observe rejection immediately; stale failure must not become current recovery authority.
+      const load = h.cache.hydrate().then(
+        () => "resolved",
+        () => "rejected",
+      );
+      const reread = h.cache.rereadLegacyAuthority();
+      await vi.waitFor(() => expect(h.consumer.get).toHaveBeenCalledTimes(2));
+      const settleCurrent = async () => {
+        if (latest === "ready") current.resolve(saved(true, 200));
+        else current.reject(new SettingsStorageRecovery("current-unreadable"));
+        expect(await reread).toEqual(
+          latest === "ready"
+            ? { status: "ready" }
+            : { status: "unavailable", reason: "current-unreadable" },
+        );
+      };
+      try {
+        if (timing === "terminal") await settleCurrent();
+        const before = structuredClone(h.cache.currentRecord());
+        const readBefore = structuredClone(h.cache.legacyReadState());
+        const reads = vi.fn();
+        h.cache.subscribeLegacyRead(reads);
+        initial.reject(
+          older === "generic"
+            ? new Error("Older hydration failed")
+            : new SettingsStorageRecovery(
+                "older-unreadable",
+                older === "retained" ? saved(false, 100) : null,
+              ),
+        );
+        await load;
+        expect(h.cache.currentRecord()).toEqual(before);
+        expect(h.cache.current()).toEqual(before.settings);
+        expect(h.cache.legacyReadState()).toEqual(readBefore);
+        expect(reads).not.toHaveBeenCalled();
+        if (timing === "loading") {
+          expect(readBefore).toEqual({ status: "loading", settings: null });
+          await expect(
+            h.cache.commitLegacyIntent("globalOn", false),
+          ).rejects.toThrow("legacy-command-unavailable");
+          await expect(h.cache.whenHydrated()).resolves.toBeUndefined();
+          await settleCurrent();
+        }
+        if (latest === "ready") {
+          expect(h.cache.current()).toEqual(saved(true, 200).settings);
+          expect(h.cache.legacyReadState()).toEqual({
+            status: "ready",
+            settings: h.cache.current(),
+          });
+          await expect(h.cache.whenHydrated()).resolves.toBeUndefined();
+        } else {
+          expect(h.cache.current()).toEqual(DEFAULT_SETTINGS);
+          expect(h.cache.legacyReadState()).toEqual({
+            status: "unavailable",
+            reason: "current-unreadable",
+            settings: null,
+          });
+          await expect(h.cache.whenHydrated()).rejects.toThrow(
+            "current-unreadable",
+          );
+        }
+        expect(h.local.set).not.toHaveBeenCalled();
+        expect(h.sendMessage).not.toHaveBeenCalled();
+      } finally {
+        initial.resolve(null);
+        current.resolve(null);
+        await Promise.allSettled([load, reread]);
+      }
+    },
+  );
+
+  it.each([false, true])(
+    "current retained hydration recovery remains legitimate retained=%s",
+    async (retained) => {
+      const { SettingsStorageRecovery } = await import("../atomic-settings.js");
+      const h = browser(saved());
+      vi.spyOn(h.consumer, "get").mockRejectedValueOnce(
+        new SettingsStorageRecovery(
+          "current-unreadable",
+          retained ? saved() : null,
+        ),
+      );
+      if (retained)
+        await expect(h.cache.hydrate()).resolves.toEqual(saved().settings);
+      else
+        await expect(h.cache.hydrate()).rejects.toThrow("current-unreadable");
+      expect(h.cache.current()).toEqual(
+        retained ? saved().settings : DEFAULT_SETTINGS,
+      );
+      expect(h.cache.legacyReadState()).toEqual({
+        status: "unavailable",
+        reason: "current-unreadable",
+        settings: retained ? saved().settings : null,
+      });
+      await expect(h.cache.whenHydrated()).rejects.toThrow(
+        "current-unreadable",
+      );
+      await expect(
+        h.cache.commitLegacyIntent("globalOn", false),
+      ).rejects.toThrow("legacy-command-unavailable");
+      expect(h.local.set).not.toHaveBeenCalled();
+    },
+  );
+});

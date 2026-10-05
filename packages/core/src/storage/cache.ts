@@ -73,6 +73,8 @@ export class SettingsCache {
   private readonly legacyReadListeners = new Set<SettingsAuthorityListener>();
   private legacyReread: Promise<LegacySettingsRereadOutcome> | null = null;
   private legacyReadTicket = 0;
+  // Order observations separately from the absence lineage of already admitted commands.
+  private legacyReadObservation = 0;
   // Presence checks may publish loading without retiring already admitted absent commands.
   private legacyAbsenceCurrent = false;
 
@@ -123,13 +125,14 @@ export class SettingsCache {
       this.legacyReadTicket += 1;
     }
     const readTicket = this.legacyReadTicket;
+    const observation = ++this.legacyReadObservation;
     const ticket = this.authorityTicket;
     const generation = this.committedGeneration;
     const recovery = this.hydrationRecovery;
     const epoch = this.syncEpoch;
     const metadata = this.syncMetadata;
     const snapshot = this.snapshot;
-    const superseded = () => readTicket !== this.legacyReadTicket || ticket !== this.authorityTicket || generation !== this.committedGeneration ||
+    const superseded = () => observation !== this.legacyReadObservation || readTicket !== this.legacyReadTicket || ticket !== this.authorityTicket || generation !== this.committedGeneration ||
       recovery !== this.hydrationRecovery || epoch !== this.syncEpoch || metadata !== this.syncMetadata ||
       snapshot !== this.snapshot || this.atomic !== undefined;
     const unavailable = (reason: string, retained: StoredSettingsRecord | null = null, discardRetained = false): LegacySettingsRereadOutcome => {
@@ -281,7 +284,7 @@ export class SettingsCache {
           this.acceptCommitted(stored, "external");
         else void this.applyStoredRecord(stored, "external");
       }
-      if (authorityTicket === this.authorityTicket && committedGeneration === this.committedGeneration) {
+      if (legacyReadTicket === this.legacyReadTicket && authorityTicket === this.authorityTicket && committedGeneration === this.committedGeneration) {
         if (stored === null && !this.atomic && this.atomicOwnership === undefined)
           this.publishLegacyRead({ status: "absent", settings: null });
         else if (stored && this.isCurrentLegacyRecord(stored))
@@ -291,10 +294,10 @@ export class SettingsCache {
       }
       return this.snapshot;
     } catch (error) {
-      if (authorityTicket === this.authorityTicket && committedGeneration === this.committedGeneration)
+      if (legacyReadTicket === this.legacyReadTicket && authorityTicket === this.authorityTicket && committedGeneration === this.committedGeneration)
         this.publishLegacyFailure(error instanceof SettingsStorageRecovery ? error.reason : "read-failed",
           error instanceof SettingsStorageRecovery ? error.retained : null);
-      if (error instanceof SettingsStorageRecovery && authorityTicket === this.authorityTicket) {
+      if (error instanceof SettingsStorageRecovery && legacyReadTicket === this.legacyReadTicket && authorityTicket === this.authorityTicket) {
         if (!error.retained) { this.hydrationRecovery = error; this.notifyAuthority(); throw error; }
         // Last-known local choices keep free blocking useful during unavailable native reads.
         // Sync hydration remains a recovery gate, never a fresh canonical receipt.
