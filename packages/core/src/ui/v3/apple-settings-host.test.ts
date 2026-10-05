@@ -21,6 +21,8 @@ import { UiController, type UiAnalytics } from "../controller.svelte.js";
 import { STRINGS } from "../strings.js";
 import { PRIVACY_POLICY_URL, SETUP_GUIDE_URL } from "../config.js";
 import { createDesktopPopupBinding } from "./desktop-popup-binding.js";
+import { createAppAnalytics } from "../../analytics/apple-app.js";
+import LegacyApp from "../App.svelte";
 import { EntitlementCache } from "../../entitlement/cache.js";
 import {
   appleSettingsCacheOptions,
@@ -570,6 +572,69 @@ describe("D04 host", () => {
     expect((await f.authority.binding.setGlobalOn(false)).status).toBe("unavailable");
     await f.authority.recover();
     expect(f.native.messages.length).toBe(before);
+  });
+});
+
+describe("usage sharing with the entry's real analytics wiring", () => {
+  // Exactly the createAppAnalytics inputs app-webview/src/main.ts passes today: no permission,
+  // privacy policy or commitPermission producer. The legacy Apple screen uses the same controller
+  // path (toggleUsageSharing -> analytics.ui.setSharing), so D04 must behave identically.
+  function wiring(reply: (message: { kind: string; enabled?: boolean }) => Promise<unknown> = async () => null) {
+    const messages: { kind: string; enabled?: boolean }[] = [];
+    const win: StillBridgeWindow = {
+      webkit: { messageHandlers: { still: { postMessage: async (message: unknown) => {
+        messages.push(message as { kind: string });
+        return reply(message as { kind: string; enabled?: boolean });
+      } } } },
+    };
+    const memory = new Map<string, unknown>();
+    const analytics = createAppAnalytics({
+      bridge: new NativeBridge(win),
+      config: { key: "phc_public_test_key", host: "https://us.i.posthog.com" },
+      store: { get: async (k) => memory.get(k) ?? null, set: async (k, v) => void memory.set(k, v) },
+      identifyOnServer: () => Promise.resolve(),
+    });
+    return { analytics, messages };
+  }
+
+  it("has no readable sharing state, so neither the legacy nor the D04 screen shows the switch", async () => {
+    const { analytics } = wiring();
+    expect(await analytics.ui.sharing!()).toBeNull();
+    const f = await composeAtomic();
+    await f.hydrated;
+    const controller = new UiController({ cache: f.cache, host: { canPurchase: true }, analytics: analytics.ui });
+    await renderHost(f, { controller });
+    await screen.findByText("Still is active");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(controller.usageSharing).toBeNull();
+    expect(screen.queryByRole("switch", { name: STRINGS.usage.title })).toBeNull();
+    expect(screen.queryByText(STRINGS.usage.notice)).toBeNull();
+    expect(screen.queryByText("Share email and usage data")).toBeNull();
+    cleanup();
+    render(LegacyApp, { props: { controller } });
+    expect(screen.queryByRole("switch", { name: STRINGS.usage.title })).toBeNull();
+    f.authority.stop();
+  });
+
+  it("turning sharing on fails closed without writing native consent", async () => {
+    const { analytics, messages } = wiring();
+    expect(await analytics.ui.setSharing!(true)).toBe(false);
+    expect(messages.filter((m) => m.kind === "setAnalyticsConsent")).toEqual([]);
+  });
+
+  it("turning sharing off writes native consent off and reads back off", async () => {
+    const { analytics, messages } = wiring(async (m) => (m.kind === "setAnalyticsConsent" ? { enabled: m.enabled } : null));
+    expect(await analytics.ui.setSharing!(false)).toBe(false);
+    expect(messages.filter((m) => m.kind === "setAnalyticsConsent")).toEqual([{ kind: "setAnalyticsConsent", enabled: false }]);
+  });
+
+  it("a failed native write while turning off resolves (no throw) and reports off", async () => {
+    const { analytics, messages } = wiring(async (m) => {
+      if (m.kind === "setAnalyticsConsent") throw new Error("native down");
+      return null;
+    });
+    await expect(analytics.ui.setSharing!(false)).resolves.toBe(false);
+    expect(messages.some((m) => m.kind === "setAnalyticsConsent")).toBe(true);
   });
 });
 
