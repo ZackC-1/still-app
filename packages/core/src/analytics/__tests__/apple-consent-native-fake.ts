@@ -6,7 +6,10 @@ import type { StillBridgeWindow } from "../../storage/wkwebview-adapter.js";
  * WebBridgeRouter + AnalyticsIdentityStore. Sharing reads ON while the App Group key is unset
  * (`consent ?? true`), and `answered` / `consentAnswered` report whether a choice was written.
  * Switches model the failure paths: a writer that does not write (or never writes Don't share),
- * an older native reply without `answered`, a refusing writer, and a slow first context read. */
+ * an older native reply without `answered`, a refusing writer, and a slow first context read.
+ * Like the router's LaunchValue, the launch context is computed once: every analyticsContext call
+ * waits on that one first computation (`firstContextMs`, Infinity = never finishes), then replies
+ * with the live stored consent. */
 export function fakeAppleConsentHost() {
   const native = {
     stored: undefined as boolean | undefined,
@@ -14,11 +17,21 @@ export function fakeAppleConsentHost() {
     writesOff: true,
     replyAnswered: true,
     refuseWrite: false,
-    /** Milliseconds each analyticsContext reply waits, consumed front to back; Infinity never answers. */
-    contextDelays: [] as number[],
+    /** How long the launch's one context computation takes. */
+    firstContextMs: 0,
+    contextComputations: 0,
   };
   const consent = () => native.stored ?? true;
   const answered = () => native.stored !== undefined;
+  let launchContext: Promise<void> | null = null;
+  const computeOnce = (): Promise<void> =>
+    (launchContext ??= (() => {
+      native.contextComputations += 1;
+      const wait = native.firstContextMs;
+      if (wait === Infinity) return new Promise<void>(() => {});
+      if (wait <= 0) return Promise.resolve();
+      return new Promise<void>((resolve) => setTimeout(resolve, wait));
+    })());
   const port = {
     postMessage: vi.fn(async (message: unknown): Promise<unknown> => {
       const { kind, enabled } = message as { kind: string; enabled?: unknown };
@@ -33,9 +46,7 @@ export function fakeAppleConsentHost() {
         );
       }
       if (kind === "analyticsContext") {
-        const wait = native.contextDelays.shift() ?? 0;
-        if (wait === Infinity) return new Promise(() => {});
-        if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+        await computeOnce();
         return JSON.stringify({
           platform: "ios",
           appVersion: "2.1.0",

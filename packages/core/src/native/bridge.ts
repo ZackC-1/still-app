@@ -252,7 +252,10 @@ export class NativeBridge {
    * an explicit answer. Sharing reads on until a choice is written (AnalyticsIdentity.swift), so
    * only `answered: true` may ever be presented as a saved choice. Strict: both fields must be
    * booleans, otherwise null (never "off"). Null outside the app, on a failed post, after a port
-   * swap, or when a newer read was started. Callers bound it with `boundedNativeRead`. */
+   * swap, or when a newer read was started. Callers bound it with `boundedNativeRead`.
+   *
+   * `answered` cannot tell an answer to the older 2.1 usage switch from an answer to the new
+   * combined email-plus-usage question (owner decision 21): never link email from it alone. */
   async observeAnalyticsConsent(): Promise<AnalyticsConsentObservation | null> {
     const generation = ++this.analyticsConsentReadGeneration;
     const port = this.port;

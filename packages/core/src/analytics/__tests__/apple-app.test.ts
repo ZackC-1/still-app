@@ -223,7 +223,7 @@ describe("Apple app follows a choice committed natively elsewhere", () => {
     expect(await app.ui.sharing!()).toMatchObject({ enabled: false });
   });
 
-  it("adopting Share resumes reporting without a choice event or a second write", async () => {
+  it("adopting Share resumes reporting and records the existing choice event once, with no second write", async () => {
     const { app, events, bridge } = setup({ consent: false });
     await app.start();
     expect(events()).toEqual([]);
@@ -232,10 +232,74 @@ describe("Apple app follows a choice committed natively elsewhere", () => {
     await vi.waitFor(() =>
       expect(events().some((e) => e.event === "opened")).toBe(true),
     );
-    expect(events().some((e) => e.event === "analytics_choice_made")).toBe(
-      false,
+    await vi.waitFor(() =>
+      expect(
+        events().filter((e) => e.event === "analytics_choice_made"),
+      ).toHaveLength(1),
     );
+    expect(
+      events().find((e) => e.event === "analytics_choice_made")!.properties,
+    ).toMatchObject({ choice: "share" });
     expect(bridge.setAnalyticsConsent).not.toHaveBeenCalled();
+  });
+
+  it("Don't share is off at the tap, records no choice event, and matches setSharing(false)", async () => {
+    const { app, events } = setup();
+    await app.start();
+    app.adoptCommittedConsent(false);
+    // Synchronously off: the very next read already reports sharing stopped.
+    expect(await app.ui.sharing!()).toMatchObject({ enabled: false });
+    await vi.waitFor(() => expect(events()).toEqual([]));
+    expect(events().some((e) => e.event === "analytics_choice_made")).toBe(false);
+  });
+
+  it("stays off after Don't share even when native could not record it and still reads on", async () => {
+    const { app, events } = setup(); // native context keeps reporting consent: true
+    await app.start();
+    app.adoptCommittedConsent(false);
+    app.ui.track("opened", { where: "app" });
+    await app.recheckSetup();
+    await app.identifyAccount("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    await vi.waitFor(() => expect(events()).toEqual([]));
+    expect(await app.ui.sharing!()).toMatchObject({ enabled: false });
+  });
+
+  it("after a withdrawal, a later Share needs a fresh permission exactly like setSharing", async () => {
+    const viaAdopt = setup();
+    await viaAdopt.app.start();
+    viaAdopt.app.adoptCommittedConsent(false);
+    viaAdopt.app.adoptCommittedConsent(true);
+    viaAdopt.app.ui.track("opened", { where: "app" });
+    await viaAdopt.app.recheckSetup();
+    const viaSwitch = setup();
+    await viaSwitch.app.start();
+    await viaSwitch.app.ui.setSharing!(false);
+    await viaSwitch.app.ui.setSharing!(true);
+    viaSwitch.app.ui.track("opened", { where: "app" });
+    await viaSwitch.app.recheckSetup();
+    await vi.waitFor(() => expect(viaAdopt.events()).toEqual(viaSwitch.events()));
+    expect(viaAdopt.events()).toEqual([]);
+  });
+
+  it("adopting Share keeps a launch that was already in flight under the on-by-default value", async () => {
+    const { app, events } = setup();
+    const starting = app.start(); // first-launch start still in flight
+    app.adoptCommittedConsent(true);
+    await starting;
+    await vi.waitFor(() =>
+      expect(events().map((e) => e.event)).toEqual(
+        expect.arrayContaining(["installed", "opened"]),
+      ),
+    );
+  });
+
+  it("Don't share during an in-flight launch keeps that launch from reporting", async () => {
+    const { app, events } = setup();
+    const starting = app.start();
+    app.adoptCommittedConsent(false);
+    await starting;
+    await app.recheckSetup();
+    expect(events()).toEqual([]);
   });
 });
 

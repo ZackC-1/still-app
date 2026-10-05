@@ -56,9 +56,12 @@ export interface AppAnalytics {
   /** There is known to be no account (a launch with no session, or the session ended). Any earlier
    * account is let go, and its waiting events with it. */
   accountAbsent(): Promise<void>;
-  /** Native already holds the person's explicit choice (committed and confirmed by
-   * `createAppleConsentCommitter`). Follow it in memory: work in flight is fenced, and turning it
-   * off drops the queue. Writes nothing and sends no event. */
+  /** Follow an explicit choice made through `createAppleConsentCommitter`, which writes native
+   * itself, so this writes nothing. `false` is called at the Don't share tap, before native
+   * confirms anything: like `setSharing(false)` it fences work in flight, stops reporting and drops
+   * the queue, and sends nothing. `true` is called only after native confirmed Share: it resumes
+   * reporting without fencing (a launch already observed under the on-by-default value keeps its
+   * events) and, like `setSharing(true)`, records `analytics_choice_made {choice:"share"}` once. */
   adoptCommittedConsent(enabled: boolean): void;
 }
 
@@ -76,6 +79,9 @@ interface Observed extends Ready {
 
 export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
   let consent = false;
+  /** A Don't share tapped this session (adoptCommittedConsent(false)) holds web reporting off even
+   * if native could not record it and still reads on; a later explicit Share clears it. */
+  let declinedHere = false;
   let noticeSeen = true;
   let readyPromise: Promise<Ready | null> | null = null;
   let currentReady: Ready | null = null;
@@ -103,7 +109,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
         )
       )
         return null;
-      consent = context.consent;
+      consent = context.consent && !declinedHere;
       noticeSeen = context.noticeSeen;
       const client = new AnalyticsClient({
         config: deps.config,
@@ -221,6 +227,7 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       return r ? { enabled: await r.client.canReport(), noticeNeeded: !noticeSeen } : null;
     },
     async setSharing(enabled) {
+      if (enabled) declinedHere = false;
       epoch += 1;
       const asked = epoch;
       const previous = currentReady;
@@ -332,10 +339,24 @@ export function createAppAnalytics(deps: AppAnalyticsDeps): AppAnalytics {
       await r.client.confirm(null, { forget: true }); // known: nobody is signed in
     },
     adoptCommittedConsent(enabled) {
-      epoch += 1; // observations and switch changes still in flight belong to the old choice
-      currentReady?.client.permissionChanged();
-      consent = enabled;
-      if (!enabled) void currentReady?.client.clearQueue().catch(() => {});
+      if (!enabled) {
+        declinedHere = true;
+        epoch += 1; // observations and switch changes still in flight belong to the old choice
+        currentReady?.client.permissionChanged();
+        consent = false;
+        void currentReady?.client.clearQueue().catch(() => {});
+        return;
+      }
+      declinedHere = false;
+      consent = true;
+      withReady(async (r) => {
+        if (!(await r.client.canReport())) return;
+        await r.client.track(
+          "analytics_choice_made",
+          { choice: "share" },
+          { observation: r.observation },
+        );
+      });
     },
   };
 }
