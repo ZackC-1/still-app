@@ -121,6 +121,10 @@ export function createTiktokTabAuthority(deps: TiktokTabAuthorityDeps) {
     if (finalizing) {
       // Each cleanup action remains independent: failed intent restoration must not skip
       // removal of the grant. If both fail after actual finalization, reopen is uncertain.
+      // Known, owner-accepted limitation (2026-10-05): when finalization really removed the
+      // intent but its acknowledgment was lost and both cleanup writes below fail, this owner
+      // denies, yet a reopened owner treats the surviving grant as a completed one-tab allowance.
+      // Pinned by the "known owner-accepted limitation" test; it never changes saved settings.
       try { await deps.store.setPending(tabId); } catch { /* Still attempt grant removal. */ }
     }
     try {

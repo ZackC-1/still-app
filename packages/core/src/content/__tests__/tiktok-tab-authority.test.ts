@@ -309,6 +309,24 @@ describe("one living top-level TikTok tab authority", () => {
     else expect(h.records.size).toBe(0);
     await owner.stop(); expect(await h.create(false).isAllowed(context)).toBe(false);
   });
+  it("known owner-accepted limitation: lost finalization acknowledgment with both cleanup writes failing denies now but a reopened owner sees the allowance", async () => {
+    // Characterization only (owner decision 2026-10-05): finalization really removed the intent,
+    // its acknowledgment was lost, and intent restoration plus grant removal both failed. The
+    // current owner keeps its in-memory fence and denies; a reopened owner cannot tell the
+    // surviving grant from a completed one-tab allowance. Saved/synced settings are never touched.
+    const h = host(), owner = h.create();
+    h.store.removePending.mockImplementationOnce(async id => {
+      h.pending.delete(id);
+      h.store.setPending.mockRejectedValueOnce(new Error("intent unavailable"));
+      h.store.remove.mockRejectedValueOnce(new Error("grant cleanup unavailable"));
+      throw new Error("finalization acknowledgment lost");
+    });
+    expect(await owner.allow(context)).toBe(false);
+    expect(await owner.isAllowed(context)).toBe(false);
+    expect(h.records.get(7)).toBe(true); expect(h.pending.size).toBe(0);
+    await owner.stop();
+    expect(await h.create(false).isAllowed(context)).toBe(true);
+  });
   it("failed completion readback after actual finalization restores an unfinished fence when grant removal fails", async () => {
     const h = host(), owner = h.create();
     const read = h.store.getPending.getMockImplementation()!;
