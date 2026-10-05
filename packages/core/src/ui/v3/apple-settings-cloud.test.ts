@@ -60,9 +60,14 @@ function withField(settings: SettingsV2, path: SettingsField, on: boolean): Sett
 }
 
 /** The native App Group writer behind the WK message shapes the app's bridge answers. */
-function nativeAppGroup() {
-  const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 21, services: { ...DEFAULT_SETTINGS.services, facebook: false } });
+function nativeAppGroup(start: "upgrade" | "first-record") {
+  // "upgrade": a saved 2.x record (Facebook Off). "first-record": the new-install record the app
+  // saves on first launch (owner decision 28), never linked.
+  const storage = new InMemoryStorageAdapter(start === "upgrade"
+    ? { ...DEFAULT_SETTINGS, updatedAt: 21, services: { ...DEFAULT_SETTINGS.services, facebook: false } }
+    : null);
   const writer = new AtomicSettingsWriter(storage);
+  const ready = start === "first-record" ? writer.initializeFresh(async () => true) : Promise.resolve();
   async function answer(message: { kind: string; command?: string; path?: string; value?: boolean; updatedAt?: number }): Promise<unknown> {
     switch (message.kind) {
       case "get":
@@ -83,20 +88,23 @@ function nativeAppGroup() {
         return null;
     }
   }
-  const postMessage = vi.fn((message: Parameters<typeof answer>[0]) => answer(message).catch(() => ({ status: "unavailable" })));
+  const postMessage = vi.fn((message: Parameters<typeof answer>[0]) => ready.then(() => answer(message)).catch(() => ({ status: "unavailable" })));
   const win: StillBridgeWindow = { webkit: { messageHandlers: { still: { postMessage } } } };
   return { storage, win, postMessage };
 }
 
 /** The account's row behind the sync-settings function: reads and receipt-bound operations. */
-function syncSettingsServer() {
-  const seed = migrateSettingsV2({ ...DEFAULT_SETTINGS, updatedAt: 1, services: { ...DEFAULT_SETTINGS.services, tiktok: false } }, { kind: "acknowledged-account", revision: 1 });
+function syncSettingsServer(account: "saved" | "empty") {
+  // "saved": an account with TikTok Off at revision 1. "empty": an account that has never saved.
+  const seed = account === "saved"
+    ? migrateSettingsV2({ ...DEFAULT_SETTINGS, updatedAt: 1, services: { ...DEFAULT_SETTINGS.services, tiktok: false } }, { kind: "acknowledged-account", revision: 1 })
+    : migrateSettingsV2(null, { kind: "proven-fresh" });
   if (seed.status !== "ready") throw new Error("fixture");
   let settings = seed.settings;
-  let revision = 1;
+  let revision = account === "saved" ? 1 : 0;
   let lastWriteId: string | null = null;
   const operations: UntrustedSettingsOperationRequest[] = [];
-  const response = () => ({ status: "ready", protocol: 2, empty: false, settings: structuredClone(settings), settingsVersion: revision,
+  const response = () => ({ status: "ready", protocol: 2, empty: revision === 0, settings: structuredClone(settings), settingsVersion: revision,
     settingsServerUpdatedAt: "2026-10-05T00:00:00Z", writeId: lastWriteId, lineage: LINEAGE,
     receipt: { version: 1, lineage: LINEAGE, revision, mac: "A".repeat(43) } });
   const invoke = vi.fn(async (name: string, options: { body: unknown }) => {
@@ -113,6 +121,7 @@ function syncSettingsServer() {
     }
     revision += 1;
     lastWriteId = parsed.request.writeId;
+    settings = { ...settings, updatedAt: 100 + revision };
     return { data: response(), error: null };
   });
   const channel = { on: () => channel, subscribe: () => channel, unsubscribe: async () => "ok" };
@@ -122,9 +131,9 @@ function syncSettingsServer() {
 }
 
 /** main.ts's atomic-cloud composition, with only the network and native ends faked. */
-async function composeCloud(options: { modernSettings: boolean }) {
-  const native = nativeAppGroup();
-  const server = syncSettingsServer();
+async function composeCloud(options: { modernSettings: boolean; start?: "upgrade" | "first-record"; account?: "saved" | "empty" }) {
+  const native = nativeAppGroup(options.start ?? "upgrade");
+  const server = syncSettingsServer(options.account ?? "saved");
   const adapter = new WKWebViewStorageAdapter(native.win);
   const cache = new SettingsCache(adapter, appleSettingsCacheOptions("atomic-cloud"));
   cache.watch();
@@ -214,6 +223,44 @@ describe("Apple atomic-cloud composition (configured, modern sync flag on)", () 
     await waitFor(() => expect(fieldValue(f.server.settings(), "services.youtube")).toBe(false));
     await waitFor(async () => expect((await f.native.storage.get())!.atomic!.pending).toEqual([]));
     f.authority.stop();
+  });
+
+  it("signed out, a D04 choice is one committed native intent and never reaches the server", async () => {
+    const f = await composeCloud({ modernSettings: true });
+    await renderHost(f);
+    await screen.findByText("Optional. Blocking works without an account.");
+    expect(await f.authority.binding.setService("youtube", false)).toEqual({ status: "committed" });
+    await waitFor(async () => expect(requireModernSettings((await f.native.storage.get())!).services.youtube).toBe(false));
+    // Give any write-through a chance to run: still nothing for the server.
+    for (let i = 0; i < 20; i++) await new Promise((r) => setTimeout(r, 0));
+    expect(f.server.invoke).not.toHaveBeenCalled();
+    expect(f.native.postMessage.mock.calls.filter(([m]) => m.kind === "settingsIntent")).toHaveLength(1);
+    f.authority.stop();
+  });
+
+  it("a new install's pre-sign-in choice: an account with saved settings wins (decision 29), an empty account is seeded with it", async () => {
+    for (const account of ["saved", "empty"] as const) {
+      const f = await composeCloud({ modernSettings: true, start: "first-record", account });
+      expect((await f.native.storage.get())!.atomic?.ownership).toBe("never-linked");
+      // Before signing in, the person turns Instagram Off on this new install.
+      expect(await f.authority.binding.setService("instagram", false)).toEqual({ status: "committed" });
+      expect(f.server.invoke).not.toHaveBeenCalled();
+      await f.signIn();
+      await waitFor(() => expect(f.controller.lastSyncedAt).not.toBeNull());
+      await waitFor(async () => expect((await f.native.storage.get())!.atomic!.pending).toEqual([]));
+      const device = requireModernSettings((await f.native.storage.get())!);
+      if (account === "saved") {
+        // The account's saved settings win: Instagram follows the account (On), TikTok Off arrives.
+        expect(device.services).toMatchObject({ instagram: true, tiktok: false });
+        expect(fieldValue(f.server.settings(), "services.instagram")).toBe(true);
+      } else {
+        // An account that never saved starts from this device's choice.
+        expect(device.services).toMatchObject({ instagram: false, tiktok: true });
+        expect(fieldValue(f.server.settings(), "services.instagram")).toBe(false);
+      }
+      expect(f.controller.cloudReachable).toBe(true);
+      f.authority.stop();
+    }
   });
 
   it("negative control: the legacy backend construction over the atomic cache holds sync (rollout held) and never writes", async () => {
