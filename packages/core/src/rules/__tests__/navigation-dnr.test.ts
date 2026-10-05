@@ -7,7 +7,7 @@ import {
   type SignedRuleSetV2,
   type StillSettings,
 } from "@still/shared-types";
-import { NAVIGATION_DNR_FEATURES, NAVIGATION_DNR_RULE_IDS, planNavigationDnr, type NavigationDnrRule } from "../navigation-dnr.js";
+import { NAVIGATION_DNR_FEATURES, NAVIGATION_DNR_RULE_IDS, navigationDnrRuleIdsFor, planNavigationDnr, type NavigationDnrRule } from "../navigation-dnr.js";
 import { PACKAGED_RULE_SET_V2, admitPackagedRuleSetV2 } from "../packaged.js";
 import { createEnginePageSession, createFormat2PageSessionForTest, type EnginePageSession } from "../engine.js";
 import { exactPath, type ExtrasRouteTable } from "../extras.js";
@@ -248,6 +248,19 @@ describe("format-2 navigation session rules", () => {
     const paused = { ...allOn, pauses: ["youtube.com"] } as unknown as SettingsV2;
     expect(plan(paused).rules.map(serviceOf)).not.toContain("youtube");
     expect(classify(paused, "https://www.youtube.com/shorts/abc123")).toBeNull();
+  });
+
+  it("names exactly the rules each saved choice can switch off", () => {
+    const { rules } = plan(allOn);
+    const idsOf = (domain: string) => rules.filter((rule) => rule.condition.requestDomains.includes(domain)).map((rule) => rule.id);
+    expect(navigationDnrRuleIdsFor("globalOn")).toEqual(rules.map((rule) => rule.id));
+    for (const service of ["youtube", "instagram", "facebook"] as const) {
+      const core = FEATURE_REGISTRY.find((f) => f.service === service && f.tier === "free")!.id;
+      expect(navigationDnrRuleIdsFor(`services.${service}`)).toEqual(idsOf(`${service}.com`));
+      expect(navigationDnrRuleIdsFor(`sites.${core}`)).toEqual(idsOf(`${service}.com`));
+    }
+    for (const path of ["services.tiktok", "sites.youtube.comments", "sites.instagram.explore", "unknown"])
+      expect(navigationDnrRuleIdsFor(path), path).toEqual([]);
   });
 
   it("produces RE2-safe, case-sensitive, main-frame rules with stable ids", () => {

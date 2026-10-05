@@ -101,11 +101,28 @@ export default defineBackground(() => {
   // cache, heldInitialization is declared below and only reached once a reply is pending.)
   const afterSettingsWrite = <T>(value: T): Promise<T> | T =>
     navigationDnr
-      ? navigationDnr().then(() => value, (error: unknown) => {
+      ? navigationDnr.sync().then(() => value, (error: unknown) => {
           heldInitialization(error);
           return value;
         })
       : value;
+  // An Off is saved only after the rules it switches off are gone (and stay withheld until it is
+  // saved), so no page can read the saved Off while its redirect is still installed.
+  const commitSettingsIntent = async (intent: Parameters<typeof settingsAuthority.commitIntent>[0]) => {
+    const release = navigationDnr && intent.value === false
+      ? await navigationDnr.retire(intent.path).catch((error: unknown) => {
+          heldInitialization(error);
+          return null;
+        })
+      : null;
+    let record: Awaited<ReturnType<typeof settingsAuthority.commitIntent>>;
+    try {
+      record = await settingsAuthority.commitIntent(intent);
+    } finally {
+      release?.();
+    }
+    return afterSettingsWrite(record);
+  };
   const order: import("../lib/auth-storage.js").AuthMutationOrder = mutation => settingsAuthority.serializeLocalMutation(mutation);
   // Only durable mutation methods enter the shared queue. Wrapping a whole auth/session/read
   // operation could deadlock when it in turn writes settings or refreshes persisted SDK auth.
@@ -150,7 +167,7 @@ export default defineBackground(() => {
 
   // ── Auth/purchase session spine (plan U6/R2) ───────────────────────────────────────────────────
   chrome.runtime.onMessage.addListener(createSettingsIntentRouter(
-    intent => settingsAuthority.commitIntent(intent).then(afterSettingsWrite),
+    commitSettingsIntent,
     chrome.runtime.id,
     chrome.runtime.getURL(""),
     record => settingsAuthority.set(record).then(afterSettingsWrite),
@@ -350,7 +367,7 @@ export default defineBackground(() => {
     // Every committed settings write (this worker's router, the sync service, another context)
     // lands in storage, and every pass reads storage when it starts. A browser start wakes this
     // worker too, because session rules begin each browser session empty.
-    const sync = () => void navigationDnr().catch(heldInitialization);
+    const sync = () => void navigationDnr.sync().catch(heldInitialization);
     cache.subscribe(sync);
     chrome.storage.onChanged.addListener((changes, area) => {
       if (area === "local" && Object.hasOwn(changes, SETTINGS_KEY)) sync();

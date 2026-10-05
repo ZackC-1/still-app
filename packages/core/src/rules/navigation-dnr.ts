@@ -82,6 +82,23 @@ const TEMPLATES: readonly Template[] = Object.freeze([
 /** Every rule id this module can produce. A sync removes all of them before adding the plan. */
 export const NAVIGATION_DNR_RULE_IDS: readonly number[] = Object.freeze(TEMPLATES.map((template) => template.id));
 
+/**
+ * The rule ids a saved choice can switch off: every rule for the master switch, a service's rules
+ * for its service switch, a feature's rules for its feature choice, none for anything else. The
+ * background retires them before an Off is committed, so no page sees the saved Off while its
+ * redirect is still installed.
+ */
+export function navigationDnrRuleIdsFor(path: string): readonly number[] {
+  if (path === "globalOn") return NAVIGATION_DNR_RULE_IDS;
+  const service = /^services\.(.+)$/.exec(path)?.[1];
+  const feature = /^sites\.(.+)$/.exec(path)?.[1];
+  return TEMPLATES.filter((template) =>
+    service !== undefined
+      ? FEATURE_REGISTRY.some((entry) => entry.id === template.feature && entry.service === service)
+      : template.feature === feature,
+  ).map((template) => template.id);
+}
+
 /** Test seam: the features that own a template (each must be a free registry feature). */
 export const NAVIGATION_DNR_FEATURES: readonly BenefitId[] = Object.freeze([
   ...new Set(TEMPLATES.map((template) => template.feature)),

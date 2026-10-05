@@ -78,7 +78,7 @@ function chromeDnr() {
 function harness(initial: AnySettings | null) {
   const dnr = chromeDnr();
   const state = { settings: initial, unreadable: false, cached: DEFAULT_SETTINGS as StillSettings };
-  const sync = createNavigationDnrSync({
+  const controller = createNavigationDnrSync({
     api: dnr.api,
     staticRulesetId: STATIC,
     readSettings: async () => {
@@ -90,7 +90,7 @@ function harness(initial: AnySettings | null) {
     packaged,
     shippingServices: SHIPPING,
   });
-  return { dnr, state, sync };
+  return { dnr, state, sync: controller.sync, retire: controller.retire };
 }
 
 describe("navigation DNR sync (format-2 builds)", () => {
@@ -156,6 +156,27 @@ describe("navigation DNR sync (format-2 builds)", () => {
     expect(domains(h.dnr.rules())).toEqual(["facebook.com", "youtube.com"]);
   });
 
+  it("retire withholds a choice's rules from every pass until released", async () => {
+    const h = harness(fresh);
+    await h.sync();
+    const release = await h.retire("sites.instagram.reels");
+    // Removed while the saved choice is still On, and an unrelated pass does not bring them back.
+    expect(domains(h.dnr.rules())).toEqual(["facebook.com", "youtube.com"]);
+    await h.sync();
+    expect(domains(h.dnr.rules())).toEqual(["facebook.com", "youtube.com"]);
+    // Released with the choice never saved Off (say the save failed): the rules return.
+    release();
+    await vi.waitFor(() => expect(h.dnr.rules()).toEqual(expected(fresh)));
+    // The master switch retires every rule; a service switch retires only that service's.
+    const all = await h.retire("globalOn");
+    expect(h.dnr.rules()).toEqual([]);
+    all();
+    const youtube = await h.retire("services.youtube");
+    expect(domains(h.dnr.rules())).toEqual(["facebook.com", "instagram.com"]);
+    youtube();
+    await vi.waitFor(() => expect(h.dnr.rules()).toEqual(expected(fresh)));
+  });
+
   it("schema-1 settings keep the legacy lane: no session rules, static ruleset gated as before", async () => {
     const h = harness(fresh);
     await h.sync();
@@ -217,6 +238,20 @@ describe("background navigation DNR wiring", () => {
     }
     // Saved choices are never rewritten by the rule sync.
     expect(h.store[KEY]).toMatchObject({ settings: { services: { instagram: false, facebook: false } } });
+  });
+
+  it("an Off is saved only after its redirect rules are gone", async () => {
+    const d = fullDnr();
+    const h = await start({ [KEY]: retainedDnrRecord(true, true) }, d.updateEnabledRulesets, "true", { sessionRules: d.sessionRules });
+    expect(domains(d.dnr.rules())).toEqual(["youtube.com"]);
+    const write = h.gateWrite(KEY);
+    const reply = h.message({ kind: "still:settings-intent", path: "sites.youtube.shorts", value: false, updatedAt: 70 });
+    await write.started;
+    // The saved Off is about to become readable by pages: no Shorts redirect may remain.
+    expect(d.dnr.rules()).toEqual([]);
+    write.release();
+    expect(await reply).toMatchObject({ status: "committed" });
+    expect(d.dnr.rules()).toEqual([]);
   });
 
   it("an external settings write (another context or sync) updates the rules", async () => {

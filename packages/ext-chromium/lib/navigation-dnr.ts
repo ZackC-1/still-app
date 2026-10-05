@@ -4,6 +4,7 @@ import { isServiceEnabledGlobally } from "@still/core/rules";
 // background-only compiler must not reach their bundles.
 import {
   planNavigationDnr,
+  navigationDnrRuleIdsFor,
   NAVIGATION_DNR_RULE_IDS,
   type NavigationDnrRule,
 } from "../../core/src/rules/navigation-dnr.js";
@@ -51,10 +52,20 @@ export interface NavigationDnrDeps {
  * `sync()` is serialized and coalesced: calls made before a pass starts share it, calls made while
  * one runs get the next one, and every pass reads storage when it starts. So the promise a caller
  * receives settles only after a pass that saw everything committed before the call.
+ *
+ * `retire(path)` is for a choice about to be saved Off: it withholds the rules that choice can
+ * switch off from every pass until released, and resolves once a pass has removed them. Saving
+ * the Off only after that means no page can read the saved Off while its redirect is installed.
  */
-export function createNavigationDnrSync(deps: NavigationDnrDeps): () => Promise<void> {
+export interface NavigationDnrSync {
+  sync(): Promise<void>;
+  retire(path: string): Promise<() => void>;
+}
+
+export function createNavigationDnrSync(deps: NavigationDnrDeps): NavigationDnrSync {
   let queued: Promise<void> | null = null;
   let tail: Promise<void> = Promise.resolve();
+  const withheld = new Map<number, number>();
 
   const pass = async (): Promise<void> => {
     let settings: StillSettings | null;
@@ -78,7 +89,7 @@ export function createNavigationDnrSync(deps: NavigationDnrDeps): () => Promise<
     const existing = await api.getSessionRules();
     const removeRuleIds = [...new Set([...existing.map((rule) => rule.id), ...NAVIGATION_DNR_RULE_IDS])];
     try {
-      await api.updateSessionRules({ removeRuleIds, addRules: [...plan.rules] });
+      await api.updateSessionRules({ removeRuleIds, addRules: plan.rules.filter((rule) => !withheld.has(rule.id)) });
     } catch (error) {
       // Never leave a half-known rule set behind: fall back to the content script alone.
       await api.updateSessionRules({ removeRuleIds, addRules: [] }).catch(() => undefined);
@@ -87,7 +98,7 @@ export function createNavigationDnrSync(deps: NavigationDnrDeps): () => Promise<
     if (staticOn) await api.updateEnabledRulesets({ enableRulesetIds: [deps.staticRulesetId] });
   };
 
-  return () => {
+  const sync = (): Promise<void> => {
     if (queued) return queued;
     const next = tail.then(() => {
       queued = null;
@@ -97,4 +108,30 @@ export function createNavigationDnrSync(deps: NavigationDnrDeps): () => Promise<
     tail = next.catch(() => undefined);
     return next;
   };
+
+  const retire = async (path: string): Promise<() => void> => {
+    const ids = navigationDnrRuleIdsFor(path);
+    for (const id of ids) withheld.set(id, (withheld.get(id) ?? 0) + 1);
+    let released = false;
+    const release = () => {
+      if (released) return;
+      released = true;
+      for (const id of ids) {
+        const count = (withheld.get(id) ?? 1) - 1;
+        if (count > 0) withheld.set(id, count);
+        else withheld.delete(id);
+      }
+      void sync().catch(() => undefined);
+    };
+    if (ids.length === 0) return release;
+    try {
+      await sync();
+    } catch (error) {
+      release();
+      throw error;
+    }
+    return release;
+  };
+
+  return { sync, retire };
 }
