@@ -1,0 +1,4069 @@
+{
+ "version": 1,
+ "designVersion": "3.0.1",
+ "scale": 2,
+ "count": 143,
+ "frames": [
+  {
+   "id": "gallery-01",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/01-light.png",
+   "frame": 1,
+   "cssWidth": 380,
+   "cssHeight": 515.28,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 1032,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.gallery-specimen.gallery-01.light"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "gallery-02",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/02-dark.png",
+   "frame": 2,
+   "cssWidth": 380,
+   "cssHeight": 515.28,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 1032,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.gallery-specimen.gallery-02.dark"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "gallery-03",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/03-global-off-choices-kept.png",
+   "frame": 3,
+   "cssWidth": 380,
+   "cssHeight": 515.28,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 1032,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.gallery-specimen.gallery-03.global-off-choices-kept"
+   },
+   "blockedBy": [],
+   "twin": "d01-05",
+   "v1Case": null
+  },
+  {
+   "id": "gallery-04",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/04-pro-not-owned-purchase-cta.png",
+   "frame": 4,
+   "cssWidth": 380,
+   "cssHeight": 450.28,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 902,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.gallery-specimen.gallery-04.pro-not-owned-purchase-cta"
+   },
+   "blockedBy": [],
+   "twin": "d01-01",
+   "v1Case": null
+  },
+  {
+   "id": "gallery-05",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/05-safari-popup-pro-not-owned.png",
+   "frame": 5,
+   "cssWidth": 380,
+   "cssHeight": 567.28,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 1136,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T2",
+   "tiers": [
+    "T2"
+   ],
+   "tierToday": "T2",
+   "gate": "pixel",
+   "recipes": {
+    "T2": "t2.gallery-specimen.gallery-05.safari-popup-pro-not-owned"
+   },
+   "blockedBy": [],
+   "twin": "d02-03",
+   "v1Case": null
+  },
+  {
+   "id": "gallery-06",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/06-light.png",
+   "frame": 6,
+   "cssWidth": 432,
+   "cssHeight": 1252.38,
+   "scale": 2,
+   "pixelWidth": 864,
+   "pixelHeight": 2508,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.gallery-specimen.gallery-06.light"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "gallery-07",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/07-dark.png",
+   "frame": 7,
+   "cssWidth": 432,
+   "cssHeight": 1252.38,
+   "scale": 2,
+   "pixelWidth": 864,
+   "pixelHeight": 2508,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.gallery-specimen.gallery-07.dark"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "gallery-08",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/08-light.png",
+   "frame": 8,
+   "cssWidth": 420,
+   "cssHeight": 449.75,
+   "scale": 2,
+   "pixelWidth": 840,
+   "pixelHeight": 900,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.gallery-specimen.gallery-08.light"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "gallery-09",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/09-dark.png",
+   "frame": 9,
+   "cssWidth": 420,
+   "cssHeight": 449.75,
+   "scale": 2,
+   "pixelWidth": 840,
+   "pixelHeight": 900,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.gallery-specimen.gallery-09.dark"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "gallery-10",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/10-light.png",
+   "frame": 10,
+   "cssWidth": 400,
+   "cssHeight": 406.48,
+   "scale": 2,
+   "pixelWidth": 800,
+   "pixelHeight": 816,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.gallery-specimen.gallery-10.light"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "gallery-11",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/11-dark.png",
+   "frame": 11,
+   "cssWidth": 400,
+   "cssHeight": 406.48,
+   "scale": 2,
+   "pixelWidth": 800,
+   "pixelHeight": 816,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.gallery-specimen.gallery-11.dark"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "gallery-12",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/12-withdrawal-requested.png",
+   "frame": 12,
+   "cssWidth": 290,
+   "cssHeight": 201.02,
+   "scale": 2,
+   "pixelWidth": 580,
+   "pixelHeight": 404,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.gallery-specimen.gallery-12.withdrawal-requested"
+   },
+   "blockedBy": [],
+   "twin": "d03-08",
+   "v1Case": null
+  },
+  {
+   "id": "gallery-13",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/13-withdrawal-verifying.png",
+   "frame": 13,
+   "cssWidth": 290,
+   "cssHeight": 201.02,
+   "scale": 2,
+   "pixelWidth": 580,
+   "pixelHeight": 404,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.gallery-specimen.gallery-13.withdrawal-verifying"
+   },
+   "blockedBy": [],
+   "twin": "d03-08",
+   "v1Case": null
+  },
+  {
+   "id": "gallery-14",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/14-withdrawal-deleted.png",
+   "frame": 14,
+   "cssWidth": 290,
+   "cssHeight": 201.02,
+   "scale": 2,
+   "pixelWidth": 580,
+   "pixelHeight": 404,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.gallery-specimen.gallery-14.withdrawal-deleted"
+   },
+   "blockedBy": [],
+   "twin": "d03-08",
+   "v1Case": null
+  },
+  {
+   "id": "gallery-15",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/15-withdrawal-failed.png",
+   "frame": 15,
+   "cssWidth": 290,
+   "cssHeight": 239.39,
+   "scale": 2,
+   "pixelWidth": 580,
+   "pixelHeight": 480,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.gallery-specimen.gallery-15.withdrawal-failed"
+   },
+   "blockedBy": [],
+   "twin": "d03-08",
+   "v1Case": null
+  },
+  {
+   "id": "gallery-16",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/16-browser-failed.png",
+   "frame": 16,
+   "cssWidth": 300,
+   "cssHeight": 658.78,
+   "scale": 2,
+   "pixelWidth": 600,
+   "pixelHeight": 1320,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.gallery-specimen.gallery-16.browser-failed"
+   },
+   "blockedBy": [],
+   "twin": "d03-03",
+   "v1Case": null
+  },
+  {
+   "id": "gallery-17",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/17-browser-signed-out.png",
+   "frame": 17,
+   "cssWidth": 300,
+   "cssHeight": 230.77,
+   "scale": 2,
+   "pixelWidth": 600,
+   "pixelHeight": 464,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.gallery-specimen.gallery-17.browser-signed-out"
+   },
+   "blockedBy": [],
+   "twin": "d03-01",
+   "v1Case": null
+  },
+  {
+   "id": "gallery-18",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/18-channel-unverified.png",
+   "frame": 18,
+   "cssWidth": 300,
+   "cssHeight": 178.58,
+   "scale": 2,
+   "pixelWidth": 600,
+   "pixelHeight": 360,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.gallery-specimen.gallery-18.channel-unverified"
+   },
+   "blockedBy": [
+    "no-real-host-twin"
+   ],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "gallery-19",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/19-safari-popup.png",
+   "frame": 19,
+   "cssWidth": 300,
+   "cssHeight": 537.52,
+   "scale": 2,
+   "pixelWidth": 600,
+   "pixelHeight": 1078,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T2",
+   "tiers": [
+    "T2"
+   ],
+   "tierToday": "T2",
+   "gate": "pixel",
+   "recipes": {
+    "T2": "t2.gallery-specimen.gallery-19.safari-popup"
+   },
+   "blockedBy": [],
+   "twin": "d02-03",
+   "v1Case": null
+  },
+  {
+   "id": "gallery-20",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/20-apple-host-waiting-for-storekit.png",
+   "frame": 20,
+   "cssWidth": 300,
+   "cssHeight": 230.77,
+   "scale": 2,
+   "pixelWidth": 600,
+   "pixelHeight": 464,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T2",
+   "tiers": [
+    "T2"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T2": "t2.gallery-specimen.gallery-20.apple-host-waiting-for-storekit"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": "d18-05",
+   "v1Case": null
+  },
+  {
+   "id": "gallery-21",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/21-checking-rights.png",
+   "frame": 21,
+   "cssWidth": 300,
+   "cssHeight": 144.19,
+   "scale": 2,
+   "pixelWidth": 600,
+   "pixelHeight": 290,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.gallery-specimen.gallery-21.checking-rights"
+   },
+   "blockedBy": [],
+   "twin": "d03-07",
+   "v1Case": null
+  },
+  {
+   "id": "gallery-22",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/22-restore-outcomes.png",
+   "frame": 22,
+   "cssWidth": 460,
+   "cssHeight": 295.31,
+   "scale": 2,
+   "pixelWidth": 920,
+   "pixelHeight": 592,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.gallery-specimen.gallery-22.restore-outcomes"
+   },
+   "blockedBy": [
+    "paid-build",
+    "browser-restore-in-free-period"
+   ],
+   "twin": "d03-05",
+   "v1Case": null
+  },
+  {
+   "id": "gallery-23",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/23-linking-confirm-failed.png",
+   "frame": 23,
+   "cssWidth": 300,
+   "cssHeight": 365.23,
+   "scale": 2,
+   "pixelWidth": 600,
+   "pixelHeight": 732,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T2",
+   "tiers": [
+    "T2"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T2": "t2.gallery-specimen.gallery-23.linking-confirm-failed"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": "d04-07",
+   "v1Case": null
+  },
+  {
+   "id": "gallery-24",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/24-light.png",
+   "frame": 24,
+   "cssWidth": 380,
+   "cssHeight": 277.09,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 556,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.gallery-specimen.gallery-24.light"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "gallery-25",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/25-dark.png",
+   "frame": 25,
+   "cssWidth": 380,
+   "cssHeight": 277.09,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 556,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.gallery-specimen.gallery-25.dark"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "gallery-26",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/26-draft-idle.png",
+   "frame": 26,
+   "cssWidth": 400,
+   "cssHeight": 541.56,
+   "scale": 2,
+   "pixelWidth": 800,
+   "pixelHeight": 1086,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.gallery-specimen.gallery-26.draft-idle"
+   },
+   "blockedBy": [
+    "owner-admin-build"
+   ],
+   "twin": "d28-08",
+   "v1Case": null
+  },
+  {
+   "id": "gallery-27",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/27-stale.png",
+   "frame": 27,
+   "cssWidth": 400,
+   "cssHeight": 610.12,
+   "scale": 2,
+   "pixelWidth": 800,
+   "pixelHeight": 1222,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.gallery-specimen.gallery-27.stale"
+   },
+   "blockedBy": [
+    "owner-admin-build"
+   ],
+   "twin": "d28-08",
+   "v1Case": null
+  },
+  {
+   "id": "gallery-28",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/28-browser.png",
+   "frame": 28,
+   "cssWidth": 300,
+   "cssHeight": 420,
+   "scale": 2,
+   "pixelWidth": 600,
+   "pixelHeight": 842,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.gallery-specimen.gallery-28.browser"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d29-28"
+  },
+  {
+   "id": "gallery-29",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/29-confirmation.png",
+   "frame": 29,
+   "cssWidth": 300,
+   "cssHeight": 420,
+   "scale": 2,
+   "pixelWidth": 600,
+   "pixelHeight": 842,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.gallery-specimen.gallery-29.confirmation"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d29-29"
+  },
+  {
+   "id": "gallery-30",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/30-iphone-safari-reload-needed.png",
+   "frame": 30,
+   "cssWidth": 300,
+   "cssHeight": 420,
+   "scale": 2,
+   "pixelWidth": 600,
+   "pixelHeight": 842,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "safari-popup-iphone",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T3",
+   "gate": "pixel-t2+probe-t3",
+   "recipes": {
+    "T2": "t2.safari-popup-iphone.gallery-30.iphone-safari-reload-needed",
+    "T3": "t3.safari-popup-iphone.gallery-30.iphone-safari-reload-needed"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d29-30"
+  },
+  {
+   "id": "gallery-31",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/31-focus.png",
+   "frame": 31,
+   "cssWidth": 320,
+   "cssHeight": 197.78,
+   "scale": 2,
+   "pixelWidth": 640,
+   "pixelHeight": 398,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.gallery-specimen.gallery-31.focus"
+   },
+   "blockedBy": [],
+   "twin": "d03-14",
+   "v1Case": null
+  },
+  {
+   "id": "gallery-32",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/32-150-text-text-scale-320-wide.png",
+   "frame": 32,
+   "cssWidth": 320,
+   "cssHeight": 144.5,
+   "scale": 2,
+   "pixelWidth": 640,
+   "pixelHeight": 292,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.gallery-specimen.gallery-32.150-text-text-scale-320-wide"
+   },
+   "blockedBy": [
+    "text-scale-host"
+   ],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "gallery-33",
+   "page": "system-gallery",
+   "pageCode": "gallery",
+   "file": "system-gallery/33-long-text.png",
+   "frame": 33,
+   "cssWidth": 320,
+   "cssHeight": 204.5,
+   "scale": 2,
+   "pixelWidth": 640,
+   "pixelHeight": 410,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "gallery-specimen",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.gallery-specimen.gallery-33.long-text"
+   },
+   "blockedBy": [],
+   "twin": "d01-10",
+   "v1Case": null
+  },
+  {
+   "id": "d01-01",
+   "page": "d01-desktop-popup",
+   "pageCode": "d01",
+   "file": "d01-desktop-popup/01-light-pro-not-owned-457px-tall.png",
+   "frame": 1,
+   "cssWidth": 380,
+   "cssHeight": 457.08,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 916,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "chromium-popup",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-popup.d01-01.light-pro-not-owned"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d01-01"
+  },
+  {
+   "id": "d01-02",
+   "page": "d01-desktop-popup",
+   "pageCode": "d01",
+   "file": "d01-desktop-popup/02-dark-pro-purchased-522px-tall.png",
+   "frame": 2,
+   "cssWidth": 380,
+   "cssHeight": 522.08,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 1046,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "chromium-popup",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-popup.d01-02.dark-pro-purchased"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": null,
+   "v1Case": "d01-02"
+  },
+  {
+   "id": "d01-03",
+   "page": "d01-desktop-popup",
+   "pageCode": "d01",
+   "file": "d01-desktop-popup/03-fresh-install-collapsed-457px-tall.png",
+   "frame": 3,
+   "cssWidth": 380,
+   "cssHeight": 457.08,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 916,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "chromium-popup",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-popup.d01-03.fresh-install-collapsed"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d01-03"
+  },
+  {
+   "id": "d01-04",
+   "page": "d01-desktop-popup",
+   "pageCode": "d01",
+   "file": "d01-desktop-popup/04-expanded-youtube-purchased-522px-tall.png",
+   "frame": 4,
+   "cssWidth": 380,
+   "cssHeight": 522.08,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 1046,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "chromium-popup",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-popup.d01-04.expanded-youtube-purchased"
+   },
+   "blockedBy": [
+    "paid-build-badge-only"
+   ],
+   "twin": null,
+   "v1Case": "d01-04"
+  },
+  {
+   "id": "d01-05",
+   "page": "d01-desktop-popup",
+   "pageCode": "d01",
+   "file": "d01-desktop-popup/05-still-off-choices-kept-522px-tall.png",
+   "frame": 5,
+   "cssWidth": 380,
+   "cssHeight": 522.08,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 1046,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "chromium-popup",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-popup.d01-05.still-off-choices-kept"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d01-05"
+  },
+  {
+   "id": "d01-06",
+   "page": "d01-desktop-popup",
+   "pageCode": "d01",
+   "file": "d01-desktop-popup/06-checking-access-signed-in-syncing-531px-tall.png",
+   "frame": 6,
+   "cssWidth": 380,
+   "cssHeight": 530.72,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 1062,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "chromium-popup",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-popup.d01-06.checking-access-signed-in-syncing"
+   },
+   "blockedBy": [
+    "local-backend"
+   ],
+   "twin": null,
+   "v1Case": "d01-06"
+  },
+  {
+   "id": "d01-07",
+   "page": "d01-desktop-popup",
+   "pageCode": "d01",
+   "file": "d01-desktop-popup/07-needs-verification-sync-failed-569px-tall.png",
+   "frame": 7,
+   "cssWidth": 380,
+   "cssHeight": 569.09,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 1140,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "chromium-popup",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-popup.d01-07.needs-verification-sync-failed"
+   },
+   "blockedBy": [
+    "local-backend"
+   ],
+   "twin": null,
+   "v1Case": "d01-07"
+  },
+  {
+   "id": "d01-09",
+   "page": "d01-desktop-popup",
+   "pageCode": "d01",
+   "file": "d01-desktop-popup/09-150-text-text-scale-scrolls-inside-582px-tall.png",
+   "frame": 9,
+   "cssWidth": 380,
+   "cssHeight": 581.83,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 1166,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "chromium-popup",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.chromium-popup.d01-09.150-text-text-scale-scrolls-inside"
+   },
+   "blockedBy": [
+    "text-scale-host"
+   ],
+   "twin": null,
+   "v1Case": "d01-09"
+  },
+  {
+   "id": "d01-10",
+   "page": "d01-desktop-popup",
+   "pageCode": "d01",
+   "file": "d01-desktop-popup/10-long-text-de-522px-tall.png",
+   "frame": 10,
+   "cssWidth": 380,
+   "cssHeight": 522.08,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 1046,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "chromium-popup",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-popup.d01-10.long-text-de"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d01-10"
+  },
+  {
+   "id": "d01-11",
+   "page": "d01-desktop-popup",
+   "pageCode": "d01",
+   "file": "d01-desktop-popup/11-focus-on-the-youtube-expander-457px-tall.png",
+   "frame": 11,
+   "cssWidth": 380,
+   "cssHeight": 457.08,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 916,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "chromium-popup",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-popup.d01-11.focus-on-the-youtube-expander"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d01-11"
+  },
+  {
+   "id": "d02-01",
+   "page": "d02-mobile-popup",
+   "pageCode": "d02",
+   "file": "d02-mobile-popup/01-iphone-se-fresh-install-375-667.png",
+   "frame": 1,
+   "cssWidth": 375,
+   "cssHeight": 667,
+   "scale": 2,
+   "pixelWidth": 750,
+   "pixelHeight": 1334,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "safari-popup-iphone-se",
+   "tier": "T2",
+   "tiers": [
+    "T2"
+   ],
+   "tierToday": "T2",
+   "gate": "pixel",
+   "recipes": {
+    "T2": "t2.safari-popup-iphone-se.d02-01.iphone-se-fresh-install"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d02-01"
+  },
+  {
+   "id": "d02-02",
+   "page": "d02-mobile-popup",
+   "pageCode": "d02",
+   "file": "d02-mobile-popup/02-iphone-15-pro-bought-in-the-still-app-393-852.png",
+   "frame": 2,
+   "cssWidth": 393,
+   "cssHeight": 852,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 1704,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "safari-popup-iphone",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel-t2+probe-t3",
+   "recipes": {
+    "T2": "t2.safari-popup-iphone.d02-02.iphone-15-pro-bought-in-the-still-app",
+    "T3": "t3.safari-popup-iphone.d02-02.iphone-15-pro-bought-in-the-still-app"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": null,
+   "v1Case": "d02-02"
+  },
+  {
+   "id": "d02-03",
+   "page": "d02-mobile-popup",
+   "pageCode": "d02",
+   "file": "d02-mobile-popup/03-iphone-15-safari-pro-not-owned-393-852.png",
+   "frame": 3,
+   "cssWidth": 393,
+   "cssHeight": 852,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 1704,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "safari-popup-iphone",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T3",
+   "gate": "pixel-t2+probe-t3",
+   "recipes": {
+    "T2": "t2.safari-popup-iphone.d02-03.iphone-15-safari-pro-not-owned",
+    "T3": "t3.safari-popup-iphone.d02-03.iphone-15-safari-pro-not-owned"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d02-03"
+  },
+  {
+   "id": "d02-04",
+   "page": "d02-mobile-popup",
+   "pageCode": "d02",
+   "file": "d02-mobile-popup/04-safari-permission-needed-375-667.png",
+   "frame": 4,
+   "cssWidth": 375,
+   "cssHeight": 667,
+   "scale": 2,
+   "pixelWidth": 750,
+   "pixelHeight": 1334,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "safari-popup-iphone-se",
+   "tier": "T2",
+   "tiers": [
+    "T2"
+   ],
+   "tierToday": "T2",
+   "gate": "pixel",
+   "recipes": {
+    "T2": "t2.safari-popup-iphone-se.d02-04.safari-permission-needed"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d02-04"
+  },
+  {
+   "id": "d02-05",
+   "page": "d02-mobile-popup",
+   "pageCode": "d02",
+   "file": "d02-mobile-popup/05-firefox-android-permission-needed-illustrative-360-780.png",
+   "frame": 5,
+   "cssWidth": 360,
+   "cssHeight": 780,
+   "scale": 2,
+   "pixelWidth": 720,
+   "pixelHeight": 1560,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "android-firefox",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.android-firefox.d02-05.firefox-android-permission-needed-illustrative"
+   },
+   "blockedBy": [
+    "android-lane"
+   ],
+   "twin": null,
+   "v1Case": "d02-05"
+  },
+  {
+   "id": "d02-06",
+   "page": "d02-mobile-popup",
+   "pageCode": "d02",
+   "file": "d02-mobile-popup/06-instagram-mixed-access-393-852.png",
+   "frame": 6,
+   "cssWidth": 393,
+   "cssHeight": 852,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 1704,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "safari-popup-iphone",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel-t2+probe-t3",
+   "recipes": {
+    "T2": "t2.safari-popup-iphone.d02-06.instagram-mixed-access",
+    "T3": "t3.safari-popup-iphone.d02-06.instagram-mixed-access"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": null,
+   "v1Case": "d02-06"
+  },
+  {
+   "id": "d02-07",
+   "page": "d02-mobile-popup",
+   "pageCode": "d02",
+   "file": "d02-mobile-popup/07-still-off-signed-in-sync-failed-393-852.png",
+   "frame": 7,
+   "cssWidth": 393,
+   "cssHeight": 852,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 1704,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "safari-popup-iphone",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T3",
+   "gate": "pixel-t2+probe-t3",
+   "recipes": {
+    "T2": "t2.safari-popup-iphone.d02-07.still-off-signed-in-sync-failed",
+    "T3": "t3.safari-popup-iphone.d02-07.still-off-signed-in-sync-failed"
+   },
+   "blockedBy": [
+    "local-backend"
+   ],
+   "twin": null,
+   "v1Case": "d02-07"
+  },
+  {
+   "id": "d02-08",
+   "page": "d02-mobile-popup",
+   "pageCode": "d02",
+   "file": "d02-mobile-popup/08-ipad-safari-popover-380-600.png",
+   "frame": 8,
+   "cssWidth": 380,
+   "cssHeight": 600,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 1200,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "safari-popup-ipad",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T3",
+   "gate": "pixel-t2+pixel-t3",
+   "recipes": {
+    "T2": "t2.safari-popup-ipad.d02-08.ipad-safari-popover",
+    "T3": "t3.safari-popup-ipad.d02-08.ipad-safari-popover"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d02-08"
+  },
+  {
+   "id": "d02-09",
+   "page": "d02-mobile-popup",
+   "pageCode": "d02",
+   "file": "d02-mobile-popup/09-firefox-android-pro-not-owned-channel-unverified-360-780.png",
+   "frame": 9,
+   "cssWidth": 360,
+   "cssHeight": 780,
+   "scale": 2,
+   "pixelWidth": 720,
+   "pixelHeight": 1560,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "android-firefox",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.android-firefox.d02-09.firefox-android-pro-not-owned-channel-unverified"
+   },
+   "blockedBy": [
+    "android-lane"
+   ],
+   "twin": null,
+   "v1Case": "d02-09"
+  },
+  {
+   "id": "d02-10",
+   "page": "d02-mobile-popup",
+   "pageCode": "d02",
+   "file": "d02-mobile-popup/10-iphone-se-xxxlarge-375-667-text-1-35.png",
+   "frame": 10,
+   "cssWidth": 375,
+   "cssHeight": 667,
+   "scale": 2,
+   "pixelWidth": 750,
+   "pixelHeight": 1334,
+   "theme": "light",
+   "textScale": 1.35,
+   "surface": "safari-popup-iphone-se",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.safari-popup-iphone-se.d02-10.iphone-se-xxxlarge"
+   },
+   "blockedBy": [
+    "text-scale-host"
+   ],
+   "twin": null,
+   "v1Case": "d02-10"
+  },
+  {
+   "id": "d02-11",
+   "page": "d02-mobile-popup",
+   "pageCode": "d02",
+   "file": "d02-mobile-popup/11-iphone-se-accessibility-size-375-667-text-2.png",
+   "frame": 11,
+   "cssWidth": 375,
+   "cssHeight": 667,
+   "scale": 2,
+   "pixelWidth": 750,
+   "pixelHeight": 1334,
+   "theme": "dark",
+   "textScale": 2.0,
+   "surface": "safari-popup-iphone-se",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.safari-popup-iphone-se.d02-11.iphone-se-accessibility-size"
+   },
+   "blockedBy": [
+    "text-scale-host"
+   ],
+   "twin": null,
+   "v1Case": "d02-11"
+  },
+  {
+   "id": "d02-12",
+   "page": "d02-mobile-popup",
+   "pageCode": "d02",
+   "file": "d02-mobile-popup/12-firefox-android-german-360-780.png",
+   "frame": 12,
+   "cssWidth": 360,
+   "cssHeight": 780,
+   "scale": 2,
+   "pixelWidth": 720,
+   "pixelHeight": 1560,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "android-firefox",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.android-firefox.d02-12.firefox-android-german"
+   },
+   "blockedBy": [
+    "android-lane"
+   ],
+   "twin": null,
+   "v1Case": "d02-12"
+  },
+  {
+   "id": "d03-01",
+   "page": "d03-extension-settings",
+   "pageCode": "d03",
+   "file": "d03-extension-settings/01-signed-out-pro-not-owned-consent-not-asked-560-1180.png",
+   "frame": 1,
+   "cssWidth": 560,
+   "cssHeight": 1180,
+   "scale": 2,
+   "pixelWidth": 1120,
+   "pixelHeight": 2360,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "chromium-options",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-options.d03-01.signed-out-pro-not-owned-consent-not-asked"
+   },
+   "blockedBy": [
+    "local-backend"
+   ],
+   "twin": null,
+   "v1Case": "d03-01"
+  },
+  {
+   "id": "d03-02",
+   "page": "d03-extension-settings",
+   "pageCode": "d03",
+   "file": "d03-extension-settings/02-signed-in-pro-purchased-sharing-on-560-1180.png",
+   "frame": 2,
+   "cssWidth": 560,
+   "cssHeight": 1180,
+   "scale": 2,
+   "pixelWidth": 1120,
+   "pixelHeight": 2360,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "chromium-options",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-options.d03-02.signed-in-pro-purchased-sharing-on"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": null,
+   "v1Case": "d03-02"
+  },
+  {
+   "id": "d03-03",
+   "page": "d03-extension-settings",
+   "pageCode": "d03",
+   "file": "d03-extension-settings/03-sync-failed-retry.png",
+   "frame": 3,
+   "cssWidth": 432,
+   "cssHeight": 178.45,
+   "scale": 2,
+   "pixelWidth": 864,
+   "pixelHeight": 358,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "chromium-options",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-options.d03-03.sync-failed-retry"
+   },
+   "blockedBy": [
+    "local-backend"
+   ],
+   "twin": null,
+   "v1Case": "d03-03"
+  },
+  {
+   "id": "d03-04",
+   "page": "d03-extension-settings",
+   "pageCode": "d03",
+   "file": "d03-extension-settings/04-purchase-pending.png",
+   "frame": 4,
+   "cssWidth": 432,
+   "cssHeight": 201.38,
+   "scale": 2,
+   "pixelWidth": 864,
+   "pixelHeight": 404,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "chromium-options",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-options.d03-04.purchase-pending"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": null,
+   "v1Case": "d03-04"
+  },
+  {
+   "id": "d03-05",
+   "page": "d03-extension-settings",
+   "pageCode": "d03",
+   "file": "d03-extension-settings/05-restore-nothing-found-conclusive.png",
+   "frame": 5,
+   "cssWidth": 432,
+   "cssHeight": 111.19,
+   "scale": 2,
+   "pixelWidth": 864,
+   "pixelHeight": 224,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "chromium-options",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-options.d03-05.restore-nothing-found-conclusive"
+   },
+   "blockedBy": [
+    "paid-build",
+    "browser-restore-in-free-period"
+   ],
+   "twin": null,
+   "v1Case": "d03-05"
+  },
+  {
+   "id": "d03-06",
+   "page": "d03-extension-settings",
+   "pageCode": "d03",
+   "file": "d03-extension-settings/06-restore-couldn-t-finish.png",
+   "frame": 6,
+   "cssWidth": 432,
+   "cssHeight": 113.88,
+   "scale": 2,
+   "pixelWidth": 864,
+   "pixelHeight": 230,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "chromium-options",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-options.d03-06.restore-couldn-t-finish"
+   },
+   "blockedBy": [
+    "paid-build",
+    "browser-restore-in-free-period"
+   ],
+   "twin": null,
+   "v1Case": "d03-06"
+  },
+  {
+   "id": "d03-07",
+   "page": "d03-extension-settings",
+   "pageCode": "d03",
+   "file": "d03-extension-settings/07-checking-access.png",
+   "frame": 7,
+   "cssWidth": 432,
+   "cssHeight": 126.69,
+   "scale": 2,
+   "pixelWidth": 864,
+   "pixelHeight": 254,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "chromium-options",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-options.d03-07.checking-access"
+   },
+   "blockedBy": [
+    "local-backend"
+   ],
+   "twin": null,
+   "v1Case": "d03-07"
+  },
+  {
+   "id": "d03-08",
+   "page": "d03-extension-settings",
+   "pageCode": "d03",
+   "file": "d03-extension-settings/08-sharing-off-deletion-requested.png",
+   "frame": 8,
+   "cssWidth": 432,
+   "cssHeight": 144.92,
+   "scale": 2,
+   "pixelWidth": 864,
+   "pixelHeight": 292,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "chromium-options",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-options.d03-08.sharing-off-deletion-requested"
+   },
+   "blockedBy": [
+    "local-backend"
+   ],
+   "twin": null,
+   "v1Case": "d03-08"
+  },
+  {
+   "id": "d03-09",
+   "page": "d03-extension-settings",
+   "pageCode": "d03",
+   "file": "d03-extension-settings/09-linking-a-purchase-confirm-account.png",
+   "frame": 9,
+   "cssWidth": 432,
+   "cssHeight": 263.36,
+   "scale": 2,
+   "pixelWidth": 864,
+   "pixelHeight": 528,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "chromium-options",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-options.d03-09.linking-a-purchase-confirm-account"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": null,
+   "v1Case": "d03-09"
+  },
+  {
+   "id": "d03-10",
+   "page": "d03-extension-settings",
+   "pageCode": "d03",
+   "file": "d03-extension-settings/10-still-off-choices-kept.png",
+   "frame": 10,
+   "cssWidth": 432,
+   "cssHeight": 358,
+   "scale": 2,
+   "pixelWidth": 864,
+   "pixelHeight": 718,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "chromium-options",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-options.d03-10.still-off-choices-kept"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d03-10"
+  },
+  {
+   "id": "d03-11",
+   "page": "d03-extension-settings",
+   "pageCode": "d03",
+   "file": "d03-extension-settings/11-permission-needed-560-720.png",
+   "frame": 11,
+   "cssWidth": 560,
+   "cssHeight": 720,
+   "scale": 2,
+   "pixelWidth": 1120,
+   "pixelHeight": 1442,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "chromium-options",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-options.d03-11.permission-needed"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d03-11"
+  },
+  {
+   "id": "d03-12",
+   "page": "d03-extension-settings",
+   "pageCode": "d03",
+   "file": "d03-extension-settings/12-delete-account-dialog-560-720.png",
+   "frame": 12,
+   "cssWidth": 560,
+   "cssHeight": 720,
+   "scale": 2,
+   "pixelWidth": 1120,
+   "pixelHeight": 1442,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "chromium-options",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-options.d03-12.delete-account-dialog"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d03-12"
+  },
+  {
+   "id": "d03-13",
+   "page": "d03-extension-settings",
+   "pageCode": "d03",
+   "file": "d03-extension-settings/13-320-wide-1-5-text-320-900-text-1-5.png",
+   "frame": 13,
+   "cssWidth": 320,
+   "cssHeight": 900,
+   "scale": 2,
+   "pixelWidth": 640,
+   "pixelHeight": 1802,
+   "theme": "light",
+   "textScale": 1.5,
+   "surface": "chromium-options",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.chromium-options.d03-13.320-wide-1-5-text"
+   },
+   "blockedBy": [
+    "text-scale-host"
+   ],
+   "twin": null,
+   "v1Case": "d03-13"
+  },
+  {
+   "id": "d03-14",
+   "page": "d03-extension-settings",
+   "pageCode": "d03",
+   "file": "d03-extension-settings/14-keyboard-focus-on-sign-in-560-900.png",
+   "frame": 14,
+   "cssWidth": 560,
+   "cssHeight": 900,
+   "scale": 2,
+   "pixelWidth": 1120,
+   "pixelHeight": 1802,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "chromium-options",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-options.d03-14.keyboard-focus-on-sign-in"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d03-14"
+  },
+  {
+   "id": "d04-01",
+   "page": "d04-apple-app-settings",
+   "pageCode": "d04",
+   "file": "d04-apple-app-settings/01-iphone-15-safari-extension-off-393-852.png",
+   "frame": 1,
+   "cssWidth": 393,
+   "cssHeight": 852,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 1704,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "app-iphone",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T3",
+   "gate": "pixel-t2+probe-t3",
+   "recipes": {
+    "T2": "t2.app-iphone.d04-01.iphone-15-safari-extension-off",
+    "T3": "t3.app-iphone.d04-01.iphone-15-safari-extension-off"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d04-01"
+  },
+  {
+   "id": "d04-02",
+   "page": "d04-apple-app-settings",
+   "pageCode": "d04",
+   "file": "d04-apple-app-settings/02-iphone-15-pro-bought-link-invitation-393-852.png",
+   "frame": 2,
+   "cssWidth": 393,
+   "cssHeight": 852,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 1704,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "app-iphone",
+   "tier": "T2",
+   "tiers": [
+    "T2"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T2": "t2.app-iphone.d04-02.iphone-15-pro-bought-link-invitation"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": null,
+   "v1Case": "d04-02"
+  },
+  {
+   "id": "d04-03",
+   "page": "d04-apple-app-settings",
+   "pageCode": "d04",
+   "file": "d04-apple-app-settings/03-iphone-15-waiting-for-apple-393-852.png",
+   "frame": 3,
+   "cssWidth": 393,
+   "cssHeight": 852,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 1704,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "app-iphone",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T3",
+   "gate": "pixel-t2+probe-t3",
+   "recipes": {
+    "T2": "t2.app-iphone.d04-03.iphone-15-waiting-for-apple",
+    "T3": "t3.app-iphone.d04-03.iphone-15-waiting-for-apple"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d04-03"
+  },
+  {
+   "id": "d04-04",
+   "page": "d04-apple-app-settings",
+   "pageCode": "d04",
+   "file": "d04-apple-app-settings/04-ipad-restore-couldn-t-finish-820-760.png",
+   "frame": 4,
+   "cssWidth": 820,
+   "cssHeight": 760,
+   "scale": 2,
+   "pixelWidth": 1640,
+   "pixelHeight": 1520,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "app-ipad",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T3",
+   "gate": "pixel-t2+pixel-t3",
+   "recipes": {
+    "T2": "t2.app-ipad.d04-04.ipad-restore-couldn-t-finish",
+    "T3": "t3.app-ipad.d04-04.ipad-restore-couldn-t-finish"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d04-04"
+  },
+  {
+   "id": "d04-05",
+   "page": "d04-apple-app-settings",
+   "pageCode": "d04",
+   "file": "d04-apple-app-settings/05-mac-still-pro-needs-verification-720-680.png",
+   "frame": 5,
+   "cssWidth": 720,
+   "cssHeight": 680,
+   "scale": 2,
+   "pixelWidth": 1440,
+   "pixelHeight": 1360,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "app-mac",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel-t2+pixel-t3",
+   "recipes": {
+    "T2": "t2.app-mac.d04-05.mac-still-pro-needs-verification",
+    "T3": "t3.app-mac.d04-05.mac-still-pro-needs-verification"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": null,
+   "v1Case": "d04-05"
+  },
+  {
+   "id": "d04-06",
+   "page": "d04-apple-app-settings",
+   "pageCode": "d04",
+   "file": "d04-apple-app-settings/06-mac-keyboard-focus-on-the-still-switch-520-680.png",
+   "frame": 6,
+   "cssWidth": 520,
+   "cssHeight": 680,
+   "scale": 2,
+   "pixelWidth": 1040,
+   "pixelHeight": 1360,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "app-mac",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T3",
+   "gate": "pixel-t2+pixel-t3",
+   "recipes": {
+    "T2": "t2.app-mac.d04-06.mac-keyboard-focus-on-the-still-switch",
+    "T3": "t3.app-mac.d04-06.mac-keyboard-focus-on-the-still-switch"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d04-06"
+  },
+  {
+   "id": "d04-07",
+   "page": "d04-apple-app-settings",
+   "pageCode": "d04",
+   "file": "d04-apple-app-settings/07-link-confirm-account-393-852.png",
+   "frame": 7,
+   "cssWidth": 393,
+   "cssHeight": 852,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 1704,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "app-iphone",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T3",
+   "gate": "pixel-t2+probe-t3",
+   "recipes": {
+    "T2": "t2.app-iphone.d04-07.link-confirm-account",
+    "T3": "t3.app-iphone.d04-07.link-confirm-account"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d04-07"
+  },
+  {
+   "id": "d04-08",
+   "page": "d04-apple-app-settings",
+   "pageCode": "d04",
+   "file": "d04-apple-app-settings/08-restore-nothing-found-393-852.png",
+   "frame": 8,
+   "cssWidth": 393,
+   "cssHeight": 852,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 1704,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "app-iphone",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T3",
+   "gate": "pixel-t2+probe-t3",
+   "recipes": {
+    "T2": "t2.app-iphone.d04-08.restore-nothing-found",
+    "T3": "t3.app-iphone.d04-08.restore-nothing-found"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d04-08"
+  },
+  {
+   "id": "d04-09",
+   "page": "d04-apple-app-settings",
+   "pageCode": "d04",
+   "file": "d04-apple-app-settings/09-iphone-15-xxxlarge-393-852-text-1-35.png",
+   "frame": 9,
+   "cssWidth": 393,
+   "cssHeight": 852,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 1704,
+   "theme": "light",
+   "textScale": 1.35,
+   "surface": "app-iphone",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.app-iphone.d04-09.iphone-15-xxxlarge"
+   },
+   "blockedBy": [
+    "text-scale-host"
+   ],
+   "twin": null,
+   "v1Case": "d04-09"
+  },
+  {
+   "id": "d04-10",
+   "page": "d04-apple-app-settings",
+   "pageCode": "d04",
+   "file": "d04-apple-app-settings/10-iphone-15-accessibility-size-393-852-text-2.png",
+   "frame": 10,
+   "cssWidth": 393,
+   "cssHeight": 852,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 1704,
+   "theme": "dark",
+   "textScale": 2.0,
+   "surface": "app-iphone",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.app-iphone.d04-10.iphone-15-accessibility-size"
+   },
+   "blockedBy": [
+    "text-scale-host"
+   ],
+   "twin": null,
+   "v1Case": "d04-10"
+  },
+  {
+   "id": "d12-01",
+   "page": "d12-apple-onboarding",
+   "pageCode": "d12",
+   "file": "d12-apple-onboarding/01-iphone-15-step-1-393-852.png",
+   "frame": 1,
+   "cssWidth": 393,
+   "cssHeight": 852,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 1704,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "app-iphone",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T3",
+   "gate": "pixel-t2+probe-t3",
+   "recipes": {
+    "T2": "t2.app-iphone.d12-01.iphone-15-step-1",
+    "T3": "t3.app-iphone.d12-01.iphone-15-step-1"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d12-01"
+  },
+  {
+   "id": "d12-02",
+   "page": "d12-apple-onboarding",
+   "pageCode": "d12",
+   "file": "d12-apple-onboarding/02-iphone-15-step-2-393-852.png",
+   "frame": 2,
+   "cssWidth": 393,
+   "cssHeight": 852,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 1704,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "app-iphone",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T3",
+   "gate": "pixel-t2+probe-t3",
+   "recipes": {
+    "T2": "t2.app-iphone.d12-02.iphone-15-step-2",
+    "T3": "t3.app-iphone.d12-02.iphone-15-step-2"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d12-02"
+  },
+  {
+   "id": "d12-03",
+   "page": "d12-apple-onboarding",
+   "pageCode": "d12",
+   "file": "d12-apple-onboarding/03-iphone-15-step-3-393-852.png",
+   "frame": 3,
+   "cssWidth": 393,
+   "cssHeight": 852,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 1704,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "app-iphone",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T3",
+   "gate": "pixel-t2+probe-t3",
+   "recipes": {
+    "T2": "t2.app-iphone.d12-03.iphone-15-step-3",
+    "T3": "t3.app-iphone.d12-03.iphone-15-step-3"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d12-03"
+  },
+  {
+   "id": "d12-04",
+   "page": "d12-apple-onboarding",
+   "pageCode": "d12",
+   "file": "d12-apple-onboarding/04-iphone-15-step-4-393-852.png",
+   "frame": 4,
+   "cssWidth": 393,
+   "cssHeight": 852,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 1704,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "app-iphone",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T3",
+   "gate": "pixel-t2+probe-t3",
+   "recipes": {
+    "T2": "t2.app-iphone.d12-04.iphone-15-step-4",
+    "T3": "t3.app-iphone.d12-04.iphone-15-step-4"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d12-04"
+  },
+  {
+   "id": "d12-05",
+   "page": "d12-apple-onboarding",
+   "pageCode": "d12",
+   "file": "d12-apple-onboarding/05-iphone-15-step-1-393-852.png",
+   "frame": 5,
+   "cssWidth": 393,
+   "cssHeight": 852,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 1704,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "app-iphone",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T3",
+   "gate": "pixel-t2+probe-t3",
+   "recipes": {
+    "T2": "t2.app-iphone.d12-05.iphone-15-step-1",
+    "T3": "t3.app-iphone.d12-05.iphone-15-step-1"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d12-05"
+  },
+  {
+   "id": "d12-06",
+   "page": "d12-apple-onboarding",
+   "pageCode": "d12",
+   "file": "d12-apple-onboarding/06-iphone-se-step-2-xxxlarge-375-667-text-1-35.png",
+   "frame": 6,
+   "cssWidth": 375,
+   "cssHeight": 667,
+   "scale": 2,
+   "pixelWidth": 750,
+   "pixelHeight": 1334,
+   "theme": "light",
+   "textScale": 1.35,
+   "surface": "app-iphone-se",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.app-iphone-se.d12-06.iphone-se-step-2-xxxlarge"
+   },
+   "blockedBy": [
+    "text-scale-host"
+   ],
+   "twin": null,
+   "v1Case": "d12-06"
+  },
+  {
+   "id": "d12-07",
+   "page": "d12-apple-onboarding",
+   "pageCode": "d12",
+   "file": "d12-apple-onboarding/07-iphone-15-step-1-accessibility-size-393-852-text-2.png",
+   "frame": 7,
+   "cssWidth": 393,
+   "cssHeight": 852,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 1704,
+   "theme": "dark",
+   "textScale": 2.0,
+   "surface": "app-iphone",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.app-iphone.d12-07.iphone-15-step-1-accessibility-size"
+   },
+   "blockedBy": [
+    "text-scale-host"
+   ],
+   "twin": null,
+   "v1Case": "d12-07"
+  },
+  {
+   "id": "d12-08",
+   "page": "d12-apple-onboarding",
+   "pageCode": "d12",
+   "file": "d12-apple-onboarding/08-ipad-step-2-820-760.png",
+   "frame": 8,
+   "cssWidth": 820,
+   "cssHeight": 760,
+   "scale": 2,
+   "pixelWidth": 1640,
+   "pixelHeight": 1520,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "app-ipad",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T3",
+   "gate": "pixel-t2+pixel-t3",
+   "recipes": {
+    "T2": "t2.app-ipad.d12-08.ipad-step-2",
+    "T3": "t3.app-ipad.d12-08.ipad-step-2"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d12-08"
+  },
+  {
+   "id": "d12-09",
+   "page": "d12-apple-onboarding",
+   "pageCode": "d12",
+   "file": "d12-apple-onboarding/09-mac-step-2-waiting-640-600.png",
+   "frame": 9,
+   "cssWidth": 640,
+   "cssHeight": 600,
+   "scale": 2,
+   "pixelWidth": 1280,
+   "pixelHeight": 1200,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "app-mac",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T3",
+   "gate": "pixel-t2+pixel-t3",
+   "recipes": {
+    "T2": "t2.app-mac.d12-09.mac-step-2-waiting",
+    "T3": "t3.app-mac.d12-09.mac-step-2-waiting"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d12-09"
+  },
+  {
+   "id": "d12-10",
+   "page": "d12-apple-onboarding",
+   "pageCode": "d12",
+   "file": "d12-apple-onboarding/10-mac-step-2-on-640-600.png",
+   "frame": 10,
+   "cssWidth": 640,
+   "cssHeight": 600,
+   "scale": 2,
+   "pixelWidth": 1280,
+   "pixelHeight": 1200,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "app-mac",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T3",
+   "gate": "pixel-t2+pixel-t3",
+   "recipes": {
+    "T2": "t2.app-mac.d12-10.mac-step-2-on",
+    "T3": "t3.app-mac.d12-10.mac-step-2-on"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d12-10"
+  },
+  {
+   "id": "d14-01",
+   "page": "d14-extension-first-run",
+   "pageCode": "d14",
+   "file": "d14-extension-first-run/01-chrome-just-installed-600-1000.png",
+   "frame": 1,
+   "cssWidth": 600,
+   "cssHeight": 1000,
+   "scale": 2,
+   "pixelWidth": 1200,
+   "pixelHeight": 2000,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "chromium-firstrun",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-firstrun.d14-01.chrome-just-installed"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d14-01"
+  },
+  {
+   "id": "d14-02",
+   "page": "d14-extension-first-run",
+   "pageCode": "d14",
+   "file": "d14-extension-first-run/02-chrome-pinned-signed-in-consent-answered-600-1000.png",
+   "frame": 2,
+   "cssWidth": 600,
+   "cssHeight": 1000,
+   "scale": 2,
+   "pixelWidth": 1200,
+   "pixelHeight": 2000,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "chromium-firstrun",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-firstrun.d14-02.chrome-pinned-signed-in-consent-answered"
+   },
+   "blockedBy": [
+    "local-backend"
+   ],
+   "twin": null,
+   "v1Case": "d14-02"
+  },
+  {
+   "id": "d14-03",
+   "page": "d14-extension-first-run",
+   "pageCode": "d14",
+   "file": "d14-extension-first-run/03-firefox-permission-needed-420-960.png",
+   "frame": 3,
+   "cssWidth": 420,
+   "cssHeight": 960,
+   "scale": 2,
+   "pixelWidth": 840,
+   "pixelHeight": 1920,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "firefox-firstrun",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.firefox-firstrun.d14-03.firefox-permission-needed"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d14-03"
+  },
+  {
+   "id": "d14-04",
+   "page": "d14-extension-first-run",
+   "pageCode": "d14",
+   "file": "d14-extension-first-run/04-firefox-waiting-420-960.png",
+   "frame": 4,
+   "cssWidth": 420,
+   "cssHeight": 960,
+   "scale": 2,
+   "pixelWidth": 840,
+   "pixelHeight": 1920,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "firefox-firstrun",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.firefox-firstrun.d14-04.firefox-waiting"
+   },
+   "blockedBy": [
+    "firefox-permission-spike"
+   ],
+   "twin": null,
+   "v1Case": "d14-04"
+  },
+  {
+   "id": "d14-05",
+   "page": "d14-extension-first-run",
+   "pageCode": "d14",
+   "file": "d14-extension-first-run/05-firefox-not-allowed-420-960.png",
+   "frame": 5,
+   "cssWidth": 420,
+   "cssHeight": 960,
+   "scale": 2,
+   "pixelWidth": 840,
+   "pixelHeight": 1920,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "firefox-firstrun",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.firefox-firstrun.d14-05.firefox-not-allowed"
+   },
+   "blockedBy": [
+    "firefox-permission-spike"
+   ],
+   "twin": null,
+   "v1Case": "d14-05"
+  },
+  {
+   "id": "d14-06",
+   "page": "d14-extension-first-run",
+   "pageCode": "d14",
+   "file": "d14-extension-first-run/06-320-wide-1-5-text-320-1100-text-1-5.png",
+   "frame": 6,
+   "cssWidth": 320,
+   "cssHeight": 1100,
+   "scale": 2,
+   "pixelWidth": 640,
+   "pixelHeight": 2200,
+   "theme": "light",
+   "textScale": 1.5,
+   "surface": "chromium-firstrun",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.chromium-firstrun.d14-06.320-wide-1-5-text"
+   },
+   "blockedBy": [
+    "text-scale-host"
+   ],
+   "twin": null,
+   "v1Case": "d14-06"
+  },
+  {
+   "id": "d14-07",
+   "page": "d14-extension-first-run",
+   "pageCode": "d14",
+   "file": "d14-extension-first-run/07-keyboard-focus-on-allow-480-760.png",
+   "frame": 7,
+   "cssWidth": 480,
+   "cssHeight": 760,
+   "scale": 2,
+   "pixelWidth": 960,
+   "pixelHeight": 1520,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "chromium-firstrun",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T1",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-firstrun.d14-07.keyboard-focus-on-allow"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d14-07"
+  },
+  {
+   "id": "d18-01",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/01-chrome-signed-out-520-860.png",
+   "frame": 1,
+   "cssWidth": 520,
+   "cssHeight": 860,
+   "scale": 2,
+   "pixelWidth": 1040,
+   "pixelHeight": 1720,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "web-checkout",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.web-checkout.d18-01.chrome-signed-out"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": null,
+   "v1Case": "d18-01"
+  },
+  {
+   "id": "d18-02",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/02-iphone-still-app-393-852.png",
+   "frame": 2,
+   "cssWidth": 393,
+   "cssHeight": 852,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 1704,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "app-iphone",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel-t2+probe-t3",
+   "recipes": {
+    "T2": "t2.app-iphone.d18-02.iphone-still-app",
+    "T3": "t3.app-iphone.d18-02.iphone-still-app"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": null,
+   "v1Case": "d18-02"
+  },
+  {
+   "id": "d18-03",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/03-mac-still-app-560-760.png",
+   "frame": 3,
+   "cssWidth": 560,
+   "cssHeight": 760,
+   "scale": 2,
+   "pixelWidth": 1120,
+   "pixelHeight": 1520,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "app-mac",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel-t2+pixel-t3",
+   "recipes": {
+    "T2": "t2.app-mac.d18-03.mac-still-app",
+    "T3": "t3.app-mac.d18-03.mac-still-app"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": null,
+   "v1Case": "d18-03"
+  },
+  {
+   "id": "d18-04",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/04-waiting-for-checkout-420-820.png",
+   "frame": 4,
+   "cssWidth": 420,
+   "cssHeight": 820,
+   "scale": 2,
+   "pixelWidth": 840,
+   "pixelHeight": 1640,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "web-checkout",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.web-checkout.d18-04.waiting-for-checkout"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": null,
+   "v1Case": "d18-04"
+  },
+  {
+   "id": "d18-05",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/05-waiting-for-apple-393-852.png",
+   "frame": 5,
+   "cssWidth": 393,
+   "cssHeight": 852,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 1704,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "app-iphone",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel-t2+probe-t3",
+   "recipes": {
+    "T2": "t2.app-iphone.d18-05.waiting-for-apple",
+    "T3": "t3.app-iphone.d18-05.waiting-for-apple"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": null,
+   "v1Case": "d18-05"
+  },
+  {
+   "id": "d18-06",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/06-not-confirmed-420-820.png",
+   "frame": 6,
+   "cssWidth": 420,
+   "cssHeight": 820,
+   "scale": 2,
+   "pixelWidth": 840,
+   "pixelHeight": 1640,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "web-checkout",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.web-checkout.d18-06.not-confirmed"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": null,
+   "v1Case": "d18-06"
+  },
+  {
+   "id": "d18-07",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/07-checking-access-420-820.png",
+   "frame": 7,
+   "cssWidth": 420,
+   "cssHeight": 820,
+   "scale": 2,
+   "pixelWidth": 840,
+   "pixelHeight": 1640,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "web-checkout",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.web-checkout.d18-07.checking-access"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": null,
+   "v1Case": "d18-07"
+  },
+  {
+   "id": "d18-08",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/08-firefox-channel-not-ready-420-820.png",
+   "frame": 8,
+   "cssWidth": 420,
+   "cssHeight": 820,
+   "scale": 2,
+   "pixelWidth": 840,
+   "pixelHeight": 1640,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "firefox-popup",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.firefox-popup.d18-08.firefox-channel-not-ready"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": null,
+   "v1Case": "d18-08"
+  },
+  {
+   "id": "d18-09",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/09-sign-in-to-continue-420-820.png",
+   "frame": 9,
+   "cssWidth": 420,
+   "cssHeight": 820,
+   "scale": 2,
+   "pixelWidth": 840,
+   "pixelHeight": 1640,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "web-checkout",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.web-checkout.d18-09.sign-in-to-continue"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": null,
+   "v1Case": "d18-09"
+  },
+  {
+   "id": "d18-10",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/10-payment-provider-not-drawn.png",
+   "frame": 10,
+   "cssWidth": 360,
+   "cssHeight": 560,
+   "scale": 2,
+   "pixelWidth": 720,
+   "pixelHeight": 1120,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "external-provider",
+   "tier": "X",
+   "tiers": [
+    "X"
+   ],
+   "tierToday": "X",
+   "gate": "none",
+   "recipes": {
+    "X": "none.external-provider.d18-10.payment-provider-not-drawn"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "d18-11",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/11-return-confirming-420-560.png",
+   "frame": 11,
+   "cssWidth": 420,
+   "cssHeight": 560,
+   "scale": 2,
+   "pixelWidth": 840,
+   "pixelHeight": 1120,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "web-checkout",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.web-checkout.d18-11.return-confirming"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": null,
+   "v1Case": "d18-11"
+  },
+  {
+   "id": "d18-12",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/12-return-ready-420-560.png",
+   "frame": 12,
+   "cssWidth": 420,
+   "cssHeight": 560,
+   "scale": 2,
+   "pixelWidth": 840,
+   "pixelHeight": 1120,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "web-checkout",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.web-checkout.d18-12.return-ready"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": null,
+   "v1Case": "d18-12"
+  },
+  {
+   "id": "d18-13",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/13-return-not-confirmed-420-560.png",
+   "frame": 13,
+   "cssWidth": 420,
+   "cssHeight": 560,
+   "scale": 2,
+   "pixelWidth": 840,
+   "pixelHeight": 1120,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "web-checkout",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.web-checkout.d18-13.return-not-confirmed"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": null,
+   "v1Case": "d18-13"
+  },
+  {
+   "id": "d18-14",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/14-return-cancelled-420-560.png",
+   "frame": 14,
+   "cssWidth": 420,
+   "cssHeight": 560,
+   "scale": 2,
+   "pixelWidth": 840,
+   "pixelHeight": 1120,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "web-checkout",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.web-checkout.d18-14.return-cancelled"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": null,
+   "v1Case": "d18-14"
+  },
+  {
+   "id": "d18-15",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/15-chrome-after-checkout-420-820.png",
+   "frame": 15,
+   "cssWidth": 420,
+   "cssHeight": 820,
+   "scale": 2,
+   "pixelWidth": 840,
+   "pixelHeight": 1640,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "web-checkout",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.web-checkout.d18-15.chrome-after-checkout"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": null,
+   "v1Case": "d18-15"
+  },
+  {
+   "id": "d18-16",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/16-iphone-after-apple-393-852.png",
+   "frame": 16,
+   "cssWidth": 393,
+   "cssHeight": 852,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 1704,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "app-iphone",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel-t2+probe-t3",
+   "recipes": {
+    "T2": "t2.app-iphone.d18-16.iphone-after-apple",
+    "T3": "t3.app-iphone.d18-16.iphone-after-apple"
+   },
+   "blockedBy": [
+    "paid-build"
+   ],
+   "twin": null,
+   "v1Case": "d18-16"
+  },
+  {
+   "id": "d18-17",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/17-apple-checking-393-852.png",
+   "frame": 17,
+   "cssWidth": 393,
+   "cssHeight": 852,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 1704,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "app-iphone",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T3",
+   "gate": "pixel-t2+probe-t3",
+   "recipes": {
+    "T2": "t2.app-iphone.d18-17.apple-checking",
+    "T3": "t3.app-iphone.d18-17.apple-checking"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d18-17"
+  },
+  {
+   "id": "d18-18",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/18-apple-restored-393-852.png",
+   "frame": 18,
+   "cssWidth": 393,
+   "cssHeight": 852,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 1704,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "app-iphone",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T3",
+   "gate": "pixel-t2+probe-t3",
+   "recipes": {
+    "T2": "t2.app-iphone.d18-18.apple-restored",
+    "T3": "t3.app-iphone.d18-18.apple-restored"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d18-18"
+  },
+  {
+   "id": "d18-19",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/19-apple-nothing-found-393-852.png",
+   "frame": 19,
+   "cssWidth": 393,
+   "cssHeight": 852,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 1704,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "app-iphone",
+   "tier": "T3",
+   "tiers": [
+    "T2",
+    "T3"
+   ],
+   "tierToday": "T3",
+   "gate": "pixel-t2+probe-t3",
+   "recipes": {
+    "T2": "t2.app-iphone.d18-19.apple-nothing-found",
+    "T3": "t3.app-iphone.d18-19.apple-nothing-found"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": "d18-19"
+  },
+  {
+   "id": "d18-20",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/20-browser-couldn-t-finish-420-820.png",
+   "frame": 20,
+   "cssWidth": 420,
+   "cssHeight": 820,
+   "scale": 2,
+   "pixelWidth": 840,
+   "pixelHeight": 1640,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "web-checkout",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.web-checkout.d18-20.browser-couldn-t-finish"
+   },
+   "blockedBy": [
+    "paid-build",
+    "browser-restore-in-free-period"
+   ],
+   "twin": null,
+   "v1Case": "d18-20"
+  },
+  {
+   "id": "d18-21",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/21-browser-needs-verification-420-820.png",
+   "frame": 21,
+   "cssWidth": 420,
+   "cssHeight": 820,
+   "scale": 2,
+   "pixelWidth": 840,
+   "pixelHeight": 1640,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "web-checkout",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.web-checkout.d18-21.browser-needs-verification"
+   },
+   "blockedBy": [
+    "paid-build",
+    "browser-restore-in-free-period"
+   ],
+   "twin": null,
+   "v1Case": "d18-21"
+  },
+  {
+   "id": "d18-22",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/22-browser-sign-in-to-restore-420-820.png",
+   "frame": 22,
+   "cssWidth": 420,
+   "cssHeight": 820,
+   "scale": 2,
+   "pixelWidth": 840,
+   "pixelHeight": 1640,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "web-checkout",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.web-checkout.d18-22.browser-sign-in-to-restore"
+   },
+   "blockedBy": [
+    "paid-build",
+    "browser-restore-in-free-period"
+   ],
+   "twin": null,
+   "v1Case": "d18-22"
+  },
+  {
+   "id": "d18-23",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/23-iphone-se-xxxlarge-375-667-text-1-35.png",
+   "frame": 23,
+   "cssWidth": 375,
+   "cssHeight": 667,
+   "scale": 2,
+   "pixelWidth": 750,
+   "pixelHeight": 1334,
+   "theme": "light",
+   "textScale": 1.35,
+   "surface": "app-iphone-se",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.app-iphone-se.d18-23.iphone-se-xxxlarge"
+   },
+   "blockedBy": [
+    "text-scale-host"
+   ],
+   "twin": null,
+   "v1Case": "d18-23"
+  },
+  {
+   "id": "d18-24",
+   "page": "d18-d20-d24-d25-purchase-and-restore",
+   "pageCode": "d18",
+   "file": "d18-d20-d24-d25-purchase-and-restore/24-320-wide-1-5-text-320-900-text-1-5.png",
+   "frame": 24,
+   "cssWidth": 320,
+   "cssHeight": 900,
+   "scale": 2,
+   "pixelWidth": 640,
+   "pixelHeight": 1800,
+   "theme": "light",
+   "textScale": 1.5,
+   "surface": "web-checkout",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.web-checkout.d18-24.320-wide-1-5-text"
+   },
+   "blockedBy": [
+    "text-scale-host"
+   ],
+   "twin": null,
+   "v1Case": "d18-24"
+  },
+  {
+   "id": "d28-01",
+   "page": "d28-rating-prompt",
+   "pageCode": "d28",
+   "file": "d28-rating-prompt/01-chrome-popup-380-600.png",
+   "frame": 1,
+   "cssWidth": 380,
+   "cssHeight": 600,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 1200,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "chromium-popup",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-popup.d28-01.chrome-popup"
+   },
+   "blockedBy": [
+    "rating-policy-on-qa-run"
+   ],
+   "twin": null,
+   "v1Case": "d28-01"
+  },
+  {
+   "id": "d28-02",
+   "page": "d28-rating-prompt",
+   "pageCode": "d28",
+   "file": "d28-rating-prompt/02-firefox-popup-380-600.png",
+   "frame": 2,
+   "cssWidth": 380,
+   "cssHeight": 600,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 1200,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "firefox-popup",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.firefox-popup.d28-02.firefox-popup"
+   },
+   "blockedBy": [
+    "rating-policy-on-qa-run"
+   ],
+   "twin": null,
+   "v1Case": "d28-02"
+  },
+  {
+   "id": "d28-03",
+   "page": "d28-rating-prompt",
+   "pageCode": "d28",
+   "file": "d28-rating-prompt/03-firefox-android-illustrative-360-780.png",
+   "frame": 3,
+   "cssWidth": 360,
+   "cssHeight": 780,
+   "scale": 2,
+   "pixelWidth": 720,
+   "pixelHeight": 1560,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "android-firefox",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.android-firefox.d28-03.firefox-android-illustrative"
+   },
+   "blockedBy": [
+    "android-lane"
+   ],
+   "twin": null,
+   "v1Case": "d28-03"
+  },
+  {
+   "id": "d28-04",
+   "page": "d28-rating-prompt",
+   "pageCode": "d28",
+   "file": "d28-rating-prompt/04-sync-invitation-wins-380-600.png",
+   "frame": 4,
+   "cssWidth": 380,
+   "cssHeight": 600,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 1200,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "chromium-popup",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-popup.d28-04.sync-invitation-wins"
+   },
+   "blockedBy": [
+    "u13-producer"
+   ],
+   "twin": null,
+   "v1Case": "d28-04"
+  },
+  {
+   "id": "d28-05",
+   "page": "d28-rating-prompt",
+   "pageCode": "d28",
+   "file": "d28-rating-prompt/05-setup-needed-no-invitation-380-600.png",
+   "frame": 5,
+   "cssWidth": 380,
+   "cssHeight": 600,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 1200,
+   "theme": "dark",
+   "textScale": 1.0,
+   "surface": "chromium-popup",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-popup.d28-05.setup-needed-no-invitation"
+   },
+   "blockedBy": [
+    "u13-producer"
+   ],
+   "twin": null,
+   "v1Case": "d28-05"
+  },
+  {
+   "id": "d28-06",
+   "page": "d28-rating-prompt",
+   "pageCode": "d28",
+   "file": "d28-rating-prompt/06-sync-error-no-invitation-380-600.png",
+   "frame": 6,
+   "cssWidth": 380,
+   "cssHeight": 600,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 1200,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "chromium-popup",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.chromium-popup.d28-06.sync-error-no-invitation"
+   },
+   "blockedBy": [
+    "u13-producer"
+   ],
+   "twin": null,
+   "v1Case": "d28-06"
+  },
+  {
+   "id": "d28-07",
+   "page": "d28-rating-prompt",
+   "pageCode": "d28",
+   "file": "d28-rating-prompt/07-apple-host-native.png",
+   "frame": 7,
+   "cssWidth": 393,
+   "cssHeight": 300,
+   "scale": 2,
+   "pixelWidth": 786,
+   "pixelHeight": 600,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "apple-native-sheet",
+   "tier": "X",
+   "tiers": [
+    "X"
+   ],
+   "tierToday": "X",
+   "gate": "none",
+   "recipes": {
+    "X": "none.apple-native-sheet.d28-07.apple-host-native"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "d28-08",
+   "page": "d28-rating-prompt",
+   "pageCode": "d28",
+   "file": "d28-rating-prompt/08-owner-view-draft.png",
+   "frame": 8,
+   "cssWidth": 400,
+   "cssHeight": 559.75,
+   "scale": 2,
+   "pixelWidth": 800,
+   "pixelHeight": 1120,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "owner-admin",
+   "tier": "T1",
+   "tiers": [
+    "T1"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T1": "t1.owner-admin.d28-08.owner-view-draft"
+   },
+   "blockedBy": [
+    "owner-admin-build"
+   ],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "d28-09",
+   "page": "d28-rating-prompt",
+   "pageCode": "d28",
+   "file": "d28-rating-prompt/09-chrome-popup-1-5-text-380-600-text-1-5.png",
+   "frame": 9,
+   "cssWidth": 380,
+   "cssHeight": 600,
+   "scale": 2,
+   "pixelWidth": 760,
+   "pixelHeight": 1202,
+   "theme": "light",
+   "textScale": 1.5,
+   "surface": "chromium-popup",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel",
+   "recipes": {
+    "T0": "t0.chromium-popup.d28-09.chrome-popup-1-5-text"
+   },
+   "blockedBy": [
+    "text-scale-host"
+   ],
+   "twin": null,
+   "v1Case": "d28-09"
+  },
+  {
+   "id": "store-01",
+   "page": "d41-d43-d45-store-assets-and-icons",
+   "pageCode": "store",
+   "file": "d41-d43-d45-store-assets-and-icons/01-chrome-1-1280-800.png",
+   "frame": 1,
+   "cssWidth": 1280,
+   "cssHeight": 800,
+   "scale": 2,
+   "pixelWidth": 2560,
+   "pixelHeight": 1600,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "store-canvas",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel-store",
+   "recipes": {
+    "T0": "t0.store-canvas.store-01.chrome-1"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "store-02",
+   "page": "d41-d43-d45-store-assets-and-icons",
+   "pageCode": "store",
+   "file": "d41-d43-d45-store-assets-and-icons/02-chrome-2-1280-800.png",
+   "frame": 2,
+   "cssWidth": 1280,
+   "cssHeight": 800,
+   "scale": 2,
+   "pixelWidth": 2560,
+   "pixelHeight": 1600,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "store-canvas",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel-store",
+   "recipes": {
+    "T0": "t0.store-canvas.store-02.chrome-2"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "store-03",
+   "page": "d41-d43-d45-store-assets-and-icons",
+   "pageCode": "store",
+   "file": "d41-d43-d45-store-assets-and-icons/03-chrome-3-1280-800.png",
+   "frame": 3,
+   "cssWidth": 1280,
+   "cssHeight": 800,
+   "scale": 2,
+   "pixelWidth": 2560,
+   "pixelHeight": 1600,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "store-canvas",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel-store",
+   "recipes": {
+    "T0": "t0.store-canvas.store-03.chrome-3"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "store-04",
+   "page": "d41-d43-d45-store-assets-and-icons",
+   "pageCode": "store",
+   "file": "d41-d43-d45-store-assets-and-icons/04-small-promo-tile-440-280.png",
+   "frame": 4,
+   "cssWidth": 440,
+   "cssHeight": 280,
+   "scale": 2,
+   "pixelWidth": 880,
+   "pixelHeight": 560,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "store-canvas",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel-store",
+   "recipes": {
+    "T0": "t0.store-canvas.store-04.small-promo-tile"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "store-05",
+   "page": "d41-d43-d45-store-assets-and-icons",
+   "pageCode": "store",
+   "file": "d41-d43-d45-store-assets-and-icons/05-marquee-1400-560.png",
+   "frame": 5,
+   "cssWidth": 1400,
+   "cssHeight": 560,
+   "scale": 2,
+   "pixelWidth": 2800,
+   "pixelHeight": 1120,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "store-canvas",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel-store",
+   "recipes": {
+    "T0": "t0.store-canvas.store-05.marquee"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "store-06",
+   "page": "d41-d43-d45-store-assets-and-icons",
+   "pageCode": "store",
+   "file": "d41-d43-d45-store-assets-and-icons/06-firefox-1-1280-800.png",
+   "frame": 6,
+   "cssWidth": 1280,
+   "cssHeight": 800,
+   "scale": 2,
+   "pixelWidth": 2560,
+   "pixelHeight": 1600,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "store-canvas",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel-store",
+   "recipes": {
+    "T0": "t0.store-canvas.store-06.firefox-1"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "store-07",
+   "page": "d41-d43-d45-store-assets-and-icons",
+   "pageCode": "store",
+   "file": "d41-d43-d45-store-assets-and-icons/07-firefox-2-1280-800.png",
+   "frame": 7,
+   "cssWidth": 1280,
+   "cssHeight": 800,
+   "scale": 2,
+   "pixelWidth": 2560,
+   "pixelHeight": 1600,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "store-canvas",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel-store",
+   "recipes": {
+    "T0": "t0.store-canvas.store-07.firefox-2"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "store-08",
+   "page": "d41-d43-d45-store-assets-and-icons",
+   "pageCode": "store",
+   "file": "d41-d43-d45-store-assets-and-icons/08-firefox-3-1280-800.png",
+   "frame": 8,
+   "cssWidth": 1280,
+   "cssHeight": 800,
+   "scale": 2,
+   "pixelWidth": 2560,
+   "pixelHeight": 1600,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "store-canvas",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel-store",
+   "recipes": {
+    "T0": "t0.store-canvas.store-08.firefox-3"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "store-09",
+   "page": "d41-d43-d45-store-assets-and-icons",
+   "pageCode": "store",
+   "file": "d41-d43-d45-store-assets-and-icons/09-firefox-android-illustrative-1280-800.png",
+   "frame": 9,
+   "cssWidth": 1280,
+   "cssHeight": 800,
+   "scale": 2,
+   "pixelWidth": 2560,
+   "pixelHeight": 1600,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "store-canvas",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel-store",
+   "recipes": {
+    "T0": "t0.store-canvas.store-09.firefox-android-illustrative"
+   },
+   "blockedBy": [
+    "android-renderer"
+   ],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "store-10",
+   "page": "d41-d43-d45-store-assets-and-icons",
+   "pageCode": "store",
+   "file": "d41-d43-d45-store-assets-and-icons/10-iphone-1-1320-2868.png",
+   "frame": 10,
+   "cssWidth": 1320,
+   "cssHeight": 2868,
+   "scale": 2,
+   "pixelWidth": 2640,
+   "pixelHeight": 5736,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "store-canvas",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel-store",
+   "recipes": {
+    "T0": "t0.store-canvas.store-10.iphone-1"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "store-11",
+   "page": "d41-d43-d45-store-assets-and-icons",
+   "pageCode": "store",
+   "file": "d41-d43-d45-store-assets-and-icons/11-iphone-2-1320-2868.png",
+   "frame": 11,
+   "cssWidth": 1320,
+   "cssHeight": 2868,
+   "scale": 2,
+   "pixelWidth": 2640,
+   "pixelHeight": 5736,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "store-canvas",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel-store",
+   "recipes": {
+    "T0": "t0.store-canvas.store-11.iphone-2"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "store-12",
+   "page": "d41-d43-d45-store-assets-and-icons",
+   "pageCode": "store",
+   "file": "d41-d43-d45-store-assets-and-icons/12-iphone-3-1320-2868.png",
+   "frame": 12,
+   "cssWidth": 1320,
+   "cssHeight": 2868,
+   "scale": 2,
+   "pixelWidth": 2640,
+   "pixelHeight": 5736,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "store-canvas",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel-store",
+   "recipes": {
+    "T0": "t0.store-canvas.store-12.iphone-3"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "store-13",
+   "page": "d41-d43-d45-store-assets-and-icons",
+   "pageCode": "store",
+   "file": "d41-d43-d45-store-assets-and-icons/13-ipad-1-2064-2752.png",
+   "frame": 13,
+   "cssWidth": 2064,
+   "cssHeight": 2752,
+   "scale": 2,
+   "pixelWidth": 4128,
+   "pixelHeight": 5504,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "store-canvas",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel-store",
+   "recipes": {
+    "T0": "t0.store-canvas.store-13.ipad-1"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  },
+  {
+   "id": "store-14",
+   "page": "d41-d43-d45-store-assets-and-icons",
+   "pageCode": "store",
+   "file": "d41-d43-d45-store-assets-and-icons/14-mac-1-2880-1800.png",
+   "frame": 14,
+   "cssWidth": 2880,
+   "cssHeight": 1800,
+   "scale": 2,
+   "pixelWidth": 5760,
+   "pixelHeight": 3600,
+   "theme": "light",
+   "textScale": 1.0,
+   "surface": "store-canvas",
+   "tier": "T0",
+   "tiers": [
+    "T0"
+   ],
+   "tierToday": "T0",
+   "gate": "pixel-store",
+   "recipes": {
+    "T0": "t0.store-canvas.store-14.mac-1"
+   },
+   "blockedBy": [],
+   "twin": null,
+   "v1Case": null
+  }
+ ]
+}

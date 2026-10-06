@@ -130,13 +130,32 @@ public final class SharedSettingsStore {
   public func encodedRecord() -> Data? { backing.read() }
   public func readCommittedRecord() throws -> Data? { try backing.transaction { $0 } }
 
-  public func atomicCommand(_ command: Data) throws -> (data: Data, changed: Bool) {
+  /// `firstRecord` is the app host's launch fact (owner decision 28). Only an initialize command
+  /// that finds the record actually absent under this lock saves it; any saved record, readable or
+  /// not, is initialized or refused exactly as before, and nothing is ever overwritten.
+  public func atomicCommand(_ command: Data, firstRecord: AtomicSettingsRecord.FirstRecord? = nil) throws -> (data: Data, changed: Bool) {
     guard coordinationAvailable else { throw AtomicSettingsRecord.Failure.unavailable }
     return try backing.transaction { data in
-      let resolved = try AtomicSettingsRecord.command(data, command: command)
+      var base = data
+      if base == nil, let firstRecord, AtomicSettingsRecord.isInitializeCommand(command) {
+        base = try AtomicSettingsRecord.firstRecord(firstRecord)
+      }
+      let resolved = try AtomicSettingsRecord.command(base, command: command)
       let changed = resolved != data
       data = resolved
       return (resolved, changed)
+    }
+  }
+
+  /// Owner decision 30: offer Safari's retained copy after a reinstall. It replaces the saved
+  /// record only while that record is still an untouched first record, decided under the same lock
+  /// as every other write. Returns what is saved afterwards.
+  public func adoptLeftoverCopy(_ incoming: Data) throws -> (adoption: AtomicSettingsRecord.Adoption, data: Data?) {
+    guard coordinationAvailable else { throw AtomicSettingsRecord.Failure.unavailable }
+    return try backing.transaction { data in
+      let adoption = AtomicSettingsRecord.adopt(data, incoming: incoming)
+      if case .adopted(let adopted) = adoption { data = adopted }
+      return (adoption, data)
     }
   }
 
@@ -149,8 +168,9 @@ public final class SharedSettingsStore {
         return result
       }
       let result = try AtomicSettingsRecord.commit(data, path: path, value: value, updatedAt: updatedAt)
-      data = result.data
-      return result
+      // A no-op on an absent record stores nothing; the reply still reports the defaults in effect.
+      if let stored = result.data { data = stored }
+      return (try result.data ?? AtomicSettingsRecord.absentRecord(), result.changed)
     }
   }
 

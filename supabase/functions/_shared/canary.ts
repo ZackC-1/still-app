@@ -159,8 +159,9 @@ export function createNotifier(url: string | undefined, doFetch: typeof fetch = 
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ text: message }),
         });
-      } catch (err) {
-        console.error(`[canary] notify failed: ${String(err)}`);
+      } catch {
+        // A fetch error can quote the notify URL, which is a secret.
+        console.error("[canary] failed reason=notify_failed");
       }
     },
   };
