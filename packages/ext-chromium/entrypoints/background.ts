@@ -421,11 +421,15 @@ export default defineBackground(() => {
   void hydrated.then(() => session?.resume()).catch(heldInitialization);
   // No session spine (an unconfigured build) reads as signed out; a failed or stalled read is
   // "unknown", which changes nothing about the account and confirms nothing, so nothing is sent.
+  // The read is handed over unsettled, in this first synchronous pass: the start's account ask is
+  // reserved now, so a sign-out or deletion while the read is in flight wins over a stale answer.
   const ACCOUNT_LOOKUP_LIMIT_MS = 8_000;
-  void Promise.race([
-    hydrated.then(() => session?.getState()).then((state) => (state ? state.userId : null)),
-    new Promise<undefined>((r) => setTimeout(() => r(undefined), ACCOUNT_LOOKUP_LIMIT_MS)),
-  ]).then((userId) => analytics.onStart(userId), () => analytics.onStart(undefined));
+  analytics.onStart(
+    Promise.race([
+      hydrated.then(() => session?.getState()).then((state) => (state ? state.userId : null)),
+      new Promise<undefined>((r) => setTimeout(() => r(undefined), ACCOUNT_LOOKUP_LIMIT_MS)),
+    ]).catch(() => undefined),
+  );
 
   // ── DNR gating — Chromium only from here down. ───────────────────────────────────────────────
   if (!chrome.declarativeNetRequest?.updateEnabledRulesets) return;
