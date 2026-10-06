@@ -143,9 +143,17 @@ test("settings pending: no frame shows the page, then the ceiling reveals it at 
   const all = await frames(page);
   // The very first frame WebKit rendered with a body was already covered.
   expect(all.find((frame) => frame.body)).toMatchObject({ covered: true, opacity: "0" });
-  const sampled = all.filter((frame) => frame.body && frame.covered);
+  // Two independent 1.5 s limits end the cover: the script's timer (from the cover's start) and
+  // the stylesheet's own animation (from the body's first render). Under machine load the timer can
+  // fire a frame or two after the animation already ended, so a frame near 1.5 s may still carry
+  // the class with the page visible again; that is the ceiling working, not a flash. Every frame
+  // well inside the limit must be hidden.
+  const sampled = all.filter((frame) => frame.body && frame.covered && frame.at < 1_400);
   expect(sampled.length).toBeGreaterThan(0);
-  expect(sampled.every((frame) => frame.opacity === "0")).toBe(true);
+  expect(sampled.filter((frame) => frame.opacity !== "0"), "a frame inside the limit showed the page").toEqual([]);
+  // And nothing is hidden after the cover was released.
+  const after = all.filter((frame) => frame.body && frame.at > (m.released as number) + 50);
+  expect(after.filter((frame) => frame.opacity === "0"), "hidden after release").toEqual([]);
 });
 
 test("redirect in flight: the committed cover stays hidden until the ceiling", async ({ open }) => {
