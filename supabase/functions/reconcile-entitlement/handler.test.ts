@@ -12,6 +12,7 @@ const A = "11111111-1111-1111-1111-111111111111";
 const B = "22222222-2222-2222-2222-222222222222";
 
 const activeSub: RcSubscriber = { entitlements: { still_sync: { expires_date: null } } };
+const activeV3Sub: RcSubscriber = { entitlements: { still_pro_v3: { expires_date: null } } };
 const allowAll: RateLimiter = { consume: () => Promise.resolve(0) };
 
 type Write = { userId: string; stillSync: boolean; source: string };
@@ -105,6 +106,20 @@ Deno.test("JWT with wrong issuer → 401, no write (defense in depth)", async ()
   });
   assertEquals(res.status, 401);
   assertEquals(writes.length, 0);
+});
+
+Deno.test("still_pro_v3-only subscriber → writes the JWT subject true", async () => {
+  const { store, writes } = mockStore();
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  const res = await handleReconcile(req(jwt), {
+    jwtSecret: SECRET,
+    expected: EXPECTED,
+    store,
+    rc: mockRc({ [A]: activeV3Sub }),
+    limiter: allowAll,
+  });
+  assertEquals(res.status, 200);
+  assertEquals(writes, [{ userId: A, stillSync: true, source: "reconcile" }]);
 });
 
 Deno.test("webhook dropped → login reconcile establishes entitlement true", async () => {
