@@ -109,8 +109,13 @@ export interface ExtensionAnalyticsHost {
   /** Background start: one quiet `active` a day, setup complete on Safari (the extension is
    * running), a pending install if sharing is now on, and the current account. `null` means known to
    * be signed out (an earlier account is let go, whether it signed out here, elsewhere or was
-   * deleted); `undefined` means it could not be read, so nothing about the account changes. */
-  onStart(userId: string | null | undefined): void;
+   * deleted); `undefined` means it could not be read, so nothing about the account changes.
+   *
+   * Call it synchronously when the background starts, passing the session read itself (a promise)
+   * rather than awaiting it first: the start's account ask is reserved at once, so a sign-out,
+   * deletion or sign-in that happens while the read is in flight supersedes it, and a stale read
+   * that lands afterwards changes nothing. A rejected read counts as `undefined`. */
+  onStart(userId: string | null | undefined | PromiseLike<string | null | undefined>): void;
   /** The content script's visit nudge: real use. One quiet `active` for the day, and on Safari the
    * setup milestones (the extension demonstrably runs). */
   onActivity(observation?: Observation): void;
@@ -141,8 +146,13 @@ type PageRequest =
   | { readonly action: "acknowledgeNotice" };
 
 export interface AccountIdentifier {
-  /** Identify the install as this account; an ordinary (not quiet) identify also runs the attach. */
-  identify(userId: string, options?: TrackOptions): Promise<void>;
+  /** Identify the install as this account; an ordinary (not quiet) identify also runs the attach.
+   * `ask`: an account ask the caller reserved earlier (`client.reserveAccountAsk`), for an identify
+   * whose account was read after a wait; anything asked since supersedes it. */
+  identify(userId: string, options?: TrackOptions, ask?: number): Promise<void>;
+  /** An account deletion here: forget this device's cached per-device subjects for the account the
+   * host last asked for, and for the one being reported as, so no deleted account's mapping stays. */
+  forgetSubjects(reportingAs: string | null): Promise<void>;
   /**
    * The server email attach for whichever account the client reports as right now, once per
    * account while sharing is on. It never changes the account itself (a stale read must not restore
@@ -369,7 +379,7 @@ export function createAccountIdentifier(deps: {
    * screen retries a subject request that failed, only while nothing has changed since (a sign-out,
    * a deletion or a permission change makes the stamp stale, so a stale account is never restored). */
   let wanted: { readonly account: string; readonly stamp: ReturnType<AnalyticsClient["stamp"]> } | null = null;
-  const identifySubject = async (asked: string, options: TrackOptions): Promise<void> => {
+  const identifySubject = async (asked: string, options: TrackOptions, reserved?: number): Promise<void> => {
     if (!isAnalyticsId(asked) || !client.enabled) return;
     const account = asked.toLowerCase();
     // Unless this account's own subject is already confirmed, hold the client for this account
@@ -385,7 +395,8 @@ export function createAccountIdentifier(deps: {
     // is the client's stamp taken synchronously as the hold is asked (after its own withdrawal), so a
     // cancellation (sharing off, a forget) also makes this call's request and confirmation stale,
     // even while the hold is still waiting its turn on the chain.
-    const ask = client.reserveAccountAsk();
+    const ask = reserved ?? client.reserveAccountAsk();
+    if (!client.isLatestAsk(ask)) return;
     const current = () => client.isLatestAsk(ask) && client.isCurrent(fence);
     const before = await client.captureObservation();
     const known = before ? await cachedSubject(account, before.permission.origin) : null;
@@ -401,10 +412,18 @@ export function createAccountIdentifier(deps: {
     const observation = await client.captureObservation();
     if (!observation || !current()) return;
     let subject = await cachedSubject(account, observation.permission.origin);
-    if (!subject) {
+    if (!subject && options.quiet) {
       // A background start never calls the server (its timing would mark a site visit): events
-      // wait unattributed until an ordinary Still screen obtains the subject.
-      if (options.quiet) return;
+      // wait unattributed until an ordinary Still screen obtains the subject. But a request that a
+      // Still screen already started for this same account and origin is awaited: this quiet ask
+      // superseded that screen's own confirmation, so it confirms the subject in its place.
+      const inflight = subjectRequests.get(`${account}:${observation.permission.origin}`);
+      if (!inflight) return;
+      const issued = await inflight;
+      if (issued === null || issued === "stopped") return; // the screen's own call handles "stopped"
+      subject = issued;
+    }
+    if (!subject) {
       if (!current()) return;
       const issued = await requestSubject(account, observation);
       if (issued === "stopped") {
@@ -421,14 +440,28 @@ export function createAccountIdentifier(deps: {
   };
 
   return {
-    async identify(userId, options = {}) {
-      if (deps.subjects) return identifySubject(userId, options);
+    async identify(userId, options = {}, ask) {
+      if (deps.subjects) return identifySubject(userId, options, ask);
       // Without per-device subjects there is no identity to report under: never fall back to the
       // account id (owner decision 50). Stop reporting as anyone else (nobody included) at once;
       // signed-in events wait unattributed, bound to this account, and are dropped if the account
       // is let go of, so they are never reported under the anonymous id or another account either.
       void options;
-      if (client.enabled && isAnalyticsId(userId)) await client.holdForAccount(userId);
+      if (client.enabled && isAnalyticsId(userId)) await client.holdForAccount(userId, ask);
+    },
+    async forgetSubjects(reportingAs) {
+      const asked = wanted?.account ?? null;
+      wanted = null;
+      try {
+        const stored = readSubjects(await deps.local.get(SUBJECTS_KEY));
+        const accounts = new Set(
+          stored.filter((s) => s.account === asked || (reportingAs !== null && s.subject === reportingAs)).map((s) => s.account),
+        );
+        if (accounts.size === 0) return;
+        await deps.local.set(SUBJECTS_KEY, stored.filter((s) => !accounts.has(s.account)));
+      } catch {
+        /* best effort: the entry is local, bounded and never sent */
+      }
     },
     // With per-device subjects the email is set when the subject is issued, so there is no separate
     // attach: an ordinary screen instead retries a subject request that has not succeeded yet.
@@ -488,8 +521,8 @@ export function createExtensionAnalyticsHost(
     identifyOnServer: deps.identifyOnServer,
     subjects: deps.subjects,
   });
-  const identify = (userId: string, options?: TrackOptions) =>
-    accounts.identify(userId, options);
+  const identify = (userId: string, options?: TrackOptions, ask?: number) =>
+    accounts.identify(userId, options, ask);
   const blocksAtInstall =
     deps.surface === "chrome" || deps.surface === "firefox";
   const isSafari =
@@ -563,9 +596,14 @@ export function createExtensionAnalyticsHost(
         // A page reports the signed-in account from its session: that confirms the account.
         await identify(request.userId);
         return true;
-      case "reset":
+      case "reset": {
+        // Who this device reports as, read before the reset lets the account go.
+        const reportingAs = request.forgetAccount ? client.signedInAs() : null;
         await client.reset({ forgetAccount: request.forgetAccount });
+        // A deletion also forgets which per-device subject the account used here.
+        if (request.forgetAccount && deps.subjects) await accounts.forgetSubjects(await reportingAs);
         return true;
+      }
       case "sharing":
         return sharing();
       case "setSharing": {
@@ -660,11 +698,21 @@ export function createExtensionAnalyticsHost(
           .catch(() => {});
       }
     },
-    onStart(userId) {
+    onStart(read) {
       if (stopped) return;
+      // Reserved before the read settles: anything asked meanwhile (a sign-out, a deletion, another
+      // account) supersedes this start, whose read may already be stale.
+      const ask = client.reserveAccountAsk();
       void (async () => {
-        if (userId) {
-          await identify(userId, QUIET);
+        // A value already known is acted on at once, as before (no extra turn of the event loop).
+        const userId =
+          read !== null && typeof read === "object" && typeof (read as PromiseLike<unknown>).then === "function"
+            ? await Promise.resolve(read).catch(() => undefined)
+            : (read as string | null | undefined);
+        if (stopped || !client.isLatestAsk(ask)) {
+          // Superseded: the later ask decides the account. Nothing about it changes here.
+        } else if (userId) {
+          await identify(userId, QUIET, ask);
         } else if (userId === null) {
           // The account is gone (signed out elsewhere, deleted, expired). Its waiting events go with
           // it: if it was deleted, sending them would recreate the person the server just removed.

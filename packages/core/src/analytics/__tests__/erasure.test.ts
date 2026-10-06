@@ -643,6 +643,134 @@ describe("per-device subjects through the host", () => {
       extension.stop();
     });
 
+    // ── Hard gate F3: a background start's session read is fenced from the moment it starts ──
+    const reset = (extension: ReturnType<typeof perAccountHost>["extension"], forgetAccount = false) =>
+      new Promise((resolve) => {
+        extension.listener({ kind: ANALYTICS_MESSAGE_KIND, action: "reset", forgetAccount }, PAGE_SENDER, resolve);
+      });
+
+    it("F3: a start whose session read lands after a sign-out never re-confirms the signed-out account", async () => {
+      const { h, extension } = perAccountHost(() => ({ state: "active", subject: SUBJECT }));
+      h.store.data[SUBJECTS_KEY] = [{ account: ACCOUNT, origin: TEST_PERMISSION.origin, subject: SUBJECT }];
+      const read = deferred();
+      extension.onStart(read.promise as Promise<string | null | undefined>); // the read is in flight
+      await reset(extension); // the person signs out meanwhile
+      read.resolve(ACCOUNT); // then the stale read lands: A, whose subject is cached here
+      await extension.flushWhenReady();
+      await extension.client.track("opened", { where: "popup" });
+      await extension.client.flush();
+      expect(await extension.client.signedInAs()).toBeNull();
+      expect(JSON.stringify(h.bodies)).not.toContain(SUBJECT);
+      expect(h.sent().map((e) => [e.event, e.properties.signed_in])).toEqual([["opened", false]]);
+      extension.stop();
+    });
+
+    it("F3 NEGATIVE CONTROL: the same stale read handed over only once it settles re-confirms the signed-out account", async () => {
+      const { h, extension } = perAccountHost(() => ({ state: "active", subject: SUBJECT }));
+      h.store.data[SUBJECTS_KEY] = [{ account: ACCOUNT, origin: TEST_PERMISSION.origin, subject: SUBJECT }];
+      const read = deferred();
+      const started = read.promise.then((id) => extension.onStart(id as string)); // the old wiring
+      await reset(extension);
+      read.resolve(ACCOUNT);
+      await started;
+      await extension.flushWhenReady();
+      await vi.waitFor(async () => expect(await extension.client.signedInAs()).toBe(SUBJECT));
+      extension.stop();
+    });
+
+    it("F3: a stale signed-out read never lets go of an account a page confirmed meanwhile", async () => {
+      const { h, extension } = perAccountHost(() => ({ state: "active", subject: SUBJECT }));
+      const read = deferred();
+      extension.onStart(read.promise as Promise<string | null | undefined>);
+      await extension.identify(ACCOUNT); // a Still screen signs in while the start's read is in flight
+      read.resolve(null);
+      await extension.flushWhenReady();
+      await extension.client.track("opened", { where: "popup" });
+      await extension.client.flush();
+      expect(await extension.client.signedInAs()).toBe(SUBJECT);
+      expect(h.sent().map((e) => [e.event, e.properties.distinct_id])).toEqual([["opened", SUBJECT]]);
+      // NEGATIVE CONTROL: with the old wiring the stale "signed out" forgets the account.
+      const old = perAccountHost(() => ({ state: "active", subject: SUBJECT }));
+      const late = deferred();
+      const started = late.promise.then((id) => old.extension.onStart(id as null));
+      await old.extension.identify(ACCOUNT);
+      late.resolve(null);
+      await started;
+      await old.extension.flushWhenReady();
+      await vi.waitFor(async () => expect(await old.extension.client.signedInAs()).toBeNull());
+      old.extension.stop();
+      extension.stop();
+    });
+
+    it("F3: a session read that fails changes nothing about the account", async () => {
+      const { extension } = perAccountHost(() => ({ state: "active", subject: SUBJECT }));
+      await extension.identify(ACCOUNT);
+      extension.onStart(Promise.reject(new Error("storage")));
+      await extension.flushWhenReady();
+      expect(await extension.client.signedInAs()).toBe(SUBJECT);
+      extension.stop();
+    });
+
+    // ── Hard gate F1: a quiet ask that supersedes a screen's request confirms in its place ──
+    it("F1: a quiet identify that supersedes a screen's in-flight request for the same account confirms its subject", async () => {
+      const a = deferred();
+      const { h, extension, asked } = perAccountHost(() => a.promise);
+      extension.onStart(null);
+      await extension.flushWhenReady();
+      const screen = extension.identify(ACCOUNT); // a Still screen: its subject request is in flight
+      await vi.waitFor(() => expect(asked).toEqual([ACCOUNT]));
+      const quiet = extension.identify(ACCOUNT, { quiet: true }); // a background ask for the same account
+      await new Promise((r) => setTimeout(r, 20)); // it reaches its subject lookup before the reply lands
+      a.resolve({ state: "active", subject: SUBJECT });
+      await Promise.all([screen, quiet]);
+      expect(extension.client.accountConfirmed).toBe(true);
+      expect(await extension.client.signedInAs()).toBe(SUBJECT);
+      expect(asked).toEqual([ACCOUNT]); // the quiet ask never called the server itself
+      await extension.client.track("opened", { where: "popup" });
+      await extension.client.flush();
+      expect(h.sent().map((e) => [e.event, e.properties.distinct_id])).toEqual([["opened", SUBJECT]]);
+      extension.stop();
+    });
+
+    it("F1 NEGATIVE CONTROL: a quiet ask for another account never takes the in-flight request's subject", async () => {
+      const a = deferred();
+      const { h, extension, asked } = perAccountHost((account) => (account === ACCOUNT ? a.promise : null));
+      extension.onStart(null);
+      await extension.flushWhenReady();
+      const screen = extension.identify(ACCOUNT);
+      await vi.waitFor(() => expect(asked).toEqual([ACCOUNT]));
+      const quiet = extension.identify(OTHER, { quiet: true }); // nothing in flight for this account
+      await new Promise((r) => setTimeout(r, 20));
+      a.resolve({ state: "active", subject: SUBJECT });
+      await Promise.all([screen, quiet]);
+      expect(asked).toEqual([ACCOUNT]);
+      expect(extension.client.accountConfirmed).toBe(false);
+      await extension.client.track("opened", { where: "popup" });
+      await extension.client.flush();
+      expect(JSON.stringify(h.bodies)).not.toContain(SUBJECT);
+      extension.stop();
+    });
+
+    // ── Deleting the account forgets its cached per-device subject here (U5-W3 R5) ──
+    it("a deletion drops the account's cached subject; a sign-out keeps it, and other accounts' stay", async () => {
+      const kept = { account: OTHER, origin: TEST_PERMISSION.origin, subject: OTHER_SUBJECT };
+      for (const forgetAccount of [false, true]) {
+        const { h, extension } = perAccountHost(() => ({ state: "active", subject: SUBJECT }));
+        h.store.data[SUBJECTS_KEY] = [kept];
+        await extension.identify(ACCOUNT);
+        expect(h.store.data[SUBJECTS_KEY]).toEqual([
+          kept,
+          { account: ACCOUNT, origin: TEST_PERMISSION.origin, subject: SUBJECT },
+        ]);
+        await reset(extension, forgetAccount);
+        // NEGATIVE CONTROL: an ordinary sign-out keeps the mapping (signing in again reuses it).
+        expect(h.store.data[SUBJECTS_KEY]).toEqual(
+          forgetAccount ? [kept] : [kept, { account: ACCOUNT, origin: TEST_PERMISSION.origin, subject: SUBJECT }],
+        );
+        extension.stop();
+      }
+    });
+
     // ── Letting go after someone was signed in: the unnamed hold is durable ──
     it("NEGATIVE CONTROL: a forgetting sign-out (deletion) after a restart drops the waiting use", async () => {
       const h = harness();
@@ -700,6 +828,57 @@ describe("per-device subjects through the host", () => {
       await third.track("active", {});
       await third.flush();
       expect(h.sent().map((e) => [e.event, e.properties.signed_in])).toEqual([["active", false]]);
+    });
+
+    // ── Hard gate F2: the stored hold must read back released before the ask counts as confirmed ──
+    /** State writes that would clear the stored hold are refused while `refuse` is on. */
+    const refusingRelease = (h: ReturnType<typeof harness>) => {
+      let refuse = true;
+      const set = h.store.set;
+      h.store.set = async (key: string, value: unknown) => {
+        if (refuse && key === STATE_KEY && (value as { heldFor?: unknown }).heldFor === null) throw new Error("refused");
+        return set(key, value);
+      };
+      return { allow: () => void (refuse = false) };
+    };
+
+    it("F2: a refused hold release keeps the ask pending; later use is never dropped as the held account's", async () => {
+      const h = harness();
+      await h.client.confirm(SUBJECT, { accountId: ACCOUNT });
+      const second = new AnalyticsClient({ ...h.deps, startsUnconfirmed: true });
+      await second.track("opened", { where: "options" }); // waits: possibly the signed-in person's use
+      const release = refusingRelease(h);
+      await second.confirm(null); // the unnamed hold is stored and what waited is dropped, but the release is refused
+      expect(second.accountConfirmed).toBe(false); // pending: nothing is confirmed or sent
+      expect((h.store.data[STATE_KEY] as { heldFor: unknown }).heldFor).toBe("unknown");
+      await second.track("active", {}); // signed-out use, recorded while the release is owed
+      release.allow();
+      await second.flush(); // the retry releases the hold, then sends the signed-out use
+      expect(second.accountConfirmed).toBe(true);
+      expect((h.store.data[STATE_KEY] as { heldFor: unknown }).heldFor).toBeNull();
+      // A restart: what waits before the session is read is signed-out use, never dropped.
+      const third = new AnalyticsClient({ ...h.deps, startsUnconfirmed: true });
+      await third.track("opened", { where: "popup" });
+      await third.confirm(null);
+      await third.flush();
+      expect(h.sent().map((e) => [e.event, e.properties.where ?? null, e.properties.signed_in])).toEqual([
+        ["active", null, false],
+        ["opened", "popup", false],
+      ]);
+    });
+
+    it("F2 NEGATIVE CONTROL: while storage keeps refusing the release, nothing is confirmed or sent", async () => {
+      const h = harness();
+      await h.client.confirm(SUBJECT, { accountId: ACCOUNT });
+      const second = new AnalyticsClient({ ...h.deps, startsUnconfirmed: true });
+      await second.track("opened", { where: "options" });
+      refusingRelease(h);
+      await second.confirm(null);
+      await second.track("active", {});
+      await second.flush();
+      await second.flush();
+      expect(second.accountConfirmed).toBe(false);
+      expect(h.sent()).toEqual([]);
     });
 
     it("fails closed when storage will not keep the unnamed hold", async () => {
