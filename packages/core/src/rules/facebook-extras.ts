@@ -64,7 +64,8 @@ const WATCH_HUB_HREFS = Object.freeze(["/watch/", "/watch", "https://www.faceboo
 const watchHubLink = (href: string): readonly string[] => [`a[href="${href}"]`, `a[href^="${href}?"]${NAMES_NO_VIDEO}`];
 const VIDEOS_WATCH_NAV = Object.freeze([
   ...WATCH_HUB_HREFS.flatMap((href) => watchHubLink(href).map((link) => `nav ${link}`)),
-  ...watchHubLink("/watch/").map((link) => `nav li:has(> ${link})`),
+  // The list item around any hub link goes too, so no empty <li> is left in the shortcut list.
+  ...WATCH_HUB_HREFS.flatMap((href) => watchHubLink(href).map((link) => `nav li:has(> ${link})`)),
 ]);
 
 /**

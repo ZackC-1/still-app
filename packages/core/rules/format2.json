@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "3.0.6",
+  "version": "3.0.7",
   "services": {
     "youtube": {
       "matches": [
@@ -210,7 +210,13 @@
             "nav a[href=\"https://www.facebook.com/watch\"]",
             "nav a[href^=\"https://www.facebook.com/watch?\"]:not([href*=\"v=\"])",
             "nav li:has(> a[href=\"/watch/\"])",
-            "nav li:has(> a[href^=\"/watch/?\"]:not([href*=\"v=\"]))"
+            "nav li:has(> a[href^=\"/watch/?\"]:not([href*=\"v=\"]))",
+            "nav li:has(> a[href=\"/watch\"])",
+            "nav li:has(> a[href^=\"/watch?\"]:not([href*=\"v=\"]))",
+            "nav li:has(> a[href=\"https://www.facebook.com/watch/\"])",
+            "nav li:has(> a[href^=\"https://www.facebook.com/watch/?\"]:not([href*=\"v=\"]))",
+            "nav li:has(> a[href=\"https://www.facebook.com/watch\"])",
+            "nav li:has(> a[href^=\"https://www.facebook.com/watch?\"]:not([href*=\"v=\"]))"
           ]
         },
         {
@@ -239,6 +245,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "5811ea20ee1e1ef72952d2e28d19fef0ec7428483d9b7c764ab122e7c57a0c7cc46d1f74751ce98678c961ccbec2dcd40a666b78bee662f00feaa6acf640240a"
+    "value": "d0301145a62595faf5c96e4661078cfa3499e127a5a73d09e1e78b1bfb8d601caa9b9659ae0c0a769aab5d994142a53358caa3fdf4616692b6374f051e7dae06"
   }
 }

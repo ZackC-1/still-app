@@ -222,7 +222,8 @@ describe("Videos and Watch: the four Reels/Videos combinations (fb-videos.html)"
       render("fb-videos.html");
       const engine = session();
       engine.applyDom(settingsWith({ "facebook.reels": reels, "facebook.videos": videos }), new URL(`${FB}/`), document, ON);
-      for (const id of ["target-feed-video", "target-feed-live", "target-nav-watch", "target-nav-watch-bookmarks", "target-nav-watch-bookmarks-item"])
+      for (const id of ["target-feed-video", "target-feed-live", "target-nav-watch", "target-nav-watch-bookmarks", "target-nav-watch-bookmarks-item",
+        "target-nav-watch-absolute", "target-nav-watch-absolute-item", "target-nav-watch-noslash", "target-nav-watch-noslash-item"])
         expect(visible(id), id).toBe(!videos);
       // The feed Reel belongs to free Reels only: Videos never hides it.
       expect(visible("reel-feed-free"), "reel-feed-free").toBe(!reels);
