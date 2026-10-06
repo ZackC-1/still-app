@@ -431,6 +431,7 @@ Deno.test("actual adapter cancels pending query and completes rollback on reques
     ]);
     assert(response instanceof Error, "cancellation must settle the adapter");
     assertEquals(response.message, "Settings storage unavailable");
+    assertEquals((response as { code?: unknown }).code, "settings_unavailable");
     assert(cancelled);
     assert(rolledBack);
   } finally {

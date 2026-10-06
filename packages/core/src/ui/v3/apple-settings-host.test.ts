@@ -203,7 +203,7 @@ async function composeAtomic(
   opened.push(backend);
   const native = port(backend, options);
   const adapter = new WKWebViewStorageAdapter(native.win);
-  const cache = new SettingsCache(adapter, appleSettingsCacheOptions("atomic"));
+  const cache = new SettingsCache(adapter, appleSettingsCacheOptions("atomic-local"));
   cache.watch();
   const hydrated = cache.hydrate();
   hydrated.catch(() => {});
@@ -244,38 +244,67 @@ afterEach(async () => {
 });
 
 describe("Apple settings mode rule", () => {
+  const URL = "https://still-audit.invalid", KEY = "public-audit-placeholder";
   it.each([
-    ["true", undefined, undefined, true, "atomic"],
-    ["true", "", "", true, "atomic"],
-    ["true", "https://still-audit.invalid", undefined, true, "atomic"],
-    ["true", undefined, undefined, false, "legacy"],
+    // atomic-local: the unconfigured developer opt-in, unchanged.
+    ["true", undefined, undefined, undefined, true, "atomic-local"],
+    ["true", undefined, "", "", true, "atomic-local"],
+    ["true", undefined, URL, undefined, true, "atomic-local"],
+    ["true", "true", undefined, undefined, true, "atomic-local"],
+    ["true", undefined, undefined, undefined, false, "legacy"],
     // Missing configuration alone never selects atomic.
-    [undefined, undefined, undefined, true, "legacy"],
-    ["", undefined, undefined, true, "legacy"],
-    ["1", undefined, undefined, true, "legacy"],
-    ["TRUE", undefined, undefined, true, "legacy"],
-    ["false", undefined, undefined, true, "legacy"],
-    // Configured builds stay legacy even with the flag.
-    ["true", "https://still-audit.invalid", "public-audit-placeholder", true, "legacy"],
-    [undefined, "https://still-audit.invalid", "public-audit-placeholder", true, "legacy"],
-  ] as const)("flag=%s url=%s key=%s port=%s -> %s", (atomicSettingsFlag, supabaseUrl, supabaseAnonKey, nativePort, mode) => {
-    expect(selectAppleSettingsMode({ atomicSettingsFlag, supabaseUrl, supabaseAnonKey, nativePort })).toBe(mode);
+    [undefined, undefined, undefined, undefined, true, "legacy"],
+    ["", undefined, undefined, undefined, true, "legacy"],
+    ["1", undefined, undefined, undefined, true, "legacy"],
+    ["TRUE", undefined, undefined, undefined, true, "legacy"],
+    ["false", undefined, undefined, undefined, true, "legacy"],
+    // The modern flag alone never selects anything without configuration.
+    [undefined, "true", undefined, undefined, true, "legacy"],
+    [undefined, "true", URL, undefined, true, "legacy"],
+    // atomic-cloud: configured with the modern sync flag exactly "true", inside the native host.
+    [undefined, "true", URL, KEY, true, "atomic-cloud"],
+    ["true", "true", URL, KEY, true, "atomic-cloud"],
+    [undefined, "true", URL, KEY, false, "legacy"],
+    // Configured builds stay legacy without the exact modern flag, and the developer flag never
+    // selects anything for them.
+    [undefined, undefined, URL, KEY, true, "legacy"],
+    [undefined, "", URL, KEY, true, "legacy"],
+    [undefined, "TRUE", URL, KEY, true, "legacy"],
+    [undefined, "1", URL, KEY, true, "legacy"],
+    [undefined, "false", URL, KEY, true, "legacy"],
+    ["true", undefined, URL, KEY, true, "legacy"],
+  ] as const)("atomic=%s modern=%s url=%s key=%s port=%s -> %s", (atomicSettingsFlag, modernSyncFlag, supabaseUrl, supabaseAnonKey, nativePort, mode) => {
+    expect(selectAppleSettingsMode({ atomicSettingsFlag, modernSyncFlag, supabaseUrl, supabaseAnonKey, nativePort })).toBe(mode);
   });
 
   it("keeps the legacy cache construction and gives atomic mode unknown ownership", () => {
     expect(appleSettingsCacheOptions("legacy")).toBeUndefined();
-    expect(appleSettingsCacheOptions("atomic")).toEqual({ atomicOwnership: "unknown" });
+    expect(appleSettingsCacheOptions("atomic-local")).toEqual({ atomicOwnership: "unknown" });
+    expect(appleSettingsCacheOptions("atomic-cloud")).toEqual({ atomicOwnership: "unknown" });
   });
 
-  it("entry: inline build-time pre-filter on the flag, one dynamic host import, held hydration", () => {
+  it("entry: inline build-time pre-filter on both opt-ins, one dynamic host import, held hydration", () => {
     const main = readFileSync(MAIN_PATH, "utf8");
+    // The pre-filter can only narrow: each branch needs its flag's exact "true" plus the matching
+    // configuration, so every default build folds to "legacy" at build time. This replaces the R3
+    // pin (the entry never read the modern flag), which owner decision 5 superseded for V3.
     expect(main).toMatch(
-      /import\.meta\.env\.VITE_APPLE_ATOMIC_SETTINGS === "true" &&\s*!\(import\.meta\.env\.VITE_SUPABASE_URL && import\.meta\.env\.VITE_SUPABASE_ANON_KEY\)\s*\?\s*selectAppleSettingsMode\(/,
+      /\(import\.meta\.env\.VITE_APPLE_ATOMIC_SETTINGS === "true" &&\s*!\(import\.meta\.env\.VITE_SUPABASE_URL && import\.meta\.env\.VITE_SUPABASE_ANON_KEY\)\) \|\|\s*\(import\.meta\.env\.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true" &&\s*import\.meta\.env\.VITE_SUPABASE_URL &&\s*import\.meta\.env\.VITE_SUPABASE_ANON_KEY\)\s*\?\s*selectAppleSettingsMode\(/,
     );
+    expect(main).toContain("modernSyncFlag: import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED,");
+    // Read exactly twice in code (the pre-filter and the rule's input), nowhere at runtime besides.
+    const code = main.split("\n").filter((line) => !/^\s*(\/\/|\*|\/\*\*)/.test(line)).join("\n");
+    expect(code.match(/VITE_MODERN_SETTINGS_SYNC_ENABLED/g)).toHaveLength(2);
+    // atomic-cloud alone constructs the modern backend; every other configured build keeps exactly
+    // the legacy construction.
+    expect(main).toMatch(
+      /appleSettingsMode === "atomic-cloud"\s*\?\s*new SupabaseBackendPort\(supabase, \{ modernSettings: true \}\)\s*:\s*new SupabaseBackendPort\(supabase\);/,
+    );
+    expect(main.match(/new SupabaseBackendPort\(/g)).toHaveLength(2);
+    expect(main).toContain('appleSettingsMode !== "legacy" ? new WKWebViewStorageAdapter() : undefined;');
     expect(main).toContain('import("./AppleSettingsHost.svelte")');
     expect(main).not.toMatch(/^import[^;]*AppleSettingsHost/m);
     expect(main).not.toMatch(/AppleSettings\.svelte/);
-    expect(main).not.toContain("VITE_MODERN_SETTINGS_SYNC_ENABLED");
     // The host mounts without waiting for a native setup read.
     expect(main).not.toMatch(/await[^;]*observeSafariSetup/);
     // Exactly the shipped legacy construction and hydration remain on the legacy branch.
@@ -291,6 +320,21 @@ describe("Apple settings mode rule", () => {
     const index = readFileSync(resolve(import.meta.dirname, "../index.ts"), "utf8");
     expect(index).not.toMatch(/AppleSettings\.svelte/);
   });
+
+  // PR #286 P3-4 gate: D04's Restore link is the dedicated free-period handler, wired through the
+  // `restoreBridge` prop to the host's own `freeRestore.start`. AppleSession.onRestore is the
+  // paid-tier path (RevenueCat identity transfer) and must never be reachable from this screen.
+  it("D04 Restore is the dedicated free-period handler, never AppleSession.onRestore", () => {
+    const main = readFileSync(MAIN_PATH, "utf8");
+    const mountSettings = main.slice(main.indexOf("async function mountAppleSettings("));
+    const props = mountSettings.slice(mountSettings.indexOf("props: {"), mountSettings.indexOf("} catch"));
+    expect(props).toContain("restoreBridge: appleRestoreBridge(bridge),");
+    expect(props).not.toMatch(/onRestore|session/i);
+    const host = readFileSync(HOST_PATH, "utf8");
+    expect(host).toContain("onRestore={restoreBridge ? freeRestore.start : undefined}");
+    expect(host.match(/onRestore/g)).toHaveLength(1);
+    expect(host).not.toMatch(/AppleSession|session\.onRestore|\.onRestore\(/);
+  });
 });
 
 describe.each(BACKENDS)("native settings authority (%s)", (_name, factory) => {
@@ -298,7 +342,7 @@ describe.each(BACKENDS)("native settings authority (%s)", (_name, factory) => {
     const atomicBackend = await factory(SAVED);
     opened.push(atomicBackend);
     const atomic = port(atomicBackend);
-    const cache = new SettingsCache(new WKWebViewStorageAdapter(atomic.win), appleSettingsCacheOptions("atomic"));
+    const cache = new SettingsCache(new WKWebViewStorageAdapter(atomic.win), appleSettingsCacheOptions("atomic-local"));
     await cache.hydrate();
     expect(atomic.messages.map((m) => m.kind)).toEqual(["settingsAtomic"]);
     expect(JSON.parse(atomic.messages[0]!.command!)).toEqual({ action: "initialize", ownership: "unknown" });
@@ -458,7 +502,7 @@ describe.each(BACKENDS)("native first install and local edits (%s)", (_name, fac
 describe("no native port", () => {
   it("is never presented as saved defaults", async () => {
     const empty: StillBridgeWindow = {};
-    expect(selectAppleSettingsMode({ atomicSettingsFlag: "true", supabaseUrl: undefined, supabaseAnonKey: undefined, nativePort: new NativeBridge(empty).available })).toBe("legacy");
+    expect(selectAppleSettingsMode({ atomicSettingsFlag: "true", modernSyncFlag: undefined, supabaseUrl: undefined, supabaseAnonKey: undefined, nativePort: new NativeBridge(empty).available })).toBe("legacy");
     const cache = new SettingsCache(new WKWebViewStorageAdapter(empty));
     await cache.hydrate();
     expect(cache.legacyReadState().status).toBe("absent");
@@ -466,7 +510,7 @@ describe("no native port", () => {
     expect(binding.current().settings).toBeNull();
     // Even a forced atomic cache without a port holds rather than inventing choices.
     const adapter = new WKWebViewStorageAdapter(empty);
-    const forced = new SettingsCache(adapter, appleSettingsCacheOptions("atomic"));
+    const forced = new SettingsCache(adapter, appleSettingsCacheOptions("atomic-local"));
     await expect(forced.hydrate()).rejects.toMatchObject({ reason: "native-atomic-unavailable" });
     const held = createAppleSettingsAuthority(forced, { native: new NativeBridge(empty), initializer: adapter, hydration: forced.whenHydrated() });
     await held.recover();
