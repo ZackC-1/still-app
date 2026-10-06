@@ -26,6 +26,7 @@
     SAFARI_DESKTOP_POPUP_BROWSER,
     SAFARI_SETTINGS_LABEL,
     appManagedPopupAccount,
+    safariPopupFillsSheet,
     type SafariPopupSurface,
   } from "../../lib/safari-v3.js";
 
@@ -54,6 +55,8 @@
     },
   );
   $effect(() => () => composition.stop());
+  // Decided once per opening, from the device screen (see safariPopupFillsSheet).
+  const fillsSheet = untrack(() => safariPopupFillsSheet(surface, globalThis.screen?.width));
   // Until the first settings read settles, a hold is "checking", not "unavailable".
   let reading = $state(true);
   $effect(() => {
@@ -109,7 +112,7 @@
   {/if}
 {/snippet}
 
-<div class="popup">
+<div class="popup" class:edge-to-edge={fillsSheet}>
   {#if ready && surface === "desktop"}
     <DesktopPopup
       settings={ready.settings}
@@ -157,5 +160,11 @@
     max-inline-size: 100%;
     margin-inline: auto;
     overflow: clip;
+  }
+  .popup.edge-to-edge {
+    /* The iPhone sheet only: fill the width Safari gives the sheet, edge to edge as designed. A
+       percentage minimum, never a viewport unit: during any measuring pass it resolves to 0 and the
+       pixel width above still holds, so it can never collapse the popup. */
+    min-inline-size: 100%;
   }
 </style>
