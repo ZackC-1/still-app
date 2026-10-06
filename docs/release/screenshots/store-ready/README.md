@@ -116,4 +116,5 @@ The free 2.0.0 build has no purchase requirement; do not fabricate a paywall scr
   `../source/frames/logos/README.md`. Replace them if a reviewer or trademark owner objects.
 - Faces and pages shown are public accounts' published content; no private person's name,
   message or account appears. Recheck any recapture before uploading it.
-- Phones mean Safari only; say "every supported surface", never "everywhere".
+- On phones Still works in Safari on iPhone and iPad, and in Firefox on Android; say "every
+  supported surface", never "everywhere".

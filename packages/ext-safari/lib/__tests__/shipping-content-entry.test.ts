@@ -33,6 +33,8 @@ describe("ext-safari V3 content entry gate", () => {
     expect(source).toContain('import { createModernShippingContentEntry } from "@still/core/content/modern-entry";');
     expect(source).toContain(`if (\n      ${GATE}\n    ) {\n      await createModernShippingContentEntry({`);
     expect(source).toContain("pendingCover: window.top === window,");
+    // Both branches name the Safari host for the engine's capability set.
+    expect(source.match(/host: "safari",/g)).toHaveLength(2);
     expect(source.match(/pendingCover/g)).toHaveLength(1);
     // The default branch is the unchanged legacy construction.
     expect(source).toContain("      return;\n    }\n    await createShippingContentEntry({");

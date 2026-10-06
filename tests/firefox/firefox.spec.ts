@@ -28,7 +28,7 @@ import {
 // engine's site block.
 //
 // Not covered here: sign-in and sync, the options page, popup sizing, mobile pages, and
-// Firefox for Android (the product is desktop Firefox only).
+// Firefox for Android (covered by the optional emulator spike in tests/firefox-android).
 
 const firefoxBinary = findFirefox();
 const built = existsSync(resolve(FIREFOX_EXTENSION, "manifest.json"));

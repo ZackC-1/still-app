@@ -11,20 +11,24 @@ import type { StoredSettingsRecord } from "@still/core/storage";
 export interface SafariV3BuildInput {
   /** VITE_APPLE_ATOMIC_SETTINGS: the same explicit developer opt-in the Apple app uses. */
   readonly atomicSettingsFlag: string | undefined;
+  /** VITE_MODERN_SETTINGS_SYNC_ENABLED: the modern sync flag the Apple app and Chromium share. */
+  readonly modernSyncFlag: string | undefined;
   readonly supabaseUrl: string | undefined;
   readonly supabaseAnonKey: string | undefined;
 }
 
 /**
  * The V3 screens are compiled in only when a build opts in exactly as the Apple app's D04 screen
- * does (selectAppleSettingsMode): the flag is the string "true" and there is no Supabase
- * configuration (both values non-empty means configured). Anything else keeps the legacy screens.
- * The app's native-port condition has no equivalent here; the runtime record check below is the
- * extension's equivalent of "the Apple app is in atomic mode on this device".
+ * does (selectAppleSettingsMode; both values non-empty means configured):
+ *  - configured with the modern sync flag exactly "true" (the app's atomic-cloud mode), or
+ *  - not configured with VITE_APPLE_ATOMIC_SETTINGS exactly "true" (the app's atomic-local mode).
+ * Anything else keeps the legacy screens. The app's native-port condition has no equivalent here;
+ * the runtime record check below is the extension's equivalent of "the Apple app is in atomic mode
+ * on this device". The Apple app owns the account in both modes (see appManagedPopupAccount).
  */
 export function selectSafariV3Build(input: SafariV3BuildInput): boolean {
   const configured = Boolean(input.supabaseUrl && input.supabaseAnonKey);
-  return input.atomicSettingsFlag === "true" && !configured;
+  return configured ? input.modernSyncFlag === "true" : input.atomicSettingsFlag === "true";
 }
 
 /**
@@ -43,6 +47,28 @@ export type SafariPopupSurface = "desktop" | "mobile";
  * every width. */
 export function safariPopupSurface(os: string | undefined): SafariPopupSurface {
   return os === "mac" ? "desktop" : "mobile";
+}
+
+/** Screens at or under this width (portrait points) are phones; the smallest iPad is 744 wide. */
+export const SAFARI_PHONE_MAX_SCREEN_WIDTH = 600;
+
+/**
+ * Whether the popup fills the width Safari gives it (owner D02: the iPhone sheet is edge to edge).
+ * Only the iPhone extension sheet qualifies: Safari sizes that sheet to the screen, never from the
+ * popup's content, so taking its width cannot feed back into it. The Mac and iPad popovers size
+ * themselves FROM the content, so they keep the fixed 380px width; a width taken from their own
+ * viewport would be circular and could collapse or run away (the 2026-07 "sliver" bug). The answer
+ * reads the device screen, which a popover's measuring pass does not change. Unknown or missing
+ * screen sizes keep the fixed width.
+ */
+export function safariPopupFillsSheet(surface: SafariPopupSurface, screenWidth: number | undefined): boolean {
+  return (
+    surface === "mobile" &&
+    typeof screenWidth === "number" &&
+    Number.isFinite(screenWidth) &&
+    screenWidth > 0 &&
+    screenWidth <= SAFARI_PHONE_MAX_SCREEN_WIDTH
+  );
 }
 
 /**

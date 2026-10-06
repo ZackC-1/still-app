@@ -50,6 +50,8 @@ export default defineContentScript({
     (!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
       import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true")
       ? createModernShippingContentEntry({
+          // Still Pro extras count only where this host implements them, and only while paid is on.
+          host: "firefox",
           storage: chrome.storage.local,
           prod: import.meta.env.PROD,
           earlyRedirect: true,
@@ -59,6 +61,8 @@ export default defineContentScript({
           },
         })
       : createShippingContentEntry({
+          // Still Pro extras count only where this host implements them, and only while paid is on.
+          host: import.meta.env.FIREFOX ? "firefox" : "chromium",
           storage: chrome.storage.local,
           prod: import.meta.env.PROD,
           earlyRedirect: import.meta.env.FIREFOX,

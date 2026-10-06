@@ -27,7 +27,8 @@ import os.log
 
 class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
 
-    private let bridge = SettingsBridge(store: .appGroup())
+    // Atomic commands (initialize, scope, acknowledge) belong to the app and are refused here.
+    private let bridge = SettingsBridge.safariExtension(store: .appGroup())
     private let entitlementBridge = EntitlementBridge(store: .appGroup(), readOnly: true)
     private let accountSyncStatus = AccountSyncStatusStore.appGroup()
     private let analytics = AnalyticsIdentityStore.appGroup()

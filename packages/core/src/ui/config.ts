@@ -20,3 +20,16 @@ export const SETUP_GUIDE_URL = "https://stillapp.fit/setup/";
  */
 export const SUPPORT_EMAIL = "support@stillapp.fit";
 export const FIND_MY_PURCHASE_MAILTO = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent("Find my purchase")}`;
+
+/**
+ * Packaged store review pages for the browser rating card (U13-P3). Fixed here, never remotely
+ * supplied: the remote rating policy is only an on/off allowance and carries no URL. They are the
+ * public store listings with each store's standard reviews path, with no tracking parameters
+ * (owner decision 47). The Chrome Web Store slug is the listing's current one; the add-ons link has
+ * no locale segment, so the add-ons site opens in the reader's own language. Safari has no
+ * browser card; Apple uses its own review sheet.
+ */
+export const CHROME_WEB_STORE_REVIEW_URL =
+  "https://chromewebstore.google.com/detail/still-remove-shorts-reels/midpefhbieafmeboompbboemeahjjnkf/reviews";
+export const FIREFOX_ADDONS_REVIEW_URL =
+  "https://addons.mozilla.org/firefox/addon/still-free-yourself/reviews/";

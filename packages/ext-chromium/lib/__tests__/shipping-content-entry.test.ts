@@ -35,8 +35,15 @@ describe("ext-chromium V3 content entry gate", () => {
     expect(source).toContain(`  main:\n    ${GATE}\n      ? createModernShippingContentEntry({`);
     expect(source).not.toContain("pendingCover");
     // The other branch is the unchanged construction (Chrome keeps DNR for Shorts).
-    expect(source).toContain("      : createShippingContentEntry({\n          storage: chrome.storage.local,\n" +
+    expect(source).toContain("      : createShippingContentEntry({\n" +
+      "          // Still Pro extras count only where this host implements them, and only while paid is on.\n" +
+      '          host: import.meta.env.FIREFOX ? "firefox" : "chromium",\n' +
+      "          storage: chrome.storage.local,\n" +
       "          prod: import.meta.env.PROD,\n          earlyRedirect: import.meta.env.FIREFOX,");
+    // The Firefox V3 branch names its host too, so Still Pro extras count there exactly as before.
+    expect(source).toContain('? createModernShippingContentEntry({\n' +
+      "          // Still Pro extras count only where this host implements them, and only while paid is on.\n" +
+      '          host: "firefox",');
   });
 
   it.each([

@@ -1,3 +1,4 @@
+import type { SafariV3BuildInput } from "../../../lib/safari-v3.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/svelte";
 import { unmount } from "svelte";
@@ -33,7 +34,9 @@ vi.mock("../../../../core/src/ui/v3/desktop-popup-binding.js", async (importOrig
   };
 });
 
-const ENV = { atomicSettingsFlag: "true", supabaseUrl: undefined, supabaseAnonKey: undefined };
+const ENV = { atomicSettingsFlag: "true", modernSyncFlag: undefined, supabaseUrl: undefined, supabaseAnonKey: undefined };
+const CLOUD_ENV = { atomicSettingsFlag: undefined, modernSyncFlag: "true", supabaseUrl: "https://still-audit.invalid", supabaseAnonKey: "public-audit-placeholder" };
+const CONFIGURED_ENV = { ...CLOUD_ENV, modernSyncFlag: undefined };
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 const writes = (kinds: unknown[]) => kinds.filter((kind) => UNPROMPTED_WRITES.includes(kind as string));
 
@@ -46,11 +49,11 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function open(saved: SavedShape, signedIn = false) {
+async function open(saved: SavedShape, signedIn = false, env: SafariV3BuildInput = ENV) {
   const f = await installSafari({ saved, signedIn });
   document.body.innerHTML = '<div id="app"></div>';
   const load = vi.fn(() => import("../v3-mount.js"));
-  const mode = await startSafariV3Options({ env: ENV, load });
+  const mode = await startSafariV3Options({ env, load });
   return { f, load, mode };
 }
 
@@ -112,6 +115,19 @@ describe("Safari V3 settings page", () => {
     for (const name of ["Sign out", "Delete account", "Sign in"]) expect(screen.queryByRole("button", { name })).toBeNull();
   });
 
+  it("configured build with modern sync: V3 over the atomic record, the account read-only (the app owns it)", async () => {
+    const { mode } = await open("atomic", true, CLOUD_ENV);
+    expect(mode).toBe("v3");
+    await waitFor(() => expect(screen.getByText("person@example.invalid")).toBeTruthy());
+    for (const name of ["Sign out", "Delete account", "Sign in", "Retry sync"]) expect(screen.queryByRole("button", { name })).toBeNull();
+  });
+
+  it("a configured build without the modern sync flag keeps the legacy settings page and never loads V3", async () => {
+    const { load, mode } = await open("atomic", true, CONFIGURED_ENV);
+    expect(mode).toBe("legacy");
+    expect(load).not.toHaveBeenCalled();
+  });
+
   it("Setup guide opens the website guide; no price, purchase or restore", async () => {
     const opened = vi.spyOn(window, "open").mockReturnValue(null);
     await open("atomic");
@@ -126,7 +142,11 @@ describe("Safari V3 settings page", () => {
     for (const lock of locks) {
       expect(lock.getAttribute("aria-disabled")).toBe("true");
       expect(lock.textContent).toBe("Still Pro");
+      // Owner decision 40: the row label describes the lock; its name is the visible "Still Pro".
+      expect(lock.hasAttribute("aria-label")).toBe(false);
+      expect(lock.getAttribute("aria-describedby")).toBeTruthy();
     }
+    expect(screen.getAllByRole("button", { name: "Still Pro" })).toEqual(locks);
     expect(text.length - text.replaceAll("Still Pro", "").length).toBe(locks.length * "Still Pro".length);
     expect(screen.queryByRole("button", { name: /Get Still Pro/ })).toBeNull();
   });

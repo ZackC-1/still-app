@@ -67,3 +67,35 @@ describe.each([
     });
   });
 });
+
+// The iPhone extension sheet (VD-11): Safari gives the sheet the screen's width, so the V3 popup
+// fills it edge to edge, as D02 draws it. The rule must never become a width the popup derives from
+// its own viewport (the 2026-07 sliver), so it is a percentage MINIMUM over the fixed pixel width,
+// applied only when safariPopupFillsSheet says this is a phone sheet.
+describe("SafariV3Popup on the iPhone sheet", () => {
+  const source = readFileSync(resolve(here, "../../entrypoints/popup/SafariV3Popup.svelte"), "utf8");
+  const style = source
+    .slice(source.indexOf("<style>"), source.indexOf("</style>"))
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+  const sheetRule = /\.popup\.edge-to-edge\s*\{([^}]*)\}/.exec(style)?.[1] ?? "";
+
+  it("fills the sheet with a percentage minimum only", () => {
+    expect(sheetRule).toMatch(/^\s*min-inline-size:\s*100%;\s*$/);
+  });
+
+  it("keeps the fixed pixel width underneath, so a measuring pass cannot collapse it", () => {
+    expect(sheetRule).not.toMatch(/(?<![-\w])inline-size:/);
+    expect(/\.popup\s*\{[^}]*(?<![-\w])inline-size:\s*var\(--popup-inline-size,\s*380px\)/.exec(style)).not.toBeNull();
+  });
+
+  it("applies the rule only through the phone-sheet decision", () => {
+    expect(source).toMatch(/class:edge-to-edge=\{fillsSheet\}/);
+    expect(source).toMatch(/safariPopupFillsSheet\(surface, globalThis\.screen\?\.width\)/);
+  });
+
+  it("uses a class the shared V3 stylesheet does not already style", () => {
+    // A first attempt named it `.sheet`, which the design stylesheet styles as a fixed bottom sheet.
+    const design = readFileSync(resolve(here, "../../../core/src/ui/v3/design/tokens/components.css"), "utf8");
+    expect(design).not.toMatch(/\.edge-to-edge\b/);
+  });
+});

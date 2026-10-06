@@ -1,4 +1,5 @@
-import { TEST_PERMISSION, TEST_PRIVACY } from "./privacy-fixture.js";
+import { TEST_PERMISSION, TEST_PRIVACY, TEST_SUBJECTS, testSubjectFor } from "./privacy-fixture.js";
+import type { SubjectDeps } from "../extension-host.js";
 import { createStoredConsent, type AnalyticsPermission } from "../consent.js";
 import { describe, it, expect, vi } from "vitest";
 import { createAppAnalytics, type AppAnalyticsBridge } from "../apple-app.js";
@@ -35,6 +36,10 @@ function setup(
   context: Partial<AnalyticsContextReply> | null = {},
   over: {
     identifyOnServer?: () => Promise<void>;
+    /** Per-device subjects; the synthetic subject server unless a test supplies its own. */
+    subjects?: SubjectDeps;
+    /** A build without per-device subjects at all. */
+    noSubjects?: boolean;
     holdAccount?: boolean;
     fetch?: typeof globalThis.fetch;
     /** The native context read waits for this (a first launch can wait up to 5 s for iCloud). */
@@ -70,6 +75,7 @@ function setup(
     fetch: fetch as unknown as typeof globalThis.fetch,
     uuid: () => `00000000-0000-4000-8000-${String(++n).padStart(12, "0")}`,
     identifyOnServer: over.identifyOnServer,
+    subjects: over.noSubjects ? undefined : (over.subjects ?? TEST_SUBJECTS),
   });
   // The real launch always reports what it found: here, nobody signed in.
   if (!over.holdAccount) void app.accountAbsent();
@@ -159,21 +165,99 @@ describe("Apple app analytics", () => {
     expect(events()).toEqual([]);
   });
 
-  it("identifies a signed-in account and attaches the email server-side once", async () => {
+  it("identifies a signed-in account under its issued subject, asking the server once", async () => {
+    // Per-device subjects (U5-W2): the server issues the identity and attaches the email with it,
+    // so the separate email attach never runs and the account id is never the person.
     const identifyOnServer = vi.fn(async () => {});
-    const { app, events } = setup({}, { identifyOnServer });
-    await app.identifyAccount(U1);
-    await new Promise((r) => setTimeout(r, 10)); // the attach runs on its own
+    const issue = vi.fn(TEST_SUBJECTS.issue);
+    const { app, events } = setup({}, { identifyOnServer, subjects: { issue, onStopped: async () => {} } });
     await app.identifyAccount(U1);
     await new Promise((r) => setTimeout(r, 10));
-    expect(identifyOnServer).toHaveBeenCalledTimes(1);
+    await app.identifyAccount(U1);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(issue).toHaveBeenCalledTimes(1);
+    expect(identifyOnServer).not.toHaveBeenCalled();
     expect(events()).toEqual([]);
     app.ui.track("signed_in", {});
     await new Promise((r) => setTimeout(r, 0));
     expect(
       events().find((e) => e.event === "signed_in")?.properties.distinct_id,
-    ).toBe(U1);
+    ).toBe(testSubjectFor(U1));
+    expect(JSON.stringify(events())).not.toContain(U1);
     expect(JSON.stringify(events())).not.toContain("$anon_distinct_id");
+  });
+
+  it.each(["no subject issued", "no per-device subjects"] as const)(
+    "with %s a signed-in account is never confirmed under its account id",
+    async (variant) => {
+      const issueless = { issue: vi.fn(async () => null), onStopped: async () => {} };
+      const identifyOnServer = vi.fn(async () => {});
+      const { app, events, store } = setup(
+        {},
+        variant === "no subject issued"
+          ? { subjects: issueless, holdAccount: true }
+          : { noSubjects: true, holdAccount: true, identifyOnServer },
+      );
+      await app.identifyAccount(U1);
+      app.ui.track("signed_in", {});
+      await new Promise((r) => setTimeout(r, 10));
+      expect(JSON.stringify(events())).not.toContain(U1);
+      expect(JSON.stringify(store.data[STATE_KEY] ?? {})).not.toContain(U1);
+      expect(identifyOnServer).not.toHaveBeenCalled();
+    },
+  );
+
+  it("NEGATIVE CONTROL: an earlier account's subject arriving after a switch never takes the new account's use", async () => {
+    const U2 = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    let resolveU1!: (value: unknown) => void;
+    let resolveU2!: (value: unknown) => void;
+    const lateU1 = new Promise((resolve) => (resolveU1 = resolve));
+    const lateU2 = new Promise((resolve) => (resolveU2 = resolve));
+    const asked: string[] = [];
+    const subjects: SubjectDeps = {
+      issue: async (_body, _signal, account) => (asked.push(account), account === U1 ? lateU1 : lateU2),
+      onStopped: async () => {},
+    };
+    const { app, events, store } = setup({}, { subjects }); // the launch confirmed nobody
+    await app.start();
+    const first = app.identifyAccount(U1); // U1's subject request is in flight
+    await vi.waitFor(() => expect(asked).toEqual([U1]));
+    const second = app.identifyAccount(U2); // U2 signs in before U1's reply
+    await vi.waitFor(() => expect(asked).toEqual([U1, U2]));
+    app.ui.track("signed_in", {}); // U2's use, waiting
+    await new Promise((r) => setTimeout(r, 10));
+    resolveU1({ state: "active", subject: testSubjectFor(U1) }); // U1's reply lands first, late
+    await first;
+    resolveU2({ state: "active", subject: testSubjectFor(U2) });
+    await second;
+    await new Promise((r) => setTimeout(r, 10));
+    expect((store.data[STATE_KEY] as { userId?: string }).userId).toBe(testSubjectFor(U2));
+    expect(JSON.stringify(events())).not.toContain(testSubjectFor(U1));
+    expect(events().find((e) => e.event === "signed_in")?.properties.distinct_id).toBe(testSubjectFor(U2));
+  });
+
+  it("NEGATIVE CONTROL: two sign-ins back to back, the earlier reply first: only the later account reports", async () => {
+    const U2 = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    let resolveU1!: (value: unknown) => void;
+    let resolveU2!: (value: unknown) => void;
+    const lateU1 = new Promise((resolve) => (resolveU1 = resolve));
+    const lateU2 = new Promise((resolve) => (resolveU2 = resolve));
+    const subjects: SubjectDeps = {
+      issue: async (_body, _signal, account) => (account === U1 ? lateU1 : lateU2),
+      onStopped: async () => {},
+    };
+    const { app, events, store } = setup({}, { subjects });
+    await app.start();
+    const first = app.identifyAccount(U1);
+    const second = app.identifyAccount(U2); // no wait between
+    app.ui.track("signed_in", {});
+    resolveU1({ state: "active", subject: testSubjectFor(U1) });
+    await first;
+    resolveU2({ state: "active", subject: testSubjectFor(U2) });
+    await second;
+    await new Promise((r) => setTimeout(r, 10));
+    expect((store.data[STATE_KEY] as { userId?: string }).userId).toBe(testSubjectFor(U2));
+    expect(JSON.stringify(events())).not.toContain(testSubjectFor(U1));
   });
 });
 
@@ -506,7 +590,7 @@ describe("Apple app sends wait for the launch's account check", () => {
 });
 
 describe("Apple launch attribution comes first", () => {
-  it("a launch that finds the earlier account gone keeps this launch's update", async () => {
+  it("a launch that finds the earlier account gone drops what waited, never giving it to nobody", async () => {
     const { app, events, store } = setup(
       { previousVersion: "2.0.0", created: false },
       { holdAccount: true },
@@ -518,23 +602,36 @@ describe("Apple launch attribution comes first", () => {
       anonId: null,
     }; // saved by an earlier launch
     await app.start(); // records the update with no person yet
+    expect(events().filter((e) => e.event === "updated")).toHaveLength(1); // waiting, no person
     await app.accountAbsent(); // the launch finds no session
     await new Promise((r) => setTimeout(r, 20));
-    const updated = events().filter((e) => e.event === "updated");
-    expect(updated).toHaveLength(1);
-    expect(updated[0]!.properties.distinct_id).not.toBe(U1);
+    // Someone was signed in here and this launch's use waited with no person: it may be theirs, so
+    // it is dropped with them rather than given a fresh anonymous id (U5-W2).
+    expect(events().filter((e) => e.event === "updated")).toEqual([]);
     expect(JSON.stringify(events())).not.toContain(U1);
+    app.ui.track("opened", { where: "app" }); // use after the launch knows: signed out
+    await new Promise((r) => setTimeout(r, 10));
+    expect(events().find((e) => e.event === "opened")?.properties.signed_in).toBe(false);
   });
 });
 
 describe("Apple app server identification recovery", () => {
-  it("a launch retries attachment after its account confirmation recovers", async () => {
+  it("a launch completes a confirmation that storage refused, without asking the server again", async () => {
     vi.useFakeTimers();
     try {
-      const identifyOnServer = vi.fn(async () => {});
-      const { app, store } = setup({}, { holdAccount: true, identifyOnServer });
+      // The state read that fails is the first one after the subject arrives: the confirmation's own
+      // (the hold made before the request has already been recorded).
+      let fail = false;
+      const identifyOnServer = vi.fn(async (...args: Parameters<typeof TEST_SUBJECTS.issue>) => {
+        const reply = await TEST_SUBJECTS.issue(...args);
+        fail = true;
+        return reply;
+      });
+      const { app, store } = setup({}, {
+        holdAccount: true,
+        subjects: { issue: identifyOnServer, onStopped: async () => {} },
+      });
       const get = store.get;
-      let fail = true;
       store.get = async (key) => {
         if (key === STATE_KEY && fail) {
           fail = false;
@@ -544,22 +641,27 @@ describe("Apple app server identification recovery", () => {
       };
       await app.identifyAccount(U1);
       await vi.advanceTimersByTimeAsync(0);
-      expect(identifyOnServer).not.toHaveBeenCalled();
+      expect(identifyOnServer).toHaveBeenCalledTimes(1);
+      expect((store.data[STATE_KEY] as { userId?: string } | undefined)?.userId).not.toBe(testSubjectFor(U1));
       await app.start();
       await vi.advanceTimersByTimeAsync(0);
       expect(identifyOnServer).toHaveBeenCalledTimes(1);
+      expect((store.data[STATE_KEY] as { userId?: string }).userId).toBe(testSubjectFor(U1));
     } finally {
       vi.useRealTimers();
     }
   });
 
   it.each(["track", "foreground"] as const)(
-    "%s retries a failed attach, and successful attachment stays once per account",
+    "%s retries a failed subject request, and a success stays once per account",
     async (use) => {
       vi.useFakeTimers();
       try {
-        const identifyOnServer = vi.fn(async () => {}).mockRejectedValueOnce(new Error("offline"));
-        const { app } = setup({}, { holdAccount: true, identifyOnServer });
+        const identifyOnServer = vi.fn(TEST_SUBJECTS.issue).mockRejectedValueOnce(new Error("offline"));
+        const { app, store } = setup({}, {
+          holdAccount: true,
+          subjects: { issue: identifyOnServer, onStopped: async () => {} },
+        });
         await app.identifyAccount(U1);
         await vi.advanceTimersByTimeAsync(0);
         expect(identifyOnServer).toHaveBeenCalledTimes(1);
@@ -569,8 +671,13 @@ describe("Apple app server identification recovery", () => {
           await vi.advanceTimersByTimeAsync(0);
         };
         await useApp();
-        expect(identifyOnServer).toHaveBeenCalledTimes(2);
+        // The retry derives the origin proof first (Web Crypto completes outside fake timers).
+        await vi.waitFor(() => expect(identifyOnServer).toHaveBeenCalledTimes(2));
+        await vi.waitFor(() =>
+          expect((store.data[STATE_KEY] as { userId?: string } | undefined)?.userId).toBe(testSubjectFor(U1))
+        );
         await useApp();
+        await vi.advanceTimersByTimeAsync(10);
         expect(identifyOnServer).toHaveBeenCalledTimes(2);
       } finally {
         vi.useRealTimers();
