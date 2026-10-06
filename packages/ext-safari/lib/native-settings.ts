@@ -12,6 +12,19 @@ export const NATIVE_APP = "com.chartash.still";
 /** Write a settings record to the App Group via the app's SafariWebExtensionHandler. Best-effort:
  * a missing native host (extension running outside the app container) is swallowed. */
 export async function pushSettingsToApp(record: StoredSettingsRecord): Promise<void> {
+  // A modern record is the app's own authority (a native projection here); the extension never
+  // pushes one back, and the app's extension handler refuses it anyway. Only builds in which the
+  // app saves modern records can hold one; the same inline build-time opt-ins as the popup, settings
+  // page and background fold this away in every default build, which stays byte-identical.
+  if (
+    ((import.meta.env.VITE_APPLE_ATOMIC_SETTINGS === "true" &&
+      !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)) ||
+      (import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true" &&
+        import.meta.env.VITE_SUPABASE_URL &&
+        import.meta.env.VITE_SUPABASE_ANON_KEY)) &&
+    record.atomic
+  )
+    return;
   try {
     await browser.runtime.sendNativeMessage(NATIVE_APP, {
       kind: "set",

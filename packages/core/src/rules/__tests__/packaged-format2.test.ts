@@ -68,9 +68,24 @@ describe("packaged format-2 rule set", () => {
     for (const id of PACKAGED_FREE_FEATURES) expect(features).toContain(id);
     const implemented = new Set(ACCESS_HOSTS.flatMap((host) => IMPLEMENTED_PRO_FEATURES[host]));
     const pro = FEATURE_REGISTRY.filter((feature) => feature.tier === "pro").map((feature) => feature.id);
-    for (const id of features) expect(PACKAGED_FREE_FEATURES.includes(id as never) || implemented.has(id as never), id).toBe(true);
+    // A content-handler extra (Autoplay) is implemented in code and ships no rule data.
+    const handlers = new Set<string>([YOUTUBE_EXTRAS, INSTAGRAM_EXTRAS, FACEBOOK_EXTRAS].flatMap((module) => module.handlers ?? []));
+    const withData = new Set<string>([...implemented].filter((id) => !handlers.has(id)));
+    for (const id of features) expect(PACKAGED_FREE_FEATURES.includes(id as never) || withData.has(id as never), id).toBe(true);
     // A Pro surface is packaged only together with its implementation; the rest stay out.
-    for (const id of pro) if (!implemented.has(id)) expect(features, id).not.toContain(id);
+    for (const id of pro) if (!withData.has(id)) expect(features, id).not.toContain(id);
+    // Packaged Pro data exists exactly for the implemented extras that hide (dormant while paid is off).
+    expect(new Set(features.filter((id) => (pro as readonly string[]).includes(id)))).toEqual(withData);
+    for (const id of handlers) expect(implemented.has(id as never), id).toBe(true);
+    expect([...handlers]).toEqual(["youtube.autoplay"]);
+    expect([...implemented].sort()).toEqual([
+      "facebook.sponsored", "facebook.stories", "facebook.videos",
+      "instagram.explore", "instagram.stories", "instagram.suggested", "instagram.threads",
+      "youtube.autoplay", "youtube.comments", "youtube.endscreen", "youtube.livechat", "youtube.related",
+    ]);
+    // Every Pro surface comes from a per-service extras module, and nothing else is packaged.
+    const extras = [YOUTUBE_EXTRAS, INSTAGRAM_EXTRAS, FACEBOOK_EXTRAS].flatMap((module) => module.surfaces.map((surface) => surface.feature));
+    expect(new Set(features)).toEqual(new Set([...PACKAGED_FREE_FEATURES, ...extras]));
   });
 
   it("is admitted by the format-2 contract and carries a valid dev signature over its exact payload", async () => {

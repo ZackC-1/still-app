@@ -317,12 +317,18 @@ function sources(dir: string): string[] {
 }
 
 describe("dormant, background-only and never on a free path", () => {
-  it("is imported by no extension source: no background wiring, content script, page or Restore path", () => {
+  it("has one importer, the rating allowance: no content script, page, purchase or Restore path", () => {
     const users = [...sources(join(root, "entrypoints")), ...sources(join(root, "lib"))]
       .filter(path => !path.endsWith("product-policy-runtime.ts"))
       .filter(path => /product-policy|ProductPolicy|evaluateSalesPolicy|evaluateRatingPolicy/.test(readFileSync(path, "utf8")))
       .map(path => relative(root, path));
-    expect(users).toEqual([]);
+    // U13-P3: the rating allowance asks only `freshCheck("rating")`; background.ts loads it on
+    // first use behind the inline V3 build gate. Nothing else may use the client.
+    expect(users).toEqual(["lib/rating-invitation.ts"]);
+    const allowance = readFileSync(join(root, "lib", "rating-invitation.ts"), "utf8");
+    expect(allowance.match(/\.freshCheck\([^)]*\)/g)).toEqual(['.freshCheck("rating")']);
+    // A cached allowance is never consulted: no ordinary-cache read, no sales, no evaluator.
+    expect(allowance).not.toMatch(/\.ordinary\b|"sales"|evaluate(Sales|Rating)Policy/);
   });
 
   it("schedules nothing and reads no identity", () => {

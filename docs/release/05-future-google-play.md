@@ -36,9 +36,9 @@ for this free release. Recheck platform/provider requirements before planning a 
 
 ## Future options
 
-- **If separately approved:** evaluate Firefox for Android through AMO. Verify compatibility,
-  privacy, UI and actual device behavior before enabling or advertising it. The current AMO listing
-  remains desktop-only; see [`03-firefox-amo.md`](03-firefox-amo.md).
+- **Firefox for Android:** supported through the existing AMO listing from Firefox 142
+  (`gecko_android`); see [`03-firefox-amo.md`](03-firefox-amo.md). It needs no Google Play
+  artifact. Real-device behavior is still to be verified.
 - **Later (if validated):** scope a dedicated Android app as its own project, then add a Google Play
   integration only if a separately approved future commercial model requires it. Preserve supported-surface boundaries.
 

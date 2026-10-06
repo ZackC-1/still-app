@@ -493,7 +493,7 @@
           />
         {/each}
       </div>
-    {:else if !desktopPresentation && !settingsHost && !settingsUnavailable}
+    {:else if (!desktopPresentation && !settingsHost && !settingsUnavailable) || popupView.reading}
       <p class="muted" role="status">{STRINGS.sync.checking}</p>
     {/if}
   {/if}

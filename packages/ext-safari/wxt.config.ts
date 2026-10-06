@@ -9,6 +9,19 @@ import { defineConfig } from "wxt";
 // Shorts redirect uses a document_start content-script location.replace here (KTD1), not DNR.
 export default defineConfig({
   modules: ["@wxt-dev/module-svelte"],
+  svelte: {
+    vite: {
+      compilerOptions: {
+        // Scope hashes must not depend on the absolute build path. Copied from
+        // packages/ext-chromium/wxt.config.ts (keep the three in sync). vite-plugin-svelte's default
+        // cssHash mixes in the component's normalized filename, and @still/core components resolve
+        // through the pnpm symlink to a path OUTSIDE this package's Vite root, so the default hash
+        // changes with the checkout directory. Hashing the css text alone is deterministic everywhere
+        // (identical css gives identical scoped rules, so collisions are harmless).
+        cssHash: ({ hash, css }) => `svelte-${hash(css ?? "")}`,
+      },
+    },
+  },
   manifestVersion: 3,
   outDir: "dist",
   manifest: {

@@ -141,17 +141,17 @@ describe("controlled extension first-run", () => {
   it("requires a verified Chrome pin observation and never claims Firefox pin completion", async () => {
     const props = fixture();
     props.browser = "chrome";
-    props.pin.pinned = true;
+    props.pin!.pinned = true;
     const view = render(FirstRun, { props });
     expect(screen.queryByText("Still is pinned.")).toBeNull();
-    props.pin.verified = true;
+    props.pin!.verified = true;
     await view.rerender(props);
     expect(screen.getByText("Still is pinned.")).toBeVisible();
     props.browser = "firefox";
     await view.rerender(props);
     expect(screen.queryByText("Still is pinned.")).toBeNull();
     expect(screen.getByText("Private supplied pin guidance.")).toBeVisible();
-    props.pin.guidance = { verified: false, text: "Unverified browser menu." };
+    props.pin!.guidance = { verified: false, text: "Unverified browser menu." };
     await view.rerender(props);
     expect(screen.queryByText("Unverified browser menu.")).toBeNull();
     view.unmount();
