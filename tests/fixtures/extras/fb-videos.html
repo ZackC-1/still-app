@@ -10,15 +10,26 @@
       combinations. UNVERIFIED CANDIDATE: non-Reel and live feed-video units bounded by
       [role=feed], excluding Reel ownership, plus the Watch navigation entries. A shared Reel in
       the normal player is never re-hidden (D244); Reels belong to facebook.reels (free).
-      Invented text only.
+      The left-nav Watch shortcut carries a tracking query (?ref=bookmarks) and is still the hub;
+      a nav link that names a video plays it and stays. A feed unit whose only video link is
+      /watch/?v= may be a shared Reel, so Videos leaves it. Invented text only.
     -->
     <nav id="keep-nav-home"><a href="/">Home</a></nav>
     <nav><a href="/watch/" id="target-nav-watch">Watch</a>
          <a href="/reel/" id="reels-nav-free">Reels</a></nav>
+    <nav aria-label="Shortcuts">
+      <ul>
+        <li id="target-nav-watch-bookmarks-item"><a href="/watch/?ref=bookmarks" id="target-nav-watch-bookmarks">Video</a></li>
+        <li id="target-nav-watch-absolute-item"><a href="https://www.facebook.com/watch/?ref=bookmarks" id="target-nav-watch-absolute">Video</a></li>
+        <li id="target-nav-watch-noslash-item"><a href="/watch?ref=bookmarks" id="target-nav-watch-noslash">Video</a></li>
+        <li id="keep-nav-watch-video-item"><a href="/watch/?v=900000000130&amp;ref=bookmarks" id="keep-nav-watch-video">An invented saved video</a></li>
+      </ul>
+    </nav>
     <div role="feed" id="keep-feed">
       <div role="article" id="target-feed-video"><a href="/inventedpage/videos/900000000101">Invented feed video</a><video></video></div>
       <div role="article" id="target-feed-live"><a href="/inventedpage/videos/900000000102">Invented live video</a><video></video></div>
       <div role="article" id="reel-feed-free"><a href="/reel/900000000103">Invented feed Reel</a><a href="/inventedpage/videos/900000000103">Invented feed Reel as a video</a><video></video></div>
+      <div role="article" id="keep-feed-watch-only-reel"><a href="/watch/?v=900000000131">Invented feed-shared Reel, Watch link only</a><video></video></div>
       <div role="article" id="keep-text-post"><a href="/inventedpage/posts/900000000104">An invented text post</a></div>
     </div>
     <main id="keep-direct-player">
