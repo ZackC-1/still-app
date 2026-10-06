@@ -36,6 +36,13 @@ export interface MarkerAdapter {
   /** The exact hide selector, in the same feature's surface, that consumes the marker. */
   readonly ruleSelector: string;
   readonly owns: (element: Element) => boolean;
+  /**
+   * True when `owns` reads the page ADDRESS rather than structure (Instagram's search-entry mark).
+   * Without the Navigation API the content script sees the page's own moves only through a URL
+   * poll, so while such a mark is set the host re-reads the address on every DOM change too
+   * (content/index.ts), clearing a stale mark before the next page's content is painted.
+   */
+  readonly addressScoped?: true;
 }
 
 /** Everything a service's Still Pro extras contribute, split per service module. */

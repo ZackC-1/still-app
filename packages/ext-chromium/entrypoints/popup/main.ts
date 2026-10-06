@@ -65,6 +65,7 @@ function init(): void {
         }
       : undefined,
     openedWhere: "popup",
+    accessHost: import.meta.env.FIREFOX ? "firefox" : "chromium",
   });
   if (
     (!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||

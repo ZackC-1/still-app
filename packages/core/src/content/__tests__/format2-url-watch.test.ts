@@ -77,8 +77,11 @@ function shippedDefaultsAllPurchased() {
 
 async function host(href: string, intents: NavigationIntentTracker | null = createNavigationIntentTracker(),
   paid?: { ruleSetV2: SignedRuleSetV2; capabilities: ReadonlySet<BenefitId> | undefined; entitlement: EntitlementCache },
-  /** Optional view of the window the script gets (the Safari V3 entry's covered window). */
-  wrapWin?: (win: StillWindow) => StillWindow) {
+  overrides: {
+    MutationObserver?: typeof MutationObserver;
+    /** Optional view of the window the script gets (the Safari V3 entry's covered window). */
+    wrapWin?: (win: StillWindow) => StillWindow;
+  } = {}) {
   const storage = new InMemoryStorageAdapter({ ...DEFAULT_SETTINGS, updatedAt: 1 });
   const writer = new AtomicSettingsWriter(storage);
   await writer.initialize("never-linked");
@@ -99,11 +102,11 @@ async function host(href: string, intents: NavigationIntentTracker | null = crea
       listeners.get(name)!.add(cb);
     },
     removeEventListener: (name: string, cb: () => void) => { listeners.get(name)?.delete(cb); },
-    MutationObserver: window.MutationObserver,
+    MutationObserver: overrides.MutationObserver ?? window.MutationObserver,
     // Deliberately no `navigation`: this is the fallback's whole precondition.
   };
   const script = createContentScript({
-    win: wrapWin ? wrapWin(win) : win,
+    win: overrides.wrapWin ? overrides.wrapWin(win) : win,
     doc: document,
     ruleSet: seed as unknown as SignedRuleSet,
     ruleSetV2: paid ? paid.ruleSetV2 : allCores,
@@ -372,6 +375,47 @@ describe("format-2 URL watch fallback (no Navigation API)", () => {
     window.history.replaceState(null, "", "/");
   });
 
+  it("the search-entry mark clears when Instagram renders its own results, before they are painted, not a poll later", async () => {
+    fake();
+    window.history.replaceState(null, "", "/explore/search/");
+    const observers = { connected: 0, disconnected: 0 };
+    const Real = window.MutationObserver;
+    const paid = paidOnDeps();
+    const h = await host("https://www.instagram.com/explore/search/", createNavigationIntentTracker(), paid, {
+      MutationObserver: class extends Real {
+        override observe(target: Node, options?: MutationObserverInit) { observers.connected++; super.observe(target, options); }
+        override disconnect() { observers.disconnected++; super.disconnect(); }
+      },
+    });
+    await h.writer.commit({ path: "sites.instagram.reels", value: false, updatedAt: 2 });
+    await h.writer.commit({ path: "sites.instagram.explore", value: true, updatedAt: 3 });
+    await h.cache.rereadAuthority?.();
+    h.script.reapply();
+    const marked = () => document.documentElement.hasAttribute("data-still-instagram-search-entry");
+    expect(marked(), "the empty search entry is marked").toBe(true);
+    expect(observers.connected - observers.disconnected, "the address observer runs while marked").toBe(1);
+    // Instagram's own move to a deliberate results page: the address changes, then it renders.
+    h.pagePush("/explore/search/keyword/?q=%23cats");
+    window.history.replaceState(null, "", "/explore/search/keyword/?q=%23cats");
+    const results = document.createElement("div");
+    results.innerHTML = '<a href="/p/X1/">An invented result</a>';
+    document.body.append(results);
+    await Promise.resolve(); // the mutation callback (a microtask, before any paint); no timer runs
+    expect(marked(), "a results page is never painted under the search entry's mark").toBe(false);
+    expect(observers.connected - observers.disconnected, "the observer stops with the mark").toBe(0);
+    // Back to the empty search entry: the poll (unchanged) marks it again and the observer returns.
+    h.pagePush("/explore/search/");
+    window.history.replaceState(null, "", "/explore/search/");
+    await tickWatch();
+    expect(marked()).toBe(true);
+    expect(observers.connected - observers.disconnected).toBe(1);
+    h.script.stop();
+    expect(marked()).toBe(false);
+    expect(observers.connected - observers.disconnected, "stop disconnects it").toBe(0);
+    results.remove();
+    window.history.replaceState(null, "", "/");
+  });
+
   describe("paid-off pin: shipped defaults never let an extra drive the URL watch, mark or routes", () => {
     const IG_EXTRAS = ["instagram.explore", "instagram.stories", "instagram.suggested", "instagram.threads"];
     const FB_EXTRAS = ["facebook.stories", "facebook.videos", "facebook.sponsored"];
@@ -392,7 +436,13 @@ describe("format-2 URL watch fallback (no Navigation API)", () => {
       for (const combo of combos) {
         const label = `${href} ${JSON.stringify(combo)}`;
         window.history.replaceState(null, "", new URL(href).pathname + new URL(href).search);
-        const h = await host(href, createNavigationIntentTracker(), shippedDefaultsAllPurchased());
+        let observed = 0;
+        const Real = window.MutationObserver;
+        const h = await host(href, createNavigationIntentTracker(), shippedDefaultsAllPurchased(), {
+          MutationObserver: class extends Real {
+            override observe(target: Node, options?: MutationObserverInit) { observed++; super.observe(target, options); }
+          },
+        });
         let at = 2;
         const commit = (path: string, value: boolean) => h.writer.commit({ path: path as SettingsField, value, updatedAt: at++ });
         await commit("globalOn", combo.globalOn);
@@ -414,6 +464,7 @@ describe("format-2 URL watch fallback (no Navigation API)", () => {
           await tickWatch();
           expect(mark(), `${label}: no mark after a move`).toBe(false);
         }
+        expect(observed, `${label}: no address observer while paid is off`).toBe(0);
         expect(h.replace, `${label}: never redirected`).not.toHaveBeenCalled();
         expect(h.assign, label).not.toHaveBeenCalled();
         h.script.stop();
@@ -499,7 +550,7 @@ describe("Safari cover on URL-watch redirects (V3-D-052: core only, never extras
     fake();
     window.history.replaceState(null, "", "/");
     const seen: boolean[] = [];
-    const h = await host("https://www.instagram.com/", createNavigationIntentTracker(), paidOnDeps(), coveredView(seen));
+    const h = await host("https://www.instagram.com/", createNavigationIntentTracker(), paidOnDeps(), { wrapWin: coveredView(seen) });
     await h.writer.commit({ path: "sites.instagram.reels", value: false, updatedAt: 2 });
     await h.writer.commit({ path: "sites.instagram.explore", value: true, updatedAt: 3 });
     await h.cache.rereadAuthority?.();
@@ -516,7 +567,7 @@ describe("Safari cover on URL-watch redirects (V3-D-052: core only, never extras
     fake();
     window.history.replaceState(null, "", "/");
     const seen: boolean[] = [];
-    const h = await host("https://www.instagram.com/", createNavigationIntentTracker(), paidOnDeps(), coveredView(seen));
+    const h = await host("https://www.instagram.com/", createNavigationIntentTracker(), paidOnDeps(), { wrapWin: coveredView(seen) });
     await h.writer.commit({ path: "sites.instagram.explore", value: true, updatedAt: 2 });
     await h.cache.rereadAuthority?.();
     h.script.reapply();

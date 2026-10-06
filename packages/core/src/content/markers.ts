@@ -50,6 +50,8 @@ function clearMarker(doc: Document, adapter: MarkerAdapter): void {
 export interface MarkerHook {
   /** Marks for every adapter whose feature is in `effective`; clears adapters that stopped being. */
   reconcile(effective: readonly BenefitId[]): void;
+  /** True while an address-scoped adapter's mark is actually set on the page. */
+  addressScopedMarked(): boolean;
   /** Teardown: removes every attribute any adapter owns. */
   stop(): void;
 }
@@ -67,6 +69,11 @@ export function createMarkerHook(doc: Document, adapters: readonly MarkerAdapter
           marked.add(adapter);
         } else if (marked.delete(adapter)) clearMarker(doc, adapter);
       }
+    },
+    addressScopedMarked() {
+      if (stopped) return false;
+      for (const adapter of marked) if (adapter.addressScoped && doc.querySelector(`[${adapter.attribute}]`)) return true;
+      return false;
     },
     stop() {
       stopped = true;
