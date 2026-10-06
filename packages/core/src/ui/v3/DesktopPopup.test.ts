@@ -160,7 +160,8 @@ describe("controlled D01 presentation", () => {
           expect(row).toHaveAttribute("data-access", "locked");
           expect(within(row).getByText("Still Pro")).toBeTruthy();
           const lock = within(row).getByRole("button", {
-            name: `${label}. Included in Still Pro. See Still Pro`,
+            name: "Still Pro",
+            description: label,
           });
           expect(lock).toHaveAttribute("aria-disabled", "true");
           await fireEvent.click(lock);
@@ -261,7 +262,8 @@ describe("controlled D01 presentation", () => {
           ).toBeTruthy();
         } else {
           const locked = within(row).getByRole("button", {
-            name: "Comments. Included in Still Pro. See Still Pro",
+            name: "Still Pro",
+            description: "Comments",
           });
           expect(locked).toHaveAttribute("aria-disabled", "true");
           await fireEvent.click(locked);
@@ -568,9 +570,7 @@ describe("controlled D01 presentation", () => {
       ),
     ).toBeTruthy();
     await fireEvent.click(
-      screen.getByRole("button", {
-        name: "Comments. Included in Still Pro. See Still Pro",
-      }),
+      screen.getByRole("button", { name: "Still Pro", description: "Comments" }),
     );
     expect(props.onFeatureChange).not.toHaveBeenCalled();
     expect(screen.queryByText("Purchase Still Pro")).toBeNull();
@@ -608,9 +608,11 @@ describe("controlled D01 presentation", () => {
     );
     await fireEvent.click(
       screen.getByRole("button", {
-        name: "Related videos. Included in Still Pro. See Still Pro",
+        name: "Still Pro",
+        description: "Related videos",
       }),
     );
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(buy).toHaveBeenCalledOnce();
   });
 });

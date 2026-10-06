@@ -15,6 +15,7 @@
   } from "./invitation-presentation.js";
   import Toggle from "./Toggle.svelte";
   import FeatureRow from "./FeatureRow.svelte";
+  import ProPaywallSheet from "./ProPaywallSheet.svelte";
   import Glyph from "./Glyph.svelte";
   import "./design/styles.css";
 
@@ -80,6 +81,12 @@
       ),
   );
   let dormant = $derived(proRowsDormant(access));
+  // Owner decision 41: a locked row opens a sheet holding this popup's existing purchase entry;
+  // only that explicit button reaches the host's purchase path.
+  let paywall = $state.raw<{ opener: HTMLElement } | null>(null);
+  $effect(() => {
+    if (paywall && !offer) paywall = null;
+  });
   let invitationReady = $derived(
     invitation?.identity.surface === browser.toLowerCase() &&
       !desktopSetup &&
@@ -268,11 +275,10 @@
                           onFeatureChange(row.id, next);
                       }}
                       onLock={offer
-                        ? () => {
-                            if (offer) onPurchase?.();
+                        ? (opener) => {
+                            if (offer) paywall = { opener };
                           }
                         : undefined}
-                      lockLabel={`${labels[row.id] ?? row.label}. Included in Still Pro. See Still Pro`}
                     />
                   {/each}
                 {/if}
@@ -286,6 +292,23 @@
   {#if offer}<button type="button" class="secondary block" onclick={onPurchase}
       >Purchase Still Pro</button
     >{/if}
+  {#if paywall && offer}
+    <ProPaywallSheet
+      opener={paywall.opener}
+      onDismiss={() => {
+        paywall = null;
+      }}
+    >
+      <h2>Still Pro</h2>
+      <button
+        type="button"
+        class="secondary block"
+        onclick={() => {
+          if (offer) onPurchase?.();
+        }}>Purchase Still Pro</button
+      >
+    </ProPaywallSheet>
+  {/if}
   <PopupInvitation presentation={invitationReady ? invitation : undefined} />
   <section class="card card-stack">
     <div class="sync-row">

@@ -302,8 +302,9 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
       "-module-cache-path", join(temporary, "modules"), "-o", binary]);
   }, 60_000);
   afterAll(async () => { if (temporary) await rm(temporary, { recursive: true, force: true }); });
-  function host(directory: string, pause = false, first?: "newInstall" | "untouchedUpgrade") {
-    const child = spawn(binary, [directory, ...(pause ? ["pause"] : []), ...(first ? [`first:${first}`] : [])], { stdio: ["pipe", "pipe", "pipe"] });
+  function host(directory: string, pause: boolean | "lost-reply" = false, first?: "newInstall" | "untouchedUpgrade") {
+    const mode = pause === true ? ["pause"] : pause ? [pause] : [];
+    const child = spawn(binary, [directory, ...mode, ...(first ? [`first:${first}`] : [])], { stdio: ["pipe", "pipe", "pipe"] });
     const queue: { resolve: (value: string) => void; reject: (e: Error) => void }[] = [];
     const lines = createInterface({ input: child.stdout });
     lines.on("line", value => queue.shift()?.resolve(value));
@@ -757,6 +758,65 @@ describe.skipIf(process.platform !== "darwin")("actual compiled two-process nati
       expect((await first.adapter.get())!.settings.services.youtube).toBe(false);
       expect((await readdir(directory)).filter(name => name.endsWith(".tmp"))).toEqual([]);
     } finally { await first.close(); if (interrupted) await interrupted.close(); }
+  });
+
+  // U3-W3 lost acknowledgement: the "lost-reply" host stops after its App Group transaction has
+  // returned and before the bridge builds its reply; SIGKILL then ends it with no reply written.
+  it.each(["unknown", "never-linked"])("killed after the App Group write but before replying (%s): one durable choice, identical retry changes nothing", async ownership => {
+    const directory = join(temporary, "lost-reply-" + ownership); const reader = host(directory); let dying: ReturnType<typeof host> | null = null;
+    try {
+      const seeded = parseStoredSettingsRecord(await reader.post("seed:" + ownership))!;
+      dying = host(directory, "lost-reply");
+      expect(await dying.post({ kind: "settingsIntent", path: "globalOn", value: false, updatedAt: 10 })).toBe("committed-unreplied");
+      await dying.close();
+      const durable = (await reader.adapter.get())!;
+      expect(durable.settings.globalOn).toBe(false);
+      expect(durable.atomic!.sequence).toBe(seeded.atomic!.sequence + 1);
+      expect(durable.atomic!.pending).toHaveLength(ownership === "never-linked" ? 1 : 0);
+      // A duplicate delivery of the same intent finds the saved choice: no second step or request.
+      const retry = JSON.parse(await reader.post({ kind: "settingsIntent", path: "globalOn", value: false, updatedAt: 10 })) as { changed: boolean; status: string };
+      expect(retry).toMatchObject({ changed: false, status: "committed" });
+      expect(await reader.adapter.get()).toEqual(durable);
+      expect((await readdir(directory)).filter(name => name.endsWith(".tmp"))).toEqual([]);
+    } finally { await reader.close(); if (dying) await dying.close(); }
+  });
+  it("a Safari page whose native host died before replying holds, re-reads the saved choice and never resends", async () => {
+    const directory = join(temporary, "lost-reply-page"); const reader = host(directory); const dying: ReturnType<typeof host>[] = [];
+    const sent: { kind: string }[] = []; let projection: unknown;
+    try {
+      await reader.post("seed:never-linked");
+      vi.stubGlobal("location", { protocol: "safari-web-extension:" });
+      vi.stubGlobal("chrome", { runtime: { getURL: () => "safari-web-extension://still/", sendMessage: vi.fn(),
+        sendNativeMessage: async (_app: string, message: { kind: string }) => {
+          sent.push(message);
+          if (message.kind !== "settingsIntent") return { settings: await reader.post(message) };
+          const killed = host(directory, "lost-reply"); dying.push(killed);
+          expect(await killed.post(message)).toBe("committed-unreplied");
+          await killed.close();
+          throw new Error("native host exited before replying");
+        } },
+        storage: { local: { get: async (key: string) => projection === undefined ? {} : { [key]: projection },
+          set: async (values: Record<string, unknown>) => { projection = values["still:settings"]; } },
+        onChanged: { addListener: () => {}, removeListener: () => {} } } });
+      const cache = new SettingsCache(new ChromeStorageAdapter(), { now: () => 10 }); await cache.hydrate();
+      const access = new EntitlementCache({ get: async () => false, set: async () => {}, subscribe: () => () => {},
+        observeBenefits: async () => initialAccessSnapshot() });
+      await access.refreshAccess();
+      const binding = createDesktopPopupBinding(cache, access);
+      try {
+        expect(binding.current()).toMatchObject({ commandAvailability: "ready", settings: { globalOn: true } });
+        // Never "committed": the screen cannot report a save whose reply it did not receive.
+        expect(await binding.setGlobalOn(false)).toEqual({ status: "unavailable", reason: "native-authority-unavailable" });
+        expect(binding.current()).toMatchObject({ commandAvailability: "unavailable", reason: "native-authority-unavailable" });
+        expect(await binding.rereadAuthority()).toEqual({ status: "ready" });
+        expect(binding.current()).toMatchObject({ commandAvailability: "ready", settings: { globalOn: false } });
+        expect(sent.filter(message => message.kind === "settingsIntent")).toHaveLength(1);
+        expect((await reader.adapter.get())!.atomic!.pending).toHaveLength(1);
+      } finally { binding.stop(); }
+    } finally {
+      vi.unstubAllGlobals(); await reader.close();
+      for (const killed of dying) await killed.close();
+    }
   });
 
   // U3 parity: the same scenario runs through the reviewed TS writer and the compiled StillKit host

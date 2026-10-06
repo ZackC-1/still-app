@@ -39,6 +39,12 @@ export interface TikTokBlockedPresentation extends TikTokObservationBinding {
     status: "granted-reload-needed";
     destinationValidated: boolean;
   };
+  /**
+   * Owner decision 34: the last "Open TikTok this time" attempt from this page did not finish
+   * (a failed or unanswered request, confirm or reopen, or a confirmation the background let go).
+   * Display only. Retrying goes through `requestConfirmation`, so it always asks again.
+   */
+  failure?: TikTokObservationBinding & { status: "open-failed" };
 }
 
 export function sameTikTokIdentity(
@@ -99,5 +105,17 @@ export function tikTokReloadConfirmed(
     currentBinding(presentation, presentation.outcome) &&
     presentation.outcome?.status === "granted-reload-needed" &&
     presentation.outcome.destinationValidated
+  );
+}
+
+/** True while the blocked page should show "Couldn't open TikTok." with its Try again action. */
+export function tikTokOpenFailed(
+  presentation: TikTokBlockedPresentation | undefined,
+): boolean {
+  return !!(
+    presentation?.state === "blocked" &&
+    tikTokSupported(presentation) &&
+    currentBinding(presentation, presentation.failure) &&
+    presentation.failure?.status === "open-failed"
   );
 }
