@@ -291,6 +291,24 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
     },
   }) : null;
   if (urlWatch) teardowns.push(() => urlWatch.stop());
+  // An address-scoped mark (Instagram's search-entry mark) is only as fresh as the address the
+  // script last saw, and without the Navigation API that is the poll's. While such a mark is set,
+  // every DOM change re-reads the address first: the page's own move renders the next page, and
+  // this callback runs before that render is painted, so a deliberate results page is never
+  // painted under the empty search page's mark. Attached only while the mark is set, so never
+  // while the paid tier is off.
+  let addressObserver: MutationObserver | null = null;
+  const syncAddressObserver = (): void => {
+    const wanted = !!urlWatch && !stopped && markerHook?.addressScopedMarked() === true;
+    if (wanted && !addressObserver) {
+      addressObserver = new win.MutationObserver(() => urlWatch?.check());
+      addressObserver.observe(doc.documentElement, { childList: true, subtree: true });
+    } else if (!wanted && addressObserver) {
+      addressObserver.disconnect();
+      addressObserver = null;
+    }
+  };
+  teardowns.push(() => { addressObserver?.disconnect(); addressObserver = null; });
   // Any effective feature of the service counts, not only its Reels core: a Still Pro extra's
   // routes and address-scoped markers (Instagram's search-entry mark) must follow in-page moves
   // too, even with Reels Off. While the paid tier is off no extra is ever effective, so this is
@@ -322,6 +340,7 @@ export function createContentScript(deps: ContentScriptDeps): ContentScriptHandl
       mediaQuieting?.reconcile();
       consumeModernNavigation(url);
       urlWatch?.sync(urlWatchWanted());
+      syncAddressObserver();
       return;
     }
     // The paid tier is dormant behind PAID_TIER_ENABLED, so every surface applies for everyone.
