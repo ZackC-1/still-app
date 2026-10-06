@@ -174,13 +174,31 @@ export class AtomicSettingsWriter {
       const current = await this.adapter.get();
       if (!current) throw new SettingsStorageRecovery("missing-provenance");
       if (current.atomic) return current;
-      const settings = requireModernSettings(current);
-      const next: StoredSettingsRecord = { ...current, settings: projection(settings), atomic: {
-        format: 1, sequence: 0, ownership, scope: { accountId: null, generation: 0 }, anchor: null, pending: [], held: {}, paused: null,
-      } };
-      await this.adapter.set(structuredClone(next));
-      return next;
+      return this.convertLegacy(current, ownership);
     });
+  }
+  /**
+   * Owner decision 28, case B: an update from 2.x that never saved a setting. 2.x keeps no record
+   * until the first toggle, and every 2.x reader treats absence as the bundled defaults with no
+   * edit stamp, so those defaults are what this person has been using. Persist exactly that
+   * record through the ordinary schema-1 conversion, with unknown ownership so an account still
+   * wins on sign-in. Only actual key absence qualifies: any retained record, readable or not, is
+   * returned or held untouched, and this never writes twice.
+   */
+  initializeUntouchedUpgrade(): Promise<StoredSettingsRecord> {
+    return this.transaction(async () => {
+      const current = await this.adapter.get();
+      if (current) return current;
+      return this.convertLegacy({ settings: DEFAULT_SETTINGS, syncMetadata: null, syncEpoch: 0 }, "unknown");
+    });
+  }
+  private async convertLegacy(current: StoredSettingsRecord, ownership: AtomicSettingsState["ownership"]): Promise<StoredSettingsRecord> {
+    const settings = requireModernSettings(current);
+    const next: StoredSettingsRecord = { ...current, settings: projection(settings), atomic: {
+      format: 1, sequence: 0, ownership, scope: { accountId: null, generation: 0 }, anchor: null, pending: [], held: {}, paused: null,
+    } };
+    await this.adapter.set(structuredClone(next));
+    return next;
   }
   commit(intent: SettingsIntent): Promise<StoredSettingsRecord> {
     return this.transaction(async () => {

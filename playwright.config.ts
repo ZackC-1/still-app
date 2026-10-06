@@ -16,6 +16,8 @@ export default defineConfig({
       testMatch: /playwright\/.*\.spec\.ts$/,
       retries: 0,
     },
+    // QA lane (L1q): journeys on the real built extension at 2x. Opt-in, never in the CI fixtures run.
+    { name: "qa", testMatch: /qa\/chromium\/.*\.spec\.ts$/, retries: 0 },
     {
       name: "smoke",
       testMatch: /smoke\/.*\.spec\.ts$/,

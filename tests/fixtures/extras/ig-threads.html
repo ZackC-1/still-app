@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Synthetic Instagram Threads links</title>
+  </head>
+  <body>
+    <!--
+      Synthetic structural model for instagram.threads (CP-080): only the anchor, matched on the
+      exact Threads host (threads.com / threads.net, with or without www.). UNVERIFIED CANDIDATE:
+      a[href^="https://www.threads.com/"] and its siblings. Look-alikes must not match: other
+      paths on instagram.com, #threads tags, captions, look-alike hosts, wrapped l.instagram.com
+      links. Invented text and handles only.
+    -->
+    <header id="keep-profile-header"><p>inventeduser</p>
+      <a href="https://www.threads.com/@inventeduser" id="target-threads-badge-com-www">Threads badge</a>
+      <a href="https://threads.com/@inventeduser" id="target-threads-badge-com">Threads badge two</a>
+      <a href="https://www.threads.net/@inventeduser" id="target-threads-badge-net-www">Threads badge three</a>
+      <a href="https://threads.net/@inventeduser" id="target-threads-badge-net">Threads badge four</a>
+    </header>
+    <p id="keep-caption">An invented caption mentioning <a href="/explore/tags/threads/" id="keep-hashtag-threads">#threads</a> and the word threads.</p>
+    <a href="/threadsapp/" id="keep-threadsapp-path">Instagram threadsapp path</a>
+    <a href="https://www.threads.com.invented.example/@inventeduser" id="keep-lookalike-suffix">Look-alike host suffix</a>
+    <a href="https://notthreads.com/@inventeduser" id="keep-lookalike-prefix">Look-alike host prefix</a>
+    <a href="https://l.instagram.com/?u=https%3A%2F%2Fwww.threads.com%2F%40inventeduser" id="keep-wrapped-link">Wrapped link</a>
+    <a href="https://www.instagram.com/inventeduser/" id="keep-ordinary-link">Ordinary profile link</a>
+  </body>
+</html>

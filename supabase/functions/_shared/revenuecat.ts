@@ -1,3 +1,4 @@
+import { CodedError } from "./coded-error.ts";
 // Server-side RevenueCat subscriber lookup + entitlement derivation (KTD5). Webhooks are treated as
 // invalidation triggers only — the entitlement is ALWAYS derived from the canonical subscriber
 // state fetched here, so refund/transfer/cancel/re-purchase races collapse to the current truth.
@@ -45,7 +46,7 @@ export class HttpRevenueCatClient implements RevenueCatClient {
       signal: AbortSignal.timeout(8_000),
     });
     if (res.status === 404) return null;
-    if (!res.ok) throw new Error(`RevenueCat lookup failed: ${res.status}`);
+    if (!res.ok) throw new CodedError("revenuecat_lookup_failed", `RevenueCat lookup failed: ${res.status}`, res.status);
     const json = (await res.json()) as { subscriber: RcSubscriber };
     return json.subscriber;
   }

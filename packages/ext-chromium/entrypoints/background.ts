@@ -181,10 +181,12 @@ export default defineBackground(() => {
     chrome.runtime.id,
     chrome.runtime.getURL(""),
   );
-  // Admission belongs only to this process's actual install event. A duplicate callback cannot
-  // replenish an exhausted budget, and a wake/update never inherits a persisted retry grant.
+  // Admission belongs only to this process's actual install or update event. A duplicate callback
+  // cannot replenish an exhausted budget, and a wake never inherits a persisted retry grant.
   let installAdmissionConsumed = false;
-  const initializeInstalledSettings = async (): Promise<void> => {
+  const initializeInstalledSettings = async (
+    initialize: () => Promise<unknown>,
+  ): Promise<void> => {
     const rereadInstalledSettings = async (): Promise<void> => {
       for (let attempt = 0; attempt < 3; attempt += 1) {
         const outcome = await cache.rereadAuthority();
@@ -198,7 +200,7 @@ export default defineBackground(() => {
     let failure: unknown;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
-        await settingsAuthority.initializeFreshAtomic();
+        await initialize();
       } catch (error) {
         if (error instanceof SettingsStorageRecovery) throw error;
         failure = error;
@@ -223,8 +225,9 @@ export default defineBackground(() => {
           break;
         }
         if (!absent) throw failure;
-        // Parsed absence is not admission: the next SAMEwriter initializer checks all raw keys
-        // and observed history again. No new write is attempted while readback is ambiguous.
+        // Parsed absence is not admission: the next same-writer initializer re-checks absence
+        // (and, for an install, all raw keys and observed history) inside the writer queue. No
+        // new write is attempted while readback is ambiguous.
         continue;
       }
       // hydrate() is memoized. A failed readiness read must never repeat fresh persistence.
@@ -234,9 +237,17 @@ export default defineBackground(() => {
     throw failure;
   };
   chrome.runtime.onInstalled.addListener((details) => {
-    if (details.reason === "install" && settingsRuntime.atomicLocal && !installAdmissionConsumed) {
+    // Owner decision 28: when nothing is saved yet, the first launch saves defaults. A new install
+    // saves the fresh defaults; an update from a 2.x that never saved a setting saves the defaults
+    // it was already using (unknown ownership, so an account still wins on sign-in). Neither ever
+    // replaces a retained record, and configured legacy builds keep today's behaviour.
+    if ((details.reason === "install" || details.reason === "update") && settingsRuntime.atomicLocal && !installAdmissionConsumed) {
       installAdmissionConsumed = true;
-      void initializeInstalledSettings().catch(heldInitialization);
+      void initializeInstalledSettings(
+        details.reason === "install"
+          ? () => settingsAuthority.initializeFreshAtomic()
+          : () => settingsAuthority.initializeUntouchedUpgradeAtomic(),
+      ).catch(heldInitialization);
     }
     analytics.onInstalled(details);
     // D14: a brand-new install opens the first-run page, after (never instead of) install-time

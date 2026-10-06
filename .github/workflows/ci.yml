@@ -29,6 +29,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          # The build-counter history test reads every revision of version.json and fails on a shallow clone.
+          fetch-depth: 0
 
       # pnpm version is read from package.json "packageManager" (pnpm@11.9.0).
       - uses: pnpm/action-setup@v6.1.0
@@ -57,6 +60,12 @@ jobs:
 
       - name: Unit tests
         run: pnpm test
+
+      # One version source (version.json) and reproducible, hashed packages. Builds the Chrome and
+      # Firefox bundles twice and requires byte-identical zips. Also checks the Chrome store release
+      # workflow's guards against a mocked store. No secrets, no store access, no network to stores.
+      - name: Release versioning and reproducible packages
+        run: pnpm test:release
 
       - name: Build (produces both extension dist/ folders)
         run: pnpm build
