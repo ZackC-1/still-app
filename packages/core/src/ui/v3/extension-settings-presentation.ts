@@ -20,11 +20,25 @@ export interface SyncCardProps {
     status?: OperationStatus;
     onSignOut?: () => void;
     onDeleteAccount?: () => void;
+    /** Account-wide "Delete shared data on all devices" (owner decisions 60, 61, 74). Supplied only
+     * where the build offers it (per-device identities wired); absent, nothing renders. */
+    sharedData?: SharedDataProps;
   };
   owned?: boolean;
   onSignIn?: () => void;
   /** Actual host status and recovery actions, within the single sync card. */
   accountActions?: Snippet;
+}
+
+export interface SharedDataProps {
+  /** The approved withdrawal line to show for the account, or "none". */
+  withdrawal: "none" | "requested" | "verifying" | "deleted" | "failed";
+  /** This device was stopped by a deletion asked on another device. */
+  stoppedElsewhere?: boolean;
+  /** Asks (the settings page confirms first). Absent while a request is on its way. */
+  onDelete?: () => void;
+  /** "Try again" after the request could not be sent. */
+  onRetry?: () => void;
 }
 
 export interface ProOfferCardProps {

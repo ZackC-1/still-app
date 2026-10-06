@@ -260,3 +260,197 @@ export function createErasureService(deps: {
     },
   };
 }
+
+// ── Account-wide erasure (U5-W3 packet B; owner decisions 60, 61 and 74) ──────────────────────
+//
+// "Delete shared data on all devices": a signed-in action (a signed-in session is enough, D60) that
+// stops sharing on every device signed in to the account and deletes what they shared under it.
+// It deletes ACCOUNT data only (D61): this device's signed-out (anonymous) history is not deleted,
+// so this path never writes the device ledger above and never sends a device request. That data
+// stays until sharing is turned off on this device.
+//
+// Order (the host's local stop always comes first and needs no network, so "Sharing stays off on
+// this device" is true whenever the request then fails):
+//   1. The host stops sharing here WITHOUT a device erasure (extension-host.ts "accountErasure").
+//   2. `request` records which account asked, then sends {action: "account"} to analytics-erasure
+//      with that account's own session. The server retires every per-device identity of the account
+//      and queues each for deletion (migration 0018, reason account_erasure). Other signed-in devices
+//      learn "stopped" at their next identify and show "Sharing was turned off from another device."
+//   3. `kick`, at an ordinary Still screen only, retries an unsent request and follows a sent one
+//      with {action: "account-status"} until it is deleted.
+//
+// Nothing in a request names an id: the server takes the account from the verified session.
+// The states map onto the same approved withdrawal lines as device erasure (see the header above).
+
+export const ACCOUNT_ERASURE_KEY = "still:analytics:account-erasure";
+
+export type AccountErasureRequest = { readonly action: "account" } | { readonly action: "account-status" };
+
+/** POST the body to analytics-erasure with `account`'s own signed-in session (a host must refuse,
+ * by rejecting, when its session is for another account or there is none); resolve the parsed JSON
+ * of a 2xx reply, reject otherwise. */
+export type AccountErasureTransport = (
+  body: AccountErasureRequest,
+  signal: AbortSignal,
+  account: string,
+) => Promise<unknown>;
+
+/** The one account-wide request this device follows (the latest one asked here). */
+export interface AccountErasureRecord {
+  readonly account: string;
+  readonly state: ErasureEntryState;
+  /** An attempt to send it failed; cleared when the server accepts it. */
+  readonly failed: boolean;
+  /** The deleted outcome was shown. */
+  readonly shown: boolean;
+  readonly requestedAt: number;
+}
+
+export interface AccountErasureService {
+  /** Record that `account` asked, then send the request. Call only after the local stop. Resolves
+   * to the line to show: "failed" when it could not be sent. */
+  request(account: string): Promise<ErasureWithdrawal>;
+  /** Send an unsent request and follow a sent one. Ordinary Still screens only. */
+  kick(): Promise<void>;
+  /** "Try again": the same as kick. */
+  retry(): Promise<void>;
+  /** The line for `account`; "none" for any other account. */
+  withdrawal(account: string): Promise<ErasureWithdrawal>;
+  /** The deleted line has been shown for `account`: stop showing it. */
+  acknowledge(account: string): Promise<void>;
+}
+
+function readAccountRecord(value: unknown): AccountErasureRecord | null | undefined {
+  if (value === undefined || value === null) return null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const r = value as Record<string, unknown>;
+  return isAnalyticsId(r.account) &&
+    STATES.includes(r.state as ErasureEntryState) &&
+    typeof r.failed === "boolean" &&
+    typeof r.shown === "boolean" &&
+    Number.isFinite(r.requestedAt)
+    ? (r as unknown as AccountErasureRecord)
+    : undefined;
+}
+
+export function createAccountErasureService(deps: {
+  readonly store: AnalyticsKeyValue;
+  /** Absent on builds without a server: a request reads as failed. */
+  readonly transport?: AccountErasureTransport;
+  readonly now?: () => number;
+}): AccountErasureService {
+  let chain: Promise<unknown> = Promise.resolve();
+  const run = <T>(op: () => Promise<T>): Promise<T> => {
+    const next = chain.then(op, op);
+    chain = next.catch(() => undefined);
+    return next;
+  };
+  // undefined: unreadable or malformed, never saved over by a follow-up (only a new request
+  // replaces it).
+  const load = async (): Promise<AccountErasureRecord | null | undefined> => {
+    try {
+      return readAccountRecord(await deps.store.get(ACCOUNT_ERASURE_KEY));
+    } catch {
+      return undefined;
+    }
+  };
+  const save = async (record: AccountErasureRecord | null): Promise<void> => {
+    try {
+      await deps.store.set(ACCOUNT_ERASURE_KEY, record);
+    } catch {
+      /* the line then follows the reply in memory only; the server holds the request */
+    }
+  };
+  const send = async (body: AccountErasureRequest, account: string): Promise<unknown> => {
+    if (!deps.transport) throw new Error("No erasure transport");
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        deps.transport(body, controller.signal, account),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            controller.abort();
+            reject(new Error("timeout"));
+          }, ERASURE_REQUEST_LIMIT_MS);
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  };
+  /** Advance the record one step; resolves to the record as it now stands. */
+  const advance = async (record: AccountErasureRecord): Promise<AccountErasureRecord | null> => {
+    if (record.state === "deleted") return record;
+    let state: ReturnType<typeof serverState>;
+    try {
+      state = serverState(
+        await send({ action: record.state === "unsent" ? "account" : "account-status" }, record.account),
+      );
+    } catch {
+      state = null;
+    }
+    let next: AccountErasureRecord | null;
+    if (state === null) {
+      // Not sent (offline, server down, refused, signed out): sharing stays off here; retried at
+      // the next Still screen or by "Try again". A follow-up that fails changes nothing.
+      next = record.state === "unsent" ? { ...record, failed: true } : record;
+    } else if (state === "none") {
+      // The server holds no account-wide deletion for this account (nothing shared under its
+      // per-device identities was found, or the finished jobs were cleaned up). Nothing is pending,
+      // and pending is never success: no line rather than a done line the server did not confirm.
+      next = null;
+    } else {
+      next = { ...record, state, failed: false };
+    }
+    if (next !== record) await save(next);
+    return next;
+  };
+  const view = (record: AccountErasureRecord | null | undefined, account: string): ErasureWithdrawal => {
+    if (!record || record.account !== account.toLowerCase()) return "none";
+    switch (record.state) {
+      case "unsent":
+        return record.failed ? "failed" : "none";
+      case "deleted":
+        return record.shown ? "none" : "deleted";
+      default:
+        return record.state;
+    }
+  };
+  const kick = (): Promise<void> =>
+    run(async () => {
+      const record = await load();
+      if (record) await advance(record);
+    });
+
+  return {
+    request(asked) {
+      return run(async () => {
+        if (!isAnalyticsId(asked)) return "failed";
+        const account = asked.toLowerCase();
+        const record: AccountErasureRecord = {
+          account,
+          state: "unsent",
+          failed: false,
+          shown: false,
+          requestedAt: (deps.now ?? Date.now)(),
+        };
+        await save(record);
+        return view(await advance(record), account);
+      });
+    },
+    kick,
+    retry: kick,
+    withdrawal(account) {
+      return run(async () => view(await load(), account));
+    },
+    acknowledge(account) {
+      return run(async () => {
+        const record = await load();
+        if (record && record.account === account.toLowerCase() && record.state === "deleted" && !record.shown) {
+          await save({ ...record, shown: true });
+        }
+      });
+    },
+  };
+}

@@ -2,6 +2,7 @@
   import type { SharingCardProps } from "./extension-settings-presentation.js";
   import Toggle from "./Toggle.svelte";
   import Glyph from "./Glyph.svelte";
+  import { WITHDRAWAL_OUTCOMES, WITHDRAWAL_RETRY } from "./withdrawal-copy.js";
   let {
     state,
     purposes,
@@ -16,21 +17,7 @@
   let hasPurposes = $derived(purposesVerified && Boolean(purposes?.length));
   let canShare = $derived(hasPurposes && Boolean(onShare));
   let withdrawalHeld = $derived(withdrawal === "failed");
-  const outcomes = {
-    requested: {
-      tone: "pending",
-      text: "Deletion requested. Your shared data hasn't been deleted yet.",
-    },
-    verifying: {
-      tone: "pending",
-      text: "Confirming deletion with our providers…",
-    },
-    deleted: { tone: "success", text: "Your shared data has been deleted." },
-    failed: {
-      tone: "failed",
-      text: "We couldn't send your deletion request. Sharing stays off on this device.",
-    },
-  } as const;
+  const outcomes = WITHDRAWAL_OUTCOMES;
   let outcome = $derived(
     withdrawal === "none" ? undefined : outcomes[withdrawal],
   );
@@ -138,7 +125,7 @@
           >{#if withdrawal === "failed" && onRetry}<button
               type="button"
               class="link status-action"
-              onclick={onRetry}>Try again</button
+              onclick={onRetry}>{WITHDRAWAL_RETRY}</button
             >{/if}
         </div>
       </div>
