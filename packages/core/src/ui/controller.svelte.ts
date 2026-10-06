@@ -216,9 +216,10 @@ export interface UiAnalytics {
   /** Attribute this install to the signed-in account. */
   identify(userId: string): void;
   /** Stop attributing to the account. `forgetAccount` (deletion) also drops events still waiting
-   * under it, so nothing recreates the analytics person the server is about to delete. May resolve
+   * under it, so nothing recreates the analytics person the server is about to delete, and forgets
+   * this device's cached analytics identity for `account` (the account being deleted). May resolve
    * once that is done, so deletion can wait for it (bounded; see confirmDeleteAccount). */
-  reset(options?: { readonly forgetAccount?: boolean }): Promise<void> | void;
+  reset(options?: { readonly forgetAccount?: boolean; readonly account?: string }): Promise<void> | void;
   /** This device's "Share usage data" state, or null when the build has no analytics (the switch
    * then does not render). */
   sharing?(): Promise<UsageSharingState | null>;
@@ -1407,7 +1408,7 @@ export class UiController {
     this.deleteError = null;
     // Forget the account for analytics before the server deletes it, and wait for that: an event
     // still queued under the account must never be sent after the deletion and recreate the person.
-    await this.forgetAnalyticsAccount();
+    await this.forgetAnalyticsAccount(deletingUserId);
     if (this.accountRevision !== revision || this.userId !== deletingUserId) {
       // Someone else signed in (or out) while analytics let go: never delete an account the person
       // did not confirm. The new account identifies itself.
@@ -1440,10 +1441,10 @@ export class UiController {
 
   /** Forget the account for analytics (deletion), waiting at most ANALYTICS_FORGET_LIMIT_MS: a
    * slow or broken analytics host never holds up deleting the account. */
-  private async forgetAnalyticsAccount(): Promise<void> {
+  private async forgetAnalyticsAccount(account: string | null): Promise<void> {
     if (!this.analytics) return;
     try {
-      const done = this.analytics.reset({ forgetAccount: true });
+      const done = this.analytics.reset({ forgetAccount: true, ...(account ? { account } : {}) });
       await Promise.race([
         Promise.resolve(done).catch(() => undefined),
         new Promise((resolve) => setTimeout(resolve, ANALYTICS_FORGET_LIMIT_MS)),

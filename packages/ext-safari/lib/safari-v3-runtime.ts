@@ -1,5 +1,5 @@
 import { ChromeStorageAdapter, SettingsCache, type StoredSettingsRecord } from "@still/core/storage";
-import { ChromeEntitlementAdapter, EntitlementCache } from "@still/core/entitlement";
+import { ChromeEntitlementAdapter, EntitlementCache, packagedAccessContext } from "@still/core/entitlement";
 import { UiController, type CommittedPopupBinding, type CommittedPopupToggle } from "@still/core/ui";
 import { watchAccountStatus } from "../../core/src/ui/account-status.js";
 import { createDesktopPopupBinding } from "../../core/src/ui/v3/desktop-popup-binding.js";
@@ -111,7 +111,8 @@ function startComposition(where: "popup" | "options", started: Array<() => void>
     where,
   });
   controller.accountManagedByApp = true;
-  const entitlement = new EntitlementCache(new ChromeEntitlementAdapter());
+  // Safari's own host list, the same one its background resolves (packagedAccessContext("safari")).
+  const entitlement = new EntitlementCache(new ChromeEntitlementAdapter(), { access: packagedAccessContext("safari") });
   let live = true;
   const unsubscribeEntitlement = entitlement.subscribe((entitled) => {
     controller.entitled = entitled;

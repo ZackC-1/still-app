@@ -11,6 +11,7 @@ import {
   isBenefitEffective,
   packagedAccessContext,
   type AccessHost,
+  type AccessPlatform,
 } from "../access-policy.js";
 import parity from "../../../../shared-types/fixtures/access-capabilities.json";
 
@@ -65,6 +66,78 @@ describe("accessCapabilities dormancy gate", () => {
 
   it("the packaged implementation table lists only Pro features", () => {
     for (const host of ACCESS_HOSTS) for (const id of IMPLEMENTED_PRO_FEATURES[host]) expect(PRO).toContain(id);
+  });
+
+  it("pins every host's implemented Still Pro list exactly (adding or dropping one is a deliberate edit here)", () => {
+    expect(IMPLEMENTED_PRO_FEATURES).toEqual({
+      chromium: [
+        "instagram.explore", "instagram.stories", "instagram.suggested", "instagram.threads",
+        "youtube.related", "youtube.endscreen", "youtube.comments", "youtube.livechat", "youtube.autoplay",
+        "facebook.stories", "facebook.videos", "facebook.sponsored",
+      ],
+      firefox: [
+        "instagram.explore", "instagram.stories", "instagram.suggested", "instagram.threads",
+        "youtube.related", "youtube.endscreen", "youtube.comments", "youtube.livechat", "youtube.autoplay",
+        "facebook.stories", "facebook.videos", "facebook.sponsored",
+      ],
+      safari: [
+        "instagram.explore", "instagram.stories", "instagram.suggested", "instagram.threads",
+        "facebook.stories", "facebook.videos",
+      ],
+    });
+  });
+
+  it("with paid on, a host-aware caller gets its whole host list; the host-less default only the intersection", () => {
+    const pro = (host?: AccessHost) => sorted(accessCapabilitiesForTest({ paidMode: true, host }, IMPLEMENTED_PRO_FEATURES))
+      .filter((id) => PRO.includes(id as (typeof PRO)[number]));
+    for (const host of ACCESS_HOSTS) expect(pro(host), host).toEqual([...IMPLEMENTED_PRO_FEATURES[host]].sort());
+    // The host-less set is what a caller that forgot its host would offer: Chromium and Firefox
+    // would lose the YouTube extras, Autoplay and Desktop sidebar ads.
+    expect(pro()).toEqual([...IMPLEMENTED_PRO_FEATURES.safari].sort());
+    for (const id of ["youtube.comments", "youtube.autoplay", "facebook.sponsored"] as const) {
+      expect(pro("chromium"), id).toContain(id);
+      expect(pro(), id).not.toContain(id);
+    }
+  });
+});
+
+describe("runtime platform seam (Firefox for Android)", () => {
+  const DESKTOP_ONLY = ["youtube.autoplay", "facebook.sponsored"];
+  const on = (host: AccessHost | undefined, platform?: AccessPlatform) =>
+    sorted(accessCapabilitiesForTest({ paidMode: true, host, platform }, IMPLEMENTED_PRO_FEATURES));
+
+  it("absent or desktop keeps the host's whole list (the long-standing behaviour)", () => {
+    for (const host of [undefined, ...ACCESS_HOSTS]) {
+      expect(on(host, "desktop"), String(host)).toEqual(on(host));
+      expect(sorted(packagedAccessContext(host, "desktop").supported)).toEqual(sorted(packagedAccessContext(host).supported));
+    }
+    for (const id of DESKTOP_ONLY) expect(on("firefox"), id).toContain(id);
+  });
+
+  it("android drops exactly the desktop-only controls, and nothing else", () => {
+    const android = on("firefox", "android");
+    for (const id of DESKTOP_ONLY) expect(android, id).not.toContain(id);
+    expect(android).toEqual(on("firefox").filter((id) => !DESKTOP_ONLY.includes(id)));
+    // The mobile-layout controls Firefox for Android still offers (their selectors stay E0-gated).
+    expect(android).toEqual(expect.arrayContaining(["youtube.comments", "instagram.explore", "facebook.videos"]));
+    expect(on("chromium", "android")).toEqual(android);
+  });
+
+  it("unknown is treated like a phone: a control that might do nothing is held back", () => {
+    expect(on("firefox", "unknown")).toEqual(on("firefox", "android"));
+  });
+
+  it("never changes Safari's list, which claims no desktop-only control", () => {
+    for (const platform of ["android", "desktop", "unknown"] as const) expect(on("safari", platform), platform).toEqual(on("safari"));
+  });
+
+  it("paid off, the platform changes nothing: exactly the free features on every host", () => {
+    for (const host of [undefined, ...ACCESS_HOSTS])
+      for (const platform of [undefined, "android", "desktop", "unknown"] as const) {
+        expect(sorted(packagedAccessContext(host, platform).supported), `${host}:${platform}`).toEqual(parity.paidOffSupported);
+        expect(sorted(accessCapabilities({ paidMode: PAID_TIER_ENABLED, host, platform }))).toEqual(parity.paidOffSupported);
+        expect(sorted(accessCapabilitiesForTest({ paidMode: false, host, platform }, everyPro))).toEqual(parity.paidOffSupported);
+      }
   });
 });
 

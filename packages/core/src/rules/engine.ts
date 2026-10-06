@@ -527,7 +527,17 @@ export function createFormat2PageSessionForTest(ruleSet: SignedRuleSetV2, extras
   return createFormat2PageSession(ruleSet, extrasRoutes);
 }
 
-/** The packaged host capabilities when a caller supplies none: free-only while paid is off. */
+/**
+ * The packaged capabilities when a caller supplies none: free-only while paid is off. The engine
+ * is shared by every host and cannot know which one loaded it, so this is deliberately the
+ * host-less set (only Still Pro features EVERY host implements). That is the safe direction: a
+ * caller that forgot its host under-claims (an extra stays inert), never over-claims a control
+ * its build lacks. Every shipped caller that knows its host passes `capabilities` from
+ * packagedAccessContext(host): the content entry and its early Shorts redirect (which also passes
+ * that host's access snapshot). The content script's own fallback snapshot (content/index.ts)
+ * deliberately stays host-less, because no Still Pro state in it is ever effective. The same
+ * reasoning covers `defaultAccess` below.
+ */
 const PACKAGED_CAPABILITIES = accessCapabilities({ paidMode: PAID_TIER_ENABLED });
 
 // The format2 branch extends the same page-session interpreter. Selection is an internal host
