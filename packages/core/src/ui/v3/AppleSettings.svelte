@@ -6,6 +6,7 @@
   import SettingsSiteList from "./SettingsSiteList.svelte";
   import SyncCard from "./SyncCard.svelte";
   import NativeProOfferCard from "./NativeProOfferCard.svelte";
+  import ProPaywallSheet from "./ProPaywallSheet.svelte";
   import RestoreStatusCard from "./RestoreStatusCard.svelte";
   import AccountLinkCard from "./AccountLinkCard.svelte";
   import SharingCard from "./SharingCard.svelte";
@@ -180,8 +181,17 @@
       (!sharing?.withdrawal || sharing.withdrawal === "none") &&
       sync.account?.status?.tone !== "failed",
   );
-  function requestPro() {
-    if (proActionReady) pro?.onBuy?.();
+  // Owner decision 41: a locked row opens the native offer in a sheet; only its own Buy (handed to
+  // Apple) starts a purchase.
+  let paywall = $state.raw<{ opener: HTMLElement } | null>(null);
+  let paywallShown = $derived(
+    paywall !== null && pro !== undefined && pro.ownership !== "owned",
+  );
+  $effect(() => {
+    if (paywall && !paywallShown) paywall = null;
+  });
+  function openPaywall(opener: HTMLElement) {
+    if (proActionReady) paywall = { opener };
   }
   // Free period only: the compiled paid flag is off and no paid producer is supplied. With paid on
   // and no producer there is nothing to show, never this link. Inert while a Restore is held, as
@@ -250,7 +260,7 @@
     {services}
     {labels}
     features={supportedRows}
-    onProAction={proActionReady ? requestPro : undefined}
+    onProAction={proActionReady ? openPaywall : undefined}
   />
   <SyncCard
     owned={pro?.ownership === "owned"}
@@ -356,6 +366,25 @@
       >
     </div>
   </section>
+  {#if paywallShown && pro}
+    <ProPaywallSheet
+      opener={paywall?.opener}
+      onDismiss={() => {
+        paywall = null;
+      }}
+    >
+      <NativeProOfferCard
+        {...pro}
+        {accessChecking}
+        {accessVerify}
+        accessHeld={pro.ownership === "none" && !knownMissing && !accessHeld}
+        {restoreHeld}
+      />
+      {#if proActionReady}<p class="caption">
+          No account needed. Payment is handled by Apple.
+        </p>{/if}
+    </ProPaywallSheet>
+  {/if}
   <ConfirmationDialog
     open={confirming}
     title="Delete your account?"
