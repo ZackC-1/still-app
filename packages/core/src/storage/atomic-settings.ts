@@ -305,15 +305,29 @@ export class AtomicSettingsWriter {
       // only to keep one account's state apart from another's, so without an account it protects
       // nothing; the saved settings (what blocking already enforces) stay as they are.
       const releasesOwnership = accountId === null && (state.paused === "ownership-unconfirmed" || state.paused === "ownership-hold");
+      // Ownership is established by the first successful account acknowledgement, never by scope
+      // entry: a first account read that then fails must leave never-linked provenance (and its
+      // unsubmitted intent) intact across sign-out and re-entry, without leaking into any account.
+      const nextScope = { accountId, generation: state.scope.generation + 1, ...(sessionId ? { sessionId } : {}) };
+      const firstLink = state.ownership === "never-linked" && state.scope.accountId === null && accountId !== null;
       const next = { ...current, syncEpoch: (current.syncEpoch ?? 0) + 1, atomic: { ...state, sequence: state.sequence + 1,
         ...(releasesOwnership ? { held: {} } : {}),
-        ownership: state.scope.accountId !== null || accountId !== null ? "previous-account" as const : state.ownership,
-        scope: { accountId, generation: state.scope.generation + 1, ...(sessionId ? { sessionId } : {}) }, anchor: null,
+        ownership: state.ownership,
+        scope: nextScope, anchor: null,
         // Retire ineligible operations at this complete-record boundary. Settings/held choices
-        // and the previous-account marker survive; only proven pristine first-link transfers intent.
-        pending: state.ownership === "never-linked" && state.scope.accountId === null && accountId !== null
-          ? state.pending.map(p => ({ ...p, originScope: p.scope, scope: { accountId, generation: state.scope.generation + 1, ...(sessionId ? { sessionId } : {}) } }))
-          : [], paused: accountId !== null && state.ownership !== "never-linked" ? "ownership-unconfirmed" : releasesOwnership ? null : state.paused,
+        // survive; proven pristine first-link transfers intent, and a never-linked record that no
+        // acknowledgement has reached yet keeps demonstrably unsubmitted operations: no anchor, no
+        // canonical metadata, no request receipt, local provenance and the scope being retired.
+        // Values, ranks and write identities are preserved under the scope-generation fence with
+        // the original local provenance, so the next acknowledgement can still merge and bind
+        // them. A journal that could already have been submitted is never reused.
+        pending: firstLink
+          ? state.pending.map(p => ({ ...p, originScope: p.scope, scope: nextScope }))
+          : state.ownership === "never-linked" && state.anchor === null && current.syncMetadata === null
+            ? state.pending.filter(p => p.receipt === null && sameSettingsScope(p.scope, state.scope) &&
+              (p.originScope === undefined ? p.scope.accountId === null : p.originScope.accountId === null))
+              .map(p => ({ ...p, scope: nextScope }))
+            : [], paused: accountId !== null && state.ownership !== "never-linked" ? "ownership-unconfirmed" : releasesOwnership ? null : state.paused,
       } };
       await this.adapter.set(structuredClone(next));
       return next;
@@ -372,9 +386,13 @@ export class AtomicSettingsWriter {
         held = remaining;
         paused = resolvedPause({ ...state, anchor: receipt }, held);
       }
+      // A successful account acknowledgement is what makes this a previous-account record. Scope
+      // entry alone never does: receipt and canonical-settings validation passed above, so failed
+      // validation, failed storage and stale-scope replies cannot acquire ownership.
       const next: StoredSettingsRecord = { ...current, settings: projection(settings), syncMetadata: envelope.serverUpdatedAt === null ? null : {
         version: envelope.version, serverUpdatedAt: envelope.serverUpdatedAt, lastWriteId: envelope.lastWriteId,
-      }, atomic: { ...state, sequence: state.sequence + 1, anchor: receipt, pending: bound, held, paused } };
+      }, atomic: { ...state, sequence: state.sequence + 1, anchor: receipt, pending: bound, held, paused,
+        ownership: state.scope.accountId !== null ? "previous-account" as const : state.ownership } };
       await this.adapter.set(structuredClone(next));
       return next;
     });
