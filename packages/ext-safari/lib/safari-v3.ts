@@ -49,6 +49,28 @@ export function safariPopupSurface(os: string | undefined): SafariPopupSurface {
   return os === "mac" ? "desktop" : "mobile";
 }
 
+/** Screens at or under this width (portrait points) are phones; the smallest iPad is 744 wide. */
+export const SAFARI_PHONE_MAX_SCREEN_WIDTH = 600;
+
+/**
+ * Whether the popup fills the width Safari gives it (owner D02: the iPhone sheet is edge to edge).
+ * Only the iPhone extension sheet qualifies: Safari sizes that sheet to the screen, never from the
+ * popup's content, so taking its width cannot feed back into it. The Mac and iPad popovers size
+ * themselves FROM the content, so they keep the fixed 380px width; a width taken from their own
+ * viewport would be circular and could collapse or run away (the 2026-07 "sliver" bug). The answer
+ * reads the device screen, which a popover's measuring pass does not change. Unknown or missing
+ * screen sizes keep the fixed width.
+ */
+export function safariPopupFillsSheet(surface: SafariPopupSurface, screenWidth: number | undefined): boolean {
+  return (
+    surface === "mobile" &&
+    typeof screenWidth === "number" &&
+    Number.isFinite(screenWidth) &&
+    screenWidth > 0 &&
+    screenWidth <= SAFARI_PHONE_MAX_SCREEN_WIDTH
+  );
+}
+
 /**
  * The browser value DesktopPopup requires (it accepts only the D01 reference values). It no longer
  * reaches the Settings button's accessible name: the macOS Safari popup passes

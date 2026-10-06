@@ -22,7 +22,9 @@
   let browserName = $derived(browser === "chrome" ? "Chrome" : "Firefox");
   let allowed = $derived(permission.verified && permission.state === "granted");
   let ready = $derived(allowed && blocking.verified && blocking.state === "on");
-  let pinned = $derived(browser === "chrome" && pin.verified && pin.pinned);
+  let pinned = $derived(
+    browser === "chrome" && pin !== undefined && pin.verified && pin.pinned,
+  );
   let signedIn = $derived(
     sync.account?.confirmed && Boolean(sync.account.address.trim()),
   );
@@ -161,23 +163,25 @@
               {@render status(permission.operation)}
             </div>{/if}
         </li>
-        <li class="step" data-done={pinned || undefined}>
-          <span class="num" aria-hidden="true"
-            >{#if pinned}<Glyph name="check" size={14} />{:else}2{/if}</span
-          >
-          <span class="t"
-            >Pin Still to your toolbar{#if pinned}<span class="sr-only"
-                >Done.</span
-              >{/if}</span
-          >
-          {#if pinned}<span class="b">Still is pinned.</span
-            >{:else if pin.guidance?.verified}<span class="b"
-              >{pin.guidance.text}</span
-            >{/if}
-        </li>
+        {#if pin}<li class="step" data-done={pinned || undefined}>
+            <span class="num" aria-hidden="true"
+              >{#if pinned}<Glyph name="check" size={14} />{:else}2{/if}</span
+            >
+            <span class="t"
+              >Pin Still to your toolbar{#if pinned}<span class="sr-only"
+                  >Done.</span
+                >{/if}</span
+            >
+            {#if pinned}<span class="b">Still is pinned.</span
+              >{:else if pin.guidance?.verified}<span class="b"
+                >{pin.guidance.text}</span
+              >{/if}
+          </li>{/if}
         <li class="step" data-done={signedIn || undefined}>
           <span class="num" aria-hidden="true"
-            >{#if signedIn}<Glyph name="check" size={14} />{:else}3{/if}</span
+            >{#if signedIn}<Glyph name="check" size={14} />{:else}{pin
+                ? 3
+                : 2}{/if}</span
           >
           <span class="t"
             >Settings sync<span class="access-tag boxed">Optional</span

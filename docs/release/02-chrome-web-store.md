@@ -34,8 +34,8 @@ Never replace an already submitted ZIP to align it with a later documentation co
 Use [current listing copy](store-listing-copy.md#chrome-web-store) and
 [public contacts](public-contact-addresses.md). Describe free Shorts/Reels removal, TikTok website
 blocking, no account needed, and optional free sync with desktop Chrome/Firefox and Safari on
-Mac/iPhone/iPad. Mobile use is Safari through the Still Apple app; this extension does not run in
-mobile Chrome or Firefox or modify native social apps.
+Mac/iPhone/iPad. Mobile use is Safari through the Still Apple app, or the separate Firefox build
+in Firefox on Android; this extension does not run in mobile Chrome or modify native social apps.
 
 The owner updated the two [functional screenshots](screenshots/store-ready/README.md#chrome-web-store)
 and reviewer instructions before submission. Keep controls first, sync second, along with the

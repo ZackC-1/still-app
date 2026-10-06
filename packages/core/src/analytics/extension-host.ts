@@ -301,8 +301,12 @@ export function createExtensionAnalyticsHost(
   });
   const identify = (userId: string, options?: TrackOptions) =>
     accounts.identify(userId, options);
-  const blocksAtInstall =
-    deps.surface === "chrome" || deps.surface === "firefox";
+  // Read when the install is reported, not at creation: an extension host may learn its surface
+  // from the browser after it starts (Firefox for Android), and consent waits for that answer.
+  const blocksAtInstall = () =>
+    deps.surface === "chrome" ||
+    deps.surface === "firefox" ||
+    deps.surface === "firefox-android";
   const isSafari =
     deps.surface === "safari-ios" || deps.surface === "safari-macos";
   // One bounded startup result that activity waits on. Only a start that actually established the
@@ -416,7 +420,7 @@ export function createExtensionAnalyticsHost(
             },
             { observation: captured },
           );
-          if (blocksAtInstall)
+          if (blocksAtInstall())
             await client.trackOnce(
               "setup_completed",
               "setup_completed",

@@ -26,7 +26,9 @@ export interface FirstRunProps {
   blocking: { state: "on" | "off" | "unknown"; verified: boolean };
   /** TODO: actual host setup guidance; permission alone does not prove blocking. */
   setupDescription?: FirstRunGuidance;
-  pin: {
+  /** Absent where the browser has no toolbar to pin Still to (Firefox for Android): the step is
+   * left out and the following steps renumber. */
+  pin?: {
     pinned: boolean;
     verified: boolean;
     /** TODO: owner-confirmed browser pinning steps. */

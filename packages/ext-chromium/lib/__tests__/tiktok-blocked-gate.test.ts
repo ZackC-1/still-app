@@ -53,8 +53,18 @@ describe("TikTok blocked page release gate", () => {
       for (const input of inputs) expect(source, `${name}: ${input}`).toContain(input);
     }
     expect(content).toContain("const tiktokBlockedPage = tiktokEnabled && window.top === window");
-    expect(background).toContain("if (tiktokEnabled) wireTiktokBlockedPage(settingsAuthority, entitlements);");
+    expect(background).toContain("if (tiktokEnabled) wireTiktokBlockedPage(settingsAuthority, entitlements, platformAnswer);");
     expect(background.match(/wireTiktokBlockedPage\(/g)).toHaveLength(2); // the call and the definition
+    // Firefox for Android: the route's capability goes through the platform gate, and its messages
+    // wait for the platform answer (lib/__tests__/tiktok-blocked-route.test.ts proves both).
+    expect(background).toContain('gatedDocumentVerification(typeof getContexts === "function", platformGate)');
+    expect(background).toContain("afterPlatformAnswer(route.listener, platformGate, isTiktokRouteMessage)");
+    // The gate follows the late answer too, so it fails closed on a slow answer and reopens only
+    // when the browser later says desktop.
+    expect(background.replace(/\s+/g, " ")).toContain(
+      "tabAllowancePlatformGate( Boolean(import.meta.env.FIREFOX), platform.bounded, platform.eventual, )",
+    );
+    expect(background).not.toContain("addListener(route.listener)");
   });
 });
 

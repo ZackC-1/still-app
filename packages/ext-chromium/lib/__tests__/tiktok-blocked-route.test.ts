@@ -10,7 +10,15 @@ import {
 } from "../../../core/src/content/tiktok-blocked-route.js";
 // The background route (core) over the real Chromium/Firefox adapter and the real core one-tab
 // owner, exactly as entrypoints/background.ts wires them.
-import { createChromeTiktokTabAuthority } from "../tiktok-tab-authority.js";
+import { createChromeTiktokTabAuthority, isTiktokRouteMessage } from "../tiktok-tab-authority.js";
+import {
+  afterPlatformAnswer,
+  askRuntimePlatform,
+  gatedDocumentVerification,
+  tabAllowancePlatformGate,
+  type PlatformGate,
+  type RuntimePlatform,
+} from "../runtime-platform.js";
 
 const ORIGIN = "chrome-extension://still/";
 const PAGE = `${ORIGIN}tiktok-blocked.html`;
@@ -27,7 +35,15 @@ interface Tab {
   document: string;
 }
 
-function host(options: { tiktok?: boolean; canVerify?: boolean; limits?: Parameters<typeof createTiktokBlockedRoute>[0]["limits"] } = {}) {
+function host(
+  options: {
+    tiktok?: boolean;
+    canVerify?: boolean;
+    limits?: Parameters<typeof createTiktokBlockedRoute>[0]["limits"];
+    /** The Firefox build's platform gate, wired exactly as entrypoints/background.ts wires it. */
+    gate?: PlatformGate;
+  } = {},
+) {
   const session = new Map<string, unknown>();
   const tabs = new Map<number, Tab>();
   let documents = 0;
@@ -93,7 +109,10 @@ function host(options: { tiktok?: boolean; canVerify?: boolean; limits?: Paramet
       tabs: tabApi,
       ruleSet,
       readCommitted,
-      canVerifyDocuments: options.canVerify ?? true,
+      get canVerifyDocuments() {
+        const browserCanVerify = options.canVerify ?? true;
+        return options.gate ? gatedDocumentVerification(browserCanVerify, options.gate) : browserCanVerify;
+      },
       limits: options.limits,
       randomId: () => `request-${++documents}-fixture`,
       createAuthority: (hooks) =>
@@ -150,9 +169,15 @@ function host(options: { tiktok?: boolean; canVerify?: boolean; limits?: Paramet
 
 type Route = ReturnType<ReturnType<typeof host>["create"]>;
 
-function send(route: Route, message: unknown, sender: TiktokRouteSender): Promise<TiktokRouteReply | "unhandled"> {
+function send(
+  route: Route,
+  message: unknown,
+  sender: TiktokRouteSender,
+  gate?: PlatformGate,
+): Promise<TiktokRouteReply | "unhandled"> {
+  const listener = gate ? afterPlatformAnswer(route.listener, gate, isTiktokRouteMessage) : route.listener;
   return new Promise((resolve) => {
-    if (!route.listener(message, sender, resolve)) resolve("unhandled");
+    if (!listener(message, sender, resolve)) resolve("unhandled");
   });
 }
 
@@ -584,6 +609,100 @@ describe("TikTok blocked page route over the real one-tab authority", () => {
       expect(await send(route, { kind: TIKTOK_ROUTE.screen }, sender)).toEqual({ status: "unavailable", tab: 7 });
       expect(await send(route, { kind: TIKTOK_ROUTE.request }, sender)).toEqual({ status: "failed" });
       expect(h.session.has("still:tiktok-tab:7")).toBe(false);
+      await route.stop();
+    }
+  });
+});
+
+describe("Firefox build platform gate on the TikTok route (as wired in the background)", () => {
+  const firefoxGate = (platform: Promise<RuntimePlatform>) => tabAllowancePlatformGate(true, platform);
+
+  it("Firefox for Android: the blocked page is told opening is unavailable, and a request fails", async () => {
+    const gate = firefoxGate(Promise.resolve("android"));
+    const h = host({ gate });
+    const route = h.create();
+    await block(h, route, 7);
+    expect(await send(route, { kind: TIKTOK_ROUTE.screen }, h.screen(7), gate)).toEqual({ status: "unavailable", tab: 7 });
+    expect(await send(route, { kind: TIKTOK_ROUTE.request }, h.screen(7), gate)).toEqual({ status: "failed" });
+    expect(h.session.has("still:tiktok-tab:7")).toBe(false);
+    await route.stop();
+  });
+
+  it("desktop Firefox: the same page is capable and can complete the allowance", async () => {
+    const gate = firefoxGate(Promise.resolve("desktop"));
+    const h = host({ gate });
+    const route = h.create();
+    await block(h, route, 7);
+    expect(await send(route, { kind: TIKTOK_ROUTE.screen }, h.screen(7), gate)).toEqual({ status: "blocked", tab: 7 });
+    expect(await send(route, { kind: TIKTOK_ROUTE.request }, h.screen(7), gate)).toEqual({ status: "confirming" });
+    expect(await send(route, { kind: TIKTOK_ROUTE.confirm }, h.screen(7), gate)).toEqual({ status: "granted" });
+    await route.stop();
+  });
+
+  it("a desktop page whose messages arrive while the platform answer is pending waits for it", async () => {
+    let answer!: (platform: RuntimePlatform) => void;
+    const gate = firefoxGate(new Promise<RuntimePlatform>((resolve) => (answer = resolve)));
+    const h = host({ gate });
+    const route = h.create();
+    // The content script's blocked message is one of the route's own, so it is held too.
+    h.open(7, TIKTOK);
+    let blocked: TiktokRouteReply | "unhandled" | undefined;
+    void send(route, { kind: TIKTOK_ROUTE.blocked }, h.content(7), gate).then((reply) => (blocked = reply));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(blocked).toBeUndefined(); // held
+    expect(h.update).not.toHaveBeenCalled();
+    answer("desktop");
+    await vi.waitFor(() => expect(blocked).toEqual({ status: "redirected" }));
+    expect(h.tabs.get(7)!.url).toMatch(/^chrome-extension:\/\/still\/tiktok-blocked\.html\?r=request-\d+-fixture$/);
+    // Once the answer is in, the blocked page is capable, not told "unavailable".
+    expect(await send(route, { kind: TIKTOK_ROUTE.screen }, h.screen(7), gate)).toEqual({ status: "blocked", tab: 7 });
+    // Messages that are not the route's own are never held.
+    const never = firefoxGate(new Promise<RuntimePlatform>(() => {}));
+    expect(await send(route, { kind: "not-tiktok" }, h.screen(7), never)).toBe("unhandled");
+    await route.stop();
+  });
+
+  // The gate as the background builds it: askRuntimePlatform's bounded and eventual answers.
+  const backgroundGate = (getPlatformInfo: () => Promise<{ os: string }>, limitMs = 30) => {
+    const answer = askRuntimePlatform({ getPlatformInfo }, limitMs);
+    return tabAllowancePlatformGate(true, answer.bounded, answer.eventual);
+  };
+
+  it("an answer that never arrives fails closed: held messages are then told opening is unavailable", async () => {
+    const gate = backgroundGate(() => new Promise(() => {}));
+    const h = host({ gate });
+    const route = h.create();
+    h.open(7, TIKTOK);
+    // The block itself still happens; only the one-tab allowance is withheld.
+    expect(await send(route, { kind: TIKTOK_ROUTE.blocked }, h.content(7), gate)).toEqual({ status: "redirected" });
+    expect(gate).toMatchObject({ known: true, open: false });
+    expect(await send(route, { kind: TIKTOK_ROUTE.screen }, h.screen(7), gate)).toEqual({ status: "unavailable", tab: 7 });
+    expect(await send(route, { kind: TIKTOK_ROUTE.request }, h.screen(7), gate)).toEqual({ status: "failed" });
+    expect(h.session.has("still:tiktok-tab:7")).toBe(false);
+    await route.stop();
+  });
+
+  it("a late answer reopens the allowance only when it says desktop", async () => {
+    for (const os of ["mac", "android"]) {
+      let late!: (info: { os: string }) => void;
+      const gate = backgroundGate(() => new Promise((resolve) => (late = resolve)));
+      const h = host({ gate });
+      const route = h.create();
+      await block(h, route, 7);
+      // Past the limit with no answer: closed.
+      expect(await send(route, { kind: TIKTOK_ROUTE.screen }, h.screen(7), gate)).toEqual({ status: "unavailable", tab: 7 });
+      late({ os });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      // The next blocked page sees the late answer.
+      await block(h, route, 8);
+      if (os === "mac") {
+        expect(gate.open).toBe(true);
+        expect(await send(route, { kind: TIKTOK_ROUTE.screen }, h.screen(8), gate)).toEqual({ status: "blocked", tab: 8 });
+        expect(await send(route, { kind: TIKTOK_ROUTE.request }, h.screen(8), gate)).toEqual({ status: "confirming" });
+      } else {
+        expect(gate.open).toBe(false);
+        expect(await send(route, { kind: TIKTOK_ROUTE.screen }, h.screen(8), gate)).toEqual({ status: "unavailable", tab: 8 });
+      }
       await route.stop();
     }
   });

@@ -33,6 +33,9 @@ function world(account: "signed-out" | "signed-in" = "signed-out") {
   const listener = host.listener("extid", ORIGIN);
   const sent: unknown[] = [];
   vi.stubGlobal("chrome", {
+    // An ordinary (not private) popup window: an unknown answer would count as private.
+    windows: { getCurrent: async () => ({ incognito: false }) },
+    extension: { inIncognitoContext: false },
     runtime: {
       sendMessage: (message: unknown) => {
         sent.push(message);

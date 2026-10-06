@@ -1,7 +1,9 @@
 import Foundation
 
-/// The Apple app's client for the remote product policy (U6). DORMANT: nothing in the app targets
-/// constructs it yet, so no person can reach it.
+/// The Apple app's client for the remote product policy (U6). Its only consumer is the rating path
+/// (U13-P3): the app's `RatingPromptPresenter` constructs it and asks `freshCheck(.rating)` once per
+/// locally eligible app opening. No app build packages a project URL yet, so it makes no request.
+/// Nothing asks it about sales.
 ///
 /// Before a purchase may start or a review prompt may be requested, the app asks the public
 /// `product-policy` function one fresh question and evaluates the answer with the shared fail-safe

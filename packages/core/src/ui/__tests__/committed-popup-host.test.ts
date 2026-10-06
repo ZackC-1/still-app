@@ -15,6 +15,7 @@ import {
 } from "../../storage/index.js";
 import App from "../App.svelte";
 import { STRINGS } from "../strings.js";
+import { SETTINGS_READ_BOUND_MS } from "../v3/popup-view-binding.svelte.js";
 import type { UiAnalytics } from "../controller.svelte.js";
 import {
   flush,
@@ -455,15 +456,245 @@ describe("actual desktop presentation on the maintained authority", () => {
 });
 
 describe("maintained App committed popup host", () => {
+  type Local = { get: (key: string) => Promise<Record<string, unknown>> };
+  function holdSettingsRead(behaviour: "gate" | "fail" | "hang") {
+    const local = (globalThis as unknown as { chrome: { storage: { local: Local } } }).chrome.storage.local;
+    const real = local.get;
+    const g = gate();
+    // Only the settings slot: entitlement and other reads keep answering normally.
+    local.get = (key) =>
+      key !== "still:settings"
+        ? real(key)
+        : behaviour === "fail"
+        ? Promise.reject(new Error("synthetic storage failure"))
+        : behaviour === "hang"
+          ? new Promise(() => {})
+          : g.promise.then(() => real(key));
+    return g;
+  }
+  const unavailable = () => screen.queryByText("Settings are unavailable.");
+
+  it("a slow first read shows checking, never unavailable, then the saved choices", async () => {
+    const f = await browser();
+    const saved = JSON.stringify(f.store["still:settings"]);
+    const read = holdSettingsRead("gate");
+    const state = capture();
+    mount(state);
+    for (let i = 0; i < 5; i++) await flush();
+    expect(state.binding.current().commandAvailability).toBe("unavailable");
+    expect(screen.getByRole("status").textContent).toBe(STRINGS.sync.checking);
+    expect(unavailable()).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.queryByRole("switch", { name: "Still on/off" })).toBeNull();
+    read.open();
+    await waitFor(() => expect(globalSwitch().disabled).toBe(false));
+    expect(unavailable()).toBeNull();
+    expect(screen.queryByText(STRINGS.sync.checking)).toBeNull();
+    expect(f.set).not.toHaveBeenCalled();
+    expect(JSON.stringify(f.store["still:settings"])).toBe(saved);
+  });
+
+  it("a first read that fails still shows unavailable and Try again", async () => {
+    const f = await browser();
+    holdSettingsRead("fail");
+    const state = capture();
+    mount(state);
+    await waitFor(() => expect(unavailable()).toBeTruthy());
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+    expect(screen.queryByText(STRINGS.sync.checking)).toBeNull();
+    expect(f.set).not.toHaveBeenCalled();
+  });
+
+  it("a first read that never answers turns unavailable after the bound, not before", async () => {
+    const f = await browser();
+    holdSettingsRead("hang");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const state = capture();
+      mount(state);
+      await tick();
+      vi.advanceTimersByTime(SETTINGS_READ_BOUND_MS - 1);
+      await tick();
+      expect(unavailable()).toBeNull();
+      expect(screen.getByRole("status").textContent).toBe(STRINGS.sync.checking);
+      vi.advanceTimersByTime(1);
+      await tick();
+      expect(unavailable()).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+      expect(screen.queryByText(STRINGS.sync.checking)).toBeNull();
+      expect(f.set).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  describe("an invalidation reread after the first read", () => {
+    const tryAgain = () =>
+      screen.queryByRole("button", { name: "Try again" }) as HTMLButtonElement | null;
+    // Mount on real timers until the first read lands, then fake only the bounds.
+    async function readyPopup() {
+      const f = await browser();
+      const saved = JSON.stringify(f.store["still:settings"]);
+      const state = capture();
+      mount(state);
+      await waitFor(() => expect(globalSwitch().disabled).toBe(false));
+      expect(globalSwitch().getAttribute("aria-checked")).toBe("true");
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const advance = async (ms: number) => {
+        await vi.advanceTimersByTimeAsync(ms);
+        await tick();
+      };
+      const unchanged = () => {
+        expect(f.set).not.toHaveBeenCalled();
+        expect(JSON.stringify(f.store["still:settings"])).toBe(saved);
+      };
+      return { f, state, advance, unchanged };
+    }
+    async function heldCommandsWriteNothing(state: ReturnType<typeof capture>) {
+      await fireEvent.click(globalSwitch());
+      expect(await state.binding.setGlobalOn(false)).toEqual({
+        status: "unavailable",
+        reason: "authority-read-pending",
+      });
+    }
+
+    it("keeps the last good settings read-only while pending, then resumes on success", async () => {
+      const { f, state, advance, unchanged } = await readyPopup();
+      try {
+        const read = holdSettingsRead("gate");
+        f.invalidate();
+        await advance(0);
+        expect(state.binding.current().reason).toBe("authority-read-pending");
+        expect(unavailable()).toBeNull();
+        expect(tryAgain()).toBeNull();
+        expect(globalSwitch().getAttribute("aria-checked")).toBe("true");
+        expect(globalSwitch().disabled).toBe(true);
+        await heldCommandsWriteNothing(state);
+        await advance(SETTINGS_READ_BOUND_MS - 1);
+        expect(unavailable()).toBeNull();
+        read.open();
+        await advance(0);
+        expect(state.binding.current().commandAvailability).toBe("ready");
+        expect(globalSwitch().disabled).toBe(false);
+        expect(globalSwitch().getAttribute("aria-checked")).toBe("true");
+        expect(unavailable()).toBeNull();
+        unchanged();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("a reread that fails shows unavailable at once, with Try again", async () => {
+      const { f, state, advance, unchanged } = await readyPopup();
+      try {
+        holdSettingsRead("fail");
+        f.invalidate();
+        await advance(0);
+        expect(state.binding.current()).toMatchObject({
+          commandAvailability: "unavailable",
+          reason: "read-failed",
+        });
+        expect(unavailable()).toBeTruthy();
+        expect(tryAgain()?.disabled).toBe(false);
+        expect(globalSwitch().disabled).toBe(true);
+        await fireEvent.click(globalSwitch());
+        unchanged();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("a reread that hangs shows unavailable at the bound with Try again enabled", async () => {
+      const { f, state, advance, unchanged } = await readyPopup();
+      try {
+        holdSettingsRead("hang");
+        f.invalidate();
+        await advance(SETTINGS_READ_BOUND_MS - 1);
+        expect(unavailable()).toBeNull();
+        expect(globalSwitch().disabled).toBe(true);
+        await advance(1);
+        expect(unavailable()).toBeTruthy();
+        expect(tryAgain()?.disabled).toBe(false);
+        // Still the last good choices, still held.
+        expect(globalSwitch().getAttribute("aria-checked")).toBe("true");
+        expect(globalSwitch().disabled).toBe(true);
+        await heldCommandsWriteNothing(state);
+        unchanged();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("Try again during a hang is re-enabled after the bound, and a late answer recovers", async () => {
+      const { f, state, advance, unchanged } = await readyPopup();
+      try {
+        const read = holdSettingsRead("gate");
+        f.invalidate();
+        await advance(SETTINGS_READ_BOUND_MS);
+        expect(tryAgain()?.disabled).toBe(false);
+        await fireEvent.click(tryAgain()!);
+        await advance(0);
+        expect(tryAgain()?.disabled).toBe(true);
+        expect(unavailable()).toBeTruthy();
+        await advance(SETTINGS_READ_BOUND_MS - 1);
+        expect(tryAgain()?.disabled).toBe(true);
+        await advance(1);
+        expect(tryAgain()?.disabled).toBe(false);
+        expect(unavailable()).toBeTruthy();
+        await heldCommandsWriteNothing(state);
+        read.open();
+        await advance(0);
+        expect(state.binding.current().commandAvailability).toBe("ready");
+        expect(unavailable()).toBeNull();
+        expect(globalSwitch().disabled).toBe(false);
+        unchanged();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  it("Try again after a failed first read is re-enabled when its reread hangs past the bound", async () => {
+    const f = await browser();
+    const saved = JSON.stringify(f.store["still:settings"]);
+    holdSettingsRead("fail");
+    const state = capture();
+    mount(state);
+    await waitFor(() => expect(unavailable()).toBeTruthy());
+    holdSettingsRead("hang");
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      const button = () =>
+        screen.getByRole("button", { name: "Try again" }) as HTMLButtonElement;
+      await fireEvent.click(button());
+      await vi.advanceTimersByTimeAsync(0);
+      await tick();
+      expect(button().disabled).toBe(true);
+      await vi.advanceTimersByTimeAsync(SETTINGS_READ_BOUND_MS - 1);
+      await tick();
+      expect(button().disabled).toBe(true);
+      await vi.advanceTimersByTimeAsync(1);
+      await tick();
+      expect(button().disabled).toBe(false);
+      expect(unavailable()).toBeTruthy();
+      expect(state.binding.current().commandAvailability).toBe("unavailable");
+      expect(f.set).not.toHaveBeenCalled();
+      expect(JSON.stringify(f.store["still:settings"])).toBe(saved);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("shows no fabricated switches before modern hydration, then mounts account-free saved controls", async () => {
     const f = await browser();
     const state = capture();
     mount(state);
     expect(screen.queryByRole("switch", { name: "Still on/off" })).toBeNull();
     expect(document.querySelectorAll("[data-service]")).toHaveLength(0);
-    expect(screen.getByRole("status").textContent).toBe(
-      "Settings are unavailable.",
-    );
+    // Startup defaults are not an answer: checking, never "unavailable", until the read lands.
+    expect(screen.getByRole("status").textContent).toBe(STRINGS.sync.checking);
+    expect(screen.queryByText("Settings are unavailable.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
     expect(
       screen.getByRole("link", { name: STRINGS.account.privacyPolicy }),
     ).toBeTruthy();
