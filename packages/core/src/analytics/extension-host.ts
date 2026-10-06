@@ -13,8 +13,9 @@ import {
 } from "./events.js";
 import { isAnalyticsId, type AnalyticsIdentity, type AnalyticsKeyValue } from "./identity.js";
 import { ANON_INDEX_LIMIT, originProof } from "./derive.js";
-import type { ErasureService } from "./erasure.js";
+import type { AccountErasureService, ErasureService, ErasureWithdrawal } from "./erasure.js";
 import type {
+  UiAccountErasureView,
   UiAnalytics,
   UsageSharingState,
 } from "../ui/controller.svelte.js";
@@ -47,6 +48,10 @@ export const PENDING_INSTALL_KEY = "still:analytics:pending-install";
 /** This device's issued per-account subjects (U5-W2): which PostHog identity each account uses here. */
 export const SUBJECTS_KEY = "still:analytics:subjects";
 export const SUBJECTS_LIMIT = 8;
+/** Set when the server stopped this device because sharing was turned off for the account from
+ * another device (an account-wide deletion): `{account}`. Read for the line "Sharing was turned off
+ * from another device." and cleared once it has been shown. Local, never sent. */
+export const STOPPED_ELSEWHERE_KEY = "still:analytics:stopped-elsewhere";
 
 const QUIET: TrackOptions = { quiet: true };
 type Observation = ReturnType<AnalyticsClient["captureObservation"]>;
@@ -91,6 +96,10 @@ export interface ExtensionAnalyticsHostDeps {
   readonly subjects?: SubjectDeps;
   /** Device erasure (U5-W2): records the stop when sharing is switched off here, and submits it. */
   readonly erasure?: ErasureService;
+  /** Account-wide erasure (U5-W3 packet B, "Delete shared data on all devices"). Offered to pages
+   * only while per-device subjects are wired too: without them no account-linked identity exists
+   * to delete, so the action stays hidden (the page's state request answers null). */
+  readonly accountErasure?: AccountErasureService;
   /** Ask for a flush at a random later time (an alarm), for events recorded quietly at a
    * background start. Without it they wait for the next popup or settings open. */
   readonly requestQuietFlush?: () => void;
@@ -143,7 +152,12 @@ type PageRequest =
   | { readonly action: "reset"; readonly forgetAccount: boolean; readonly account?: string }
   | { readonly action: "sharing" }
   | { readonly action: "setSharing"; readonly enabled: boolean }
-  | { readonly action: "acknowledgeNotice" };
+  | { readonly action: "acknowledgeNotice" }
+  | {
+      readonly action: "accountErasure";
+      readonly op: "state" | "start" | "retry" | "acknowledge";
+      readonly account: string;
+    };
 
 export interface AccountIdentifier {
   /** Identify the install as this account; an ordinary (not quiet) identify also runs the attach.
@@ -449,7 +463,13 @@ export function createAccountIdentifier(deps: {
       if (issued === "stopped") {
         // Ends sharing here only. Never a device erasure: an account-wide deletion must not erase
         // this device's signed-out data (owner decision 61, account data only).
-        if (await client.observationCurrent(observation)) await deps.subjects!.onStopped();
+        if (await client.observationCurrent(observation)) {
+          // Sharing was on here and the server retired this device's identity for the account:
+          // the stop came from elsewhere (this device's own account-wide deletion stops sharing
+          // here first, so it never reaches this point). Remembered for the settings page's line.
+          await deps.local.set(STOPPED_ELSEWHERE_KEY, { account }).catch(() => undefined);
+          await deps.subjects!.onStopped();
+        }
         return;
       }
       if (!issued) return;
@@ -586,6 +606,20 @@ export function createExtensionAnalyticsHost(
     return { enabled, noticeNeeded };
   };
 
+  // ── Account-wide erasure ("Delete shared data on all devices") ──
+  // Dormant unless per-device subjects are wired too: pages are then answered null and hide it.
+  const accountWide = deps.subjects && deps.accountErasure ? deps.accountErasure : null;
+  const stoppedElsewhere = async (account: string): Promise<boolean> => {
+    const marker = await deps.local.get(STOPPED_ELSEWHERE_KEY).catch(() => null);
+    return !!marker && typeof marker === "object" && (marker as Record<string, unknown>).account === account;
+  };
+  const accountView = async (service: AccountErasureService, account: string): Promise<UiAccountErasureView> => ({
+    withdrawal: await service.withdrawal(account),
+    stoppedElsewhere: await stoppedElsewhere(account),
+  });
+  const clearStoppedElsewhere = (): Promise<void> =>
+    deps.local.set(STOPPED_ELSEWHERE_KEY, null).catch(() => undefined);
+
   const handle = async (
     request: PageRequest,
     observation: ReturnType<AnalyticsClient["captureObservation"]>,
@@ -655,6 +689,46 @@ export function createExtensionAnalyticsHost(
       case "acknowledgeNotice":
         await deps.local.set(NOTICE_KEY, true).catch(() => undefined);
         return true;
+      case "accountErasure": {
+        if (!accountWide || !client.enabled) return null;
+        const { account } = request;
+        switch (request.op) {
+          case "state":
+            // The settings page asking is an ordinary Still screen (never a background start), and
+            // the one place this is shown: resend an unsent request, follow a sent one, then answer.
+            // (The track path cannot do it: with sharing off here it records nothing and stops early.)
+            await accountWide.kick();
+            return accountView(accountWide, account);
+          case "start": {
+            // 1. The local stop, first and with no network: sharing ends on this device, exactly as
+            //    the switch turns it off, but WITHOUT a device erasure (no ledger entry, no device
+            //    request). Owner decision 61: an account-wide deletion deletes account data only;
+            //    this device's signed-out data stays until sharing is turned off on this device.
+            client.permissionChanged();
+            try {
+              if (deps.commitPermission) await deps.commitPermission(false);
+              else await deps.storeConsent?.(false);
+            } catch {
+              /* verified below */
+            }
+            await client.clearQueue();
+            // The failure line says sharing stays off here, so nothing is sent unless it is off.
+            if (await client.canReport()) return null;
+            // This device's cached identity for the account goes too (the server retires it).
+            await accounts.forgetSubjects(null, account);
+            await clearStoppedElsewhere();
+            // 2. The request, with this account's own session (a signed-in session is enough, D60).
+            return { withdrawal: await accountWide.request(account), stoppedElsewhere: false };
+          }
+          case "retry":
+            await accountWide.retry();
+            return accountView(accountWide, account);
+          case "acknowledge":
+            await accountWide.acknowledge(account);
+            if (await stoppedElsewhere(account)) await clearStoppedElsewhere();
+            return true;
+        }
+      }
     }
   };
 
@@ -811,7 +885,10 @@ export function createExtensionAnalyticsHost(
         return false;
       const request = parsePageRequest(m);
       if (!request) return false;
-      if (request.action === "setSharing" && !request.enabled) {
+      if (
+        (request.action === "setSharing" && !request.enabled) ||
+        (request.action === "accountErasure" && request.op === "start" && accountWide)
+      ) {
         client.permissionChanged();
         void client.clearQueue();
       }
@@ -848,9 +925,24 @@ function parsePageRequest(m: Record<string, unknown>): PageRequest | null {
     case "sharing":
     case "acknowledgeNotice":
       return { action: m.action };
+    case "accountErasure":
+      return (m.op === "state" || m.op === "start" || m.op === "retry" || m.op === "acknowledge") &&
+        isAnalyticsId(m.account)
+        ? { action: "accountErasure", op: m.op, account: m.account.toLowerCase() }
+        : null;
     default:
       return null;
   }
+}
+
+const WITHDRAWALS: readonly ErasureWithdrawal[] = ["none", "requested", "verifying", "deleted", "failed"];
+
+function readAccountView(value: unknown): UiAccountErasureView | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  return WITHDRAWALS.includes(v.withdrawal as ErasureWithdrawal) && typeof v.stoppedElsewhere === "boolean"
+    ? { withdrawal: v.withdrawal as ErasureWithdrawal, stoppedElsewhere: v.stoppedElsewhere }
+    : null;
 }
 
 // ── Popup / options pages ─────────────────────────────────────────────────────────────────────
@@ -914,6 +1006,29 @@ export function createPageAnalytics(
         );
         return typeof result === "boolean" ? result : !enabled;
       });
+    },
+    // Null from the background means the action is not offered in this build (dormant).
+    accountErasure: {
+      state: (account) =>
+        send({ action: "accountErasure", op: "state", account }).then(readAccountView, () => null),
+      start(account) {
+        // Called synchronously from the confirming tap: where the page itself owns consent
+        // (Firefox's permission), it is removed here first, inside the gesture. The background then
+        // completes the local stop and checks it before anything is sent.
+        const change = options.changeConsent
+          ? options.changeConsent(false).catch(() => undefined)
+          : Promise.resolve();
+        return change.then(() =>
+          send({ action: "accountErasure", op: "start", account }).then(readAccountView, () => null),
+        );
+      },
+      retry: (account) =>
+        send({ action: "accountErasure", op: "retry", account }).then(readAccountView, () => null),
+      acknowledge: (account) =>
+        send({ action: "accountErasure", op: "acknowledge", account }).then(
+          () => undefined,
+          () => undefined,
+        ),
     },
   };
 }
