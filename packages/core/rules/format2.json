@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "3.0.2",
+  "version": "3.0.3",
   "services": {
     "youtube": {
       "matches": [
@@ -42,6 +42,42 @@
             "ytm-app ytm-video-with-context-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"])",
             "ytm-app ytm-rich-item-renderer:has(a.media-item-thumbnail-container[href^=\"/shorts/\"])",
             "ytm-app ytm-shorts-lockup-view-model"
+          ]
+        },
+        {
+          "id": "youtube-related-videos",
+          "feature": "youtube.related",
+          "action": "hide",
+          "selectors": [
+            "ytd-watch-next-secondary-results-renderer",
+            "ytm-item-section-renderer[section-identifier=\"related-items\"]"
+          ]
+        },
+        {
+          "id": "youtube-end-of-video",
+          "feature": "youtube.endscreen",
+          "action": "hide",
+          "selectors": [
+            ".ytp-ce-element",
+            ".ytp-endscreen-content"
+          ]
+        },
+        {
+          "id": "youtube-comments",
+          "feature": "youtube.comments",
+          "action": "hide",
+          "selectors": [
+            "ytd-comments",
+            "ytd-engagement-panel-section-list-renderer[target-id=\"engagement-panel-comments-section\"]"
+          ]
+        },
+        {
+          "id": "youtube-live-chat",
+          "feature": "youtube.livechat",
+          "action": "hide",
+          "selectors": [
+            "ytd-live-chat-frame",
+            "ytd-engagement-panel-section-list-renderer[target-id=\"engagement-panel-live-chat-replay\"]"
           ]
         }
       ]
@@ -160,6 +196,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "4548051b8185372272f7ae1481886d20f8207cafb46c6acdff5f2241610491570daf0d5a35f7d353c2a2985f0e9fcbd8467fc7bf96fed1b4aa7d74651313b50e"
+    "value": "16ed6d3b6e1703cd539ca53c60cb1c62471578a79f26f903ce80c5b569eaa3331904b1d7c44390b30b26d97a2036d8f49d991aa44c9838bb6e3e7763cd075800"
   }
 }

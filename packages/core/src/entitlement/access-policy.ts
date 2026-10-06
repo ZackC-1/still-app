@@ -110,9 +110,17 @@ type ProFeatureId = Extract<(typeof FEATURE_REGISTRY)[number], { readonly tier: 
 // Instagram's four (rules/instagram-extras.ts) are compiled hide rules and content-script routes,
 // which every host's shared format-2 content engine runs the same way.
 const INSTAGRAM_PRO: readonly ProFeatureId[] = Object.freeze(["instagram.explore", "instagram.stories", "instagram.suggested", "instagram.threads"]);
+const YOUTUBE_PRO: readonly ProFeatureId[] = Object.freeze(["youtube.related", "youtube.endscreen", "youtube.comments", "youtube.livechat"]);
 export const IMPLEMENTED_PRO_FEATURES: Readonly<Record<AccessHost, readonly ProFeatureId[]>> = Object.freeze({
-  chromium: Object.freeze([...INSTAGRAM_PRO]),
-  firefox: Object.freeze([...INSTAGRAM_PRO]),
+  // YouTube's four hide controls (rules/youtube-extras.ts) only on the hosts that pass their host
+  // to the content entry and the access context (ext-chromium builds Chrome and Firefox).
+  chromium: Object.freeze([...INSTAGRAM_PRO, ...YOUTUBE_PRO]),
+  // "firefox" is one build for desktop Firefox AND Firefox for Android, which gets the sites' mobile
+  // layouts (for YouTube, m.youtube.com). The mobile selectors are unverified candidates, so the
+  // structural evidence (E0) must cover Firefox for Android before paid activation.
+  firefox: Object.freeze([...INSTAGRAM_PRO, ...YOUTUBE_PRO]),
+  // Safari (macOS and iPhone/iPad share one host) lists no YouTube control: their mobile Safari
+  // layouts are gated on structural evidence that does not exist yet.
   safari: Object.freeze([...INSTAGRAM_PRO]),
 });
 
