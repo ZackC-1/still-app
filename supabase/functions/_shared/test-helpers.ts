@@ -29,3 +29,31 @@ export function mintHs256(payload: JwtPayload, secret: string): Promise<string> 
 export function mintEs256(payload: JwtPayload, privateKey: CryptoKey, kid: string): Promise<string> {
   return signEs256({ ...STANDARD_CLAIMS, ...payload }, privateKey, kid);
 }
+
+/** Runs `fn` with console.log/info/warn/error/debug captured; returns everything logged, as text. */
+export async function captureConsole(fn: () => Promise<unknown>): Promise<string> {
+  const methods = ["log", "info", "warn", "error", "debug"] as const;
+  const originals = methods.map((m) => console[m]);
+  const lines: string[] = [];
+  for (const m of methods) {
+    console[m] = (...args: unknown[]) => {
+      lines.push(args.map(formatLogArg).join(" "));
+    };
+  }
+  try {
+    await fn();
+  } finally {
+    methods.forEach((m, i) => (console[m] = originals[i] as never));
+  }
+  return lines.join("\n");
+}
+
+/** Never throws: a BigInt or circular value under test must not break the code being observed. */
+function formatLogArg(a: unknown): string {
+  try {
+    if (a instanceof Error) return `${a.name}: ${a.message}\n${a.stack ?? ""}`;
+    return typeof a === "string" ? a : JSON.stringify(a);
+  } catch {
+    return String(a);
+  }
+}

@@ -53,6 +53,8 @@ export const EXTRAS_CONTROLS: readonly ExtrasControl[] = [
     { file: "ig-explore.html", url: `${ig}/explore/search/keyword/?q=invented`, route: true },
     { file: "ig-explore.html", url: `${ig}/popular/`, route: true },
     { file: "ig-explore-mobile.html", url: `${ig}/explore/`, route: true },
+    { file: "ig-explore-mobile.html", url: `${ig}/explore/search/`, route: true },
+    { file: "ig-explore-results.html", url: `${ig}/explore/search/keyword/?q=%23inventedtag`, route: true },
   ] },
   { feature: "instagram.stories", service: "instagram", pages: [
     { file: "ig-stories.html", url: `${ig}/` },
