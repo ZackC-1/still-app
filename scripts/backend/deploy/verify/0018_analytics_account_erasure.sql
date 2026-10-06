@@ -20,7 +20,13 @@
 --  (4) the two 0018 routes, 0017's six routes, 0017's snapshot function and the limiter: owned by
 --      postgres, search_path pg_temp-last, SECURITY DEFINER, EXECUTE for the owner plus exactly the
 --      eraser on each route (nobody on the snapshot function; the three server roles on the
---      limiter), bodies byte-identical to their migrations;
+--      limiter), bodies byte-identical to their migrations (analytics_begin_device_erasure to
+--      0018's replacement, which locks a device's subjects in subject_id order);
+--  (4b) the eraser role, as 0017 left it: not superuser, no inherit/createrole/createdb/replication/
+--      bypassrls; its five session settings (lock_timeout 1s, statement_timeout 2s, the idle
+--      limit, and both log_parameter_max_length settings at 0); member of nothing; the only
+--      membership in it is the automatic non-inheriting, non-SET admin grant to postgres; not
+--      reachable from a client role;
 --  (5) the eraser reaches no other SECURITY DEFINER routine and no table in public or private;
 --  (6) no SECURITY DEFINER in public or private executable by a client role (closure over every
 --      membership edge) except the two client RPCs, and nothing in private for service_role;
@@ -61,7 +67,11 @@ restricted as (
   union select 0::oid
 ),
 eraser as (
-  select r.oid from pg_catalog.pg_roles r where r.rolname = 'still_analytics_eraser'
+  select r.oid, r.rolname::text as rolname from pg_catalog.pg_roles r where r.rolname = 'still_analytics_eraser'
+),
+role_settings(setting) as (
+  values ('lock_timeout=1s'), ('statement_timeout=2s'), ('idle_in_transaction_session_timeout=5s'),
+         ('log_parameter_max_length=0'), ('log_parameter_max_length_on_error=0')
 ),
 -- Routine, whether SECURITY DEFINER, its grantees besides the owner, and the md5 of its body.
 expected_routines(sig, definer, grantees, body_md5) as (
@@ -71,7 +81,7 @@ expected_routines(sig, definer, grantees, body_md5) as (
     ('private.analytics_snapshot_deleted_subject()', true, null::text[], '5bbbec70399c1ac78f1eb39255c418c2'),
     ('private.analytics_issue_subject(uuid,bytea)', true, array['still_analytics_eraser'], 'fb43fd91c51d5cf0af0e91f010d85cbb'),
     ('private.analytics_subject_active(uuid)', true, array['still_analytics_eraser'], '2c8ec961a28dca52ed1fac79154ed5d3'),
-    ('private.analytics_begin_device_erasure(bytea,integer)', true, array['still_analytics_eraser'], 'eb08195f32c2a279e44cfd20063946af'),
+    ('private.analytics_begin_device_erasure(bytea,integer)', true, array['still_analytics_eraser'], '516501768aab4393e1a3f45fa21682a0'),
     ('private.analytics_erasure_status(bytea)', true, array['still_analytics_eraser'], '326f30ea0193051673fedd681e647299'),
     ('private.analytics_claim_erasure_work(integer,integer)', true, array['still_analytics_eraser'], '962379ffd2faf7024f13b883ef2e9b1d'),
     ('private.analytics_record_erasure_outcome(uuid,uuid,text)', true, array['still_analytics_eraser'], '56e8c9ef75f290c5d2b3dbc234a11824'),
@@ -153,6 +163,28 @@ issues(issue) as (
   union all
   select 'erasure_function_grant:' || s.sig from routine_state s
   where s.oid is not null and s.grantees is distinct from s.expected_grantees
+  union all
+  -- (4b) the eraser role.
+  select 'role_missing:still_analytics_eraser' where not exists (select 1 from eraser)
+  union all
+  select 'role_attributes:' || r.rolname
+  from pg_catalog.pg_roles r join eraser e on e.oid = r.oid
+  where r.rolsuper or r.rolinherit or r.rolcreaterole or r.rolcreatedb or r.rolreplication or r.rolbypassrls
+  union all
+  select 'role_setting_missing:' || e.rolname || ':' || s.setting
+  from eraser e cross join role_settings s
+  where not exists (select 1 from pg_catalog.pg_db_role_setting d
+                    where d.setrole = e.oid and d.setdatabase = 0 and s.setting = any (d.setconfig))
+  union all
+  select distinct 'role_member_of_role:' || e.rolname
+  from eraser e join pg_catalog.pg_auth_members m on m.member = e.oid
+  union all
+  select distinct 'role_granted_to_other:' || e.rolname
+  from eraser e join pg_catalog.pg_auth_members m on m.roleid = e.oid cross join ids
+  where not (m.member = ids.owner_oid and not m.inherit_option and not m.set_option)
+  union all
+  select 'role_client_reachable:' || c.rolname
+  from clients c join eraser e on e.oid = c.oid
   union all
   -- (5) the eraser reaches nothing else.
   select distinct 'eraser_execute:' || p.oid::pg_catalog.regprocedure::text

@@ -15,7 +15,8 @@
 --   private.analytics_account_erasure_status(account)
 --       the least advanced stage among the account-wide jobs (packet B). It is found through the
 --       account's subjects, so it stops resolving once the account is deleted, which is the intent.
--- It also widens two checks so those values are accepted: a subject's retired reason gains
+-- It also replaces 0017's device-erasure route with the same body plus an ordered row lock (see
+-- "Locks"), and widens two checks so those values are accepted: a subject's retired reason gains
 -- `account_erasure` and `account_deleted`, and a job's scope gains `account`. Both only widen, so
 -- every existing row stays valid. And it adds one index, on the erasure targets' ids, for the
 -- status route.
@@ -29,9 +30,14 @@
 --
 -- Locks. The pre-step takes the per-account advisory lock 0017's issue_subject takes before it mints
 -- a new device (so no new subject appears while the account's subjects are captured), then KEY
--- SHARE on the account row, then the account's active subjects FOR UPDATE in subject_id order, so
--- two concurrent calls cannot deadlock. It never takes a device (origin) lock, so it cannot form a
--- cycle with device erasure, which contends with it on single subject rows only.
+-- SHARE on the account row, then the account's active subjects FOR UPDATE in subject_id order. Device
+-- erasure locks a device's subjects too, and in 0017 it did so in whatever order its update scanned
+-- them: two pre-steps and two device erasures (two accounts sharing two devices) could then wait on
+-- each other in a cycle, which Postgres ends by failing one of them. 0018 therefore also replaces
+-- analytics_begin_device_erasure with the same body plus one statement that locks the device's
+-- subjects in subject_id order before changing any. Every subject row lock is then taken in one
+-- global order, so no cycle can form among these routes. (Each route's advisory lock is taken
+-- before any row lock and is never awaited while a subject row is held.)
 --
 -- Deploy order. 0017 must be deployed and verified on its own before 0018. 0017's post-apply check
 -- enumerates exactly what the eraser may execute, so re-running it after 0018 reports the two new
@@ -175,6 +181,77 @@ begin
   return pg_catalog.jsonb_build_object('stage', stages[lowest]);
 end $$;
 
+-- Device erasure, exactly 0017's body plus the ordered lock above (see "Locks" in the header).
+create or replace function private.analytics_begin_device_erasure(p_key bytea, p_anon_index integer)
+returns jsonb language plpgsql volatile security definer set search_path = pg_catalog, pg_temp as $$
+declare
+  ids uuid[] := private.analytics_anonymous_ids(p_key, p_anon_index);
+  k bytea := private.analytics_origin_key(extensions.digest(p_key, 'sha256'));
+  moment timestamptz := pg_catalog.now();
+  job private.analytics_erasure_jobs%rowtype;
+  added integer := 0;
+  n integer;
+  has_subjects boolean;
+begin
+  perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(pg_catalog.encode(k, 'hex'), 170017));
+  -- 0018: lock this device's subjects in subject_id order before changing any of them, the order
+  -- the account pre-step uses, so the two can never wait on each other in a cycle.
+  perform 1 from private.analytics_subjects s where s.origin_key = k order by s.subject_id for update;
+  has_subjects := exists (select 1 from private.analytics_subjects s where s.origin_key = k);
+  update private.analytics_subjects set retired_at = moment, retired_reason = 'device_erasure'
+    where origin_key = k and retired_at is null;
+
+  select * into job from private.analytics_erasure_jobs j
+    where j.scope = 'device' and j.scope_key = k and j.completed_at is null for update;
+  if not found then
+    -- A finished job for the same device is reused when this request adds nothing new to it.
+    select * into job from private.analytics_erasure_jobs j
+      where j.scope = 'device' and j.scope_key = k
+      order by j.created_at desc limit 1;
+    if found and not exists (
+         select 1 from pg_catalog.unnest(ids) a
+         where not exists (select 1 from private.analytics_erasure_targets t
+                           where t.job_id = job.job_id and t.distinct_id = a))
+       and not exists (
+         select 1 from private.analytics_subjects s
+         where s.origin_key = k and not exists (select 1 from private.analytics_erasure_targets t
+                                                where t.job_id = job.job_id and t.distinct_id = s.subject_id)) then
+      return pg_catalog.jsonb_build_object('job', job.job_id, 'stage', job.stage);
+    end if;
+    -- Past the global cap, a job with no issued subject still records the obligation, at priority
+    -- 0: a flood of made-up keys can only queue behind genuine work, never displace or block it.
+    insert into private.analytics_erasure_jobs(job_id, scope, scope_key, stage, sweeps, attempts, priority,
+                                               next_attempt_at, created_at)
+      values (pg_catalog.gen_random_uuid(), 'device', k, 'stop_recorded', 0, 0,
+              case when has_subjects then 2
+                   when (select pg_catalog.count(*) from private.analytics_erasure_jobs j
+                         where j.scope = 'device' and j.created_at > moment - interval '10 minutes') >= 200 then 0
+                   else 1 end,
+              moment, moment)
+      returning * into job;
+  end if;
+  insert into private.analytics_erasure_targets(job_id, distinct_id, kind)
+    select job.job_id, a, 'anonymous' from pg_catalog.unnest(ids) a
+    on conflict do nothing;
+  get diagnostics n = row_count;
+  added := added + n;
+  insert into private.analytics_erasure_targets(job_id, distinct_id, kind)
+    select job.job_id, s.subject_id, 'subject' from private.analytics_subjects s where s.origin_key = k
+    on conflict do nothing;
+  get diagnostics n = row_count;
+  added := added + n;
+  if has_subjects and job.priority < 2 then
+    update private.analytics_erasure_jobs set priority = 2 where job_id = job.job_id;
+  end if;
+  if added > 0 and job.stage <> 'stop_recorded' then
+    update private.analytics_erasure_jobs set stage = 'stop_recorded', sweeps = 0, accepted_at = null,
+      confirmed_at = null, next_attempt_at = moment
+      where job_id = job.job_id;
+    job.stage := 'stop_recorded';
+  end if;
+  return pg_catalog.jsonb_build_object('job', job.job_id, 'stage', job.stage);
+end $$;
+
 -- ── 3. Grants: explicit, and nothing else ─────────────────────────────────────────────────────
 revoke all on all functions in schema private from public, anon, authenticated, service_role;
 revoke all on function private.analytics_begin_account_erasure(uuid, text),
@@ -208,6 +285,9 @@ declare
     'private.analytics_record_erasure_outcome(uuid,uuid,text)',
     'private.analytics_begin_account_erasure(uuid,text)',
     'private.analytics_account_erasure_status(uuid)'];
+  role_settings text[] := array['lock_timeout=1s', 'statement_timeout=2s', 'idle_in_transaction_session_timeout=5s',
+    'log_parameter_max_length=0', 'log_parameter_max_length_on_error=0'];
+  setting text;
   route text;
   item record;
 begin
@@ -217,6 +297,35 @@ begin
     select m.roleid from pg_catalog.pg_auth_members m join reach c on m.member = c.oid
   ) select pg_catalog.array_agg(oid) into clients from reach;
   restricted := clients || service_oid || 0::oid;
+
+  -- The eraser role, as 0017 left it: narrow attributes, its five session settings (lock and
+  -- statement limits, and bind parameters kept out of the logs), member of nothing, and the only
+  -- membership in it is postgres's automatic non-inheriting, non-SET admin grant.
+  if eraser_oid is null then
+    issues := issues || 'role_missing:still_analytics_eraser'::text;
+  else
+    if exists (select 1 from pg_catalog.pg_roles r where r.oid = eraser_oid
+               and (r.rolsuper or r.rolinherit or r.rolcreaterole or r.rolcreatedb
+                    or r.rolreplication or r.rolbypassrls)) then
+      issues := issues || 'role_attributes:still_analytics_eraser'::text;
+    end if;
+    foreach setting in array role_settings loop
+      if not exists (select 1 from pg_catalog.pg_db_role_setting s
+                     where s.setrole = eraser_oid and s.setdatabase = 0 and setting = any (s.setconfig)) then
+        issues := issues || ('role_setting_missing:still_analytics_eraser:' || setting);
+      end if;
+    end loop;
+    if exists (select 1 from pg_catalog.pg_auth_members m where m.member = eraser_oid) then
+      issues := issues || 'role_member_of_role:still_analytics_eraser'::text;
+    end if;
+    if exists (select 1 from pg_catalog.pg_auth_members m where m.roleid = eraser_oid
+               and not (m.member = owner_oid and not m.inherit_option and not m.set_option)) then
+      issues := issues || 'role_granted_to_other:still_analytics_eraser'::text;
+    end if;
+    if eraser_oid = any (clients) then
+      issues := issues || 'role_client_reachable:still_analytics_eraser'::text;
+    end if;
+  end if;
 
   -- The widened checks: exactly one check on each column, with exactly the wider definition.
   if (select pg_catalog.array_agg(pg_catalog.pg_get_constraintdef(k.oid))

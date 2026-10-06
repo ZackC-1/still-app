@@ -545,15 +545,25 @@ test("0018 revokes on every private routine 0017's check pins, so 0017 and 0018 
     () => assertIndependentVerifications([m16, m18]),
     (error) => error instanceof Refusal && error.category === "verification-overlap",
   );
-  // NEGATIVE CONTROL: without its schema-wide revoke, the planner would not see the overlap.
+  // 0018 also replaces 0017's device-erasure route (ordered row locks), which alone is an overlap.
+  assert.ok(changed.has("private.analytics_begin_device_erasure"));
+  const withoutRevoke = m18.text.replace(
+    "revoke all on all functions in schema private from public, anon, authenticated, service_role;",
+    "",
+  );
+  assert.notEqual(withoutRevoke, m18.text);
+  assert.throws(
+    () => assertIndependentVerifications([m17, { ...m18, text: withoutRevoke }]),
+    (error) => error instanceof Refusal && /private\.analytics_begin_device_erasure/.test(error.message),
+  );
+  // NEGATIVE CONTROL: without the schema-wide revoke and the replaced route, the planner would not
+  // see the overlap.
+  const start = withoutRevoke.indexOf("create or replace function private.analytics_begin_device_erasure(");
   const unguarded = {
     ...m18,
-    text: m18.text.replace(
-      "revoke all on all functions in schema private from public, anon, authenticated, service_role;",
-      "",
-    ),
+    text: withoutRevoke.slice(0, start) + withoutRevoke.slice(withoutRevoke.indexOf("end $$;", start) + 7),
   };
-  assert.notEqual(unguarded.text, m18.text);
+  assert.ok(start > 0 && !routinesChanged(unguarded.text).has("private.analytics_begin_device_erasure"));
   assert.doesNotThrow(() => assertIndependentVerifications([m17, unguarded]));
   // Once 0017 is deployed and verified, 0018 plans on its own.
   assert.doesNotThrow(() => assertIndependentVerifications([m18]));

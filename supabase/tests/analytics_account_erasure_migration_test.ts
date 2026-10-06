@@ -192,6 +192,8 @@ Deno.test({
         .map((r) => r.version);
       assertEquals(versions.at(-1), "0017", "the database is exactly at 0017");
       assertEquals(await verify(admin), [
+        // 0018 replaces 0017's device erasure (ordered row locks), so 0017's body reads as changed.
+        "erasure_function_body_changed:private.analytics_begin_device_erasure(bytea,integer)",
         ...NEW_ROUTES.map((r) => `erasure_function_missing:${r}`).sort(),
         "erasure_scope_check",
         "erasure_target_index",
@@ -367,6 +369,15 @@ Deno.test({
             "grant execute on function private.read_product_policy(text,text) to still_analytics_eraser",
             "eraser_execute:private.read_product_policy(text,text)",
           ],
+          // P3-4: the eraser role 0017 set up is re-pinned (limits, log redaction, attributes).
+          ["alter role still_analytics_eraser set lock_timeout = '5s'", "role_setting_missing:still_analytics_eraser:lock_timeout=1s"],
+          ["alter role still_analytics_eraser reset statement_timeout", "role_setting_missing:still_analytics_eraser:statement_timeout=2s"],
+          [
+            "alter role still_analytics_eraser reset log_parameter_max_length_on_error",
+            "role_setting_missing:still_analytics_eraser:log_parameter_max_length_on_error=0",
+          ],
+          ["alter role still_analytics_eraser inherit", "role_attributes:still_analytics_eraser"],
+          ["grant pg_read_all_data to still_analytics_eraser", "role_member_of_role:still_analytics_eraser"],
         ];
         for (const [injection, issue] of refusedWhole) {
           const error = await rejection(() =>
@@ -398,6 +409,21 @@ Deno.test({
           "client_execute:authenticated:private.analytics_begin_account_erasure(uuid,text)",
           "erasure_function_grant:private.analytics_begin_account_erasure(uuid,text)",
         ]);
+      });
+
+      await t.step("P3-4: the post-apply check reports drift of the eraser role", async () => {
+        const cases: [string, string[]][] = [
+          ["alter role still_analytics_eraser set lock_timeout = '5s'", ["role_setting_missing:still_analytics_eraser:lock_timeout=1s"]],
+          [
+            "alter role still_analytics_eraser set log_parameter_max_length = 100",
+            ["role_setting_missing:still_analytics_eraser:log_parameter_max_length=0"],
+          ],
+          ["alter role still_analytics_eraser inherit", ["role_attributes:still_analytics_eraser"]],
+        ];
+        for (const [drift, issues] of cases) {
+          assertEquals(await rolledBack(admin, async (tx) => (await tx.unsafe(drift), await verifyIn(tx))), issues, drift);
+        }
+        assertEquals(await verify(admin), []);
       });
 
       await t.step("T10: 0017's snapshot function is byte-identical to 0017; an edit is reported", async () => {
@@ -652,6 +678,122 @@ Deno.test({
         // The real route walks the subjects in subject_id order, locking as it goes.
         const route = slice(await migrationSource(), "create or replace function private.analytics_begin_account_erasure", "end $$;");
         assert(/order by s\.subject_id[^\n]*\n\s+for update/.test(route), "subject_id order, then FOR UPDATE");
+      });
+
+      // Review P3-1: two accounts on two shared devices, with both pre-steps and both device erasures.
+      const deviceRoute = slice(await migrationSource(), "create or replace function private.analytics_begin_device_erasure(", "end $$;");
+      const originKey = async (device: number) =>
+        (await admin`select extensions.digest(pg_catalog.decode(${await proof(device)}, 'hex'), 'sha256') as k`)[0].k;
+
+      await t.step("T5: four parties (two pre-steps, two device erasures, two shared devices) never deadlock", async () => {
+        assert(
+          /perform 1 from private\.analytics_subjects s where s\.origin_key = k order by s\.subject_id for update;/.test(deviceRoute),
+          "device erasure locks its subjects in subject_id order",
+        );
+        const extra = [connect("still_analytics_eraser", ERASER_PASSWORD), connect("still_analytics_eraser", ERASER_PASSWORD)];
+        const conns = [eraser!, eraser2!, ...extra];
+        const codes: string[] = [];
+        try {
+          for (let round = 0; round < 20; round++) {
+            const [U1, U2] = [account(3000 + 2 * round), account(3001 + 2 * round)];
+            await newAccount(3000 + 2 * round, "four");
+            await newAccount(3001 + 2 * round, "four");
+            const [X, Y] = [9000 + 2 * round, 9001 + 2 * round];
+            const subjects = [await issue(U1, X), await issue(U1, Y), await issue(U2, X), await issue(U2, Y)];
+            const calls = [
+              () => conns[0]!`select private.analytics_begin_account_erasure(${U1}::uuid, 'account_deleted')`,
+              () => conns[1]!`select private.analytics_begin_account_erasure(${U2}::uuid, 'account_deleted')`,
+              () => conns[2]!`select private.analytics_begin_device_erasure(pg_catalog.decode(${deviceKey(X)}, 'hex'), 0)`,
+              () => conns[3]!`select private.analytics_begin_device_erasure(pg_catalog.decode(${deviceKey(Y)}, 'hex'), 0)`,
+            ];
+            await Promise.all(calls.map((call) => call().catch((e: PgError) => void codes.push(String(e.code ?? e.message)))));
+            for (const subject of subjects) {
+              assertNotEquals(await reasonOf(subject), null, `round ${round}`);
+              assert((await jobsOf(subject)).length >= 1, `round ${round}: ${subject} targeted`);
+            }
+            assertEquals(await untargetedRetired(), 0, `round ${round}`);
+          }
+        } finally {
+          for (const c of extra) await c.end();
+        }
+        assertEquals(codes, [], "no deadlock, lock timeout or other failure");
+      });
+
+      await t.step("T5 four parties, forced into the cycle: 0018's device erasure finishes; locking in another order deadlocks", async () => {
+        const before = await catalogState(admin);
+        const deadlockTimeout = (await admin`select pg_catalog.current_setting('deadlock_timeout') as t`)[0].t;
+        /** Wait until `pid` waits on a row lock. */
+        const waitingOnLock = async (pid: number) => {
+          for (let i = 0; i < 200; i++) {
+            const row = (await admin`select wait_event_type from pg_catalog.pg_stat_activity where pid = ${pid}`)[0];
+            if (row?.wait_event_type === "Lock") return;
+            await new Promise((r) => setTimeout(r, 25));
+          }
+          throw new Error(`backend ${pid} never waited on a lock`);
+        };
+        /** Subject ids d < a < b < c: U1 holds a (device X) and b (device Y); U2 holds c (X) and d (Y). */
+        const forced = async (run: number, route: string) => {
+          await admin.unsafe(route);
+          const [U1, U2] = [account(4000 + 2 * run), account(4001 + 2 * run)];
+          await newAccount(4000 + 2 * run, "forced");
+          await newAccount(4001 + 2 * run, "forced");
+          const [X, Y] = [9900 + 2 * run, 9901 + 2 * run];
+          const id = (k: number) => `${run}${run}${run}${run}${run}${run}${run}${run}-0000-4000-8000-00000000000${k}`;
+          const [d, a, b, c] = [id(1), id(2), id(3), id(4)];
+          for (const [subject, user, device] of [[c, U2, X], [b, U1, Y], [a, U1, X], [d, U2, Y]] as const) {
+            await admin`insert into private.analytics_subjects(subject_id, user_id, origin_key, epoch, created_at, last_activity_month)
+              values (${subject}::uuid, ${user}::uuid, ${await originKey(device)}, 0, now(), current_date)`;
+          }
+          const parties = [connect(), connect(), connect(), connect()];
+          const blocker = connect();
+          try {
+            const pids: number[] = [];
+            for (const p of parties) pids.push((await p`select pg_catalog.pg_backend_pid() as pid`)[0].pid);
+            let release!: () => void;
+            const released = new Promise<void>((r) => (release = r));
+            let holding!: () => void;
+            const held = new Promise<void>((r) => (holding = r));
+            const blocking = blocker.begin(async (tx) => {
+              await tx`select 1 from private.analytics_subjects where subject_id = ${b}::uuid for update`;
+              holding();
+              await released;
+            });
+            await held;
+            const outcome = (q: Promise<unknown>) => q.then(() => "ok", (e: PgError) => String(e.code ?? e.message));
+            // Device Y, then pre-step U1, then device X, then pre-step U2, each started once the one
+            // before waits on a row lock, so every party holds what it can before the blocker lets go.
+            const results = [
+              outcome(parties[0]!`select private.analytics_begin_device_erasure(pg_catalog.decode(${deviceKey(Y)}, 'hex'), 0)`),
+            ];
+            await waitingOnLock(pids[0]!);
+            results.push(outcome(parties[1]!`select private.analytics_begin_account_erasure(${U1}::uuid, 'account_deleted')`));
+            await waitingOnLock(pids[1]!);
+            results.push(outcome(parties[2]!`select private.analytics_begin_device_erasure(pg_catalog.decode(${deviceKey(X)}, 'hex'), 0)`));
+            await waitingOnLock(pids[2]!);
+            results.push(outcome(parties[3]!`select private.analytics_begin_account_erasure(${U2}::uuid, 'account_deleted')`));
+            await waitingOnLock(pids[3]!);
+            release();
+            await blocking;
+            return (await Promise.all(results)).sort();
+          } finally {
+            for (const p of [...parties, blocker]) await p.end();
+          }
+        };
+        try {
+          // 0018's device erasure: every subject lock in one global order, so all four finish.
+          assertEquals(await forced(1, deviceRoute), ["ok", "ok", "ok", "ok"]);
+          // NEGATIVE CONTROL: the same route locking a device's subjects in descending order (like
+          // 0017's update, whose scan order is unrelated to subject_id) forms the cycle.
+          const descending = deviceRoute.replace(
+            "where s.origin_key = k order by s.subject_id for update;",
+            "where s.origin_key = k order by s.subject_id desc for update;",
+          );
+          assertNotEquals(descending, deviceRoute);
+          assertEquals(await forced(2, descending), ["40P01", "ok", "ok", "ok"], `deadlock_timeout ${deadlockTimeout}`);
+        } finally {
+          await admin.unsafe(deviceRoute);
+        }
+        assertEquals(await catalogState(admin), before);
       });
 
       await t.step("T5 NEGATIVE CONTROL: the same lock walk in opposite orders deadlocks; in one order it does not", async () => {

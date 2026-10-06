@@ -420,10 +420,23 @@ test("0018 post-apply verification pins the new routes' bodies and re-pins 0017'
     "private.analytics_subject_active",
     "public.consume_rate_limit",
   ]);
+  const replaced = ["private.analytics_begin_device_erasure"];
   for (const [name, digest] of pinned) {
-    if (added.includes(name)) assert.equal(body(sources["0018"], name), digest, name);
+    if (added.includes(name) || replaced.includes(name)) assert.equal(body(sources["0018"], name), digest, name);
     else if (name !== "public.consume_rate_limit") assert.equal(body(sources["0017"], name), digest, name);
   }
+  // 0018's device erasure is 0017's body plus exactly the ordered row lock, nothing else.
+  const text = (migration, name) => {
+    const start = migration.indexOf(`create or replace function ${name}(`);
+    return migration.slice(start, migration.indexOf("end $$;", start) + 7);
+  };
+  const lock = "  -- 0018: lock this device's subjects in subject_id order before changing any of them, the order\n" +
+    "  -- the account pre-step uses, so the two can never wait on each other in a cycle.\n" +
+    "  perform 1 from private.analytics_subjects s where s.origin_key = k order by s.subject_id for update;\n";
+  assert.equal(
+    text(sources["0018"], replaced[0]).replace(lock, ""),
+    text(sources["0017"], replaced[0]),
+  );
   // The snapshot function is re-pinned at exactly 0017's value, which 0017's own check pins too.
   const v17 = await readFile(join(root, "scripts/backend/deploy/verify/0017_analytics_erasure.sql"), "utf8");
   assert.equal(pinned.get("private.analytics_snapshot_deleted_subject"), "5bbbec70399c1ac78f1eb39255c418c2");
