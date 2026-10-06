@@ -5,11 +5,15 @@ import { handleAnalyticsErasure } from "../analytics-erasure/handler.ts";
 import { batchJobs, runErasureWorker } from "../analytics-erasure/worker.ts";
 import { handleAnalyticsIdentify } from "../analytics-identify/handler.ts";
 import {
+  type AccountErasurePort,
+  type AccountErasureReason,
+  type AccountErasureResult,
   type ClaimedErasureJob,
   deviceErasureState,
   type ErasureJobRef,
   type ErasureOutcome,
   type ErasureStage,
+  ErasureStorageUnavailable,
   type ErasureStore,
   type RecordedOutcome,
   type SubjectIssue,
@@ -724,4 +728,165 @@ Deno.test("released 2.1 bodies keep the account-person path, unchanged", async (
     assertEquals(subject, []);
   }
   assertEquals(store.calls, []);
+});
+
+// ── Account-wide erasure (U5-W3 packet B, owner decisions 60 and 61) ─────────────────────────
+
+/** Mirrors 0018's account routes for the handler: begin retires the account's active subjects
+ * (reason account_erasure) and queues each; status is the least advanced stage among those jobs.
+ * The SQL itself is proven by supabase/tests/analytics_account_erasure_migration_test.ts. */
+class FakeAccountPort implements AccountErasurePort {
+  readonly calls: string[] = [];
+  active = new Map<string, number>();
+  stage: ErasureStage | null = null;
+  fail = false;
+  gone = false;
+  beginAccountErasure(userId: string, reason: AccountErasureReason): Promise<AccountErasureResult> {
+    this.calls.push(`begin:${userId}:${reason}`);
+    if (this.fail) return Promise.reject(new ErasureStorageUnavailable());
+    if (this.gone) return Promise.resolve({ state: "gone" });
+    const n = this.active.get(userId) ?? 0;
+    this.active.set(userId, 0);
+    if (n > 0 && this.stage === null) this.stage = "stop_recorded";
+    return Promise.resolve({ state: "captured", subjects: n });
+  }
+  accountErasureStatus(userId: string): Promise<ErasureStage | null> {
+    this.calls.push(`status:${userId}`);
+    if (this.fail) return Promise.reject(new ErasureStorageUnavailable());
+    return Promise.resolve(this.stage);
+  }
+}
+
+function legacyDeleter(fail = false) {
+  const deleted: string[] = [];
+  const port: PostHogPort = {
+    canIdentify: true,
+    canDelete: true,
+    setPersonEmail: () => Promise.reject(new Error("must not be called")),
+    deletePerson: (userId) => {
+      deleted.push(userId);
+      return fail ? Promise.reject(new Error(`posthog down for ${userId}`)) : Promise.resolve();
+    },
+  };
+  return { port, deleted };
+}
+
+function accountDeps(account: FakeAccountPort | null, over: Partial<Parameters<typeof handleAnalyticsErasure>[1]> = {}) {
+  const legacy = legacyDeleter();
+  const limits = limiter();
+  return {
+    deps: erasureDeps(new FakeStore(), {
+      auth: { jwtSecret: SECRET, expected: TEST_EXPECTED_CLAIMS },
+      account,
+      legacy: legacy.port,
+      limiter: limits.port,
+      ...over,
+    }),
+    legacy: legacy.deleted,
+    keys: limits.keys,
+  };
+}
+
+const accountRequest = (jwt: string | null, body: unknown = { action: "account" }) =>
+  erasureRequest(body, jwt ? { Authorization: `Bearer ${jwt}`, "cf-connecting-ip": "198.51.100.7" } : {});
+
+Deno.test("account: a signed-in session is enough; the account comes from the token, never the body", async () => {
+  const account = new FakeAccountPort();
+  account.active.set(A, 2);
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  const { deps, legacy, keys } = accountDeps(account);
+  const res = await handleAnalyticsErasure(accountRequest(jwt), deps);
+  assertEquals(res.status, 202);
+  assertEquals(await res.json(), { state: "requested" });
+  // Account data only (D61): the 0018 route with account_erasure, plus the legacy account person.
+  assertEquals(account.calls, [`begin:${A}:account_erasure`, `status:${A}`]);
+  assertEquals(legacy, [A]);
+  assertEquals(keys, [`analytics-erasure-submit:user:${A}`]);
+  // Idempotent: a repeat captures nothing new and answers the same state.
+  const again = await handleAnalyticsErasure(accountRequest(jwt), deps);
+  assertEquals(await again.json(), { state: "requested" });
+});
+
+Deno.test("account: refused without a valid session, with extra keys, and 503 when unconfigured", async () => {
+  const account = new FakeAccountPort();
+  const { deps, legacy } = accountDeps(account);
+  assertEquals((await handleAnalyticsErasure(accountRequest(null), deps)).status, 401);
+  const forged = await mintHs256({ sub: A }, `${SECRET}-other`);
+  assertEquals((await handleAnalyticsErasure(accountRequest(forged), deps)).status, 401);
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  const B = "22222222-2222-4222-8222-222222222222";
+  // NEGATIVE CONTROL (IDOR): a body naming another account is refused, never acted on.
+  for (const body of [{ action: "account", userId: B }, { action: "account", erasureKey: KEY_1 }]) {
+    assertEquals((await handleAnalyticsErasure(accountRequest(jwt, body), deps)).status, 400);
+  }
+  assertEquals([account.calls, legacy], [[], []]);
+  for (const over of [{ account: null }, { auth: null }, { limiter: null }]) {
+    const { deps: off } = accountDeps(account, over);
+    assertEquals((await handleAnalyticsErasure(accountRequest(jwt), off)).status, 503);
+  }
+  assertEquals(account.calls, []);
+});
+
+Deno.test("account: storage failure is 503 with a fixed log; a legacy failure still records the erasure", async () => {
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  const failing = new FakeAccountPort();
+  failing.fail = true;
+  const { deps } = accountDeps(failing);
+  const { value: res, logs } = await captureLogs(() => handleAnalyticsErasure(accountRequest(jwt), deps));
+  assertEquals(res.status, 503);
+  assert(!logs.includes(A), "no account id in the log");
+  // An account that no longer exists is never reported as erased.
+  const gone = new FakeAccountPort();
+  gone.gone = true;
+  assertEquals((await handleAnalyticsErasure(accountRequest(jwt), accountDeps(gone).deps)).status, 503);
+
+  const account = new FakeAccountPort();
+  account.active.set(A, 1);
+  const legacy = legacyDeleter(true);
+  const { deps: down } = accountDeps(account, { legacy: legacy.port });
+  const out = await captureLogs(() => handleAnalyticsErasure(accountRequest(jwt), down));
+  assertEquals(out.value.status, 202);
+  assertEquals(await out.value.json(), { state: "requested" });
+  assert(!out.logs.includes(A), "no account id in the log");
+  assert(out.logs.includes("analytics-erasure legacy deletion failed"));
+});
+
+Deno.test("account-status maps the least advanced stage; none when nothing was queued", async () => {
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  const account = new FakeAccountPort();
+  const { deps, keys, legacy } = accountDeps(account);
+  const status = async () => (await handleAnalyticsErasure(accountRequest(jwt, { action: "account-status" }), deps)).json();
+  assertEquals(await status(), { state: "none" });
+  for (
+    const [stage, state] of [
+      ["stop_recorded", "requested"],
+      ["provider_delete_accepted", "verifying"],
+      ["provider_delete_confirmed", "verifying"],
+      ["complete", "deleted"],
+    ] as const
+  ) {
+    account.stage = stage;
+    assertEquals(await status(), { state });
+  }
+  assert(keys.every((k) => k === `analytics-erasure-status:user:${A}`), "its own per-account bucket");
+  assertEquals(legacy, [], "status never deletes");
+  assert(account.calls.every((c) => c.startsWith("status:")), "status never begins an erasure");
+  // Over the limit: 429, and the store is not reached.
+  const { deps: limited } = accountDeps(account, {
+    limiter: limiter({ "analytics-erasure-status:user": 30 }).port,
+  });
+  const before = account.calls.length;
+  assertEquals((await handleAnalyticsErasure(accountRequest(jwt, { action: "account-status" }), limited)).status, 429);
+  assertEquals(account.calls.length, before);
+});
+
+Deno.test("NEGATIVE CONTROL: the device routes never accept a session in place of the erasure key", async () => {
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  const account = new FakeAccountPort();
+  account.active.set(A, 1);
+  const { deps } = accountDeps(account);
+  for (const body of [{ action: "device" }, { action: "status" }]) {
+    assertEquals((await handleAnalyticsErasure(accountRequest(jwt, body), deps)).status, 400);
+  }
+  assertEquals(account.calls, []);
 });
