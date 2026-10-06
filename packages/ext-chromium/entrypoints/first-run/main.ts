@@ -43,7 +43,9 @@ function init(isFirefox: boolean, platform: RuntimePlatform): void {
           legacy = authority;
         }
       : undefined,
-    accessHost: isFirefox ? "firefox" : "chromium",
+    // The build constant, not `isFirefox`: each build then names only its own host (the built
+    // bundle is checked by tests/playwright/extras-host-build.spec.ts).
+    accessHost: import.meta.env.FIREFOX ? "firefox" : "chromium",
   });
   mount(FirstRunApp, {
     target: document.getElementById("app")!,
