@@ -1,8 +1,11 @@
 # Still Architecture
 
-> **Still 2.0:** All four blocking services and optional settings sync are free. Sign-in gates
-> sync only. Both paid-tier flags are disabled. Purchase and entitlement descriptions below
-> document retained infrastructure, not a requirement to use this release.
+> **Shipped 2.x:** All four blocking services and optional settings sync are free. Sign-in gates
+> sync only. Both paid-tier flags are disabled.
+> **V3 direction (approved, in preparation):** free core unchanged, plus an optional one-time-purchase
+> Still Pro tier. Entitlement descriptions below document infrastructure that V3 activates
+> deliberately; see the [V3 release record](release/history/v3/README.md). Neither is a requirement
+> to use free blocking or sync.
 
 Still is organized around a small number of deep modules with narrow interfaces. The goal is locality: a change to blocking rules, purchase state, or platform storage should be verified in one place instead of spread through every extension and app shell.
 
@@ -14,7 +17,8 @@ Still is organized around a small number of deep modules with narrow interfaces.
 - Keep account state server-authoritative. Entitlement has two authorities (ADR 0003): the server
   decides what the account owns; on Apple platforms the device's StoreKit receipt additionally
   grants device-local Pro, with StillKit's StampPolicy as the single never-downgrade gate on the
-  App Group stamp.
+  App Group stamp. V3 purchase paths (Apple explicit linking, web managed-only provider) resolve
+  through one resolver with distinct evidence per path; verified legacy payments map to frozen Pro.
 - Make privacy claims enforceable in code: narrow host permissions, no browsing-history collection, no sync unless the user signs in.
 
 ## Runtime modules
@@ -40,15 +44,18 @@ Still is organized around a small number of deep modules with narrow interfaces.
 
 Remote data can change selectors and actions inside the existing interpreter. It cannot add arbitrary JavaScript.
 
-## Retained entitlement flow
+## Entitlement flow (dormant in shipped 2.x, active under V3)
 
-1. StoreKit 2 or RevenueCat Web Billing completes a purchase.
+1. StoreKit 2 or the managed web provider completes a purchase (V3: Apple explicit optional
+   linking; web only through an enforceably managed provider or unavailable).
 2. RevenueCat sends the event to `revenuecat-webhook`.
 3. Supabase stores the server-authoritative entitlement through narrow database functions.
 4. Clients call `reconcile-entitlement` to read the authoritative state.
-5. Extensions and the Apple app cache the entitlement with explicit offline rules.
+5. Extensions and the Apple app cache the entitlement with explicit offline rules — V3 paid
+   offline continuity uses signed 30-day deadlines with revocation/expiry latches and
+   clock-rollback safeguards (D519); no DRM or fingerprinting.
 
-The dormant paid tier is Still Pro. The immutable internal entitlement id remains `still_sync`.
+The paid tier is Still Pro. The immutable internal entitlement id remains `still_sync`.
 
 ## Settings and account flow
 
