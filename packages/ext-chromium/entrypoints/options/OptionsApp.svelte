@@ -63,8 +63,22 @@
         where: "options",
       });
   };
-  const loadSettings = () =>
-    import("../../../core/src/ui/v3/ExtensionSettings.svelte");
+  // Free-period "Restore purchase" (owner decisions 62 and 73): V3 new-sync builds only. The
+  // inline build-time check folds to false on configured 2.x and unconfigured builds, which keep
+  // loading ExtensionSettings exactly as before; the Restore wrapper and its check live only in the
+  // lazily loaded wrapper chunk, which this page binds to its controller when it loads it.
+  const freeRestore = Boolean(
+    import.meta.env.VITE_SUPABASE_URL &&
+      import.meta.env.VITE_SUPABASE_ANON_KEY &&
+      import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true",
+  );
+  const loadSettings = freeRestore
+    ? () =>
+        import("./RestoreSettings.svelte").then((module) => {
+          module.bindSettingsRestore(purchase ? controller : undefined);
+          return module;
+        })
+    : () => import("../../../core/src/ui/v3/ExtensionSettings.svelte");
   const help = {
     // Setup guide reopens the extension's own first-run page (owner decision 2026-10-05).
     onGuide: () => {
