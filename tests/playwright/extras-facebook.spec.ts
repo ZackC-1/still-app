@@ -121,7 +121,11 @@ test.describe("Videos and Watch (paid on)", () => {
         await page.goto(`${FB}/`);
         if (reels) await engineRan(page);
         else await expect(page.locator("html")).toHaveClass(/still-feature-\d+-facebook-stories/);
-        for (const id of ["target-feed-video", "target-feed-live", "target-nav-watch"]) {
+        // Shortcut list items go with their Watch link (relative, no-slash and absolute), so no
+        // empty <li> is left behind.
+        for (const id of ["target-feed-video", "target-feed-live", "target-nav-watch", "target-nav-watch-bookmarks",
+          "target-nav-watch-bookmarks-item", "target-nav-watch-absolute", "target-nav-watch-absolute-item",
+          "target-nav-watch-noslash", "target-nav-watch-noslash-item"]) {
           if (videos) await expect(page.locator(`#${id}`), id).toBeHidden();
           else await expect(page.locator(`#${id}`), id).toBeVisible();
         }
