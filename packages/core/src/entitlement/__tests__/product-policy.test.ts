@@ -226,6 +226,9 @@ describe("dormancy", () => {
   // policy's publisher, not a client. Every other importer under packages/**, apps/** or supabase/**
   // is refused, so client dormancy stays enforced.
   const SERVER_IMPORTERS = /^supabase\/functions\/product-policy(-admin)?\//;
+  // The owner-only admin page edits the policy through product-policy-admin; it is a publisher tool,
+  // never shipped inside an extension or app (its own bundle guard enforces that).
+  const OWNER_ADMIN_IMPORTERS = /^apps\/owner-admin\//;
 
   it("has no client importer: free blocking, sync and Restore never consult it", () => {
     const importers = [...sources(join(root, "packages")), ...sources(join(root, "apps")), ...sources(join(root, "supabase"))]
@@ -234,7 +237,8 @@ describe("dormancy", () => {
       .map(path => relative(root, path))
       // Deno's `_test.ts` naming is excluded only for server tests, never for client code.
       .filter(path => !/^supabase\/.*_test\.ts$/.test(path))
-      .filter(path => !SERVER_IMPORTERS.test(path));
+      .filter(path => !SERVER_IMPORTERS.test(path))
+      .filter(path => !OWNER_ADMIN_IMPORTERS.test(path));
     // The one client importer is the dormant Chrome/Firefox runtime (U6-P3), which its own test
     // proves nothing imports: no background wiring, content script, page or Restore path.
     expect(importers).toEqual([
