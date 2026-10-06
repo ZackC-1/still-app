@@ -36,22 +36,35 @@ const STORIES_TRAY = Object.freeze([
 
 /**
  * Videos and Watch (CP-082): non-Reel and live feed-video units inside the feed, positively
- * identified by a video player plus their own direct link to a FACEBOOK video, and the Watch
- * navigation entries. A link to another site's /videos/ page (a GIF, a shared clip) never counts,
- * and a comment (an article inside a post's article) is never a feed unit. Direct players
- * outside the feed (Watch links, a Page's video, a shared Reel) are never matched.
+ * identified by a video player plus their own direct link to a FACEBOOK video page (/videos/),
+ * and the Watch navigation entries. A link to another site's /videos/ page (a GIF, a shared clip)
+ * never counts, and a comment (an article inside a post's article) is never a feed unit. Direct
+ * players outside the feed (Watch links, a Page's video, a shared Reel) are never matched.
+ *
+ * A unit whose only video link is /watch/?v=<id> is NOT a feed video: a Reel shared into the feed
+ * can carry just that link (no /reel/ link for the Reel guard to see), and a Reel is only ever
+ * hidden by the free Reels control. Uncertain, so it stays.
  */
 const FEED_UNIT = '[role="feed"] [role="article"]:not([role="article"] [role="article"])';
 const VIDEOS_FEED = Object.freeze([
   `${FEED_UNIT}:has(> a[href^="/"][href*="/videos/"]):has(video)${NOT_A_REEL}`,
   `${FEED_UNIT}:has(> a[href^="https://www.facebook.com/"][href*="/videos/"]):has(video)${NOT_A_REEL}`,
-  `${FEED_UNIT}:has(> a[href^="/watch/?v="]):has(video)${NOT_A_REEL}`,
 ]);
+
+/**
+ * The Watch hub's navigation entries: exactly /watch or /watch/, relative or absolute, with any
+ * query that names no video. Facebook's left-nav shortcut carries a tracking query
+ * (/watch/?ref=bookmarks), which an exact href match would miss. A link that names a video
+ * (?v= or &v=) plays that video and is never a hub entry, the same rule as the Watch hub route.
+ * The safe-selector grammar has no "&", so any query containing "v=" stays (a parameter such as
+ * nav= too): uncertain links err towards staying visible.
+ */
+const NAMES_NO_VIDEO = ':not([href*="v="])';
+const WATCH_HUB_HREFS = Object.freeze(["/watch/", "/watch", "https://www.facebook.com/watch/", "https://www.facebook.com/watch"]);
+const watchHubLink = (href: string): readonly string[] => [`a[href="${href}"]`, `a[href^="${href}?"]${NAMES_NO_VIDEO}`];
 const VIDEOS_WATCH_NAV = Object.freeze([
-  'nav a[href="/watch/"]',
-  'nav a[href="/watch"]',
-  'nav a[href="https://www.facebook.com/watch/"]',
-  'nav li:has(> a[href="/watch/"])',
+  ...WATCH_HUB_HREFS.flatMap((href) => watchHubLink(href).map((link) => `nav ${link}`)),
+  ...watchHubLink("/watch/").map((link) => `nav li:has(> ${link})`),
 ]);
 
 /**

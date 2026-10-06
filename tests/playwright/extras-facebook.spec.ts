@@ -121,7 +121,7 @@ test.describe("Videos and Watch (paid on)", () => {
         await page.goto(`${FB}/`);
         if (reels) await engineRan(page);
         else await expect(page.locator("html")).toHaveClass(/still-feature-\d+-facebook-stories/);
-        for (const id of ["target-feed-video", "target-feed-live", "target-nav-watch"]) {
+        for (const id of ["target-feed-video", "target-feed-live", "target-nav-watch", "target-nav-watch-bookmarks"]) {
           if (videos) await expect(page.locator(`#${id}`), id).toBeHidden();
           else await expect(page.locator(`#${id}`), id).toBeVisible();
         }

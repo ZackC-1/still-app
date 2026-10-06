@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "3.0.5",
+  "version": "3.0.6",
   "services": {
     "youtube": {
       "matches": [
@@ -193,8 +193,7 @@
           "action": "hide",
           "selectors": [
             "[role=\"feed\"] [role=\"article\"]:not([role=\"article\"] [role=\"article\"]):has(> a[href^=\"/\"][href*=\"/videos/\"]):has(video):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"]))",
-            "[role=\"feed\"] [role=\"article\"]:not([role=\"article\"] [role=\"article\"]):has(> a[href^=\"https://www.facebook.com/\"][href*=\"/videos/\"]):has(video):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"]))",
-            "[role=\"feed\"] [role=\"article\"]:not([role=\"article\"] [role=\"article\"]):has(> a[href^=\"/watch/?v=\"]):has(video):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"]))"
+            "[role=\"feed\"] [role=\"article\"]:not([role=\"article\"] [role=\"article\"]):has(> a[href^=\"https://www.facebook.com/\"][href*=\"/videos/\"]):has(video):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"]))"
           ]
         },
         {
@@ -203,9 +202,15 @@
           "action": "hide",
           "selectors": [
             "nav a[href=\"/watch/\"]",
+            "nav a[href^=\"/watch/?\"]:not([href*=\"v=\"])",
             "nav a[href=\"/watch\"]",
+            "nav a[href^=\"/watch?\"]:not([href*=\"v=\"])",
             "nav a[href=\"https://www.facebook.com/watch/\"]",
-            "nav li:has(> a[href=\"/watch/\"])"
+            "nav a[href^=\"https://www.facebook.com/watch/?\"]:not([href*=\"v=\"])",
+            "nav a[href=\"https://www.facebook.com/watch\"]",
+            "nav a[href^=\"https://www.facebook.com/watch?\"]:not([href*=\"v=\"])",
+            "nav li:has(> a[href=\"/watch/\"])",
+            "nav li:has(> a[href^=\"/watch/?\"]:not([href*=\"v=\"]))"
           ]
         },
         {
@@ -234,6 +239,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "28b578f37e7d13f441cfd013ffc7292223d60026423d6119a8e83ac0fc8462a0b45e15d8acaf1dea33e0dbda3f72236271f082805acfc51be87c210398d23f06"
+    "value": "5811ea20ee1e1ef72952d2e28d19fef0ec7428483d9b7c764ab122e7c57a0c7cc46d1f74751ce98678c961ccbec2dcd40a666b78bee662f00feaa6acf640240a"
   }
 }

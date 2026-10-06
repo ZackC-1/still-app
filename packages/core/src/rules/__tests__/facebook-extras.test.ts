@@ -222,7 +222,8 @@ describe("Videos and Watch: the four Reels/Videos combinations (fb-videos.html)"
       render("fb-videos.html");
       const engine = session();
       engine.applyDom(settingsWith({ "facebook.reels": reels, "facebook.videos": videos }), new URL(`${FB}/`), document, ON);
-      for (const id of ["target-feed-video", "target-feed-live", "target-nav-watch"]) expect(visible(id), id).toBe(!videos);
+      for (const id of ["target-feed-video", "target-feed-live", "target-nav-watch", "target-nav-watch-bookmarks", "target-nav-watch-bookmarks-item"])
+        expect(visible(id), id).toBe(!videos);
       // The feed Reel belongs to free Reels only: Videos never hides it.
       expect(visible("reel-feed-free"), "reel-feed-free").toBe(!reels);
       expect(visible("reels-nav-free"), "reels-nav-free").toBe(true);
@@ -254,6 +255,42 @@ describe("Videos and Watch: the four Reels/Videos combinations (fb-videos.html)"
     page.applyDom(ALL_ON, reelUrl, document, ON);
     expect(visible("keep-direct-player")).toBe(true);
     expect(page.ownsHiddenMedia!(document.querySelector("#keep-direct-player video")!)).toBe(false);
+  });
+
+  it("a feed unit whose only video link is /watch/?v= may be a shared Reel: Videos leaves it, Reels never sees it", () => {
+    for (const reels of [false, true]) {
+      render("fb-videos.html");
+      const engine = session();
+      engine.applyDom(settingsWith({ "facebook.reels": reels, "facebook.videos": true }), new URL(`${FB}/`), document, ON);
+      expect(visible("keep-feed-watch-only-reel"), `reels ${reels}`).toBe(true);
+      expect(engine.ownsHiddenMedia!(document.querySelector("#keep-feed-watch-only-reel video")!)).toBe(false);
+      // The same unit with a Facebook /videos/ link is a feed video again (the guard is not blanket).
+      document.getElementById("keep-feed")!.insertAdjacentHTML("beforeend",
+        '<div role="article" id="target-watch-and-video-page"><a href="/watch/?v=900000000132">Watch</a>'
+        + '<a href="/inventedpage/videos/900000000132">Invented video page</a><video></video></div>');
+      engine.applyDom(settingsWith({ "facebook.reels": reels, "facebook.videos": true }), new URL(`${FB}/`), document, ON);
+      expect(visible("target-watch-and-video-page"), `reels ${reels}`).toBe(false);
+      engine.stop?.();
+    }
+  });
+
+  it("the Watch hub shortcut is hidden with its tracking query; links that name a video stay", () => {
+    render("fb-videos.html");
+    const nav = document.querySelector('nav[aria-label="Shortcuts"] ul')!;
+    const hubs = ["/watch/?ref=bookmarks", "/watch?ref=bookmarks", "https://www.facebook.com/watch/?ref=bookmarks",
+      "https://www.facebook.com/watch?ref=bookmarks&__tn__=x"];
+    // A video named by ?v= or &v= plays and stays; so does any query holding "v=" (nav=1), because
+    // the safe-selector grammar cannot spell "&v=" and uncertain links err towards staying.
+    const videos = ["/watch/?v=900000000133", "/watch?v=900000000134", "/watch/?ref=bookmarks&v=900000000135",
+      "https://www.facebook.com/watch/?v=900000000136", "/watch/live/?ref=bookmarks", "/watch/900000000137?ref=bookmarks",
+      "/watch/?nav=1"];
+    hubs.forEach((href, at) => nav.insertAdjacentHTML("beforeend", `<li><a id="target-hub-${at}" href="${href}">Video</a></li>`));
+    videos.forEach((href, at) => nav.insertAdjacentHTML("beforeend", `<li><a id="keep-video-${at}" href="${href}">A video</a></li>`));
+    session().applyDom(ALL_ON, new URL(`${FB}/`), document, ON);
+    for (const id of ids("target-hub-")) expect(visible(id), id).toBe(false);
+    for (const id of ids("keep-video-")) expect(visible(id), id).toBe(true);
+    expect(visible("keep-nav-watch-video")).toBe(true);
+    expect(visible("keep-nav-watch-video-item")).toBe(true);
   });
 
   it("a post linking to an outside site's /videos/ page, playing a GIF-style video, stays", () => {
