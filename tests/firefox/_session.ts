@@ -62,11 +62,13 @@ export class StillFirefox {
     return this.session.version;
   }
 
-  static async start(): Promise<StillFirefox> {
+  static async start(
+    extraPrefs: Record<string, string | number | boolean> = {},
+  ): Promise<StillFirefox> {
     const binary = findFirefox();
     if (!binary) throw new Error("Firefox not found");
     assertUnconfiguredBuild();
-    const session = await launchFirefox(binary);
+    const session = await launchFirefox(binary, extraPrefs);
     const self = new StillFirefox(session);
     try {
       await self.install();
