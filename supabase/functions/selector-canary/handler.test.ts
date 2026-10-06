@@ -1,5 +1,6 @@
 import { assertEquals } from "@std/assert";
 import { handleCanaryRequest } from "./handler.ts";
+import { captureConsole } from "../_shared/test-helpers.ts";
 
 const TOKEN = "canary-invocation-token";
 
@@ -63,4 +64,20 @@ Deno.test("run failure → 500 without leaking detail", async () => {
   });
   assertEquals(res.status, 500);
   assertEquals(await res.json(), { error: "canary_failed" });
+});
+
+Deno.test("a failed run logs a fixed reason, never the error text or any URL", async () => {
+  let status = 0;
+  const logged = await captureConsole(async () => {
+    const res = await handleCanaryRequest(req(TOKEN), {
+      token: TOKEN,
+      run: () => Promise.reject(new Error("fetch failed https://hooks.example/secret-path user 11111111-1111-1111-1111-111111111111")),
+    });
+    status = res.status;
+  });
+  assertEquals(status, 500);
+  assertEquals(logged, "selector-canary failed reason=run_failed status=500");
+  for (const leak of ["hooks.example", "secret-path", "11111111", "fetch failed", TOKEN]) {
+    assertEquals(logged.includes(leak), false, `log must not contain ${leak}`);
+  }
 });

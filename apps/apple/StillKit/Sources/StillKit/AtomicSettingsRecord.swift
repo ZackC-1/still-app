@@ -202,23 +202,24 @@ public enum AtomicSettingsRecord {
       case .number(let sequence) = state["sequence"], sequence >= 0, sequence <= SettingsV2Migration.maxRevision, sequence.rounded(.towardZero) == sequence,
       state["held"]?.object != nil, state["anchor"] == .null || receipt(state["anchor"]) != nil
     else { throw Failure.unreadable }
-    // A never-linked null-to-null teardown has no account/session generation to retire.
-    // Return the original bytes before saturation checks or complete-record replacement.
-    if action["action"] == .string("scope"), Set(action.keys) == Set(["action", "accountId"]),
-      action["accountId"] == .null, priorScope["accountId"] == .null, state["ownership"] == .string("never-linked") { return raw }
-    guard sequence < SettingsV2Migration.maxRevision else { throw Failure.unreadable }
+    // As in AtomicSettingsWriter, every no-op answer (a never-linked null-to-null teardown, the
+    // same verified session, an acknowledgement for another scope) returns the original bytes
+    // before any saturation refusal or complete-record replacement.
     if action["action"] == .string("scope") {
       guard Set(action.keys) == Set(["action", "accountId"]) || Set(action.keys) == Set(["action", "accountId", "sessionId"]),
-        action["accountId"] == .null || canonicalUUID(action["accountId"]),
-        case .number(let generation) = priorScope["generation"], generation < SettingsV2Migration.maxRevision else { throw Failure.invalidIntent }
+        action["accountId"] == .null || canonicalUUID(action["accountId"]) else { throw Failure.invalidIntent }
       if action["sessionId"] != nil {
         guard action["accountId"] != .null, canonicalUUID(action["sessionId"]) else { throw Failure.invalidIntent }
       }
+      // A never-linked null-to-null teardown has no account/session generation to retire.
+      if action["accountId"] == .null, priorScope["accountId"] == .null, state["ownership"] == .string("never-linked") { return raw }
       if action["accountId"] != .null, action["accountId"] == priorScope["accountId"] {
         // UUID alone cannot establish continuity after an unsuccessful sign-out and process death.
         guard action["sessionId"] != nil, priorScope["sessionId"] != nil else { throw Failure.unavailable }
         if action["sessionId"] == priorScope["sessionId"] { return raw }
       }
+      guard sequence < SettingsV2Migration.maxRevision else { throw Failure.unreadable }
+      guard case .number(let generation) = priorScope["generation"], generation < SettingsV2Migration.maxRevision else { throw Failure.invalidIntent }
       var nextScope: [String: SettingsJSONValue] = ["accountId": action["accountId"]!, "generation": .number(generation + 1)]
       if let session = action["sessionId"] { nextScope["sessionId"] = session }
       if state["ownership"] == .string("never-linked"), priorScope["accountId"] == .null, action["accountId"] != .null {
@@ -241,9 +242,10 @@ public enum AtomicSettingsRecord {
       guard oldEpoch < SettingsV2Migration.maxRevision else { throw Failure.invalidIntent }
       root["syncEpoch"] = .number(oldEpoch + 1)
     } else if action["action"] == .string("acknowledge") {
-      guard Set(action.keys) == Set(["action", "envelope", "scope"]), let captured = action["scope"]?.object,
-        validScope(captured) else { throw Failure.invalidIntent }
-      if captured != priorScope { return raw }
+      guard Set(action.keys) == Set(["action", "envelope", "scope"]), let captured = action["scope"]?.object else { throw Failure.invalidIntent }
+      // Scope identity is its three members (sameSettingsScope), never whole-object equality.
+      if !sameScope(captured, priorScope) { return raw }
+      guard sequence < SettingsV2Migration.maxRevision else { throw Failure.unreadable }
       guard let local = root["settings"]?.object, local["schemaVersion"] == .number(2),
         case .ready = SettingsV2Migration.read(try encoder.encode(local), provenance: .init(kind: "readable-local", provenInitialization: local["updatedAt"] == .number(0)))
       else { throw Failure.unreadable }
@@ -273,7 +275,7 @@ public enum AtomicSettingsRecord {
       for entry in pending {
         guard var operation = entry.object, let scope = operation["scope"]?.object,
           case .array(let ops) = operation["operations"] else { throw Failure.unreadable }
-        if scope != captured { continue }
+        if !sameScope(scope, captured) { continue }
         var remains = false
         for value in ops {
           guard let op = value.object, case .string(let path) = op["path"],
@@ -314,6 +316,7 @@ public enum AtomicSettingsRecord {
       state["pending"] = .array(retained)
       state["anchor"] = .object(anchor)
       resolvePause(&state, held: state["held"]!.object!)
+      settings["pauses"] = .array([]) // The TypeScript writer's legacy projection on every write.
       root["settings"] = .object(settings)
       if envelope["serverUpdatedAt"] == .null { root["syncMetadata"] = .null }
       else {
@@ -342,14 +345,64 @@ public enum AtomicSettingsRecord {
     return (try encoder.encode(root), true)
   }
 
-  public static func commit(_ raw: Data?, path: String, value: Bool, updatedAt: Int) throws -> (data: Data, changed: Bool) {
+  /// Mirrors TypeScript compactNeverLinkedPending. Only an initial, wholly unsubmitted local
+  /// journal may discard superseded requests: whole winning requests (multi-field bodies and exact
+  /// rank ties included) are kept unchanged, and every other shape keeps its journal immutable.
+  private static func compactNeverLinkedPending(_ root: [String: SettingsJSONValue], state: [String: SettingsJSONValue]) -> [SettingsJSONValue] {
+    guard case .array(let pending) = state["pending"] else { return [] }
+    guard state["ownership"] == .string("never-linked"), let scope = state["scope"]?.object,
+      scope["accountId"] == .null, scope["generation"] == .number(0), scope["sessionId"] == nil,
+      root["syncEpoch"] == .number(0), root["syncMetadata"] == .null, state["anchor"] == .null, validState(state),
+      pending.allSatisfy({ entry in
+        guard let item = entry.object else { return false }
+        return item["receipt"] == .null && item["originScope"] == nil && sameScope(item["scope"]?.object, scope)
+      }) else { return pending }
+    func ranks(_ entry: SettingsJSONValue) -> [(path: String, base: Double, step: Double)] {
+      guard case .array(let operations) = entry.object?["operations"] else { return [] }
+      return operations.compactMap { operation in
+        guard let op = operation.object, case .string(let path) = op["path"],
+          case .number(let base) = op["baseRevision"], case .number(let step) = op["localStep"] else { return nil }
+        return (path, base, step)
+      }
+    }
+    var latest: [String: (base: Double, step: Double)] = [:]
+    for entry in pending {
+      for op in ranks(entry) {
+        if let prior = latest[op.path], !(op.base > prior.base || op.base == prior.base && op.step > prior.step) { continue }
+        latest[op.path] = (op.base, op.step)
+      }
+    }
+    return pending.filter { entry in
+      ranks(entry).contains { op in latest[op.path].map { $0.base == op.base && $0.step == op.step } ?? false }
+    }
+  }
+
+  /// AtomicSettingsWriter.commit's view of an absent record: defaults, no sync metadata, never
+  /// repointed. It is what a no-op answer reports, never something saved on its own.
+  public static func absentRecord() throws -> Data {
+    try encoder.encode(absentRoot())
+  }
+  private static func absentRoot() throws -> [String: SettingsJSONValue] {
+    ["settings": try JSONDecoder().decode(SettingsJSONValue.self, from: encoder.encode(StillSettings.default)),
+      "syncMetadata": .null, "syncEpoch": .number(0)]
+  }
+
+  /// `data` is the record the locked backing must hold afterwards. It is nil only when the record
+  /// was absent and the intent changed nothing: as in the TypeScript writer, a no-op never turns
+  /// startup defaults into a saved record.
+  public static func commit(_ raw: Data?, path: String, value: Bool, updatedAt: Int) throws -> (data: Data?, changed: Bool) {
+    try commit(raw, path: path, value: value, updatedAt: updatedAt, writeId: { UUID().uuidString.lowercased() })
+  }
+
+  /// Internal so only shared parity vectors (via @testable) can replay the reference writer's
+  /// request identities. Every identity must still be a canonical lowercase UUID.
+  static func commit(_ raw: Data?, path: String, value: Bool, updatedAt: Int,
+    writeId: () -> String) throws -> (data: Data?, changed: Bool) {
     guard PackagedFeatureRegistry.settingsFields.contains(path) else { throw Failure.unknownField }
     guard updatedAt > 0, Double(updatedAt) <= SettingsV2Migration.maxRevision else { throw Failure.invalidIntent }
     var root: [String: SettingsJSONValue]
     if let raw { root = try decode(raw) }
-    else {
-      root = ["settings": try JSONDecoder().decode(SettingsJSONValue.self, from: encoder.encode(StillSettings.default)), "syncMetadata": .null]
-    }
+    else { root = try absentRoot() }
     var settings = root["settings"]?.object ?? root
     guard let priorValue = field(settings, path) else { throw Failure.unreadable }
     if var atomic = root["atomic"]?.object {
@@ -365,7 +418,7 @@ public enum AtomicSettingsRecord {
         // is queued, so there is no pending limit. Any other unknown null-scope shape is refused.
         guard permitsUnknownLocalEdit(atomic, settings: root["settings"]?.object, legacyPause: true) else { throw Failure.unavailable }
         // A matching overlay alone is not a saved field; persist the person's deliberate choice.
-        if priorValue == value && held[path] == nil { return (try raw ?? encoder.encode(root), false) }
+        if priorValue == value && held[path] == nil { return (raw, false) }
         held.removeValue(forKey: path)
         switch SettingsFieldOrder.edit(prior, acknowledgedRevision: 0, requestedValue: value) {
         case .edited(let next):
@@ -388,8 +441,8 @@ public enum AtomicSettingsRecord {
         return (result, true)
       }
       let effective = held[path] ?? .bool(priorValue)
-      if effective == .bool(value) { return (try raw ?? encoder.encode(root), false) }
-      pending = pending.filter { $0.object?["scope"]?.object == scope }
+      if effective == .bool(value) { return (raw, false) }
+      pending = compactNeverLinkedPending(root, state: atomic).filter { sameScope($0.object?["scope"]?.object, scope) }
       let anchor = atomic["anchor"]?.object
       let revision: Double
       if case .number(let n) = anchor?["revision"] { revision = n }
@@ -400,10 +453,14 @@ public enum AtomicSettingsRecord {
         var nextClocks = clocks
         nextClocks[path] = .object(next.stamp)
         settings["clocks"] = .object(nextClocks)
+        // Only an allocated edit restamps the projection; holds and unchanged answers keep it.
+        settings["updatedAt"] = .number(Double(updatedAt))
         held.removeValue(forKey: path)
         resolvePause(&atomic, held: held)
+        let id = writeId()
+        guard canonicalUUID(.string(id)), !pending.contains(where: { $0.object?["writeId"] == .string(id) }) else { throw Failure.unavailable }
         pending.append(.object([
-          "writeId": .string(UUID().uuidString.lowercased()), "scope": .object(scope),
+          "writeId": .string(id), "scope": .object(scope),
           "receipt": atomic["anchor"] ?? .null,
           "operations": .array([.object(["path": .string(path), "value": .bool(value),
             "baseRevision": .number(next.baseRevision), "localStep": .number(next.localStep)])])
@@ -422,16 +479,24 @@ public enum AtomicSettingsRecord {
       atomic["pending"] = .array(pending)
       atomic["held"] = .object(held)
       root["atomic"] = .object(atomic)
+      settings["pauses"] = .array([]) // The TypeScript writer's legacy projection on every write.
     } else {
       // Existing V2 behavior remains until coordinated protocol rollout. Expanded schema is held.
       guard settings["schemaVersion"] == nil || settings["schemaVersion"] == .number(1),
         path == "globalOn" || path.hasPrefix("services."),
         (try? JSONDecoder().decode(StillSettings.self, from: encoder.encode(settings))) != nil
       else { throw Failure.unreadable }
-      if priorValue == value { return (try raw ?? encoder.encode(root), false) }
+      if priorValue == value { return (raw, false) }
       setField(&settings, path, value)
+      // As AtomicSettingsWriter.commit: watched legacy peers reject equal or older stamps, so the
+      // stamp is allocated from this locked durable read and a same-millisecond or backward clock
+      // cannot hide a genuine later choice.
+      let previous: Double
+      if case .number(let n) = settings["updatedAt"] { previous = n } else { previous = 0 }
+      let stamped = max(Double(updatedAt), previous.rounded(.down) + 1)
+      guard stamped <= SettingsV2Migration.maxRevision else { throw Failure.unavailable }
+      settings["updatedAt"] = .number(stamped)
     }
-    settings["updatedAt"] = .number(Double(updatedAt))
     if root["settings"] == nil { root = ["syncMetadata": .null] }
     root["settings"] = .object(settings)
     let result = try encoder.encode(root)
