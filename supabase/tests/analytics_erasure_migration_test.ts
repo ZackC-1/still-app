@@ -330,6 +330,22 @@ Deno.test({
             "erasure_backlog_index",
           ],
           [
+            // Same name, columns and predicate, another access method: never kept.
+            "drop index private.analytics_erasure_jobs_backlog; create index analytics_erasure_jobs_backlog on private.analytics_erasure_jobs using brin(next_attempt_at, job_id) where priority = 0",
+            [
+              "create index if not exists analytics_erasure_jobs_backlog\n  on private.analytics_erasure_jobs(next_attempt_at, job_id) where priority = 0;",
+            ],
+            "erasure_backlog_index",
+          ],
+          [
+            // The backlog scan reads the oldest first: a descending index is never kept.
+            "drop index private.analytics_erasure_jobs_backlog; create index analytics_erasure_jobs_backlog on private.analytics_erasure_jobs(next_attempt_at desc, job_id) where priority = 0",
+            [
+              "create index if not exists analytics_erasure_jobs_backlog\n  on private.analytics_erasure_jobs(next_attempt_at, job_id) where priority = 0;",
+            ],
+            "erasure_backlog_index",
+          ],
+          [
             "drop index private.analytics_erasure_jobs_open",
             [
               "create unique index if not exists analytics_erasure_jobs_open\n  on private.analytics_erasure_jobs(scope, scope_key) where completed_at is null;",
@@ -373,6 +389,69 @@ Deno.test({
           );
         }
         assertEquals(await catalogState(admin), before);
+      });
+
+      await t.step("a claim index left INVALID by a failed concurrent build is rebuilt, never kept", async () => {
+        const before = await catalogState(admin);
+        const holder = connect();
+        const builder = connect();
+        const indexes: [string, string, string][] = [
+          [
+            "analytics_erasure_jobs_due",
+            "on private.analytics_erasure_jobs(priority desc, next_attempt_at, job_id) where next_attempt_at is not null",
+            "erasure_claim_index",
+          ],
+          [
+            "analytics_erasure_jobs_backlog",
+            "on private.analytics_erasure_jobs(next_attempt_at, job_id) where priority = 0",
+            "erasure_backlog_index",
+          ],
+        ];
+        try {
+          for (const [name, shape, issue] of indexes) {
+            // 0017's own create statement for this index, exactly as written there.
+            const source = await migrationSource();
+            const from = source.slice(source.indexOf(`create index if not exists ${name}\n`));
+            const statement = from.slice(0, from.indexOf(";") + 1);
+            assert(statement.startsWith(`create index if not exists ${name}\n`), name);
+            await admin.unsafe(`drop index private.${name}`);
+            // A writer holds the table, so the concurrent build times out waiting for it and leaves
+            // its index in the catalogue, same name and shape, but INVALID.
+            await holder.begin(async (tx) => {
+              await tx`lock table private.analytics_erasure_jobs in row exclusive mode`;
+              await builder.unsafe("set lock_timeout = '300ms'");
+              const failed = await rejection(() => builder.unsafe(`create index concurrently ${name} ${shape}`));
+              assertEquals(failed.code, "55P03", failed.message);
+            });
+            await builder.unsafe("reset lock_timeout");
+            const state = await admin`select i.indisvalid as valid from pg_catalog.pg_index i
+              where i.indexrelid = ${`private.${name}`}::regclass`;
+            assertEquals(state.map((r) => r.valid), [false]);
+            assert((await verify(admin)).includes(issue), `the post-apply check reports ${issue}`);
+            const repaired = await rejection(() =>
+              admin.begin(async (tx) => {
+                await tx.unsafe(await migrationSource());
+                throw new Error("rollback repaired probe");
+              })
+            );
+            assertEquals(repaired.message, "rollback repaired probe", name);
+            const kept = await rejection(() =>
+              admin.begin(async (tx) => void await tx.unsafe(await without(statement)))
+            );
+            assertEquals(kept.code, "42501", name);
+            assert(
+              kept.message.startsWith("analytics erasure self-check failed:") && kept.message.includes(issue),
+              `${name}: ${kept.message}`,
+            );
+            await admin.unsafe(`drop index private.${name}`);
+            await admin.unsafe(statement);
+          }
+        } finally {
+          await holder.end();
+          await builder.end();
+        }
+        assertEquals(await catalogState(admin), before);
+        assertEquals(await verify(admin), []);
       });
 
       await t.step("the self-check rejects reach that 0017 does not itself remove", async () => {

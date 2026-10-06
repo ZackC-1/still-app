@@ -249,12 +249,16 @@ issues(issue) as (
                       and pg_catalog.pg_get_expr(i.indpred, i.indrelid) = '(completed_at IS NULL)'
                       and i.cols = array['scope', 'scope_key'])
   union all
-  -- the claim indexes: the due index in claim order (priority descending), and the backlog index.
+  -- the claim indexes, valid btree only: the due index in claim order (priority descending), and the
+  -- backlog index in ascending order.
   select 'erasure_claim_index'
   from relations x
   where x.relname = 'analytics_erasure_jobs' and x.oid is not null
     and not exists (select 1 from index_columns i join pg_catalog.pg_index p on p.indexrelid = i.indexrelid
+                      join pg_catalog.pg_class c on c.oid = i.indexrelid
+                      join pg_catalog.pg_am am on am.oid = c.relam
                     where i.indrelid = x.oid and i.indexprs is null
+                      and p.indisvalid and p.indisready and am.amname = 'btree'
                       and pg_catalog.pg_get_expr(i.indpred, i.indrelid) = '(next_attempt_at IS NOT NULL)'
                       and (p.indoption[0] & 1) = 1 and (p.indoption[1] & 1) = 0 and (p.indoption[2] & 1) = 0
                       and i.cols = array['priority', 'next_attempt_at', 'job_id'])
@@ -262,9 +266,13 @@ issues(issue) as (
   select 'erasure_backlog_index'
   from relations x
   where x.relname = 'analytics_erasure_jobs' and x.oid is not null
-    and not exists (select 1 from index_columns i
+    and not exists (select 1 from index_columns i join pg_catalog.pg_index p on p.indexrelid = i.indexrelid
+                      join pg_catalog.pg_class c on c.oid = i.indexrelid
+                      join pg_catalog.pg_am am on am.oid = c.relam
                     where i.indrelid = x.oid and i.indexprs is null
+                      and p.indisvalid and p.indisready and am.amname = 'btree'
                       and pg_catalog.pg_get_expr(i.indpred, i.indrelid) = '(priority = 0)'
+                      and (p.indoption[0] & 1) = 0 and (p.indoption[1] & 1) = 0
                       and i.cols = array['next_attempt_at', 'job_id'])
   union all
   select 'subject_no_account_cascade'
