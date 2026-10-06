@@ -348,3 +348,32 @@ describe("decision 24: dormant Still Pro rows", () => {
     view.unmount();
   });
 });
+
+describe("Chrome/Firefox settings free-period Restore (owner decisions 62 and 73)", () => {
+  it("shows only the plain Restore purchase link next to locked inert rows; never Buy, a price or a sheet", async () => {
+    const { cache } = await savedCache();
+    const { props, storage } = await optionsFixture();
+    const onRestore = vi.fn();
+    props.settings = requireModernSettings(cache.currentRecord());
+    props.access = initialAccessSnapshot();
+    // The V3 options host supplies no paid producer while paid is off; only the Restore port.
+    const { pro: _pro, ...free } = props;
+    const restoreProps = { ...free, onRestore };
+    const saved = await storage.get();
+    const view = render(ExtensionSettings, { props: restoreProps });
+    expect(PAID_TIER_ENABLED).toBe(false);
+    expect(await tapEveryLock(PRO.map((row) => row.id))).toBe(12);
+    expect(onRestore).not.toHaveBeenCalled();
+    const link = screen.getByRole("button", { name: "Restore purchase" });
+    expect(link).toBeVisible();
+    expect(link).toHaveClass("link");
+    expect(document.body.textContent ?? "").not.toMatch(OFFER);
+    expect(document.body.textContent ?? "").not.toMatch(/\$|€|£/);
+    await fireEvent.click(link);
+    expect(onRestore).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(props.onFeatureChange).not.toHaveBeenCalled();
+    expect(await storage.get()).toEqual(saved);
+    view.unmount();
+  });
+});

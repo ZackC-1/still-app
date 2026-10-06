@@ -13,6 +13,7 @@ import { createPageAnalytics } from "../../lib/analytics.js";
 import { modernSettingsRuntime } from "../../lib/modern-settings-runtime.js";
 import { declaredSiteOrigins, firstRunAnalytics, type PinApi } from "./first-run-ports.js";
 import FirstRunApp from "./FirstRunApp.svelte";
+import { bindTextScale } from "../../../core/src/ui/v3/text-scale.js";
 import { isFirefoxAndroid, runtimePlatformFor, type RuntimePlatform } from "../../lib/runtime-platform.js";
 
 // The D14 first-run page. The background opens it once, on a brand-new install; Settings → Setup
@@ -43,7 +44,18 @@ function init(isFirefox: boolean, platform: RuntimePlatform): void {
           legacy = authority;
         }
       : undefined,
+    // The build constant, not `isFirefox`: each build then names only its own host (the built
+    // bundle is checked by tests/playwright/extras-host-build.spec.ts).
+    accessHost: import.meta.env.FIREFOX ? "firefox" : "chromium",
   });
+  // Text size follows the browser's font size on the V3 screens (owner decision 51). The condition
+  // is modernSettingsRuntime's atomicLocal rule written inline, so Vite folds it: configured 2.x
+  // builds contain none of this and stay byte-identical.
+  if (
+    !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
+    import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true"
+  )
+    bindTextScale(document, "browser");
   mount(FirstRunApp, {
     target: document.getElementById("app")!,
     props: {

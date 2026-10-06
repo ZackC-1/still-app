@@ -1,6 +1,7 @@
-// The analytics identity and erasure store (migration 0017). Handlers depend on the interface so
-// tests inject a fake; the Postgres implementation connects ONLY as still_analytics_eraser, whose
-// privileges are EXECUTE on the six private.analytics_* routes and the retained limiter.
+// The analytics identity and erasure store (migrations 0017 and 0018). Handlers depend on the
+// interface so tests inject a fake; the Postgres implementation connects ONLY as
+// still_analytics_eraser, whose privileges are EXECUTE on the eight private.analytics_* routes and
+// the retained limiter.
 //
 // Two device values reach the server, each 32 bytes sent as 64 lowercase hex characters, and the
 // device's private consent handle never does (derive.ts on the client):
@@ -67,6 +68,26 @@ export interface ErasureStore {
   recordOutcome(job: string, lease: string, outcome: ErasureOutcome): Promise<RecordedOutcome>;
 }
 
+/** Why an account's subjects are retired: the delete-user pre-step (`account_deleted`), or the
+ * account-wide "delete what we shared" action (`account_erasure`, packet B). */
+export type AccountErasureReason = "account_deleted" | "account_erasure";
+
+/** The account pre-step's answer: how many active subjects it retired and queued, or "gone" when the
+ * account no longer exists (a retry after a lost reply; 0017's snapshot captured everything then). */
+export type AccountErasureResult =
+  | { readonly state: "captured"; readonly subjects: number }
+  | { readonly state: "gone" };
+
+/** Account-level erasure (migration 0018). Separate from ErasureStore so the account functions
+ * depend on nothing else. */
+export interface AccountErasurePort {
+  /** Retire every active subject of the account and queue each in its own random-key job, in one
+   * transaction. Idempotent: a second call captures 0. */
+  beginAccountErasure(userId: string, reason: AccountErasureReason): Promise<AccountErasureResult>;
+  /** The least advanced stage among the account-wide jobs, or null when there is none. */
+  accountErasureStatus(userId: string): Promise<ErasureStage | null>;
+}
+
 const PROOF = /^[0-9a-f]{64}$/;
 /** The last anonymous index a device may name (derive.ts ANON_INDEX_LIMIT). */
 export const ANON_INDEX_LIMIT = 255;
@@ -101,7 +122,7 @@ export class ErasureStorageUnavailable extends Error {
 
 type Sql = ReturnType<typeof postgres>;
 
-export class PgErasureStore implements ErasureStore {
+export class PgErasureStore implements ErasureStore, AccountErasurePort {
   constructor(private readonly sql: Sql) {}
 
   private async one(query: () => PromiseLike<readonly { value: unknown }[]>): Promise<unknown> {
@@ -169,6 +190,26 @@ export class PgErasureStore implements ErasureStore {
     });
   }
 
+  async beginAccountErasure(userId: string, reason: AccountErasureReason): Promise<AccountErasureResult> {
+    const value = await this.one(() =>
+      this.sql<{ value: unknown }[]>`
+        select private.analytics_begin_account_erasure(${userId}::uuid, ${reason}) as value`
+    );
+    return accountErasureResult(value);
+  }
+
+  async accountErasureStatus(userId: string): Promise<ErasureStage | null> {
+    const value = await this.one(() =>
+      this.sql<{ value: unknown }[]>`select private.analytics_account_erasure_status(${userId}::uuid) as value`
+    ) as Record<string, unknown> | null;
+    if (!value || typeof value !== "object" || Array.isArray(value) || !exactKeys(value, ["stage"])) {
+      throw new ErasureStorageUnavailable();
+    }
+    if (value.stage === null) return null;
+    if (!isStage(value.stage)) throw new ErasureStorageUnavailable();
+    return value.stage;
+  }
+
   async recordOutcome(job: string, lease: string, outcome: ErasureOutcome): Promise<RecordedOutcome> {
     const value = await this.one(() =>
       this.sql<{ value: unknown }[]>`
@@ -177,6 +218,24 @@ export class PgErasureStore implements ErasureStore {
     if (typeof value?.recorded !== "boolean") throw new ErasureStorageUnavailable();
     return { recorded: value.recorded, overdue: value.overdue === true };
   }
+}
+
+function exactKeys(value: object, keys: readonly string[]): boolean {
+  const own = Object.keys(value).sort();
+  return own.length === keys.length && [...keys].sort().every((k, i) => own[i] === k);
+}
+
+/** Only `{state: "captured", subjects: n >= 0}` or `{state: "gone"}`; anything else is a storage
+ * failure, never a capture. */
+export function accountErasureResult(value: unknown): AccountErasureResult {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new ErasureStorageUnavailable();
+  const v = value as Record<string, unknown>;
+  if (v.state === "gone" && exactKeys(v, ["state"])) return { state: "gone" };
+  if (
+    v.state === "captured" && exactKeys(v, ["state", "subjects"]) && Number.isSafeInteger(v.subjects) &&
+    (v.subjects as number) >= 0
+  ) return { state: "captured", subjects: v.subjects as number };
+  throw new ErasureStorageUnavailable();
 }
 
 function jobRef(value: unknown): ErasureJobRef {
@@ -193,8 +252,14 @@ function jobRef(value: unknown): ErasureJobRef {
 export type DeviceErasureState = "none" | "requested" | "verifying" | "deleted";
 
 export function deviceErasureState(ref: ErasureJobRef | null): DeviceErasureState {
-  if (!ref) return "none";
-  switch (ref.stage) {
+  return stageErasureState(ref?.stage ?? null);
+}
+
+/** The same mapping from a bare stage: the account-wide status reports the least advanced stage
+ * among the account's jobs (0018), or null when there is none. */
+export function stageErasureState(stage: ErasureStage | null): DeviceErasureState {
+  if (!stage) return "none";
+  switch (stage) {
     case "stop_recorded":
       return "requested";
     case "provider_delete_accepted":

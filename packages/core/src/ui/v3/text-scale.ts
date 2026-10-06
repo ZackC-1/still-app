@@ -1,0 +1,219 @@
+// Text size for the V3 screens (owner decision 51): follow the person's own text-size setting.
+//
+// The design system scales every V3 font size by one CSS variable, `--text-scale`
+// (`calc(Npx * var(--text-scale, 1))`; the token default is 1). This module measures the setting
+// the platform exposes to web pages and writes that variable on <html>. Only text grows: widths,
+// spacing, switches and icons stay fixed, exactly as the design's large-text frames draw them.
+//
+// Where the size comes from:
+//   - "browser" (Chrome, Firefox, including Firefox for Android): the browser's default font size
+//     ("Font size" in settings). Pages see it as the size of the CSS keyword `medium`.
+//   - "apple" (the Apple app's web view, Safari's extension pages on iPhone and iPad): the system
+//     Text Size, including the larger accessibility sizes. WebKit exposes it to pages as
+//     `font: -apple-system-body` (17px at the default size). On a Mac there is no public text-size
+//     setting a web page or app can read, so Mac stays at normal size.
+//
+// The scale is a ratio of two hidden probes, never a single measurement over a fixed number.
+//   - Measured: an element at `4em` inside one set to the platform's size (`medium`, or
+//     `-apple-system-body`), so 64px at Chrome/Firefox's default 16px and 68px at Apple's 17px.
+//   - Reference: a fixed 64px (browser) or 68px (Apple) element.
+// Both probes sit at four times the normal size on purpose. Chromium includes its minimum font
+// size in computed sizes: with a minimum of 20px a 16px element reads 20px, which turned a default
+// of 24px into 1.2× instead of 1.5×. Chrome's minimum tops out at 24px, so 64px probes are never
+// raised. `4em` resolves from the parent's specified size, so a default below the minimum still
+// reads as smaller than normal (and stays at 1×). Firefox applies its minimum after computed values
+// and WebKit on iPhone and iPad has none; the same probes are correct there too.
+//
+// A browser text zoom (Firefox's View → Zoom → Zoom Text Only, Firefox for Android's font size)
+// already enlarges Still's text by itself and must not raise the scale. Whether or not it shows in
+// computed sizes, it treats both probes the same, so the ratio is unchanged. Page zoom is likewise
+// left to the browser: it changes the device pixel ratio, not CSS sizes.
+//
+// Live changes: WebKit and Chromium restyle open pages when the setting changes, which resizes the
+// probes; a ResizeObserver re-measures. It watches the element set to the platform's size as well
+// as the `4em` one: on the iOS simulator WebKit notified only the former when Text Size changed. A
+// return to the page (visibilitychange, pageshow) re-measures as well. Never `window.resize`:
+// extension popups fire spurious resize events.
+//
+// Hosts call `bindTextScale` once, where they commit to a V3 screen and before it mounts. V3
+// components never call it, so the component harness (which sets `--text-scale` itself) stays
+// independent. Nothing here is stored or sent anywhere.
+
+/** The design's normal size; no setting makes Still smaller than this. */
+export const TEXT_SCALE_MIN = 1;
+/** Twice the normal size, the largest the design defines (Apple's 200% Larger Text bar). */
+export const TEXT_SCALE_MAX = 2;
+/** Above this the compact popups scroll as a whole instead of only the site list. */
+export const TEXT_SCALE_LARGE_ABOVE = 1.5;
+
+export type TextScaleSource = "browser" | "apple";
+
+export interface TextScaleOptions {
+  /** A compact popup (D01/D02): above 1.5× the whole popup scrolls so nothing is clipped. */
+  readonly compactPopup?: boolean;
+}
+
+/** The design scale for a measured size over its reference size: clamped to [1, 2], 2 decimals.
+ * Anything unmeasurable (zero, negative, NaN, infinite) is the normal size. */
+export function textScaleFrom(measured: number, reference: number): number {
+  if (!Number.isFinite(measured) || !Number.isFinite(reference)) return TEXT_SCALE_MIN;
+  if (measured <= 0 || reference <= 0) return TEXT_SCALE_MIN;
+  const clamped = Math.min(TEXT_SCALE_MAX, Math.max(TEXT_SCALE_MIN, measured / reference));
+  return Math.round(clamped * 100) / 100;
+}
+
+/** A Mac (not an iPad in desktop mode, which also says "Macintosh" but has touch points). */
+export function isMacNavigator(
+  nav: { readonly userAgent?: string; readonly maxTouchPoints?: number } | undefined,
+): boolean {
+  return /Macintosh/.test(nav?.userAgent ?? "") && (nav?.maxTouchPoints ?? 0) === 0;
+}
+
+const PROBE_BASE =
+  "position:absolute;inset-block-start:0;inset-inline-start:0;visibility:hidden;" +
+  "pointer-events:none;white-space:nowrap;line-height:1;margin:0;padding:0;border:0;";
+
+/** Both probes measure at this multiple of the normal size, above any minimum font size. */
+export const PROBE_MULTIPLE = 4;
+
+const PROBES: Record<TextScaleSource, { readonly base: string; readonly reference: string }> = {
+  browser: {
+    base: "font-family:sans-serif;font-size:medium;",
+    reference: `font-family:sans-serif;font-size:${16 * PROBE_MULTIPLE}px;`,
+  },
+  apple: {
+    base: "font:-apple-system-body;",
+    reference: `font-size:${17 * PROBE_MULTIPLE}px;`,
+  },
+};
+
+/** The attribute on <html> the presentation rules key on: present once bound, "large" above 1.5. */
+export const TEXT_SCALE_ATTRIBUTE = "data-still-text-scale";
+
+/** Presentation rules that exist only while text scaling is bound. They live here, not in the
+ * shared V3 stylesheets, so builds without text scaling keep those stylesheets unchanged. */
+export function textScaleRules(options: TextScaleOptions): string {
+  // Above 1.5× a single long word can be wider than a 320px column (at 2×, "recommendations" in
+  // "Explore recommendations" overflows the settings page by 4px). Let such a word break rather
+  // than run off the edge. Nothing changes at 1.5× or below, so the approved frames are untouched.
+  //
+  // The screen's base size follows the text size from the first paint. A host's own loading lines
+  // ("Checking sync…", "Settings are unavailable.") sit in the shared shell, whose older stylesheet
+  // fixes `.still-ui` at 16px until the V3 stylesheet arrives with the same rule scaled; without
+  // this they flash at the normal size first. `:where()` adds no weight, so the V3 stylesheet (and
+  // anything more specific) still decides once it loads. At 1× this is the same 16px.
+  const rules: string[] = [
+    `:where(html[${TEXT_SCALE_ATTRIBUTE}]) .still-ui{font-size:calc(16px * var(--text-scale, 1))}`,
+    `html[${TEXT_SCALE_ATTRIBUTE}="large"] .still-ui{overflow-wrap:anywhere}`,
+  ];
+  if (options.compactPopup) {
+    // Above 1.5× the fixed parts of a compact popup can outgrow its 600px cap. The
+    // whole popup then scrolls (the existing invitation-scroll behaviour), and the site list keeps
+    // room for one row, so nothing is ever clipped.
+    rules.push(
+      `html[${TEXT_SCALE_ATTRIBUTE}="large"] .app[data-density="compact"]{overflow-y:auto;overscroll-behavior-y:contain}`,
+      `html[${TEXT_SCALE_ATTRIBUTE}="large"] .app[data-density="compact"] .site-scroll{min-block-size:calc(var(--tap-target, 44px) * var(--text-scale, 1) + 2 * var(--service-card-padding-block, var(--space-3, 12px)))}`,
+    );
+  }
+  // No rule touches the desktop popup's own "Settings sync" heading: the approved design draws it
+  // at a fixed 17px at every text size, including the 150% frame, and it stays that way.
+  return rules.join("\n");
+}
+
+/**
+ * Measure the person's text size, write `--text-scale` on <html>, and keep it current. Returns a
+ * function that removes everything it added. Never throws: if anything cannot be measured the
+ * page keeps the design's normal size.
+ */
+export function bindTextScale(
+  doc: Document,
+  source: TextScaleSource,
+  options: TextScaleOptions = {},
+): () => void {
+  const added: Element[] = [];
+  const cleanups: (() => void)[] = [];
+  const root = doc.documentElement;
+  const dispose = (): void => {
+    for (const cleanup of cleanups.splice(0)) {
+      try {
+        cleanup();
+      } catch {
+        /* removing is best-effort */
+      }
+    }
+    for (const element of added.splice(0)) element.remove();
+  };
+  try {
+    const win = doc.defaultView;
+    const body = doc.body;
+    if (!win || !body) return dispose;
+    // Mac: no public text-size signal exists; stay at the normal size.
+    if (source === "apple" && isMacNavigator(win.navigator)) return dispose;
+
+    const probe = (role: "base" | "reference", style: string): HTMLElement => {
+      const element = doc.createElement("span");
+      element.setAttribute("aria-hidden", "true");
+      element.setAttribute("data-still-text-probe", role);
+      element.style.cssText = PROBE_BASE + style;
+      body.appendChild(element);
+      added.push(element);
+      return element;
+    };
+    // The platform's size, and inside it the same size at PROBE_MULTIPLE times (`4em`).
+    const base = probe("base", PROBES[source].base);
+    const measured = doc.createElement("span");
+    measured.setAttribute("data-still-text-probe", "measured");
+    measured.style.cssText = `font-size:${PROBE_MULTIPLE}em;`;
+    measured.textContent = "M";
+    base.appendChild(measured);
+    const reference = probe("reference", PROBES[source].reference);
+    reference.textContent = "M";
+    const sizeOf = (element: HTMLElement): number =>
+      parseFloat(win.getComputedStyle(element).fontSize);
+
+    const style = doc.createElement("style");
+    style.setAttribute("data-still-text-scale-rules", "");
+    style.textContent = textScaleRules(options);
+    doc.head.appendChild(style);
+    added.push(style);
+
+    let current: number | undefined;
+    const apply = (): void => {
+      let next: number;
+      try {
+        next = textScaleFrom(sizeOf(measured), sizeOf(reference));
+      } catch {
+        return;
+      }
+      if (next === current) return;
+      current = next;
+      root.style.setProperty("--text-scale", String(next));
+      root.setAttribute(TEXT_SCALE_ATTRIBUTE, next > TEXT_SCALE_LARGE_ABOVE ? "large" : "");
+    };
+    cleanups.push(() => {
+      root.style.removeProperty("--text-scale");
+      root.removeAttribute(TEXT_SCALE_ATTRIBUTE);
+    });
+    apply();
+
+    const Observer = (win as Window & { ResizeObserver?: typeof ResizeObserver }).ResizeObserver;
+    if (Observer) {
+      const observer = new Observer(() => apply());
+      observer.observe(base);
+      observer.observe(measured);
+      cleanups.push(() => observer.disconnect());
+    }
+    const onReturn = (): void => {
+      if (doc.visibilityState !== "hidden") apply();
+    };
+    doc.addEventListener("visibilitychange", onReturn);
+    win.addEventListener("pageshow", onReturn);
+    cleanups.push(() => {
+      doc.removeEventListener("visibilitychange", onReturn);
+      win.removeEventListener("pageshow", onReturn);
+    });
+  } catch {
+    dispose();
+  }
+  return dispose;
+}

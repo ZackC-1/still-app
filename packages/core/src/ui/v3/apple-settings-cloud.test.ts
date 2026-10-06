@@ -269,7 +269,7 @@ describe("Apple atomic-cloud composition (configured, modern sync flag on)", () 
     await f.signIn();
     await waitFor(() => expect(f.controller.cloudReachable).toBe(false));
     expect(f.controller.lastSyncedAt).toBeNull();
-    expect(await screen.findByText(STRINGS.sync.unreachable)).toBeInTheDocument();
+    expect(await screen.findByText(STRINGS.sync.failed)).toBeInTheDocument();
     expect(f.server.invoke.mock.calls.some(([name]) => name === "sync-settings")).toBe(false);
     expect(f.server.operations).toEqual([]);
     f.authority.stop();

@@ -13,8 +13,9 @@ import {
 } from "./events.js";
 import { isAnalyticsId, type AnalyticsIdentity, type AnalyticsKeyValue } from "./identity.js";
 import { ANON_INDEX_LIMIT, originProof } from "./derive.js";
-import type { ErasureService } from "./erasure.js";
+import type { AccountErasureService, ErasureService, ErasureWithdrawal } from "./erasure.js";
 import type {
+  UiAccountErasureView,
   UiAnalytics,
   UsageSharingState,
 } from "../ui/controller.svelte.js";
@@ -47,6 +48,10 @@ export const PENDING_INSTALL_KEY = "still:analytics:pending-install";
 /** This device's issued per-account subjects (U5-W2): which PostHog identity each account uses here. */
 export const SUBJECTS_KEY = "still:analytics:subjects";
 export const SUBJECTS_LIMIT = 8;
+/** Set when the server stopped this device because sharing was turned off for the account from
+ * another device (an account-wide deletion): `{account}`. Read for the line "Sharing was turned off
+ * from another device." and cleared once it has been shown. Local, never sent. */
+export const STOPPED_ELSEWHERE_KEY = "still:analytics:stopped-elsewhere";
 
 const QUIET: TrackOptions = { quiet: true };
 type Observation = ReturnType<AnalyticsClient["captureObservation"]>;
@@ -91,6 +96,10 @@ export interface ExtensionAnalyticsHostDeps {
   readonly subjects?: SubjectDeps;
   /** Device erasure (U5-W2): records the stop when sharing is switched off here, and submits it. */
   readonly erasure?: ErasureService;
+  /** Account-wide erasure (U5-W3 packet B, "Delete shared data on all devices"). Offered to pages
+   * only while per-device subjects are wired too: without them no account-linked identity exists
+   * to delete, so the action stays hidden (the page's state request answers null). */
+  readonly accountErasure?: AccountErasureService;
   /** Ask for a flush at a random later time (an alarm), for events recorded quietly at a
    * background start. Without it they wait for the next popup or settings open. */
   readonly requestQuietFlush?: () => void;
@@ -109,8 +118,13 @@ export interface ExtensionAnalyticsHost {
   /** Background start: one quiet `active` a day, setup complete on Safari (the extension is
    * running), a pending install if sharing is now on, and the current account. `null` means known to
    * be signed out (an earlier account is let go, whether it signed out here, elsewhere or was
-   * deleted); `undefined` means it could not be read, so nothing about the account changes. */
-  onStart(userId: string | null | undefined): void;
+   * deleted); `undefined` means it could not be read, so nothing about the account changes.
+   *
+   * Call it synchronously when the background starts, passing the session read itself (a promise)
+   * rather than awaiting it first: the start's account ask is reserved at once, so a sign-out,
+   * deletion or sign-in that happens while the read is in flight supersedes it, and a stale read
+   * that lands afterwards changes nothing. A rejected read counts as `undefined`. */
+  onStart(userId: string | null | undefined | PromiseLike<string | null | undefined>): void;
   /** The content script's visit nudge: real use. One quiet `active` for the day, and on Safari the
    * setup milestones (the extension demonstrably runs). */
   onActivity(observation?: Observation): void;
@@ -135,14 +149,25 @@ type PageRequest =
       readonly props?: unknown;
     }
   | { readonly action: "identify"; readonly userId: string }
-  | { readonly action: "reset"; readonly forgetAccount: boolean }
+  | { readonly action: "reset"; readonly forgetAccount: boolean; readonly account?: string }
   | { readonly action: "sharing" }
   | { readonly action: "setSharing"; readonly enabled: boolean }
-  | { readonly action: "acknowledgeNotice" };
+  | { readonly action: "acknowledgeNotice" }
+  | {
+      readonly action: "accountErasure";
+      readonly op: "state" | "start" | "retry" | "acknowledge";
+      readonly account: string;
+    };
 
 export interface AccountIdentifier {
-  /** Identify the install as this account; an ordinary (not quiet) identify also runs the attach. */
-  identify(userId: string, options?: TrackOptions): Promise<void>;
+  /** Identify the install as this account; an ordinary (not quiet) identify also runs the attach.
+   * `ask`: an account ask the caller reserved earlier (`client.reserveAccountAsk`), for an identify
+   * whose account was read after a wait; anything asked since supersedes it. */
+  identify(userId: string, options?: TrackOptions, ask?: number): Promise<void>;
+  /** An account deletion (or a start that finds nobody signed in): forget this device's cached
+   * per-device subjects for `account` when named, for the account the host last asked for, and for
+   * the one being reported as, so no deleted account's mapping stays. */
+  forgetSubjects(reportingAs: string | null, account?: string): Promise<void>;
   /**
    * The server email attach for whichever account the client reports as right now, once per
    * account while sharing is on. It never changes the account itself (a stale read must not restore
@@ -321,6 +346,17 @@ export function createAccountIdentifier(deps: {
       return false;
     }
   };
+  const forgetEntry = async (entry: StoredSubject): Promise<void> => {
+    try {
+      const stored = readSubjects(await deps.local.get(SUBJECTS_KEY));
+      const kept = stored.filter(
+        (s) => !(s.account === entry.account && s.origin === entry.origin && s.subject === entry.subject),
+      );
+      if (kept.length !== stored.length) await deps.local.set(SUBJECTS_KEY, kept);
+    } catch {
+      /* best effort: the entry is local, bounded and never sent */
+    }
+  };
   /** One bounded, cancellable request per (account, origin). Never from a background start. */
   const requestSubject = (
     account: string,
@@ -354,7 +390,15 @@ export function createAccountIdentifier(deps: {
         );
         if (!reply || !(await client.observationCurrent(observation))) return null;
         if (reply.state === "stopped") return "stopped";
-        return (await rememberSubject({ account, origin, subject: reply.subject })) ? reply.subject : null;
+        const entry = { account, origin, subject: reply.subject };
+        const remembered = await rememberSubject(entry);
+        // A forget (a deletion) or any other cancellation that landed while the write was in flight
+        // must not leave the mapping behind: remove it again and confirm nothing.
+        if (scope.aborted) {
+          await forgetEntry(entry);
+          return null;
+        }
+        return remembered ? reply.subject : null;
       } catch {
         return null; // retried at the next Still screen
       } finally {
@@ -369,7 +413,7 @@ export function createAccountIdentifier(deps: {
    * screen retries a subject request that failed, only while nothing has changed since (a sign-out,
    * a deletion or a permission change makes the stamp stale, so a stale account is never restored). */
   let wanted: { readonly account: string; readonly stamp: ReturnType<AnalyticsClient["stamp"]> } | null = null;
-  const identifySubject = async (asked: string, options: TrackOptions): Promise<void> => {
+  const identifySubject = async (asked: string, options: TrackOptions, reserved?: number): Promise<void> => {
     if (!isAnalyticsId(asked) || !client.enabled) return;
     const account = asked.toLowerCase();
     // Unless this account's own subject is already confirmed, hold the client for this account
@@ -385,7 +429,8 @@ export function createAccountIdentifier(deps: {
     // is the client's stamp taken synchronously as the hold is asked (after its own withdrawal), so a
     // cancellation (sharing off, a forget) also makes this call's request and confirmation stale,
     // even while the hold is still waiting its turn on the chain.
-    const ask = client.reserveAccountAsk();
+    const ask = reserved ?? client.reserveAccountAsk();
+    if (!client.isLatestAsk(ask)) return;
     const current = () => client.isLatestAsk(ask) && client.isCurrent(fence);
     const before = await client.captureObservation();
     const known = before ? await cachedSubject(account, before.permission.origin) : null;
@@ -401,16 +446,30 @@ export function createAccountIdentifier(deps: {
     const observation = await client.captureObservation();
     if (!observation || !current()) return;
     let subject = await cachedSubject(account, observation.permission.origin);
-    if (!subject) {
+    if (!subject && options.quiet) {
       // A background start never calls the server (its timing would mark a site visit): events
-      // wait unattributed until an ordinary Still screen obtains the subject.
-      if (options.quiet) return;
+      // wait unattributed until an ordinary Still screen obtains the subject. But a request that a
+      // Still screen already started for this same account and origin is awaited: this quiet ask
+      // superseded that screen's own confirmation, so it confirms the subject in its place.
+      const inflight = subjectRequests.get(`${account}:${observation.permission.origin}`);
+      if (!inflight) return;
+      const issued = await inflight;
+      if (issued === null || issued === "stopped") return; // the screen's own call handles "stopped"
+      subject = issued;
+    }
+    if (!subject) {
       if (!current()) return;
       const issued = await requestSubject(account, observation);
       if (issued === "stopped") {
         // Ends sharing here only. Never a device erasure: an account-wide deletion must not erase
         // this device's signed-out data (owner decision 61, account data only).
-        if (await client.observationCurrent(observation)) await deps.subjects!.onStopped();
+        if (await client.observationCurrent(observation)) {
+          // Sharing was on here and the server retired this device's identity for the account:
+          // the stop came from elsewhere (this device's own account-wide deletion stops sharing
+          // here first, so it never reaches this point). Remembered for the settings page's line.
+          await deps.local.set(STOPPED_ELSEWHERE_KEY, { account }).catch(() => undefined);
+          await deps.subjects!.onStopped();
+        }
         return;
       }
       if (!issued) return;
@@ -421,14 +480,30 @@ export function createAccountIdentifier(deps: {
   };
 
   return {
-    async identify(userId, options = {}) {
-      if (deps.subjects) return identifySubject(userId, options);
+    async identify(userId, options = {}, ask) {
+      if (deps.subjects) return identifySubject(userId, options, ask);
       // Without per-device subjects there is no identity to report under: never fall back to the
       // account id (owner decision 50). Stop reporting as anyone else (nobody included) at once;
       // signed-in events wait unattributed, bound to this account, and are dropped if the account
       // is let go of, so they are never reported under the anonymous id or another account either.
       void options;
-      if (client.enabled && isAnalyticsId(userId)) await client.holdForAccount(userId);
+      if (client.enabled && isAnalyticsId(userId)) await client.holdForAccount(userId, ask);
+    },
+    async forgetSubjects(reportingAs, account) {
+      const named = [wanted?.account, account?.toLowerCase()].filter((a): a is string => !!a);
+      wanted = null;
+      try {
+        const stored = readSubjects(await deps.local.get(SUBJECTS_KEY));
+        const accounts = new Set(
+          stored
+            .filter((s) => named.includes(s.account) || (reportingAs !== null && s.subject === reportingAs))
+            .map((s) => s.account),
+        );
+        if (accounts.size === 0) return;
+        await deps.local.set(SUBJECTS_KEY, stored.filter((s) => !accounts.has(s.account)));
+      } catch {
+        /* best effort: the entry is local, bounded and never sent */
+      }
     },
     // With per-device subjects the email is set when the subject is issued, so there is no separate
     // attach: an ordinary screen instead retries a subject request that has not succeeded yet.
@@ -488,8 +563,8 @@ export function createExtensionAnalyticsHost(
     identifyOnServer: deps.identifyOnServer,
     subjects: deps.subjects,
   });
-  const identify = (userId: string, options?: TrackOptions) =>
-    accounts.identify(userId, options);
+  const identify = (userId: string, options?: TrackOptions, ask?: number) =>
+    accounts.identify(userId, options, ask);
   // Read when the install is reported, not at creation: an extension host may learn its surface
   // from the browser after it starts (Firefox for Android), and consent waits for that answer.
   const blocksAtInstall = () =>
@@ -535,6 +610,20 @@ export function createExtensionAnalyticsHost(
     return { enabled, noticeNeeded };
   };
 
+  // ── Account-wide erasure ("Delete shared data on all devices") ──
+  // Dormant unless per-device subjects are wired too: pages are then answered null and hide it.
+  const accountWide = deps.subjects && deps.accountErasure ? deps.accountErasure : null;
+  const stoppedElsewhere = async (account: string): Promise<boolean> => {
+    const marker = await deps.local.get(STOPPED_ELSEWHERE_KEY).catch(() => null);
+    return !!marker && typeof marker === "object" && (marker as Record<string, unknown>).account === account;
+  };
+  const accountView = async (service: AccountErasureService, account: string): Promise<UiAccountErasureView> => ({
+    withdrawal: await service.withdrawal(account),
+    stoppedElsewhere: await stoppedElsewhere(account),
+  });
+  const clearStoppedElsewhere = (): Promise<void> =>
+    deps.local.set(STOPPED_ELSEWHERE_KEY, null).catch(() => undefined);
+
   const handle = async (
     request: PageRequest,
     observation: ReturnType<AnalyticsClient["captureObservation"]>,
@@ -567,9 +656,14 @@ export function createExtensionAnalyticsHost(
         // A page reports the signed-in account from its session: that confirms the account.
         await identify(request.userId);
         return true;
-      case "reset":
+      case "reset": {
+        // Who this device reports as, read before the reset lets the account go.
+        const reportingAs = request.forgetAccount ? client.signedInAs() : null;
         await client.reset({ forgetAccount: request.forgetAccount });
+        // A deletion also forgets which per-device subject the account used here.
+        if (request.forgetAccount && deps.subjects) await accounts.forgetSubjects(await reportingAs, request.account);
         return true;
+      }
       case "sharing":
         return sharing();
       case "setSharing": {
@@ -599,6 +693,46 @@ export function createExtensionAnalyticsHost(
       case "acknowledgeNotice":
         await deps.local.set(NOTICE_KEY, true).catch(() => undefined);
         return true;
+      case "accountErasure": {
+        if (!accountWide || !client.enabled) return null;
+        const { account } = request;
+        switch (request.op) {
+          case "state":
+            // The settings page asking is an ordinary Still screen (never a background start), and
+            // the one place this is shown: resend an unsent request, follow a sent one, then answer.
+            // (The track path cannot do it: with sharing off here it records nothing and stops early.)
+            await accountWide.kick();
+            return accountView(accountWide, account);
+          case "start": {
+            // 1. The local stop, first and with no network: sharing ends on this device, exactly as
+            //    the switch turns it off, but WITHOUT a device erasure (no ledger entry, no device
+            //    request). Owner decision 61: an account-wide deletion deletes account data only;
+            //    this device's signed-out data stays until sharing is turned off on this device.
+            client.permissionChanged();
+            try {
+              if (deps.commitPermission) await deps.commitPermission(false);
+              else await deps.storeConsent?.(false);
+            } catch {
+              /* verified below */
+            }
+            await client.clearQueue();
+            // The failure line says sharing stays off here, so nothing is sent unless it is off.
+            if (await client.canReport()) return null;
+            // This device's cached identity for the account goes too (the server retires it).
+            await accounts.forgetSubjects(null, account);
+            await clearStoppedElsewhere();
+            // 2. The request, with this account's own session (a signed-in session is enough, D60).
+            return { withdrawal: await accountWide.request(account), stoppedElsewhere: false };
+          }
+          case "retry":
+            await accountWide.retry();
+            return accountView(accountWide, account);
+          case "acknowledge":
+            await accountWide.acknowledge(account);
+            if (await stoppedElsewhere(account)) await clearStoppedElsewhere();
+            return true;
+        }
+      }
     }
   };
 
@@ -664,15 +798,30 @@ export function createExtensionAnalyticsHost(
           .catch(() => {});
       }
     },
-    onStart(userId) {
+    onStart(read) {
       if (stopped) return;
+      // Reserved before the read settles: anything asked meanwhile (a sign-out, a deletion, another
+      // account) supersedes this start, whose read may already be stale.
+      // An unknown account (undefined) asks nothing, so it never supersedes a screen's identify.
+      const ask = read === undefined ? null : client.reserveAccountAsk();
       void (async () => {
-        if (userId) {
-          await identify(userId, QUIET);
+        // A value already known is acted on at once, as before (no extra turn of the event loop).
+        const userId =
+          read !== null && typeof read === "object" && typeof (read as PromiseLike<unknown>).then === "function"
+            ? await Promise.resolve(read).catch(() => undefined)
+            : (read as string | null | undefined);
+        if (stopped || (ask !== null && !client.isLatestAsk(ask))) {
+          // Superseded: the later ask decides the account. Nothing about it changes here.
+        } else if (userId) {
+          await identify(userId, QUIET, ask ?? undefined);
         } else if (userId === null) {
           // The account is gone (signed out elsewhere, deleted, expired). Its waiting events go with
           // it: if it was deleted, sending them would recreate the person the server just removed.
+          const reportingAs = deps.subjects ? client.signedInAs() : null;
           await client.confirm(null, { forget: true, quiet: true });
+          // Its cached per-device subject too (harmless if it was only a sign-out: the server
+          // answers the same subject when that account signs in here again).
+          if (deps.subjects) await accounts.forgetSubjects(await reportingAs);
         }
         // undefined: the account could not be read. It stays unconfirmed.
         await requestFlushIfNeeded();
@@ -740,7 +889,10 @@ export function createExtensionAnalyticsHost(
         return false;
       const request = parsePageRequest(m);
       if (!request) return false;
-      if (request.action === "setSharing" && !request.enabled) {
+      if (
+        (request.action === "setSharing" && !request.enabled) ||
+        (request.action === "accountErasure" && request.op === "start" && accountWide)
+      ) {
         client.permissionChanged();
         void client.clearQueue();
       }
@@ -769,13 +921,32 @@ function parsePageRequest(m: Record<string, unknown>): PageRequest | null {
         ? { action: "setSharing", enabled: m.enabled }
         : null;
     case "reset":
-      return { action: "reset", forgetAccount: m.forgetAccount === true };
+      return {
+        action: "reset",
+        forgetAccount: m.forgetAccount === true,
+        ...(isAnalyticsId(m.account) ? { account: m.account.toLowerCase() } : {}),
+      };
     case "sharing":
     case "acknowledgeNotice":
       return { action: m.action };
+    case "accountErasure":
+      return (m.op === "state" || m.op === "start" || m.op === "retry" || m.op === "acknowledge") &&
+        isAnalyticsId(m.account)
+        ? { action: "accountErasure", op: m.op, account: m.account.toLowerCase() }
+        : null;
     default:
       return null;
   }
+}
+
+const WITHDRAWALS: readonly ErasureWithdrawal[] = ["none", "requested", "verifying", "deleted", "failed"];
+
+function readAccountView(value: unknown): UiAccountErasureView | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const v = value as Record<string, unknown>;
+  return WITHDRAWALS.includes(v.withdrawal as ErasureWithdrawal) && typeof v.stoppedElsewhere === "boolean"
+    ? { withdrawal: v.withdrawal as ErasureWithdrawal, stoppedElsewhere: v.stoppedElsewhere }
+    : null;
 }
 
 // ── Popup / options pages ─────────────────────────────────────────────────────────────────────
@@ -810,6 +981,7 @@ export function createPageAnalytics(
       send({
         action: "reset",
         forgetAccount: options?.forgetAccount === true,
+        ...(options?.forgetAccount === true && options.account ? { account: options.account } : {}),
       }).then(
         () => undefined,
         () => undefined,
@@ -838,6 +1010,29 @@ export function createPageAnalytics(
         );
         return typeof result === "boolean" ? result : !enabled;
       });
+    },
+    // Null from the background means the action is not offered in this build (dormant).
+    accountErasure: {
+      state: (account) =>
+        send({ action: "accountErasure", op: "state", account }).then(readAccountView, () => null),
+      start(account) {
+        // Called synchronously from the confirming tap: where the page itself owns consent
+        // (Firefox's permission), it is removed here first, inside the gesture. The background then
+        // completes the local stop and checks it before anything is sent.
+        const change = options.changeConsent
+          ? options.changeConsent(false).catch(() => undefined)
+          : Promise.resolve();
+        return change.then(() =>
+          send({ action: "accountErasure", op: "start", account }).then(readAccountView, () => null),
+        );
+      },
+      retry: (account) =>
+        send({ action: "accountErasure", op: "retry", account }).then(readAccountView, () => null),
+      acknowledge: (account) =>
+        send({ action: "accountErasure", op: "acknowledge", account }).then(
+          () => undefined,
+          () => undefined,
+        ),
     },
   };
 }

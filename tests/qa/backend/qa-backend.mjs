@@ -6,7 +6,7 @@
 //   node tests/qa/backend/qa-backend.mjs status           print local URLs
 //   node tests/qa/backend/qa-backend.mjs code <email>     request a sign-in code and print it (from Mailpit)
 //   node tests/qa/backend/qa-backend.mjs admin-code <email>   the same without email (admin generate link)
-//   node tests/qa/backend/qa-backend.mjs smoke            start -> seed -> Mailpit code -> verify -> admin code -> stop
+//   node tests/qa/backend/qa-backend.mjs smoke            start -> seed -> Mailpit code -> verify -> admin code -> sync round trip -> delete-user -> stop
 //   node tests/qa/backend/qa-backend.mjs stop <token>     stop with --no-backup and verify nothing is left
 //
 // Lost token: confirm no other lane is using the QA stack, then
@@ -28,7 +28,7 @@ switch (command) {
   case "status": console.log(urls(status())); break;
   case "code": console.log(await emailCode(status(), arg)); break;
   case "admin-code": { const s = status(); console.log(await adminCode({ apiUrl: s.apiUrl, serviceRoleKey: s.serviceRoleKey, email: arg })); break; }
-  case "smoke": { const report = await smoke(); if (!["started", "seeded", "mailpitCode", "mailpitVerified", "adminCode", "adminVerified", "stopped"].every(k => report[k])) process.exitCode = 1; break; }
+  case "smoke": { const report = await smoke(); if (!["started", "seeded", "mailpitCode", "mailpitVerified", "adminCode", "adminVerified", "syncRead", "syncWrite", "syncReadBack", "realtime", "deleted", "stopped"].every(k => report[k])) process.exitCode = 1; break; }
   case "stop": console.log(JSON.stringify(stop({ token: arg }))); break;
   default:
     console.error("usage: qa-backend.mjs start|status|code <email>|admin-code <email>|smoke|stop <token>");

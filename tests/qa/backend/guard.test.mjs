@@ -5,7 +5,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  LocalOnlyRefusal, assertAllowedCli, assertLocalEnv, assertLocalOnly, assertLocalUrl, assertNotLinked, isLocalUrl,
+  LocalOnlyRefusal, assertAllowedCli, assertAllowedDocker, writerLoginArgs, assertLocalEnv, assertLocalOnly, assertLocalUrl, assertNotLinked, isLocalUrl,
 } from "./guard.mjs";
 import { DEFAULT_MIRROR, EXCLUDE, OWNER_FILE, projectIdFor, assertMirrorPath, buildMirror, claimMirror, cliEnv, writeOwnerToken, parseStatus, qaConfig, runCli, start, status, stop, trackedFiles } from "./local-stack.mjs";
 
@@ -139,7 +139,7 @@ test("the actual repository config becomes a QA config with one code template an
   assert.equal(tables(out).some(t => /smtp/.test(t)), false);
   assert.match(out, /^project_id = "still-qa-backend"$/m);
   // Every other table of the real config survives unchanged in order.
-  assert.deepEqual(tables(out).filter(t => !/template\.(magic_link|confirmation)/.test(t)), tables(real).filter(t => !/^\[auth\.email\.(smtp|template\.(magic_link|confirmation))\]$/.test(t)));
+  assert.deepEqual(tables(out).filter(t => !/template\.(magic_link|confirmation)/.test(t) && t !== "[edge_runtime.secrets]"), tables(real).filter(t => !/^\[auth\.email\.(smtp|template\.(magic_link|confirmation))\]$/.test(t)));
 });
 
 test("a config that already sets a sign-in template or SMTP is rewritten: ours replaces it, SMTP is removed", () => {
@@ -151,7 +151,7 @@ test("a config that already sets a sign-in template or SMTP is rewritten: ours r
   ].join("\n");
   const out = qaConfig(shape, "still-qa-backend");
   assert.doesNotMatch(out, /sendgrid|SENDGRID|magic\.html|\[auth\.email\.smtp\]/);
-  assert.deepEqual(tables(out), ["[auth.email]", "[auth.email.template.invite]", "[auth.sms]", "[auth.email.template.magic_link]", "[auth.email.template.confirmation]"]);
+  assert.deepEqual(tables(out), ["[auth.email]", "[auth.email.template.invite]", "[auth.sms]", "[auth]", "[edge_runtime.secrets]", "[auth.email.template.magic_link]", "[auth.email.template.confirmation]"]);
   assert.match(out, /\[auth\.sms\]\nenable_signup = false/);
   for (const unsafe of [
     'project_id = "a"\n[auth.email]\nsmtp.host = "x"\n',
@@ -159,6 +159,79 @@ test("a config that already sets a sign-in template or SMTP is rewritten: ours r
     'project_id = "a"\n[auth.email.smtp.extra]\nx = 1\n',
     'project_id = "a"\n[auth.email]\ntemplate.magic_link.subject = "x"\n',
   ]) refused(() => qaConfig(unsafe, "still-qa-backend"));
+});
+
+test("the QA config serves sync: the functions' issuer and the settings-writer connection, each exactly once", () => {
+  const real = readFileSync(new URL("../../../supabase/config.toml", import.meta.url), "utf8");
+  for (const source of [real, 'project_id = "still-app"\n', 'project_id = "still-app"\n[auth]\njwt_issuer = "https://hosted.example"\n[edge_runtime.secrets]\nSETTINGS_WRITER_DB_URL = "postgresql://x@elsewhere/postgres"\n']) {
+    const out = qaConfig(source, "still-qa-backend");
+    assert.equal(out.match(/^jwt_issuer\s*=/gm).length, 1);
+    assert.match(out, /^jwt_issuer = "http:\/\/kong:8000\/auth\/v1"$/m);
+    assert.equal(out.match(/^SETTINGS_WRITER_DB_URL\s*=/gm).length, 1);
+    assert.match(out, /^SETTINGS_WRITER_DB_URL = "postgresql:\/\/still_settings_writer:qa-local-writer-only@db:5432\/postgres"$/m);
+    assert.doesNotMatch(out, /hosted\.example|elsewhere/);
+    // The key sits inside its own table: under [auth] and under [edge_runtime.secrets].
+    const under = (table, key) => { const body = out.split(`\n[${table}]\n`)[1]?.split(/\n\[/)[0] ?? ""; return body.includes(key); };
+    assert.ok(under("auth", "jwt_issuer"));
+    assert.ok(under("edge_runtime.secrets", "SETTINGS_WRITER_DB_URL"));
+  }
+});
+
+test("Realtime stays in the QA stack, and the exclusions are only the services QA never needs", () => {
+  assert.ok(!EXCLUDE.split(",").includes("realtime"));
+  assert.deepEqual(EXCLUDE.split(",").sort(), ["imgproxy", "logflare", "postgres-meta", "storage-api", "studio", "supavisor", "vector"]);
+});
+
+test("the settings writer is enabled by the one allowed docker exec, inside this mirror's own database container, after start", () => {
+  const root = fakeRepo();
+  const mirror = testMirror("writer");
+  const r = recorder({ supabase: args => args[0] === "status" ? JSON.stringify({ API_URL: "http://127.0.0.1:54321", DB_URL: "postgresql://postgres:postgres@127.0.0.1:54322/postgres", MAILPIT_URL: "http://127.0.0.1:54324", ANON_KEY: "a", SERVICE_ROLE_KEY: "s" }) : "" });
+  try {
+    start({ root, mirror, env: {}, spawn: r.spawn, free: () => 99e9 });
+    const order = r.calls.map(c => c.cmd === "docker" ? `docker ${c.args[0]}` : `supabase ${c.args[0]}`);
+    assert.deepEqual(order.filter(x => x !== "docker ps"), ["supabase start", "docker exec", "supabase status"]);
+    const exec = r.calls.find(c => c.cmd === "docker" && c.args[0] === "exec");
+    assert.deepEqual(exec.args, writerLoginArgs(mirror));
+    assert.equal(exec.args[2], `supabase_db_${projectIdFor(mirror)}`);
+    assert.match(exec.args.at(-1), /^alter role still_settings_writer login password '/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(mirror, { recursive: true, force: true });
+  }
+});
+
+test("a failed writer enable tears the stack down with the start's own token", () => {
+  const root = fakeRepo();
+  const mirror = testMirror("writerfail");
+  const calls = [];
+  const spawn = (cmd, args) => {
+    calls.push([cmd, args[0]]);
+    return cmd === "docker" && args[0] === "exec" ? { status: 1, stdout: "", stderr: "no such container" } : { status: 0, stdout: "" };
+  };
+  try {
+    assert.throws(() => start({ root, mirror, env: {}, spawn, free: () => 99e9 }), /enabling the settings writer failed/);
+    assert.ok(calls.some(([cmd, a]) => cmd === "supabase" && a === "stop"));
+    assert.equal(existsSync(mirror), false);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(mirror, { recursive: true, force: true });
+  }
+});
+
+test("the docker guard refuses any other container, command or SQL", () => {
+  const mirror = "/private/tmp/still-qa-backend";
+  const ok = writerLoginArgs(mirror);
+  assert.equal(ok[2], "supabase_db_still-qa-backend");
+  assertAllowedDocker(ok, mirror);
+  for (const bad of [
+    ["exec", "-i", "supabase_db_still-app", ...ok.slice(3)],
+    ["exec", "-i", "supabase_db_still-qa-other", ...ok.slice(3)],
+    [...ok.slice(0, -1), "drop table profiles"],
+    [...ok, "--extra"],
+    ["rm", "-f", "supabase_db_still-qa-backend"],
+    ["run", "--rm", "x"],
+  ]) refused(() => assertAllowedDocker(bad, mirror));
+  refused(() => assertAllowedDocker(ok, "/private/tmp/still-app"));
 });
 
 test("the repository's own config never carries the QA template", () => {

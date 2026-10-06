@@ -29,7 +29,7 @@ import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, statfsSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { assertAllowedCli, assertLocalEnv, assertLocalOnly, assertLocalUrl, assertNotLinked, LocalOnlyRefusal } from "./guard.mjs";
+import { assertAllowedCli, assertAllowedDocker, writerLoginArgs, QA_WRITER_PASSWORD, WRITER_LOGIN_SQL, assertLocalEnv, assertLocalOnly, assertLocalUrl, assertNotLinked, LocalOnlyRefusal } from "./guard.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 export const REPO = resolve(HERE, "../../..");
@@ -46,8 +46,16 @@ export const MIRROR_PREFIX = "/private/tmp/still-qa-";
 export const OWNER_FILE = ".qa-owner";
 /** The checkout paths the mirror copies, git-tracked files only. */
 export const MIRRORED_PATHS = Object.freeze(["supabase/migrations", "supabase/functions", "packages/core/src", "packages/shared-types/src", "packages/shared-types/fixtures"]);
-/** Services QA never needs. Auth (gotrue), the API gateway, PostgREST, Edge Functions and Mailpit stay. */
-export const EXCLUDE = "studio,imgproxy,logflare,vector,realtime,storage-api,supavisor,postgres-meta";
+/** Services QA never needs. Auth (gotrue), the API gateway, PostgREST, Edge Functions, Mailpit and
+ * Realtime (live cross-device push) stay. */
+export const EXCLUDE = "studio,imgproxy,logflare,vector,storage-api,supavisor,postgres-meta";
+/** The issuer the Edge Functions expect: `${SUPABASE_URL}/auth/v1` with the in-network gateway as
+ * SUPABASE_URL. Without it every real session is answered 401 by sync-settings and delete-user. */
+export const QA_JWT_ISSUER = "http://kong:8000/auth/v1";
+/** The narrow settings-writer role's disposable local password (the QA database holds no real data
+ * and is reachable only on this machine); mirrors scripts/backend/rehearse-settings.sh. */
+export { QA_WRITER_PASSWORD, WRITER_LOGIN_SQL };
+export const QA_WRITER_DB_URL = `postgresql://still_settings_writer:${QA_WRITER_PASSWORD}@db:5432/postgres`;
 export const MIN_FREE_BYTES = 10 * 1024 ** 3;
 const TEMPLATE = join(HERE, "templates/qa-code.html");
 
@@ -85,7 +93,31 @@ export function qaConfig(source, projectId) {
   if (live.some(line => /^\s*\[[^\]]*\bsmtp\b/.test(line) || /^\s*smtp(\.|\s*=)/.test(line) || /^\s*template\.(magic_link|confirmation)\b/.test(line) || /^\s*\[auth\.email\.template\.(magic_link|confirmation)\./.test(line))) {
     throw new LocalOnlyRefusal("config.toml sets SMTP or a sign-in template in a form the QA copy cannot remove");
   }
-  return kept.join("\n") + QA_TEMPLATE_TOML;
+  return withSyncServing(kept).join("\n") + QA_TEMPLATE_TOML;
+}
+
+/** Put `entry` directly under the live `[table]` header (appending the table when absent), after
+ * dropping any live line of the same key so the key is never duplicated. */
+function setInTable(lines, table, key, entry) {
+  const header = lines.findIndex(line => line.trim() === `[${table}]`);
+  const keyed = new RegExp(`^\\s*${key}\\s*=`);
+  if (header === -1) return [...lines, "", `[${table}]`, entry];
+  const out = [];
+  let inTable = false;
+  lines.forEach((line, i) => {
+    if (/^\s*\[/.test(line)) inTable = i === header;
+    if (inTable && keyed.test(line)) return;
+    out.push(line);
+    if (i === header) out.push(entry);
+  });
+  return out;
+}
+
+/** What the signed-in QA journeys need (sync-settings, delete-user): the issuer the functions
+ * check and the settings-writer connection string. Both are local-only values. */
+function withSyncServing(lines) {
+  const issued = setInTable(lines, "auth", "jwt_issuer", `jwt_issuer = "${QA_JWT_ISSUER}"`);
+  return setInTable(issued, "edge_runtime.secrets", "SETTINGS_WRITER_DB_URL", `SETTINGS_WRITER_DB_URL = "${QA_WRITER_DB_URL}"`);
 }
 
 /** The only places a mirror may be created or deleted: DEFAULT_MIRROR, or a directory directly
@@ -242,6 +274,18 @@ export function leftovers(spawn = spawnSync, projectId) {
   };
 }
 
+/** Run WRITER_LOGIN_SQL (the NOLOGIN `still_settings_writer` role gets its disposable local password) inside this mirror's own database container, and nowhere else. */
+export function enableSettingsWriter({ mirror = DEFAULT_MIRROR, env = process.env, spawn = spawnSync } = {}) {
+  mirror = assertMirrorPath(mirror);
+  assertLocalEnv(env);
+  assertQaMirrorConfig(mirror);
+  const args = writerLoginArgs(mirror);
+  assertAllowedDocker(args, mirror);
+  const result = spawn("docker", args, { encoding: "utf8" });
+  if (result.error) throw result.error;
+  if (result.status !== 0) throw new Error(`enabling the settings writer failed (${result.status}): ${String(result.stderr ?? "").trim().slice(-400)}`);
+}
+
 export function freeBytes(path) {
   const stats = statfsSync(path);
   return stats.bavail * stats.bsize;
@@ -280,6 +324,7 @@ export function start({ root = REPO, mirror = DEFAULT_MIRROR, env = process.env,
   const token = buildMirror({ root, mirror, env });
   try {
     runCli(["start", "--workdir", mirror, "--exclude", EXCLUDE], { mirror, env, spawn });
+    enableSettingsWriter({ mirror, env, spawn });
     return { ...status({ root, mirror, env, spawn }), token };
   } catch (error) {
     // The docker check above proved no other stack was running, so anything running now is ours:

@@ -15,6 +15,7 @@ import { emailConsent } from "../../lib/email-consent.js";
 import { surfaceGuidance } from "../../lib/surface-guidance.js";
 import { createPageAnalytics } from "../../lib/analytics.js";
 import PopupApp from "./PopupApp.svelte";
+import { bindTextScale } from "../../../core/src/ui/v3/text-scale.js";
 import { modernSettingsRuntime } from "../../lib/modern-settings-runtime.js";
 import { observeDirectControls } from "../../../core/src/ui/v3/direct-control-observer.js";
 import { invitationPort, reportDirectControl } from "../../lib/invitation-client.js";
@@ -65,7 +66,16 @@ function init(): void {
         }
       : undefined,
     openedWhere: "popup",
+    accessHost: import.meta.env.FIREFOX ? "firefox" : "chromium",
   });
+  // Text size follows the browser's font size on the V3 screens (owner decision 51). The condition
+  // is modernSettingsRuntime's atomicLocal rule written inline, so Vite folds it: configured 2.x
+  // builds contain none of this and stay byte-identical.
+  if (
+    !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
+    import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true"
+  )
+    bindTextScale(document, "browser", { compactPopup: true });
   if (
     (!(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
       import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true") &&

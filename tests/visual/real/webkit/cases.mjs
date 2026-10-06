@@ -106,9 +106,9 @@ export const cases = [
   { id: "d18-17", reference: `${D18}/17-apple-checking-393-852.png`, page: PAGES.d04, theme: "light", frame: app15, surface: "app", state: "app-iphone-restore-pending", recipe: "restore", evidenceOnly: PRO_PAGE, screen: IPHONE15_SCREEN },
   { id: "d18-18", reference: `${D18}/18-apple-restored-393-852.png`, page: PAGES.d04, theme: "dark", frame: app15, surface: "app", state: "app-iphone-restore-restored", recipe: "restore", evidenceOnly: PRO_PAGE, screen: IPHONE15_SCREEN },
   { id: "d18-19", reference: `${D18}/19-apple-nothing-found-393-852.png`, page: PAGES.d04, theme: "light", frame: app15, surface: "app", state: "app-iphone-restore-none", recipe: "restore", evidenceOnly: PRO_PAGE, screen: IPHONE15_SCREEN },
-  { id: "d18-02", reference: `${D18}/02-iphone-still-app-393-852.png`, theme: "light", blocked: PAID },
+  { id: "d18-02", reference: `${D18}/02-iphone-still-app-393-852.png`, theme: "dark", blocked: PAID },
   { id: "d18-03", reference: `${D18}/03-mac-still-app-560-760.png`, theme: "light", blocked: PAID },
   { id: "d18-05", reference: `${D18}/05-waiting-for-apple-393-852.png`, theme: "light", blocked: PAID },
-  { id: "d18-16", reference: `${D18}/16-iphone-after-apple-393-852.png`, theme: "light", blocked: PAID },
+  { id: "d18-16", reference: `${D18}/16-iphone-after-apple-393-852.png`, theme: "dark", blocked: PAID },
   { id: "d18-23", reference: `${D18}/23-iphone-se-xxxlarge-375-667-text-1-35.png`, theme: "light", blocked: TEXT_SCALE },
 ];

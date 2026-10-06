@@ -17,6 +17,7 @@ import {
 } from "@still/core/ui";
 import { SettingsCache, WKWebViewStorageAdapter } from "@still/core/storage";
 import { NativeBridge, openNativeDestination } from "@still/core/native";
+import { bindTextScale } from "../node_modules/@still/core/src/ui/v3/text-scale.js";
 import { createAppAnalytics, type AnalyticsKeyValue } from "@still/core/analytics";
 import {
   SupabaseAuthPort,
@@ -285,6 +286,10 @@ else
  * settings requested once, so the app is never left blank by an unhandled rejection. The native
  * gate stays incomplete on those paths, so onboarding is offered again next launch. */
 async function mountAppleScreens(adapter: WKWebViewStorageAdapter): Promise<void> {
+  // Text size follows Dynamic Type on iPhone and iPad, live (owner decision 51; proven on the iOS
+  // simulator through -apple-system-body); the Mac app stays at the normal size. Only the D04/D12
+  // screens read it: the legacy screen never reaches this branch.
+  bindTextScale(document, "apple");
   let settingsRequested = false;
   const showSettings = (): void => {
     if (settingsRequested) return;

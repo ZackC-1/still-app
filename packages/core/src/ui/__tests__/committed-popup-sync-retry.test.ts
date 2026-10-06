@@ -107,7 +107,7 @@ describe("mounted sync retry lifecycle", () => {
           expect(current.controller.cloudReachable).toBe(true);
           expect(state.controller.cloudReachable).toBe(true);
           expect(screen.getByText(STRINGS.sync.synced)).toBeTruthy();
-          expect(screen.queryByText(STRINGS.sync.unreachable)).toBeNull();
+          expect(screen.queryByText((route === "desktop" ? STRINGS.sync.failed : STRINGS.sync.unreachable))).toBeNull();
           expect(p.retrySync).toHaveBeenCalledOnce();
           expect(f.sendMessage).not.toHaveBeenCalled();
           expect(await f.authority.get()).toEqual(saved);
@@ -147,7 +147,7 @@ describe("mounted sync retry lifecycle", () => {
             screen.getByText(
               outcome === "fulfilled"
                 ? STRINGS.sync.synced
-                : STRINGS.sync.unreachable,
+                : (route === "desktop" ? STRINGS.sync.failed : STRINGS.sync.unreachable),
             ),
           ).toBeTruthy();
         } finally {
@@ -164,8 +164,14 @@ describe("mounted sync retry lifecycle", () => {
       await observedAccount(state, "accountA", false);
       render(App, props(state));
       await waitFor(() =>
-        expect(screen.getByText(STRINGS.sync.unreachable)).toBeTruthy(),
+        expect(screen.getByText((route === "desktop" ? STRINGS.sync.failed : STRINGS.sync.unreachable))).toBeTruthy(),
       );
+      if (route === "desktop") {
+        // Owner decision 71: the exact approved wording on the V3 popup.
+        expect(
+          screen.getByText("Sync didn't finish. Your settings are saved on this device."),
+        ).toBeTruthy();
+      }
       expect(
         screen.queryByRole("button", {
           name: route === "desktop" ? "Try again" : STRINGS.sync.retry,
@@ -281,7 +287,7 @@ describe("mounted sync retry attachment lifetime", () => {
           await flush();
           expect(state.controller.cloudReachable).toBe(true);
           expect(screen.getByText(STRINGS.sync.synced)).toBeTruthy();
-          expect(screen.queryByText(STRINGS.sync.unreachable)).toBeNull();
+          expect(screen.queryByText((route === "desktop" ? STRINGS.sync.failed : STRINGS.sync.unreachable))).toBeNull();
           expect(p.retrySync).toHaveBeenCalledOnce();
           expect(f.sendMessage).not.toHaveBeenCalled();
           expect(await f.authority.get()).toEqual(saved);
@@ -315,7 +321,7 @@ describe("mounted sync retry attachment lifetime", () => {
             expect(screen.getByRole("switch", { name: "Still" })).toBeTruthy(),
           );
         await waitFor(() =>
-          expect(screen.getByText(STRINGS.sync.unreachable)).toBeTruthy(),
+          expect(screen.getByText((route === "desktop" ? STRINGS.sync.failed : STRINGS.sync.unreachable))).toBeTruthy(),
         );
         if (outcome === "absent") {
           expect(
@@ -339,7 +345,7 @@ describe("mounted sync retry attachment lifetime", () => {
             screen.getByText(
               outcome === "fulfilled"
                 ? STRINGS.sync.synced
-                : STRINGS.sync.unreachable,
+                : (route === "desktop" ? STRINGS.sync.failed : STRINGS.sync.unreachable),
             ),
           ).toBeTruthy();
         } finally {

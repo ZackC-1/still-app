@@ -190,7 +190,11 @@ async function waitForEndpoint(child: ChildProcess): Promise<string> {
   });
 }
 
-export async function launchFirefox(binary: string): Promise<FirefoxSession> {
+/** `extraPrefs` adds or overrides profile preferences, e.g. a font size a test needs. */
+export async function launchFirefox(
+  binary: string,
+  extraPrefs: Record<string, string | number | boolean> = {},
+): Promise<FirefoxSession> {
   const profile = mkdtempSync(join(tmpdir(), "still-firefox-"));
   const prefs: Record<string, string | number | boolean> = {
     "extensions.webextensions.uuids": JSON.stringify({
@@ -210,6 +214,7 @@ export async function launchFirefox(binary: string): Promise<FirefoxSession> {
     "services.settings.server": "http://127.0.0.1:9/",
     "browser.safebrowsing.malware.enabled": false,
     "browser.safebrowsing.phishing.enabled": false,
+    ...extraPrefs,
   };
   writeFileSync(
     join(profile, "user.js"),
