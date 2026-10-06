@@ -149,8 +149,10 @@ describe("effective-only owned CSS on the shipped packaged set", () => {
       document.documentElement.className = "site-theme";
       const engine = session(packaged);
       engine.applyDom(settings, new URL(PAGE[service]), document);
-      // The pre-change composition: every hide rule of the service, in plan order.
-      const surfaces = packaged.services[service]!.surfaces.filter((surface) => surface.action === "hide");
+      // The pre-extras composition: every FREE hide rule of the service, in plan order. Packaged
+      // Pro surfaces (Instagram's today) must add nothing while paid is off.
+      const surfaces = packaged.services[service]!.surfaces.filter((surface) => surface.action === "hide"
+        && FEATURE_REGISTRY.some((feature) => feature.id === surface.feature && feature.tier === "free"));
       const scope = scopeOf(core);
       const previous = surfaces.flatMap((surface) => surface.action === "hide"
         ? surface.selectors.map((selector) => `.${scope}-${slug(surface.feature)} :is(${selector}){display:none!important}`) : []).join("\n");
@@ -240,11 +242,15 @@ describe("compiled extras route framework", () => {
     expect(matches).not.toHaveBeenCalled();
   });
 
-  it("shipped sessions use the empty packaged tables: no extras route exists today", () => {
+  it("shipped sessions route only through the compiled tables that exist: none outside Instagram today", () => {
+    // Instagram's own routes ship with P4 and are covered by instagram-extras.test.ts.
+    const shipped: Partial<Record<ServiceId, readonly string[]>> = { instagram: ["/explore/", "/stories/x/", "/explore/people/"] };
     for (const [service, href] of Object.entries(PAGE) as [ServiceId, string][]) {
       const engine = session(packaged);
-      for (const path of ["/live_chat", "/explore/", "/stories/x/", "/watch/", "/explore/people/"])
+      for (const path of ["/live_chat", "/explore/", "/stories/x/", "/watch/", "/explore/people/"]) {
+        if (shipped[service]?.includes(path)) continue;
         expect(engine.evaluate(ALL_ON, new URL(path, href), on).kind, `${service}${path}`).not.toBe("redirect");
+      }
     }
   });
 });

@@ -32,8 +32,13 @@
   }: Props = $props();
 
   // Keep V3 global styles out of shared default/native/options build graphs.
-  const loadDesktop = () =>
-    import("../../../core/src/ui/v3/DesktopPopup.svelte");
+  // The sync invitation wrapper loads only where V3 shows it; the inline build-time check can only
+  // narrow to legacy, so configured store-style builds keep the plain loader byte for byte.
+  const loadDesktop =
+    !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
+    import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true"
+      ? () => import("./InvitedDesktopPopup.svelte")
+      : () => import("../../../core/src/ui/v3/DesktopPopup.svelte");
 
   function openOptions(): void {
     chrome.runtime.openOptionsPage();
