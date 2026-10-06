@@ -31,7 +31,11 @@ export type DesktopPopupCommandOutcome =
     }
   | { readonly status: "unavailable"; readonly reason: string };
 
-/** Dormant controlled D01 seam. Caller retains cache hydration, watchers and nonblocking actions. */
+/**
+ * Dormant controlled D01 seam. Caller retains cache hydration, watchers and nonblocking actions.
+ * Call cache.hydrate() before creating the binding: before hydration starts, whenHydrated() resolves at
+ * once, so the first-read guard would treat the startup defaults as a finished read.
+ */
 export function createDesktopPopupBinding(
   settingsCache: SettingsCache,
   accessCache: EntitlementCache,
