@@ -55,3 +55,26 @@ for (const { host, dir, pages } of BUILDS)
       expect(chunk.match(pageHost(host)), `${page} access host`).toHaveLength(1);
       for (const other of HOSTS.filter((name) => name !== host)) expect(chunk.match(pageHost(other)), `never ${other}`).toBeNull();
     });
+
+// The early Shorts redirect (Firefox and Safari have no network-layer redirect) decides with the
+// same host-aware capabilities as the content script: each early-redirect call carries
+// `capabilities: <ctx>.supported`, where <ctx> is the context resolved from the entry's own host
+// (`<ctx> = packagedAccessContext(deps.host, deps.platform)`), and the entry's host is the build's
+// own (checked above).
+const hostContexts = (content: string) =>
+  new Set([...content.matchAll(/([\w$]+)=[\w$]+\(([\w$]+)\.host,\2\.platform\)/g)].map((match) => match[1]!));
+const earlyRedirectCalls = (content: string) =>
+  [...content.matchAll(/\{win:[^{}]*?access:\(\)=>[^{}]*?redirectDedupe:[\w$]+\}/g)].map((match) => match[0]);
+
+for (const { host, dir } of BUILDS)
+  test(`${dir.split("/").slice(-1)[0]} early Shorts redirect receives the ${host} host's capabilities`, () => {
+    const content = read(dir, "content-scripts/content.js");
+    const contexts = hostContexts(content);
+    expect(contexts.size, "host-aware access contexts").toBeGreaterThan(0);
+    const calls = earlyRedirectCalls(content);
+    expect(calls, "format-2 early redirect calls (entry and shipping lane)").toHaveLength(2);
+    for (const call of calls) {
+      const passed = call.match(/capabilities:([\w$]+)\.supported/)?.[1];
+      expect(passed && contexts.has(passed), `capabilities from a host-aware context: ${call}`).toBe(true);
+    }
+  });
