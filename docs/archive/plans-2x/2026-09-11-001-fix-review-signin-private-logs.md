@@ -21,7 +21,7 @@ storage; it does not change provider logs, existing log copies, backups or purch
 - [Architecture](../ARCHITECTURE.md): Edge handlers own backend authentication boundaries.
 - [Retention learning](../solutions/security-issues/window-bound-security-counter-retention.md).
 - [Retention runbook](../release/counter-retention.md).
-- The [July review-sign-in plan](2026-07-15-002-fix-otp-error-path-and-review-signin-plan.md)
+- The [July review-sign-in plan](../archive/plans-pre-2.0/2026-07-15-002-fix-otp-error-path-and-review-signin-plan.md)
   requested IP logging for audit/network observation. No auth or throttle decision reads these logs.
   The authorized change replaces that historical audit choice with timestamp/outcome reporting.
   It loses historical network attribution while retaining failure counts and sign-in outcomes.

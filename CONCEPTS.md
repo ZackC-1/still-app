@@ -1,8 +1,9 @@
 # Concepts
 
-> **Still 2.0:** All four blocking services and optional settings sync are free. Sign-in gates
-> sync only. Both paid-tier flags are disabled. Purchase and entitlement descriptions below
-> document retained infrastructure, not a requirement to use this release.
+> **Shipped 2.x:** All four blocking services and optional settings sync are free. Sign-in gates
+> sync only. Both paid-tier flags are disabled.
+> **V3 direction (approved, in preparation):** free core unchanged, plus an optional one-time-purchase
+> Still Pro tier — see the [V3 release record](docs/release/history/v3/README.md).
 
 Shared domain vocabulary for this project — entities, named processes, and status concepts with
 project-specific meaning. Seeded with core domain vocabulary, then accretes as ce-compound and
@@ -25,12 +26,14 @@ deliberately finite and enumerated; claims about coverage say "every supported s
 "everywhere," because the difference is a support burden and a review risk, not a style preference.
 
 ### Still Pro
-The dormant paid tier: a one-time purchase, never a subscription, that historically extended Still beyond free
-YouTube-Shorts removal to Reels removal, TikTok website blocking, and settings sync across surfaces.
+The optional paid tier: a one-time purchase ($9.99 US-base lifetime, approved V3 direction), never a
+subscription, covering twelve extras — YouTube Related videos, end-of-video suggestions, autoplay
+prevention, comments hiding, live chat hiding; Instagram Explore, Stories/Highlights, suggested
+accounts, Threads links; Facebook Stories, Videos, sidebar ads. Dormant in shipped 2.x builds.
 
-In the retained paid model, Pro is a property of an Entitlement, not of an account: Apple receipt
-ownership can work without an account, while an account carries entitlement between supported
-surfaces. Current 2.0.0 access requires neither form of entitlement.
+Pro is a property of an Entitlement, not of an account: Apple receipt ownership can work without
+an account, while an account carries entitlement between supported surfaces. Shipped 2.x access
+requires neither form of entitlement, and free blocking and sync never require Pro.
 
 ### Entitlement
 The fact that Pro is unlocked, together with where that fact came from.
@@ -99,6 +102,11 @@ are governed by [ADR 0003](docs/adr/0003-entitlement-authority-receipt-and-serve
   and one shared voluntary-teardown helper. The ext-chromium background entrypoint is thin
   wiring around it; entitlement reaches Chrome/Firefox through this lane the way the App-Group
   entitlement lane serves Safari.
+- **Teardown generation** (`core/sync/teardown-generation.ts`) — the counter marking which
+  sign-in generation is current. Bumped on every voluntary teardown or identity switch; async
+  work captured before a network wait is discarded when the generation moved. Shared by the
+  Apple session orchestrator and the Extension session orchestrator; each host's own gate
+  conditions stay in its host.
 - **App-Group bridge** — the Swift↔web↔extension seam on Apple: settings lane (`SettingsBridge`,
   sync metadata/epochs and local timestamp ordering) + entitlement lane (`EntitlementBridge`,
   app-written after receipt or server confirmation through `StampPolicy`). Safari reads entitlement;

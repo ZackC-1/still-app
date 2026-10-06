@@ -2,7 +2,7 @@
 
 Date: 2026-07-14
 Status: implementation-ready
-Source: `2026-07-14-003-engine-page-session-context.md`
+Source: `../archive/plans-pre-2.0/2026-07-14-003-engine-page-session-context.md`
 
 ## Goal
 

@@ -17,10 +17,10 @@ architecture review should re-surface it.
 
 | Doc | Candidate | Risk | One-line |
 |---|---|---|---|
-| `2026-07-14-002-hide-css-seam-context.md` | Hide-CSS seam | Low (recommended option is a deletion) | `generateHideCss` is a dead half-seam; formatter triplicated; OTA rule sets silently lose the CSS fast path. Fork: wire the runtime adapter vs delete + ADR. |
-| `2026-07-14-003-engine-page-session-context.md` | Engine per-frame hot path | Medium | Service resolution, regex compilation, tier filtering, and URL parsing all recomputed per mutation frame; deepen the Engine with a prepared per-URL session. |
-| `2026-07-14-004-extension-entry-factory-context.md` | Extension entry factory | Medium-low | Content entrypoints ~90% duplicated with zero tests; mirror the Extension UI factory pattern. Includes the Safari reconcile-nudge leak (fix immediately, independent of the factory). |
-| `2026-07-14-005-session-protocol-registry-context.md` | Session protocol registry | Low (mechanical + tests) | Every popup↔background capability hand-restated in six places, two type-coupled, zero tests; derive from one registry and add the missing seam tests. |
+| `../archive/plans-pre-2.0/2026-07-14-002-hide-css-seam-context.md` | Hide-CSS seam | Low (recommended option is a deletion) | `generateHideCss` is a dead half-seam; formatter triplicated; OTA rule sets silently lose the CSS fast path. Fork: wire the runtime adapter vs delete + ADR. |
+| `../archive/plans-pre-2.0/2026-07-14-003-engine-page-session-context.md` | Engine per-frame hot path | Medium | Service resolution, regex compilation, tier filtering, and URL parsing all recomputed per mutation frame; deepen the Engine with a prepared per-URL session. |
+| `../archive/plans-pre-2.0/2026-07-14-004-extension-entry-factory-context.md` | Extension entry factory | Medium-low | Content entrypoints ~90% duplicated with zero tests; mirror the Extension UI factory pattern. Includes the Safari reconcile-nudge leak (fix immediately, independent of the factory). |
+| `../archive/plans-pre-2.0/2026-07-14-005-session-protocol-registry-context.md` | Session protocol registry | Low (mechanical + tests) | Every popup↔background capability hand-restated in six places, two type-coupled, zero tests; derive from one registry and add the missing seam tests. |
 
 ## Bugs surfaced by the review (fix independently, before/alongside any refactor)
 

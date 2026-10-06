@@ -48,6 +48,12 @@ export {
 export { parseAccountSyncStatus, type AccountSyncStatus } from "./account-status.js";
 
 export {
+  createTeardownGeneration,
+  type GenerationToken,
+  type TeardownGeneration,
+} from "./teardown-generation.js";
+
+export {
   allocateSettingsFieldEdit,
   mergeSettingsField,
   mergeSettingsFields,

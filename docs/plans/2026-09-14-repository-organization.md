@@ -31,7 +31,7 @@ shared behavior, browser shells, the native Apple host, backend and tests. Prese
 
 ## Evidence and recovery
 
-The source audit in [the preceding cleanup](2026-09-14-repository-file-cleanup.md) accounts for
+The source audit in [the preceding cleanup](../archive/plans-2x/2026-09-14-repository-file-cleanup.md) accounts for
 the runtime files; this pass makes no code changes. The earlier local W6 proposal was used as
 background and its recommendations rechecked against current state.
 

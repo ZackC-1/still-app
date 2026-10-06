@@ -1,9 +1,10 @@
-# Still product specification — 2.0.0
+# Still product specification — 2.x shipped, V3 direction approved
 
-Status: current reference. Reviewed September 14, 2026 against source and the owner's release
-decisions. [STRATEGY.md](../STRATEGY.md) defines product direction;
+Status: current reference for shipped 2.x behavior (reviewed September 14, 2026), with the approved
+V3 direction incorporated October 6, 2026. [STRATEGY.md](../STRATEGY.md) defines product direction;
 [the release record](release/history/2026-09-14-release-status.md) distinguishes submitted artifacts,
-public availability and verification. This specification describes behavior, not store approval.
+public availability and verification. Per-release records live in
+[release/history/](release/history/). This specification describes behavior, not store approval.
 
 ## Included functionality
 
@@ -91,12 +92,25 @@ The last-synced-account marker survives sign-out/deletion to prevent settings le
 Session-lifecycle guards discard delayed work from a previous sign-in, including A → B → A changes.
 Offline blocking continues from local settings and trusted rules; syncing needs connectivity.
 
+## Still Pro (V3 direction, approved — not yet shipped)
+
+Shipped 2.x has no Pro tier: everything above is free. The approved V3 direction adds an optional
+Still Pro tier: twelve extras (YouTube Related videos, end-of-video suggestions, autoplay
+prevention, comments hiding, live chat hiding; Instagram Explore, Stories/Highlights, suggested
+accounts, Threads links; Facebook Stories, Videos, sidebar ads), all Off on fresh installs, for a
+$9.99 US-base one-time lifetime payment with a seven-day voluntary web refund window (Apple
+purchases follow Apple's refund process). One qualifying purchase covers supported surfaces
+through the approved Restore flow. Free blocking and sync never require Pro. Full contract:
+[V3 release record](release/history/v3/README.md).
+
 ## Retained purchase infrastructure
 
-`PAID_TIER_ENABLED` and `MonetizationConfig.paidTierEnabled` are both `false`. Purchase/restore UI
-and actions are dormant. Receipt checks, RevenueCat identity, historical entitlements and webhook
-processing remain present. An entitlement, purchase restore or RevenueCat response is not needed
-for free blocking or sync. Do not grant fake Pro entitlements to implement free access.
+In shipped 2.x, `PAID_TIER_ENABLED` and `MonetizationConfig.paidTierEnabled` are both `false`.
+Purchase/restore UI and actions are dormant. Receipt checks, RevenueCat identity, historical
+entitlements and webhook processing remain present. An entitlement, purchase restore or RevenueCat
+response is not needed for free blocking or sync. Do not grant fake Pro entitlements to implement
+free access. V3 preparation activates this infrastructure deliberately per the direction above;
+2.x artifacts in review or in the stores keep their free behavior.
 
 Keep the internal `still_sync` entitlement/Apple product and `still_sync_web` web product identities.
 Apple configures RevenueCat anonymously, then uses the Supabase UUID for account identity;
@@ -160,6 +174,8 @@ skipped/unverified. Store rollout is separate from CI and device certification.
 - [Architecture](ARCHITECTURE.md), [sync isolation](solutions/logic-errors/invalidate-sync-work-by-session-lifecycle.md),
   [sync recovery](solutions/logic-errors/recover-settings-uploads-without-losing-newer-edits.md),
   [local sign-out](solutions/security-issues/supabase-signout-leaves-local-session-on-revoke-failure.md).
+- [V3 release record](release/history/v3/README.md), [v2 record](release/history/v2/README.md),
+  [v1 record](release/history/v1/README.md).
 
 The [original v1 specification](Still-Spec-v1.md) is preserved as historical design input. It does
 not override this specification or current strategy.

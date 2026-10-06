@@ -2,6 +2,7 @@ import type { UiController } from "../ui/controller.svelte.js";
 import type { AppleCredential, PurchaseResult, ReceiptStatusValue } from "../native/bridge.js";
 import type { AccountSyncStatus } from "./account-status.js";
 import type { SyncService, SyncState } from "./service.js";
+import { createTeardownGeneration } from "./teardown-generation.js";
 
 // The Apple session orchestrator — the auth/purchase/entitlement spine of the WKWebView app,
 // extracted from the app-webview entrypoint so every branch is unit-testable. The entrypoint stays
@@ -108,7 +109,9 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
   // definitive signed-out state. Keep that stale confirmed callback from re-stamping Pro into the
   // App Group — and keep an in-flight attach evaluation from firing after sign-out (AE13); the
   // next enterSession adopts the new generation normally.
-  let teardownGeneration = 0;
+  // The shared teardown-generation kernel owns the counter; the session-identity gates below stay here.
+  const generations = createTeardownGeneration();
+  const createdGeneration = generations.capture();
   let activeSessionGeneration = 0;
   let activeSessionUserId: string | null = null;
   // The last receipt verdict this session observed — the mirror-skip input (a doomed server-lane
@@ -125,9 +128,9 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
 
   let statusWrite: Promise<void> = Promise.resolve();
   const publishStatus = (status: AccountSyncStatus | null): Promise<void> => {
-    const generation = teardownGeneration;
+    const generation = generations.capture();
     statusWrite = statusWrite.catch(() => {}).then(async () => {
-      if (generation !== teardownGeneration) return;
+      if (!generations.isCurrent(generation)) return;
       if ((status?.accountId ?? null) !== activeSessionUserId) return;
       if (bridge.available) await bridge.setAccountSyncStatus?.(status);
     }).catch(() => { /* The next state change retries this local display mirror. */ });
@@ -161,7 +164,7 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
 
   const enterSession = async (userId: string, email?: string | null): Promise<void> => {
     if (activeSessionUserId !== userId) {
-      teardownGeneration++;
+      generations.bump();
       controller.accountRevision++;
       controller.accountEmail = null;
       controller.lastSyncedAt = null;
@@ -175,8 +178,8 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
     } catch {
       /* analytics never affects the session */
     }
-    const generationAtEntry = teardownGeneration; // AE13: abort side effects if teardown intervenes
-    activeSessionGeneration = teardownGeneration;
+    const generationAtEntry = generations.capture(); // AE13: abort side effects if teardown intervenes
+    activeSessionGeneration = generationAtEntry;
     activeSessionUserId = userId;
     controller.reconciling = true;
     try {
@@ -202,13 +205,13 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
       // path that could not use the answer.
       if (
         !controller.serverEntitled &&
-        teardownGeneration === generationAtEntry &&
+        generations.isCurrent(generationAtEntry) &&
         (await identityReady)
       ) {
         const receipt = await refreshReceipt();
-        if (receipt === "entitled" && teardownGeneration === generationAtEntry) {
+        if (receipt === "entitled" && generations.isCurrent(generationAtEntry)) {
           const attached = await bridge.attachPurchases();
-          if (attached && teardownGeneration === generationAtEntry) {
+          if (attached && generations.isCurrent(generationAtEntry)) {
             await sync.onSignedIn(userId);
           }
         }
@@ -239,9 +242,9 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
   return {
     onSyncState(state: SyncState): void {
       if (
-        teardownGeneration !== 0 &&
+        !generations.isCurrent(createdGeneration) &&
         state.userId !== null &&
-        (activeSessionGeneration !== teardownGeneration || state.userId !== activeSessionUserId)
+        (!generations.isCurrent(activeSessionGeneration) || state.userId !== activeSessionUserId)
       ) return;
       if (state.userId === null) {
         // Only a session that really ended: the service can report "no user" before a resume.
@@ -436,10 +439,14 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
 
     // Sign-out resets the native RevenueCat identity, but the Supabase session must clear
     // regardless — the native reset is best-effort so a rejected bridge call can't strand a live
-    // session. Receipt-derived Pro survives (R6): the native StampPolicy refuses the App-Group
-    // downgrade on a receipt-entitled device, and the controller keeps receiptEntitled.
+    // session. The SyncService sign-out below is best-effort too (extension-session parity: a
+    // voluntary exit always lands signed-out locally and never throws at its caller — the user
+    // asked to leave, so offline must not trap them signed-in). Receipt-derived Pro survives
+    // (R6): the native StampPolicy refuses the App-Group downgrade on a receipt-entitled device,
+    // and the controller keeps receiptEntitled.
     async signOutEverywhere(): Promise<void> {
-      const generation = ++teardownGeneration;
+      generations.bump();
+      const generation = generations.capture();
       controller.userId = null;
       activeSessionUserId = null;
       controller.accountRevision++;
@@ -447,7 +454,7 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
       controller.lastSyncedAt = null;
       controller.pendingUpload = false;
       await publishStatus(null);
-      if (generation !== teardownGeneration) return;
+      if (!generations.isCurrent(generation)) return;
       if (bridge.available) {
         try {
           await bridge.signOut();
@@ -455,8 +462,12 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
           /* native reset failed — still clear the Supabase session below */
         }
       }
-      if (generation !== teardownGeneration) return;
-      await sync.signOut();
+      if (!generations.isCurrent(generation)) return;
+      try {
+        await sync.signOut();
+      } catch {
+        /* remote sign-out failed — the local teardown above already landed */
+      }
     },
 
     // Account deletion deletes server-side + clears the Supabase session first (throws on backend
@@ -464,10 +475,11 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
     // deleted user's app_user_id isn't left configured. Receipt-derived Pro survives deletion too —
     // the purchase belongs to the Apple Account, not the Still account.
     async deleteAccountEverywhere(): Promise<void> {
-      const startGeneration = teardownGeneration;
+      const startGeneration = generations.capture();
       await sync.deleteAccount();
-      if (startGeneration !== teardownGeneration) return;
-      const generation = ++teardownGeneration;
+      if (!generations.isCurrent(startGeneration)) return;
+      generations.bump();
+      const generation = generations.capture();
       controller.userId = null;
       activeSessionUserId = null;
       controller.accountRevision++;
@@ -475,7 +487,7 @@ export function createAppleSession(deps: AppleSessionDeps): AppleSession {
       controller.lastSyncedAt = null;
       controller.pendingUpload = false;
       await publishStatus(null);
-      if (generation !== teardownGeneration) return;
+      if (!generations.isCurrent(generation)) return;
       if (bridge.available) {
         try {
           await bridge.signOut();
