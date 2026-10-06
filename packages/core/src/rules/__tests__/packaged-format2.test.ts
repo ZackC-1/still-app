@@ -79,9 +79,13 @@ describe("packaged format-2 rule set", () => {
     for (const id of handlers) expect(implemented.has(id as never), id).toBe(true);
     expect([...handlers]).toEqual(["youtube.autoplay"]);
     expect([...implemented].sort()).toEqual([
+      "facebook.sponsored", "facebook.stories", "facebook.videos",
       "instagram.explore", "instagram.stories", "instagram.suggested", "instagram.threads",
       "youtube.autoplay", "youtube.comments", "youtube.endscreen", "youtube.livechat", "youtube.related",
     ]);
+    // Every Pro surface comes from a per-service extras module, and nothing else is packaged.
+    const extras = [YOUTUBE_EXTRAS, INSTAGRAM_EXTRAS, FACEBOOK_EXTRAS].flatMap((module) => module.surfaces.map((surface) => surface.feature));
+    expect(new Set(features)).toEqual(new Set([...PACKAGED_FREE_FEATURES, ...extras]));
   });
 
   it("is admitted by the format-2 contract and carries a valid dev signature over its exact payload", async () => {

@@ -1,6 +1,6 @@
 {
   "format": 2,
-  "version": "3.0.4",
+  "version": "3.0.5",
   "services": {
     "youtube": {
       "matches": [
@@ -177,6 +177,44 @@
             "[role=\"menu\"] a[role=\"menuitemradio\"][aria-checked][href^=\"https://www.facebook.com/\"][href$=\"/reels_tab\"]:not([href=\"https://www.facebook.com/reels_tab\"]):not([href*=\"/groups/\"]):not([href*=\"?\"]):not([href*=\"#\"])",
             "[role=\"tab\"][aria-label^=\"Reels,\" i] > *"
           ]
+        },
+        {
+          "id": "facebook-stories-tray",
+          "feature": "facebook.stories",
+          "action": "hide",
+          "selectors": [
+            "[role=\"main\"] [data-virtualized] > div:has(> a[href^=\"/stories/\"]):not([role=\"feed\"] *)",
+            "[role=\"main\"] [data-virtualized] > div:has(> a[href^=\"https://www.facebook.com/stories/\"]):not([role=\"feed\"] *)"
+          ]
+        },
+        {
+          "id": "facebook-videos-feed",
+          "feature": "facebook.videos",
+          "action": "hide",
+          "selectors": [
+            "[role=\"feed\"] [role=\"article\"]:not([role=\"article\"] [role=\"article\"]):has(> a[href^=\"/\"][href*=\"/videos/\"]):has(video):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"]))",
+            "[role=\"feed\"] [role=\"article\"]:not([role=\"article\"] [role=\"article\"]):has(> a[href^=\"https://www.facebook.com/\"][href*=\"/videos/\"]):has(video):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"]))",
+            "[role=\"feed\"] [role=\"article\"]:not([role=\"article\"] [role=\"article\"]):has(> a[href^=\"/watch/?v=\"]):has(video):not(:has(a[href*=\"/reel/\"])):not(:has(a[href*=\"/reels/\"]))"
+          ]
+        },
+        {
+          "id": "facebook-videos-watch-nav",
+          "feature": "facebook.videos",
+          "action": "hide",
+          "selectors": [
+            "nav a[href=\"/watch/\"]",
+            "nav a[href=\"/watch\"]",
+            "nav a[href=\"https://www.facebook.com/watch/\"]",
+            "nav li:has(> a[href=\"/watch/\"])"
+          ]
+        },
+        {
+          "id": "facebook-sponsored-sidebar",
+          "feature": "facebook.sponsored",
+          "action": "hide",
+          "selectors": [
+            "[role=\"complementary\"] > div:has(> a[href^=\"https://\"][rel~=\"nofollow\"]):not(:has(a[href^=\"/\"])):not(:has(a[href*=\"facebook.com/\"])):not(:has([role=\"region\"])):not(:has([role=\"list\"])):not(:has([role=\"grid\"]))"
+          ]
         }
       ]
     },
@@ -196,6 +234,6 @@
   "signature": {
     "kid": "still-dev-1",
     "alg": "ed25519",
-    "value": "432d9e950f41dd41414a14d577018a5342620f85656daaf2621f19a39b50ed0e0b2e98fb477f153a0e65718eb4d71a35f3501002b351795a4b801ce8202bc103"
+    "value": "28b578f37e7d13f441cfd013ffc7292223d60026423d6119a8e83ac0fc8462a0b45e15d8acaf1dea33e0dbda3f72236271f082805acfc51be87c210398d23f06"
   }
 }
