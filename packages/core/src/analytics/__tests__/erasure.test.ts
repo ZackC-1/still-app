@@ -468,6 +468,108 @@ describe("per-device subjects through the host", () => {
       await h.client.track("opened", { where: "popup" });
       expect(await h.client.flushWorthwhile()).toBe(false);
     });
+
+    /** A subjects host whose replies are decided per account by `reply`. */
+    const perAccountHost = (reply: (account: string) => unknown) => {
+      const h = harness();
+      const asked: string[] = [];
+      const extension = createExtensionAnalyticsHost({
+        ...h.deps,
+        permission: async () => readAnalyticsPermission(await h.deps.permission?.()),
+        local: h.store,
+        noticeApplies: false,
+        isTrustedPage: () => true,
+        subjects: {
+          issue: async (_body, _signal, account) => (asked.push(account), reply(account)),
+          onStopped: async () => {},
+        },
+      });
+      return { h, extension, asked };
+    };
+
+    it("NEGATIVE CONTROL: an earlier account's subject arriving after a switch never takes the new account's use", async () => {
+      let resolveA!: (value: unknown) => void;
+      let resolveB!: (value: unknown) => void;
+      const lateA = new Promise((resolve) => (resolveA = resolve));
+      const lateB = new Promise((resolve) => (resolveB = resolve));
+      const { h, extension, asked } = perAccountHost((account) => (account === ACCOUNT ? lateA : lateB));
+      extension.onStart(null);
+      await extension.flushWhenReady();
+      const identifyingA = extension.identify(ACCOUNT); // A's subject request is in flight
+      await vi.waitFor(() => expect(asked).toEqual([ACCOUNT]));
+      const identifyingB = extension.identify(OTHER); // B signs in before A's reply, no sign-out
+      await vi.waitFor(() => expect(asked).toEqual([ACCOUNT, OTHER]));
+      await extension.client.track("opened", { where: "popup" }); // B's use, waiting
+      resolveA({ state: "active", subject: SUBJECT }); // A's reply lands first, late
+      await identifyingA;
+      resolveB({ state: "active", subject: OTHER_SUBJECT }); // then B's
+      await identifyingB;
+      await extension.client.track("active", {});
+      await extension.client.flush();
+      expect(extension.client.accountConfirmed).toBe(true);
+      expect(await extension.client.signedInAs()).toBe(OTHER_SUBJECT);
+      expect(JSON.stringify(h.bodies)).not.toContain(SUBJECT);
+      expect(h.sent().map((e) => [e.event, e.properties.distinct_id])).toEqual([
+        ["opened", OTHER_SUBJECT],
+        ["active", OTHER_SUBJECT],
+      ]);
+      extension.stop();
+    });
+
+    it("NEGATIVE CONTROL: a page event observed under one account's hold is dropped when the hold moves", async () => {
+      const { h, extension } = perAccountHost(() => null); // no subject is ever issued
+      await extension.identify(ACCOUNT); // held for A; the start has not settled yet
+      const answered = new Promise<unknown>((resolve) => {
+        extension.listener(
+          { kind: ANALYTICS_MESSAGE_KIND, action: "track", name: "opened", props: { where: "popup" } },
+          { id: "ext", url: "chrome-extension://ext/popup.html" },
+          resolve,
+        );
+      });
+      await new Promise((r) => setTimeout(r, 5)); // the page event is waiting for the start
+      await extension.identify(OTHER); // the hold moves to B
+      extension.onStart(OTHER);
+      expect(await answered).toBe(false);
+      expect(queued(h).filter((e) => e.event === "opened")).toEqual([]);
+      extension.stop();
+    });
+
+    it("NEGATIVE CONTROL: a hold storage will not keep queues nothing that could later go out as nobody", async () => {
+      const h = harness();
+      const set = h.store.set;
+      h.store.set = async (key: string, value: unknown) => {
+        if (key === STATE_KEY && typeof (value as { heldFor?: unknown }).heldFor === "string")
+          throw new Error("refused");
+        return set(key, value);
+      };
+      await h.client.confirm(null);
+      await h.client.track("opened", { where: "options" }); // signed out
+      await h.client.flush();
+      await h.client.holdForAccount(ACCOUNT); // the hold is only in memory
+      await h.client.track("opened", { where: "popup" }); // refused: it could not wait under a hold
+      expect(queued(h).map((e) => e.event)).toEqual([]);
+      const restarted = new AnalyticsClient(h.deps); // a restart, then a sign-out
+      await restarted.confirm(null);
+      await restarted.flush();
+      expect(h.sent().map((e) => e.properties.where)).toEqual(["options"]);
+    });
+
+    it("NEGATIVE CONTROL: after a restart, waiting use is dropped when the earlier signed-in person is let go", async () => {
+      const h = harness();
+      await h.client.confirm(SUBJECT, { accountId: ACCOUNT });
+      await h.client.track("opened", { where: "popup" });
+      await h.client.flush();
+      // A restart whose session cannot be read yet: what it records waits, with no hold.
+      const restarted = new AnalyticsClient({ ...h.deps, startsUnconfirmed: true });
+      await restarted.track("opened", { where: "options" });
+      await restarted.confirm(null); // the session turns out signed out (or the account deleted)
+      await restarted.track("active", {});
+      await restarted.flush();
+      expect(h.sent().map((e) => [e.event, e.properties.where, e.properties.distinct_id === SUBJECT])).toEqual([
+        ["opened", "popup", true],
+        ["active", undefined, false],
+      ]);
+    });
   });
 
   it("NEGATIVE CONTROL: from confirmed-nobody, an account whose subject request fails sends nothing as nobody", async () => {

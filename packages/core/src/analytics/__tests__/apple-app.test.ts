@@ -206,6 +206,35 @@ describe("Apple app analytics", () => {
       expect(identifyOnServer).not.toHaveBeenCalled();
     },
   );
+
+  it("NEGATIVE CONTROL: an earlier account's subject arriving after a switch never takes the new account's use", async () => {
+    const U2 = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+    let resolveU1!: (value: unknown) => void;
+    let resolveU2!: (value: unknown) => void;
+    const lateU1 = new Promise((resolve) => (resolveU1 = resolve));
+    const lateU2 = new Promise((resolve) => (resolveU2 = resolve));
+    const asked: string[] = [];
+    const subjects: SubjectDeps = {
+      issue: async (_body, _signal, account) => (asked.push(account), account === U1 ? lateU1 : lateU2),
+      onStopped: async () => {},
+    };
+    const { app, events, store } = setup({}, { subjects }); // the launch confirmed nobody
+    await app.start();
+    const first = app.identifyAccount(U1); // U1's subject request is in flight
+    await vi.waitFor(() => expect(asked).toEqual([U1]));
+    const second = app.identifyAccount(U2); // U2 signs in before U1's reply
+    await vi.waitFor(() => expect(asked).toEqual([U1, U2]));
+    app.ui.track("signed_in", {}); // U2's use, waiting
+    await new Promise((r) => setTimeout(r, 10));
+    resolveU1({ state: "active", subject: testSubjectFor(U1) }); // U1's reply lands first, late
+    await first;
+    resolveU2({ state: "active", subject: testSubjectFor(U2) });
+    await second;
+    await new Promise((r) => setTimeout(r, 10));
+    expect((store.data[STATE_KEY] as { userId?: string }).userId).toBe(testSubjectFor(U2));
+    expect(JSON.stringify(events())).not.toContain(testSubjectFor(U1));
+    expect(events().find((e) => e.event === "signed_in")?.properties.distinct_id).toBe(testSubjectFor(U2));
+  });
 });
 
 describe("Apple app account and identity reconciliation", () => {

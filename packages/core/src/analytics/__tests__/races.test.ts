@@ -297,7 +297,20 @@ describe("unconfirmed accounts", () => {
     expect(JSON.stringify(store.data[QUEUE_KEY])).not.toContain(U1);
     await client.reset(); // the start finds nobody signed in: confirms
     await client.flush();
-    const opened = rec.events().find((e) => e.event === "opened")!;
+    // Someone was signed in here before: what waited may be their use, so it is dropped rather than
+    // given a fresh anonymous id (U5-W2). Nothing of U1 ever leaves.
+    expect(rec.events().find((e) => e.event === "opened")).toBeUndefined();
+    expect(JSON.stringify(rec.events())).not.toContain(U1);
+
+    // With no earlier account, the same waiting event is attributed at send time, signed out.
+    const fresh = recordingFetch();
+    const second = makeClient({ fetch: fresh.fetch, startsUnconfirmed: true }).client;
+    await second.track("opened", { where: "popup" });
+    await second.flush();
+    expect(fresh.events()).toEqual([]);
+    await second.reset();
+    await second.flush();
+    const opened = fresh.events().find((e) => e.event === "opened")!;
     expect(opened.properties.distinct_id).not.toBe(U1);
     expect(opened.properties.signed_in).toBe(false);
   });
