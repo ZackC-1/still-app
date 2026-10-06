@@ -821,3 +821,61 @@ describe("visible current-settings recovery in the maintained App", () => {
     expect(h.telemetry).not.toHaveBeenCalled();
   });
 });
+
+// VD-15: an ownership hold clears only through the account's own settings read. A local reread
+// alone could never release it, so Try again also asks sync to read the account again.
+describe("Try again on an ownership hold", () => {
+  async function heldByOwnership(signedIn: boolean, reason = "ownership-hold") {
+    const f = await browser();
+    const state = capture();
+    await flush();
+    const retrySync = vi.fn(async () => {});
+    state.controller.retrySync = retrySync;
+    if (signedIn) state.controller.userId = "33333333-3333-3333-3333-333333333333";
+    render(App, {
+      controller: state.controller,
+      committedPopupBinding: state.binding,
+      compact: true,
+      popupPresentation: {
+        browser: "Chrome" as const,
+        onSettings: vi.fn(),
+        loadDesktop: () => import("../v3/DesktopPopup.svelte"),
+      },
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("switch", { name: "Still" })).toBeTruthy(),
+    );
+    await flush();
+    const prior = f.store["still:settings"] as StoredSettingsRecord;
+    await f.external({
+      ...prior,
+      atomic: {
+        ...prior.atomic!,
+        ownership: "previous-account" as const,
+        paused: reason,
+        held: { "services.instagram": false },
+        sequence: prior.atomic!.sequence + 1,
+      },
+    });
+    await waitFor(() =>
+      expect(screen.getByText("Settings are unavailable.")).toBeTruthy(),
+    );
+    const reread = vi.spyOn(state.binding, "rereadAuthority");
+    await fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await flush();
+    return { retrySync, reread };
+  }
+  it.each(["ownership-hold", "ownership-unconfirmed"])(
+    "signed in, %s: Try again rereads and asks sync to read the account",
+    async (reason) => {
+      const h = await heldByOwnership(true, reason);
+      expect(h.reread).toHaveBeenCalledOnce();
+      expect(h.retrySync).toHaveBeenCalledOnce();
+    },
+  );
+  it("signed out: Try again only rereads (sign-out already released any ownership hold)", async () => {
+    const h = await heldByOwnership(false);
+    expect(h.reread).toHaveBeenCalledOnce();
+    expect(h.retrySync).not.toHaveBeenCalled();
+  });
+});

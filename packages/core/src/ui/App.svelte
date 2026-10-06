@@ -93,8 +93,16 @@
     legacyPopupAuthority ? legacyView.recovering : popupView.recovering,
   );
   function recoverSettings(): void {
-    if (legacyPopupAuthority) legacyView.recoverSettings();
-    else popupView.recoverSettings();
+    if (legacyPopupAuthority) {
+      legacyView.recoverSettings();
+      return;
+    }
+    // An ownership pause clears only through this account's own settings read, never a local
+    // reread, so Try again also asks sync to read the account again (it shares any read in flight).
+    const reason = committedPopupBinding?.current().reason;
+    if (c.userId && (reason === "ownership-hold" || reason === "ownership-unconfirmed"))
+      runSyncRetry();
+    popupView.recoverSettings();
   }
   let desktopPresentation = $derived(
     committedPopupBinding ? popupPresentation : undefined,

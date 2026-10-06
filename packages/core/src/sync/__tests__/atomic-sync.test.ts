@@ -9,6 +9,9 @@ import { SupabaseBackendPort } from "../profile.js";
 import { SyncService } from "../service.js";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { BackendPort } from "../ports.js";
+import { EntitlementCache } from "../../entitlement/cache.js";
+import { initialAccessSnapshot } from "../../entitlement/access-policy.js";
+import { createDesktopPopupBinding } from "../../ui/v3/desktop-popup-binding.js";
 
 const A = "11111111-1111-1111-1111-111111111111";
 const B = "22222222-2222-2222-2222-222222222222";
@@ -35,6 +38,7 @@ function harness(owner: "unknown" | "never-linked" | "previous-account" = "unkno
   let account: string | null = A;
   let sessionId = SESSION;
   let revision = empty ? 0 : 1, lastWriteId: string | null = null;
+  let accountEmpty = empty, lineage = LINEAGE;
   const seed = empty ? migrateSettingsV2(null, { kind: "proven-fresh" }) : migrateSettingsV2({ ...DEFAULT_SETTINGS, updatedAt: 1 }, { kind: "acknowledged-account", revision });
   if (seed.status !== "ready") throw new Error("fixture");
   let settings = seed.settings;
@@ -44,9 +48,9 @@ function harness(owner: "unknown" | "never-linked" | "previous-account" = "unkno
   let profileListener: ((envelope: SyncedSettingsEnvelope) => void) | null = null;
   let reads = 0;
   const failures: ("before" | "after")[] = [];
-  const response = () => ({ status: "ready", protocol: 2, empty: empty && revision === 0, settings: structuredClone(settings), settingsVersion: revision,
-    settingsServerUpdatedAt: "2026-10-02T00:00:00Z", writeId: lastWriteId, lineage: LINEAGE,
-    receipt: { version: 1, lineage: LINEAGE, revision, mac: "A".repeat(43) } });
+  const response = () => ({ status: "ready", protocol: 2, empty: accountEmpty && revision === 0, settings: structuredClone(settings), settingsVersion: revision,
+    settingsServerUpdatedAt: "2026-10-02T00:00:00Z", writeId: lastWriteId, lineage,
+    receipt: { version: 1, lineage, revision, mac: "A".repeat(43) } });
   const invoke = vi.fn(async (_name: string, options: { body: unknown }) => {
     const body = options.body as { action?: string };
     if (body.action === "read") {
@@ -108,6 +112,17 @@ function harness(owner: "unknown" | "never-linked" | "previous-account" = "unkno
       return { started: when, release() { const go = readRelease; readRelease = null; go?.(); } };
     },
     switchAccount(id: string | null) { account = id; },
+    /** The server side of one account: save it before moving to another, restore it on return. */
+    serverAccount() { return { settings: structuredClone(settings), revision, lastWriteId, accountEmpty, lineage }; },
+    restoreServerAccount(saved: { settings: SettingsV2; revision: number; lastWriteId: string | null; accountEmpty: boolean; lineage: string }) {
+      ({ revision, lastWriteId, accountEmpty, lineage } = saved); settings = structuredClone(saved.settings);
+    },
+    /** A brand new account with nothing saved (sign-up, or the same email after deletion). */
+    newEmptyAccount(nextLineage: string) {
+      const fresh = migrateSettingsV2(null, { kind: "proven-fresh" });
+      if (fresh.status !== "ready") throw new Error("fixture");
+      settings = fresh.settings; revision = 0; lastWriteId = null; accountEmpty = true; lineage = nextLineage;
+    },
     switchSession(id: string) { sessionId = id; },
     hold() { let began!: () => void; const when = new Promise<void>(r => { began = r; }); started = began; release = () => {};
       return { started: when, release() { const go = release; release = null; go?.(); } }; },
@@ -481,27 +496,27 @@ describe("existing SyncService and exact Supabase modern port", () => {
     expect(h.requests).toEqual([]);
     await h.service.signOut(); h.cache.watch()();
   });
-  it("empty account defaults keep unknown/previous-owner all-Off local choices held without upload", async () => {
+  it("empty account seeds the agreed defaults for unknown/previous-owner all-Off local choices without upload (VD-15)", async () => {
     for (const owner of ["unknown", "previous-account"] as const) {
       const h = harness(owner, true); await h.cache.hydrate();
       await h.cache.setGlobalOn(false);
       for (const id of ["youtube", "instagram", "facebook", "tiktok"] as const) await h.cache.setService(id, false);
       await h.service.onSignedIn(A);
+      // The account wins with its defaults: what the page shows is what blocking enforces.
       expect(h.settings().globalOn).toBe(true);
-      expect(h.cache.current().globalOn).toBe(false);
-      expect(Object.values(h.cache.current().services).every(on => !on)).toBe(true);
-      expect(h.cache.currentRecord().atomic).toMatchObject({ paused: "ownership-hold", held: { globalOn: false, "services.youtube": false } });
-      expect((await h.storage.get())!.atomic!.pending).toEqual([]);
-      expect((await h.storage.get())!.settings.globalOn).toBe(true);
-      expect(h.requests).toEqual([]);
+      expect(h.cache.current()).toMatchObject({ globalOn: true, services: { youtube: true, instagram: true, facebook: true, tiktok: true } });
+      expect(h.cache.currentRecord().atomic).toMatchObject({ paused: null, held: {}, pending: [] });
+      expect((await h.storage.get())!.settings).toMatchObject({ globalOn: true, services: { instagram: true } });
+      expect(h.requests).toEqual([]); // nothing of the earlier owner's is uploaded
+      expect(h.service.getState()).toMatchObject({ pendingUpload: false, cloudReachable: true });
       await h.service.retryNow(); expect(h.requests).toEqual([]);
-      await h.cache.setGlobalOn(true);
-      for (const id of ["youtube", "instagram", "facebook", "tiktok"] as const) await h.cache.setService(id, true);
-      await drain();
-      expect(h.cache.currentRecord().atomic!.held).toEqual({});
-      expect(h.cache.currentRecord().atomic!.paused).toBeNull();
-      expect(h.requests).toEqual([]); // resolving a hold to the canonical value is no new edit
-      expect((await h.storage.get())!.atomic!.pending).toEqual([]);
+      // Commands are available and a new choice is this account's own edit, written with its receipt.
+      await h.cache.setService("instagram", false); await drain();
+      expect(h.requests).toHaveLength(1);
+      expect(h.requests[0]).toMatchObject({ receipt: { revision: 0 }, operations: [{ path: "services.instagram", value: false }] });
+      expect((h.requests[0] as { operations: unknown[] }).operations).toHaveLength(1);
+      expect(h.settings()).toMatchObject({ globalOn: true, services: { youtube: true, instagram: false, facebook: true, tiktok: true } });
+      expect(h.service.getState().pendingUpload).toBe(false);
       await h.service.signOut(); h.cache.watch()();
     }
   });
@@ -611,5 +626,177 @@ describe("sync-settings paused (kill switch rehearsal at the client)", () => {
       expect(h.cache.currentRecord().atomic!.pending).toEqual([]);
     } finally { await h.service.signOut(); h.cache.watch()(); }
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+// VD-15: a browser linked to account X, holding non-default choices, signs in to a NEW empty
+// account Y (sign-up, or the same email after X was deleted). Approved rule (CP-019/020): a
+// previous, other or unknown owner entering a definitively empty account seeds the agreed
+// defaults and the account wins; X's choices are never uploaded; the switches stay usable.
+describe("VD-15 empty-account ownership", () => {
+  const Y = "33333333-3333-3333-3333-333333333333";
+  const Y_LINEAGE = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
+  type Request = { receipt: { lineage: string; revision: number }; operations: { path: string; value: boolean }[] };
+  async function commandsOf(h: ReturnType<typeof harness>) {
+    const access = new EntitlementCache({ get: async () => false, set: async () => {}, subscribe: () => () => {},
+      observeBenefits: async () => initialAccessSnapshot() });
+    await access.refreshAccess();
+    return createDesktopPopupBinding(h.cache, access);
+  }
+  async function linkedToXWithInstagramOff() {
+    const h = harness("never-linked"); await h.cache.hydrate();
+    await h.service.onSignedIn(A);
+    await h.cache.setService("instagram", false); await drain();
+    expect(h.settings().services.instagram).toBe(false); // X holds the choice
+    const x = h.serverAccount();
+    return { h, x };
+  }
+  async function expectYAdoptedDefaults(h: ReturnType<typeof harness>, before: number) {
+    expect(h.cache.current()).toMatchObject({ globalOn: true, services: { youtube: true, instagram: true, facebook: true, tiktok: true } });
+    const saved = (await h.storage.get())!;
+    expect(saved.settings).toMatchObject({ globalOn: true, services: { instagram: true } }); // what blocking reads
+    expect(saved.atomic).toMatchObject({ ownership: "previous-account", paused: null, held: {}, pending: [], anchor: { lineage: Y_LINEAGE, revision: 0 } });
+    expect(h.requests).toHaveLength(before); // nothing of X's was uploaded to Y
+    expect(h.service.getState()).toMatchObject({ userId: Y, pendingUpload: false, cloudReachable: true });
+    const binding = await commandsOf(h);
+    expect(binding.current()).toMatchObject({ commandAvailability: "ready", reason: null });
+    // Y's own next choice is an ordinary Y write: Y's lineage, only that field.
+    expect(await binding.setService("youtube", false)).toEqual({ status: "committed" }); await drain();
+    const sent = h.requests.at(-1) as Request;
+    expect(h.requests).toHaveLength(before + 1);
+    expect(sent).toMatchObject({ receipt: { lineage: Y_LINEAGE, revision: 0 }, operations: [{ path: "services.youtube", value: false }] });
+    expect(sent.operations).toHaveLength(1);
+    expect(h.settings().services).toMatchObject({ youtube: false, instagram: true });
+    expect(h.service.getState().pendingUpload).toBe(false);
+    binding.stop();
+  }
+
+  it("sign out of X, sign in to a new empty Y: Y holds the defaults, switches work, X's choices stay off Y", async () => {
+    const { h } = await linkedToXWithInstagramOff();
+    await h.service.signOut();
+    expect(h.cache.current().services.instagram).toBe(false); // local choices kept at sign-out
+    h.switchAccount(Y); h.newEmptyAccount(Y_LINEAGE);
+    const before = h.requests.length;
+    await h.service.onSignedIn(Y);
+    await expectYAdoptedDefaults(h, before);
+    await h.service.signOut(); h.cache.watch()();
+  });
+
+  it("X deleted, then the same email signs up again (a new uid): the same defaults, no lock-up", async () => {
+    const { h } = await linkedToXWithInstagramOff();
+    await h.service.deleteAccount();
+    h.switchAccount(Y); h.newEmptyAccount(Y_LINEAGE);
+    const before = h.requests.length;
+    await h.service.onSignedIn(Y);
+    await expectYAdoptedDefaults(h, before);
+    await h.service.signOut(); h.cache.watch()();
+  });
+
+  it("a 2.x upgrader (ownership unknown) with a changed switch signing in to a new account starts from the defaults", async () => {
+    const h = harness("unknown", true); await h.cache.hydrate();
+    expect(h.cache.currentRecord().atomic!.ownership).toBe("unknown");
+    await h.cache.setService("instagram", false);
+    h.switchAccount(Y); h.newEmptyAccount(Y_LINEAGE);
+    await h.service.onSignedIn(Y);
+    await expectYAdoptedDefaults(h, 0);
+    await h.service.signOut(); h.cache.watch()();
+  });
+
+  it("A to empty B to A: B gets defaults without A's choice, A's own row comes back on return", async () => {
+    const { h, x } = await linkedToXWithInstagramOff();
+    await h.service.signOut();
+    h.switchAccount(Y); h.newEmptyAccount(Y_LINEAGE);
+    const before = h.requests.length;
+    await h.service.onSignedIn(Y);
+    expect(h.cache.current().services.instagram).toBe(true);
+    expect(h.requests).toHaveLength(before);
+    await h.cache.setService("facebook", false); await drain(); // B's own choice
+    expect(h.requests).toHaveLength(before + 1);
+    await h.service.signOut();
+    h.switchAccount(A); h.restoreServerAccount(x);
+    await h.service.onSignedIn(A);
+    expect(h.cache.current().services).toMatchObject({ instagram: false, facebook: true }); // A's row; B's choice stays in B
+    expect(h.cache.currentRecord().atomic).toMatchObject({ paused: null, held: {}, pending: [] });
+    expect(h.requests).toHaveLength(before + 1); // nothing of B's went to A
+    expect(h.settings().services.facebook).toBe(true);
+    await h.service.signOut(); h.cache.watch()();
+  });
+
+  it("a never-linked first sign-in to an empty account still seeds its explicit choices", async () => {
+    const h = harness("never-linked", true); await h.cache.hydrate();
+    await h.cache.setService("instagram", false);
+    await h.service.onSignedIn(A); await drain();
+    expect(h.requests).toHaveLength(1);
+    expect(h.requests[0]).toMatchObject({ receipt: { revision: 0 }, operations: [{ path: "services.instagram", value: false }] });
+    expect(h.settings().services.instagram).toBe(false);
+    expect(h.cache.current().services.instagram).toBe(false);
+    expect(h.cache.currentRecord().atomic).toMatchObject({ paused: null, held: {} });
+    await h.service.signOut(); h.cache.watch()();
+  });
+
+  it("a same-account offline edit is kept and sent once the account is reachable again", async () => {
+    const h = harness(); await h.cache.hydrate(); await h.service.onSignedIn(A);
+    h.failNext("before");
+    await h.cache.setService("instagram", false); await drain();
+    expect(h.service.getState()).toMatchObject({ cloudReachable: false, pendingUpload: true });
+    expect(h.cache.current().services.instagram).toBe(false);
+    expect(h.cache.currentRecord().atomic).toMatchObject({ paused: null, held: {} });
+    await h.service.retryNow(); await drain();
+    expect(h.settings().services.instagram).toBe(false);
+    expect(h.service.getState()).toMatchObject({ cloudReachable: true, pendingUpload: false });
+    await h.service.signOut(); h.cache.watch()();
+  });
+
+  describe("a stored ownership-hold from an earlier build always has a way out", () => {
+    // What VD-15 left behind: Y's defaults saved, X's Instagram-off held over them, every switch off.
+    async function stuckOnY() {
+      const h = harness("never-linked", true); h.switchAccount(Y); h.newEmptyAccount(Y_LINEAGE); await h.cache.hydrate();
+      await h.service.onSignedIn(Y); await drain();
+      const record = (await h.storage.get())!;
+      await h.storage.set({ ...record, atomic: { ...record.atomic!, ownership: "previous-account", sequence: record.atomic!.sequence + 1,
+        paused: "ownership-hold", held: { "services.instagram": false } } });
+      await drain();
+      expect(h.cache.currentRecord().atomic!.paused).toBe("ownership-hold");
+      const binding = await commandsOf(h);
+      expect(binding.current()).toMatchObject({ commandAvailability: "unavailable", reason: "ownership-hold" });
+      binding.stop();
+      return h;
+    }
+    async function expectRecovered(h: ReturnType<typeof harness>, before: number) {
+      expect(h.cache.currentRecord().atomic).toMatchObject({ paused: null, held: {} });
+      expect(h.cache.current().services.instagram).toBe(true);
+      expect(h.requests).toHaveLength(before);
+      const binding = await commandsOf(h);
+      expect(binding.current().commandAvailability).toBe("ready");
+      binding.stop();
+    }
+    it("Try again (a sync retry) recovers", async () => {
+      const h = await stuckOnY(); const before = h.requests.length;
+      await h.service.retryNow(); await drain();
+      await expectRecovered(h, before);
+      expect(h.service.getState().pendingUpload).toBe(false);
+      await h.service.signOut(); h.cache.watch()();
+    });
+    it("a worker restart recovers", async () => {
+      const h = await stuckOnY(); const before = h.requests.length;
+      endLifetime(h.service, h.cache);
+      const next = h.newLifetime(); await next.cache.hydrate();
+      await next.service.resume(Y, false); await drain();
+      expect(next.cache.currentRecord().atomic).toMatchObject({ paused: null, held: {} });
+      expect(next.cache.current().services.instagram).toBe(true);
+      expect(h.requests).toHaveLength(before);
+      expect(next.service.getState().pendingUpload).toBe(false);
+      await next.service.signOut(); next.cache.watch()();
+    });
+    it("signing out releases the hold back to local-only control", async () => {
+      const h = await stuckOnY(); const before = h.requests.length;
+      h.invoke.mockRejectedValue(new Error("offline")); // sign-out alone must be enough
+      await h.service.signOut(); await drain();
+      expect(h.service.getState().userId).toBeNull();
+      await expectRecovered(h, before);
+      await h.cache.setService("instagram", false);
+      expect((await h.storage.get())!.settings.services.instagram).toBe(false);
+      h.cache.watch()();
+    });
   });
 });
