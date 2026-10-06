@@ -45,12 +45,13 @@ once a version ships.
 | Track | Reference |
 |---|---|
 | Apple iOS/macOS + Safari | [Apple runbook](01-apple-app-store.md): submitted build provenance, free reviewer flow, legacy IAP presentation and manual release. |
-| Chrome desktop | [Chrome runbook](02-chrome-web-store.md): configured ZIP, free listing/privacy and public verification. |
+| Chrome desktop | [Chrome runbook](02-chrome-web-store.md): configured ZIP, free listing/privacy and public verification. Owner-approved, keyless upload and submission: [Chrome release workflow](chrome-publish-workflow.md). |
 | Firefox desktop | [Firefox runbook](03-firefox-amo.md): complete reproducible sources, consent declaration and publication boundary. |
 | Mobile Safari | [Mobile validation](06-mobile-blocking-validation.md): expected behavior and exact evidence boundaries. |
 | RevenueCat | [Retained infrastructure](04-revenuecat.md): identity/receipt/webhook continuity; paid gates remain disabled. |
 | Auth and reviewer access | [Account/reviewer reference](extension-purchase-deploy-checklist.md): OTP and private fixed-code configuration. |
 | Backend retention | [Counter runbook](counter-retention.md): current behavior, safe maintenance and recovery. |
+| Sync log noise | [Expected log noise](sync-log-noise.md): why older 2.1 apps' refused saves show up in server logs after new sync, and how to filter them. |
 | Usage analytics | [PostHog runbook](posthog-analytics.md): project settings, function secrets, store privacy declarations and the growth dashboard. |
 | Marketing and assets | [Listing drafts](store-listing-copy.md), [screenshot manifest](screenshots/store-ready/README.md), [public contacts](public-contact-addresses.md). |
 | Evidence | [Validation index](VALIDATION.md), [September 8 historical candidate](history/2026-09-08-still-2-certification.md), [September 11 contact candidate](history/2026-09-11-public-contact-update.md). |
