@@ -26,12 +26,16 @@ export default defineContentScript({
   cssInjectionMode: "manifest",
   async main(ctx) {
     // V3 builds (the same inline opt-in as the popup and settings page, and the Apple app's D04
-    // rule) run the modern entry: early redirects for every core route and the pending cover
-    // (V3-D-052). Vite inlines these values, so default and configured builds fold this branch and
-    // its import away and stay byte-identical (U7-W3 ruling Q7).
+    // rule: atomic-local, or configured with modern sync) run the modern entry: early redirects
+    // for every core route and the pending cover (V3-D-052). Vite inlines these values, so default
+    // and configured 2.x builds fold this branch and its import away and stay byte-identical
+    // (U7-W3 ruling Q7).
     if (
-      import.meta.env.VITE_APPLE_ATOMIC_SETTINGS === "true" &&
-      !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
+      (import.meta.env.VITE_APPLE_ATOMIC_SETTINGS === "true" &&
+        !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)) ||
+      (import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true" &&
+        import.meta.env.VITE_SUPABASE_URL &&
+        import.meta.env.VITE_SUPABASE_ANON_KEY)
     ) {
       await createModernShippingContentEntry({
         // As below: Safari implements only the extras every host implements.
