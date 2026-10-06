@@ -466,6 +466,54 @@ test("the real 0015 check pins the private routines 0016's schema-wide revoke ch
   assert.doesNotThrow(() => assertIndependentVerifications([migrations[1]]));
 });
 
+test("0017 replaces the limiter 0015 pins and revokes on every private routine 0016 pins, so it deploys alone", async () => {
+  const root = new URL("../../../", import.meta.url);
+  const read = (path) => readFile(new URL(path, root), "utf8");
+  const migration = async (file) => ({
+    file,
+    text: await read(`supabase/migrations/${file}`),
+    verificationText: await read(`scripts/backend/deploy/verify/${file}`),
+  });
+  const m15 = await migration("0015_settings_sync_per_field.sql");
+  const m16 = await migration("0016_product_policy.sql");
+  const m17 = await migration("0017_analytics_erasure.sql");
+  const changed = routinesChanged(m17.text);
+  assert.ok(changed.has("private.*"));
+  assert.ok(changed.has("public.consume_rate_limit"));
+  assert.throws(
+    () => assertIndependentVerifications([m16, m17]),
+    (error) =>
+      error instanceof Refusal &&
+      error.category === "verification-overlap" &&
+      /0017_analytics_erasure\.sql changes/.test(error.message) &&
+      /private\.read_product_policy/.test(error.message) &&
+      /deploy 0016_product_policy\.sql alone/.test(error.message),
+  );
+  assert.throws(
+    () => assertIndependentVerifications([m15, m17]),
+    (error) =>
+      error instanceof Refusal &&
+      error.category === "verification-overlap" &&
+      /public\.consume_rate_limit/.test(error.message) &&
+      /deploy 0015_settings_sync_per_field\.sql alone/.test(error.message),
+  );
+  // Once 0016 is deployed and verified, 0017 plans on its own.
+  assert.doesNotThrow(() => assertIndependentVerifications([m17]));
+});
+
+test("the real 0017 verification and row-count invariant pass the read-only lint", async () => {
+  for (const name of [
+    "0017_analytics_erasure.sql",
+    "0017_analytics_erasure.invariant.sql",
+  ]) {
+    const text = await readFile(
+      new URL(`./verify/${name}`, import.meta.url),
+      "utf8",
+    );
+    assert.equal(lintVerificationSql(text), true, name);
+  }
+});
+
 test("the real 0016 verification and row-count invariant pass the read-only lint", async () => {
   for (const name of [
     "0016_product_policy.sql",
@@ -2067,4 +2115,45 @@ test("offline plan command works without secrets and prints the reviewable plan"
   assert.equal(code, 0);
   assert.match(out.text, /Supabase production deploy plan/);
   assert.match(out.text, /0002_harden\.sql/);
+});
+
+test("the deploy CLI still plans migrations and writes a closing record as a subprocess", async (t) => {
+  const { root, head } = await repo(t);
+  const cli = (args, env) =>
+    spawnSync(
+      process.execPath,
+      [new URL("./deploy.mjs", import.meta.url).pathname, ...args],
+      {
+        cwd: root,
+        encoding: "utf8",
+        timeout: 60_000,
+        env: { PATH: process.env.PATH, ...env },
+      },
+    );
+  for (const operation of [undefined, "", "migrations"]) {
+    const result = cli(["plan"], {
+      DEPLOY_SHA: head,
+      DEPLOY_MIGRATIONS: "0002_harden.sql",
+      DEPLOY_FUNCTIONS: "",
+      ...(operation === undefined ? {} : { DEPLOY_OPERATION: operation }),
+    });
+    assert.equal(result.status, 0, `${operation}: ${result.stderr}`);
+    assert.equal(result.stdout.trim(), (await plan(root, head)).digest);
+  }
+  const empty = cli(["plan"], {
+    DEPLOY_SHA: head,
+    DEPLOY_OPERATION: "migrations",
+    DEPLOY_MIGRATIONS: "",
+  });
+  assert.equal(empty.status, 1);
+  assert.match(empty.stderr, /^Refused \(input-invalid\): List at least one/);
+  const closing = cli(
+    ["final-summary", "--receipt", join(root, "absent.json")],
+    {
+      APPLY_OUTCOME: "skipped",
+      JOB_STATUS: "cancelled",
+    },
+  );
+  assert.equal(closing.status, 0, closing.stderr);
+  assert.match(closing.stdout, /## Deploy closing record/);
 });

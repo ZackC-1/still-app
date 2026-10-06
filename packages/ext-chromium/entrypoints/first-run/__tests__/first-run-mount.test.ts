@@ -17,6 +17,7 @@ vi.mock("wxt/browser", () => ({
   },
 }));
 import FirstRunApp from "../FirstRunApp.svelte";
+import { stillManifest } from "../../../wxt.config.js";
 
 afterEach(() => {
   cleanup();
@@ -170,6 +171,29 @@ describe("first-run host mount", () => {
     await waitFor(() => expect((screen.getByRole("button", { name: "Allow" }) as HTMLButtonElement).disabled).toBe(false));
   });
 
+  it("Firefox for Android: no pin step, the same Allow request, and the sign-in step renumbered", async () => {
+    installBrowser();
+    const page = pageAnalytics(false, false);
+    const controller = createExtensionUiController(undefined, { analytics: firstRunAnalytics(page) });
+    const permissions = permissionsApi(false);
+    render(FirstRunApp, {
+      props: { controller, browser: "firefox", permissions, origins: ORIGINS, toolbar: false },
+    });
+    const allow = await screen.findByRole("button", { name: "Allow" });
+    await waitFor(() => expect((allow as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.queryByText("Pin Still to your toolbar")).toBeNull();
+    expect(
+      screen.queryByText("Click the puzzle piece in the toolbar, then the gear next to Still, then Pin to toolbar."),
+    ).toBeNull();
+    expect([...document.querySelectorAll("ol.steps > li.step .num")].map((n) => n.textContent?.trim())).toEqual([
+      "1",
+      "2",
+    ]);
+    await fireEvent.click(allow);
+    expect(permissions.request).toHaveBeenCalledWith({ origins: ORIGINS });
+    expect(page.track).not.toHaveBeenCalled();
+  });
+
   it("modern settings: Still switched off never reads as working", async () => {
     const authority = installBrowser({
       "still:settings": { settings: structuredClone(DEFAULT_SETTINGS), syncMetadata: null },
@@ -209,4 +233,39 @@ describe("first-run host mount", () => {
     expect(await screen.findByText("Signed in as person@fixture.test.")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
   });
+});
+
+describe("first-run main (the real entrypoint)", () => {
+  // The page main asks the browser for its platform before rendering; nothing else decides it.
+  for (const [os, pinShown] of [
+    ["android", false],
+    ["mac", true],
+  ] as const) {
+    it(`Firefox build, platform "${os}": the pin step is ${pinShown ? "shown" : "left out"}`, async () => {
+      installBrowser();
+      const runtime = (globalThis as unknown as { chrome: { runtime: Record<string, unknown> } }).chrome.runtime;
+      runtime.getPlatformInfo = vi.fn(async () => ({ os }));
+      runtime.getManifest = () => stillManifest("firefox");
+      runtime.openOptionsPage = vi.fn();
+      (globalThis as unknown as { chrome: Record<string, unknown> }).chrome.permissions = {
+        ...permissionsApi(false),
+        onAdded: { addListener: () => {}, removeListener: () => {} },
+        onRemoved: { addListener: () => {}, removeListener: () => {} },
+      };
+      vi.stubEnv("FIREFOX", "true");
+      document.body.innerHTML = '<div id="app"></div>';
+      try {
+        // A distinct module id per case, so each one runs the entrypoint afresh.
+        const main = os === "android" ? "../main.js?platform-android" : "../main.js?platform-mac";
+        await import(main);
+        await screen.findByRole("button", { name: "Allow" });
+        expect(runtime.getPlatformInfo).toHaveBeenCalled();
+        expect(screen.queryByText("Pin Still to your toolbar") !== null).toBe(pinShown);
+        expect(document.querySelectorAll("ol.steps > li.step")).toHaveLength(pinShown ? 3 : 2);
+      } finally {
+        vi.unstubAllEnvs();
+        document.body.innerHTML = "";
+      }
+    });
+  }
 });

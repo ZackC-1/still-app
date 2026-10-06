@@ -42,5 +42,27 @@
 </script>
 
 {#if view.visible}
-  <AppleOnboarding {...view.props} />
+  <div class="onboarding-viewport">
+    <AppleOnboarding {...view.props} />
+  </div>
 {/if}
+
+<style>
+  /* D12 is a full-screen layout: the step's content centred, Continue anchored at the bottom.
+     AppleOnboarding gets that from `.ob { min-height: 100% }`, which only works inside a box of
+     definite height (as in the design's device frame). In the app the chain above it is
+     html > body > #app, and the shared rule `html, body, #app { min-block-size: 100% }` gives body
+     and #app no definite height, so the percentage resolved to nothing and the whole step sat at
+     the top. This host is the only place D12 fills a whole web view, so it supplies the screen
+     height here, in a file only opted-in builds contain, rather than in the shared stylesheet
+     every shipped screen uses. A web view always has a real viewport; this is never a popup. */
+  .onboarding-viewport {
+    display: flex;
+    flex-direction: column;
+    min-block-size: 100vh;
+    min-block-size: 100dvh;
+  }
+  .onboarding-viewport > :global(.ob) {
+    flex: 1 0 auto;
+  }
+</style>

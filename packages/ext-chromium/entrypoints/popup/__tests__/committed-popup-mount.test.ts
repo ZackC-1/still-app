@@ -28,6 +28,7 @@ import {
   ANALYTICS_MESSAGE_KIND,
 } from "../../../lib/analytics.js";
 import PopupApp from "../PopupApp.svelte";
+import type { RuntimePlatform } from "../../../lib/runtime-platform.js";
 
 const mounted = vi.hoisted(() => ({
   instances: [] as Record<string, unknown>[],
@@ -429,6 +430,65 @@ describe("actual Chromium popup mount", () => {
     expect(requireModernSettings(after).services.youtube).toBe(true);
     expect(requireModernSettings(after).sites["instagram.reels"]).toBe(true);
     expect(legacy).not.toHaveBeenCalled();
+  });
+
+  describe("Firefox for Android presentation", () => {
+    // DesktopPopup pins its own 380px maximum inline; MobilePopup (the phone overlay) does not.
+    const desktopRoot = () =>
+      document.querySelector('.still-ui.app[style*="max-inline-size"]');
+    async function mountPopup(
+      browser: "Chrome" | "Firefox",
+      platform: Promise<RuntimePlatform>,
+    ) {
+      await installBrowser();
+      let binding!: CommittedPopupBinding;
+      const controller = createExtensionUiController(undefined, {
+        onCommittedPopupBinding(value) {
+          binding = value;
+          stops.push(value.stop);
+        },
+      });
+      await flush();
+      render(PopupApp, {
+        controller,
+        committedPopupBinding: binding,
+        surfaceGuidance: CHROMIUM_SURFACE_GUIDANCE,
+        browser,
+        platform,
+      });
+      await waitFor(() =>
+        expect(
+          screen.getByRole("button", { name: "YouTube Blocker" }),
+        ).toBeTruthy(),
+      );
+    }
+
+    it("Firefox on Android gets the phone popup, with the existing Firefox wording only", async () => {
+      vi.stubEnv("FIREFOX", "true");
+      await mountPopup("Firefox", Promise.resolve("android"));
+      expect(desktopRoot()).toBeNull();
+      expect(
+        screen.getByRole("button", { name: "Settings. Find Still in Firefox." }),
+      ).toBeTruthy();
+      expect(screen.queryByText("Purchase Still Pro")).toBeNull();
+    });
+
+    it("desktop Firefox and Chrome keep the desktop popup, even in a phone-sized window", async () => {
+      vi.stubEnv("FIREFOX", "true");
+      vi.stubGlobal("innerWidth", 320);
+      await mountPopup("Firefox", Promise.resolve("desktop"));
+      expect(desktopRoot()).not.toBeNull();
+      cleanup();
+      vi.stubEnv("FIREFOX", "");
+      await mountPopup("Chrome", Promise.resolve("android"));
+      expect(desktopRoot()).not.toBeNull();
+    });
+
+    it("Firefox with no platform answer in time (unknown) keeps the desktop popup", async () => {
+      vi.stubEnv("FIREFOX", "true");
+      await mountPopup("Firefox", Promise.resolve("unknown"));
+      expect(desktopRoot()).not.toBeNull();
+    });
   });
 
   it("real main captures the factory binding, preserves actual Settings/auth routes and emits only committed toggle messages", async () => {

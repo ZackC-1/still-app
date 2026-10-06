@@ -132,8 +132,12 @@ function setup(
   const settle = () => new Promise((r) => setTimeout(r, 5));
   const events = () =>
     (local.data[QUEUE_KEY] as
-      { event: string; properties: Record<string, unknown> }[] | undefined) ??
-    [];
+      | {
+          event: string;
+          attributeLater?: boolean;
+          properties: Record<string, unknown>;
+        }[]
+      | undefined) ?? [];
   return {
     bg,
     local,
@@ -149,7 +153,7 @@ function setup(
 }
 
 describe("Safari extension analytics", () => {
-  it("reports under the fresh provider scope, with the right surface and current account", async () => {
+  it("reports under the fresh provider scope, with the right surface, never as the signed-in account", async () => {
     const { bg, settle, events } = setup({ signedIn: true, os: "mac" });
     bg.onStart();
     await settle();
@@ -164,8 +168,15 @@ describe("Safari extension analytics", () => {
       surface: "safari-macos",
       store: "macos",
       $device_id: INSTALL,
-      distinct_id: ACCOUNT,
     });
+    // Owner decision 50 (U5-W2): the account id is never the person, and this build has no
+    // per-device identity, so signed-in use waits with no person (neither the account nor the
+    // anonymous id) until one is issued.
+    for (const event of events()) {
+      expect(event.attributeLater).toBe(true);
+      expect(event.properties.distinct_id).toBeUndefined();
+    }
+    expect(JSON.stringify(events())).not.toContain(ACCOUNT);
     expect(JSON.stringify(events())).not.toContain("$anon_distinct_id");
   });
 
@@ -299,10 +310,24 @@ describe("Safari extension analytics", () => {
 });
 
 describe("Safari extension account changes", () => {
-  it("lets go of an account the app signed out or deleted, with a fresh anonymous id", async () => {
+  it("lets go of an account the app signed out or deleted, and drops what it recorded meanwhile", async () => {
     const first = setup({ signedIn: true });
     first.bg.onStart();
     await first.settle();
+    await first.send(
+      {
+        kind: ANALYTICS_MESSAGE_KIND,
+        action: "track",
+        name: "opened",
+        props: { where: "popup" },
+      },
+      PAGE,
+    );
+    await first.settle();
+    // Recorded while signed in: waiting with no person (owner decision 50, no account-id fallback).
+    expect(first.events().map((e) => e.event)).toContain("opened");
+    expect(first.events().every((e) => e.attributeLater === true)).toBe(true);
+    const signedInEvents = structuredClone(first.events());
     // Next background start: the app reports no account.
     const later = setup({ signedIn: false }, first.local);
     later.bg.onStart();
@@ -317,23 +342,60 @@ describe("Safari extension account changes", () => {
       PAGE,
     );
     await later.settle();
-    const blocked = later.events().find((e) => e.event === "opened")!;
-    expect(blocked.properties.distinct_id).not.toBe(ACCOUNT);
-    expect(blocked.properties.distinct_id).not.toBe(ANCHOR);
+    // The signed-in use went with the account: it is never given to the anonymous id (a deletion
+    // must leave none of it, and signed-in use is never reported as nobody).
+    expect(later.events().map((e) => e.event)).toEqual(["opened"]);
+    const blocked = later.events()[0]!;
+    expect(blocked.attributeLater).toBeUndefined();
+    // Intended: signed out, the device reports under its own anonymous id (index 0, the anchor).
+    // The account was never this device's identity here, so nothing needs separating from it, and
+    // owner decision 61 keeps this device's signed-out data under that id (an account-wide deletion
+    // never erases it; only turning sharing off on this device does).
+    expect(blocked.properties.distinct_id).toBe(ANCHOR);
     expect(blocked.properties.signed_in).toBe(false);
+    expect(JSON.stringify(later.events())).not.toContain(ACCOUNT);
+    // No event, signed in or out, ever carries the anchor together with the account (or any other
+    // identity): signed-in use had no person at all, and signed-out use only the anchor.
+    for (const event of [...signedInEvents, ...later.events()]) {
+      const properties = JSON.stringify(event.properties);
+      expect(properties).not.toContain(ACCOUNT);
+      expect([undefined, ANCHOR]).toContain(event.properties.distinct_id);
+      if (event.properties.distinct_id === undefined) expect(properties).not.toContain(ANCHOR);
+    }
   });
 
   it("an unreadable account status changes nothing", async () => {
     const first = setup({ signedIn: true });
     first.bg.onStart();
     await first.settle();
+    await first.send(
+      {
+        kind: ANALYTICS_MESSAGE_KIND,
+        action: "track",
+        name: "opened",
+        props: { where: "popup" },
+      },
+      PAGE,
+    );
+    await first.settle();
+    const before = structuredClone(first.local.data);
+    const waiting = first.events().length;
+    expect(waiting).toBeGreaterThan(0);
     const later = setup({ available: false }, first.local);
     later.bg.onStart();
     await later.settle();
+    // Not taken as signed out: what waited for the account is neither dropped nor given to nobody.
+    expect(first.local.data).toEqual(before);
+    expect(first.events()).toHaveLength(waiting);
+    expect(first.events().every((e) => e.attributeLater === true)).toBe(true);
     const state = first.local.data["still:analytics:state"] as {
       userId: string | null;
+      heldFor?: string | null;
     };
-    expect(state.userId).toBe(ACCOUNT);
+    expect(state.userId).toBeNull(); // the account id is never the person (owner decision 50)
+    // Held for the account by a one-way tag only: the account id itself is never stored.
+    expect(state.heldFor).toMatch(/^[0-9a-f]{64}$/);
+    expect(JSON.stringify(first.local.data)).not.toContain(ACCOUNT);
   });
 });
 
@@ -407,11 +469,18 @@ describe("Safari's timed send follows the app's account", () => {
       PAGE,
     );
     await settle();
-    expect(JSON.stringify(events())).toContain(ACCOUNT); // waiting under the account (offline)
+    // Waiting for the account (offline), with no person: never the account id (owner decision 50).
+    const opened = events().find((e) => e.event === "opened");
+    expect(opened).toMatchObject({ attributeLater: true });
+    expect(opened!.properties.distinct_id).toBeUndefined();
+    expect(JSON.stringify(events())).not.toContain(ACCOUNT);
     setSignedIn(false); // the app signed out while this background slept
     bg.flush(); // the alarm
     await settle();
     await new Promise((r) => setTimeout(r, 30));
+    // Dropped with the account, never given to the anonymous id and sent.
+    expect(events().find((e) => e.event === "opened")).toBeUndefined();
+    expect(events().some((e) => e.attributeLater)).toBe(false);
     expect(JSON.stringify(events())).not.toContain(ACCOUNT);
   });
 });
@@ -705,8 +774,11 @@ describe("Safari current capability boundary", () => {
       surface: "safari-macos",
       device: "desktop",
       $device_id: TEST_PERMISSION.provider.deviceId,
-      distinct_id: ACCOUNT,
     });
+    // Signed in with no per-device identity: waiting with no person, never the account id.
+    expect(h.events()[0]!.attributeLater).toBe(true);
+    expect(h.events()[0]!.properties.distinct_id).toBeUndefined();
+    expect(JSON.stringify(h.events())).not.toContain(ACCOUNT);
   });
 });
 

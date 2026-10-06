@@ -1,4 +1,5 @@
 import { isAnalyticsId, type AnalyticsKeyValue } from "./identity.js";
+import { deriveAnonymousId, deriveDeviceId } from "./derive.js";
 
 // One device-local permission authority. Old On and native/store permission never imply that
 // the approved current usage/email/AI purposes and recipients have been accepted.
@@ -121,7 +122,21 @@ export interface AnalyticsConsent {
   grant(permissionVersion: string): Promise<void>;
 }
 
-export function createStoredConsent(store: AnalyticsKeyValue, _legacyDefaultOn: boolean): AnalyticsConsent {
+export interface StoredConsentOptions {
+  /**
+   * Whether the device-erasure service durably owns the cleanup of a stopped origin (its ledger
+   * entry is recorded). Only then may a fresh Share start a new origin while that cleanup is still
+   * running at the provider; the new origin derives new ids, so nothing is ever reused. Without it a
+   * stopped record keeps refusing a new grant, as before.
+   */
+  readonly cleanupOwned?: (origin: string) => Promise<boolean>;
+}
+
+export function createStoredConsent(
+  store: AnalyticsKeyValue,
+  _legacyDefaultOn: boolean,
+  options: StoredConsentOptions = {},
+): AnalyticsConsent {
   let stopped = false;
   let revision = 0;
   let chain: Promise<unknown> = Promise.resolve();
@@ -168,22 +183,27 @@ export function createStoredConsent(store: AnalyticsKeyValue, _legacyDefaultOn: 
       return run(async () => {
         const old = readAnalyticsPermission(await store.get(CONSENT_KEY));
         if (asked !== revision) return;
-        // Provider acceptance is not completed scoped erasure. The existing deletion service
-        // must retire this tombstone only after its confirmed cleanup; no identity revival here.
-        if (old?.state === "stopped") throw new Error("Previous permission cleanup is pending");
+        // Provider acceptance is not completed scoped erasure. A stopped origin stays a tombstone
+        // until the deletion service durably owns its cleanup; no identity revival here.
+        if (old?.state === "stopped" && !(await options.cleanupOwned?.(old.origin).catch(() => false))) {
+          throw new Error("Previous permission cleanup is pending");
+        }
+        if (asked !== revision) return;
         if (old?.state === "granted" && old.version === version) return;
         const generation = (old?.generation ?? 0) + 1;
         if (!Number.isSafeInteger(generation)) throw new Error("Permission generation exhausted");
+        // A new private origin per lifecycle; both provider ids are derived from it (derive.ts), so
+        // the device can later name every id it sent without keeping a list.
+        const origin = crypto.randomUUID();
+        const [anonymousId, deviceId] = await Promise.all([deriveAnonymousId(origin, 0), deriveDeviceId(origin)]);
+        if (asked !== revision) return;
         await store.set(CONSENT_KEY, {
           schemaVersion: 1,
           state: "granted",
           version,
-          origin: crypto.randomUUID(),
+          origin,
           generation,
-          provider: {
-            anonymousId: crypto.randomUUID(),
-            deviceId: crypto.randomUUID(),
-          },
+          provider: { anonymousId, deviceId },
           purposes: { usage: true, email: true, ai: true },
         });
         if (asked === revision) stopped = false;
