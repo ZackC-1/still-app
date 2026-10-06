@@ -264,6 +264,15 @@ switch it on. Do not set it until both of these are deployed and checked:
 
 Until then no per-device identity is ever created, so an account deletion cannot leave one behind.
 
+**Second hard gate: the apps and the server switch move together.** Per-device identities may be
+connected to an app or extension, and the server switch above turned on, only in a build that
+already has the account-bound hold: while someone is signed in and their device has no identity
+yet, what they do waits, belongs only to that account, and is thrown away if they sign out or
+another account signs in. That is in this change. Also, a new build that turns analytics on
+without per-device identities reports nothing at all for signed-in people (their use waits and is
+never sent). So switching analytics on in a new build and connecting per-device identities must
+ship together, in the same release.
+
 **Deploy order.** Deploy and verify 0016 on its own first, then 0017 on its own. The deploy planner
 refuses to list them together. Then the owner sets the database login and the function secrets
 (`ANALYTICS_ERASER_DB_URL`, `ANALYTICS_ERASURE_WORKER_TOKEN`, and `ANALYTICS_EVENT_ID_SECRET`, a
