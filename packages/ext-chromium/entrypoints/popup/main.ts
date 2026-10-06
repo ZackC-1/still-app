@@ -66,6 +66,7 @@ function init(): void {
         }
       : undefined,
     openedWhere: "popup",
+    accessHost: import.meta.env.FIREFOX ? "firefox" : "chromium",
   });
   // Text size follows the browser's font size on the V3 screens (owner decision 51). The condition
   // is modernSettingsRuntime's atomicLocal rule written inline, so Vite folds it: configured 2.x

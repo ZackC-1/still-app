@@ -17,11 +17,13 @@ import type { ExtrasRoute, ServiceExtras } from "./extras.js";
  * must confirm these shapes (and decide what to do for other interface languages, which these
  * labels do not match); until then these surfaces are candidates only.
  *
- * Known gap for E0: on browsers without the Navigation API (Firefox; Safari before 26.2) the
- * content script only sees Instagram's own in-page moves through a URL poll, so after Instagram
- * moves from the empty search page to a results page the search-entry mark (and with it the
- * Explore recommendation hide) can linger for up to one poll interval (250 ms) before it is
- * cleared. Check on those browsers whether results flash hidden during that window.
+ * Browsers without the Navigation API (Firefox; Safari before 26.2) see Instagram's own in-page
+ * moves only through a URL poll (250 ms). The search-entry mark is address-scoped, so while it is
+ * set the content script also re-reads the address on every DOM change: when Instagram moves from
+ * the empty search page to a results page and renders the results, the stale mark is cleared in
+ * the same mutation callback, before the results are painted. E0 must still confirm on those
+ * browsers that Instagram changes the address before (not after) it renders the results; if it
+ * renders first, the poll remains the bound.
  *
  * Every route is silent (no notice, no sub-line) and the predicates never overlap, because
  * resolveExtrasRoute stops at the first matching entry. Like every per-service extras module this
@@ -152,6 +154,7 @@ export const INSTAGRAM_EXTRAS: ServiceExtras = Object.freeze({
       // (Instagram renders after load) are covered by CSS without any per-node work.
       candidates: "html",
       ruleSelector: EXPLORE_RECOMMENDATIONS,
+      addressScoped: true,
       owns: (root: Element) => {
         const location = root.ownerDocument.defaultView?.location;
         return !!location && isSearchEntryWithoutQuery(location);

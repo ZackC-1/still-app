@@ -15,6 +15,7 @@ import { pushSettingsToApp } from "../../lib/native-settings.js";
     onLocalSettingsCommit: (record) => void pushSettingsToApp(record),
     analytics: createSafariPageAnalytics(),
     openedWhere: "options",
+    accessHost: "safari",
   });
 </script>
 

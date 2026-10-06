@@ -323,8 +323,8 @@ function accountStatus(source: AppleSettingsAccountSource, retry: (() => void) |
   if (!source.cloudReachable)
     return {
       tone: "failed",
-      text: STRINGS.sync.unreachable,
-      actionLabel: retry ? STRINGS.sync.retry : undefined,
+      text: STRINGS.sync.failed,
+      actionLabel: retry ? STRINGS.sync.tryAgain : undefined,
       onAction: retry,
     };
   if (source.pendingUpload) return { tone: "pending", text: STRINGS.sync.syncing };

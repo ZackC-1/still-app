@@ -44,6 +44,9 @@ function init(isFirefox: boolean, platform: RuntimePlatform): void {
           legacy = authority;
         }
       : undefined,
+    // The build constant, not `isFirefox`: each build then names only its own host (the built
+    // bundle is checked by tests/playwright/extras-host-build.spec.ts).
+    accessHost: import.meta.env.FIREFOX ? "firefox" : "chromium",
   });
   // Text size follows the browser's font size on the V3 screens (owner decision 51). The condition
   // is modernSettingsRuntime's atomicLocal rule written inline, so Vite folds it: configured 2.x
