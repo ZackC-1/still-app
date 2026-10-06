@@ -11,6 +11,7 @@ const EXPECTED = TEST_EXPECTED_CLAIMS;
 const A = "11111111-1111-1111-1111-111111111111";
 const B = "22222222-2222-2222-2222-222222222222";
 const activeSub: RcSubscriber = { entitlements: { still_sync: { expires_date: null } } };
+const activeV3Sub: RcSubscriber = { entitlements: { still_pro_v3: { expires_date: null } } };
 
 const rcInactive: RevenueCatClient = { getSubscriber: () => Promise.resolve(null) };
 const allowAll: RateLimiter = { consume: () => Promise.resolve(0) };
@@ -168,6 +169,16 @@ Deno.test("already-entitled account returns 409 and does not create checkout", a
   const { billing, calls } = mockBilling();
   const jwt = await mintHs256({ sub: A }, SECRET);
   const rc: RevenueCatClient = { getSubscriber: () => Promise.resolve(activeSub) };
+  const res = await handleCreateWebCheckout(req(jwt), { jwtSecret: SECRET, expected: EXPECTED, billing, rc, limiter: allowAll });
+  assertEquals(res.status, 409);
+  assertEquals(await res.json(), { error: "already_entitled" });
+  assertEquals(calls.length, 0);
+});
+
+Deno.test("still_pro_v3-only entitlement also returns 409 and does not create checkout", async () => {
+  const { billing, calls } = mockBilling();
+  const jwt = await mintHs256({ sub: A }, SECRET);
+  const rc: RevenueCatClient = { getSubscriber: () => Promise.resolve(activeV3Sub) };
   const res = await handleCreateWebCheckout(req(jwt), { jwtSecret: SECRET, expected: EXPECTED, billing, rc, limiter: allowAll });
   assertEquals(res.status, 409);
   assertEquals(await res.json(), { error: "already_entitled" });

@@ -12,6 +12,10 @@ const activeSub: RcSubscriber = {
   entitlements: { still_sync: { expires_date: null } },
   original_app_user_id: "rc_orig",
 };
+const activeV3Sub: RcSubscriber = {
+  entitlements: { still_pro_v3: { expires_date: null } },
+  original_app_user_id: "rc_orig",
+};
 const inactiveSub: RcSubscriber = { entitlements: {} };
 
 type Write = { userId: string; stillSync: boolean; source: string };
@@ -79,6 +83,16 @@ Deno.test("valid webhook + active subscriber → entitlement true", async () => 
   const res = await handleWebhook(
     req({ event: { id: "e1", type: "INITIAL_PURCHASE", app_user_id: A } }),
     { token: TOKEN, store, rc: mockRc({ [A]: activeSub }) },
+  );
+  assertEquals(res.status, 200);
+  assertEquals(writes, [{ userId: A, stillSync: true, source: "webhook" }]);
+});
+
+Deno.test("valid webhook + still_pro_v3-only subscriber → entitlement true", async () => {
+  const { store, writes } = mockStore();
+  const res = await handleWebhook(
+    req({ event: { id: "e-v3", type: "INITIAL_PURCHASE", app_user_id: A } }),
+    { token: TOKEN, store, rc: mockRc({ [A]: activeV3Sub }) },
   );
   assertEquals(res.status, 200);
   assertEquals(writes, [{ userId: A, stillSync: true, source: "webhook" }]);

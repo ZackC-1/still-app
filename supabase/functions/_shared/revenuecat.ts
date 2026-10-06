@@ -8,6 +8,18 @@ import { CodedError } from "./coded-error.ts";
 // it — a mismatch here would derive pro=false for every paying user (monetization-design §5).
 export const STILL_PRO_ENTITLEMENT = "still_sync";
 
+// The current offer's entitlement (U16-W2): every new purchase grants `still_pro_v3`, while past
+// buyers keep the historical `still_sync` above. Both ids mean lifetime Pro — the server ORs them
+// into the existing entitlement boolean, so there is no migration, no new client field, and no
+// new DB column (reconcile/webhook shapes stay `{ still_sync: … }`).
+export const STILL_PRO_V3_ENTITLEMENT = "still_pro_v3";
+
+/** Every RevenueCat entitlement id that grants lifetime Still Pro, current offer first. */
+export const PRO_ENTITLEMENT_IDS: readonly string[] = [
+  STILL_PRO_V3_ENTITLEMENT,
+  STILL_PRO_ENTITLEMENT,
+];
+
 export interface RcEntitlement {
   readonly expires_date: string | null; // null = lifetime / non-consumable
   readonly product_identifier?: string;
@@ -22,12 +34,21 @@ export interface RevenueCatClient {
   getSubscriber(appUserId: string): Promise<RcSubscriber | null>;
 }
 
-/** Whether the canonical subscriber state currently grants Still Pro. */
-export function stillProActive(subscriber: RcSubscriber | null, now: number = Date.now()): boolean {
-  const entitlement = subscriber?.entitlements?.[STILL_PRO_ENTITLEMENT];
+/** Whether one RevenueCat entitlement currently grants Still Pro. */
+function entitlementActive(
+  entitlement: RcEntitlement | undefined,
+  now: number,
+): boolean {
   if (!entitlement) return false;
   if (entitlement.expires_date == null) return true; // non-consumable never expires
   return new Date(entitlement.expires_date).getTime() > now;
+}
+
+/** Whether the canonical subscriber state currently grants Still Pro. */
+export function stillProActive(subscriber: RcSubscriber | null, now: number = Date.now()): boolean {
+  const entitlements = subscriber?.entitlements;
+  if (!entitlements) return false;
+  return PRO_ENTITLEMENT_IDS.some((id) => entitlementActive(entitlements[id], now));
 }
 
 /** Real client: GET /subscribers/{id} with the secret API key. */

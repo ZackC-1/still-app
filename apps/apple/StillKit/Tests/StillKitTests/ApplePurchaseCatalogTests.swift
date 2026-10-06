@@ -97,10 +97,11 @@ final class ApplePurchaseCatalogTests: XCTestCase {
     XCTAssertEqual(offenders, [], "read product ids from ApplePurchaseCatalog instead")
   }
 
-  /// The app target is not built by `swift test`, so this reads its source: the existing purchase
-  /// code must keep reading the HISTORICAL still_sync entries. A one-word swap to `stillProV3`
-  /// would silently re-point past buyers' receipt reads and entitlement checks at the new product.
-  func testPurchaseManagerReadsTheHistoricalStillSyncEntries() throws {
+  /// The app target is not built by `swift test`, so this reads its source: the buy flow sells
+  /// the new product ONLY. PurchaseManager's sellable ids must read the `stillProV3` entries, while
+  /// the restorable sets keep recognizing BOTH products — a one-word sellable/restorable split,
+  /// never a rename, so past buyers' receipts and entitlements keep resolving (U16-W2).
+  func testPurchaseManagerSellsOnlyTheNewProductAndRestoresBoth() throws {
     let source = try text("apps/apple/Still/Shared (App)/Purchases/PurchaseManager.swift")
     for name in ["productID", "entitlementID"] {
       let pattern = "static let \(name) = ([A-Za-z0-9_.]+)"
@@ -108,8 +109,35 @@ final class ApplePurchaseCatalogTests: XCTestCase {
       let matches = regex.matches(in: source, range: NSRange(source.startIndex..., in: source))
       XCTAssertEqual(matches.count, 1, "PurchaseManager must declare \(name) exactly once")
       let value = try XCTUnwrap(matches.first.flatMap { Range($0.range(at: 1), in: source) }.map { String(source[$0]) })
-      XCTAssertEqual(value, "ApplePurchaseCatalog.historicalStillSync.\(name)")
+      XCTAssertEqual(value, "ApplePurchaseCatalog.stillProV3.\(name)")
     }
+    // The restorable sets must name both catalog products: dropping the historical id would
+    // silently strand past buyers' receipts and RevenueCat entitlements.
+    for id in ["productID", "entitlementID"] {
+      for entry in ["stillProV3", "historicalStillSync"] {
+        XCTAssertTrue(
+          source.contains("ApplePurchaseCatalog.\(entry).\(id)"),
+          "PurchaseManager must keep recognizing ApplePurchaseCatalog.\(entry).\(id)")
+      }
+    }
+    // The package selector charges the sellable id: an offering holding only the historical
+    // product resolves to no package, which flows to `.unavailable` — never a purchase.
+    XCTAssertTrue(
+      source.contains("productIdentifier == Self.productID"),
+      "the offering selector must match by the sellable product id")
+  }
+
+  /// The server grants Pro from the new entitlement OR the historical one (U16-W2 ruling: both
+  /// ids mean lifetime Pro, ORed into the existing boolean — no migration, no new client field,
+  /// no new DB column). Renaming or dropping either side would strand one buyer cohort.
+  func testServerDerivesProFromBothTheNewAndTheHistoricalEntitlement() throws {
+    let source = try text("supabase/functions/_shared/revenuecat.ts")
+    XCTAssertTrue(
+      source.contains("export const STILL_PRO_V3_ENTITLEMENT = \"still_pro_v3\";"),
+      "the server must derive Pro from the new still_pro_v3 entitlement")
+    XCTAssertTrue(
+      source.contains("STILL_PRO_V3_ENTITLEMENT,\n  STILL_PRO_ENTITLEMENT,"),
+      "the server must OR both entitlement ids into the one Pro boolean")
   }
 
   // MARK: - Local StoreKit configuration mirrors the catalog

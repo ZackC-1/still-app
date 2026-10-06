@@ -75,12 +75,29 @@ struct ReceiptRead: Sendable, Equatable {
 final class PurchaseManager {
   static let shared = PurchaseManager()
 
-  /// The 2.x non-consumable product + its RevenueCat entitlement id, read from the single
-  /// `ApplePurchaseCatalog` (which `Still.storekit` mirrors). The user-facing name is "Still Pro";
-  /// these INTERNAL ids stay `still_sync` — the ASC product id is immutable and the deployed
-  /// webhook/DB derive entitlement from this exact key (monetization-design §5: do NOT rename).
-  static let productID = ApplePurchaseCatalog.historicalStillSync.productID
-  static let entitlementID = ApplePurchaseCatalog.historicalStillSync.entitlementID
+  /// The SELLABLE product + its RevenueCat entitlement id, read from the single
+  /// `ApplePurchaseCatalog` (which `Still.storekit` mirrors). The user-facing name is "Still Pro".
+  /// Only `stillProV3` may be offered, purchased, or priced: the historical product below is
+  /// restorable, never sold (U16-W2).
+  static let productID = ApplePurchaseCatalog.stillProV3.productID
+  static let entitlementID = ApplePurchaseCatalog.stillProV3.entitlementID
+
+  /// Every product id a past purchase can be restored from: the sellable product plus the
+  /// historical 2.x product (whose ASC id is immutable). `Transaction.latest(for:)` takes a
+  /// single id, so the receipt read checks each of these — one sellable id cannot also cover
+  /// past buyers.
+  static let restorableProductIDs: Set<String> = [
+    ApplePurchaseCatalog.stillProV3.productID,
+    ApplePurchaseCatalog.historicalStillSync.productID,
+  ]
+
+  /// Every RevenueCat entitlement id that unlocks Still Pro: the sellable one plus the
+  /// historical one. CustomerInfo checks accept either, so historical buyers keep Pro while
+  /// every new purchase grants the sellable entitlement only.
+  static let restorableEntitlementIDs: [String] = [
+    ApplePurchaseCatalog.stillProV3.entitlementID,
+    ApplePurchaseCatalog.historicalStillSync.entitlementID,
+  ]
 
   private(set) var isConfigured = false
 
@@ -185,18 +202,25 @@ final class PurchaseManager {
   func hasStillPro() async -> Bool {
     guard isConfigured else { return false }
     let info = try? await Purchases.shared.customerInfo()
-    return info?.entitlements[Self.entitlementID]?.isActive == true
+    return Self.proEntitlementIsActive(in: info)
   }
 
-  /// The localized store price for still_sync (e.g. "$1.99" / "£1.99"), or nil if the offering
+  /// Whether RevenueCat reports Still Pro on the sellable entitlement or the historical one.
+  /// Historical buyers keep Pro; every new purchase lands on the sellable entitlement.
+  private static func proEntitlementIsActive(in customerInfo: CustomerInfo?) -> Bool {
+    restorableEntitlementIDs.contains { customerInfo?.entitlements[$0]?.isActive == true }
+  }
+
+  /// The localized store price for the sellable Still Pro product, or nil if the offering
   /// isn't available. Anonymous offerings are first-class (the signed-out paywall shows this).
   func priceString() async -> String? {
     await stillProPackage()?.storeProduct.localizedPriceString
   }
 
-  /// The current offering's still_sync package, or nil. Deliberately NO fallback to "the first
-  /// package": if the offering is misconfigured, an arbitrary package could charge the user for the
-  /// wrong product. nil flows to the `.unavailable` outcome instead.
+  /// The current offering's package for the SELLABLE product, or nil. Deliberately NO fallback
+  /// to "the first package": if the offering is misconfigured, an arbitrary package could
+  /// charge the user for the wrong product. An offering holding only the historical product
+  /// resolves to nil here, which flows to the `.unavailable` outcome — never a purchase.
   private func stillProPackage() async -> Package? {
     guard isConfigured else { return nil }
     let offerings = try? await Purchases.shared.offerings()
@@ -206,23 +230,51 @@ final class PurchaseManager {
 
   // MARK: - Receipt oracle (StoreKit 2, identity-independent — ADR 0003)
 
-  /// One bounded receipt read: `Transaction.latest(for:)` (NOT `currentEntitlements` — revoked
+  /// Classify one `Transaction.latest(for:)` answer (NOT `currentEntitlements` — revoked
   /// transactions disappear from that sequence, which would make refunds unobservable and AE6
   /// unimplementable). Verified + unrevoked → entitled; verified + revocationDate →
-  /// verifiedNotEntitled; nil/unverified/timeout → noSignal (absence is never a downgrade signal).
+  /// verifiedNotEntitled; nil/unverified → noSignal (absence is never a downgrade signal).
+  private static func classifyReceipt(_ latest: StoreKit.VerificationResult<StoreKit.Transaction>?) -> ReceiptRead {
+    switch latest {
+    case .some(.verified(let transaction)):
+      return ReceiptRead(
+        status: transaction.revocationDate == nil ? .entitled : .verifiedNotEntitled,
+        ownershipIsPurchased: transaction.ownershipType == .purchased)
+    case .some(.unverified), .none:
+      return ReceiptRead(status: .noSignal, ownershipIsPurchased: false)
+    }
+  }
+
+  /// Combine one read per restorable product. Entitled anywhere → entitled (directly-bought
+  /// ownership on any entitling transaction counts, so family-shared alone never transfers on
+  /// attach, AE14); revoked everywhere and entitled nowhere → verifiedNotEntitled; otherwise
+  /// noSignal.
+  private static func combinedReceipt(_ reads: [ReceiptRead]) -> ReceiptRead {
+    let entitled = reads.filter { $0.status == .entitled }
+    if !entitled.isEmpty {
+      return ReceiptRead(
+        status: .entitled,
+        ownershipIsPurchased: entitled.contains { $0.ownershipIsPurchased })
+    }
+    if reads.contains(where: { $0.status == .verifiedNotEntitled }) {
+      return ReceiptRead(status: .verifiedNotEntitled, ownershipIsPurchased: false)
+    }
+    return ReceiptRead(status: .noSignal, ownershipIsPurchased: false)
+  }
+
+  /// One bounded receipt read across every restorable product — the sellable one plus the
+  /// historical one. `Transaction.latest(for:)` takes a single id, so one call cannot cover
+  /// past buyers and new buyers at once; both reads share this call's deadline.
   private static func boundedReceiptRead() async -> ReceiptRead {
     let once = Once()
     return await withCheckedContinuation { (continuation: CheckedContinuation<ReceiptRead, Never>) in
       Task {
-        let read: ReceiptRead
-        switch await Transaction.latest(for: productID) {
-        case .some(.verified(let transaction)):
-          read = ReceiptRead(
-            status: transaction.revocationDate == nil ? .entitled : .verifiedNotEntitled,
-            ownershipIsPurchased: transaction.ownershipType == .purchased)
-        case .some(.unverified), .none:
-          read = ReceiptRead(status: .noSignal, ownershipIsPurchased: false)
-        }
+        async let sellable = Transaction.latest(for: Self.productID)
+        async let historical = Transaction.latest(for: ApplePurchaseCatalog.historicalStillSync.productID)
+        let read = Self.combinedReceipt([
+          Self.classifyReceipt(await sellable),
+          Self.classifyReceipt(await historical),
+        ])
         once.run { continuation.resume(returning: read) }
       }
       Task {
@@ -309,7 +361,7 @@ final class PurchaseManager {
     do {
       let result = try await Purchases.shared.purchase(package: package)
       if result.userCancelled { return .cancelled }
-      return result.customerInfo.entitlements[Self.entitlementID]?.isActive == true ? .purchased : .pending
+      return Self.proEntitlementIsActive(in: result.customerInfo) ? .purchased : .pending
     } catch {
       if let rcError = error as? RevenueCat.ErrorCode, rcError == .paymentPendingError {
         return .pending // Ask-to-Buy: guardian approval arrives out-of-band
@@ -339,7 +391,7 @@ final class PurchaseManager {
       identityVerifiedAnonymous: verifiedAnonymous
     ) == .proceed else { return false }
     let info = try? await Purchases.shared.restorePurchases()
-    return info?.entitlements[Self.entitlementID]?.isActive == true
+    return Self.proEntitlementIsActive(in: info)
   }
 
   /// Attach the device receipt to the signed-in Still account (R7 — RevenueCat syncPurchases).
@@ -357,6 +409,6 @@ final class PurchaseManager {
       receiptEntitled: read.status == .entitled
     ) else { return false }
     let info = try? await Purchases.shared.syncPurchases()
-    return info?.entitlements[Self.entitlementID]?.isActive == true
+    return Self.proEntitlementIsActive(in: info)
   }
 }
