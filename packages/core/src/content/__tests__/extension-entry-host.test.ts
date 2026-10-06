@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PAID_TIER_ENABLED, type BenefitId } from "@still/shared-types";
-import type { AccessCapabilityInput, AccessHost } from "../../entitlement/access-policy.js";
+import { PAID_TIER_ENABLED } from "@still/shared-types";
+import { initialAccessSnapshot, type AccessHost, type AccessPlatform, type TrustedAccessContext } from "../../entitlement/access-policy.js";
 import type { ContentScriptDeps, ContentScriptHandle } from "../index.js";
 
 // The content entry hands the engine the capabilities of the host it runs in, so a Still Pro
@@ -10,7 +10,7 @@ import type { ContentScriptDeps, ContentScriptHandle } from "../index.js";
 
 const seen = vi.hoisted(() => ({
   deps: [] as ContentScriptDeps[],
-  calls: [] as { input: AccessCapabilityInput; result: ReadonlySet<BenefitId> }[],
+  calls: [] as { host: AccessHost | undefined; platform: AccessPlatform | undefined; result: TrustedAccessContext }[],
 }));
 vi.mock("../index.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../index.js")>();
@@ -21,9 +21,9 @@ vi.mock("../index.js", async (importOriginal) => {
 });
 vi.mock("../../entitlement/access-policy.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../entitlement/access-policy.js")>();
-  return { ...actual, accessCapabilities: (input: AccessCapabilityInput) => {
-    const result = actual.accessCapabilities(input);
-    seen.calls.push({ input: { ...input }, result });
+  return { ...actual, packagedAccessContext: (host?: AccessHost, platform?: AccessPlatform) => {
+    const result = actual.packagedAccessContext(host, platform);
+    seen.calls.push({ host, platform, result });
     return result;
   } };
 });
@@ -72,10 +72,13 @@ describe("content entry host capabilities", () => {
         onScriptCreated: (script) => started.add(script),
       })();
       expect(seen.deps).toHaveLength(1);
-      const call = seen.calls.find((entry) => entry.result === seen.deps[0]!.capabilities);
-      expect(call, "the engine receives exactly the set accessCapabilities returned").toBeDefined();
-      expect(call!.input).toEqual({ paidMode: PAID_TIER_ENABLED, host });
+      const call = seen.calls.find((entry) => entry.result.supported === seen.deps[0]!.capabilities);
+      expect(call, "the engine receives exactly the set packagedAccessContext returned").toBeDefined();
+      expect(call!.result.paidMode).toBe(PAID_TIER_ENABLED);
+      expect([call!.host, call!.platform]).toEqual([host, undefined]);
       expect([...seen.deps[0]!.capabilities!].sort()).toEqual(FREE);
+      // The access the script holds until the background answers is resolved for the same host.
+      expect(seen.deps[0]!.entitlement!.currentAccessSnapshot()).toEqual(initialAccessSnapshot(call!.result));
     });
   }
 
@@ -87,7 +90,32 @@ describe("content entry host capabilities", () => {
       onScriptCreated: (script) => started.add(script),
     })();
     expect(seen.deps).toHaveLength(1);
-    const call = seen.calls.find((entry) => entry.result === seen.deps[0]!.capabilities);
-    expect(call!.input).toEqual({ paidMode: PAID_TIER_ENABLED, host: "firefox" });
+    const call = seen.calls.find((entry) => entry.result.supported === seen.deps[0]!.capabilities);
+    expect([call!.host, call!.platform]).toEqual(["firefox", undefined]);
+  });
+
+  it("forwards the runtime platform seam with the host (Firefox for Android)", async () => {
+    installChrome();
+    await createShippingContentEntry({
+      host: "firefox", platform: "android", storage, prod: false, earlyRedirect: false,
+      win: makeWin("https://www.youtube.com/watch?v=x") as never,
+      onScriptCreated: (script) => started.add(script),
+    })();
+    const call = seen.calls.find((entry) => entry.result.supported === seen.deps[0]!.capabilities);
+    expect([call!.host, call!.platform]).toEqual(["firefox", "android"]);
+    // Paid off the platform changes nothing: still exactly the free features.
+    expect([...seen.deps[0]!.capabilities!].sort()).toEqual(FREE);
+  });
+
+  it("the shipping entry's early Shorts redirect resolves its access for the same host", async () => {
+    installChrome();
+    await createShippingContentEntry({
+      host: "firefox", storage, prod: false, earlyRedirect: true,
+      win: makeWin("https://www.youtube.com/shorts/abc") as never,
+      onScriptCreated: (script) => started.add(script),
+    })();
+    expect(seen.calls.length).toBeGreaterThan(0);
+    // Every context this page resolved (early redirect, entitlement seed, engine) names the host.
+    for (const call of seen.calls) expect([call.host, call.platform]).toEqual(["firefox", undefined]);
   });
 });

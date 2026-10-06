@@ -48,6 +48,7 @@
         }
       : undefined,
     openedWhere: "options",
+    accessHost: import.meta.env.FIREFOX ? "firefox" : "chromium",
   });
   const onRestore = purchase ? restoreHandler(controller) : undefined;
   const onCommittedPopupToggle = ({

@@ -1,6 +1,5 @@
 import seed from "../../rules/seed.json";
 import {
-  PAID_TIER_ENABLED,
   SERVICE_IDS,
   type ServiceId,
   type SignedRuleSet,
@@ -10,7 +9,7 @@ import {
   EntitlementCache,
   ChromeEntitlementAdapter,
 } from "../entitlement/index.js";
-import { accessCapabilities, initialAccessSnapshot, type AccessHost } from "../entitlement/access-policy.js";
+import { initialAccessSnapshot, packagedAccessContext, type AccessHost, type AccessPlatform } from "../entitlement/access-policy.js";
 import {
   resolveRuleSetForLoad,
   ruleSetTrust,
@@ -64,6 +63,13 @@ export interface ExtensionContentEntryDeps {
    * exactly the free features.
    */
   readonly host?: AccessHost;
+  /**
+   * The runtime platform. No entrypoint passes it yet; it comes from Firefox for Android's
+   * platform answer once that is wired into the Firefox build.
+   * Omitted keeps the host's whole list; "android" or "unknown" drops the desktop-only controls
+   * (access-policy.ts DESKTOP_ONLY_PRO). Paid off it changes nothing.
+   */
+  readonly platform?: AccessPlatform;
   /** The target extension's local storage namespace (Safari `browser`, Chromium `chrome`). */
   readonly storage: ReadableArea;
   readonly prod: boolean;
@@ -108,7 +114,10 @@ export function createExtensionContentEntry(
     const win = deps.win ?? (window as unknown as StillWindow);
     const doc = deps.doc ?? document;
     const cache = new SettingsCache(new ChromeStorageAdapter());
-    const entitlement = new EntitlementCache(new ChromeEntitlementAdapter());
+    // This host's packaged context: the content script's capabilities and the access snapshot it
+    // holds until the background's host-aware answer arrives come from the same host and platform.
+    const access = packagedAccessContext(deps.host, deps.platform);
+    const entitlement = new EntitlementCache(new ChromeEntitlementAdapter(), { access });
     const redirectDedupe: RedirectDedupe = deps.redirectDedupe ?? { lastRedirect: null };
 
     if (deps.earlyRedirect && !bundledV2) {
@@ -124,6 +133,7 @@ export function createExtensionContentEntry(
         ruleSet: bundledV2,
         cache: new SettingsCache(new ChromeStorageAdapter()),
         access: () => entitlement.currentAccessSnapshot(),
+        capabilities: access.supported,
         redirectDedupe,
       }).catch(() => {});
     }
@@ -150,7 +160,7 @@ export function createExtensionContentEntry(
       doc,
       ruleSet: legacy?.ruleSet ?? (seed as unknown as SignedRuleSet),
       ruleSetV2: modern?.ruleSet,
-      capabilities: accessCapabilities({ paidMode: PAID_TIER_ENABLED, host: deps.host }),
+      capabilities: access.supported,
       handleBlockedNavigation:
         deps.handleBlockedNavigation ??
         (tiktok ? (target: URL) => tiktok.consume(target) : undefined),
@@ -323,6 +333,7 @@ export function createShippingContentEntry(
       },
     };
     const lane = committedSchema(storage.get);
+    const early = packagedAccessContext(deps.host, deps.platform);
     const redirectDedupe: RedirectDedupe = { lastRedirect: null };
     const ownsEarly = deps.earlyRedirect && isShortsHref(href);
     if (ownsEarly) {
@@ -336,7 +347,8 @@ export function createShippingContentEntry(
                 win,
                 ruleSet: packaged()!,
                 cache,
-                access: () => initialAccessSnapshot(),
+                access: () => initialAccessSnapshot(early),
+                capabilities: early.supported,
                 redirectDedupe,
               })
             : earlyShortsRedirect({

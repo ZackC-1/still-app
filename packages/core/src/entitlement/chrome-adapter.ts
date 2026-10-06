@@ -16,7 +16,12 @@ const writerRevisions = new WeakMap<object, number>();
 export interface EntitlementAuthorityOptions {
   readonly authority?: boolean;
   readonly trust?: AccessTrust;
-  /** Trusted internal host only; never constructed from a runtime request. */
+  /**
+   * Trusted internal host only; never constructed from a runtime request. Every shipped
+   * background passes its own host (packagedAccessContext("chromium" | "firefox" | "safari")).
+   * Absent, the authority falls back to the host-less context: only Still Pro features every host
+   * implements, so a host that forgot to say which it is under-claims rather than over-claims.
+   */
   readonly context?: () => TrustedAccessContext | Promise<TrustedAccessContext>;
   /** Safari delegates observation to the existing atomic native entitlement authority. */
   readonly nativeObservation?: () => Promise<BenefitAccessSnapshot>;
