@@ -248,7 +248,8 @@ describe("controlled D02 mobile presentation", () => {
       } else if (state === "locked") {
         await fireEvent.click(
           within(row).getByRole("button", {
-            name: "Comments. Included in Still Pro. Open the Still app",
+            name: "Still Pro",
+            description: "Comments",
           }),
         );
       } else {
@@ -292,9 +293,8 @@ describe("controlled D02 mobile presentation", () => {
     expect(screen.queryByRole("switch", { name: "Comments" })).toBeNull();
     // Owner decision 24: the 11 mobile Pro rows show the existing locked design, inert.
     expect(screen.queryByText(/Not available/)).toBeNull();
-    const locks = screen.getAllByRole("button", {
-      name: /\. Included in Still Pro\. Open the Still app$/,
-    });
+    // Decision 40: each lock is named exactly "Still Pro" (every mobile row stays mounted).
+    const locks = screen.getAllByRole("button", { name: "Still Pro" });
     expect(locks).toHaveLength(11);
     for (const lock of locks) {
       expect(lock).toHaveAttribute("aria-disabled", "true");
@@ -372,9 +372,12 @@ describe("controlled D02 mobile presentation", () => {
     );
     await fireEvent.click(
       screen.getByRole("button", {
-        name: "Comments. Included in Still Pro. Open the Still app",
+        name: "Still Pro",
+        description: "Comments",
       }),
     );
+    // Safari's lock keeps its reference action: the Still app is where Still Pro is offered.
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(props.onSeePro).toHaveBeenCalledTimes(2);
     expect(props.onPurchase).not.toHaveBeenCalled();
     expect(screen.queryByText("Purchase Still Pro")).toBeNull();
@@ -385,7 +388,8 @@ describe("controlled D02 mobile presentation", () => {
       screen.getByRole("button", { name: "See Still Pro in the Still app" }),
     );
     const heldLock = screen.getByRole("button", {
-      name: "Comments. Included in Still Pro. Open the Still app",
+      name: "Still Pro",
+      description: "Comments",
     });
     expect(heldLock).toHaveAttribute("aria-disabled", "true");
     await fireEvent.click(heldLock);
@@ -403,16 +407,26 @@ describe("controlled D02 mobile presentation", () => {
       screen.getByRole("button", { name: "YouTube Blocker" }),
     );
     const lock = screen.getByRole("button", {
-      name: "Comments. Included in Still Pro. See Still Pro",
+      name: "Still Pro",
+      description: "Comments",
     });
     await fireEvent.click(lock);
     expect(props.onPurchase).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.queryByText("Purchase Still Pro")).toBeNull();
     expect(screen.queryByText("See Still Pro")).toBeNull();
     props.channelReady = true;
     await view.rerender(props);
+    // Decision 41: the lock opens the Still Pro sheet; only its explicit Purchase reaches the port.
     await fireEvent.click(lock);
+    expect(props.onPurchase).not.toHaveBeenCalled();
+    const sheet = screen.getByRole("dialog", { name: "Still Pro" });
+    await fireEvent.click(
+      within(sheet).getByRole("button", { name: "Purchase Still Pro" }),
+    );
     expect(props.onPurchase).toHaveBeenCalledOnce();
+    await fireEvent.click(within(sheet).getByRole("button", { name: "Close" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
     await fireEvent.click(
       screen.getByRole("button", { name: "Purchase Still Pro" }),
     );
@@ -426,9 +440,11 @@ describe("controlled D02 mobile presentation", () => {
       expect(screen.queryByText("Purchase Still Pro")).toBeNull();
       await fireEvent.click(
         screen.getByRole("button", {
-          name: "Related videos. Included in Still Pro. See Still Pro",
+          name: "Still Pro",
+          description: "Related videos",
         }),
       );
+      expect(screen.queryByRole("dialog")).toBeNull();
       expect(props.onPurchase).toHaveBeenCalledTimes(2);
     }
     view.unmount();
