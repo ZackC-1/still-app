@@ -19,8 +19,8 @@ Three kinds of message reach PostHog:
 
 - **Product events** from the apps and extensions (installed, active, opened, toggles, the sign-in
   funnel, sharing_turned_off). Each is checked against `packages/core/src/analytics/events.ts` and
-  carries `surface` (chrome, firefox, safari-ios, safari-macos, app-ios, app-macos), `store` (ios,
-  macos, chrome, firefox), `device` (phone, tablet, desktop), `app_version` and `signed_in`, so
+  carries `surface` (chrome, firefox, firefox-android, safari-ios, safari-macos, app-ios,
+  app-macos), `store` (ios, macos, chrome, firefox), `device` (phone, tablet, desktop), `app_version` and `signed_in`, so
   Safari on an iPhone, an iPad and a Mac are separate lines in any chart. Switch flips carry
   `where` (popup, options, app).
 - **Identity operations** from the apps and extensions. `$identify` links the install to the
@@ -247,3 +247,75 @@ RevenueCat never holds money. App Store purchases are paid by Apple (App Store C
 and Financial Reports). Web purchases, if any were ever live, would be in the connected Stripe
 account. The App Manager API key cannot read sales or finance reports; reading them through the API
 needs a key with the Sales and Finance roles.
+
+## Per-device identities and device deletion (V3, not switched on)
+
+Migration 0017 and the `analytics-erasure` function add per-device analytics identities and
+"delete what this device shared". None of it is switched on, and nothing in this section applies
+until the owner approves each step.
+
+**Hard gate.** The per-device path in `analytics-identify` stays off until its own setting,
+`ANALYTICS_SUBJECTS_ENABLED`, is set to exactly `true`. Setting the database login for it does not
+switch it on. Do not set it until both of these are deployed and checked:
+
+1. The account-deletion change that records the analytics deletion before the account is deleted.
+2. Migration 0017's step that, when an account is deleted, keeps a record of that account's
+   per-device identities so they are still deleted from PostHog afterwards.
+
+Until then no per-device identity is ever created, so an account deletion cannot leave one behind.
+
+**Second hard gate: the apps and the server switch move together.** Per-device identities may be
+connected to an app or extension, and the server switch above turned on, only in a build that
+already has the account-bound hold: while someone is signed in and their device has no identity
+yet, what they do waits, belongs only to that account, and is thrown away if they sign out or
+another account signs in. That is in this change. Also, a new build that turns analytics on
+without per-device identities reports nothing at all for signed-in people (their use waits and is
+never sent). So switching analytics on in a new build and connecting per-device identities must
+ship together, in the same release.
+
+**Deploy order.** Deploy and verify 0016 on its own first, then 0017 on its own. The deploy planner
+refuses to list them together. Then the owner sets the database login and the function secrets
+(`ANALYTICS_ERASER_DB_URL`, `ANALYTICS_ERASURE_WORKER_TOKEN`, and `ANALYTICS_EVENT_ID_SECRET`, a
+random value of at least 32 characters that keeps the "new account" event from being counted twice;
+without it that event gets a random id), and deploys `analytics-erasure` and `analytics-identify`. Each is a separate approved step. Nothing runs the deletion worker on a
+schedule yet.
+
+**When a device shows "deleted".** PostHog deletes a person quickly but deletes that person's events
+later, in a batch (on weekends for PostHog Cloud). A device is therefore shown "Your shared data has
+been deleted." only after a check at least 8 days after PostHog last queued a deletion for it still
+finds no one. Until then it shows "Confirming deletion with our providers…". Checks continue for 35 days
+in case late events arrive.
+
+**Watching the queue.** Each worker run claims up to 50 due jobs: 10 of them are always the oldest
+jobs recorded past the limit below, and the rest go in priority order, signed-in history first. New
+deletions are combined into PostHog requests of up to 1,000 ids; every follow-up check is its own
+request. A run reports how many jobs and requests it handled, and logs the line
+`analytics erasure overdue jobs: N` when any job has failed five times in a row (jobs keep retrying,
+at most once a day). A deletion request is never refused for volume: past 200 new device jobs in
+any 10 minutes, a job with no signed-in history is still recorded but worked after everything
+else, except for its reserved share. Requests are limited per address (per /64 for IPv6), and each
+account can add at most five new devices a day, so signed-in priority cannot be manufactured at
+scale.
+
+The daily device limit also counts sharing being switched back on: every Share starts a new device
+identity, so one account can stop and restart sharing five times a day. After that, that day's
+signed-in use on the device waits on the device unattributed and is sent the next day (anything
+older than 30 days is dropped).
+
+**How often to run the worker.** At normal volume, a run every 15 minutes is plenty. Each job is
+claimed about four times in its life (the first deletion, then checks after 1 day, 8 days and 35
+days). At the most the limit allows (200 new jobs every 10 minutes, kept up for weeks) that is
+about 80 claims a minute, so keeping up needs a run every 30 seconds; a slower schedule only falls
+behind while such a burst lasts, and catches up afterwards.
+
+**Alert on the oldest due job.** Run this read-only query on a schedule and alert when the answer
+is more than one hour (it means the worker is not running, or not keeping up):
+
+```sql
+select coalesce(max(now() - next_attempt_at), interval '0') as oldest_due
+from private.analytics_erasure_jobs
+where next_attempt_at <= now() and (lease_until is null or lease_until < now());
+```
+
+If the number of due jobs keeps growing, check the PostHog key and project settings first, then
+the worker's schedule.

@@ -26,6 +26,8 @@ import {
   TEST_PERMISSION,
   TEST_PRIVACY,
   TEST_PRIVACY_POLICY,
+  TEST_SUBJECTS,
+  testSubjectFor,
 } from "./privacy-fixture.js";
 
 const ID = {
@@ -182,7 +184,9 @@ describe("reviewed recovery", () => {
         local: h.store,
         noticeApplies: false,
         isTrustedPage: () => true,
+        subjects: TEST_SUBJECTS,
       });
+      await host.identify(A); // an ordinary screen obtains A's per-device subject first
       host.onStart(A);
       await host.flushWhenReady();
       holdAt = calls + (action === "install" ? 2 : 1);
@@ -207,7 +211,8 @@ describe("reviewed recovery", () => {
       const paused = gate();
       const store = memory();
       let hold = false;
-      const attach = vi.fn(async () => {});
+      // Per-device subjects: the server request is the work an account change may cause.
+      const attach = vi.fn(TEST_SUBJECTS.issue);
       const app = createAppAnalytics({
         ...TEST_PRIVACY,
         config: { key: "test", host: "https://us.i.posthog.com" },
@@ -224,7 +229,7 @@ describe("reviewed recovery", () => {
         fetch: (async () => {
           throw Error("offline");
         }) as typeof fetch,
-        identifyOnServer: attach,
+        subjects: { issue: attach, onStopped: TEST_SUBJECTS.onStopped },
         bridge: {
           analyticsContext: async () => ({
             ...ID,
@@ -260,8 +265,10 @@ describe("reviewed recovery", () => {
       await new Promise((r) => setTimeout(r, 0));
       const events = (store.data[QUEUE_KEY] ?? []) as { event: string }[];
       expect(events).toEqual([]);
-      // B's actual account confirmation may attach once; the superseded action cannot add work.
-      expect(attach).toHaveBeenCalledTimes(1);
+      // B's actual account confirmation may ask for B's subject once (a request cancelled by the
+      // switch is retried at the next screen instead); the superseded action cannot add work.
+      expect(attach.mock.calls.length).toBeLessThanOrEqual(1);
+      expect(attach.mock.calls.every((call) => call[2] === B)).toBe(true);
     },
   );
   it("repeated Apple Share retains the actual granted origin", async () => {
@@ -278,6 +285,7 @@ describe("reviewed recovery", () => {
       permission: () => consent.read(),
       commitPermission: async (enabled) =>
         enabled ? consent.grant(TEST_PERMISSION.version) : consent.set(false),
+      subjects: TEST_SUBJECTS,
       fetch: (async () => {
         throw Error("offline");
       }) as typeof fetch,
@@ -309,7 +317,7 @@ describe("reviewed recovery", () => {
       properties: Record<string, unknown>;
     }[];
     expect(queued.find((e) => e.event === "opened")).toMatchObject({
-      properties: { distinct_id: A },
+      properties: { distinct_id: testSubjectFor(A) },
     });
     expect(queued.some((e) => e.attributeLater)).toBe(false);
   });

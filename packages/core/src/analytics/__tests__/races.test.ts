@@ -1,4 +1,4 @@
-import { TEST_PRIVACY } from "./privacy-fixture.js";
+import { TEST_PRIVACY, TEST_SUBJECTS, testSubjectFor } from "./privacy-fixture.js";
 import { describe, it, expect, vi } from "vitest";
 import {
   AnalyticsClient,
@@ -297,7 +297,20 @@ describe("unconfirmed accounts", () => {
     expect(JSON.stringify(store.data[QUEUE_KEY])).not.toContain(U1);
     await client.reset(); // the start finds nobody signed in: confirms
     await client.flush();
-    const opened = rec.events().find((e) => e.event === "opened")!;
+    // Someone was signed in here before: what waited may be their use, so it is dropped rather than
+    // given a fresh anonymous id (U5-W2). Nothing of U1 ever leaves.
+    expect(rec.events().find((e) => e.event === "opened")).toBeUndefined();
+    expect(JSON.stringify(rec.events())).not.toContain(U1);
+
+    // With no earlier account, the same waiting event is attributed at send time, signed out.
+    const fresh = recordingFetch();
+    const second = makeClient({ fetch: fresh.fetch, startsUnconfirmed: true }).client;
+    await second.track("opened", { where: "popup" });
+    await second.flush();
+    expect(fresh.events()).toEqual([]);
+    await second.reset();
+    await second.flush();
+    const opened = fresh.events().find((e) => e.event === "opened")!;
     expect(opened.properties.distinct_id).not.toBe(U1);
     expect(opened.properties.signed_in).toBe(false);
   });
@@ -389,6 +402,7 @@ describe("unconfirmed accounts", () => {
         isTrustedPage: () => true,
         uuid,
         fetch: rec.fetch,
+        subjects: TEST_SUBJECTS,
       });
       const send = (m: unknown) =>
         new Promise<unknown>((r) => {
@@ -398,11 +412,12 @@ describe("unconfirmed accounts", () => {
         kind: ANALYTICS_MESSAGE_KIND,
         action: "identify",
         userId: U1,
-      }); // a page confirms
+      }); // a page confirms (under U1's issued per-device subject)
       await vi.advanceTimersByTimeAsync(START_HOLD_LIMIT_MS + 10); // then the start limit passes
       await host.client.track("opened", { where: "popup" });
       await host.flushWhenReady();
-      expect(JSON.stringify(rec.events())).toContain(U1);
+      expect(JSON.stringify(rec.events())).toContain(testSubjectFor(U1));
+      expect(JSON.stringify(rec.events())).not.toContain(U1);
     } finally {
       vi.useRealTimers();
     }
@@ -872,7 +887,7 @@ describe("recovering from a storage failure", () => {
     expect(client.accountConfirmed).toBe(true);
   });
 
-  it("the server attach never runs, or marks, for an account the client could not install", async () => {
+  it("unreachable legacy guard: the old email attach never runs, or marks, for an account the client could not install", async () => {
     const backing = pausable();
     const state = refusable(backing);
     const { client } = makeClient({ store: state.store });
@@ -884,15 +899,21 @@ describe("recovering from a storage failure", () => {
       consent: async () => true,
       identifyOnServer: async () => void served.push(authenticatedAs),
     });
-    await accounts.identify(U1);
+    // Covers a guard no host can reach any more: with per-device subjects the attach is a no-op and
+    // without them the identifier confirms nothing (U5-W2). The client is confirmed directly here so
+    // the guard stays tested until the legacy attach is removed.
+    await client.identify(U1);
+    await accounts.attach();
     expect(served).toEqual([U1]);
     authenticatedAs = U2;
     state.refuse("reads");
-    await accounts.identify(U2); // the client still holds U1; the session is U2's
+    await client.identify(U2); // the client still holds U1; the session is U2's
+    await accounts.attach();
     expect(served).toEqual([U1]); // no request under a mismatch
     expect(backing.data[SERVER_IDENTIFIED_KEY]).toMatchObject({ userId: U1 }); // U1's marker is not rewritten for U2's request
     state.refuse("none");
-    await accounts.identify(U2);
+    await client.identify(U2);
+    await accounts.attach();
     expect(served).toEqual([U1, U2]);
     expect(backing.data[SERVER_IDENTIFIED_KEY]).toMatchObject({ userId: U2 });
   });

@@ -1,5 +1,6 @@
 import seed from "../../rules/seed.json";
 import {
+  PAID_TIER_ENABLED,
   SERVICE_IDS,
   type ServiceId,
   type SignedRuleSet,
@@ -9,7 +10,7 @@ import {
   EntitlementCache,
   ChromeEntitlementAdapter,
 } from "../entitlement/index.js";
-import { initialAccessSnapshot } from "../entitlement/access-policy.js";
+import { accessCapabilities, initialAccessSnapshot, type AccessHost } from "../entitlement/access-policy.js";
 import {
   resolveRuleSetForLoad,
   ruleSetTrust,
@@ -56,6 +57,13 @@ export interface ExtensionContentEntryDeps {
    * handleBlockedNavigation is given, is also the format-2 lane's blocked-navigation port.
    */
   readonly tiktokBlockedPage?: TikTokBlockedNavigation;
+  /**
+   * The extension host this content script runs in. The format-2 engine counts a Still Pro
+   * feature as a capability only when THIS host implements it (and only while the paid tier is
+   * on); omitted, only features implemented on every host count. Paid off, every host gets
+   * exactly the free features.
+   */
+  readonly host?: AccessHost;
   /** The target extension's local storage namespace (Safari `browser`, Chromium `chrome`). */
   readonly storage: ReadableArea;
   readonly prod: boolean;
@@ -142,6 +150,7 @@ export function createExtensionContentEntry(
       doc,
       ruleSet: legacy?.ruleSet ?? (seed as unknown as SignedRuleSet),
       ruleSetV2: modern?.ruleSet,
+      capabilities: accessCapabilities({ paidMode: PAID_TIER_ENABLED, host: deps.host }),
       handleBlockedNavigation:
         deps.handleBlockedNavigation ??
         (tiktok ? (target: URL) => tiktok.consume(target) : undefined),

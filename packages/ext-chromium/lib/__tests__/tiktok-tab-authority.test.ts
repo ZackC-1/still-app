@@ -348,6 +348,19 @@ describe("dormant Chromium browser-session TikTok adapter", () => {
     }
     expect(h.session.size).toBe(0);
   });
+  it("a browser without tabs.onReplaced reports the one-tab allowance unavailable, never a substitute", async () => {
+    // Nothing is re-implemented where the browser lacks the replacement event. (Firefox for Android
+    // is held unavailable by the platform gate in lib/runtime-platform.ts, whatever it supports.)
+    const h = host();
+    const firefoxTabs = { get: h.browser.tabs.get, onRemoved: h.browser.tabs.onRemoved };
+    const owner = h.create(true, { ...h.browser, tabs: firefoxTabs } as unknown as TiktokTabBrowser);
+    expect(owner.supported).toBe(false);
+    expect(await owner.allow(sender)).toBe(false);
+    expect(await owner.isAllowed(h.page())).toBe(false);
+    expect(h.confirmation).not.toHaveBeenCalled();
+    await owner.stop();
+    expect(h.session.size).toBe(0);
+  });
   it("session read/write failures and cancelled genuine-host confirmation remain denied", async () => {
     const h = host();
     const owner = h.create();

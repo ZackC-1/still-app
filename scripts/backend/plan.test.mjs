@@ -334,6 +334,71 @@ test("0015 post-apply verification pins the migration's exact routine bodies", a
   assert.doesNotMatch(verification, /'search_path=""'/);
 });
 
+test("0017 post-apply verification pins the migration's exact routine bodies", async () => {
+  const root = fileURLToPath(new URL("../../", import.meta.url));
+  const migration = await readFile(
+    join(root, "supabase/migrations/0017_analytics_erasure.sql"),
+    "utf8",
+  );
+  const verification = await readFile(
+    join(root, "scripts/backend/deploy/verify/0017_analytics_erasure.sql"),
+    "utf8",
+  );
+  function body(name) {
+    const start = migration.indexOf(`create or replace function ${name}(`);
+    assert(start >= 0, `${name} defined`);
+    assert.equal(
+      migration.indexOf(`create or replace function ${name}(`, start + 1),
+      -1,
+      `${name} defined once`,
+    );
+    const open = migration.indexOf("$$", start);
+    const close = migration.indexOf("$$", open + 2);
+    return createHash("md5").update(migration.slice(open + 2, close)).digest("hex");
+  }
+  const pinned = new Map(
+    [...verification.matchAll(/\('((?:private|public)\.[a-z_]+)\([^)]*\)', (?:true|false),\s+(?:null::text\[\]|array\[[^\]]*\]), '([0-9a-f]{32})'\)/g)]
+      .map((m) => [m[1], m[2]]),
+  );
+  assert.deepEqual([...pinned.keys()].sort(), [
+    "private.analytics_anonymous_ids",
+    "private.analytics_begin_device_erasure",
+    "private.analytics_claim_erasure_work",
+    "private.analytics_erasure_status",
+    "private.analytics_issue_subject",
+    "private.analytics_origin_key",
+    "private.analytics_record_erasure_outcome",
+    "private.analytics_snapshot_deleted_subject",
+    "private.analytics_subject_active",
+    "public.consume_rate_limit",
+  ]);
+  for (const [name, digest] of pinned) assert.equal(body(name), digest, name);
+  for (const name of pinned.keys()) {
+    const start = migration.indexOf(`create or replace function ${name}(`);
+    const header = migration.slice(start, migration.indexOf("$$", start));
+    assert.match(header, /set search_path = pg_catalog, pg_temp\s/, name);
+  }
+  assert.doesNotMatch(migration, /search_path = ''/);
+});
+
+test("0017 keeps 0015's limiter body and adds only three bucket names", async () => {
+  const root = fileURLToPath(new URL("../../", import.meta.url));
+  const limiter = async (file) => {
+    const source = await readFile(join(root, "supabase/migrations", file), "utf8");
+    const start = source.indexOf("create or replace function public.consume_rate_limit(");
+    const end = source.indexOf("\n$$;", start);
+    assert(start >= 0 && end > start, `${file} limiter`);
+    return source.slice(start, end + 4);
+  };
+  assert.equal(
+    await limiter("0017_analytics_erasure.sql"),
+    (await limiter("0015_settings_sync_per_field.sql")).replace(
+      "'review-signin:verify', 'settings-sync')",
+      "'review-signin:verify', 'settings-sync', 'analytics-erasure-submit', 'analytics-erasure-status', 'analytics-identify')",
+    ),
+  );
+});
+
 async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), "still-backend-plan-"));
   t.after(() => rm(root, { recursive: true, force: true }));

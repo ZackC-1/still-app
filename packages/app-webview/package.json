@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build",
+    "build": "vite build && node ../../apps/apple/scripts/release-env-state.mjs --web-only . > dist/.env-state",
     "dev": "vite",
     "preview": "vite preview",
     "typecheck": "svelte-check --tsconfig ./tsconfig.json"

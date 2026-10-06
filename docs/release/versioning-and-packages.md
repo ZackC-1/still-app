@@ -57,3 +57,9 @@ paths, so the same commit built twice with the same Node version gives byte-iden
 Node version can compress differently while the files inside stay identical; compare extracted contents then.
 Run `pnpm test:release` to prove all of this (it builds twice, with files planted in the checkout). It needs
 full git history: it fails on a shallow clone, and CI checks out with `fetch-depth: 0`.
+
+Built bundles are also independent of the checkout folder. The Chromium, Safari and Apple web-view builds
+all set a Svelte `cssHash` that hashes only the CSS text (see the comment in each Vite/WXT config), so the
+scoped class names (`svelte-xxxxxxx`) do not change with the path. To check: build the same commit in two
+different folders with the same `VITE_*` values and run `diff -r` on the two `dist` folders (for Safari,
+`packages/ext-safari/dist`; for the Apple web view, `packages/app-webview/dist`); it must print nothing.

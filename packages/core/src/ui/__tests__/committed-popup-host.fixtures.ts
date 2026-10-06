@@ -131,6 +131,11 @@ export async function browser() {
     async external(record: StoredSettingsRecord) {
       await set({ "still:settings": record });
     },
+    /** A payload-free storage change (no parseable record): the cache must reread the slot. */
+    invalidate() {
+      for (const listener of [...listeners])
+        listener({ "still:settings": { newValue: undefined } }, "local");
+    },
   };
 }
 

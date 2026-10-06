@@ -34,7 +34,7 @@ const SERVICE_HOST = /(^|\.)(youtube|instagram|facebook|tiktok)\.com$/;
 const CONFIGURED_SERVER =
   /https?:\/\/[^"'`\s]*(supabase\.(co|in)(?![a-z])|posthog)/i;
 
-function assertUnconfiguredBuild(): void {
+export function assertUnconfiguredBuild(): void {
   const background = readFileSync(
     resolve(FIREFOX_EXTENSION, "background.js"),
     "utf8",
@@ -80,10 +80,25 @@ export class StillFirefox {
     return self;
   }
 
-  private async install(): Promise<void> {
-    await this.bidi.send("webExtension.install", {
-      extensionData: { type: "path", path: FIREFOX_EXTENSION },
-    });
+  /**
+   * Use a Firefox that is already running elsewhere (Firefox for Android, reached over adb): install
+   * Still from `extensionData` and answer the four services from fixtures, exactly as `start` does.
+   */
+  static async attach(
+    session: FirefoxSession,
+    extensionData: Json,
+  ): Promise<StillFirefox> {
+    assertUnconfiguredBuild();
+    const self = new StillFirefox(session);
+    await self.install(extensionData);
+    await self.interceptNetwork();
+    return self;
+  }
+
+  private async install(
+    extensionData: Json = { type: "path", path: FIREFOX_EXTENSION },
+  ): Promise<void> {
+    await this.bidi.send("webExtension.install", { extensionData });
   }
 
   private async interceptNetwork(): Promise<void> {
