@@ -2068,3 +2068,44 @@ test("offline plan command works without secrets and prints the reviewable plan"
   assert.match(out.text, /Supabase production deploy plan/);
   assert.match(out.text, /0002_harden\.sql/);
 });
+
+test("the deploy CLI still plans migrations and writes a closing record as a subprocess", async (t) => {
+  const { root, head } = await repo(t);
+  const cli = (args, env) =>
+    spawnSync(
+      process.execPath,
+      [new URL("./deploy.mjs", import.meta.url).pathname, ...args],
+      {
+        cwd: root,
+        encoding: "utf8",
+        timeout: 60_000,
+        env: { PATH: process.env.PATH, ...env },
+      },
+    );
+  for (const operation of [undefined, "", "migrations"]) {
+    const result = cli(["plan"], {
+      DEPLOY_SHA: head,
+      DEPLOY_MIGRATIONS: "0002_harden.sql",
+      DEPLOY_FUNCTIONS: "",
+      ...(operation === undefined ? {} : { DEPLOY_OPERATION: operation }),
+    });
+    assert.equal(result.status, 0, `${operation}: ${result.stderr}`);
+    assert.equal(result.stdout.trim(), (await plan(root, head)).digest);
+  }
+  const empty = cli(["plan"], {
+    DEPLOY_SHA: head,
+    DEPLOY_OPERATION: "migrations",
+    DEPLOY_MIGRATIONS: "",
+  });
+  assert.equal(empty.status, 1);
+  assert.match(empty.stderr, /^Refused \(input-invalid\): List at least one/);
+  const closing = cli(
+    ["final-summary", "--receipt", join(root, "absent.json")],
+    {
+      APPLY_OUTCOME: "skipped",
+      JOB_STATUS: "cancelled",
+    },
+  );
+  assert.equal(closing.status, 0, closing.stderr);
+  assert.match(closing.stdout, /## Deploy closing record/);
+});
