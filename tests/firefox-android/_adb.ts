@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 // The small slice of adb this spike needs: shell commands, screenshots, and "tap the native button
@@ -44,8 +44,25 @@ export interface NativeNode {
   readonly center: { readonly x: number; readonly y: number };
 }
 
-/** The native view tree (uiautomator). Saved as an artifact so a failed match can be read later. */
+/**
+ * The native view tree (uiautomator). Saved as an artifact so a failed match can be read later.
+ * A busy emulator sometimes shows Android's own "<app> isn't responding" dialog over everything
+ * (seen once with the Pixel Launcher); it belongs to no Firefox or Still screen, so it is answered
+ * "Wait" and the tree is read again (at most three times). Each dismissal keeps its own dump.
+ */
 export function nativeNodes(name: string): NativeNode[] {
+  for (let attempt = 0; ; attempt++) {
+    const nodes = readNativeNodes(name);
+    const systemDialog = nodes.some((n) => n.packageName === "android" && /isn.t responding$/.test(n.text));
+    const wait = systemDialog ? nodes.find((n) => n.packageName === "android" && n.text === "Wait") : undefined;
+    if (!wait || attempt >= 3) return nodes;
+    writeFileSync(join(ARTIFACTS, `${name}-system-dialog-${attempt}.xml`), readFileSync(join(ARTIFACTS, `${name}.xml`)));
+    shell(`input tap ${wait.center.x} ${wait.center.y}`);
+    shell("sleep 2");
+  }
+}
+
+function readNativeNodes(name: string): NativeNode[] {
   shell("uiautomator dump /sdcard/still-ui.xml >/dev/null 2>&1 || true");
   const xml = shell("cat /sdcard/still-ui.xml 2>/dev/null || true");
   writeFileSync(join(ARTIFACTS, `${name}.xml`), xml);
