@@ -19,46 +19,18 @@
 //   * No analytics, no notifications, no identifiers: this module sends and records nothing.
 
 import { localDayOrdinal } from "./day-ordinal.js";
-import {
-  validInvitationId, type InvitationOwnerParameters, type InvitationReservation,
-} from "./ledger.js";
+import { validInvitationId, type InvitationReservation } from "./ledger.js";
 import type { InvitationSuppression } from "./arbiter.js";
-import { InvitationLedgerStore, type InvitationLedgerPort, type InvitationStoreStatus } from "./storage.js";
-
-/**
- * Coordinator ruling (2026-10-05, U13 owner question 5): the 168 hour spacing applies between any
- * two invitations, sync or rating, in both directions. Every other parameter keeps the proposal.
- */
-export const RATING_INVITATION_PARAMETERS: InvitationOwnerParameters = /* @__PURE__ */ Object.freeze({
-  spaceRatingFromInvitations: true,
-  // The proposal's counted controls, written out (not spread) so bundlers can drop this constant.
-  countedControls: /* @__PURE__ */ Object.freeze(["site", "feature"] as const),
-});
+import type { InvitationLedgerStore, InvitationStoreStatus } from "./storage.js";
 
 /** A fresh allowance check that has not answered within this many milliseconds is Off. */
 export const RATING_ALLOWANCE_TIMEOUT_MS = 5000;
 
 /** The only surfaces with a browser rating card. Safari is deliberately absent. */
 export type RatingCardSurface = "chrome" | "firefox";
-/** The U6 policy surface (shared-types/product-policy.ts) whose allowance a card surface needs. */
-export type RatingPolicySurface = "chrome_desktop" | "firefox_desktop";
-const CARD_SURFACES: Readonly<Record<RatingCardSurface, { policy: RatingPolicySurface }>> = /* @__PURE__ */ Object.freeze({
-  chrome: /* @__PURE__ */ Object.freeze({ policy: "chrome_desktop" }),
-  firefox: /* @__PURE__ */ Object.freeze({ policy: "firefox_desktop" }),
-});
-
 /** The card surface a value names, or null (Safari, Apple hosts and anything else). */
 export function ratingCardSurface(value: unknown): RatingCardSurface | null {
   return value === "chrome" || value === "firefox" ? value : null;
-}
-/** The policy surface whose allowance a card surface needs. */
-export function ratingPolicySurface(surface: RatingCardSurface): RatingPolicySurface {
-  return CARD_SURFACES[surface].policy;
-}
-
-/** The ledger store every rating host uses, with the coordinator's spacing parameters. */
-export function ratingInvitationStore(port: InvitationLedgerPort): InvitationLedgerStore {
-  return new InvitationLedgerStore(port, RATING_INVITATION_PARAMETERS);
 }
 
 export interface RatingOpening {
@@ -74,9 +46,19 @@ export interface RatingOpening {
   readonly timeZone?: string;
 }
 
+/**
+ * The anchor a NEW ledger starts with: the later of the first-run time and this first recorded
+ * moment, so a first-run record dated in the past (a clock that was behind, or an install record
+ * from long before this ledger existed) can never shorten the seven-day wait. An existing ledger
+ * keeps its own anchor; one still waiting for an anchor adopts the first-run time as it is.
+ */
+export function newLedgerAnchor(firstRunMs: number | null, nowMs: number): number | null {
+  return firstRunMs === null ? null : Math.max(firstRunMs, nowMs);
+}
+
 /** Create the ledger once, fill a newly known anchor, and record this opening's day of use. */
 export async function recordRatingOpening(store: InvitationLedgerStore, input: RatingOpening): Promise<InvitationStoreStatus> {
-  const created = await store.ensure(input.installation, input.anchorMs);
+  const created = await store.ensure(input.installation, newLedgerAnchor(input.anchorMs, input.nowMs));
   if (created !== "ready") return created;
   if (input.anchorMs !== null) {
     const adopted = await store.adoptAnchor(input.anchorMs);

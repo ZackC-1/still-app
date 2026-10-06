@@ -184,4 +184,37 @@ describe("the invitation wrapper around the V3 popup", () => {
       expect(screen.queryByRole("region", { name: RATE })).toBeNull();
     });
   });
+
+  describe("readiness is checked again right before the commit", () => {
+    const rating: PopupInvitationReservation = {
+      installation: "install-1",
+      reservation: { kind: "rating", opening: "opening-1", generation: 7 },
+    };
+    it.each(["pending", "failed", "caution"] as const)(
+      "an account status (%s) that arrives after mount stops the commit, and nothing shows",
+      async (tone) => {
+        const { props } = await fixture();
+        const present = deferred<PopupInvitationReservation | null>();
+        const commit = vi.fn(async () => true);
+        host({ present: () => present.promise, commit });
+        const view = render(InvitedDesktopPopup, { props });
+        await view.rerender({ ...props, account: { address: "specimen@still.test", status: { tone, text: "Checking" } } });
+        present.resolve(rating);
+        await new Promise(r => setTimeout(r, 30));
+        expect(commit).not.toHaveBeenCalled();
+        expect(screen.queryByRole("region", { name: "Rate Still" })).toBeNull();
+      },
+    );
+    it("still commits and shows when nothing changed meanwhile", async () => {
+      const { props } = await fixture();
+      vi.stubGlobal("chrome", { tabs: { create: vi.fn() } });
+      const present = deferred<PopupInvitationReservation | null>();
+      const commit = vi.fn(async () => true);
+      host({ present: () => present.promise, commit });
+      render(InvitedDesktopPopup, { props });
+      present.resolve(rating);
+      expect(await screen.findByRole("region", { name: "Rate Still" })).toBeTruthy();
+      expect(commit).toHaveBeenCalledOnce();
+    });
+  });
 });

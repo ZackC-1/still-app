@@ -1,16 +1,17 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { CHROME_WEB_STORE_REVIEW_URL, FIREFOX_ADDONS_REVIEW_URL } from "../../ui/config.js";
-import { parseInvitationLedger, PROPOSED_INVITATION_PARAMETERS, type InvitationLedger } from "../ledger.js";
-import { InMemoryInvitationLedgerPort, type InvitationLedgerStore } from "../storage.js";
+import { parseInvitationLedger, type InvitationLedger, type InvitationOwnerParameters } from "../ledger.js";
+import { InMemoryInvitationLedgerPort, InvitationLedgerStore } from "../storage.js";
 import {
-  RATING_ALLOWANCE_TIMEOUT_MS, RATING_INVITATION_PARAMETERS, admitRatingCard, ratingCardSurface, ratingInvitationStore,
-  ratingPolicySurface, recordRatingOpening,
+  RATING_ALLOWANCE_TIMEOUT_MS, admitRatingCard, newLedgerAnchor, ratingCardSurface, recordRatingOpening,
   type RatingAdmissionDeps, type RatingAdmissionRequest, type RatingAllowance,
 } from "../rating-allowance.js";
 import { ratingReviewUrl } from "../rating-review.js";
 
 const T0 = 1_790_000_000_000, DAY = 86_400_000, ZONE = "UTC";
 const ON: RatingAllowance = { allowed: true, reason: "on" };
+/** The browser's shared invitation parameters (BROWSER_INVITATION_PARAMETERS in ext-chromium). */
+const PARAMETERS: InvitationOwnerParameters = { spaceRatingFromInvitations: true, countedControls: ["site", "feature", "global"] };
 
 afterEach(() => {
   vi.useRealTimers();
@@ -20,7 +21,7 @@ afterEach(() => {
 /** A ledger that is locally due for rating at opening `o4`, time T0 + 8 days. */
 async function eligible() {
   const port = new InMemoryInvitationLedgerPort();
-  const store = ratingInvitationStore(port);
+  const store = new InvitationLedgerStore(port, PARAMETERS);
   const open = (opening: string, nowMs: number) =>
     recordRatingOpening(store, { installation: "install-a", anchorMs: T0, opening, ordinary: true, nowMs, timeZone: ZONE });
   for (let i = 0; i < 3; i++) expect(await open(`o${i + 1}`, T0 + i * DAY)).toBe("ready");
@@ -41,8 +42,6 @@ describe("packaged surfaces and review links", () => {
     expect(ratingCardSurface("firefox")).toBe("firefox");
     for (const other of ["safari", "Safari", "apple_mobile_host", "apple_macos_host", "firefox-android", "edge", "", null, undefined, 1])
       expect(ratingCardSurface(other)).toBeNull();
-    expect(ratingPolicySurface("chrome")).toBe("chrome_desktop");
-    expect(ratingPolicySurface("firefox")).toBe("firefox_desktop");
   });
   it("opens the packaged default store review pages with no tracking parameters", () => {
     expect(ratingReviewUrl("chrome")).toBe(CHROME_WEB_STORE_REVIEW_URL);
@@ -59,10 +58,6 @@ describe("packaged surfaces and review links", () => {
       // No locale segment: the store opens in the reader's own language.
       expect(parsed.pathname).not.toMatch(/\/[a-z]{2}(-[A-Z]{2})?\//);
     }
-  });
-  it("the 168 hour spacing applies between any two invitations, sync or rating (coordinator ruling)", () => {
-    expect(RATING_INVITATION_PARAMETERS.spaceRatingFromInvitations).toBe(true);
-    expect(RATING_INVITATION_PARAMETERS.countedControls).toEqual(PROPOSED_INVITATION_PARAMETERS.countedControls);
   });
 });
 
@@ -246,5 +241,42 @@ describe("no telemetry", () => {
     }
     await admitRatingCard(deps(store, now).deps, request({ surface: "safari" }));
     expect(network).not.toHaveBeenCalled();
+  });
+});
+
+describe("the anchor of a new ledger (clock behind at first run)", () => {
+  it("is the later of the first-run time and the ledger's first recorded opening", () => {
+    expect(newLedgerAnchor(T0 - 30 * DAY, T0)).toBe(T0);
+    expect(newLedgerAnchor(T0 + DAY, T0)).toBe(T0 + DAY);
+    expect(newLedgerAnchor(null, T0)).toBeNull();
+  });
+
+  it("a past-dated install record cannot shorten the seven-day wait of a new ledger", async () => {
+    const port = new InMemoryInvitationLedgerPort();
+    const store = new InvitationLedgerStore(port, PARAMETERS);
+    const open = (opening: string, nowMs: number) =>
+      recordRatingOpening(store, { installation: "install-a", anchorMs: T0 - 365 * DAY, opening, ordinary: true, nowMs, timeZone: ZONE });
+    for (let i = 0; i < 3; i++) await open(`o${i + 1}`, T0 + i * DAY);
+    expect(parseInvitationLedger(port.value)!.anchorMs).toBe(T0);
+    await open("o4", T0 + 7 * DAY - 1);
+    const early = await admitRatingCard({ store, freshCheck: async () => ON, now: () => T0 + 7 * DAY - 1, hostSurface: "chrome" }, request());
+    expect(early).toEqual({ admitted: false, reason: "local" });
+    await open("o5", T0 + 7 * DAY);
+    const due = await admitRatingCard({ store, freshCheck: async () => ON, now: () => T0 + 7 * DAY, hostSurface: "chrome" },
+      request({ opening: "o5" }));
+    expect(due.admitted).toBe(true);
+  });
+
+  it("an existing ledger keeps its history: its anchor is never moved, and a missing one is adopted as it is", async () => {
+    const port = new InMemoryInvitationLedgerPort();
+    const store = new InvitationLedgerStore(port, PARAMETERS);
+    await store.ensure("install-a", T0 - 30 * DAY);
+    await recordRatingOpening(store, { installation: "x", anchorMs: T0 - 30 * DAY, opening: "o1", ordinary: true, nowMs: T0, timeZone: ZONE });
+    expect(parseInvitationLedger(port.value)!.anchorMs).toBe(T0 - 30 * DAY);
+    const waiting = new InMemoryInvitationLedgerPort();
+    const pending = new InvitationLedgerStore(waiting, PARAMETERS);
+    await pending.ensure("install-b", null);
+    await recordRatingOpening(pending, { installation: "y", anchorMs: T0 - 30 * DAY, opening: "o1", ordinary: true, nowMs: T0, timeZone: ZONE });
+    expect(parseInvitationLedger(waiting.value)!.anchorMs).toBe(T0 - 30 * DAY);
   });
 });

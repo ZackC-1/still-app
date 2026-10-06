@@ -5,9 +5,10 @@ import {
 } from "../../../core/src/invitations/index.js";
 import type { RatingAllowance } from "../../../core/src/invitations/rating-allowance.js";
 import {
-  BROWSER_INVITATION_PARAMETERS, INVITATION_MESSAGE_KIND, chromeInvitationLedgerPort, createInvitationHost,
-  type InvitationReply,
+  ACCOUNT_READ_LIMIT_MS, BROWSER_INVITATION_PARAMETERS, BROWSER_RATING_ALLOWANCE_MS, INVITATION_MESSAGE_KIND,
+  chromeInvitationLedgerPort, createInvitationHost, readInvitationRequest, type InvitationReply,
 } from "../invitation-background.js";
+import { INVITATION_REPLY_TIMEOUT_MS, windowIsPrivate } from "../invitation-client.js";
 import { browserRatingAllowance, firefoxPlatform, ratingPolicySurfaceFor } from "../rating-invitation.js";
 import { BUILD, ENDPOINT, SUPABASE_URL, memoryArea, ok, ratingBody } from "./product-policy-fixtures.js";
 
@@ -54,15 +55,15 @@ function harness(overrides: Partial<{ account: Account; firstRunAt: number | nul
     if (!listener(message, { id: EXTENSION, url: `${ORIGIN}popup.html` } as chrome.runtime.MessageSender, resolve as (v: unknown) => void))
       resolve(undefined);
   });
-  const present = async (opening: string, at?: number) => {
+  const present = async (opening: string, at?: number, extra: object = {}) => {
     if (at !== undefined) facts.now = at;
-    return ((await send({ kind: INVITATION_MESSAGE_KIND, op: "present", opening })) as Extract<InvitationReply, { status: "present" }>).card;
+    return ((await send({ kind: INVITATION_MESSAGE_KIND, op: "present", opening, ...extra })) as Extract<InvitationReply, { status: "present" }>).card;
   };
   const commit = async (reservation: InvitationReservation) =>
     ((await send({ kind: INVITATION_MESSAGE_KIND, op: "commit", reservation })) as Extract<InvitationReply, { status: "commit" }>)?.committed;
   const ledger = (): InvitationLedger => parseInvitationLedger(values[INVITATION_LEDGER_KEY])!;
   const seed = (patch: Partial<InvitationLedger>) => { values[INVITATION_LEDGER_KEY] = { ...ledger(), ...patch }; };
-  return { facts, values, freshCheck, present, commit, ledger, seed };
+  return { facts, values, freshCheck, present, commit, ledger, seed, send };
 }
 type H = ReturnType<typeof harness>;
 
@@ -180,11 +181,23 @@ describe("(b) at least 168 hours between any two invitations", () => {
 });
 
 describe("(c) the first-run anchor comes from the original-install record", () => {
-  it("a new ledger starts at the first-run time, and the seven days count from it", async () => {
-    const firstRun = T0 - 30 * DAY;
-    const h = harness({ firstRunAt: firstRun });
-    await h.present("day-1", T0);
-    expect(h.ledger().anchorMs).toBe(firstRun);
+  it("a new ledger starts at the first-run time, or at its first opening if that is later", async () => {
+    // A first-run record dated after the first opening (a clock that ran ahead) is used as it is.
+    const ahead = harness({ firstRunAt: T0 + HOUR });
+    await ahead.present("day-1", T0);
+    expect(ahead.ledger().anchorMs).toBe(T0 + HOUR);
+    // A past-dated record (a clock behind at first run, an old install) never shortens the wait.
+    const behind = harness({ firstRunAt: T0 - 30 * DAY });
+    await behind.present("day-1", T0);
+    expect(behind.ledger().anchorMs).toBe(T0);
+  });
+
+  it("a past-dated first-run record cannot bring the rating card forward", async () => {
+    const h = harness({ firstRunAt: T0 - 365 * DAY });
+    for (let i = 0; i < 3; i++) await h.present(`day-${i + 1}`, T0 + i * DAY);
+    expect(await h.present("opening-early", T0 + 7 * DAY - 1)).toBeNull();
+    expect(h.freshCheck).not.toHaveBeenCalled();
+    expect((await h.present("opening-due", T0 + 7 * DAY))?.reservation.kind).toBe("rating");
   });
 
   it("a ledger created before the record was readable adopts it once, and never moves it", async () => {
@@ -287,4 +300,83 @@ describe("the real client: only a fresh On counts", () => {
     // No analytics message, ever.
     expect(sendMessage).not.toHaveBeenCalled();
   });
+});
+
+describe("a private window counts for nothing (both cards)", () => {
+  it("a private opening leaves the ledger byte-identical and asks no allowance, for the rating card", async () => {
+    const h = harness();
+    await dueForRating(h);
+    const before = JSON.stringify(h.values);
+    expect(await h.present("opening-private", undefined, { ordinary: false })).toBeNull();
+    expect(JSON.stringify(h.values)).toBe(before);
+    expect(h.freshCheck).not.toHaveBeenCalled();
+    // The next ordinary opening can still show it.
+    expect((await h.present("opening-r"))?.reservation.kind).toBe("rating");
+  });
+
+  it("a private opening leaves the ledger byte-identical for the sync card, and creates no ledger at all", async () => {
+    const h = harness({ account: "signed-out" });
+    await dueForRating(h);
+    h.seed({ sync: "due" });
+    const before = JSON.stringify(h.values);
+    expect(await h.present("opening-private", T0 + 9 * DAY, { ordinary: false })).toBeNull();
+    expect(JSON.stringify(h.values)).toBe(before);
+    expect((await h.present("opening-s"))?.reservation.kind).toBe("sync");
+    const fresh = harness();
+    expect(await fresh.present("opening-private", T0, { ordinary: false })).toBeNull();
+    expect(fresh.values).toEqual({});
+  });
+
+  it("the request accepts `ordinary: false` only, alone or with a hold", () => {
+    const base = { kind: INVITATION_MESSAGE_KIND, op: "present", opening: "o" };
+    expect(readInvitationRequest({ ...base, ordinary: false })).toEqual({ ...base, ordinary: false });
+    expect(readInvitationRequest({ ...base, hold: "setup", ordinary: false })).toEqual({ ...base, hold: "setup", ordinary: false });
+    for (const ordinary of [true, "false", 0, null, undefined]) expect(readInvitationRequest({ ...base, ordinary })).toBeNull();
+    expect(readInvitationRequest({ ...base, ordinary: false, extra: 1 })).toBeNull();
+  });
+
+  describe("the popup resolves privacy before it asks", () => {
+    const windows = (incognito: unknown) => ({ getCurrent: async () => ({ incognito }) });
+    it("is private when the window or the extension context says so", async () => {
+      expect(await windowIsPrivate({ windows: windows(true), extension: { inIncognitoContext: true } })).toBe(true);
+      // Chrome spanning mode: the popup's context says false over a private window.
+      expect(await windowIsPrivate({ windows: windows(true), extension: { inIncognitoContext: false } })).toBe(true);
+      expect(await windowIsPrivate({ windows: windows(false), extension: { inIncognitoContext: true } })).toBe(true);
+      expect(await windowIsPrivate({ windows: windows(false), extension: { inIncognitoContext: false } })).toBe(false);
+    });
+    it("an error, a late or unknown answer counts as private", async () => {
+      expect(await windowIsPrivate({ windows: { getCurrent: async () => { throw new Error("no"); } }, extension: { inIncognitoContext: false } })).toBe(true);
+      expect(await windowIsPrivate({ windows: { getCurrent: () => new Promise(() => {}) }, extension: { inIncognitoContext: false } }, 10)).toBe(true);
+      expect(await windowIsPrivate({ windows: windows(undefined), extension: { inIncognitoContext: false } })).toBe(true);
+      expect(await windowIsPrivate({ windows: windows(false), extension: {} })).toBe(true);
+      expect(await windowIsPrivate({ windows: windows(false) })).toBe(true);
+      expect(await windowIsPrivate(undefined)).toBe(true);
+      expect(await windowIsPrivate({})).toBe(true);
+    });
+    it("with no windows API (Firefox for Android) the extension context's own answer decides", async () => {
+      expect(await windowIsPrivate({ extension: { inIncognitoContext: false } })).toBe(false);
+      expect(await windowIsPrivate({ extension: { inIncognitoContext: true } })).toBe(true);
+    });
+  });
+});
+
+describe("time budget: the rating allowance fits inside the popup's wait", () => {
+  it("account read plus allowance leaves room inside the reply timeout", () => {
+    expect(ACCOUNT_READ_LIMIT_MS + BROWSER_RATING_ALLOWANCE_MS).toBeLessThan(INVITATION_REPLY_TIMEOUT_MS);
+    expect(BROWSER_RATING_ALLOWANCE_MS).toBe(1_500);
+  });
+
+  it.each([[BROWSER_RATING_ALLOWANCE_MS - 1, "rating"], [BROWSER_RATING_ALLOWANCE_MS + 1, null]] as const)(
+    "an allowance answering after %i ms gives %s",
+    async (delay, expected) => {
+      const h = harness();
+      await dueForRating(h);
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      h.freshCheck.mockImplementation(() => new Promise(resolve => setTimeout(() => resolve(ON), delay)));
+      const card = h.present("opening-r");
+      await vi.advanceTimersByTimeAsync(BROWSER_RATING_ALLOWANCE_MS + 10);
+      expect((await card)?.reservation.kind ?? null).toBe(expected);
+      if (expected === null) expect(h.ledger()).toMatchObject({ rating: "due", reservation: null });
+    },
+  );
 });

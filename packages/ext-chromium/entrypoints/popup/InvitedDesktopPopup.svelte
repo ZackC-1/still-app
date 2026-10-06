@@ -26,12 +26,17 @@
     host.started = true;
     // The popup hides the card during its own setup state or a pending, failed or cautioned
     // account state. Say so up front, so nothing is reserved or consumed unseen.
-    const tone = props.account?.status?.tone;
-    const hold = props.desktopSetup
-      ? "setup"
-      : tone === "pending" || tone === "failed" || tone === "caution"
-        ? "error"
-        : undefined;
+    // The same conditions DesktopPopup uses to hide the card, read now and again right before
+    // the commit (an account status can arrive while the background decides).
+    const holdNow = (): "setup" | "error" | undefined => {
+      const tone = props.account?.status?.tone;
+      return props.desktopSetup
+        ? "setup"
+        : tone === "pending" || tone === "failed" || tone === "caution"
+          ? "error"
+          : undefined;
+    };
+    const hold = holdNow();
     void presentInvitation(
       host.port,
       host.opening,
@@ -45,6 +50,7 @@
           };
       },
       hold,
+      () => holdNow() === undefined,
     );
   });
 

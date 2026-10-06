@@ -32,6 +32,7 @@ import {
   type InvitationReservation,
 } from "../../core/src/invitations/index.js";
 import {
+  newLedgerAnchor,
   recordRatingOpening,
   reserveRatingCard,
   type RatingAllowance,
@@ -54,7 +55,11 @@ export type InvitationHold = "setup" | "error";
 const HOLDS: readonly InvitationHold[] = ["setup", "error"];
 
 export type InvitationRequest =
-  | { kind: typeof INVITATION_MESSAGE_KIND; op: "present"; opening: string; hold?: InvitationHold }
+  | {
+      kind: typeof INVITATION_MESSAGE_KIND; op: "present"; opening: string; hold?: InvitationHold;
+      /** Present and false only for a private (or unknown) window: the opening counts for nothing. */
+      ordinary?: false;
+    }
   | { kind: typeof INVITATION_MESSAGE_KIND; op: "commit"; reservation: InvitationReservation }
   | { kind: typeof INVITATION_MESSAGE_KIND; op: "control"; control: InvitationControl };
 
@@ -75,10 +80,16 @@ const keysAre = (v: Record<string, unknown>, keys: readonly string[]) =>
 export function readInvitationRequest(message: unknown): InvitationRequest | null {
   if (!plain(message) || message.kind !== INVITATION_MESSAGE_KIND) return null;
   if (message.op === "present" && validInvitationId(message.opening)) {
-    if (keysAre(message, ["kind", "op", "opening"]))
-      return { kind: INVITATION_MESSAGE_KIND, op: "present", opening: message.opening };
-    if (keysAre(message, ["kind", "op", "opening", "hold"]) && HOLDS.includes(message.hold as InvitationHold))
-      return { kind: INVITATION_MESSAGE_KIND, op: "present", opening: message.opening, hold: message.hold as InvitationHold };
+    // Exactly kind, op and opening, plus optionally a named hold and optionally `ordinary: false`.
+    const hasHold = Object.hasOwn(message, "hold"), hasOrdinary = Object.hasOwn(message, "ordinary");
+    const keys = ["kind", "op", "opening", ...(hasHold ? ["hold"] : []), ...(hasOrdinary ? ["ordinary"] : [])];
+    if (keysAre(message, keys) && (!hasHold || HOLDS.includes(message.hold as InvitationHold)) &&
+        (!hasOrdinary || message.ordinary === false))
+      return {
+        kind: INVITATION_MESSAGE_KIND, op: "present", opening: message.opening,
+        ...(hasHold ? { hold: message.hold as InvitationHold } : {}),
+        ...(hasOrdinary ? { ordinary: false as const } : {}),
+      };
   }
   if (message.op === "control" && keysAre(message, ["kind", "op", "control"]) && CONTROLS.includes(message.control as InvitationControl))
     return { kind: INVITATION_MESSAGE_KIND, op: "control", control: message.control as InvitationControl };
@@ -117,6 +128,16 @@ export interface InvitationBackgroundDeps {
   };
 }
 
+/**
+ * How long the rating card's fresh allowance may take inside one `present` (U13-P3 time budget).
+ * The popup gives `present` INVITATION_REPLY_TIMEOUT_MS (5 s). The background first reads the
+ * account (at most ACCOUNT_READ_LIMIT_MS, 3 s, in parallel with the setup and first-run reads),
+ * then a few local ledger transactions, then this allowance: 3 s + 1.5 s leaves half a second for
+ * storage. A slower answer is simply Off for this opening, so a card never arrives after the popup
+ * stopped waiting. The popup's own budget stays 5 s for every message, including the commit.
+ */
+export const BROWSER_RATING_ALLOWANCE_MS = 1_500;
+
 export function createInvitationHost(deps: InvitationBackgroundDeps) {
   const store = new InvitationLedgerStore(deps.port, BROWSER_INVITATION_PARAMETERS);
   const safe = <T>(read: () => Promise<T>, fallback: T): Promise<T> => read().catch(() => fallback);
@@ -125,10 +146,10 @@ export function createInvitationHost(deps: InvitationBackgroundDeps) {
     return typeof at === "number" && Number.isFinite(at) && at >= 0 && Number.isSafeInteger(Math.floor(at)) ? Math.floor(at) : null;
   };
 
-  /** Create the ledger once, with the first-run anchor, and fill a newly known anchor later. */
+  /** Create the ledger once (anchored no earlier than now), and fill a newly known anchor later. */
   async function ensure(): Promise<boolean> {
     const at = await anchor();
-    if ((await store.ensure(deps.newInstallationId(), at)) !== "ready") return false;
+    if ((await store.ensure(deps.newInstallationId(), newLedgerAnchor(at, deps.now()))) !== "ready") return false;
     return at === null || (await store.adoptAnchor(at)) === "ready";
   }
   const installation = () =>
@@ -137,13 +158,17 @@ export function createInvitationHost(deps: InvitationBackgroundDeps) {
   async function handle(request: InvitationRequest): Promise<InvitationReply> {
     // Facts are read before the transaction: a transaction body is synchronous and holds the queue.
     if (request.op === "present") {
+      // A private window, or one whose privacy is unknown, counts for nothing: the ledger is not
+      // read, created or written, no allowance is asked and no card is reserved.
+      if (request.ordinary === false) return { status: "present", card: null };
       const [finished, account, at] = await Promise.all([
         safe(deps.setupFinished, false), safe(deps.account, "unknown" as const), anchor(),
       ]);
       const nowMs = deps.now();
       // The one opening record for this popup opening: ledger, anchor and day of use together.
       const opened = await recordRatingOpening(store, {
-        installation: deps.newInstallationId(), anchorMs: at, opening: request.opening, ordinary: true, nowMs,
+        installation: deps.newInstallationId(), anchorMs: at, opening: request.opening,
+        ordinary: request.ordinary !== false, nowMs,
       });
       if (opened !== "ready") return { status: "present", card: null };
       const context = {
@@ -161,7 +186,10 @@ export function createInvitationHost(deps: InvitationBackgroundDeps) {
         reservation = await store.reserve("sync", context);
       } else if (decision.kind === "rating" && deps.rating) {
         const rated = await reserveRatingCard(
-          { store, freshCheck: deps.rating.freshCheck, now: deps.now, hostSurface: deps.rating.surface },
+          {
+            store, freshCheck: deps.rating.freshCheck, now: deps.now, hostSurface: deps.rating.surface,
+            timeoutMs: BROWSER_RATING_ALLOWANCE_MS,
+          },
           { ...context, surface: deps.rating.surface },
         );
         reservation = rated.reserved ? rated.reservation : null;
@@ -230,9 +258,12 @@ export function declaredHostsGranted(
  * person who is in fact signed in, so an error, a rejection and a timeout must never read as
  * signed out. Unknown never counts a control and never shows a card.
  */
+/** The longest the background waits for the sign-in state (see BROWSER_RATING_ALLOWANCE_MS). */
+export const ACCOUNT_READ_LIMIT_MS = 3_000;
+
 export async function readAccountState(
   auth: { getSession(): Promise<{ data: { session: unknown }; error?: unknown }> },
-  timeoutMs = 3_000,
+  timeoutMs = ACCOUNT_READ_LIMIT_MS,
 ): Promise<"signed-out" | "signed-in" | "unknown"> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
