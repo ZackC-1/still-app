@@ -29,6 +29,7 @@ vi.mock("../../entitlement/access-policy.js", async (importOriginal) => {
 });
 
 const { createExtensionContentEntry, createShippingContentEntry } = await import("../extension-entry.js");
+const { createModernShippingContentEntry } = await import("../modern-shipping-entry.js");
 
 const FREE = ["facebook.reels", "instagram.reels", "tiktok.all", "youtube.shorts"];
 const started = new Set<ContentScriptHandle>();
@@ -89,5 +90,24 @@ describe("content entry host capabilities", () => {
     expect(seen.deps).toHaveLength(1);
     const call = seen.calls.find((entry) => entry.result === seen.deps[0]!.capabilities);
     expect(call!.input).toEqual({ paidMode: PAID_TIER_ENABLED, host: "firefox" });
+  });
+
+  // U7-W3: the V3 entry (Firefox and Safari V3 builds) mirrors the shipping entry's lane choice and
+  // must forward the host the same way, including on a Safari page that has the pending cover.
+  it.each([
+    ["firefox", false, "https://www.youtube.com/watch?v=x"],
+    ["safari", true, "https://www.youtube.com/watch?v=x"],
+    ["safari", true, "https://www.instagram.com/reels/"],
+  ] as const)("the V3 entry forwards the %s host (cover %s) on %s", async (host, pendingCover, href) => {
+    installChrome();
+    await createModernShippingContentEntry({
+      host, pendingCover, storage, prod: false, earlyRedirect: false,
+      win: makeWin(href) as never,
+      onScriptCreated: (script) => started.add(script),
+    })();
+    expect(seen.deps).toHaveLength(1);
+    const call = seen.calls.find((entry) => entry.result === seen.deps[0]!.capabilities);
+    expect(call!.input).toEqual({ paidMode: PAID_TIER_ENABLED, host });
+    expect([...seen.deps[0]!.capabilities!].sort()).toEqual(FREE);
   });
 });
