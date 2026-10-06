@@ -147,3 +147,35 @@ export const test = createFormat2Test(
       prod:false, earlyRedirect:false, onScriptCreated:s=>script=s})();`,
 );
 export const expect = test.expect;
+
+/**
+ * Paid-on Still Pro extras, in the DISPOSABLE copy only. The real packaged format-2 rule set and
+ * the real content script run with the Chromium host's capabilities and a purchased access
+ * snapshot for the Pro features that host implements, both supplied through the test-only seam
+ * (accessCapabilitiesForTest over the real implementation table). The shipping build has no way
+ * to supply either; its paid flag stays off (extras-dormancy.spec.ts covers that build).
+ */
+export const paidOnExtrasTest = createFormat2Test(
+  (source) => `
+    import seed from ${source("packages/core/rules/seed.json")};
+    import { createContentScript } from ${source("packages/core/src/content/index.ts")};
+    import { PACKAGED_RULE_SET_V2, admitPackagedRuleSetV2 } from ${source("packages/core/src/rules/packaged.ts")};
+    import { IMPLEMENTED_PRO_FEATURES, accessCapabilitiesForTest, initialAccessSnapshot } from ${source("packages/core/src/entitlement/access-policy.ts")};
+    import { ChromeStorageAdapter, SettingsCache } from ${source("packages/core/src/storage/index.ts")};
+    const capabilities = accessCapabilitiesForTest({ paidMode: true, host: "chromium" }, IMPLEMENTED_PRO_FEATURES);
+    const base = initialAccessSnapshot({ paidMode: true, supported: capabilities });
+    const states = { ...base.states };
+    for (const id of IMPLEMENTED_PRO_FEATURES.chromium) states[id] = "purchased";
+    const snapshot = Object.freeze({ ...base, states: Object.freeze(states) });
+    // A fixed committed snapshot: the EntitlementCache surface the content script uses.
+    const entitlement = { currentAccessSnapshot: () => snapshot, current: () => true,
+      hydrate: () => Promise.resolve(), refreshAccess: () => Promise.resolve(snapshot),
+      watch: () => () => {}, subscribeAccess: () => () => {}, subscribe: () => () => {} };
+    const script = createContentScript({ win: window, doc: document, ruleSet: seed,
+      ruleSetV2: admitPackagedRuleSetV2(PACKAGED_RULE_SET_V2), capabilities,
+      cache: new SettingsCache(new ChromeStorageAdapter()), entitlement });
+    chrome.runtime.onMessage.addListener((message, sender, reply) => {
+      if (message.kind === "fixture.stop") { script.stop(); reply(true); }
+    });
+    void script.start().catch(() => script.stop());`,
+);

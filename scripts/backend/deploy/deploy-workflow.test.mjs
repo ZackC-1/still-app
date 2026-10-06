@@ -10,6 +10,7 @@ import {
   ENVIRONMENT_NAME,
   TOOLING_PATHS,
 } from "./deploy.mjs";
+import { OPERATIONS } from "./operations.mjs";
 
 const WORKFLOWS = new URL("../../../.github/workflows/", import.meta.url);
 const DEPLOY = "supabase-production-deploy.yml";
@@ -65,6 +66,7 @@ test("deploy workflow runs only on manual dispatch, serialized, with read-only t
     "functions",
     "migrations",
     "mode",
+    "operation",
   ]);
   assert.equal(workflow.on.workflow_dispatch.inputs.mode.default, "plan-only");
   assert.deepEqual(workflow.on.workflow_dispatch.inputs.mode.options, [
@@ -164,6 +166,7 @@ test("untrusted inputs reach scripts only through environment variables", async 
         );
     }
     assert.equal(job.env.DEPLOY_SHA, "${{ inputs.commit }}");
+    assert.equal(job.env.DEPLOY_OPERATION, "${{ inputs.operation }}");
     assert.equal(job.env.DEPLOY_MIGRATIONS, "${{ inputs.migrations }}");
     assert.equal(job.env.DEPLOY_FUNCTIONS, "${{ inputs.functions }}");
   }
@@ -246,4 +249,129 @@ test("no other workflow can reach the production database environment or its sec
     }
     assert.ok(!text.includes("SUPABASE_PRODUCTION_DB_URL"), name);
   }
+});
+
+test("operations are a closed choice that defaults to migrations and leaves migrations empty", async () => {
+  const { workflow } = await load(DEPLOY);
+  const { operation, migrations } = workflow.on.workflow_dispatch.inputs;
+  assert.equal(operation.type, "choice");
+  assert.equal(operation.required, "true");
+  assert.equal(operation.default, "migrations");
+  // Exactly the operations the planner knows; anything else is refused by the planner too.
+  assert.deepEqual(operation.options, [
+    "migrations",
+    ...Object.keys(OPERATIONS),
+  ]);
+  assert.equal(migrations.required, "false");
+  assert.equal(migrations.default, "");
+  assert.doesNotMatch(workflow["run-name"], /secrets\.|commit|migrations \}\}/);
+  assert.ok(TOOLING_PATHS.includes("scripts/backend/deploy/operations.mjs"));
+  assert.ok(
+    TOOLING_PATHS.includes("scripts/backend/deploy/sql/role-facts.sql"),
+  );
+});
+
+test("an operation runs every protective step a migration does: no step can be skipped by the operation choice", async () => {
+  const { workflow } = await load(DEPLOY);
+  const { plan, apply } = workflow.jobs;
+  for (const job of [plan, apply]) {
+    for (const step of job.steps) {
+      // A step skipped for operations would remove a protection (rehearsal, verification, record).
+      assert.doesNotMatch(String(step.if ?? ""), /operation/, step.name);
+    }
+    assert.doesNotMatch(job.if, /operation/);
+  }
+  const planOrder = [
+    "deploy.mjs plan --out",
+    "protection --phase plan",
+    "sha256sum -c",
+    "replay.sh",
+  ].map((needle) =>
+    plan.steps.findIndex((s) => (s.run ?? "").includes(needle)),
+  );
+  assert.ok(
+    planOrder.every((i) => i >= 0),
+    `plan steps missing: ${planOrder}`,
+  );
+  assert.deepEqual(
+    [...planOrder].sort((a, b) => a - b),
+    planOrder,
+  );
+  const publish = plan.steps.findIndex((s) =>
+    s.uses?.startsWith("actions/upload-artifact@"),
+  );
+  assert.ok(
+    publish > planOrder.at(-1),
+    "the plan is published after the rehearsal",
+  );
+  // The apply job: approval readback, re-derived digest, hash re-check, freshness, the one step
+  // that both writes and verifies (deploy.mjs apply), then the always-run closing record.
+  const applyRuns = apply.steps.map((s) => s.run ?? "");
+  for (const needle of [
+    "protection --phase apply --require",
+    "--expect-digest",
+    "--stage full",
+    "deploy.mjs freshness --plan",
+    "deploy.mjs apply --plan",
+    "deploy.mjs final-summary",
+  ])
+    assert.equal(applyRuns.filter((r) => r.includes(needle)).length, 1, needle);
+});
+
+test("the pull-request operation rehearsal has no environment or secret and covers every operation", async () => {
+  const { text, workflow } = await load("supabase-operation-rehearsal.yml");
+  assert.deepEqual(Object.keys(workflow.on), ["pull_request"]);
+  assert.deepEqual(workflow.permissions, { contents: "read" });
+  assert.deepEqual(Object.keys(workflow.jobs), ["operation-rehearsal"]);
+  const job = workflow.jobs["operation-rehearsal"];
+  assert.equal(job.environment, undefined);
+  assert.equal(job.permissions, undefined);
+  assert.doesNotMatch(
+    text,
+    /secrets\.|SUPABASE_PRODUCTION_DB_URL|id-token|: write\b/,
+  );
+  assert.equal(job.if, "github.event_name == 'pull_request'");
+  assert.deepEqual(job.strategy.matrix.operation, Object.keys(OPERATIONS));
+  const plan = job.steps.find((s) => (s.run ?? "").includes("deploy.mjs plan"));
+  assert.equal(plan.env.DEPLOY_OPERATION, "${{ matrix.operation }}");
+  assert.equal(plan.env.DEPLOY_MIGRATIONS, "");
+  for (const step of job.steps)
+    if (step.run) assert.doesNotMatch(step.run, /\$\{\{/, step.name);
+  const replay = job.steps.findIndex((s) =>
+    (s.run ?? "").includes("bash scripts/backend/deploy/replay.sh"),
+  );
+  assert.ok(replay > job.steps.indexOf(plan));
+  assert.ok(
+    job.steps.some((s) =>
+      (s.run ?? "").includes(
+        `${CLI_TARBALL_SHA256}  $RUNNER_TEMP/supabase.tgz" | sha256sum -c -`,
+      ),
+    ),
+  );
+  // Every action is pinned to the same full commit SHA the production deploy workflow uses.
+  const production = (await load(DEPLOY)).workflow;
+  const pinned = new Map(
+    Object.values(production.jobs)
+      .flatMap((j) => j.steps)
+      .filter((s) => s.uses)
+      .map((s) => s.uses.split("@"))
+      .map(([action, sha]) => [action, sha]),
+  );
+  const uses = job.steps.filter((s) => s.uses).map((s) => s.uses);
+  assert.ok(uses.length >= 2);
+  for (const ref of uses) {
+    assert.match(ref, /^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/, ref);
+    const [action, sha] = ref.split("@");
+    assert.equal(
+      sha,
+      pinned.get(action),
+      `${action} pin differs from production`,
+    );
+  }
+  // The operation tests run with the other deploy tests on every pull request.
+  const foundation = (await load("supabase-deploy.yml")).workflow;
+  const tests = foundation.jobs.preview.steps.find((s) =>
+    (s.run ?? "").includes("node --test"),
+  );
+  assert.match(tests.run, /scripts\/backend\/deploy\/operations\.test\.mjs/);
 });

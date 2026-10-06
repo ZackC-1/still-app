@@ -54,7 +54,15 @@ export interface NavigationIntentTracker {
 
 export function createNavigationIntentTracker(now: () => number = Date.now): NavigationIntentTracker {
   let deliberate: { readonly key: string; readonly at: number } | null = null;
-  const routeKey = (url: URL) => `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+  // YouTube's /watch is one route for every video, so its key also names the video and the
+  // playlist: a page-driven move to ANOTHER video or into a list it added (an automatic Mix)
+  // within the deliberate window is never the person's link. Other routes keep the path rule.
+  const routeKey = (url: URL) => {
+    const route = `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
+    const youtube = url.hostname === "youtube.com" || url.hostname.endsWith(".youtube.com");
+    return youtube && url.pathname === "/watch"
+      ? `${route}?v=${url.searchParams.get("v") ?? ""}&list=${url.searchParams.get("list") ?? ""}` : route;
+  };
   return {
     recordLink: (url) => { deliberate = { key: routeKey(url), at: now() }; },
     intentFor: (url) =>

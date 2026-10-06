@@ -16,6 +16,9 @@
     "./ui/email-consent": "./src/ui/email-consent.ts",
     "./ui/surface-guidance": "./src/ui/surface-guidance.ts",
     "./ui/tokens.css": "./src/ui/tokens.css",
+    "./ui/v3/design/styles.css": "./src/ui/v3/design/styles.css",
+    "./ui/v3/Toggle.svelte": "./src/ui/v3/Toggle.svelte",
+    "./ui/v3/Glyph.svelte": "./src/ui/v3/Glyph.svelte",
     "./seed": "./rules/seed.json"
   },
   "scripts": {
