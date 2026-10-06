@@ -103,6 +103,49 @@ test("Keep it closed grants nothing and a fresh tab or reload stays blocked", as
   await expect(page.getByText("Reload this page to open TikTok.")).toHaveCount(0);
 });
 
+test("a failed open shows Couldn't open TikTok, and Try again asks again before anything opens", async ({ context }) => {
+  test.skip(syncConfigured, V3_ONLY);
+  test.setTimeout(90_000);
+  await serve(context);
+  const page = await context.newPage();
+  await openBlocked(page);
+  const before = await savedSettings(context);
+  const tabKeys = async () => (await sessionKeys(context)).filter((key) => key.startsWith("still:tiktok-tab:"));
+
+  // The confirm answer is lost on its way from this page (owner decision 34's failure case). The
+  // page's own messenger is wrapped, so the background never receives the confirm at all.
+  await page.evaluate(() => {
+    const send = chrome.runtime.sendMessage.bind(chrome.runtime);
+    const w = window as unknown as { __stillRestoreSend?: () => void };
+    w.__stillRestoreSend = () => {
+      chrome.runtime.sendMessage = send;
+    };
+    chrome.runtime.sendMessage = ((message: { kind?: string }) =>
+      message?.kind === "still:tiktok-confirm" ? Promise.resolve({ status: "failed" }) : send(message)) as typeof chrome.runtime.sendMessage;
+  });
+  await page.getByRole("button", { name: "Open TikTok this time" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "Open TikTok this time" }).click();
+  const alert = page.getByRole("alert");
+  await expect(alert).toContainText("Couldn't open TikTok.");
+  await expect(dialog).toHaveCount(0);
+  expect(await tabKeys()).toEqual([]);
+  expect(await savedSettings(context)).toEqual(before);
+
+  await page.evaluate(() => (window as unknown as { __stillRestoreSend: () => void }).__stillRestoreSend());
+  await alert.getByRole("button", { name: "Try again" }).click();
+  // Try again only asks again: the confirmation returns and nothing is allowed yet.
+  await expect(dialog).toContainText("Open TikTok in this tab?");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(await tabKeys()).toEqual([]);
+  await dialog.getByRole("button", { name: "Open TikTok this time" }).click();
+  await expect(page.getByText("Reload this page to open TikTok.")).toBeVisible();
+  await page.getByRole("button", { name: "Reload page" }).click();
+  await page.waitForURL("https://www.tiktok.com/foryou");
+  await expect(page.locator("#tiktok-feed")).toBeVisible();
+  expect(await savedSettings(context)).toEqual(before);
+});
+
 test("with TikTok turned off, TikTok loads normally and no blocked page appears", async ({ context, extensionId }) => {
   test.skip(syncConfigured, V3_ONLY);
   await serve(context);

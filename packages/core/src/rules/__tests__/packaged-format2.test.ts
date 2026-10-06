@@ -18,6 +18,7 @@ import { YOUTUBE_EXTRAS } from "../youtube-extras.js";
 import { INSTAGRAM_EXTRAS } from "../instagram-extras.js";
 import { FACEBOOK_EXTRAS } from "../facebook-extras.js";
 import { DEFAULT_SETTINGS_V2 } from "./format2-fixtures.js";
+import { ACCESS_HOSTS, IMPLEMENTED_PRO_FEATURES } from "../../entitlement/access-policy.js";
 
 /** A mutable deep copy of the committed data, for negative controls. */
 type MutableSet = {
@@ -59,14 +60,23 @@ describe("packaged format-2 rule set", () => {
     ).not.toThrow();
   });
 
-  it("covers only the free launch features: optional extras are not packaged", () => {
+  it("covers the free launch features, plus only the optional extras whose implementation ships", () => {
     const features = Object.values(packaged().services).flatMap((service) =>
       service.surfaces.map((surface) => surface.feature),
     );
-    expect(new Set(features)).toEqual(new Set(PACKAGED_FREE_FEATURES));
     expect(PACKAGED_FREE_FEATURES).toEqual(["youtube.shorts", "instagram.reels", "facebook.reels", "tiktok.all"]);
+    for (const id of PACKAGED_FREE_FEATURES) expect(features).toContain(id);
+    const implemented = new Set(ACCESS_HOSTS.flatMap((host) => IMPLEMENTED_PRO_FEATURES[host]));
     const pro = FEATURE_REGISTRY.filter((feature) => feature.tier === "pro").map((feature) => feature.id);
-    for (const id of pro) expect(features).not.toContain(id);
+    for (const id of features) expect(PACKAGED_FREE_FEATURES.includes(id as never) || implemented.has(id as never), id).toBe(true);
+    // A Pro surface is packaged only together with its implementation; the rest stay out.
+    for (const id of pro) if (!implemented.has(id)) expect(features, id).not.toContain(id);
+    // Packaged Pro data exists exactly for the implemented extras (dormant while paid is off).
+    expect(new Set(features.filter((id) => (pro as readonly string[]).includes(id)))).toEqual(implemented);
+    expect([...implemented].sort()).toEqual([
+      "instagram.explore", "instagram.stories", "instagram.suggested", "instagram.threads",
+      "youtube.comments", "youtube.endscreen", "youtube.livechat", "youtube.related",
+    ]);
   });
 
   it("is admitted by the format-2 contract and carries a valid dev signature over its exact payload", async () => {

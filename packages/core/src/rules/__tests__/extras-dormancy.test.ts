@@ -117,7 +117,10 @@ describe("A4 dormancy at unit level: all 12 Still Pro controls with synthetic ex
       const on = paidOn();
       engine.applyDom(ALL_ON, url, document, on);
       hook.reconcile(engine.effectiveFeatures!());
-      expect(engine.effectiveFeatures!()).toEqual([core, ...pros.map((feature) => feature.id)]);
+      // Same set, compared sorted: the packaged YouTube extras now come before the synthetic ones
+      // in plan order, so plan order differs from registry order.
+      expect([...engine.effectiveFeatures!()].sort()).toEqual([core, ...pros.map((feature) => feature.id)].sort());
+      expect(engine.effectiveFeatures!()[0]).toBe(core);
       for (const feature of pros) {
         expect(getComputedStyle(document.getElementById(`target-${slug(feature.id)}`)!).display).toBe("none");
         expect(document.getElementById(`mark-${slug(feature.id)}`)!.hasAttribute(`data-still-synthetic-${slug(feature.id)}`)).toBe(true);
@@ -149,8 +152,10 @@ describe("effective-only owned CSS on the shipped packaged set", () => {
       document.documentElement.className = "site-theme";
       const engine = session(packaged);
       engine.applyDom(settings, new URL(PAGE[service]), document);
-      // The pre-change composition: every hide rule of the service, in plan order.
-      const surfaces = packaged.services[service]!.surfaces.filter((surface) => surface.action === "hide");
+      // The pre-extras composition: every FREE hide rule of the service, in plan order. Packaged
+      // Pro surfaces (Instagram's and YouTube's today) must add nothing while paid is off.
+      const surfaces = packaged.services[service]!.surfaces.filter((surface) => surface.action === "hide"
+        && FEATURE_REGISTRY.some((feature) => feature.id === surface.feature && feature.tier === "free"));
       const scope = scopeOf(core);
       const previous = surfaces.flatMap((surface) => surface.action === "hide"
         ? surface.selectors.map((selector) => `.${scope}-${slug(surface.feature)} :is(${selector}){display:none!important}`) : []).join("\n");
@@ -194,18 +199,19 @@ describe("compiled extras route framework", () => {
   });
 
   it("an entry is consulted only while its own feature is effective", () => {
+    // youtube.autoplay: a Pro feature with no packaged hide surface, so it stays route-only here.
     const matches = vi.fn((url: URL) => exactPath(url.pathname, "/live_chat"));
-    const entry = route("youtube.livechat", "/live_chat", "/", { matches });
+    const entry = route("youtube.autoplay", "/live_chat", "/", { matches });
     // Saved Off for that feature, even with paid on.
     const engine = session(packaged, youtube(entry));
-    expect(engine.evaluate({ ...ALL_ON, sites: { ...ALL_ON.sites, "youtube.livechat": false } }, new URL("https://www.youtube.com/live_chat"), on)).toEqual({ kind: "apply" });
+    expect(engine.evaluate({ ...ALL_ON, sites: { ...ALL_ON.sites, "youtube.autoplay": false } }, new URL("https://www.youtube.com/live_chat"), on)).toEqual({ kind: "apply" });
     // Paid off (shipped defaults).
     expect(engine.evaluate(ALL_ON, new URL("https://www.youtube.com/live_chat?v=1"))).toEqual({ kind: "apply" });
     expect(matches).not.toHaveBeenCalled();
     // Effective: a route-only feature (no hide surface) still routes, and adds no root class.
     expect(engine.evaluate(ALL_ON, new URL("https://www.youtube.com/live_chat?v=2"), on)).toEqual({ kind: "redirect", url: "https://www.youtube.com/" });
     engine.applyDom(ALL_ON, new URL("https://www.youtube.com/watch?v=2"), document, on);
-    expect(featureClasses().some((name) => name.endsWith("youtube-livechat"))).toBe(false);
+    expect(featureClasses().some((name) => name.endsWith("youtube-autoplay"))).toBe(false);
   });
 
   it("is query-aware: the predicate sees the whole URL", () => {
@@ -240,11 +246,20 @@ describe("compiled extras route framework", () => {
     expect(matches).not.toHaveBeenCalled();
   });
 
-  it("shipped sessions use the empty packaged tables: no extras route exists today", () => {
+  it("shipped sessions route only through the compiled tables that exist: Instagram's and YouTube's live chat today", () => {
+    // Instagram's own routes ship with P4 and are covered by instagram-extras.test.ts; YouTube's
+    // live chat route is pinned here and in youtube-extras.test.ts.
+    const shipped: Partial<Record<ServiceId, readonly string[]>> = { instagram: ["/explore/", "/stories/x/", "/explore/people/"] };
     for (const [service, href] of Object.entries(PAGE) as [ServiceId, string][]) {
       const engine = session(packaged);
-      for (const path of ["/live_chat", "/explore/", "/stories/x/", "/watch/", "/explore/people/"])
-        expect(engine.evaluate(ALL_ON, new URL(path, href), on).kind, `${service}${path}`).not.toBe("redirect");
+      for (const path of ["/live_chat", "/explore/", "/stories/x/", "/watch/", "/explore/people/"]) {
+        if (shipped[service]?.includes(path)) continue;
+        const decision = engine.evaluate(ALL_ON, new URL(path, href), on);
+        if (service === "youtube" && path === "/live_chat") expect(decision, `${service}${path}`).toEqual({ kind: "redirect", url: "https://www.youtube.com/" });
+        else expect(decision.kind, `${service}${path}`).not.toBe("redirect");
+      }
+      // Paid off (shipped defaults): no route at all.
+      for (const path of ["/live_chat", "/live_chat_replay"]) expect(engine.evaluate(ALL_ON, new URL(path, href)).kind).not.toBe("redirect");
     }
   });
 });

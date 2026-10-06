@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
   import ConfirmationDialog from "./ConfirmationDialog.svelte";
+  import Glyph from "./Glyph.svelte";
   import {
     sameTikTokIdentity,
+    tikTokOpenFailed,
     tikTokSupported,
     tikTokPortReady,
     tikTokReloadConfirmed,
@@ -33,6 +35,8 @@
       p?.state,
       p?.verified,
       p?.fresh,
+      p?.failure,
+      p?.failure?.status,
       ...actions.flatMap((action) => [
         p?.[action],
         p?.[action]?.request,
@@ -106,6 +110,7 @@
     });
   });
   let reloading = $derived(tikTokReloadConfirmed(presentation));
+  let failed = $derived(tikTokOpenFailed(presentation));
   let backgroundKey = $derived(
     presentation
       ? `${presentation.observation}\0${presentation.identity.request}\0${presentation.identity.tab}\0${presentation.identity.document}`
@@ -223,6 +228,34 @@
       {:else}
         {#key presentation?.requestConfirmation}
           {#key presentation?.requestConfirmation?.request}
+            {#if failed}
+              <!-- Owner decision 34. Try again is the same fenced request as the button below:
+                one dispatch per observation, and it only ever reopens the confirmation. -->
+              <div class="status-line" data-tone="failed" role="alert">
+                <span class="glyph"><Glyph name="alert" size={16} /></span>
+                <div class="status-body">
+                  <span>Couldn't open TikTok.</span><button
+                    type="button"
+                    class="link status-action"
+                    aria-disabled={confirming ||
+                      requested === current ||
+                      !allowed(
+                        presentation,
+                        presentation?.requestConfirmation,
+                        "requestConfirmation",
+                      ) ||
+                      undefined}
+                    onclick={confirming
+                      ? undefined
+                      : intent(
+                          presentation,
+                          presentation?.requestConfirmation,
+                          "requestConfirmation",
+                        )}>Try again</button
+                  >
+                </div>
+              </div>
+            {/if}
             <button
               type="button"
               class="secondary"
