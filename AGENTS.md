@@ -132,8 +132,9 @@ with the code that proves it whenever practical.
 - The current goal is adoption growth. Do not promise permanent free pricing or reintroduce a
   purchase requirement. Both paid-tier flags remain disabled; preserve RevenueCat identity,
   historical entitlements, and dormant purchase infrastructure for a separately approved future change.
-- Mobile support means websites opened in Safari. Still does not block short-form video inside native
-  YouTube, Instagram, Facebook, or TikTok apps.
+- Mobile support means websites opened in Safari on iPhone and iPad; from the V3 release (V3 builds
+  only), also in Firefox on Android. Still does not block short-form video inside native YouTube,
+  Instagram, Facebook, or TikTok apps.
 - Say "every supported surface," never "everywhere."
 - Product analytics follows [ADR 0004](docs/adr/0004-first-party-usage-analytics.md): a closed event
   schema with no pages, videos or searches, no fingerprinting, a per-device off switch, never used

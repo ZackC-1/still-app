@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -26,6 +26,21 @@ const tokens = readFileSync(
   resolve(here, "../../../core/src/ui/tokens.css"),
   "utf8",
 );
+
+// Every popup component's own styles, including the Firefox for Android presentation: an
+// Android-only width override would be the same trap one file away.
+const popupDir = resolve(here, "../../entrypoints/popup");
+const allPopupStyles = readdirSync(popupDir)
+  .filter((name) => name.endsWith(".svelte"))
+  .map((name) => {
+    const source = readFileSync(resolve(popupDir, name), "utf8");
+    return [...source.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)]
+      .map((match) => match[1])
+      .join("\n")
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+  })
+  .join("\n");
+const androidPopup = readFileSync(resolve(popupDir, "FirefoxAndroidPopup.svelte"), "utf8");
 
 const styleBlock = popupSource
   .slice(popupSource.indexOf("<style>"), popupSource.indexOf("</style>"))
@@ -60,6 +75,16 @@ describe("popup sizing", () => {
     // dynamic/small/large variants (dvw, svw, lvw, dvh, …) and vi/vb all resolve against a
     // viewport that is ~0 during the popup's content-measurement pass. Reject any of them.
     expect(styleBlock).not.toMatch(/\d\s*[sdl]?v(?:w|h|i|b|min|max)\b/i);
+  });
+
+  it("no popup component, Android included, sizes anything with viewport units", () => {
+    expect(allPopupStyles).not.toMatch(/\d\s*[sdl]?v(?:w|h|i|b|min|max)\b/i);
+  });
+
+  it("the Firefox for Android popup adds no width of its own and no inline sizing", () => {
+    // It renders inside PopupApp's clamped `.popup`, exactly like the desktop presentation.
+    expect(androidPopup).not.toMatch(/<style/);
+    expect(androidPopup).not.toMatch(/style=|inline-size|width/);
   });
 
   it("clamps the popup to the surface it is given, so it fits the smallest phone", () => {

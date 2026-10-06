@@ -1,3 +1,4 @@
+import type { SafariV3BuildInput } from "../../../lib/safari-v3.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen, waitFor } from "@testing-library/svelte";
 import { unmount } from "svelte";
@@ -33,7 +34,9 @@ vi.mock("../../../../core/src/ui/v3/desktop-popup-binding.js", async (importOrig
   };
 });
 
-const ENV = { atomicSettingsFlag: "true", supabaseUrl: undefined, supabaseAnonKey: undefined };
+const ENV = { atomicSettingsFlag: "true", modernSyncFlag: undefined, supabaseUrl: undefined, supabaseAnonKey: undefined };
+const CLOUD_ENV = { atomicSettingsFlag: undefined, modernSyncFlag: "true", supabaseUrl: "https://still-audit.invalid", supabaseAnonKey: "public-audit-placeholder" };
+const CONFIGURED_ENV = { ...CLOUD_ENV, modernSyncFlag: undefined };
 const flush = () => new Promise<void>((resolve) => setTimeout(resolve, 0));
 
 afterEach(async () => {
@@ -45,12 +48,12 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-async function open(saved: SavedShape, options: { platform?: string; signedIn?: boolean; projection?: boolean; down?: boolean } = {}) {
+async function open(saved: SavedShape, options: { platform?: string; signedIn?: boolean; projection?: boolean; down?: boolean; env?: SafariV3BuildInput } = {}) {
   const f = await installSafari({ saved, ...options });
   if (options.down) f.setNativeDown(true);
   document.body.innerHTML = '<div id="app"></div>';
   const load = vi.fn(() => import("../v3-mount.js"));
-  const mode = await startSafariV3Popup({ env: ENV, load });
+  const mode = await startSafariV3Popup({ env: options.env ?? ENV, load });
   return { f, load, mode };
 }
 
@@ -166,6 +169,20 @@ describe("Safari V3 popup: what is never offered", () => {
       expect(screen.queryByRole("button", { name })).toBeNull();
   });
 
+  it.each(["ios", "mac"])("%s configured build with modern sync: V3 over the atomic record, the account read-only (the app owns it)", async (platform) => {
+    const { mode } = await open("atomic", { platform, signedIn: true, env: CLOUD_ENV });
+    expect(mode).toBe("v3");
+    await waitFor(() => expect(screen.getByText("person@example.invalid")).toBeTruthy());
+    for (const name of ["Sign out", "Delete account", "Sign in", "Try again", "Retry sync"])
+      expect(screen.queryByRole("button", { name })).toBeNull();
+  });
+
+  it("a configured build without the modern sync flag keeps the legacy popup and never loads V3", async () => {
+    const { load, mode } = await open("atomic", { signedIn: true, env: CONFIGURED_ENV });
+    expect(mode).toBe("legacy");
+    expect(load).not.toHaveBeenCalled();
+  });
+
   it.each(["ios", "mac"])("%s: no price, purchase, paywall or Open Still route", async (platform) => {
     await open("atomic", { platform });
     await screen.findByRole("switch", { name: "Still on Instagram" });
@@ -177,7 +194,11 @@ describe("Safari V3 popup: what is never offered", () => {
     for (const lock of locks) {
       expect(lock.getAttribute("aria-disabled")).toBe("true");
       expect(lock.textContent).toBe("Still Pro");
+      // Owner decision 40: the row label describes the lock; its name is the visible "Still Pro".
+      expect(lock.hasAttribute("aria-label")).toBe(false);
+      expect(lock.getAttribute("aria-describedby")).toBeTruthy();
     }
+    expect(screen.getAllByRole("button", { name: "Still Pro" })).toEqual(locks);
     const outsideLocks = text().replaceAll("Still Pro", "").length;
     expect(text().length - outsideLocks).toBe(locks.length * "Still Pro".length);
     for (const word of ["$", "Purchase", "Open the Still app", "Restore"]) expect(text()).not.toContain(word);

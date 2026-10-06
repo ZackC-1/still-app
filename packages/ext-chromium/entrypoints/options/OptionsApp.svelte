@@ -19,6 +19,8 @@
   import { surfaceGuidance } from "../../lib/surface-guidance.js";
   import { createPageAnalytics } from "../../lib/analytics.js";
   import { modernSettingsRuntime } from "../../lib/modern-settings-runtime.js";
+  import { observeDirectControls } from "../../../core/src/ui/v3/direct-control-observer.js";
+  import { reportDirectControl } from "../../lib/invitation-client.js";
 
   // An extension page like the popup, so it gets the same purchase-spine injection (plan U6):
   // message-closures over the background-owned session, present only when this build carries
@@ -36,7 +38,13 @@
     analytics,
     onCommittedPopupBinding: settingsRuntime.atomicLocal
       ? (binding) => {
-          committedPopupBinding = binding;
+          // Direct changes made here count toward the sync invitation (U13-P2). The inline
+          // build-time check can only narrow to legacy and keeps configured builds byte-identical.
+          committedPopupBinding =
+            !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
+            import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true"
+              ? observeDirectControls(binding, reportDirectControl)
+              : binding;
         }
       : undefined,
     openedWhere: "options",

@@ -27,20 +27,25 @@ function init(): void {
   mount(PopupApp, { target: document.getElementById("app")!, props: { controller } });
 }
 
-// V3 popup (U12-W4) is an explicit developer opt-in that mirrors the Apple app's D04 gate exactly:
-// VITE_APPLE_ATOMIC_SETTINGS=true and no Supabase configuration. Vite inlines these values, so every
-// default build (configured or not) folds this to `init()` and drops the V3 module, its components
+// V3 popup (U12-W4, widened for U3-W4) needs the same explicit build opt-in as the Apple app's D04
+// gate: configured with VITE_MODERN_SETTINGS_SYNC_ENABLED=true, or unconfigured with
+// VITE_APPLE_ATOMIC_SETTINGS=true. Vite inlines these values, so every default build (configured or
+// not, with any other flag value) folds this to `init()` and drops the V3 module, its components
 // and their global stylesheet. Inside, the tested rule (lib/safari-v3) decides again, and the V3
 // screen mounts only over the app's atomic record; anything else runs `init()` unchanged.
 if (
-  import.meta.env.VITE_APPLE_ATOMIC_SETTINGS === "true" &&
-  !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
+  (import.meta.env.VITE_APPLE_ATOMIC_SETTINGS === "true" &&
+    !(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)) ||
+  (import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED === "true" &&
+    import.meta.env.VITE_SUPABASE_URL &&
+    import.meta.env.VITE_SUPABASE_ANON_KEY)
 )
   void import("./v3.js")
     .then(({ startSafariV3Popup }) =>
       startSafariV3Popup({
         env: {
           atomicSettingsFlag: import.meta.env.VITE_APPLE_ATOMIC_SETTINGS,
+          modernSyncFlag: import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED,
           supabaseUrl: import.meta.env.VITE_SUPABASE_URL,
           supabaseAnonKey: import.meta.env.VITE_SUPABASE_ANON_KEY,
         },

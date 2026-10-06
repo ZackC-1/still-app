@@ -6,6 +6,7 @@
 // function entrypoints (index.ts), never by the handler tests (which inject mocks).
 
 import postgres from "postgres";
+import { CodedError } from "./coded-error.ts";
 import type { RateLimiter } from "./rate-limit.ts";
 import {
   type ClaimResult,
@@ -89,12 +90,12 @@ export class PgRateLimiter implements RateLimiter {
       `;
       const wait = rows[0]?.wait;
       if (wait === undefined || !Number.isInteger(wait) || wait < 0) {
-        throw new Error("Invalid limiter result");
+        throw new CodedError("invalid_limiter_result", "Invalid limiter result");
       }
       return wait;
     } catch {
       // Driver errors can carry SQL parameters (including IP/email). Keep them out of handler logs.
-      throw new Error("Rate limiter unavailable");
+      throw new CodedError("rate_limiter_unavailable", "Rate limiter unavailable");
     }
   }
 }

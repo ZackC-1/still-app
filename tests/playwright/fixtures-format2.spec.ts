@@ -29,12 +29,23 @@ async function serve(page: Page, domainGlob: string, html: string): Promise<void
   );
 }
 
-/** The real options page's master switch: a committed Off/On through the shipped authority. */
+/**
+ * The real options page's master switch: a committed Off/On through the shipped authority. Each
+ * toggle resolves once the switch shows the new choice. The switch shows only saved choices, and
+ * the background saves an Off only after the navigation rules it switches off are gone, so a page
+ * opened after that is never redirected. Clicking alone is not enough: a page opened the moment
+ * after the click can race the save itself, exactly as a person cannot outrun their own click.
+ */
 async function stillSwitch(context: BrowserContext, extensionId: string) {
   const options = await context.newPage();
   await options.goto(`chrome-extension://${extensionId}/options.html`);
-  return () =>
-    options.getByRole("switch", { name: /^(Still|Still on\/off)$/, exact: true }).click();
+  const control = options.getByRole("switch", { name: /^(Still|Still on\/off)$/, exact: true });
+  return async () => {
+    await expect(control).toBeEnabled();
+    const next = (await control.getAttribute("aria-checked")) === "true" ? "false" : "true";
+    await control.click();
+    await expect(control).toHaveAttribute("aria-checked", next);
+  };
 }
 
 async function expectFormat2Lane(page: Page) {

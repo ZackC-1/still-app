@@ -21,6 +21,8 @@ public enum BridgeRequest: Equatable, Sendable {
   case setPreserved(Data)
   case atomic(Data)
   case intent(path: String, value: Bool, updatedAt: Int)
+  /// Safari's retained settings copy, offered after a reinstall (owner decision 30).
+  case adopt(Data)
 
   /// Parse a raw message body (WKScriptMessage.body or SFExtensionMessageKey userInfo) into a
   /// request. Returns nil for an unknown shape, a missing `settings` string, or undecodable JSON —
@@ -40,6 +42,10 @@ public enum BridgeRequest: Equatable, Sendable {
       guard Set(dict.keys) == Set(["kind", "command"]), let json = dict["command"] as? String,
         json.utf8.count <= 131_072 else { return nil }
       return .atomic(Data(json.utf8))
+    case "settingsAdopt":
+      guard Set(dict.keys) == Set(["kind", "settings"]), let json = dict["settings"] as? String,
+        json.utf8.count <= 131_072 else { return nil }
+      return .adopt(Data(json.utf8))
     case "settingsIntent":
       guard Set(dict.keys) == Set(["kind", "path", "value", "updatedAt"]),
         let path = dict["path"] as? String,
@@ -59,13 +65,30 @@ public enum BridgeRequest: Equatable, Sendable {
 public struct SettingsBridge {
   private let store: SharedSettingsStore
   private let notifyChanged: () -> Void
+  /// The app host's launch fact for its first saved record (owner decision 28). Nil in the Safari
+  /// extension, which never saves a first record.
+  public var firstRecord: AtomicSettingsRecord.FirstRecord?
+  /// False for the Safari extension: initialize, scope and acknowledge belong to the app, the only
+  /// cloud client and the only converter (U3-W4 design, authority split), and so does writing a
+  /// modern record through a coarse `set`. The extension's pages commit single-field intents only;
+  /// this refuses the rest natively instead of relying on the extension's scripts never sending them.
+  public let admitsAtomicCommands: Bool
 
   /// `notifyChanged` fires after a `set` that actually changed the store — the Darwin broadcast in
   /// production. Injectable so tests can assert the applied-only gating without posting real
   /// system-wide notifications (which would reach any concurrently running app/Simulator).
-  public init(store: SharedSettingsStore, notifyChanged: @escaping () -> Void = SettingsBridge.postSettingsChanged) {
+  public init(store: SharedSettingsStore, notifyChanged: @escaping () -> Void = SettingsBridge.postSettingsChanged,
+              firstRecord: AtomicSettingsRecord.FirstRecord? = nil, admitsAtomicCommands: Bool = true) {
     self.store = store
     self.notifyChanged = notifyChanged
+    self.firstRecord = firstRecord
+    self.admitsAtomicCommands = admitsAtomicCommands
+  }
+
+  /// The Safari extension handler's bridge: no first record and no atomic commands.
+  public static func safariExtension(store: SharedSettingsStore,
+                                     notifyChanged: @escaping () -> Void = SettingsBridge.postSettingsChanged) -> SettingsBridge {
+    SettingsBridge(store: store, notifyChanged: notifyChanged, firstRecord: nil, admitsAtomicCommands: false)
   }
 
   /// Return bytes captured in the same transaction as the mutation, before notifying peers.
@@ -80,13 +103,33 @@ public struct SettingsBridge {
       } catch { return "{\"status\":\"unavailable\"}" }
     case .set(let incoming):
       guard let data = try? JSONEncoder().encode(incoming) else { return "" }
+      guard admitsAtomicCommands || !AtomicSettingsRecord.isModern(data) else { return "{\"status\":\"unavailable\"}" }
       return apply(data)
     case .setPreserved(let incoming):
+      // The extension may never plant a modern record through a coarse set: over an absent or
+      // legacy store that would skip the app's first-record writer and its unknown conversion, with
+      // ownership, scope and account of the extension's choosing. Refused before any read or lock.
+      // settingsAdopt is the one sanctioned import (owner decision 30), decided by the app's rules.
+      guard admitsAtomicCommands || !AtomicSettingsRecord.isModern(incoming) else { return "{\"status\":\"unavailable\"}" }
       return apply(incoming)
     case .atomic(let command):
-      guard let committed = try? store.atomicCommand(command) else { return "{\"status\":\"unavailable\"}" }
+      // Refused before any read or lock: the same reply as an unavailable command.
+      guard admitsAtomicCommands else { return "{\"status\":\"unavailable\"}" }
+      guard let committed = try? store.atomicCommand(command, firstRecord: firstRecord) else { return "{\"status\":\"unavailable\"}" }
       if committed.changed { notifyChanged() }
       return String(data: committed.data, encoding: .utf8) ?? ""
+    case .adopt(let incoming):
+      guard let result = try? store.adoptLeftoverCopy(incoming) else { return "{\"status\":\"unavailable\"}" }
+      let status: String
+      switch result.adoption {
+      case .adopted: status = "adopted"
+      case .kept: status = "kept"
+      case .refused: status = "refused"
+      }
+      if status == "adopted" { notifyChanged() }
+      let record: Any = result.data.flatMap { try? JSONSerialization.jsonObject(with: $0) } ?? NSNull()
+      guard let reply = try? JSONSerialization.data(withJSONObject: ["status": status, "record": record]) else { return "{\"status\":\"unavailable\"}" }
+      return String(data: reply, encoding: .utf8) ?? "{\"status\":\"unavailable\"}"
     case .intent(let path, let value, let updatedAt):
       guard let committed = try? store.commitIntent(path: path, value: value, updatedAt: updatedAt) else { return "" }
       if committed.changed && store.coordinationAvailable { notifyChanged() }

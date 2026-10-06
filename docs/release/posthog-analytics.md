@@ -19,8 +19,8 @@ Three kinds of message reach PostHog:
 
 - **Product events** from the apps and extensions (installed, active, opened, toggles, the sign-in
   funnel, sharing_turned_off). Each is checked against `packages/core/src/analytics/events.ts` and
-  carries `surface` (chrome, firefox, safari-ios, safari-macos, app-ios, app-macos), `store` (ios,
-  macos, chrome, firefox), `device` (phone, tablet, desktop), `app_version` and `signed_in`, so
+  carries `surface` (chrome, firefox, firefox-android, safari-ios, safari-macos, app-ios,
+  app-macos), `store` (ios, macos, chrome, firefox), `device` (phone, tablet, desktop), `app_version` and `signed_in`, so
   Safari on an iPhone, an iPad and a Mac are separate lines in any chart. Switch flips carry
   `where` (popup, options, app).
 - **Identity operations** from the apps and extensions. `$identify` links the install to the
@@ -46,7 +46,9 @@ send nothing.
 3. In project settings, turn on **Discard client IP data**. Every event also carries
    `$geoip_disable`, so no location is derived; the Apple privacy manifests declare no location, and
    the privacy policy says so. Country-level download numbers come from the stores' own reports.
-4. Create a personal API key with only the **person: write** scope, for deletion.
+4. Create a personal API key with only the **person: write** scope, for deletion, and scope it
+   to this one project only (not the whole organization), so a wrong project id is refused rather
+   than answered with "no person".
 
 ## Server (Supabase function secrets)
 
@@ -66,9 +68,46 @@ unauthenticated POST to each returns 401. Either function skips its PostHog step
 settings are missing. Deployed 2026-09-23 (analytics-identify v1, delete-user v18), verified as above.
 
 **Deletion follow-up.** If PostHog is down during an account deletion, the account is still deleted
-and the function logs `ANALYTICS DELETION FAILED for account <uuid>`. Check the `delete-user` logs
-weekly while monitoring is manual, and delete any logged person in PostHog (Persons → search the
-id → Delete person, with events).
+and the function logs `ANALYTICS DELETION FAILED` with a fixed reason code (`http_5xx`, `http_4xx`,
+`http_other`, `network`, `deletion_errors`, `not_queued`, `events_not_queued` or `unknown`). The log never names
+the account. An account that never shared usage has no PostHog person: PostHog answers with
+`persons_found: 0`, which counts as done, and the function logs the fixed line
+`analytics deletion: no person`.
+
+When a failure appears, match it to the account by time, not by searching PostHog for ids:
+
+1. Note the time of the `ANALYTICS DELETION FAILED` line.
+2. In the Supabase Auth audit log, find the nearest account-deletion entry at or before the time of
+   that line. (Deleting an account can be retried, so the failure line can come later than the
+   deletion entry.) The entry gives the deleted account's id. (Check the first time that the hosted
+   project records these entries.)
+3. In PostHog, open Persons and search for exactly that id. If a person is found by that id, delete
+   it, with events. The id itself is the test: account ids are never reused, and an id taken from an
+   account-deletion entry can never be someone's live anonymous id. The person may or may not carry
+   the `email` property. A person re-created by late events after the deletion, or one whose email
+   was never attached, has none, so a missing email is not a reason to keep it. An email that matches
+   is only extra confirmation.
+
+> **Warning.** Anonymous analytics ids are random UUIDs too, and most people never sign in. Never
+> decide that a person belongs to a deleted account because its id is missing from the accounts
+> table: that would delete live, anonymous usage, including ids that current accounts still use.
+> Only an exact id taken from an account-deletion entry is a candidate.
+
+A person can also reappear shortly after a successful deletion: events already on their way when the
+account was deleted (an offline device, or PostHog's own ingestion delay) can arrive afterwards. The
+weekly check below covers that case with the same steps.
+
+**Wrong project.** `persons_found: 0` is also what PostHog returns for a wrong `POSTHOG_PROJECT_ID`
+or environment when the personal key can reach that other project. To make that mistake loud, the
+personal API key must be scoped to the single project that receives Still's events (step 4 above),
+so a wrong id is refused (`http_4xx`). A run of `analytics deletion: no person` lines on every
+deletion is the other sign to look for.
+
+**One-time check after setting or changing the PostHog secrets (owner).** Send one test event with
+a fresh, made-up distinct id to the project with the project key, wait a few minutes for it to be
+ingested, then bulk-delete that distinct id with the personal key and project id the function uses.
+The answer must show `persons_found: 1`. If it shows `0`, the function is pointed at the wrong
+project or environment; fix the secrets before relying on account deletion.
 
 **Existing accounts.** Accounts created before 2.1 get their email attached the next time a 2.1
 surface identifies them. A one-time backfill (list auth users, set each email on its person) needs
@@ -168,14 +207,18 @@ different surfaces, so label every insight with the definition it uses.
 - `installed` by store against App Store Connect units and the Chrome/AMO dashboards.
 - Persons whose distinct id is an account UUID but have no email (a stuck identify).
 - The `code_failed` reason mix: a jump in `network` means the backend.
-- The `delete-user` logs for `ANALYTICS DELETION FAILED`, and, a week after any account deletion,
-  a Persons search for the deleted account id: a device that was offline during the deletion can
+- The `delete-user` logs for `ANALYTICS DELETION FAILED` and `analytics deletion: no person`, and,
+  for every account-deletion entry in the Auth audit log from the past week, the three steps under
+  "Deletion follow-up" (search for the exact id from the audit entry and delete any person found by
+  it, with or without an email; never infer a deleted account from an id missing from the accounts
+  table): a device that was offline during the deletion can
   send events under it until it learns the session ended, and an extension background that receives
   the popup's forget request late (deletion waits at most 5 s for it) can send whatever it had
   queued in between. A forget also cannot survive process termination before storage accepts any
   record of it: the next process drops the account's queued events only if it learns that nobody is
   signed in, and can still send them if a different account is established first. Neither window is
-  bounded by the client; this search is the remedy. Delete any such person.
+  bounded by the client, and PostHog's ingestion delay adds to it; this check is the remedy. Delete any
+  such person.
 - PostHog's ingestion warnings: "cannot merge already identified" means an identify was refused.
 - Known small inaccuracy: the Apple app keeps its once-a-day and once-ever markers in the web view's
   storage, which iOS can clear under storage pressure; that can repeat an `app_opened` step or an
@@ -204,3 +247,75 @@ RevenueCat never holds money. App Store purchases are paid by Apple (App Store C
 and Financial Reports). Web purchases, if any were ever live, would be in the connected Stripe
 account. The App Manager API key cannot read sales or finance reports; reading them through the API
 needs a key with the Sales and Finance roles.
+
+## Per-device identities and device deletion (V3, not switched on)
+
+Migration 0017 and the `analytics-erasure` function add per-device analytics identities and
+"delete what this device shared". None of it is switched on, and nothing in this section applies
+until the owner approves each step.
+
+**Hard gate.** The per-device path in `analytics-identify` stays off until its own setting,
+`ANALYTICS_SUBJECTS_ENABLED`, is set to exactly `true`. Setting the database login for it does not
+switch it on. Do not set it until both of these are deployed and checked:
+
+1. The account-deletion change that records the analytics deletion before the account is deleted.
+2. Migration 0017's step that, when an account is deleted, keeps a record of that account's
+   per-device identities so they are still deleted from PostHog afterwards.
+
+Until then no per-device identity is ever created, so an account deletion cannot leave one behind.
+
+**Second hard gate: the apps and the server switch move together.** Per-device identities may be
+connected to an app or extension, and the server switch above turned on, only in a build that
+already has the account-bound hold: while someone is signed in and their device has no identity
+yet, what they do waits, belongs only to that account, and is thrown away if they sign out or
+another account signs in. That is in this change. Also, a new build that turns analytics on
+without per-device identities reports nothing at all for signed-in people (their use waits and is
+never sent). So switching analytics on in a new build and connecting per-device identities must
+ship together, in the same release.
+
+**Deploy order.** Deploy and verify 0016 on its own first, then 0017 on its own. The deploy planner
+refuses to list them together. Then the owner sets the database login and the function secrets
+(`ANALYTICS_ERASER_DB_URL`, `ANALYTICS_ERASURE_WORKER_TOKEN`, and `ANALYTICS_EVENT_ID_SECRET`, a
+random value of at least 32 characters that keeps the "new account" event from being counted twice;
+without it that event gets a random id), and deploys `analytics-erasure` and `analytics-identify`. Each is a separate approved step. Nothing runs the deletion worker on a
+schedule yet.
+
+**When a device shows "deleted".** PostHog deletes a person quickly but deletes that person's events
+later, in a batch (on weekends for PostHog Cloud). A device is therefore shown "Your shared data has
+been deleted." only after a check at least 8 days after PostHog last queued a deletion for it still
+finds no one. Until then it shows "Confirming deletion with our providers…". Checks continue for 35 days
+in case late events arrive.
+
+**Watching the queue.** Each worker run claims up to 50 due jobs: 10 of them are always the oldest
+jobs recorded past the limit below, and the rest go in priority order, signed-in history first. New
+deletions are combined into PostHog requests of up to 1,000 ids; every follow-up check is its own
+request. A run reports how many jobs and requests it handled, and logs the line
+`analytics erasure overdue jobs: N` when any job has failed five times in a row (jobs keep retrying,
+at most once a day). A deletion request is never refused for volume: past 200 new device jobs in
+any 10 minutes, a job with no signed-in history is still recorded but worked after everything
+else, except for its reserved share. Requests are limited per address (per /64 for IPv6), and each
+account can add at most five new devices a day, so signed-in priority cannot be manufactured at
+scale.
+
+The daily device limit also counts sharing being switched back on: every Share starts a new device
+identity, so one account can stop and restart sharing five times a day. After that, that day's
+signed-in use on the device waits on the device unattributed and is sent the next day (anything
+older than 30 days is dropped).
+
+**How often to run the worker.** At normal volume, a run every 15 minutes is plenty. Each job is
+claimed about four times in its life (the first deletion, then checks after 1 day, 8 days and 35
+days). At the most the limit allows (200 new jobs every 10 minutes, kept up for weeks) that is
+about 80 claims a minute, so keeping up needs a run every 30 seconds; a slower schedule only falls
+behind while such a burst lasts, and catches up afterwards.
+
+**Alert on the oldest due job.** Run this read-only query on a schedule and alert when the answer
+is more than one hour (it means the worker is not running, or not keeping up):
+
+```sql
+select coalesce(max(now() - next_attempt_at), interval '0') as oldest_due
+from private.analytics_erasure_jobs
+where next_attempt_at <= now() and (lease_until is null or lease_until < now());
+```
+
+If the number of due jobs keeps growing, check the PostHog key and project settings first, then
+the worker's schedule.

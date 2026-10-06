@@ -1,4 +1,5 @@
 import type { AnalyticsPermission, AnalyticsPrivacyPolicy } from "../consent.js";
+import type { SubjectDeps } from "../extension-host.js";
 // Synthetic test evidence only; this is never exported from the app or read by production hosts.
 export const TEST_PERMISSION: AnalyticsPermission = {
   schemaVersion: 1,
@@ -43,4 +44,14 @@ export const TEST_PRIVACY = {
   permission: async () => TEST_PERMISSION,
   privacyPolicy: TEST_PRIVACY_POLICY,
   envelope: { build_channel: "test" as const },
+};
+
+/** Synthetic per-device subject for an account: a fixed id that is never the account id. */
+export function testSubjectFor(account: string): string {
+  return `5ab5ec7a${account.slice(8)}`;
+}
+/** A synthetic subject server: every account gets its testSubjectFor id. */
+export const TEST_SUBJECTS: SubjectDeps = {
+  issue: async (_body, _signal, account) => ({ state: "active", subject: testSubjectFor(account) }),
+  onStopped: async () => {},
 };
