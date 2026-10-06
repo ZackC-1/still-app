@@ -18,6 +18,12 @@ interface ImportMetaEnv {
    * inside the native host. Converting the App Group record is one-way; never set this for a
    * store build. Absent → the legacy settings screen, byte-for-byte as before. */
   readonly VITE_APPLE_ATOMIC_SETTINGS?: string;
+  /** Modern per-field settings sync (U3-W4), the same flag Chrome and Firefox use. Only the exact
+   * value "true" in a build WITH Supabase configuration selects D04 over committed settings with
+   * modern sync, and only inside the native host. Converting the App Group record is one-way, so
+   * once a release build ships with it every later release build must keep it. Absent → the legacy
+   * settings screen and whole-record sync, byte-for-byte as before. */
+  readonly VITE_MODERN_SETTINGS_SYNC_ENABLED?: string;
 }
 interface ImportMeta {
   readonly env: ImportMetaEnv;
