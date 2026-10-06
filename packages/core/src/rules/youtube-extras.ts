@@ -16,7 +16,7 @@ import type { ExtrasRoute, ServiceExtras } from "./extras.js";
  * Boundaries every selector keeps: never a wrapper that also holds the playlist panel, the live
  * chat frame, the player's Replay/seek/settings controls or the autonav countdown. In particular
  * never `#secondary` or `#related` (they hold the playlist panel and chat), never the player
- * chrome, and never a carousel that holds the live-chat entry. Autoplay is separate work.
+ * chrome, and never a carousel that holds the live-chat entry. Autoplay is a content handler (content/youtube-autoplay.ts), not a selector.
  */
 
 /** youtube.related (Related videos): the recommendation renderer only, in either placement. */
@@ -72,4 +72,7 @@ export const YOUTUBE_EXTRAS: ServiceExtras = Object.freeze({
   ]),
   routes: Object.freeze([LIVE_CHAT_ROUTE]),
   markers: Object.freeze([]),
+  // youtube.autoplay (Autoplay prevention) is a packaged content handler, never rule data:
+  // content/youtube-autoplay.ts, attached only while effectiveFeatures() reports it.
+  handlers: Object.freeze(["youtube.autoplay"] as const),
 });
