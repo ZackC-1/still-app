@@ -9,7 +9,7 @@ import {
 } from "../../../core/src/invitations/index.js";
 import {
   INVITATION_MESSAGE_KIND,
-  SYNC_INVITATION_PARAMETERS,
+  BROWSER_INVITATION_PARAMETERS,
   chromeInvitationLedgerPort,
   createInvitationHost,
   declaredHostsGranted,
@@ -89,10 +89,12 @@ describe("request reading", () => {
     expect(readInvitationRequest({ kind: INVITATION_MESSAGE_KIND, op: "control", control: "site", source: "direct" })).toBeNull();
     expect(readInvitationRequest({ kind: INVITATION_MESSAGE_KIND, op: "control", control: "site", signedIn: false })).toBeNull();
   });
-  it("accepts only a sync reservation to commit", () => {
+  it("accepts only a sync or rating reservation to commit", () => {
     const reservation = { kind: "sync", opening: "o", generation: 3 };
     expect(readInvitationRequest({ kind: INVITATION_MESSAGE_KIND, op: "commit", reservation })).not.toBeNull();
-    expect(readInvitationRequest({ kind: INVITATION_MESSAGE_KIND, op: "commit", reservation: { ...reservation, kind: "rating" } })).toBeNull();
+    expect(readInvitationRequest({ kind: INVITATION_MESSAGE_KIND, op: "commit", reservation: { ...reservation, kind: "rating" } }))
+      .toMatchObject({ reservation: { kind: "rating" } });
+    expect(readInvitationRequest({ kind: INVITATION_MESSAGE_KIND, op: "commit", reservation: { ...reservation, kind: "link" } })).toBeNull();
     expect(readInvitationRequest({ kind: INVITATION_MESSAGE_KIND, op: "commit", reservation: { ...reservation, generation: -1 } })).toBeNull();
     expect(readInvitationRequest({ kind: INVITATION_MESSAGE_KIND, op: "commit", reservation: { ...reservation, extra: 1 } })).toBeNull();
   });
@@ -139,8 +141,9 @@ describe("the sync milestone", () => {
   });
 
   it("counts the global pause (owner ruling) and uses the owner parameters for every control kind", () => {
-    expect(SYNC_INVITATION_PARAMETERS.countedControls).toEqual(["site", "feature", "global"]);
-    expect(SYNC_INVITATION_PARAMETERS.spaceRatingFromInvitations).toBe(false);
+    expect(BROWSER_INVITATION_PARAMETERS.countedControls).toEqual(["site", "feature", "global"]);
+    // Coordinator ruling (U13-P3 reconciliation): 168 hours between any two invitations.
+    expect(BROWSER_INVITATION_PARAMETERS.spaceRatingFromInvitations).toBe(true);
   });
 
   it("does not count controls made while signed in or when sign-in state is unknown", async () => {
@@ -255,7 +258,7 @@ describe("one serialized queue across contexts", () => {
 
   it("an unserialized store over the same slow area loses updates (the reason pages never open their own)", async () => {
     const area = slowArea();
-    const direct = () => new InvitationLedgerStore(chromeInvitationLedgerPort(body => body(), area), SYNC_INVITATION_PARAMETERS);
+    const direct = () => new InvitationLedgerStore(chromeInvitationLedgerPort(body => body(), area), BROWSER_INVITATION_PARAMETERS);
     const a = direct(), b = direct();
     await a.ensure("install", null);
     await a.recordOpening({ opening: "o", ordinary: true, nowMs: T0, localDay: 1 });

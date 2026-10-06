@@ -32,6 +32,13 @@ ARCHIVE="$BUILD_DIR/Still.xcarchive"
 EXPORT_DIR="$BUILD_DIR/export"
 mkdir -p "$BUILD_DIR"
 
+# Refuse before building anything if the two web builds would disagree about cloud sync (U3-W4 P6).
+# Presence and equality only; no value is ever printed. See release-env-guard.sh.
+# shellcheck source=release-env-guard.sh
+source "$HERE/release-env-guard.sh"
+release_env_guard "$REPO/packages/app-webview" "$REPO/packages/ext-safari" "$HERE/modern-sync-shipped" \
+  || exit 1
+
 echo "==> Building the shared web bundle…"
 ( cd "$REPO" && pnpm --filter @still/app-webview build )
 echo "==> Building the Safari extension bundle…"

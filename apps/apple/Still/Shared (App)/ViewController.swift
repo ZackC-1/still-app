@@ -37,6 +37,10 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
     // that can. Held so deinit can remove it.
     private var didBecomeActiveToken: NSObjectProtocol?
 
+    // The Apple rating path (U13-P3): records each app opening locally and, only when the owner's
+    // remote rating policy allows it, asks for Apple's own review sheet. Inert while that is Off.
+    private let ratingPrompt = RatingPromptPresenter()
+
     // The bundled web build's index URL — the only origin trusted to drive privileged native actions
     // and the only navigation we allow (P0 #1). Set once the bundle is located in viewDidLoad.
     private var bundledIndexURL: URL?
@@ -56,6 +60,14 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
         // publication is deferred at most one deadline, never indefinitely; the extension treats
         // the unpublished (null) id as a strict no-op in the meantime. `ensure` is idempotent: an
         // ordinary relaunch returns the existing id, never a fresh one (issue #63).
+        //
+        // First saved settings (owner decision 28): capture, BEFORE the marker can be published,
+        // whether this launch is a new install (no marker) or an install that never saved a setting
+        // (marker present). The settings lane uses it only when the web view's initialize finds no
+        // record at all under the App Group lock, and only an atomic-mode web build sends that
+        // initialize, so default builds are unchanged. A saved record is never replaced.
+        settingsExecutor.prepareFirstRecord(
+            InstallGeneration.current(InstallGeneration.appGroupDefaults()) == nil ? .newInstall : .untouchedUpgrade)
         Task { @MainActor in
             await self.router.refreshReceiptStamp()
             InstallGeneration.ensure(InstallGeneration.appGroupDefaults())
@@ -77,6 +89,11 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
         // web `await postMessage(...)` resolves with the resolved settings JSON.
         self.webView.configuration.userContentController.addScriptMessageHandler(
             self, contentWorld: .page, name: "still")
+
+#if DEBUG
+        // Simulator QA lane only (QA/QAHooks.swift); inert unless a STILL_QA_* launch key is set.
+        QAHooks.prepare(webView: self.webView)
+#endif
 
         if let indexURL = Bundle.main.url(forResource: "index", withExtension: "html", subdirectory: "WebUI") {
             self.bundledIndexURL = indexURL
@@ -123,6 +140,7 @@ class ViewController: PlatformViewController, WKNavigationDelegate, WKScriptMess
             forName: becameActive, object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
+                if let self { self.ratingPrompt.appBecameActive(in: self) }
                 self?.pushStoredSettingsToWeb()
                 // Foreground receipt refresh (R13/R18): keeps the cached snapshot and the App
                 // Group stamp current — an Ask-to-Buy approval or refund that landed while the

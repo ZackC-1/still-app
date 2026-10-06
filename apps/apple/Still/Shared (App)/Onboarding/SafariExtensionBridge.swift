@@ -42,6 +42,10 @@ enum SafariExtensionBridge {
   /// The live extension state. Real on macOS; always `.unknown` on the iPhone versions this build
   /// targets, where reading it is not available to a containing app.
   static func currentStatus() async -> SafariExtensionStatus {
+    #if DEBUG
+    // Simulator/Mac QA lane only (QA/QAHooks.swift); inert unless STILL_QA_SAFARI is set.
+    if let qa = QAHooks.safariStatusOverride { return qa }
+    #endif
     #if os(macOS)
     await withCheckedContinuation { (continuation: CheckedContinuation<SafariExtensionStatus, Never>) in
       SFSafariExtensionManager.getStateOfSafariExtension(withIdentifier: extensionBundleID) { state, error in

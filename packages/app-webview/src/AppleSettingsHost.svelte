@@ -23,6 +23,10 @@
     type UiController,
   } from "@still/core/ui";
   import type { NativeBridge } from "@still/core/native";
+  import {
+    appleRatingHold,
+    reportRatingHold,
+  } from "../node_modules/@still/core/src/invitations/rating-hold.js";
 
   interface Props {
     controller: UiController;
@@ -100,6 +104,27 @@
       live = false;
     };
   });
+  // Tell the app what this screen is in the middle of, so Apple's rating sheet waits (U13-P3).
+  // One closed word per change; the app holds until the first report arrives.
+  let ratingHold = $derived(
+    appleRatingHold({
+      authFlow: c.authFlow,
+      signInOpen: c.signInOpen,
+      usageNoticeVisible: c.usageNoticeVisible,
+      deleteFlow: c.deleteFlow,
+      purchaseFlow: c.purchaseFlow,
+      checkoutFlow: c.checkoutFlow,
+      paywallOpen: c.paywallOpen,
+      successScreen: c.successScreen,
+      signedIn: c.userId !== null,
+      cloudReachable: c.cloudReachable,
+      restoreShown: restore !== undefined,
+      settingsHeld:
+        !(view.settings && view.state && view.commands) ||
+        view.settingsUnavailable,
+    }),
+  );
+  $effect(() => reportRatingHold(ratingHold));
   function retry(): void {
     if (recovering) return;
     recovering = true;

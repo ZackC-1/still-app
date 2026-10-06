@@ -31,7 +31,11 @@ export type DesktopPopupCommandOutcome =
     }
   | { readonly status: "unavailable"; readonly reason: string };
 
-/** Dormant controlled D01 seam. Caller retains cache hydration, watchers and nonblocking actions. */
+/**
+ * Dormant controlled D01 seam. Caller retains cache hydration, watchers and nonblocking actions.
+ * Call cache.hydrate() before creating the binding: before hydration starts, whenHydrated() resolves at
+ * once, so the first-read guard would treat the startup defaults as a finished read.
+ */
 export function createDesktopPopupBinding(
   settingsCache: SettingsCache,
   accessCache: EntitlementCache,
@@ -86,6 +90,13 @@ export function createDesktopPopupBinding(
   }
   const unsubscribeSettings = settingsCache.subscribeAuthority(publish);
   const unsubscribeAccess = accessCache.subscribeAccess(publish);
+  // The cache's first read finished, either way. Until then an unavailable state is startup
+  // defaults, not an answer, so a view shows "checking" instead (popup-view-binding).
+  let firstReadSettled = false;
+  const settle = () => {
+    firstReadSettled = true;
+  };
+  const settled: Promise<void> = settingsCache.whenHydrated().then(settle, settle);
 
   async function command(
     path: SettingsField,
@@ -145,6 +156,8 @@ export function createDesktopPopupBinding(
     Promise.resolve({ status: "rejected", reason: "invalid-input" });
   return {
     current: read,
+    settled,
+    hasSettled: (): boolean => firstReadSettled,
     async rereadAuthority(): Promise<SettingsAuthorityRereadOutcome> {
       if (stoppedState) return { status: "unavailable", reason: "stopped" };
       const outcome = await settingsCache.rereadAuthority();
