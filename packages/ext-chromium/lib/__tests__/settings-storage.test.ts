@@ -181,6 +181,23 @@ describe("Chromium/Firefox settings storage metadata propagation", () => {
     await h.authority.initializeFreshAtomic();
     expect(h.store[STORAGE_KEY]).toMatchObject({ atomic: { ownership: "never-linked" } });
   });
+  it("only the Chromium/Firefox local authority can save the untouched-upgrade record", async () => {
+    const h = installChromeStorage();
+    await expect(new ChromeStorageAdapter().initializeUntouchedUpgradeAtomic()).rejects.toThrow("authority-unavailable");
+    await expect(new ChromeStorageAdapter({ authority: true, nativeMirror: true }).initializeUntouchedUpgradeAtomic()).rejects.toThrow("authority-unavailable");
+    expect(Object.hasOwn(h.store, STORAGE_KEY)).toBe(false);
+    await h.authority.initializeUntouchedUpgradeAtomic();
+    expect(h.store[STORAGE_KEY]).toMatchObject({ settings: { schemaVersion: 2, globalOn: true }, atomic: { ownership: "unknown", sequence: 0 } });
+  });
+  it("a settings peer queued before the untouched-upgrade record keeps its Off choice", async () => {
+    const h = installChromeStorage(); const held = h.gate();
+    const peer = h.authority.commitIntent({ path: "globalOn", value: false, updatedAt: 42 }); await held.started;
+    const upgrade = h.authority.initializeUntouchedUpgradeAtomic();
+    expect(Object.hasOwn(h.store, STORAGE_KEY)).toBe(false); held.release(); await peer;
+    expect(await upgrade).toMatchObject({ settings: { globalOn: false, updatedAt: 42 } });
+    expect(h.store[STORAGE_KEY]).toMatchObject({ settings: { globalOn: false, updatedAt: 42 } });
+    expect((h.store[STORAGE_KEY] as StoredSettingsRecord).atomic).toBeUndefined();
+  });
   it("a settings peer queued before fresh admission preserves its Off choice", async () => {
     const h = installChromeStorage(); const held = h.gate();
     const peer = h.authority.commitIntent({ path: "globalOn", value: false, updatedAt: 42 }); await held.started;

@@ -1,3 +1,4 @@
+import { CodedError } from "./coded-error.ts";
 export interface WebCheckout {
   readonly checkout_url: string;
 }
@@ -30,7 +31,7 @@ export class RevenueCatWebPurchaseLink implements WebBillingClient {
   // deno-lint-ignore require-await -- async for clean rejection semantics on the await-ing handler.
   async createCheckout(appUserId: string): Promise<WebCheckout> {
     if (!this.purchaseLinkBaseUrl) {
-      throw new Error("RevenueCat Web Billing is not configured");
+      throw new CodedError("web_billing_unconfigured", "RevenueCat Web Billing is not configured");
     }
     const base = this.purchaseLinkBaseUrl.replace(/\/+$/, "");
     return { checkout_url: `${base}/${encodeURIComponent(appUserId)}` };

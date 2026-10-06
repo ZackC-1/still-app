@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Synthetic Instagram home tray and profile Highlights</title>
+  </head>
+  <body>
+    <!--
+      Synthetic structural model for instagram.stories (CP-078): the home Stories tray, the
+      profile Highlights container, and a profile header whose photo, bio, counts and grid stay.
+      UNVERIFIED CANDIDATE selector family: the tray (role=menu / listbox of story buttons) and the
+      Highlights list directly under the profile header. Invented text and handles only.
+    -->
+    <nav id="keep-nav"><a href="/direct/inbox/" id="keep-messages-link">Messages</a></nav>
+    <div id="target-home-tray" role="menu" aria-label="Stories">
+      <button role="menuitem"><span>inventeduser1</span></button>
+      <button role="menuitem"><span>inventeduser2</span></button>
+    </div>
+    <article id="keep-feed-post"><a href="/p/InvF6/">An invented feed post</a></article>
+    <header id="keep-profile-header">
+      <a href="/inventeduser1/" id="keep-profile-photo"><img alt="inventeduser1's profile photo" width="40" height="40" /></a>
+      <p id="keep-profile-bio">Invented bio line.</p>
+      <ul id="keep-profile-counts"><li>12 posts</li><li>34 followers</li><li>56 following</li></ul>
+    </header>
+    <div id="target-highlights" role="list" aria-label="Highlights">
+      <a href="/stories/highlights/900000000000001/">Invented highlight one</a>
+      <a href="/stories/highlights/900000000000002/">Invented highlight two</a>
+    </div>
+    <div id="keep-profile-grid"><a href="/p/InvG7/">Invented grid post</a></div>
+    <div id="keep-messages-list"><a href="/direct/t/900000000001/">Invented conversation</a></div>
+  </body>
+</html>
