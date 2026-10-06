@@ -24,9 +24,9 @@ import { createBackgroundAnalytics, storageKeyValue } from "../lib/analytics.js"
 import {
   afterPlatformAnswer,
   gatedDocumentVerification,
-  runtimePlatformFor,
+  runtimePlatformAnswerFor,
   tabAllowancePlatformGate,
-  type RuntimePlatform,
+  type PlatformAnswer,
 } from "../lib/runtime-platform.js";
 import { modernSettingsRuntime } from "../lib/modern-settings-runtime.js";
 import { FIRST_RUN_PAGE, shouldOpenFirstRun } from "../../core/src/ui/v3/first-run-host.js";
@@ -74,8 +74,10 @@ const TIKTOK_BLOCKED_PAGE = "tiktok-blocked.html";
 
 export default defineBackground(() => {
   // The browser's own platform answer (Firefox for Android vs desktop); asked once, never awaited
-  // here. The Chromium build never asks.
-  const platform = runtimePlatformFor(Boolean(import.meta.env.FIREFOX), browser.runtime);
+  // here. The Chromium build never asks. Analytics uses the bounded answer ("unknown" counts as
+  // desktop there); the TikTok gate also follows a late answer.
+  const platformAnswer = runtimePlatformAnswerFor(Boolean(import.meta.env.FIREFOX), browser.runtime);
+  const platform = platformAnswer.bounded;
   const settingsRuntime = modernSettingsRuntime(
     import.meta.env.VITE_SUPABASE_URL as string | undefined,
     import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined,
@@ -290,7 +292,7 @@ export default defineBackground(() => {
     VITE_SUPABASE_ANON_KEY: import.meta.env.VITE_SUPABASE_ANON_KEY?.trim() ? "set" : "",
     VITE_MODERN_SETTINGS_SYNC_ENABLED: import.meta.env.VITE_MODERN_SETTINGS_SYNC_ENABLED,
   });
-  if (tiktokEnabled) wireTiktokBlockedPage(settingsAuthority, entitlements, platform);
+  if (tiktokEnabled) wireTiktokBlockedPage(settingsAuthority, entitlements, platformAnswer);
 
   // Resume on EVERY background start (R2 hard rule): restart the sync write-through from the
   // CACHED entitlement, with no purchase-service query. A worker that wakes on a settings edit
@@ -331,11 +333,16 @@ export default defineBackground(() => {
 function wireTiktokBlockedPage(
   settingsAuthority: ChromeStorageAdapter,
   entitlements: ChromeEntitlementAdapter,
-  platform: Promise<RuntimePlatform>,
+  platform: PlatformAnswer,
 ): void {
   // Firefox for Android never offers the one-tab allowance (owner ruling); the route then reports
-  // it unavailable, exactly as on a browser that cannot re-prove the blocked page document.
-  const platformGate = tabAllowancePlatformGate(Boolean(import.meta.env.FIREFOX), platform);
+  // it unavailable, exactly as on a browser that cannot re-prove the blocked page document. It fails
+  // closed: Firefox opens it only on an explicit desktop answer, even one that arrives late.
+  const platformGate = tabAllowancePlatformGate(
+    Boolean(import.meta.env.FIREFOX),
+    platform.bounded,
+    platform.eventual,
+  );
   // The packaged seed is the rule set every Chromium/Firefox content script evaluates for TikTok
   // today (TikTok is held on the legacy lane), so the background decides "blocked" with the same
   // rules. The owner's type names the format-2 set it is planned to receive; its engine session

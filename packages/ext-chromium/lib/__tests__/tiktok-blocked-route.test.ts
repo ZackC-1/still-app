@@ -13,6 +13,7 @@ import {
 import { createChromeTiktokTabAuthority, isTiktokRouteMessage } from "../tiktok-tab-authority.js";
 import {
   afterPlatformAnswer,
+  askRuntimePlatform,
   gatedDocumentVerification,
   tabAllowancePlatformGate,
   type PlatformGate,
@@ -638,21 +639,71 @@ describe("Firefox build platform gate on the TikTok route (as wired in the backg
     await route.stop();
   });
 
-  it("a desktop page that asks while the platform answer is pending waits for it instead of being told unavailable", async () => {
+  it("a desktop page whose messages arrive while the platform answer is pending waits for it", async () => {
     let answer!: (platform: RuntimePlatform) => void;
     const gate = firefoxGate(new Promise<RuntimePlatform>((resolve) => (answer = resolve)));
     const h = host({ gate });
     const route = h.create();
-    await block(h, route, 7); // the content script's redirect does not depend on the gate
-    let screened: TiktokRouteReply | "unhandled" | undefined;
-    void send(route, { kind: TIKTOK_ROUTE.screen }, h.screen(7), gate).then((reply) => (screened = reply));
+    // The content script's blocked message is one of the route's own, so it is held too.
+    h.open(7, TIKTOK);
+    let blocked: TiktokRouteReply | "unhandled" | undefined;
+    void send(route, { kind: TIKTOK_ROUTE.blocked }, h.content(7), gate).then((reply) => (blocked = reply));
     await new Promise((resolve) => setTimeout(resolve, 20));
-    expect(screened).toBeUndefined(); // held, not answered "unavailable"
+    expect(blocked).toBeUndefined(); // held
+    expect(h.update).not.toHaveBeenCalled();
     answer("desktop");
-    await vi.waitFor(() => expect(screened).toEqual({ status: "blocked", tab: 7 }));
+    await vi.waitFor(() => expect(blocked).toEqual({ status: "redirected" }));
+    expect(h.tabs.get(7)!.url).toMatch(/^chrome-extension:\/\/still\/tiktok-blocked\.html\?r=request-\d+-fixture$/);
+    // Once the answer is in, the blocked page is capable, not told "unavailable".
+    expect(await send(route, { kind: TIKTOK_ROUTE.screen }, h.screen(7), gate)).toEqual({ status: "blocked", tab: 7 });
     // Messages that are not the route's own are never held.
     const never = firefoxGate(new Promise<RuntimePlatform>(() => {}));
     expect(await send(route, { kind: "not-tiktok" }, h.screen(7), never)).toBe("unhandled");
     await route.stop();
+  });
+
+  // The gate as the background builds it: askRuntimePlatform's bounded and eventual answers.
+  const backgroundGate = (getPlatformInfo: () => Promise<{ os: string }>, limitMs = 30) => {
+    const answer = askRuntimePlatform({ getPlatformInfo }, limitMs);
+    return tabAllowancePlatformGate(true, answer.bounded, answer.eventual);
+  };
+
+  it("an answer that never arrives fails closed: held messages are then told opening is unavailable", async () => {
+    const gate = backgroundGate(() => new Promise(() => {}));
+    const h = host({ gate });
+    const route = h.create();
+    h.open(7, TIKTOK);
+    // The block itself still happens; only the one-tab allowance is withheld.
+    expect(await send(route, { kind: TIKTOK_ROUTE.blocked }, h.content(7), gate)).toEqual({ status: "redirected" });
+    expect(gate).toMatchObject({ known: true, open: false });
+    expect(await send(route, { kind: TIKTOK_ROUTE.screen }, h.screen(7), gate)).toEqual({ status: "unavailable", tab: 7 });
+    expect(await send(route, { kind: TIKTOK_ROUTE.request }, h.screen(7), gate)).toEqual({ status: "failed" });
+    expect(h.session.has("still:tiktok-tab:7")).toBe(false);
+    await route.stop();
+  });
+
+  it("a late answer reopens the allowance only when it says desktop", async () => {
+    for (const os of ["mac", "android"]) {
+      let late!: (info: { os: string }) => void;
+      const gate = backgroundGate(() => new Promise((resolve) => (late = resolve)));
+      const h = host({ gate });
+      const route = h.create();
+      await block(h, route, 7);
+      // Past the limit with no answer: closed.
+      expect(await send(route, { kind: TIKTOK_ROUTE.screen }, h.screen(7), gate)).toEqual({ status: "unavailable", tab: 7 });
+      late({ os });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      // The next blocked page sees the late answer.
+      await block(h, route, 8);
+      if (os === "mac") {
+        expect(gate.open).toBe(true);
+        expect(await send(route, { kind: TIKTOK_ROUTE.screen }, h.screen(8), gate)).toEqual({ status: "blocked", tab: 8 });
+        expect(await send(route, { kind: TIKTOK_ROUTE.request }, h.screen(8), gate)).toEqual({ status: "confirming" });
+      } else {
+        expect(gate.open).toBe(false);
+        expect(await send(route, { kind: TIKTOK_ROUTE.screen }, h.screen(8), gate)).toEqual({ status: "unavailable", tab: 8 });
+      }
+      await route.stop();
+    }
   });
 });

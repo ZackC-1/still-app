@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  askRuntimePlatform,
   detectRuntimePlatform,
   isFirefoxAndroid,
   popupPresentationLoader,
+  runtimePlatformAnswerFor,
   runtimePlatformFor,
   tabAllowancePlatformGate,
   type RuntimePlatform,
@@ -38,33 +40,47 @@ describe("runtime platform", () => {
     // A 320px desktop window with a phone user agent and touch is still desktop Firefox.
     narrowWindow(320);
     expect(await detectRuntimePlatform(runtime("mac"))).toBe("desktop");
-    expect(await detectRuntimePlatform(undefined)).toBe("desktop");
-    expect(await detectRuntimePlatform({})).toBe("desktop");
+    // No browser answer is "unknown", never a guess from the window.
+    expect(await detectRuntimePlatform(undefined)).toBe("unknown");
+    expect(await detectRuntimePlatform({})).toBe("unknown");
     // And a wide window cannot hide a real Android answer.
     narrowWindow(1920);
     expect(await detectRuntimePlatform(runtime("android"))).toBe("android");
   });
 
-  it("falls back to desktop when the browser fails, throws or never answers", async () => {
+  it("is unknown when the browser fails, throws or never answers", async () => {
     expect(
       await detectRuntimePlatform({ getPlatformInfo: async () => Promise.reject(new Error("no")) }),
-    ).toBe("desktop");
+    ).toBe("unknown");
     expect(
       await detectRuntimePlatform({
         getPlatformInfo: () => {
           throw new Error("sync");
         },
       }),
-    ).toBe("desktop");
+    ).toBe("unknown");
     vi.useFakeTimers();
     const pending = detectRuntimePlatform({ getPlatformInfo: () => new Promise(() => {}) }, 50);
     await vi.advanceTimersByTimeAsync(50);
-    expect(await pending).toBe("desktop");
+    expect(await pending).toBe("unknown");
+  });
+
+  it("keeps the late answer apart from the bounded one", async () => {
+    vi.useFakeTimers();
+    let late!: (info: { os: string }) => void;
+    const answer = askRuntimePlatform({ getPlatformInfo: () => new Promise((r) => (late = r)) }, 50);
+    await vi.advanceTimersByTimeAsync(50);
+    expect(await answer.bounded).toBe("unknown");
+    late({ os: "mac" });
+    expect(await answer.eventual).toBe("desktop");
   });
 
   it("the Chromium build never asks the browser and is always desktop", async () => {
     const asked = runtime("android");
     expect(await runtimePlatformFor(false, asked)).toBe("desktop");
+    expect(asked.getPlatformInfo).not.toHaveBeenCalled();
+    const both = runtimePlatformAnswerFor(false, asked);
+    expect([await both.bounded, await both.eventual]).toEqual(["desktop", "desktop"]);
     expect(asked.getPlatformInfo).not.toHaveBeenCalled();
     expect(await runtimePlatformFor(true, asked)).toBe("android");
   });
@@ -74,6 +90,8 @@ describe("runtime platform", () => {
     expect(isFirefoxAndroid(true, "desktop")).toBe(false);
     expect(isFirefoxAndroid(false, "android")).toBe(false);
     expect(isFirefoxAndroid(false, "desktop")).toBe(false);
+    // An unknown platform is presented and counted as desktop.
+    expect(isFirefoxAndroid(true, "unknown")).toBe(false);
   });
 });
 
@@ -93,6 +111,7 @@ describe("popup presentation choice", () => {
     narrowWindow(320);
     for (const [isFirefox, platform] of [
       [true, "desktop"],
+      [true, "unknown"],
       [false, "desktop"],
       [false, "android"],
     ] as const) {
@@ -134,5 +153,24 @@ describe("TikTok one-tab allowance platform gate", () => {
     await Promise.resolve();
     expect(pending.open).toBe(false);
     expect(tabAllowancePlatformGate(false, Promise.resolve("android")).open).toBe(true);
+  });
+
+  it("fails closed on an unknown answer and reopens only on a later desktop answer", async () => {
+    let late!: (platform: RuntimePlatform) => void;
+    const gate = tabAllowancePlatformGate(
+      true,
+      Promise.resolve("unknown"),
+      new Promise<RuntimePlatform>((r) => (late = r)),
+    );
+    await gate.ready;
+    expect(gate).toMatchObject({ known: true, open: false });
+    late("desktop");
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(gate.open).toBe(true);
+    const android = tabAllowancePlatformGate(true, Promise.resolve("unknown"), Promise.resolve("android"));
+    await android.ready;
+    await Promise.resolve();
+    expect(android.open).toBe(false);
   });
 });
