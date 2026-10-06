@@ -378,19 +378,34 @@ export function createAccountIdentifier(deps: {
     // the subject is confirmed waits bound to this account, so a sign-out or another account never
     // receives it. A hold already in force for this same account cancels nothing, so its own work
     // in progress is kept.
+    //
+    // Fences. `ask` is reserved before any wait: anything asked after it (a sign-out, a deletion,
+    // another account or identify, a stale start's read overtaken by a reset) supersedes this call,
+    // which then holds nothing, requests nothing and confirms nothing; the later ask decides. `fence`
+    // is the client's stamp taken synchronously as the hold is asked (after its own withdrawal), so a
+    // cancellation (sharing off, a forget) also makes this call's request and confirmation stale,
+    // even while the hold is still waiting its turn on the chain.
+    const ask = client.reserveAccountAsk();
+    const current = () => client.isLatestAsk(ask) && client.isCurrent(fence);
     const before = await client.captureObservation();
     const known = before ? await cachedSubject(account, before.permission.origin) : null;
-    const confirmedHere = client.accountConfirmed && known !== null && (await client.signedInAs()) === known;
-    if (!confirmedHere) await client.holdForAccount(account);
-    wanted = { account, stamp: client.stamp() };
+    const confirmedHere =
+      before !== null && client.accountConfirmed && known !== null && (await client.signedInAs()) === known;
+    if (!client.isLatestAsk(ask)) return;
+    const holding = confirmedHere ? null : client.holdForAccount(account, ask);
+    const fence = confirmedHere ? before.stamp : client.stamp();
+    await holding;
+    if (!current()) return;
+    wanted = { account, stamp: fence };
     // Who reports here is decided under the permission in force; without one nothing is attributed.
     const observation = await client.captureObservation();
-    if (!observation) return;
+    if (!observation || !current()) return;
     let subject = await cachedSubject(account, observation.permission.origin);
     if (!subject) {
       // A background start never calls the server (its timing would mark a site visit): events
       // wait unattributed until an ordinary Still screen obtains the subject.
       if (options.quiet) return;
+      if (!current()) return;
       const issued = await requestSubject(account, observation);
       if (issued === "stopped") {
         // Ends sharing here only. Never a device erasure: an account-wide deletion must not erase
@@ -401,7 +416,7 @@ export function createAccountIdentifier(deps: {
       if (!issued) return;
       subject = issued;
     }
-    if (!(await client.observationCurrent(observation))) return;
+    if (!(await client.observationCurrent(observation)) || !current()) return;
     await client.confirm(subject, { quiet: options.quiet, accountId: account });
   };
 

@@ -402,9 +402,17 @@ describe("per-device subjects through the host", () => {
       await h.client.track("opened", { where: "popup" });
       expect((h.store.data[STATE_KEY] as { heldFor?: string }).heldFor).toMatch(/^[0-9a-f]{64}$/);
       expect(JSON.stringify(h.store.data)).not.toContain(ACCOUNT); // only a one-way tag is stored
+      // In this process the confirmation is refused outright: held for A, never B's subject.
       await h.client.confirm(OTHER_SUBJECT, { accountId: OTHER });
-      await h.client.track("active", {});
+      expect(h.client.accountConfirmed).toBe(false);
       await h.client.flush();
+      expect(h.sent()).toEqual([]);
+      // After a restart only the stored tag remains: confirming B's subject drops A's waiting use.
+      const restarted = new AnalyticsClient({ ...h.deps, startsUnconfirmed: true });
+      await restarted.confirm(OTHER_SUBJECT, { accountId: OTHER });
+      expect(restarted.accountConfirmed).toBe(true);
+      await restarted.track("active", {});
+      await restarted.flush();
       expect(h.sent().map((e) => [e.event, e.properties.distinct_id])).toEqual([["active", OTHER_SUBJECT]]);
     });
 
@@ -569,6 +577,145 @@ describe("per-device subjects through the host", () => {
         ["opened", "popup", true],
         ["active", undefined, false],
       ]);
+    });
+
+    // ── An account's subject request is fenced from the moment its hold is asked ──
+    const deferred = () => {
+      let resolve!: (value: unknown) => void;
+      const promise = new Promise((r) => (resolve = r));
+      return { promise, resolve };
+    };
+    const PAGE_SENDER = { id: "ext", url: "chrome-extension://ext/popup.html" };
+
+    it("NEGATIVE CONTROL: A then B back to back, A's reply first: nothing is ever sent as A", async () => {
+      const a = deferred();
+      const b = deferred();
+      const { h, extension, asked } = perAccountHost((account) => (account === ACCOUNT ? a.promise : b.promise));
+      extension.onStart(null);
+      await extension.flushWhenReady();
+      const identifyingA = extension.identify(ACCOUNT);
+      const identifyingB = extension.identify(OTHER); // no wait between: A's hold is still queued
+      await vi.waitFor(() => expect(asked).toContain(OTHER));
+      await extension.client.track("opened", { where: "popup" }); // B's use, waiting
+      a.resolve({ state: "active", subject: SUBJECT });
+      await identifyingA;
+      b.resolve({ state: "active", subject: OTHER_SUBJECT });
+      await identifyingB;
+      await extension.client.flush();
+      expect(await extension.client.signedInAs()).toBe(OTHER_SUBJECT);
+      expect(JSON.stringify(h.bodies)).not.toContain(SUBJECT);
+      expect(h.sent().map((e) => [e.event, e.properties.distinct_id])).toEqual([["opened", OTHER_SUBJECT]]);
+      extension.stop();
+    });
+
+    it("NEGATIVE CONTROL: A then a sign-out back to back, then A's reply: A is never confirmed", async () => {
+      const a = deferred();
+      const { h, extension } = perAccountHost(() => a.promise);
+      extension.onStart(null);
+      await extension.flushWhenReady();
+      const identifyingA = extension.identify(ACCOUNT);
+      const signingOut = extension.client.reset(); // no wait between
+      a.resolve({ state: "active", subject: SUBJECT });
+      await Promise.all([identifyingA, signingOut]);
+      await extension.client.track("opened", { where: "popup" });
+      await extension.client.flush();
+      expect(await extension.client.signedInAs()).toBeNull();
+      expect(extension.client.accountConfirmed).toBe(true);
+      expect(JSON.stringify(h.bodies)).not.toContain(SUBJECT);
+      expect(h.sent().map((e) => [e.event, e.properties.signed_in])).toEqual([["opened", false]]);
+      extension.stop();
+    });
+
+    it("NEGATIVE CONTROL: a reset that wakes the worker while a stale start confirms A's cached subject wins", async () => {
+      const { h, extension } = perAccountHost(() => ({ state: "active", subject: SUBJECT }));
+      h.store.data[SUBJECTS_KEY] = [{ account: ACCOUNT, origin: TEST_PERMISSION.origin, subject: SUBJECT }];
+      extension.onStart(ACCOUNT); // a start from a stale session read: A's subject is cached
+      const reset = new Promise((resolve) => {
+        extension.listener({ kind: ANALYTICS_MESSAGE_KIND, action: "reset", forgetAccount: false }, PAGE_SENDER, resolve);
+      });
+      await reset;
+      await extension.flushWhenReady();
+      await extension.client.track("opened", { where: "popup" });
+      await extension.client.flush();
+      expect(await extension.client.signedInAs()).toBeNull();
+      expect(JSON.stringify(h.bodies)).not.toContain(SUBJECT);
+      expect(h.sent().map((e) => [e.event, e.properties.signed_in])).toEqual([["opened", false]]);
+      extension.stop();
+    });
+
+    // ── Letting go after someone was signed in: the unnamed hold is durable ──
+    it("NEGATIVE CONTROL: a forgetting sign-out (deletion) after a restart drops the waiting use", async () => {
+      const h = harness();
+      await h.client.confirm(SUBJECT, { accountId: ACCOUNT });
+      const restarted = new AnalyticsClient({ ...h.deps, startsUnconfirmed: true });
+      await restarted.track("opened", { where: "options" }); // waits: the session is not known yet
+      await restarted.confirm(null, { forget: true });
+      await restarted.track("active", {});
+      await restarted.flush();
+      expect(h.sent().map((e) => [e.event, e.properties.signed_in])).toEqual([["active", false]]);
+    });
+
+    /** A harness whose queue store can refuse writes on demand. */
+    const refusingQueue = () => {
+      const queue = memory();
+      let refuse = false;
+      const store = {
+        get: queue.get,
+        set: async (k: string, v: unknown) => {
+          if (refuse) throw new Error("queue write refused");
+          return queue.set(k, v);
+        },
+      };
+      return { queue, store, setRefuse: (v: boolean) => void (refuse = v) };
+    };
+
+    it("NEGATIVE CONTROL: a refused drop is owed again at the next flush", async () => {
+      const q = refusingQueue();
+      const h = harness({ queueStore: q.store });
+      await h.client.confirm(SUBJECT, { accountId: ACCOUNT });
+      const restarted = new AnalyticsClient({ ...h.deps, startsUnconfirmed: true });
+      await restarted.track("opened", { where: "options" });
+      q.setRefuse(true);
+      await restarted.confirm(null); // installs nobody, but cannot drop what waits
+      expect(restarted.accountConfirmed).toBe(false);
+      q.setRefuse(false);
+      await restarted.flush(); // the retry
+      await restarted.track("active", {});
+      await restarted.flush();
+      expect(h.sent().map((e) => [e.event, e.properties.signed_in])).toEqual([["active", false]]);
+    });
+
+    it("NEGATIVE CONTROL: a restart between installing nobody and the drop still drops", async () => {
+      const q = refusingQueue();
+      const h = harness({ queueStore: q.store });
+      await h.client.confirm(SUBJECT, { accountId: ACCOUNT });
+      const second = new AnalyticsClient({ ...h.deps, startsUnconfirmed: true });
+      await second.track("opened", { where: "options" });
+      q.setRefuse(true);
+      await second.confirm(null); // nobody is installed; the drop is refused
+      expect((h.store.data[STATE_KEY] as { userId: string | null }).userId).toBeNull();
+      q.setRefuse(false);
+      const third = new AnalyticsClient({ ...h.deps, startsUnconfirmed: true }); // the restart
+      await third.confirm(null);
+      await third.track("active", {});
+      await third.flush();
+      expect(h.sent().map((e) => [e.event, e.properties.signed_in])).toEqual([["active", false]]);
+    });
+
+    it("fails closed when storage will not keep the unnamed hold", async () => {
+      const h = harness();
+      await h.client.confirm(SUBJECT, { accountId: ACCOUNT });
+      const set = h.store.set;
+      h.store.set = async (key: string, value: unknown) => {
+        if (key === STATE_KEY && (value as { heldFor?: unknown }).heldFor === "unknown") throw new Error("refused");
+        return set(key, value);
+      };
+      const restarted = new AnalyticsClient({ ...h.deps, startsUnconfirmed: true });
+      await restarted.track("opened", { where: "options" });
+      await restarted.confirm(null);
+      expect(restarted.accountConfirmed).toBe(false); // the ask stays pending
+      await restarted.flush();
+      expect(h.sent()).toEqual([]);
     });
   });
 

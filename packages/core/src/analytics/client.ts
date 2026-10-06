@@ -354,6 +354,9 @@ export class AnalyticsClient {
   private heldTag: string | null = null;
   /** Counts holds, so a confirmation asked before a hold, but run after it, cannot release it. */
   private holds = 0;
+  /** Counts account asks (every confirmation, sign-out and hold, and every identify a host
+   * reserves), so a host's identify can tell that something was asked after it (`isLatestAsk`). */
+  private asks = 0;
   /** The request in flight, so switching sharing off can abandon it instead of waiting. */
   private inflight: AbortController | null = null;
   /** Set when an account change could not be saved: reporting stops for the life of this client
@@ -497,6 +500,15 @@ export class AnalyticsClient {
       (!isAnalyticsId(options.accountId) || account.toLowerCase() === options.accountId.toLowerCase())
     )
       return Promise.resolve();
+    // Defence in depth: while held for one account, no other account's subject is confirmed.
+    if (
+      account !== null &&
+      options.accountId !== undefined &&
+      this.heldAccount !== null &&
+      this.heldAccount !== options.accountId.toLowerCase()
+    )
+      return Promise.resolve();
+    this.asks += 1;
     if (options.forget) this.cancel();
     const holds = this.holds;
     if (account !== this.lastAsked) {
@@ -518,16 +530,25 @@ export class AnalyticsClient {
     if (!this.pending) return;
     const { account, options, holds } = this.pending;
     if (!options.forget && !(await this.allowed())) return;
+    // Letting go to nobody after someone was signed in here, with no hold: what waits was recorded
+    // with no hold (a restart whose session could not be read yet), possibly that person's use. An
+    // unnamed hold is stored first, before anything is installed, so the drop below is owed on this
+    // run, on a retry after a refused drop, and after a restart in between, and is never given a
+    // fresh anonymous id. When storage refuses the hold, the ask stays pending (fail closed).
+    if (account === null) {
+      const state = await this.read();
+      if (!state) return;
+      if (state.userId !== null && this.heldNow(state) === null) {
+        await this.write({ ...state, heldFor: HELD_UNKNOWN });
+        if ((await this.read())?.heldFor !== HELD_UNKNOWN) return;
+      }
+    }
     if (this.forgetPending) {
       // Persist the old account's drop before installing any newer account. Once recorded, the
       // existing durable `forgotten` list owns recovery, including after a restart.
       if (!(await this.installAccount(null, { forget: true }))) return;
       this.forgetPending = false;
     }
-    // Letting go to nobody after someone was signed in here: what waits was recorded with no hold
-    // (a restart whose session could not be read yet), possibly that person's use. It is dropped
-    // like a hold whose owner cannot be named, never given a fresh anonymous id (see dropHeld).
-    const signedInBefore = account === null && (await this.read())?.userId != null;
     if (!(await this.installAccount(account, options))) return;
     await this.dropForgotten(); // tried here; `flush` is the gate that refuses to send until it is done
     if (!(await this.allowed())) return;
@@ -535,7 +556,7 @@ export class AnalyticsClient {
     // other identity drops it first.
     const owner =
       account !== null && options.accountId !== undefined ? await this.holdTagOf(options.accountId) : null;
-    if (!(await this.dropHeld(owner, signedInBefore))) return;
+    if (!(await this.dropHeld(owner))) return;
     if (!(await this.attributeWaiting())) return;
     if (holds === this.holds) await this.releaseHold();
     this.pending = null;
@@ -559,8 +580,10 @@ export class AnalyticsClient {
    * nor when it is unconfirmed, unheld and has nothing asked (a fresh start: no request can be in
    * flight, since any request follows a hold).
    */
-  holdForAccount(account: string): Promise<void> {
+  holdForAccount(account: string, ask?: number): Promise<void> {
     if (!isAnalyticsId(account)) return Promise.resolve();
+    // A hold made for a reserved ask is that ask; one superseded by a later ask holds nothing.
+    if (ask !== undefined ? ask !== this.asks : ((this.asks += 1), false)) return Promise.resolve();
     const key = account.toLowerCase();
     if (!this.confirmed && this.lastAsked === undefined && this.heldAccount === key) return Promise.resolve();
     const withdrawn =
@@ -582,6 +605,20 @@ export class AnalyticsClient {
       }
       await this.recordHold(key, prior);
     });
+  }
+
+  /**
+   * A host's identify reserves its ask at once, before any wait. Anything asked later (a sign-out,
+   * a deletion, another account, another identify) supersedes it: `isLatestAsk` turns false, and
+   * a hold made for it holds nothing. Reserving changes nothing else.
+   */
+  reserveAccountAsk(): number {
+    this.asks += 1;
+    return this.asks;
+  }
+
+  isLatestAsk(ask: number): boolean {
+    return ask === this.asks;
   }
 
   /** The hold tag of `account` under the permission in force, or null when there is none. */
@@ -654,10 +691,10 @@ export class AnalyticsClient {
    * are the deleted account's use. False when the queue or state cannot be read or the drop cannot
    * be verified: nothing is attributed or sent, and the confirmation is retried.
    */
-  private async dropHeld(owner: string | null, unnamed = false): Promise<boolean> {
+  private async dropHeld(owner: string | null): Promise<boolean> {
     const state = await this.read();
     if (!state) return false;
-    const held = this.heldNow(state) ?? (unnamed ? HELD_UNKNOWN : null);
+    const held = this.heldNow(state);
     if (held === null || (owner !== null && held === owner)) return true;
     return await this.dropWaiting();
   }
