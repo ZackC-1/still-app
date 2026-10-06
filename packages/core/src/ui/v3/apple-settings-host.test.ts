@@ -1016,7 +1016,7 @@ describe("account, restore, help and telemetry mapping", () => {
     expect(sync(source({ userId: "u", deleteFlow: "error" })).account!.status).toEqual({ tone: "failed", text: STRINGS.account.deleteError });
     const retry = vi.fn(async () => {});
     const unreachable = sync(source({ userId: "u", cloudReachable: false, retrySync: retry })).account!.status!;
-    expect(unreachable).toMatchObject({ tone: "failed", text: STRINGS.sync.unreachable, actionLabel: STRINGS.sync.retry });
+    expect(unreachable).toMatchObject({ tone: "failed", text: STRINGS.sync.failed, actionLabel: STRINGS.sync.tryAgain });
     unreachable.onAction!();
     expect(retry).toHaveBeenCalledOnce();
     expect(sync(source({ userId: "u", pendingUpload: true })).account!.status).toEqual({ tone: "pending", text: STRINGS.sync.syncing });
