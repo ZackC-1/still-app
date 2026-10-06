@@ -167,6 +167,8 @@
 .sheet h2 { margin: 0; font-size: calc(22px * var(--text-scale, 1)); font-weight: 700; letter-spacing: -0.02em; }
 .sheet .body { margin: 0; color: var(--ink-secondary); }
 .sheet .dismiss { background: transparent; color: var(--ink-secondary); border: none; font: inherit; cursor: pointer; padding: var(--space-2); }
+/* The Still Pro sheet's X (owner decision 41): a quiet corner close with a full tap target. */
+.sheet .sheet-close { position: absolute; inset-block-start: var(--space-2); inset-inline-end: var(--space-2); display: inline-flex; align-items: center; justify-content: center; min-inline-size: var(--tap-target); min-block-size: var(--tap-target); padding: 0; }
 
 /* Compact popup: one-row sync card and footer links */
 .sync-row { display: flex; align-items: center; gap: var(--space-3); }

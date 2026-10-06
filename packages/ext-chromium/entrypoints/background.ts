@@ -90,7 +90,9 @@ export default defineBackground(() => {
   }
   let verifiedAccessSession: (() => Promise<TrustedAccessContext["session"]>) | null = null;
   const entitlements = new OrderedEntitlements(Date.now, { authority: true, context: async () => {
-    const context = packagedAccessContext();
+    // Host-specific, so a Still Pro extra this build implements can resolve once paid is on.
+    // While paid is off every host's context is exactly the free features.
+    const context = packagedAccessContext(import.meta.env.FIREFOX ? "firefox" : "chromium");
     if (!context.paidMode) return context;
     // Existing SDK verified-claims grammar; requester body, raw cached user and purchase Boolean
     // cannot select a scope. Unavailable verification remains unknown, not signed-out/absent.

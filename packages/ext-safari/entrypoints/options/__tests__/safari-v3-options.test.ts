@@ -126,7 +126,11 @@ describe("Safari V3 settings page", () => {
     for (const lock of locks) {
       expect(lock.getAttribute("aria-disabled")).toBe("true");
       expect(lock.textContent).toBe("Still Pro");
+      // Owner decision 40: the row label describes the lock; its name is the visible "Still Pro".
+      expect(lock.hasAttribute("aria-label")).toBe(false);
+      expect(lock.getAttribute("aria-describedby")).toBeTruthy();
     }
+    expect(screen.getAllByRole("button", { name: "Still Pro" })).toEqual(locks);
     expect(text.length - text.replaceAll("Still Pro", "").length).toBe(locks.length * "Still Pro".length);
     expect(screen.queryByRole("button", { name: /Get Still Pro/ })).toBeNull();
   });

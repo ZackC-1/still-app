@@ -44,6 +44,13 @@ export interface ServiceExtras {
   readonly surfaces: readonly Extract<SurfaceV2, { readonly action: "hide" }>[];
   readonly routes: readonly ExtrasRoute[];
   readonly markers: readonly MarkerAdapter[];
+  /**
+   * Still Pro features implemented by a packaged content handler rather than a hide surface or a
+   * route (YouTube Autoplay prevention). Listing one lets the engine report it through
+   * effectiveFeatures() under the same gate as every other extra; it adds no CSS, root class,
+   * route or marker. The handler itself attaches only while that report includes the feature.
+   */
+  readonly handlers?: readonly FeatureId[];
 }
 
 export type ExtrasRouteTable = Readonly<Partial<Record<ServiceId, readonly ExtrasRoute[]>>>;
