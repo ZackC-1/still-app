@@ -267,7 +267,7 @@ describe("the anchor of a new ledger (clock behind at first run)", () => {
     expect(due.admitted).toBe(true);
   });
 
-  it("an existing ledger keeps its history: its anchor is never moved, and a missing one is adopted as it is", async () => {
+  it("an existing ledger keeps its anchor; a missing one is adopted clamped to the adopting opening", async () => {
     const port = new InMemoryInvitationLedgerPort();
     const store = new InvitationLedgerStore(port, PARAMETERS);
     await store.ensure("install-a", T0 - 30 * DAY);
@@ -277,6 +277,24 @@ describe("the anchor of a new ledger (clock behind at first run)", () => {
     const pending = new InvitationLedgerStore(waiting, PARAMETERS);
     await pending.ensure("install-b", null);
     await recordRatingOpening(pending, { installation: "y", anchorMs: T0 - 30 * DAY, opening: "o1", ordinary: true, nowMs: T0, timeZone: ZONE });
-    expect(parseInvitationLedger(waiting.value)!.anchorMs).toBe(T0 - 30 * DAY);
+    expect(parseInvitationLedger(waiting.value)!.anchorMs).toBe(T0);
+  });
+
+  it("a past-dated first-run record adopted late cannot bring the rating card forward", async () => {
+    const port = new InMemoryInvitationLedgerPort();
+    const store = new InvitationLedgerStore(port, PARAMETERS);
+    const open = (opening: string, nowMs: number, anchorMs: number | null) =>
+      recordRatingOpening(store, { installation: "install-a", anchorMs, opening, ordinary: true, nowMs, timeZone: ZONE });
+    await open("o1", T0, null);
+    await open("o2", T0 + DAY, T0 - 365 * DAY);
+    expect(parseInvitationLedger(port.value)!.anchorMs).toBe(T0 + DAY);
+    await open("o3", T0 + 2 * DAY, T0 - 365 * DAY);
+    await open("o4", T0 + 8 * DAY - 1, T0 - 365 * DAY);
+    const early = await admitRatingCard({ store, freshCheck: async () => ON, now: () => T0 + 8 * DAY - 1, hostSurface: "chrome" }, request());
+    expect(early).toEqual({ admitted: false, reason: "local" });
+    await open("o5", T0 + 8 * DAY, T0 - 365 * DAY);
+    const due = await admitRatingCard({ store, freshCheck: async () => ON, now: () => T0 + 8 * DAY, hostSurface: "chrome" },
+      request({ opening: "o5" }));
+    expect(due.admitted).toBe(true);
   });
 });

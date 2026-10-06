@@ -13,7 +13,10 @@
 //   * One opening record. `present` records the popup opening once (its local day of use and the
 //     first-run anchor), then the arbiter picks at most one card for it: sync before rating.
 //   * At least 168 hours between ANY two invitations, sync or rating (BROWSER_INVITATION_PARAMETERS).
-//   * The rating card's seven days are measured from the original-install record's first-run time.
+//   * The rating card's seven days count from the ledger's anchor: the later of the original-install
+//     record's first-run time and the moment the ledger first learned it (newLedgerAnchor). No
+//     known first-run time means rating never becomes due.
+//   * A private (or unknown) window contributes nothing: no opening, no direct control, no anchor.
 //   * Reserve here, commit from the popup immediately before the card renders. A rejected commit
 //     shows nothing.
 //   * The rating card also needs one fresh owner allowance for this opening (`rating.freshCheck`),
@@ -61,7 +64,11 @@ export type InvitationRequest =
       ordinary?: false;
     }
   | { kind: typeof INVITATION_MESSAGE_KIND; op: "commit"; reservation: InvitationReservation }
-  | { kind: typeof INVITATION_MESSAGE_KIND; op: "control"; control: InvitationControl };
+  | {
+      kind: typeof INVITATION_MESSAGE_KIND; op: "control"; control: InvitationControl;
+      /** Present and false only for a private (or unknown) window: the control counts for nothing. */
+      ordinary?: false;
+    };
 
 export type InvitationReply =
   | { status: "unavailable" }
@@ -91,8 +98,15 @@ export function readInvitationRequest(message: unknown): InvitationRequest | nul
         ...(hasOrdinary ? { ordinary: false as const } : {}),
       };
   }
-  if (message.op === "control" && keysAre(message, ["kind", "op", "control"]) && CONTROLS.includes(message.control as InvitationControl))
-    return { kind: INVITATION_MESSAGE_KIND, op: "control", control: message.control as InvitationControl };
+  if (message.op === "control" && CONTROLS.includes(message.control as InvitationControl)) {
+    // Exactly kind, op and control, plus optionally `ordinary: false`.
+    const hasOrdinary = Object.hasOwn(message, "ordinary");
+    if (keysAre(message, ["kind", "op", "control", ...(hasOrdinary ? ["ordinary"] : [])]) && (!hasOrdinary || message.ordinary === false))
+      return {
+        kind: INVITATION_MESSAGE_KIND, op: "control", control: message.control as InvitationControl,
+        ...(hasOrdinary ? { ordinary: false as const } : {}),
+      };
+  }
   if (message.op === "commit" && keysAre(message, ["kind", "op", "reservation"]) && plain(message.reservation)) {
     const r = message.reservation;
     if (keysAre(r, ["kind", "opening", "generation"]) && COMMITTABLE.includes(r.kind as InvitationKind) &&
@@ -150,7 +164,7 @@ export function createInvitationHost(deps: InvitationBackgroundDeps) {
   async function ensure(): Promise<boolean> {
     const at = await anchor();
     if ((await store.ensure(deps.newInstallationId(), newLedgerAnchor(at, deps.now()))) !== "ready") return false;
-    return at === null || (await store.adoptAnchor(at)) === "ready";
+    return at === null || (await store.adoptAnchor(newLedgerAnchor(at, deps.now())!)) === "ready";
   }
   const installation = () =>
     deps.port.transaction(raw => ({ write: null, result: parseInvitationLedger(raw)?.installation ?? null }));
@@ -168,7 +182,7 @@ export function createInvitationHost(deps: InvitationBackgroundDeps) {
       // The one opening record for this popup opening: ledger, anchor and day of use together.
       const opened = await recordRatingOpening(store, {
         installation: deps.newInstallationId(), anchorMs: at, opening: request.opening,
-        ordinary: request.ordinary !== false, nowMs,
+        ordinary: true, nowMs,
       });
       if (opened !== "ready") return { status: "present", card: null };
       const context = {
@@ -200,6 +214,9 @@ export function createInvitationHost(deps: InvitationBackgroundDeps) {
     if (request.op === "commit") {
       return { status: "commit", committed: await store.commit(request.reservation, deps.now()) };
     }
+    // A control made in a private (or unknown) window counts for nothing: the ledger is not
+    // created, anchored or written.
+    if (request.ordinary === false) return { status: "control" };
     const [finished, account] = await Promise.all([safe(deps.setupFinished, false), safe(deps.account, "unknown" as const)]);
     if (await ensure())
       await store.recordDirectControl({

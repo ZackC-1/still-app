@@ -78,7 +78,11 @@ export const invitationPort: PopupInvitationPort = {
   },
 };
 
-/** One successful direct control. Fire and forget: counting never changes a saved outcome. */
+/** One successful direct control. Fire and forget: counting never changes a saved outcome. A
+ * control made in a private (or unknown) window is sent with `ordinary: false` and counts for
+ * nothing. */
 export function reportDirectControl(control: InvitationControl): void {
-  void ask({ kind: INVITATION_MESSAGE_KIND, op: "control", control });
+  void windowIsPrivate(globalThis.chrome as PrivacySources | undefined)
+    .then(isPrivate => ask({ kind: INVITATION_MESSAGE_KIND, op: "control", control, ...(isPrivate ? { ordinary: false } : {}) }))
+    .catch(() => {});
 }

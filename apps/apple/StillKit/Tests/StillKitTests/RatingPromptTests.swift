@@ -226,6 +226,45 @@ final class RatingPromptTests: XCTestCase {
     XCTAssertEqual(sheet.calls, 0)
   }
 
+  // MARK: Anchor clamp (parity with the browser's newLedgerAnchor)
+
+  func testAPastDatedFirstRunCannotShortenTheWaitAtCreationOrAdoption() async {
+    // Created now with a first-run record a year old: anchored now, not a year ago.
+    let clock = Clock(), sheet = Sheet(), c = coordinator(clock)
+    clock.ms = t0
+    c.recordOpening(installation: "install-a", anchorMs: t0 - 365 * day, opening: "o1", ordinary: true, timeZone: utc)
+    XCTAssertEqual(onDisk()?.anchorMs, t0)
+    for i in 1..<3 {
+      clock.ms = t0 + i * day
+      c.recordOpening(installation: "install-a", anchorMs: t0 - 365 * day, opening: "o\(i + 1)", ordinary: true, timeZone: utc)
+    }
+    clock.ms = t0 + 7 * day - 1
+    c.recordOpening(installation: "install-a", anchorMs: t0 - 365 * day, opening: "o4", ordinary: true, timeZone: utc)
+    let early = await prompt(c, sheet)
+    XCTAssertEqual(early, .notRequested(.local))
+    clock.ms = t0 + 7 * day
+    c.recordOpening(installation: "install-a", anchorMs: t0 - 365 * day, opening: "o5", ordinary: true, timeZone: utc)
+    let due = await prompt(c, sheet, opening: "o5")
+    XCTAssertEqual(due, .requested)
+  }
+
+  func testALateAdoptionIsClampedAndAnExistingAnchorIsKept() {
+    let clock = Clock(), c = coordinator(clock)
+    clock.ms = t0
+    c.recordOpening(installation: "install-a", anchorMs: nil, opening: "o1", ordinary: true, timeZone: utc)
+    XCTAssertNil(onDisk()?.anchorMs)
+    // The first-run record becomes readable a day later, dated a year back: adopted as "now".
+    clock.ms = t0 + day
+    c.recordOpening(installation: "install-a", anchorMs: t0 - 365 * day, opening: "o2", ordinary: true, timeZone: utc)
+    XCTAssertEqual(onDisk()?.anchorMs, t0 + day)
+    // Once anchored, never moved.
+    clock.ms = t0 + 2 * day
+    c.recordOpening(installation: "install-a", anchorMs: t0 + 10 * day, opening: "o3", ordinary: true, timeZone: utc)
+    XCTAssertEqual(onDisk()?.anchorMs, t0 + day)
+    XCTAssertEqual(RatingPromptCoordinator.anchor(firstRunMs: t0 + day, nowMs: t0), t0 + day)
+    XCTAssertNil(RatingPromptCoordinator.anchor(firstRunMs: nil, nowMs: t0))
+  }
+
   // MARK: Holds: what the app is in the middle of
 
   private final class Asked: @unchecked Sendable { var calls = 0 }

@@ -87,16 +87,24 @@ public final class RatingPromptCoordinator: @unchecked Sendable {
   @discardableResult
   public func recordOpening(installation: String, anchorMs: Int?, opening: String, ordinary: Bool,
                             timeZone: TimeZone = .current) -> InvitationLedgerStore.Status {
-    let created = store.ensure(installation: installation, anchorMs: anchorMs)
+    let at = now()
+    // The anchor a ledger takes is never earlier than the moment it is set (creation, or the later
+    // opening that first learns the first-run time): a past-dated first-run record cannot shorten
+    // the seven-day wait. A ledger that already has an anchor keeps it. Mirrors the browser's
+    // `newLedgerAnchor` (packages/core/src/invitations/rating-allowance.ts).
+    let clamped = Self.anchor(firstRunMs: anchorMs, nowMs: at)
+    let created = store.ensure(installation: installation, anchorMs: clamped)
     guard created == .ready else { return created }
-    if let anchorMs {
-      let adopted = store.adoptAnchor(anchorMs)
+    if let clamped {
+      let adopted = store.adoptAnchor(clamped)
       guard adopted == .ready else { return adopted }
     }
-    let at = now()
     return store.recordOpening(InvitationOpening(
       opening: opening, ordinary: ordinary, nowMs: at, localDay: InvitationDayOrdinal.local(epochMs: at, timeZone: timeZone)))
   }
+
+  /// The later of the first-run time and now, or nil while the first-run time is unknown.
+  static func anchor(firstRunMs: Int?, nowMs: Int) -> Int? { firstRunMs.map { max($0, nowMs) } }
 
   /// Decide for this opening, and call `requestReview` only after the attempt is durably consumed.
   /// `suppressed` is read at each step (before the local check, the reservation and the commit), so

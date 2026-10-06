@@ -4,10 +4,11 @@
 // Rules this module keeps (pinned by __tests__/rating-allowance.test.ts):
 //   * Local eligibility first, through the ledger's arbiter. Nothing is fetched for an opening the
 //     ledger would not offer a rating card to.
-//   * Then exactly one fresh allowance check, bounded at five seconds. Anything but a fresh,
-//     current On (Off, missing, timed out, late, stale, a wrong surface or build) is no card. A
-//     cached allowance is never an input here: the only allowance this module accepts is the one
-//     `freshCheck` answers for this opening.
+//   * Then exactly one fresh allowance check, bounded by the caller's `timeoutMs` (five seconds by
+//     default; the browser's invitation handler passes 1.5 s so it fits the popup's wait).
+//     Anything but a fresh, current On (Off, missing, timed out, late, stale, a wrong surface or
+//     build) is no card. A cached allowance is never an input here: the only allowance this module
+//     accepts is the one `freshCheck` answers for this opening.
 //   * The allowance counts only for the opening that captured it: reserve re-arbitrates inside
 //     the ledger's serialized transaction, so a newer opening, another host's card or a changed
 //     ledger wins and nothing is shown.
@@ -47,21 +48,23 @@ export interface RatingOpening {
 }
 
 /**
- * The anchor a NEW ledger starts with: the later of the first-run time and this first recorded
- * moment, so a first-run record dated in the past (a clock that was behind, or an install record
- * from long before this ledger existed) can never shorten the seven-day wait. An existing ledger
- * keeps its own anchor; one still waiting for an anchor adopts the first-run time as it is.
+ * The anchor a ledger takes when it gets one: the later of the first-run time and the moment the
+ * anchor is set (the ledger's creation, or the later opening that first learns the first-run
+ * time). A first-run record dated in the past (a clock that was behind, or an install record from
+ * long before this ledger existed) can never shorten the seven-day wait. A ledger that already has
+ * an anchor keeps it.
  */
 export function newLedgerAnchor(firstRunMs: number | null, nowMs: number): number | null {
   return firstRunMs === null ? null : Math.max(firstRunMs, nowMs);
 }
 
-/** Create the ledger once, fill a newly known anchor, and record this opening's day of use. */
+/** Create the ledger once, fill a newly known anchor (clamped the same way), and record this
+ * opening's day of use. */
 export async function recordRatingOpening(store: InvitationLedgerStore, input: RatingOpening): Promise<InvitationStoreStatus> {
   const created = await store.ensure(input.installation, newLedgerAnchor(input.anchorMs, input.nowMs));
   if (created !== "ready") return created;
   if (input.anchorMs !== null) {
-    const adopted = await store.adoptAnchor(input.anchorMs);
+    const adopted = await store.adoptAnchor(newLedgerAnchor(input.anchorMs, input.nowMs)!);
     if (adopted !== "ready") return adopted;
   }
   return store.recordOpening({

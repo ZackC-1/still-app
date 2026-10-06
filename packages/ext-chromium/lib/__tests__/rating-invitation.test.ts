@@ -8,7 +8,8 @@ import {
   ACCOUNT_READ_LIMIT_MS, BROWSER_INVITATION_PARAMETERS, BROWSER_RATING_ALLOWANCE_MS, INVITATION_MESSAGE_KIND,
   chromeInvitationLedgerPort, createInvitationHost, readInvitationRequest, type InvitationReply,
 } from "../invitation-background.js";
-import { INVITATION_REPLY_TIMEOUT_MS, windowIsPrivate } from "../invitation-client.js";
+import { INVITATION_REPLY_TIMEOUT_MS, invitationPort, reportDirectControl, windowIsPrivate } from "../invitation-client.js";
+import { presentInvitation, type PopupInvitationPort } from "../../../core/src/ui/v3/popup-invitation-flow.js";
 import { browserRatingAllowance, firefoxPlatform, ratingPolicySurfaceFor } from "../rating-invitation.js";
 import { BUILD, ENDPOINT, SUPABASE_URL, memoryArea, ok, ratingBody } from "./product-policy-fixtures.js";
 
@@ -200,16 +201,31 @@ describe("(c) the first-run anchor comes from the original-install record", () =
     expect((await h.present("opening-due", T0 + 7 * DAY))?.reservation.kind).toBe("rating");
   });
 
-  it("a ledger created before the record was readable adopts it once, and never moves it", async () => {
+  it("a ledger created before the record was readable adopts it once, clamped, and never moves it", async () => {
     const h = harness({ firstRunAt: null });
     await h.present("day-1", T0);
     expect(h.ledger().anchorMs).toBeNull();
     h.facts.firstRunAt = T0 - DAY;
     await h.present("day-2", T0 + DAY);
-    expect(h.ledger().anchorMs).toBe(T0 - DAY);
+    // Adopted no earlier than the opening that learned it.
+    expect(h.ledger().anchorMs).toBe(T0 + DAY);
     h.facts.firstRunAt = T0 + 5 * DAY;
     await h.present("day-3", T0 + 2 * DAY);
-    expect(h.ledger().anchorMs).toBe(T0 - DAY);
+    expect(h.ledger().anchorMs).toBe(T0 + DAY);
+  });
+
+  it("a past-dated first-run record adopted late (also from a control) cannot bring the card forward", async () => {
+    const h = harness({ firstRunAt: null });
+    await h.present("day-1", T0);
+    h.facts.firstRunAt = T0 - 365 * DAY;
+    h.facts.now = T0 + DAY;
+    await h.send({ kind: INVITATION_MESSAGE_KIND, op: "control", control: "site" });
+    expect(h.ledger().anchorMs).toBe(T0 + DAY);
+    await h.present("day-2", T0 + DAY);
+    await h.present("day-3", T0 + 2 * DAY);
+    expect(await h.present("opening-early", T0 + 8 * DAY - 1)).toBeNull();
+    expect(h.freshCheck).not.toHaveBeenCalled();
+    expect((await h.present("opening-due", T0 + 8 * DAY))?.reservation.kind).toBe("rating");
   });
 
   it("with no known first-run time, rating never becomes due", async () => {
@@ -379,4 +395,89 @@ describe("time budget: the rating allowance fits inside the popup's wait", () =>
       if (expected === null) expect(h.ledger()).toMatchObject({ rating: "due", reservation: null });
     },
   );
+});
+
+describe("a private window's direct controls count for nothing", () => {
+  const control = (h: H, c: "site" | "feature" | "global", ordinary?: false) =>
+    h.send({ kind: INVITATION_MESSAGE_KIND, op: "control", control: c, ...(ordinary === false ? { ordinary } : {}) });
+
+  it("three private controls create no ledger, and leave an existing one byte-identical", async () => {
+    const absent = harness({ account: "signed-out" });
+    for (const c of ["site", "feature", "global"] as const) expect(await control(absent, c, false)).toEqual({ status: "control" });
+    expect(absent.values).toEqual({});
+    const h = harness({ account: "signed-out" });
+    await h.present("opening-1", T0);
+    const before = JSON.stringify(h.values);
+    for (const c of ["site", "feature", "global"] as const) await control(h, c, false);
+    expect(JSON.stringify(h.values)).toBe(before);
+    expect(h.ledger()).toMatchObject({ milestones: 0, sync: "idle" });
+  });
+
+  it("three ordinary controls still earn the sync card", async () => {
+    const h = harness({ account: "signed-out" });
+    await h.present("opening-1", T0);
+    for (const c of ["site", "feature", "global"] as const) await control(h, c);
+    expect(h.ledger()).toMatchObject({ milestones: 3, sync: "earned" });
+    expect((await h.present("opening-2", T0 + HOUR))?.reservation.kind).toBe("sync");
+  });
+
+  it("the request accepts `ordinary: false` on a control, and nothing else", () => {
+    const base = { kind: INVITATION_MESSAGE_KIND, op: "control", control: "site" };
+    expect(readInvitationRequest({ ...base, ordinary: false })).toEqual({ ...base, ordinary: false });
+    for (const ordinary of [true, "false", null]) expect(readInvitationRequest({ ...base, ordinary })).toBeNull();
+    expect(readInvitationRequest({ ...base, ordinary: false, source: "direct" })).toBeNull();
+  });
+});
+
+describe("the page port derives privacy from the browser itself", () => {
+  const stub = (incognito: boolean, context: boolean) => {
+    const sent: Record<string, unknown>[] = [];
+    vi.stubGlobal("chrome", {
+      windows: { getCurrent: async () => ({ incognito }) },
+      extension: { inIncognitoContext: context },
+      runtime: { sendMessage: async (message: Record<string, unknown>) => { sent.push(message); return { status: "present", card: null }; } },
+    });
+    return sent;
+  };
+
+  it.each([[true, false], [false, true], [true, true]])("present sends ordinary:false (window %s, context %s)", async (incognito, context) => {
+    const sent = stub(incognito, context);
+    await invitationPort.present("opening-1");
+    expect(sent).toEqual([{ kind: INVITATION_MESSAGE_KIND, op: "present", opening: "opening-1", ordinary: false }]);
+  });
+
+  it("an ordinary window sends no ordinary key, for present and for controls", async () => {
+    const sent = stub(false, false);
+    await invitationPort.present("opening-1", "setup");
+    reportDirectControl("site");
+    await vi.waitFor(() => expect(sent).toHaveLength(2));
+    expect(sent).toEqual([
+      { kind: INVITATION_MESSAGE_KIND, op: "present", opening: "opening-1", hold: "setup" },
+      { kind: INVITATION_MESSAGE_KIND, op: "control", control: "site" },
+    ]);
+  });
+
+  it("a control from a private window is sent with ordinary:false", async () => {
+    const sent = stub(true, false);
+    reportDirectControl("feature");
+    await vi.waitFor(() => expect(sent).toHaveLength(1));
+    expect(sent[0]).toEqual({ kind: INVITATION_MESSAGE_KIND, op: "control", control: "feature", ordinary: false });
+  });
+});
+
+describe("a reservation abandoned because the popup was not ready", () => {
+  it("is never committed, and the next ordinary opening reclaims it and can show the card", async () => {
+    const h = harness();
+    await dueForRating(h);
+    const port: PopupInvitationPort = {
+      present: async opening => (await h.present(opening)) ?? null,
+      commit: async reservation => (await h.commit(reservation)) === true,
+    };
+    const shown: string[] = [];
+    expect(await presentInvitation(port, "opening-a", r => shown.push(r.reservation.opening), undefined, () => false)).toBe(false);
+    expect(h.ledger()).toMatchObject({ rating: "due", reservation: { kind: "rating", opening: "opening-a" } });
+    expect(await presentInvitation(port, "opening-b", r => shown.push(r.reservation.opening), undefined, () => true)).toBe(true);
+    expect(shown).toEqual(["opening-b"]);
+    expect(h.ledger()).toMatchObject({ rating: "consumed", reservation: null, lastCardOpening: "opening-b" });
+  });
 });
