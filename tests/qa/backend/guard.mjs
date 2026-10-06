@@ -13,7 +13,7 @@
 // Background: STANDING-AGENT-RULES §3 and the 2026-10-05 incident, where a CLI command ran in the
 // production-linked main checkout. Nothing here links, pushes or deploys, and nothing can be made to.
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 export class LocalOnlyRefusal extends Error {
   constructor(reason) {
@@ -123,6 +123,28 @@ export function assertAllowedCli(args, workdir, exclude) {
   const ok = allowedCliShapes(workdir, exclude).some(shape =>
     shape.length === args.length && shape.every((part, i) => part === args[i]));
   if (!ok) throw new LocalOnlyRefusal(`CLI command "supabase ${args.join(" ")}" is not one of the allowed local shapes`);
+  return args;
+}
+
+/** The disposable local password of the QA stack's settings-writer role (sync-settings connects as it). */
+export const QA_WRITER_PASSWORD = "qa-local-writer-only";
+/** The one SQL statement the recipe runs inside the QA database container. */
+export const WRITER_LOGIN_SQL = `alter role still_settings_writer login password '${QA_WRITER_PASSWORD}'`;
+
+/** The one docker command the recipe runs besides the read-only listings: psql inside THIS mirror's
+ * own database container (supabase_db_<its project id>), never any other container. */
+export function writerLoginArgs(mirror) {
+  const id = basename(String(mirror).replace(/\/+$/, ""));
+  return ["exec", "-i", `supabase_db_${id}`, "psql", "-U", "supabase_admin", "-d", "postgres", "-X", "--set=ON_ERROR_STOP=1", "-c", WRITER_LOGIN_SQL];
+}
+
+/** Throw unless `args` is exactly the writer-login command for the QA mirror `mirror`. */
+export function assertAllowedDocker(args, mirror) {
+  const id = basename(String(mirror).replace(/\/+$/, ""));
+  if (!/^still-qa-[a-z0-9-]{1,60}$/.test(id)) throw new LocalOnlyRefusal(`mirror name ${id} is not a QA project id`);
+  const want = writerLoginArgs(mirror);
+  const ok = Array.isArray(args) && args.length === want.length && want.every((part, i) => part === args[i]);
+  if (!ok) throw new LocalOnlyRefusal(`docker command "docker ${Array.isArray(args) ? args.join(" ") : ""}" is not the QA writer-login shape`);
   return args;
 }
 
