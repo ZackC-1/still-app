@@ -82,3 +82,26 @@ describe("syncInvitationPresentation", () => {
     expect(p.kind).toBe("sync");
   });
 });
+
+describe("presentInvitation: readiness right before the commit", () => {
+  it("asks readiness after the reservation and before the commit; not ready means no commit and no card", async () => {
+    const log: string[] = [];
+    let readyNow = true;
+    const port: PopupInvitationPort = {
+      present: async () => { log.push("present"); readyNow = false; return reserved; },
+      commit: async () => { log.push("commit"); return true; },
+    };
+    const shown = await presentInvitation(port, "opening-1", () => log.push("show"), undefined, () => { log.push("ready"); return readyNow; });
+    expect(shown).toBe(false);
+    expect(log).toEqual(["present", "ready"]);
+  });
+
+  it("a readiness check that throws is not ready; a ready one commits and shows", async () => {
+    const commits: string[] = [];
+    const port: PopupInvitationPort = { present: async () => reserved, commit: async () => { commits.push("c"); return true; } };
+    expect(await presentInvitation(port, "o", () => {}, undefined, () => { throw new Error("gone"); })).toBe(false);
+    expect(commits).toEqual([]);
+    expect(await presentInvitation(port, "o", () => {}, undefined, () => true)).toBe(true);
+    expect(commits).toEqual(["c"]);
+  });
+});
