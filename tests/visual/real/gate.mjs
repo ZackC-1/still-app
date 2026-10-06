@@ -3,7 +3,13 @@
 // pixels (0.5%, unrounded). No masks, no cropping of differing pixels, no threshold changes.
 // This mirrors compare() in tests/visual/run.mjs; keep the two identical.
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+
 
 export function pngSize(file) {
   const bytes = readFileSync(file);
@@ -37,4 +43,32 @@ export function compare({ pkg, compareScript }, reference, implementation, diff)
     percent: (100 * differing) / (width * height),
     passed: withinGate(differing, width * height),
   };
+}
+
+/**
+ * The browser chrome drawn at the top of a reference (a tab strip), read as data from the frame map
+ * (`referenceChrome`): `top` CSS px of the reference are the strip; `pageOffset` is how far lower
+ * the reference lays the page out than the product draws it (defaults to `top`, a strip that pushes
+ * the page down). All 0 when the reference has none.
+ */
+export function referenceChrome(id, mapFile = join(HERE, "frames.json")) {
+  const data = JSON.parse(readFileSync(mapFile, "utf8")).frames.find((f) => f.id === id)?.referenceChrome;
+  const top = data?.topCssPx ?? 0;
+  return { top, pageOffset: data?.pageOffsetCssPx ?? top };
+}
+
+/**
+ * Write a copy of a reference with its top `topCssPx` CSS px removed (the documented browser
+ * chrome, which the product never draws). The package's own PNG is never touched; the copy is a
+ * scratch file. The implementation is captured at the remaining height, so the gate still compares
+ * every remaining pixel with no mask.
+ */
+export function cropReferenceTop(pkg, reference, out, topCssPx, scale = 2) {
+  const { PNG } = createRequire(join(pkg, "package.json"))("pngjs");
+  const source = PNG.sync.read(readFileSync(reference));
+  const rows = Math.round(topCssPx * scale);
+  const cropped = new PNG({ width: source.width, height: source.height - rows });
+  source.data.copy(cropped.data, 0, rows * source.width * 4);
+  writeFileSync(out, PNG.sync.write(cropped));
+  return out;
 }

@@ -9,7 +9,8 @@ import {
   type StillFirefox,
   type Tab,
 } from "../../../firefox/_session.js";
-import { compare } from "../gate.mjs";
+import { compare, cropReferenceTop, referenceChrome } from "../gate.mjs";
+import { caseProblems } from "../validate-frames.mjs";
 import { cases } from "./cases.mjs";
 
 // T1 Firefox visual runner: the real built Firefox extension in stock Firefox, photographed with
@@ -31,6 +32,12 @@ const OUT = resolve(
 const COMPARE = join(PKG, "handoff/compare.script");
 const REFERENCES = join(PKG, "handoff/reference");
 const PACKAGE_COMPARE = { pkg: PKG, compareScript: COMPARE };
+const FRAME_MAP = join(HERE, "..", "frames.json");
+
+// Every case must agree with the frame map (id, reference file, theme, tier).
+const mapProblems = caseProblems(cases, JSON.parse(readFileSync(FRAME_MAP, "utf8")));
+if (mapProblems.length > 0)
+  throw new Error(`Firefox cases disagree with frames.json:\n  ${mapProblems.join("\n  ")}`);
 
 const present =
   existsSync(COMPARE) &&
@@ -86,7 +93,12 @@ async function capture(
 ): Promise<{ width: number; height: number }> {
   const reference = join(REFERENCES, c.reference);
   const ref = pngSize(readFileSync(reference));
-  const size = { width: ref.width / 2, height: Math.ceil(ref.height / 2) };
+  // A reference with browser chrome (a tab strip) is photographed without it; see frames.json.
+  const { top, pageOffset } = referenceChrome(c.id, FRAME_MAP);
+  const size = { width: ref.width / 2, height: Math.ceil(ref.height / 2) - pageOffset };
+  const snap = { width: size.width, height: Math.ceil(ref.height / 2) - top };
+  const snapY = top - pageOffset;
+  let cardY = 0;
   const firefox = await startFresh((url) =>
     url.hostname.endsWith("tiktok.com") ? "<h1>fixture</h1>" : null,
   );
@@ -109,7 +121,7 @@ async function capture(
       );
       await withShift(first);
       await chrome.frameTab("first-run.html", size);
-      png = await chrome.snapshotTab("first-run.html", size);
+      png = await chrome.snapshotTab("first-run.html", snap, 2, snapY);
     } else if (c.recipe === "firstrun-permission-needed") {
       await first.close();
       await (
@@ -125,7 +137,7 @@ async function capture(
       );
       await withShift(page);
       await chrome.frameTab("first-run.html", size);
-      png = await chrome.snapshotTab("first-run.html", size);
+      png = await chrome.snapshotTab("first-run.html", snap, 2, snapY);
     } else if (
       c.recipe === "options-fresh" ||
       c.recipe === "options-still-off"
@@ -139,10 +151,17 @@ async function capture(
         () => page.count("button[role=switch]"),
         (n) => n >= 5,
       );
+      // The references show the YouTube section open; d03-10 is a photograph of that card.
+      await page.evaluate(`document.querySelector("button.expander").click()`);
       await withShift(page);
       await new Promise((done) => setTimeout(done, 600));
       await chrome.frameTab("options.html", size);
-      png = await chrome.snapshotTab("options.html", size);
+      // d03-10 is the open YouTube card with 12 CSS px around it: snapshot from there down the page.
+      if (c.id === "d03-10")
+        cardY = await page.evaluate<number>(
+          `Math.round(Math.max(0, window.scrollY + document.querySelector(".site-section").getBoundingClientRect().top - 12))`,
+        );
+      png = await chrome.snapshotTab("options.html", snap, 2, snapY + cardY);
     } else if (c.recipe === "tiktok-blocked") {
       await first.close();
       const tab = await firefox.openTab("https://www.tiktok.com/foryou");
@@ -161,7 +180,7 @@ async function capture(
       );
       await new Promise((done) => setTimeout(done, 600));
       await chrome.frameTab("tiktok-blocked.html", size);
-      png = await chrome.snapshotTab("tiktok-blocked.html", size);
+      png = await chrome.snapshotTab("tiktok-blocked.html", snap, 2, snapY);
     } else {
       // The real toolbar popup. Its height is its own, so it is captured at its own size.
       await first.close();
@@ -225,7 +244,11 @@ for (const c of cases) {
       });
       test.skip(true, c.reason);
     }
-    const reference = join(REFERENCES, c.reference);
+    const original = join(REFERENCES, c.reference);
+    const { top } = referenceChrome(c.id, FRAME_MAP);
+    const reference = top
+      ? cropReferenceTop(PKG, original, join(OUT, "impl", `${c.id}.reference.png`), top)
+      : original;
     const impl = join(OUT, "impl", `${c.id}.png`);
     const diff = join(OUT, "diff", `${c.id}.png`);
     const got = await capture(c, impl);

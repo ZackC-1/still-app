@@ -19,8 +19,9 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cases } from "./cases.mjs";
-import { compare, pngSize } from "./gate.mjs";
-import { recipes } from "./recipes.mjs";
+import { compare, cropReferenceTop, pngSize, referenceChrome } from "./gate.mjs";
+import { Blocked, recipes } from "./recipes.mjs";
+import { caseProblems } from "./validate-frames.mjs";
 import { CHROMIUM_EXTENSION, extensionIdOf, launchExtension, waitForCommittedSettings } from "../../qa/shared/launch.mjs";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -53,10 +54,9 @@ if (!existsSync(join(CHROMIUM_EXTENSION, "manifest.json"))) {
 
 // When the frame-to-tier map is present, every case must agree with it (id and reference file).
 if (existsSync(FRAME_MAP)) {
-  const map = new Map(JSON.parse(readFileSync(FRAME_MAP, "utf8")).frames.map((f) => [f.id, f]));
-  const bad = cases.filter((c) => map.get(c.id)?.file !== c.reference);
-  if (bad.length) {
-    console.error(`Cases disagree with frames.json: ${bad.map((c) => c.id).join(", ")}`);
+  const problems = caseProblems(cases, JSON.parse(readFileSync(FRAME_MAP, "utf8")));
+  if (problems.length) {
+    console.error(`Cases disagree with frames.json:\n  ${problems.join("\n  ")}`);
     process.exit(2);
   }
 }
@@ -67,7 +67,11 @@ const PACKAGE_COMPARE = { pkg: PKG, compareScript: COMPARE };
 async function capture(c, file, { perturb = 0 } = {}) {
   const reference = join(REFERENCES, c.reference);
   const { width: pw, height: ph } = pngSize(reference);
-  const size = { width: pw / 2, height: Math.ceil(ph / 2) };
+  // A reference that includes browser chrome (a tab strip) is captured without it: the page is
+  // laid out where the reference lays it out and photographed from below the strip
+  // (frames.json referenceChrome).
+  const { top, pageOffset } = referenceChrome(c.id, FRAME_MAP);
+  const size = { width: pw / 2, height: Math.ceil(ph / 2) - pageOffset };
   const context = await launchExtension({ deviceScaleFactor: 2, colorScheme: c.theme, locale: c.locale });
   try {
     const id = await extensionIdOf(context);
@@ -81,7 +85,7 @@ async function capture(c, file, { perturb = 0 } = {}) {
       path: file,
       animations: "disabled",
       caret: "hide",
-      clip: { x: 0, y: 0, width: pw / 2, height: ph / 2 },
+      clip: { x: 0, y: top - pageOffset, width: pw / 2, height: ph / 2 - top },
     });
     return { fontLoaded, errors, viewport: size };
   } finally {
@@ -99,7 +103,11 @@ async function measure(c, { out = OUT, perturb = 0, referenceOverride } = {}) {
   try {
     const shot = await capture(c, implementation, { perturb });
     Object.assign(row, { fontLoaded: shot.fontLoaded, pageErrors: shot.errors, viewport: shot.viewport });
-    const outcome = compare(PACKAGE_COMPARE, referenceOverride ?? join(REFERENCES, c.reference), implementation, diff);
+    const { top } = referenceChrome(c.id, FRAME_MAP);
+    const reference = join(REFERENCES, c.reference);
+    const compared = referenceOverride ?? (top ? cropReferenceTop(PKG, reference, join(out, "impl", `${c.id}.reference.png`), top) : reference);
+    if (top) row.referenceCropTopCssPx = top;
+    const outcome = compare(PACKAGE_COMPARE, compared, implementation, diff);
     row.implementation = relative(REPO, implementation);
     if (outcome.error) return { ...row, status: "FAIL", reason: outcome.error };
     Object.assign(row, outcome, { diff: relative(REPO, diff) });
@@ -108,6 +116,7 @@ async function measure(c, { out = OUT, perturb = 0, referenceOverride } = {}) {
       ? `pixel difference above 0.5% (${outcome.differing} of ${outcome.total} px, ${outcome.percent.toFixed(9)}%)`
       : "the package font did not load";
   } catch (error) {
+    if (error instanceof Blocked) return { ...row, status: "BLOCKED", reason: error.message };
     row.status = "FAIL";
     row.reason = `harness: ${error instanceof Error ? error.message : String(error)}`;
   }

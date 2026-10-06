@@ -47,12 +47,23 @@ export class FirefoxChrome {
     return reply.result?.value as T;
   }
 
-  /** Dark or light for every page, including the toolbar popup. */
+  /**
+   * Dark or light for every page, including the toolbar popup, whatever the host appearance is.
+   * The toolbar panel follows the browser's own UI theme, not the page override, so the host's
+   * macOS Dark mode would otherwise turn every "light" popup frame dark. Three prefs pin it:
+   * `content-override` for pages (0 dark, 1 light, 2 follow the system), `ui.systemUsesDarkTheme`
+   * (0 light, 1 dark) for the system appearance Firefox reads, and `browser.theme.toolbar-theme` /
+   * `content-theme` (0 dark, 1 light, 2 system) for the toolbar, panels and popup content.
+   */
   async setColorScheme(scheme: "light" | "dark"): Promise<void> {
-    // layout.css.prefers-color-scheme.content-override: 0 dark, 1 light, 2 follow the system.
-    await this.eval(
-      `Services.prefs.setIntPref("layout.css.prefers-color-scheme.content-override", ${scheme === "dark" ? 0 : 1}), true`,
-    );
+    const dark = scheme === "dark";
+    await this.eval(`(() => {
+      Services.prefs.setIntPref("layout.css.prefers-color-scheme.content-override", ${dark ? 0 : 1});
+      Services.prefs.setIntPref("ui.systemUsesDarkTheme", ${dark ? 1 : 0});
+      Services.prefs.setIntPref("browser.theme.toolbar-theme", ${dark ? 0 : 1});
+      Services.prefs.setIntPref("browser.theme.content-theme", ${dark ? 0 : 1});
+      return true;
+    })()`);
   }
 
   /**
@@ -105,15 +116,15 @@ export class FirefoxChrome {
     return Buffer.from(url.split(",")[1] ?? "", "base64");
   }
 
-  /** A 2x PNG of the page in the tab whose address contains `urlPart`, `size` CSS px from its top left. */
-  async snapshotTab(urlPart: string, size: Rect, scale = 2): Promise<Buffer> {
+  /** A 2x PNG of the page in the tab whose address contains `urlPart`: `size` CSS px, from `y` CSS px down the page. */
+  async snapshotTab(urlPart: string, size: Rect, scale = 2, y = 0): Promise<Buffer> {
     return await this.png(`(async () => {
       const tab = gBrowser.tabs.find((t) => t.linkedBrowser.currentURI.spec.includes(${JSON.stringify(urlPart)}));
       if (!tab) throw new Error("no tab with " + ${JSON.stringify(urlPart)});
       gBrowser.selectedTab = tab;
       await new Promise((r) => setTimeout(r, 200));
       const wg = tab.linkedBrowser.browsingContext.currentWindowGlobal;
-      const bitmap = await wg.drawSnapshot(new DOMRect(0, 0, ${size.width}, ${size.height}), ${scale}, "white");
+      const bitmap = await wg.drawSnapshot(new DOMRect(0, ${y}, ${size.width}, ${size.height}), ${scale}, "white");
       const canvas = document.createElementNS("http://www.w3.org/1999/xhtml", "canvas");
       canvas.width = bitmap.width; canvas.height = bitmap.height;
       canvas.getContext("2d").drawImage(bitmap, 0, 0);
